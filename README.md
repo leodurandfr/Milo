@@ -4,10 +4,10 @@ oakOS is an audio application for Raspberry Pi that transforms your device into 
 
 ## Features
 
-- Multiple audio source management (Spotify, Bluetooth, macOS via Snapcast, Web Radio)
+- Multiple audio source management (Spotify, Bluetooth, Snapclient, Web Radio)
 - Modern touchscreen user interface
 - Cross-device synchronization
-- Multi-room audio streaming
+- Multi-room audio streaming using Snapcast
 - Centralized volume control
 
 ## Installation
