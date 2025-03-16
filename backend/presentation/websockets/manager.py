@@ -1,4 +1,6 @@
+
 """
+file: backend/presentation/websockets/mangager.py
 Gestion des connexions WebSocket.
 """
 from typing import Dict, Any, List, Set
