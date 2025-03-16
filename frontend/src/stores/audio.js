@@ -20,7 +20,7 @@ export const useAudioStore = defineStore('audio', () => {
   
   const stateLabel = computed(() => {
     switch (currentState.value) {
-      case 'spotify': return 'Spotify';
+      case 'librespot': return 'Spotify';
       case 'bluetooth': return 'Bluetooth';
       case 'macos': return 'MacOS';
       case 'webradio': return 'Web Radio';

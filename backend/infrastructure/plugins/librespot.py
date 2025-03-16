@@ -400,12 +400,15 @@ class LibrespotPlugin(BaseAudioPlugin):
         async with self.session.get(f"{self.api_url}/status") as response:
             if response.status == 200:
                 return await response.json()
+            elif response.status == 204:
+                # Pour les réponses 204 (No Content), retourner un état minimal valide
+                # C'est normal quand aucun appareil n'est connecté
+                self.logger.debug("API go-librespot : aucun contenu musical disponible (204)")
+                return {"player": {"is_playing": False, "current_track": None}}
             else:
                 error_text = await response.text()
                 raise Exception(f"Erreur API ({response.status}): {error_text}")
     
-    # Le reste du code reste inchangé...
-    # (méthodes _fetch_metadata, _format_artists, _get_album_art_url, _send_command, etc.)
     async def _fetch_metadata(self) -> Dict[str, Any]:
         """
         Récupère les métadonnées actuelles de la piste en cours.
@@ -414,7 +417,18 @@ class LibrespotPlugin(BaseAudioPlugin):
             Dict[str, Any]: Métadonnées de la piste en cours
         """
         try:
-            status = await self._fetch_status()
+            status = None
+            try:
+                status = await self._fetch_status()
+            except Exception as e:
+                # Si l'erreur est une réponse 204, ce n'est pas critique
+                if "Erreur API (204)" in str(e):
+                    self.logger.debug("API a répondu avec 204 - Aucune piste en cours")
+                    return {}
+                else:
+                    # Pour les autres erreurs, les propager
+                    raise
+            
             player = status.get("player", {})
             current_track = player.get("current_track", {})
             
@@ -435,7 +449,11 @@ class LibrespotPlugin(BaseAudioPlugin):
             return metadata
             
         except Exception as e:
-            self.logger.error(f"Erreur lors de la récupération des métadonnées: {str(e)}")
+            # Réduire le niveau de log pour les erreurs fréquentes
+            if "Erreur API (204)" in str(e):
+                self.logger.debug(f"Aucun contenu disponible lors de la récupération des métadonnées: {str(e)}")
+            else:
+                self.logger.error(f"Erreur lors de la récupération des métadonnées: {str(e)}")
             return {}
     
     def _format_artists(self, artists: List[Dict[str, Any]]) -> str:
@@ -564,9 +582,13 @@ class LibrespotPlugin(BaseAudioPlugin):
                             await self.publish_status("playing")
                         else:
                             await self.publish_status("paused")
-                        
+                            
                 except Exception as e:
-                    self.logger.error(f"Erreur dans la boucle de surveillance des métadonnées: {str(e)}")
+                    # Réduire le niveau de log pour les erreurs fréquentes/normales
+                    if "Erreur API (204)" in str(e):
+                        self.logger.debug(f"Polling métadonnées: aucun contenu musical disponible")
+                    else:
+                        self.logger.error(f"Erreur dans la boucle de surveillance des métadonnées: {str(e)}")
                 
                 await asyncio.sleep(self.polling_interval)
                 

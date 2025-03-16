@@ -2,58 +2,43 @@
   <div class="home-view">
     <div class="status-panel">
       <h1>oakOS</h1>
-      
+
       <div class="current-state">
         <h2>Source actuelle: {{ audioStore.stateLabel }}</h2>
         <span v-if="audioStore.isTransitioning" class="transitioning-badge">Transition en cours...</span>
       </div>
-      
+
       <div class="volume-control">
         <h3>Volume: {{ audioStore.volume }}%</h3>
-        <input 
-          type="range" 
-          min="0" 
-          max="100" 
-          v-model.number="audioStore.volume"
-          class="volume-slider"
-        >
+        <input type="range" min="0" max="100" v-model.number="audioStore.volume" class="volume-slider">
       </div>
-      
+
       <div class="error-message" v-if="audioStore.error">
         {{ audioStore.error }}
       </div>
     </div>
-    
+
     <div class="source-buttons">
-      <button 
-        @click="changeSource('spotify')"
-        :disabled="audioStore.isTransitioning || audioStore.currentState === 'spotify'"
+      <button @click="changeSource('librespot')"
+        :disabled="audioStore.isTransitioning || audioStore.currentState === 'librespot'"
         class="source-button spotify"
-      >
+        >
         Spotify
       </button>
-      
-      <button 
-        @click="changeSource('bluetooth')"
+
+      <button @click="changeSource('bluetooth')"
         :disabled="audioStore.isTransitioning || audioStore.currentState === 'bluetooth'"
-        class="source-button bluetooth"
-      >
+        class="source-button bluetooth">
         Bluetooth
       </button>
-      
-      <button 
-        @click="changeSource('macos')"
-        :disabled="audioStore.isTransitioning || audioStore.currentState === 'macos'"
-        class="source-button macos"
-      >
+
+      <button @click="changeSource('macos')"
+        :disabled="audioStore.isTransitioning || audioStore.currentState === 'macos'" class="source-button macos">
         MacOS
       </button>
-      
-      <button 
-        @click="changeSource('webradio')"
-        :disabled="audioStore.isTransitioning || audioStore.currentState === 'webradio'"
-        class="source-button webradio"
-      >
+
+      <button @click="changeSource('webradio')"
+        :disabled="audioStore.isTransitioning || audioStore.currentState === 'webradio'" class="source-button webradio">
         Web Radio
       </button>
     </div>
@@ -77,16 +62,16 @@ async function changeSource(source) {
 onMounted(async () => {
   // Récupérer l'état initial
   await audioStore.fetchState();
-  
+
   // S'abonner aux événements WebSocket
   on('audio_state_changed', (data) => {
     audioStore.handleWebSocketUpdate('audio_state_changed', data);
   });
-  
+
   on('volume_changed', (data) => {
     audioStore.handleWebSocketUpdate('volume_changed', data);
   });
-  
+
   on('audio_error', (data) => {
     audioStore.handleWebSocketUpdate('audio_error', data);
   });

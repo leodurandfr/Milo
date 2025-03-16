@@ -9,7 +9,7 @@ class AudioState(Enum):
     """États possibles du système audio"""
     NONE = "none"
     TRANSITIONING = "transitioning"
-    SPOTIFY = "spotify"
+    LIBRESPOT = "librespot"
     BLUETOOTH = "bluetooth"
     MACOS = "macos"
     WEBRADIO = "webradio"

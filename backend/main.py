@@ -47,12 +47,12 @@ async def startup_event():
     
     # Initialisation des plugins
     try:
-        # Initialiser le plugin librespot (Spotify)
+        # Initialiser le plugin librespot
         librespot_plugin = container.librespot_plugin()
         if await librespot_plugin.initialize():
             # Enregistrer le plugin dans la machine à états
-            audio_state_machine.register_plugin(AudioState.SPOTIFY, librespot_plugin)
-            logging.info("Plugin librespot enregistré avec succès pour Spotify")
+            audio_state_machine.register_plugin(AudioState.LIBRESPOT, librespot_plugin)
+            logging.info("Plugin librespot enregistré avec succès")
         else:
             logging.error("Échec de l'initialisation du plugin librespot")
     except Exception as e:
