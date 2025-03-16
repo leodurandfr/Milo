@@ -17,7 +17,9 @@ class WebSocketEventHandler:
             "audio_state_changing": "audio_state_changing",
             "audio_state_changed": "audio_state_changed",
             "audio_transition_error": "audio_error",
-            "volume_changed": "volume_changed"
+            "volume_changed": "volume_changed",
+            "audio_metadata_updated": "audio_metadata_updated",  # Assurez-vous que c'est bien déclaré
+            "audio_status_updated": "audio_status_updated"
         }
         self._register_handlers()
     

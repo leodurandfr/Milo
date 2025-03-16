@@ -1,6 +1,3 @@
-/**
- * Store Pinia pour gérer l'état audio
- */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
@@ -15,7 +12,7 @@ export const useAudioStore = defineStore('audio', () => {
   
   // Getters
   const isPlaying = computed(() => {
-    return currentState.value !== 'none' && !isTransitioning.value;
+    return currentState.value === 'librespot' && metadata.value?.is_playing;
   });
   
   const stateLabel = computed(() => {
@@ -58,10 +55,33 @@ export const useAudioStore = defineStore('audio', () => {
     }
   }
   
+  // Méthode générique pour contrôler une source audio
+  async function controlSource(source, command, data = {}) {
+    try {
+      error.value = null;
+      const response = await axios.post(`/api/audio/control/${source}`, {
+        command,
+        data
+      });
+      
+      if (response.data.status === 'error') {
+        throw new Error(response.data.message);
+      }
+      
+      return true;
+    } catch (err) {
+      error.value = `Erreur lors du contrôle de la source ${source}: ${err.message}`;
+      console.error(error.value);
+      return false;
+    }
+  }
+  
   function updateState(stateData) {
     currentState.value = stateData.state;
     isTransitioning.value = stateData.transitioning;
-    metadata.value = stateData.metadata || {};
+    if (stateData.metadata) {
+      metadata.value = stateData.metadata;
+    }
     volume.value = stateData.volume;
   }
   
@@ -73,6 +93,20 @@ export const useAudioStore = defineStore('audio', () => {
       volume.value = data.volume;
     } else if (eventType === 'audio_error') {
       error.value = data.error;
+    } else if (eventType === 'audio_metadata_updated') {
+      metadata.value = data.metadata;
+    } else if (eventType === 'audio_status_updated') {
+      // Mise à jour du statut (connecté, déconnecté, etc.)
+      if (data.source === currentState.value) {
+        // Mettre à jour les métadonnées spécifiques à la source
+        if (data.source === 'bluetooth' || data.source === 'macos') {
+          metadata.value = {
+            ...metadata.value,
+            deviceConnected: data.status === 'connected',
+            deviceName: data.deviceName || 'Périphérique inconnu'
+          };
+        }
+      }
     }
   }
   
@@ -92,6 +126,7 @@ export const useAudioStore = defineStore('audio', () => {
     fetchState,
     changeSource,
     updateState,
-    handleWebSocketUpdate
+    handleWebSocketUpdate,
+    controlSource
   };
 });

@@ -20,9 +20,7 @@
 
     <div class="source-buttons">
       <button @click="changeSource('librespot')"
-        :disabled="audioStore.isTransitioning || audioStore.currentState === 'librespot'"
-        class="source-button spotify"
-        >
+        :disabled="audioStore.isTransitioning || audioStore.currentState === 'librespot'" class="source-button spotify">
         Spotify
       </button>
 
@@ -42,6 +40,9 @@
         Web Radio
       </button>
     </div>
+
+    <!-- Composant modulaire d'affichage de la source active -->
+    <SourceDisplay v-if="audioStore.currentState !== 'none'" />
   </div>
 </template>
 
@@ -49,6 +50,7 @@
 import { onMounted } from 'vue';
 import { useAudioStore } from '@/stores/audio';
 import useWebSocket from '@/services/websocket';
+import SourceDisplay from '@/components/SourceDisplay.vue';
 
 const audioStore = useAudioStore();
 const { on } = useWebSocket();
@@ -74,6 +76,14 @@ onMounted(async () => {
 
   on('audio_error', (data) => {
     audioStore.handleWebSocketUpdate('audio_error', data);
+  });
+
+  on('audio_metadata_updated', (data) => {
+    audioStore.handleWebSocketUpdate('audio_metadata_updated', data);
+  });
+
+  on('audio_status_updated', (data) => {
+    audioStore.handleWebSocketUpdate('audio_status_updated', data);
   });
 });
 </script>

@@ -572,8 +572,12 @@ class LibrespotPlugin(BaseAudioPlugin):
                 try:
                     current_metadata = await self._fetch_metadata()
                     
+                    # Débogage: afficher les métadonnées récupérées
+                    self.logger.info(f"Métadonnées récupérées: {current_metadata}")
+                    
                     # Vérifier si les métadonnées ont changé
                     if current_metadata != last_metadata:
+                        self.logger.info("Métadonnées mises à jour, publication de l'événement")
                         await self.publish_metadata(current_metadata)
                         last_metadata = current_metadata
                         
@@ -584,9 +588,9 @@ class LibrespotPlugin(BaseAudioPlugin):
                             await self.publish_status("paused")
                             
                 except Exception as e:
-                    # Réduire le niveau de log pour les erreurs fréquentes/normales
+                    # Log de débogage plus détaillé
                     if "Erreur API (204)" in str(e):
-                        self.logger.debug(f"Polling métadonnées: aucun contenu musical disponible")
+                        self.logger.debug("Aucun contenu musical disponible (204)")
                     else:
                         self.logger.error(f"Erreur dans la boucle de surveillance des métadonnées: {str(e)}")
                 
