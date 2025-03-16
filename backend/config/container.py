@@ -1,9 +1,12 @@
+# backend/config/container.py
 """
 Conteneur d'injection de dépendances pour l'application.
 """
 from dependency_injector import containers, providers
 from backend.application.event_bus import EventBus
 from backend.infrastructure.state.state_machine import AudioStateMachine
+from backend.infrastructure.plugins.librespot import LibrespotPlugin
+from backend.domain.audio import AudioState
 
 
 class Container(containers.DeclarativeContainer):
@@ -20,7 +23,16 @@ class Container(containers.DeclarativeContainer):
         event_bus=event_bus
     )
     
-    # Plugins audio (à ajouter ultérieurement)
+    # Plugins audio
+    librespot_plugin = providers.Singleton(
+        LibrespotPlugin,
+        event_bus=event_bus,
+        config=providers.Dict({
+            "config_path": "~/.config/go-librespot/config.yml",
+            "executable_path": "~/oakOS/go-librespot/go-librespot",  # Mise à jour du chemin selon l'erreur
+            "polling_interval": 1.0
+        })
+    )
 
 
 # Création d'une instance du conteneur

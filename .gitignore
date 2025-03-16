@@ -24,6 +24,9 @@ var/
 venv/
 ENV/
 
+# Program
+go-librespot/
+
 # Frontend
 node_modules/
 /frontend/dist/

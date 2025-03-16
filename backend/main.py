@@ -5,7 +5,6 @@ Point d'entrée principal de l'application oakOS.
 import asyncio
 import logging
 import uvicorn
-import asyncio
 import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,7 +45,18 @@ async def startup_event():
     """Initialisation de l'application au démarrage"""
     logging.info("Starting oakOS backend...")
     
-    # Future initialisation des plugins
+    # Initialisation des plugins
+    try:
+        # Initialiser le plugin librespot (Spotify)
+        librespot_plugin = container.librespot_plugin()
+        if await librespot_plugin.initialize():
+            # Enregistrer le plugin dans la machine à états
+            audio_state_machine.register_plugin(AudioState.SPOTIFY, librespot_plugin)
+            logging.info("Plugin librespot enregistré avec succès pour Spotify")
+        else:
+            logging.error("Échec de l'initialisation du plugin librespot")
+    except Exception as e:
+        logging.error(f"Erreur lors de l'initialisation des plugins: {str(e)}")
 
 @app.get("/api/status")
 async def status():
@@ -113,4 +123,4 @@ async def websocket_endpoint(websocket: WebSocket):
         ws_manager.disconnect(websocket)
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
