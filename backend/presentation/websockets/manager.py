@@ -16,9 +16,13 @@ class WebSocketManager:
     
     async def connect(self, websocket: WebSocket) -> None:
         """Établit une connexion WebSocket"""
-        await websocket.accept()
-        self.active_connections.add(websocket)
-        self.logger.info(f"WebSocket connected, active connections: {len(self.active_connections)}")
+        try:
+            await websocket.accept()
+            self.active_connections.add(websocket)
+            self.logger.info(f"WebSocket connected, active connections: {len(self.active_connections)}")
+        except Exception as e:
+            self.logger.error(f"Error accepting WebSocket connection: {str(e)}")
+            raise
     
     def disconnect(self, websocket: WebSocket) -> None:
         """Ferme une connexion WebSocket"""

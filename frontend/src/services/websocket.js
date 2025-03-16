@@ -10,18 +10,22 @@ export default function useWebSocket() {
   const events = {};
   
   const connect = () => {
-    // Utiliser le même hôte que le navigateur, mais avec le WebSocket
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    // URL fixe en développement
+    const wsUrl = 'ws://127.0.0.1:8000/ws';
     
-    // En développement, se connecter directement au backend
-    // const wsUrl = 'ws://localhost:8000/ws';
+    console.log('Trying to connect to WebSocket:', wsUrl);
     
     socket.value = new WebSocket(wsUrl);
     
     socket.value.onopen = () => {
-      console.log('WebSocket connected');
+      console.log('WebSocket connected successfully');
       isConnected.value = true;
+      
+      // Envoyer un message initial pour établir la communication
+      socket.value.send(JSON.stringify({
+        type: 'client_connected',
+        data: { client_id: 'frontend-' + Date.now() }
+      }));
     };
     
     socket.value.onmessage = (event) => {
