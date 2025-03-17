@@ -8,6 +8,7 @@ import json
 import subprocess
 import os
 import yaml
+import time
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
@@ -728,6 +729,40 @@ class LibrespotPlugin(BaseAudioPlugin):
             # Autres événements non gérés spécifiquement
             self.logger.debug(f"Événement non traité spécifiquement: {event_type}")
     
+    async def _handle_seek_event(self, event_data: Dict[str, Any]) -> None:
+        """
+        Gère les événements de position (seek) avec plus de précision.
+        
+        Args:
+            event_data: Données de l'événement de seek
+        """
+        position = event_data.get("position")
+        duration = event_data.get("duration")
+        
+        if position is not None:
+            # Créer un dictionnaire avec les données de seek enrichies
+            seek_data = {
+                "position_ms": position,
+                "duration_ms": duration,
+                "seek_timestamp": int(time.time() * 1000),  # Timestamp en millisecondes
+                "track_uri": event_data.get("uri"),
+                "connected": True,
+                "deviceConnected": True,
+                "source": self.name  # Ajouter la source pour le filtrage côté frontend
+            }
+            
+            # Publier un événement spécifique de seek via le bus d'événements
+            await self.event_bus.publish("audio_seek", seek_data)
+            
+            # Actualiser aussi les métadonnées
+            metadata = await self._fetch_metadata()
+            if metadata:
+                metadata.update(seek_data)
+                await self.publish_metadata(metadata)
+                
+            self.logger.info(f"Événement de seek traité: position={position}ms, durée={duration}ms")
+    
+    
     async def _start_websocket_connection(self):
         """Démarre une connexion WebSocket vers go-librespot/events"""
         if self.ws_task is None or self.ws_task.done():
@@ -858,18 +893,8 @@ class LibrespotPlugin(BaseAudioPlugin):
             })
             
         elif event_type == 'seek':
-            # Changement de position dans la piste
-            if event_data:
-                seek_data = {
-                    "position_ms": event_data.get("position"),
-                    "duration_ms": event_data.get("duration"),
-                    "track_uri": event_data.get("uri")
-                }
-                # Actualiser les métadonnées pour la nouvelle position
-                metadata = await self._fetch_metadata()
-                if metadata:
-                    metadata.update(seek_data)
-                    await self.publish_metadata(metadata)
+            # Changement de position dans la piste - utiliser la méthode dédiée
+            await self._handle_seek_event(event_data)
                 
         elif event_type == 'stopped':
             # Lecture arrêtée

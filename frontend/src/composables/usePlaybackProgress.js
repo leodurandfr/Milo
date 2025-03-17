@@ -5,6 +5,7 @@
  */
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useAudioStore } from '@/stores/audio';
+// Nous n'utiliserons pas directement useWebSocket pour éviter les problèmes de dépendances circulaires
 
 export function usePlaybackProgress() {
   const audioStore = useAudioStore();
@@ -128,16 +129,14 @@ export function usePlaybackProgress() {
       startProgressTracking();
     }
     
-    // Écouter l'événement audio_seek du WebSocket
-    const wsService = window.$wsService;
-    if (wsService && wsService.on) {
-      wsService.on('audio_seek', (data) => {
-        console.log('Événement seek reçu:', data);
-        if (data.position_ms !== undefined) {
-          resetProgress(data.position_ms);
-        }
-      });
-    }
+    // Écouter l'événement audio-seek du DOM au lieu d'utiliser le service WebSocket directement
+    // Cela évite les problèmes d'importation circulaire
+    window.addEventListener('audio-seek', (event) => {
+      console.log('Événement audio-seek reçu:', event.detail);
+      if (event.detail.position !== undefined) {
+        resetProgress(event.detail.position);
+      }
+    });
   });
   
   return {

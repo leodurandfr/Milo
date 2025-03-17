@@ -85,6 +85,9 @@ onMounted(async () => {
   on('audio_status_updated', (data) => {
     audioStore.handleWebSocketUpdate('audio_status_updated', data);
   });
+    on('audio_seek', (data) => {
+    audioStore.handleWebSocketUpdate('audio_seek', data);
+  });
 });
 </script>
 
