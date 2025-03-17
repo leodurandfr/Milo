@@ -6,9 +6,9 @@ import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
 import axios from 'axios';
 
 const audioStore = useAudioStore();
-const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
+const { togglePlayPause, previousTrack, nextTrack, seekTo: controlSeekTo } = useLibrespotControl();
 // Utiliser notre service de progression pour suivre la position en temps réel
-const { currentPosition, progressPercentage, seekTo } = usePlaybackProgress();
+const { currentPosition, progressPercentage, seekTo: trackingSeekTo } = usePlaybackProgress();
 
 const showDebugInfo = ref(false);
 const statusResult = ref(null);
@@ -37,29 +37,31 @@ watch(() => audioStore.isDisconnected, (newValue) => {
 
 // Fonction pour maintenir l'état de connexion
 watch(() => [
-    metadata.value?.deviceConnected, 
-    metadata.value?.connected, 
-    metadata.value?.is_playing
-  ], 
+  metadata.value?.deviceConnected,
+  metadata.value?.connected,
+  metadata.value?.is_playing
+],
   (newValues, oldValues) => {
     if (!newValues || !oldValues) return;
-    
+
     // S'assurer que newValues et oldValues sont des tableaux
     const [newDeviceConnected, newConnected, newIsPlaying] = newValues || [false, false, false];
     const [oldDeviceConnected, oldConnected, oldIsPlaying] = oldValues || [false, false, false];
-    
-    console.log("Changement d'état de connexion détecté:", 
-      {deviceConnected: {old: oldDeviceConnected, new: newDeviceConnected}, 
-       connected: {old: oldConnected, new: newConnected},
-       is_playing: {old: oldIsPlaying, new: newIsPlaying}});
-    
+
+    console.log("Changement d'état de connexion détecté:",
+      {
+        deviceConnected: { old: oldDeviceConnected, new: newDeviceConnected },
+        connected: { old: oldConnected, new: newConnected },
+        is_playing: { old: oldIsPlaying, new: newIsPlaying }
+      });
+
     // Si le store indique une déconnexion, prioritaire sur tout
     if (audioStore.isDisconnected) {
       console.log("Store indique déconnexion explicite, force déconnexion");
       isActuallyConnected.value = false;
       return;
     }
-       
+
     // Si une des nouvelles valeurs indique une connexion, on est connecté
     if (newDeviceConnected || newConnected || newIsPlaying) {
       // Vérifier aussi qu'il y a des métadonnées valides
@@ -73,16 +75,16 @@ watch(() => [
         checkStatus();
       }
     }
-    
+
     // Si toutes les valeurs indiquent une déconnexion et que nous pensions être connectés
-    if (isActuallyConnected.value && 
-        !newDeviceConnected && !newConnected && !newIsPlaying) {
+    if (isActuallyConnected.value &&
+      !newDeviceConnected && !newConnected && !newIsPlaying) {
       console.log("Possible déconnexion détectée via metadata, vérification...");
-      
+
       // Vérifier explicitement l'état de connexion avec l'API
       checkStatus();
     }
-    
+
     // Si en mode débogage, permettre une substitution manuelle
     if (manualConnectionStatus.value !== null) {
       isActuallyConnected.value = manualConnectionStatus.value;
@@ -97,16 +99,46 @@ const deviceConnected = computed(() => {
 
 // Vérifier si on a des informations sur la piste en cours
 const hasTrackInfo = computed(() => {
-  const hasLastKnownGoodData = Object.keys(audioStore.lastKnownGoodMetadata).length > 0 &&
-                              audioStore.lastKnownGoodMetadata.title &&
-                              audioStore.lastKnownGoodMetadata.artist;
-                              
-  // Vérifier les métadonnées actuelles
-  const hasCurrentData = metadata.value && 
-                        metadata.value.title && 
-                        metadata.value.artist;
-                        
-  return (hasCurrentData || (hasLastKnownGoodData && !audioStore.isDisconnected));
+  // Vérifier d'abord si les métadonnées actuelles ont les informations essentielles
+  const hasCurrent = metadata.value &&
+    metadata.value.title &&
+    metadata.value.artist;
+
+  // Si l'état de connexion est explicitement confirmé mais que nous n'avons pas encore
+  // les métadonnées complètes, vérifier le status en détail
+  const isConnectedWithoutMetadata = !audioStore.isDisconnected &&
+    statusResult.value &&
+    statusResult.value.device_connected === true &&
+    !hasCurrent;
+
+  // Si nous sommes connectés mais sans métadonnées complètes, vérifier si 
+  // les métadonnées sont disponibles dans le status
+  if (isConnectedWithoutMetadata &&
+    statusResult.value?.raw_status?.track?.name) {
+
+    // Si oui, extraire les métadonnées du status et les mettre dans le store
+    const track = statusResult.value.raw_status.track;
+
+    // Mettre à jour le store audio avec les métadonnées de la piste en cours
+    audioStore.updateMetadataFromStatus({
+      title: track.name,
+      artist: track.artist_names?.join(', ') || 'Artiste inconnu',
+      album: track.album_name || 'Album inconnu',
+      album_art_url: track.album_cover_url,
+      duration_ms: track.duration,
+      position_ms: track.position,
+      is_playing: !statusResult.value.raw_status.paused,
+      connected: true,
+      deviceConnected: true,
+      username: statusResult.value.raw_status.username,
+      device_name: statusResult.value.raw_status.device_name
+    });
+
+    // Après mise à jour, on peut retourner true
+    return true;
+  }
+
+  return hasCurrent && !audioStore.isDisconnected;
 });
 
 function formatTime(ms) {
@@ -139,35 +171,35 @@ async function checkStatus() {
   try {
     // Utiliser la fonction du store pour vérifier l'état de connexion
     const isConnected = await audioStore.checkConnectionStatus();
-    
+
     // Mettre à jour l'état local basé sur la réponse
     isActuallyConnected.value = isConnected;
-    
+
     // Mettre à jour l'horodatage si connecté
     if (isConnected) {
       connectionLastChecked.value = Date.now();
     }
-    
+
     // Ajouter ce résultat aux derniers messages pour le débogage
     addDebugMessage("api_connection_check", { connected: isConnected });
-    
+
     // En mode débogage, mettre à jour les informations détaillées
     if (showDebugInfo.value) {
       const response = await axios.get('/api/librespot/status');
       statusResult.value = response.data;
       addDebugMessage("status_check", statusResult.value);
     }
-    
+
     return isConnected;
   } catch (error) {
     console.error("Error checking status:", error);
-    
+
     // En mode débogage, afficher l'erreur
     if (showDebugInfo.value) {
       statusResult.value = { error: error.message };
       addDebugMessage("status_check_error", { error: error.message });
     }
-    
+
     // En cas d'erreur, considérer comme déconnecté
     isActuallyConnected.value = false;
     return false;
@@ -177,13 +209,13 @@ async function checkStatus() {
 function addDebugMessage(type, data) {
   const now = new Date();
   const timeString = now.toLocaleTimeString();
-  
+
   lastMessages.value.unshift({
     timestamp: timeString,
     type: type,
     data: data
   });
-  
+
   if (lastMessages.value.length > 5) {
     lastMessages.value.pop();
   }
@@ -193,7 +225,7 @@ async function forceRefreshMetadata() {
   try {
     // D'abord, vérifier l'état de connexion
     const isConnected = await checkStatus();
-    
+
     if (isConnected) {
       // Si connecté, demander une actualisation des métadonnées
       await audioStore.controlSource('librespot', 'refresh_metadata');
@@ -211,13 +243,13 @@ async function forceRefreshMetadata() {
 
 function checkConnectionTimeout() {
   const timeSinceLastCheck = Date.now() - connectionLastChecked.value;
-  
+
   // Si nous sommes connectés mais que nous n'avons pas reçu de mise à jour depuis longtemps
   if (isActuallyConnected.value && timeSinceLastCheck > connectionTimeoutMs) {
     console.log(`Délai de connexion dépassé (${timeSinceLastCheck}ms), vérification...`);
     checkStatus();
   }
-  
+
   // Vérifier périodiquement même si nous pensons être déconnectés
   if (!isActuallyConnected.value && timeSinceLastCheck > connectionTimeoutMs * 2) {
     console.log("Vérification périodique de l'état de connexion...");
@@ -226,35 +258,53 @@ function checkConnectionTimeout() {
   }
 }
 
-// Nouvelle fonction pour gérer les clics sur la barre de progression
+function seekToPosition(position) {
+  // D'abord mettre à jour le suivi local
+  trackingSeekTo(position);
+
+  // Ensuite envoyer la commande de contrôle
+  controlSeekTo(position);
+}
+
+// Modifiez ensuite la fonction onProgressClick:
 function onProgressClick(event) {
   if (!metadata.value?.duration_ms) return;
-  
+
   const container = event.currentTarget;
   const rect = container.getBoundingClientRect();
   const offsetX = event.clientX - rect.left;
   const percentage = offsetX / rect.width;
-  
+
   // Calculer la nouvelle position en ms
   const newPosition = Math.floor(metadata.value.duration_ms * percentage);
-  
-  // Appliquer la nouvelle position via le service de progression
-  seekTo(newPosition);
+
+  console.log(`Seek via clic: pourcentage=${percentage.toFixed(2)}, position=${newPosition}ms`);
+
+  // Utiliser la nouvelle fonction combinée
+  seekToPosition(newPosition);
 }
+
+
+
 
 onMounted(() => {
   // Vérification initiale
   setTimeout(() => {
-    checkStatus();
-  }, 2000);
-  
+    checkStatus().then(isConnected => {
+      if (isConnected) {
+        // Si connecté, forcer une récupération des métadonnées complètes
+        forceRefreshMetadata();
+      }
+    });
+  }, 500);
+
   // Vérifications périodiques en mode débogage
   debugCheckInterval.value = setInterval(() => {
     if (showDebugInfo.value) {
       checkStatus();
     }
   }, 10000);
-  
+
   // Vérification périodique de l'état de connexion
   connectionCheckInterval.value = setInterval(() => {
     checkConnectionTimeout();
@@ -265,11 +315,11 @@ onUnmounted(() => {
   if (debugCheckInterval.value) {
     clearInterval(debugCheckInterval.value);
   }
-  
+
   if (connectionCheckInterval.value) {
     clearInterval(connectionCheckInterval.value);
   }
-  
+
   manualConnectionStatus.value = null;
 });
 </script>
@@ -326,7 +376,7 @@ onUnmounted(() => {
         <p>Ouvrez l'application Spotify sur votre appareil et sélectionnez "oakOS" comme périphérique de lecture</p>
       </div>
     </div>
-    
+
     <!-- Panneau de débogage (affiché uniquement quand showDebugInfo est true) -->
     <div v-if="showDebugInfo" class="debug-info">
       <h4>Debug Information</h4>
@@ -334,22 +384,23 @@ onUnmounted(() => {
         <button @click="checkStatus" class="debug-button check-status">Vérifier statut</button>
         <button @click="forceRefreshMetadata" class="debug-button refresh">Rafraîchir métadonnées</button>
         <button @click="toggleConnectionStatus" class="debug-button connection">
-          {{ manualConnectionStatus === null ? 'Forcer connexion' : (manualConnectionStatus ? 'Forcer déconnexion' : 'Forcer connexion') }}
+          {{ manualConnectionStatus === null ? 'Forcer connexion' : (manualConnectionStatus ? 'Forcer déconnexion' :
+          'Forcer connexion') }}
         </button>
         <button @click="resetConnectionStatus" class="debug-button reset">Réinitialiser auto-détection</button>
       </div>
-      
+
       <h4>Current Playback</h4>
       <p>Estimated position: {{ currentPosition }} ms ({{ formatTime(currentPosition) }})</p>
       <p>Progress: {{ progressPercentage.toFixed(2) }}%</p>
       <p>Store isPlaying: {{ audioStore.isPlaying }}</p>
-      
+
       <h4>Status</h4>
       <pre>{{ JSON.stringify(statusResult, null, 2) }}</pre>
-      
+
       <h4>Metadata</h4>
       <pre>{{ JSON.stringify(metadata, null, 2) }}</pre>
-      
+
       <h4>Connection</h4>
       <p>isActuallyConnected: {{ isActuallyConnected }}</p>
       <p>deviceConnected: {{ deviceConnected }}</p>
@@ -357,7 +408,7 @@ onUnmounted(() => {
       <p>isDisconnected: {{ audioStore.isDisconnected }}</p>
       <p>manualConnectionStatus: {{ manualConnectionStatus }}</p>
       <p>Last checked: {{ new Date(connectionLastChecked).toLocaleTimeString() }}</p>
-      
+
       <h4>Derniers messages</h4>
       <div class="ws-debug">
         <div v-for="(msg, index) in lastMessages" :key="index" class="ws-message">
@@ -366,7 +417,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-    
+
     <!-- Bouton pour afficher/masquer le débogage -->
     <button @click="toggleDebugInfo" class="debug-toggle-button">
       {{ showDebugInfo ? 'Masquer debug' : 'Afficher debug' }}
@@ -383,7 +434,9 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.now-playing, .device-connected, .waiting-connection {
+.now-playing,
+.device-connected,
+.waiting-connection {
   background-color: #1E1E1E;
   border-radius: 10px;
   padding: 1.5rem;
@@ -457,11 +510,13 @@ onUnmounted(() => {
 
 .progress-container {
   flex-grow: 1;
-  height: 8px; /* Augmenté pour faciliter le clic */
+  height: 8px;
+  /* Augmenté pour faciliter le clic */
   background-color: #4D4D4D;
   border-radius: 4px;
   margin: 0 10px;
-  cursor: pointer; /* Indique que c'est cliquable */
+  cursor: pointer;
+  /* Indique que c'est cliquable */
   position: relative;
 }
 
@@ -469,14 +524,16 @@ onUnmounted(() => {
   height: 100%;
   background-color: #1DB954;
   border-radius: 4px;
-  transition: width 0.1s linear; /* Animation fluide */
+  transition: width 0.1s linear;
+  /* Animation fluide */
 }
 
 .time {
   font-size: 0.8rem;
   opacity: 0.8;
   font-variant-numeric: tabular-nums;
-  min-width: 40px; /* Assure une largeur minimale pour éviter le saut */
+  min-width: 40px;
+  /* Assure une largeur minimale pour éviter le saut */
   text-align: center;
 }
 
@@ -523,7 +580,8 @@ onUnmounted(() => {
   color: #1DB954;
 }
 
-.waiting-connection, .device-connected {
+.waiting-connection,
+.device-connected {
   padding: 2rem;
 }
 
@@ -543,12 +601,14 @@ onUnmounted(() => {
   height: auto;
 }
 
-.waiting-connection h3, .device-connected h3 {
+.waiting-connection h3,
+.device-connected h3 {
   font-size: 1.5rem;
   margin-bottom: 0.5rem;
 }
 
-.waiting-connection p, .device-connected p {
+.waiting-connection p,
+.device-connected p {
   opacity: 0.8;
   max-width: 400px;
   margin: 0 auto 0.5rem;

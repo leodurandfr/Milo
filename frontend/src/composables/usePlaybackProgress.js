@@ -18,6 +18,7 @@ export function usePlaybackProgress() {
   const currentPositionMs = ref(0);        // Position actuelle en ms (mise à jour activement)
   const progressPercentageValue = ref(0);  // Pourcentage de progression (mis à jour activement)
   const lastUpdateTime = ref(Date.now());  // Dernier moment où la position a été mise à jour
+  const lastLogTime = ref(0);              // Pour limiter les logs
   
   // Fonction pour mettre à jour la position actuelle et forcer la réactivité
   function updateCurrentPosition() {
@@ -46,9 +47,10 @@ export function usePlaybackProgress() {
     // Mettre à jour le timestamp de dernière mise à jour
     lastUpdateTime.value = now;
     
-    // Log toutes les 5 secondes environ
-    if (Math.floor(currentPositionMs.value/5000) !== Math.floor((currentPositionMs.value-elapsed)/5000)) {
-      console.log(`Position actuelle: ${Math.floor(currentPositionMs.value/1000)} secondes (${progressPercentageValue.value.toFixed(1)}%)`);
+    // Logs limités à chaque 10 secondes
+    if (now - lastLogTime.value > 10000) {
+      console.log(`Position: ${Math.floor(currentPositionMs.value/1000)}s (${progressPercentageValue.value.toFixed(1)}%)`);
+      lastLogTime.value = now;
     }
   }
   
@@ -95,7 +97,7 @@ export function usePlaybackProgress() {
   // Surveiller les changements de position dans les métadonnées
   watch(() => audioStore.metadata?.position_ms, (newPosition) => {
     if (newPosition !== undefined && newPosition !== null) {
-      console.log(`Nouvelle position reçue des métadonnées: ${newPosition}ms`);
+      console.log(`Nouvelle position reçue: ${newPosition}ms`);
       
       // Mise à jour de la position de référence
       clientStartPosition.value = newPosition;
@@ -116,9 +118,9 @@ export function usePlaybackProgress() {
   // Surveiller le changement de piste pour réinitialiser le suivi
   watch(() => audioStore.metadata?.title, (newTitle, oldTitle) => {
     if (newTitle && newTitle !== oldTitle) {
-      console.log(`Nouvelle piste détectée: "${newTitle}"`);
+      console.log(`Nouvelle piste: "${newTitle}"`);
       
-      // Réinitialiser la position au début
+      // Réinitialiser la position au début ou à la position indiquée
       if (audioStore.metadata?.position_ms !== undefined) {
         clientStartPosition.value = audioStore.metadata.position_ms;
       } else {
@@ -137,6 +139,11 @@ export function usePlaybackProgress() {
   
   // Démarrer le suivi de progression
   function startProgressTracking() {
+    // Éviter les démarrages multiples
+    if (refreshInterval.value) {
+      return;
+    }
+    
     console.log('Démarrage du suivi de progression');
     
     // Initialiser le temps de début
@@ -148,17 +155,12 @@ export function usePlaybackProgress() {
       currentPositionMs.value = clientStartPosition.value;
     }
     
-    // Arrêter l'ancien intervalle s'il existe
-    if (refreshInterval.value) {
-      clearInterval(refreshInterval.value);
-    }
-    
-    // Créer un nouvel intervalle beaucoup plus fréquent
+    // Créer un nouvel intervalle (250ms = 4 fois par seconde, bon équilibre performance/fluidité)
     refreshInterval.value = setInterval(() => {
       if (isActuallyPlaying.value) {
         updateCurrentPosition();
       }
-    }, 100); // 10 fois par seconde pour une animation fluide
+    }, 250);
     
     // Mettre à jour immédiatement
     updateCurrentPosition();
@@ -166,6 +168,11 @@ export function usePlaybackProgress() {
   
   // Arrêter le suivi de progression
   function stopProgressTracking() {
+    // Éviter les arrêts multiples
+    if (!refreshInterval.value) {
+      return;
+    }
+    
     console.log('Arrêt du suivi de progression');
     
     // Sauvegarder la position actuelle
@@ -173,10 +180,8 @@ export function usePlaybackProgress() {
     clientStartPosition.value = currentPositionMs.value;
     
     // Arrêter l'intervalle
-    if (refreshInterval.value) {
-      clearInterval(refreshInterval.value);
-      refreshInterval.value = null;
-    }
+    clearInterval(refreshInterval.value);
+    refreshInterval.value = null;
     
     // Réinitialiser le temps de début
     playbackStartTime.value = null;
@@ -185,7 +190,7 @@ export function usePlaybackProgress() {
     forceActivePlaying.value = false;
   }
   
-  // Forcer une position spécifique (par exemple après un seek)
+  // Forcer une position spécifique (par exemple après un seek manuel)
   function seekTo(position) {
     console.log(`Seek manuel à ${position}ms`);
     
@@ -219,14 +224,14 @@ export function usePlaybackProgress() {
     }, 5000);
   }
   
-  // Gérer les événements de seek reçus
+  // Gérer les événements de seek reçus (par ex. depuis l'app Spotify officielle)
   function handleSeekEvent(event) {
     console.log('Événement audio-seek reçu:', event.detail);
     
-    const { position, timestamp } = event.detail;
+    const { position, timestamp, source } = event.detail;
     
-    // Vérifier que la position est valide
-    if (position !== undefined) {
+    // Vérifier que la position est valide et que l'événement concerne notre source
+    if (position !== undefined && (!source || source === 'librespot')) {
       // Mettre à jour la position
       clientStartPosition.value = position;
       currentPositionMs.value = position;
@@ -248,26 +253,13 @@ export function usePlaybackProgress() {
         updateCurrentPosition();
       }
       
+      console.log(`Seek traité: position=${position}ms`);
+      
       // Désactiver l'état forcé après un certain temps
       setTimeout(() => {
         forceActivePlaying.value = false;
       }, 5000);
-      
-      console.log(`Seek traité: position=${position}ms, temps début=${playbackStartTime.value}`);
     }
-  }
-  
-  // Forcer une mise à jour de la progression
-  function forceRefresh() {
-    updateCurrentPosition();
-    
-    // Si on est censé être en lecture mais que l'intervalle n'est pas actif
-    if (isActuallyPlaying.value && !refreshInterval.value) {
-      startProgressTracking();
-    }
-    
-    console.log(`Force refresh - position: ${currentPositionMs.value}ms (${progressPercentageValue.value.toFixed(1)}%)`);
-    return currentPositionMs.value;
   }
   
   // Initialiser le suivi au montage du composant
@@ -294,14 +286,15 @@ export function usePlaybackProgress() {
       }, 100);
     }
     
-    // Créer un watchEffect pour détecter les incohérences
+    // Créer un watchEffect pour détecter les incohérences (moins agressif)
     watchEffect(() => {
       const now = Date.now();
       
       // Si on est supposé être en lecture mais que la position n'a pas été mise à jour depuis longtemps
+      // (5 secondes au lieu de 2 pour réduire les faux positifs)
       if (isActuallyPlaying.value && refreshInterval.value && 
-          (now - lastUpdateTime.value > 2000)) {
-        console.warn("Détection d'une incohérence: lecture active mais position non mise à jour");
+          (now - lastUpdateTime.value > 5000)) {
+        console.warn("Détection d'incohérence: lecture active mais position non mise à jour");
         // Forcer le redémarrage du suivi
         stopProgressTracking();
         startProgressTracking();
@@ -332,7 +325,6 @@ export function usePlaybackProgress() {
     isActuallyPlaying,
     seekTo,
     startProgressTracking,
-    stopProgressTracking,
-    forceRefresh
+    stopProgressTracking
   };
 }

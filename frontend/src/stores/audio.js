@@ -108,6 +108,29 @@ export const useAudioStore = defineStore('audio', () => {
     volume.value = stateData.volume;
   }
 
+  function updateMetadataFromStatus(metadataFromStatus) {
+    // Vérifier que les données sont valides
+    if (!metadataFromStatus || !metadataFromStatus.title) {
+      console.warn("Tentative de mise à jour des métadonnées avec des données invalides");
+      return;
+    }
+
+    console.log("Mise à jour des métadonnées depuis le statut:", metadataFromStatus);
+
+    // Mettre à jour les métadonnées
+    metadata.value = metadataFromStatus;
+
+    // Mise à jour de l'état de connexion
+    if (metadataFromStatus.connected !== undefined) {
+      isDisconnected.value = !metadataFromStatus.connected;
+    }
+
+    // Sauvegarder comme dernières métadonnées valides
+    if (hasValidMetadata(metadataFromStatus)) {
+      lastKnownGoodMetadata.value = { ...metadataFromStatus };
+    }
+  }
+
   // Fonction pour effacer les métadonnées lors d'une déconnexion
   function clearMetadata() {
     console.log("Effacement des métadonnées suite à déconnexion");
@@ -135,28 +158,28 @@ export const useAudioStore = defineStore('audio', () => {
 
     } else if (eventType === 'audio_metadata_updated') {
       console.log('Metadata update received:', data.metadata);
-    
+
       // S'assurer que les métadonnées sont bien attachées à la source actuelle
       if (data.source === currentState.value) {
         // Si nous recevons des métadonnées, nous ne sommes probablement pas déconnectés
         isDisconnected.value = false;
-    
+
         // MODIFICATION: Fusionner avec les métadonnées existantes au lieu de remplacer
         if (Object.keys(data.metadata).length > 0) {
           // Préserver les métadonnées valides existantes
-          const mergedMetadata = { 
+          const mergedMetadata = {
             ...metadata.value,  // Garder les anciennes métadonnées
             ...data.metadata     // Ajouter les nouvelles
           };
-          
+
           // Si nous avons des informations valides (titre, artiste), les stocker comme dernières bonnes métadonnées
           if (hasValidMetadata(mergedMetadata)) {
             lastKnownGoodMetadata.value = { ...mergedMetadata };
           }
-          
+
           // Toujours mettre à jour les métadonnées même si incomplètes
           metadata.value = mergedMetadata;
-          
+
           // Mettre à jour l'état de connexion
           if (data.metadata.connected !== false) {
             lastKnownConnectedState.value = true;
@@ -212,32 +235,32 @@ export const useAudioStore = defineStore('audio', () => {
     } // Dans useAudioStore.js, améliorez la gestion des événements audio_seek
     else if (eventType === 'audio_seek') {
       console.log('Seek event received:', data);
-    
+
       // Vérifier que les données sont valides et correspondent à la source actuelle
       if (data.position_ms !== undefined && data.source === currentState.value) {
         // MODIFICATION: Toujours considérer que nous sommes connectés lors d'un seek
         isDisconnected.value = false;
-        
+
         // Mettre à jour la position dans les métadonnées sans effacer les autres infos
         if (metadata.value) {
           // Créer une copie pour maintenir la réactivité
           const updatedMetadata = { ...metadata.value };
           updatedMetadata.position_ms = data.position_ms;
-          
+
           // IMPORTANT: maintenir l'état is_playing à true lors d'un seek
           updatedMetadata.is_playing = true;
-    
+
           // Si une durée est fournie, la mettre également à jour
           if (data.duration_ms !== undefined) {
             updatedMetadata.duration_ms = data.duration_ms;
           }
-    
+
           // Mettre à jour les métadonnées
           metadata.value = updatedMetadata;
-    
+
           // Récupérer le timestamp de l'événement ou utiliser l'heure actuelle
           const seekTimestamp = data.seek_timestamp || Date.now();
-    
+
           // Émettre un événement pour le service de progression
           window.dispatchEvent(new CustomEvent('audio-seek', {
             detail: {
@@ -246,7 +269,7 @@ export const useAudioStore = defineStore('audio', () => {
               source: data.source
             }
           }));
-    
+
           console.log(`Position mise à jour: ${data.position_ms}ms, timestamp: ${seekTimestamp}`);
         }
       }
@@ -266,6 +289,31 @@ export const useAudioStore = defineStore('audio', () => {
         lastKnownConnectedState.value = false;
       } else {
         isDisconnected.value = false;
+
+        // Si nous sommes connectés mais sans métadonnées, essayer de les récupérer depuis le statut
+        if (isConnected && (!metadata.value || !metadata.value.title) &&
+          response.data.raw_status && response.data.raw_status.track) {
+
+          const track = response.data.raw_status.track;
+
+          // Construire des métadonnées valides à partir du statut
+          const extractedMetadata = {
+            title: track.name,
+            artist: track.artist_names?.join(', ') || 'Artiste inconnu',
+            album: track.album_name || 'Album inconnu',
+            album_art_url: track.album_cover_url,
+            duration_ms: track.duration,
+            position_ms: track.position,
+            is_playing: !response.data.raw_status.paused,
+            connected: true,
+            deviceConnected: true,
+            username: response.data.raw_status.username,
+            device_name: response.data.raw_status.device_name
+          };
+
+          // Mettre à jour les métadonnées
+          updateMetadataFromStatus(extractedMetadata);
+        }
       }
 
       return isConnected;
