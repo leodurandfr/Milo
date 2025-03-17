@@ -2,10 +2,14 @@
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
 import { useAudioStore } from '@/stores/audio';
 import { useLibrespotControl } from '@/composables/useLibrespotControl';
+import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
 import axios from 'axios';
 
 const audioStore = useAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
+// Utiliser notre service de progression pour suivre la position en temps réel
+const { currentPosition, progressPercentage, seekTo } = usePlaybackProgress();
+
 const showDebugInfo = ref(false);
 const statusResult = ref(null);
 const lastMessages = ref([]);
@@ -97,12 +101,6 @@ const hasTrackInfo = computed(() => {
          metadata.value.title && 
          metadata.value.artist && 
          !audioStore.isDisconnected;
-});
-
-const progressPercentage = computed(() => {
-  if (!metadata.value?.duration_ms || !metadata.value?.position_ms) return 0;
-  const percentage = (metadata.value.position_ms / metadata.value.duration_ms) * 100;
-  return Math.min(percentage, 100);
 });
 
 function formatTime(ms) {
@@ -222,6 +220,22 @@ function checkConnectionTimeout() {
   }
 }
 
+// Nouvelle fonction pour gérer les clics sur la barre de progression
+function onProgressClick(event) {
+  if (!metadata.value?.duration_ms) return;
+  
+  const container = event.currentTarget;
+  const rect = container.getBoundingClientRect();
+  const offsetX = event.clientX - rect.left;
+  const percentage = offsetX / rect.width;
+  
+  // Calculer la nouvelle position en ms
+  const newPosition = Math.floor(metadata.value.duration_ms * percentage);
+  
+  // Appliquer la nouvelle position via le service de progression
+  seekTo(newPosition);
+}
+
 onMounted(() => {
   // Vérification initiale
   setTimeout(() => {
@@ -272,8 +286,11 @@ onUnmounted(() => {
       </div>
 
       <div class="progress-bar" v-if="metadata.duration_ms">
-        <span class="time current">{{ formatTime(metadata.position_ms) }}</span>
-        <div class="progress-container">
+        <!-- Utiliser currentPosition du service de progression au lieu de metadata.position_ms -->
+        <span class="time current">{{ formatTime(currentPosition) }}</span>
+        <!-- Ajouter le gestionnaire de clic pour permettre le seek -->
+        <div class="progress-container" @click="onProgressClick">
+          <!-- Utiliser progressPercentage du service de progression -->
           <div class="progress" :style="{ width: progressPercentage + '%' }"></div>
         </div>
         <span class="time total">{{ formatTime(metadata.duration_ms) }}</span>
@@ -303,11 +320,63 @@ onUnmounted(() => {
         <p>Ouvrez l'application Spotify sur votre appareil et sélectionnez "oakOS" comme périphérique de lecture</p>
       </div>
     </div>
+    
+    <!-- Panneau de débogage (affiché uniquement quand showDebugInfo est true) -->
+    <div v-if="showDebugInfo" class="debug-info">
+      <h4>Debug Information</h4>
+      <div class="debug-buttons">
+        <button @click="checkStatus" class="debug-button check-status">Vérifier statut</button>
+        <button @click="forceRefreshMetadata" class="debug-button refresh">Rafraîchir métadonnées</button>
+        <button @click="toggleConnectionStatus" class="debug-button connection">
+          {{ manualConnectionStatus === null ? 'Forcer connexion' : (manualConnectionStatus ? 'Forcer déconnexion' : 'Forcer connexion') }}
+        </button>
+        <button @click="resetConnectionStatus" class="debug-button reset">Réinitialiser auto-détection</button>
+      </div>
+      
+      <h4>Current Playback</h4>
+      <p>Estimated position: {{ currentPosition }} ms ({{ formatTime(currentPosition) }})</p>
+      <p>Progress: {{ progressPercentage.toFixed(2) }}%</p>
+      <p>Store isPlaying: {{ audioStore.isPlaying }}</p>
+      
+      <h4>Status</h4>
+      <pre>{{ JSON.stringify(statusResult, null, 2) }}</pre>
+      
+      <h4>Metadata</h4>
+      <pre>{{ JSON.stringify(metadata, null, 2) }}</pre>
+      
+      <h4>Connection</h4>
+      <p>isActuallyConnected: {{ isActuallyConnected }}</p>
+      <p>deviceConnected: {{ deviceConnected }}</p>
+      <p>hasTrackInfo: {{ hasTrackInfo }}</p>
+      <p>isDisconnected: {{ audioStore.isDisconnected }}</p>
+      <p>manualConnectionStatus: {{ manualConnectionStatus }}</p>
+      <p>Last checked: {{ new Date(connectionLastChecked).toLocaleTimeString() }}</p>
+      
+      <h4>Derniers messages</h4>
+      <div class="ws-debug">
+        <div v-for="(msg, index) in lastMessages" :key="index" class="ws-message">
+          <div class="ws-timestamp">{{ msg.timestamp }} - {{ msg.type }}</div>
+          <pre>{{ JSON.stringify(msg.data, null, 2) }}</pre>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Bouton pour afficher/masquer le débogage -->
+    <button @click="toggleDebugInfo" class="debug-toggle-button">
+      {{ showDebugInfo ? 'Masquer debug' : 'Afficher debug' }}
+    </button>
   </div>
 </template>
 
 <style scoped>
 /* Styles de base */
+.librespot-player {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 .now-playing, .device-connected, .waiting-connection {
   background-color: #1E1E1E;
   border-radius: 10px;
@@ -316,6 +385,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
+  width: 100%;
+  max-width: 500px;
 }
 
 /* Styles pour l'album et les contrôles */
@@ -380,22 +451,27 @@ onUnmounted(() => {
 
 .progress-container {
   flex-grow: 1;
-  height: 4px;
+  height: 8px; /* Augmenté pour faciliter le clic */
   background-color: #4D4D4D;
-  border-radius: 2px;
+  border-radius: 4px;
   margin: 0 10px;
+  cursor: pointer; /* Indique que c'est cliquable */
+  position: relative;
 }
 
 .progress {
   height: 100%;
   background-color: #1DB954;
-  border-radius: 2px;
+  border-radius: 4px;
+  transition: width 0.1s linear; /* Animation fluide */
 }
 
 .time {
   font-size: 0.8rem;
   opacity: 0.8;
   font-variant-numeric: tabular-nums;
+  min-width: 40px; /* Assure une largeur minimale pour éviter le saut */
+  text-align: center;
 }
 
 .controls {
@@ -473,6 +549,17 @@ onUnmounted(() => {
 }
 
 /* Styles pour le débogage */
+.debug-toggle-button {
+  margin-top: 1rem;
+  background-color: #333;
+  color: white;
+  border: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
 .debug-info {
   margin-top: 1.5rem;
   background-color: #2a2a2a;

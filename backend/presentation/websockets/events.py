@@ -21,7 +21,9 @@ class WebSocketEventHandler:
             "audio_transition_error": "audio_error",
             "volume_changed": "volume_changed",
             "audio_metadata_updated": "audio_metadata_updated",
-            "audio_status_updated": "audio_status_updated"
+            "audio_status_updated": "audio_status_updated",
+            # Nouvel événement pour les seeks
+            "audio_seek": "audio_seek"
         }
         self._register_handlers()
     
@@ -44,6 +46,11 @@ class WebSocketEventHandler:
                     self.logger.info(f"Métadonnées mises à jour: source={data.get('source')}, "
                                     f"titre={data.get('metadata', {}).get('title')}, "
                                     f"artiste={data.get('metadata', {}).get('artist')}")
+                
+                # Pour les événements de seek, ajoutons des logs spécifiques
+                elif internal_event == "audio_seek":
+                    self.logger.info(f"Seek détecté: position={data.get('position_ms')}ms, "
+                                    f"timestamp={data.get('seek_timestamp')}")
                 
                 await self.ws_manager.broadcast(ws_event, data)
             except Exception as e:
