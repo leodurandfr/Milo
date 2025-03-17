@@ -135,23 +135,34 @@ export const useAudioStore = defineStore('audio', () => {
 
     } else if (eventType === 'audio_metadata_updated') {
       console.log('Metadata update received:', data.metadata);
-
+    
       // S'assurer que les métadonnées sont bien attachées à la source actuelle
       if (data.source === currentState.value) {
         // Si nous recevons des métadonnées, nous ne sommes probablement pas déconnectés
         isDisconnected.value = false;
-
-        // Vérifier si les métadonnées contiennent des informations valides
-        if (hasValidMetadata(data.metadata)) {
-          metadata.value = data.metadata;
-          lastKnownGoodMetadata.value = { ...data.metadata };
-
-          // S'il y a des métadonnées valides, nous sommes probablement connectés
+    
+        // MODIFICATION: Fusionner avec les métadonnées existantes au lieu de remplacer
+        if (Object.keys(data.metadata).length > 0) {
+          // Préserver les métadonnées valides existantes
+          const mergedMetadata = { 
+            ...metadata.value,  // Garder les anciennes métadonnées
+            ...data.metadata     // Ajouter les nouvelles
+          };
+          
+          // Si nous avons des informations valides (titre, artiste), les stocker comme dernières bonnes métadonnées
+          if (hasValidMetadata(mergedMetadata)) {
+            lastKnownGoodMetadata.value = { ...mergedMetadata };
+          }
+          
+          // Toujours mettre à jour les métadonnées même si incomplètes
+          metadata.value = mergedMetadata;
+          
+          // Mettre à jour l'état de connexion
           if (data.metadata.connected !== false) {
             lastKnownConnectedState.value = true;
           }
         } else {
-          console.log('Metadata update ignored - not containing valid information');
+          console.log('Empty metadata update ignored');
         }
       }
 
@@ -198,30 +209,36 @@ export const useAudioStore = defineStore('audio', () => {
           };
         }
       }
-    } else if (eventType === 'audio_seek') {
+    } // Dans useAudioStore.js, améliorez la gestion des événements audio_seek
+    else if (eventType === 'audio_seek') {
       console.log('Seek event received:', data);
-
+    
       // Vérifier que les données sont valides et correspondent à la source actuelle
       if (data.position_ms !== undefined && data.source === currentState.value) {
-        // Mettre à jour la position dans les métadonnées
-        if (metadata.value && !isDisconnected.value) {
+        // MODIFICATION: Toujours considérer que nous sommes connectés lors d'un seek
+        isDisconnected.value = false;
+        
+        // Mettre à jour la position dans les métadonnées sans effacer les autres infos
+        if (metadata.value) {
           // Créer une copie pour maintenir la réactivité
           const updatedMetadata = { ...metadata.value };
           updatedMetadata.position_ms = data.position_ms;
-
+          
+          // IMPORTANT: maintenir l'état is_playing à true lors d'un seek
+          updatedMetadata.is_playing = true;
+    
           // Si une durée est fournie, la mettre également à jour
           if (data.duration_ms !== undefined) {
             updatedMetadata.duration_ms = data.duration_ms;
           }
-
+    
           // Mettre à jour les métadonnées
           metadata.value = updatedMetadata;
-
+    
           // Récupérer le timestamp de l'événement ou utiliser l'heure actuelle
           const seekTimestamp = data.seek_timestamp || Date.now();
-
-          // Émettre un événement personnalisé DOM (indépendant de Vue)
-          // pour que le service de progression puisse le capter
+    
+          // Émettre un événement pour le service de progression
           window.dispatchEvent(new CustomEvent('audio-seek', {
             detail: {
               position: data.position_ms,
@@ -229,7 +246,7 @@ export const useAudioStore = defineStore('audio', () => {
               source: data.source
             }
           }));
-
+    
           console.log(`Position mise à jour: ${data.position_ms}ms, timestamp: ${seekTimestamp}`);
         }
       }

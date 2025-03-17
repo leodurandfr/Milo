@@ -97,10 +97,16 @@ const deviceConnected = computed(() => {
 
 // Vérifier si on a des informations sur la piste en cours
 const hasTrackInfo = computed(() => {
-  return metadata.value && 
-         metadata.value.title && 
-         metadata.value.artist && 
-         !audioStore.isDisconnected;
+  const hasLastKnownGoodData = Object.keys(audioStore.lastKnownGoodMetadata).length > 0 &&
+                              audioStore.lastKnownGoodMetadata.title &&
+                              audioStore.lastKnownGoodMetadata.artist;
+                              
+  // Vérifier les métadonnées actuelles
+  const hasCurrentData = metadata.value && 
+                        metadata.value.title && 
+                        metadata.value.artist;
+                        
+  return (hasCurrentData || (hasLastKnownGoodData && !audioStore.isDisconnected));
 });
 
 function formatTime(ms) {
