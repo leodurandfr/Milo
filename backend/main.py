@@ -6,13 +6,16 @@ import asyncio
 import logging
 import uvicorn
 import json
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import subprocess
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Dict, Any
 
 from backend.config.container import container
 from backend.presentation.websockets.manager import WebSocketManager
 from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio import AudioState
+from backend.presentation.api.routes.librespot import setup_librespot_routes
 
 # Configuration du logging
 logging.basicConfig(
@@ -39,6 +42,10 @@ audio_state_machine = container.audio_state_machine()
 # Initialisation du gestionnaire WebSocket
 ws_manager = WebSocketManager()
 ws_event_handler = WebSocketEventHandler(event_bus, ws_manager)
+
+# Ajout des routes librespot
+librespot_router = setup_librespot_routes(lambda: container.librespot_plugin())
+app.include_router(librespot_router, prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():
@@ -80,7 +87,39 @@ async def change_audio_source(source: str):
             return {"status": "error", "message": f"Failed to switch to {source}"}
     except ValueError:
         return {"status": "error", "message": f"Invalid source: {source}"}
-
+    
+@app.post("/api/audio/control/{source}")
+async def control_audio_source(source: str, command_data: Dict[str, Any]):
+    """Contrôle une source audio spécifique"""
+    try:
+        # Vérifier si la source existe
+        if source not in [state.value for state in AudioState if state != AudioState.NONE and state != AudioState.TRANSITIONING]:
+            raise HTTPException(status_code=400, detail=f"Source audio invalide: {source}")
+        
+        # Récupérer la commande et les données
+        command = command_data.get("command")
+        data = command_data.get("data", {})
+        
+        if not command:
+            raise HTTPException(status_code=400, detail="Commande manquante")
+        
+        # Récupérer le plugin associé à la source
+        source_state = AudioState(source)
+        plugin = audio_state_machine.plugins.get(source_state)
+        
+        if not plugin:
+            raise HTTPException(status_code=404, detail=f"Plugin non trouvé pour la source: {source}")
+        
+        # Exécuter la commande
+        result = await plugin.handle_command(command, data)
+        
+        return {"status": "success", "result": result}
+        
+    except ValueError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
+        return {"status": "error", "message": f"Erreur lors du contrôle de la source: {str(e)}"}
+        
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """Endpoint WebSocket pour la communication en temps réel"""
