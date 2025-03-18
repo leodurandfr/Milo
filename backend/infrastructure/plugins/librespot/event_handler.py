@@ -15,6 +15,7 @@ class EventHandler:
         self.connection_status_callback = connection_status_callback
         self.logger = logging.getLogger("librespot.events")
         self.last_seek_timestamp = 0
+        self.min_seek_interval_ms = 100  # Intervalle minimum entre deux événements seek (100ms)
     
     async def handle_event(self, event_type: str, event_data: Dict[str, Any]) -> None:
         """
@@ -96,7 +97,7 @@ class EventHandler:
     
     async def _handle_seek_event(self, event_data: Dict[str, Any]) -> None:
         """
-        Gère les événements de position (seek) avec plus de précision.
+        Gère les événements de position (seek) avec limitation de fréquence.
         
         Args:
             event_data: Données de l'événement de seek
@@ -105,21 +106,30 @@ class EventHandler:
         duration = event_data.get("duration")
         
         if position is not None:
+            # Vérifier si l'événement est trop proche du précédent
+            current_time = int(time.time() * 1000)
+            time_since_last_seek = current_time - self.last_seek_timestamp
+            
+            # Ignorer les événements trop fréquents
+            if time_since_last_seek < self.min_seek_interval_ms:
+                self.logger.debug(f"Événement seek ignoré (trop fréquent: {time_since_last_seek}ms < {self.min_seek_interval_ms}ms)")
+                return
+            
             # Créer un dictionnaire avec les données de seek enrichies
             seek_data = {
                 "position_ms": position,
                 "duration_ms": duration,
-                "seek_timestamp": int(time.time() * 1000),  # Timestamp en millisecondes
+                "seek_timestamp": current_time,
                 "track_uri": event_data.get("uri"),
                 "connected": True,
                 "deviceConnected": True,
-                "source": self.metadata_processor.source_name  # Ajouter la source pour le filtrage côté frontend
+                "source": self.metadata_processor.source_name
             }
             
             # Enregistrer le timestamp du dernier seek
-            self.last_seek_timestamp = seek_data["seek_timestamp"]
+            self.last_seek_timestamp = current_time
             
             # Publier un événement spécifique de seek via le bus d'événements
             await self.metadata_processor.event_bus.publish("audio_seek", seek_data)
             
-            self.logger.info(f"Événement de seek traité: position={position}ms, durée={duration}ms")
+            self.logger.info(f"Événement de seek traité: position={position}ms, durée={duration}ms, intervalle={time_since_last_seek}ms")

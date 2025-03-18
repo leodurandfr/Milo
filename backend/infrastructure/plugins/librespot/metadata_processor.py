@@ -1,66 +1,81 @@
 """
-Traitement des métadonnées pour le plugin librespot.
+Traitement des métadonnées pour le plugin librespot - Version optimisée.
 """
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable, Tuple
 from backend.application.event_bus import EventBus
 
 class MetadataProcessor:
     """Gère l'extraction et le traitement des métadonnées de go-librespot"""
+    
+    # Définition des chemins connus pour les métadonnées (chemin, nom cible, fonction de transformation optionnelle)
+    METADATA_PATHS = [
+        # Format 1: Structure avec player et current_track
+        ("player.current_track.name", "title"),
+        ("player.current_track.artists", "artist", lambda artists: ", ".join([a.get("name", "") for a in artists if a.get("name")])),
+        ("player.current_track.album.name", "album"),
+        ("player.current_track.album.images", "album_art_url", lambda images: sorted(images, key=lambda img: img.get("width", 0) * img.get("height", 0), reverse=True)[0].get("url") if images else None),
+        ("player.current_track.duration_ms", "duration_ms"),
+        ("player.position_ms", "position_ms"),
+        ("player.is_playing", "is_playing"),
+        
+        # Format 2: Structure avec track au niveau racine
+        ("track.name", "title"),
+        ("track.artist_names", "artist", lambda names: ", ".join(names) if names else ""),
+        ("track.album_name", "album"),
+        ("track.album_cover_url", "album_art_url"),
+        ("track.duration", "duration_ms"),
+        ("track.position", "position_ms"),
+        ("position", "position_ms"),
+        
+        # Champs au niveau racine
+        ("artist_names", "artist", lambda names: ", ".join(names) if names else ""),
+        ("album_name", "album"),
+        ("album_cover_url", "album_art_url"),
+        ("duration", "duration_ms"),
+        ("username", "username"),
+        ("device_name", "device_name"),
+        ("uri", "track_uri"),
+    ]
+    
+    # Champs critiques qui ne doivent pas être écrasés par des valeurs par défaut
+    CRITICAL_FIELDS = ["artist", "album", "album_art_url"]
     
     def __init__(self, event_bus: EventBus, source_name: str):
         self.event_bus = event_bus
         self.source_name = source_name
         self.logger = logging.getLogger(f"librespot.metadata")
         self.last_metadata = {}
+        self.log_interval_counter = 0  # Compteur pour réduire la fréquence des logs
     
-    def format_artists(self, artists: List[Dict[str, Any]]) -> str:
+    def get_nested_value(self, data: Dict[str, Any], path: str) -> Any:
         """
-        Formate la liste des artistes en une chaîne.
+        Récupère une valeur imbriquée en suivant un chemin avec points.
         
         Args:
-            artists: Liste des artistes
+            data: Dictionnaire contenant les données
+            path: Chemin au format "key1.key2.key3"
             
         Returns:
-            str: Chaîne formatée des artistes
+            Any: Valeur trouvée ou None si le chemin n'existe pas
         """
-        if not artists:
-            return "Inconnu"
+        if not data or not path:
+            return None
             
-        # Extraire les noms des artistes
-        names = [artist.get("name", "") for artist in artists if artist.get("name")]
+        keys = path.split('.')
+        result = data
         
-        # Joindre les noms avec des virgules
-        return ", ".join(names)
-    
-    def get_album_art_url(self, album: Dict[str, Any]) -> Optional[str]:
-        """
-        Récupère l'URL de la pochette d'album.
-        
-        Args:
-            album: Informations sur l'album
-            
-        Returns:
-            Optional[str]: URL de la pochette d'album, ou None si non disponible
-        """
-        images = album.get("images", [])
-        
-        # Trier par taille (du plus grand au plus petit)
-        sorted_images = sorted(
-            images, 
-            key=lambda img: img.get("width", 0) * img.get("height", 0), 
-            reverse=True
-        )
-        
-        # Prendre la plus grande image
-        if sorted_images:
-            return sorted_images[0].get("url")
-            
-        return None
+        for key in keys:
+            if isinstance(result, dict) and key in result:
+                result = result[key]
+            else:
+                return None
+                
+        return result
     
     async def extract_from_status(self, status: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Extrait les métadonnées à partir d'un statut avec meilleure prise en charge du format go-librespot.
+        Extrait les métadonnées à partir d'un statut - version optimisée.
         
         Args:
             status: Statut de go-librespot
@@ -68,134 +83,78 @@ class MetadataProcessor:
         Returns:
             Dict[str, Any]: Métadonnées extraites
         """
+        if not status:
+            return {}
+            
         try:
-            # Journaliser le format complet pour débogage
-            self.logger.debug(f"Format du statut reçu: {status.keys()}")
-            
-            # Vérifier si nous avons un username (si connecté à Spotify)
-            username = status.get("username")
-            device_name = status.get("device_name", "oakOS")
-            
-            # Structure dépend de la version de l'API
-            
-            # 1. Format standard avec 'player'
-            if "player" in status:
-                player = status.get("player", {})
-                current_track = player.get("current_track", {})
-                is_playing = player.get("is_playing", False)
-                position_ms = player.get("position_ms", 0)
-            
-            # 2. Format avec 'track' au niveau racine (documentation OpenAPI)    
-            elif "track" in status:
-                current_track = status.get("track", {})
-                is_playing = not status.get("paused", True)  # Inversé par rapport à "paused"
-                position_ms = status.get("position", 0) or (current_track.get("position") if current_track else 0)
-                
-                # Si aucun statut de lecture explicite, vérifier 'stopped'
-                if status.get("stopped", False):
-                    is_playing = False
-            
-            # 3. Aucun format reconnu    
-            else:
-                current_track = {}
-                is_playing = False
-                position_ms = 0
-                
-                # Log d'avertissement
-                self.logger.warning(f"Format de statut non reconnu: {status}")
-            
-            # Si pas de piste en cours mais l'utilisateur est connecté
-            if not current_track and username:
-                self.logger.debug(f"Appareil connecté via username: {username} - En attente de lecture")
-                return {
-                    "connected": True,
-                    "deviceConnected": True,
-                    "username": username,
-                    "device_name": device_name,
-                    "is_playing": is_playing
-                }
-                    
-            # Si pas de piste en cours et pas connecté, renvoyer des métadonnées vides
-            if not current_track:
-                return {}
-            
-            # Récupération intelligente des artistes (plusieurs formats possibles)
-            artist = ""
-            # 1. Format liste d'objets artistes avec 'name'
-            if "artists" in current_track and isinstance(current_track["artists"], list):
-                artist = self.format_artists(current_track.get("artists", []))
-            # 2. Format liste de noms d'artistes
-            elif "artist_names" in current_track and isinstance(current_track["artist_names"], list):
-                artist = ", ".join(current_track.get("artist_names", []))
-            # 3. Format champ simple 'artist'
-            elif "artist" in current_track:
-                artist = current_track.get("artist", "")
-            
-            # Si l'artiste est toujours vide, vérifier au niveau racine
-            if not artist and "artist_names" in status:
-                artist = ", ".join(status.get("artist_names", []))
-            
-            # Récupération intelligente de l'album
-            album = ""
-            # 1. Format objet album avec 'name'
-            if "album" in current_track and isinstance(current_track["album"], dict):
-                album = current_track.get("album", {}).get("name", "")
-            # 2. Format champ simple 'album_name'
-            elif "album_name" in current_track:
-                album = current_track.get("album_name", "")
-            
-            # Si l'album est toujours vide, vérifier au niveau racine
-            if not album and "album_name" in status:
-                album = status.get("album_name", "")
-            
-            # Récupération intelligente de l'image d'album
-            album_art_url = None
-            # 1. Format objet album avec 'images'
-            if "album" in current_track and isinstance(current_track["album"], dict):
-                album_art_url = self.get_album_art_url(current_track.get("album", {}))
-            # 2. Format champ simple 'album_cover_url'
-            elif "album_cover_url" in current_track:
-                album_art_url = current_track.get("album_cover_url")
-            
-            # Si l'URL est toujours vide, vérifier au niveau racine
-            if not album_art_url and "album_cover_url" in status:
-                album_art_url = status.get("album_cover_url")
-            
-            # Récupération de la durée
-            duration_ms = (
-                current_track.get("duration_ms", 0) or 
-                current_track.get("duration", 0) or
-                status.get("duration", 0)
-            )
-            
-            # Récupération de l'URI de la piste
-            track_uri = current_track.get("uri") or status.get("uri")
-            
-            # Extraction des métadonnées si une piste est en cours
-            metadata = {
-                "title": current_track.get("name", "Inconnu"),
-                "artist": artist or "Inconnu",
-                "album": album or "Inconnu",
-                "album_art_url": album_art_url,
-                "duration_ms": duration_ms,
-                "position_ms": position_ms,
-                "is_playing": is_playing,
-                "connected": True,
+            # Créer un dictionnaire de base avec les informations de connexion
+            result = {
+                "connected": bool(status.get("username")),
                 "deviceConnected": True,
-                "username": username,
-                "device_name": device_name,
-                "track_uri": track_uri
+                "device_name": status.get("device_name", "oakOS"),
+                "username": status.get("username"),
+                "is_playing": False  # Valeur par défaut
             }
             
-            # Log détaillé des métadonnées extraites
-            self.logger.info(f"Métadonnées extraites: title={metadata['title']}, "
-                            f"artist={metadata['artist']}, album={metadata['album']}, "
-                            f"album_art_url={'présent' if metadata['album_art_url'] else 'absent'}")
+            # Déterminer l'état de lecture à partir de différentes sources
+            if "player" in status and "is_playing" in status["player"]:
+                result["is_playing"] = status["player"]["is_playing"]
+            elif "paused" in status:
+                result["is_playing"] = not status["paused"]
+            elif "stopped" in status:
+                result["is_playing"] = not status["stopped"]
             
-            return metadata
+            # Si aucune information sur la piste n'est disponible, retourner seulement les infos de connexion
+            has_track_info = ("player" in status and "current_track" in status["player"]) or "track" in status
+            
+            if not has_track_info:
+                if status.get("username"):
+                    self.logger.debug(f"Appareil connecté via username: {status.get('username')} - En attente de lecture")
+                    return result
+                return {}
+            
+            # Parcourir tous les chemins connus pour extraire les métadonnées
+            for path_info in self.METADATA_PATHS:
+                # Déballage du tuple (en gérant les cas avec ou sans fonction de transformation)
+                if len(path_info) == 3:
+                    path, target_key, transform_func = path_info
+                else:
+                    path, target_key = path_info
+                    transform_func = None
+                
+                # Récupérer la valeur
+                value = self.get_nested_value(status, path)
+                
+                # Traiter la valeur si elle existe
+                if value is not None:
+                    # Appliquer la fonction de transformation si définie
+                    if transform_func:
+                        try:
+                            value = transform_func(value)
+                        except Exception as e:
+                            self.logger.warning(f"Erreur lors de la transformation de {path}: {e}")
+                            continue
+                    
+                    # Stocker dans le résultat uniquement les valeurs non vides
+                    if value not in (None, "", "Inconnu"):
+                        result[target_key] = value
+            
+            # Si nous n'avons pas d'informations minimales sur la piste, retourner seulement les infos de connexion
+            if not result.get("title"):
+                if status.get("username"):
+                    return result
+                return {}
+            
+            # Logs moins fréquents (1 sur 5)
+            self.log_interval_counter = (self.log_interval_counter + 1) % 5
+            if self.log_interval_counter == 0:
+                self.logger.info(f"Métadonnées extraites: title={result.get('title', 'Non disponible')}, "
+                                f"artist={result.get('artist', 'Non disponible')}")
+            
+            return result
                 
         except Exception as e:
-            self.logger.error(f"Erreur lors de la récupération des métadonnées: {str(e)}")
+            self.logger.error(f"Erreur lors de l'extraction des métadonnées: {str(e)}")
             return {}
     
     async def extract_from_event(self, event_type: str, event_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -209,8 +168,8 @@ class MetadataProcessor:
         Returns:
             Dict[str, Any]: Métadonnées extraites
         """
-        # Extraction des métadonnées spécifiques au type d'événement
-        if event_type == 'metadata':
+        # Événements metadata contiennent directement les informations nécessaires
+        if event_type == 'metadata' and event_data:
             metadata = {
                 "title": event_data.get("name"),
                 "artist": ", ".join(event_data.get("artist_names", [])),
@@ -223,63 +182,57 @@ class MetadataProcessor:
                 "deviceConnected": True,
                 "track_uri": event_data.get("uri")
             }
-            return metadata
+            
+            # Ne retourner que les métadonnées avec au moins un champ significatif
+            if metadata.get("title") or metadata.get("artist"):
+                return metadata
         
         # Pour les autres types d'événements, retourner un dictionnaire vide
         return {}
     
     async def publish_metadata(self, metadata: Dict[str, Any]) -> None:
         """
-        Publie des métadonnées sur le bus d'événements, en préservant les données précédentes utiles.
+        Publie des métadonnées sur le bus d'événements - version optimisée.
         
         Args:
             metadata: Métadonnées à publier
         """
         # Vérifier que nous avons des métadonnées non vides
         if not metadata:
-            self.logger.debug("Métadonnées vides, pas de publication")
+            return
+        
+        # Vérifications rapides pour éviter le traitement inutile
+        if metadata == self.last_metadata:
             return
             
-        # Préserver les informations importantes des métadonnées précédentes
-        merged_metadata = {}
+        # Fusionner uniquement les champs critiques si nécessaire
+        merged_metadata = metadata.copy()
         
-        # Si nous avions des métadonnées précédentes, les conserver comme base
         if self.last_metadata:
-            # Pour les champs critiques comme artist, album, album_art_url
-            # garder les anciens si les nouveaux sont vides/None/défaut
-            merged_metadata = self.last_metadata.copy()
+            # Pour chaque champ critique, préserver les anciennes valeurs si les nouvelles sont vides
+            for key in self.CRITICAL_FIELDS:
+                if (key not in merged_metadata or not merged_metadata[key]) and key in self.last_metadata:
+                    merged_metadata[key] = self.last_metadata[key]
         
-        # Mettre à jour avec les nouvelles métadonnées
-        for key, value in metadata.items():
-            # Ne pas écraser les valeurs importantes par des valeurs "par défaut"
-            if key in ["artist", "album", "album_art_url"]:
-                if key not in merged_metadata or (
-                    value and value != "Inconnu" and value != merged_metadata.get(key)
-                ):
-                    merged_metadata[key] = value
-            else:
-                # Pour les autres champs, toujours prendre la valeur la plus récente
-                merged_metadata[key] = value
-        
-        # Maintenant vérifier si les métadonnées fusionnées sont différentes des dernières publiées
+        # Vérifier après fusion si identique à la dernière publication
         if merged_metadata == self.last_metadata:
-            self.logger.debug("Métadonnées identiques aux précédentes, pas de publication")
             return
-            
+        
         # Mettre à jour les dernières métadonnées
         self.last_metadata = merged_metadata.copy()
         
-        # Log détaillé pour le débogage des métadonnées
-        self.logger.info(f"Publication de métadonnées fusionnées: title={merged_metadata.get('title')}, "
-                        f"artist={merged_metadata.get('artist')}, album={merged_metadata.get('album')}, "
-                        f"album_art_url={'présent' if merged_metadata.get('album_art_url') else 'absent'}")
+        # Logs moins fréquents (1 sur 3)
+        self.log_interval_counter = (self.log_interval_counter + 1) % 3
+        if self.log_interval_counter == 0:
+            self.logger.info(f"Publication de métadonnées: title={merged_metadata.get('title', 'Non disponible')}, "
+                            f"artist={merged_metadata.get('artist', 'Non disponible')}")
         
-        # Publier les métadonnées fusionnées
+        # Publier les métadonnées
         await self.event_bus.publish("audio_metadata_updated", {
             "source": self.source_name,
             "metadata": merged_metadata
         })
-        
+    
     async def publish_status(self, status: str, details: Optional[Dict[str, Any]] = None) -> None:
         """
         Publie un événement de statut sur le bus d'événements.
@@ -288,10 +241,10 @@ class MetadataProcessor:
             status: Statut à publier (playing, paused, stopped, etc.)
             details: Détails supplémentaires du statut
         """
-        # Déterminer si l'état implique une connexion
+        # Déterminer rapidement si l'état implique une connexion
         is_connected = status in ["playing", "paused", "connected", "active"]
         
-        # Créer un objet de base avec les informations essentielles
+        # Créer un objet de base avec les informations essentielles uniquement
         status_data = {
             "source": self.source_name,
             "status": status,
@@ -301,17 +254,9 @@ class MetadataProcessor:
         
         # Ajouter les détails supplémentaires s'ils existent
         if details:
-            # Éviter les doublons en ne surchargeant pas les champs déjà définis
-            # sauf si c'est intentionnel (par exemple, forcer connected=False)
             for key, value in details.items():
                 if key not in status_data or details.get("force_override", False):
                     status_data[key] = value
         
-        # Nettoyer les champs de métadonnées trop volumineux pour les logs
-        log_data = {k: v for k, v in status_data.items() 
-                    if k not in ["album_art_url", "track_uri"]}
-        
-        self.logger.debug(f"Publication du statut {status}: {log_data}")
-        
-        # Publier l'événement
+        # Publier l'événement sans logging excessif
         await self.event_bus.publish("audio_status_updated", status_data)

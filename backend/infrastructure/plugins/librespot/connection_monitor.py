@@ -9,7 +9,7 @@ from typing import Dict, Any, Callable, Optional
 class ConnectionMonitor:
     """Surveille l'état de connexion des appareils à go-librespot"""
     
-    def __init__(self, api_client, metadata_processor, polling_interval: float = 1.0):
+    def __init__(self, api_client, metadata_processor, polling_interval: float = 3.0):  # Fréquence de polling
         self.api_client = api_client
         self.metadata_processor = metadata_processor
         self.polling_interval = polling_interval

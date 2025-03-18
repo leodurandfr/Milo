@@ -6,6 +6,7 @@ import logging
 import json
 import yaml
 import os
+import time
 from typing import Dict, Any, Optional
 
 class LibrespotApiClient:
@@ -16,6 +17,9 @@ class LibrespotApiClient:
         self.config_path = config_path
         self.session = None
         self.logger = logging.getLogger("librespot.api")
+        # Initialisation du cache pour les requêtes API
+        self.status_cache = {"data": None, "timestamp": 0}
+        self.cache_ttl_ms = 500  # 500ms de TTL pour le cache
     
     async def initialize(self) -> bool:
         """Initialise le client API"""
@@ -33,18 +37,28 @@ class LibrespotApiClient:
                 self.api_url = "http://localhost:3678"
                 self.logger.warning(f"Utilisation de l'URL par défaut: {self.api_url}")
             
-            self.session = aiohttp.ClientSession()
+            # Ne pas créer de nouvelle session si une existe déjà
+            if not self.session or self.session.closed:
+                self.session = aiohttp.ClientSession()
+                
             self.logger.info(f"Client API initialisé avec URL: {self.api_url}")
             return True
         except Exception as e:
             self.logger.error(f"Erreur lors de l'initialisation du client API: {e}")
+            # Fermer la session en cas d'erreur
+            await self.close()
             return False
     
     async def close(self) -> None:
-        """Ferme la session HTTP"""
-        if self.session:
-            await self.session.close()
-            self.session = None
+        """Ferme la session HTTP de manière sécurisée"""
+        if self.session and not self.session.closed:
+            try:
+                await self.session.close()
+            except Exception as e:
+                self.logger.error(f"Erreur lors de la fermeture de la session HTTP: {e}")
+            finally:
+                self.session = None
+                self.logger.debug("Session HTTP fermée")
     
     async def _read_librespot_config(self) -> bool:
         """
@@ -95,7 +109,7 @@ class LibrespotApiClient:
     
     async def fetch_status(self) -> Dict[str, Any]:
         """
-        Récupère le statut complet de go-librespot.
+        Récupère le statut complet de go-librespot avec mise en cache.
         
         Returns:
             Dict[str, Any]: Statut de go-librespot
@@ -103,6 +117,13 @@ class LibrespotApiClient:
         if not self.api_url:
             self.logger.error("URL de l'API go-librespot non configurée")
             raise Exception("URL de l'API go-librespot non configurée")
+        
+        # Vérifier si le cache est valide
+        now = time.time() * 1000
+        if (self.status_cache["data"] and 
+            now - self.status_cache["timestamp"] < self.cache_ttl_ms):
+            self.logger.debug("Statut go-librespot retourné depuis le cache")
+            return self.status_cache["data"]
             
         try:
             if not self.session:
@@ -113,12 +134,26 @@ class LibrespotApiClient:
                 if response.status == 200:
                     status_data = await response.json()
                     self.logger.debug(f"Statut go-librespot reçu: {status_data}")
+                    
+                    # Mettre à jour le cache
+                    self.status_cache = {
+                        "data": status_data,
+                        "timestamp": now
+                    }
+                    
                     return status_data
                 elif response.status == 204:
                     # Pour les réponses 204 (No Content), retourner un état minimal valide
-                    # C'est normal quand aucun appareil n'est connecté
+                    result = {"player": {"is_playing": False, "current_track": None}}
+                    
+                    # Mettre à jour le cache même pour les réponses 204
+                    self.status_cache = {
+                        "data": result,
+                        "timestamp": now
+                    }
+                    
                     self.logger.debug("API go-librespot : aucun contenu musical disponible (204)")
-                    return {"player": {"is_playing": False, "current_track": None}}
+                    return result
                 else:
                     error_text = await response.text()
                     self.logger.error(f"Erreur API go-librespot ({response.status}): {error_text}")
@@ -160,6 +195,9 @@ class LibrespotApiClient:
                     if response.status == 200:
                         result = await response.json()
                         self.logger.debug(f"Réponse API: {result}")
+                        # Invalider le cache pour les commandes GET qui modifient l'état
+                        if command == "status":
+                            self.status_cache["timestamp"] = 0
                         return result
                     else:
                         error_text = await response.text()
@@ -188,6 +226,9 @@ class LibrespotApiClient:
                 # Faire la requête API
                 async with self.session.post(url, data=data, headers=headers) as response:
                     if response.status in [200, 204]:
+                        # Invalider le cache après une commande qui modifie l'état
+                        self.status_cache["timestamp"] = 0
+                        
                         if response.status == 204:
                             self.logger.debug(f"Commande exécutée avec succès (204)")
                             return {}
