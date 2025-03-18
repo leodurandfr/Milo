@@ -135,9 +135,9 @@ class LibrespotApiClient:
         Envoie une commande à l'API go-librespot.
         
         Args:
-            command: Commande à envoyer (play, pause, next, previous, seek)
+            command: Commande à envoyer (play, resume, pause, playpause, next, prev, seek)
             params: Paramètres de la commande
-            
+                
         Returns:
             Dict[str, Any]: Réponse de l'API
         """
@@ -152,30 +152,57 @@ class LibrespotApiClient:
             method = "GET"
         
         try:
-            if not self.session:
-                self.session = aiohttp.ClientSession()
-                
+            # Journaliser la requête pour déboguer
+            self.logger.debug(f"Envoi de commande {method} {url} avec params: {params}")
+            
             if method == "GET":
                 async with self.session.get(url) as response:
                     if response.status == 200:
-                        return await response.json()
+                        result = await response.json()
+                        self.logger.debug(f"Réponse API: {result}")
+                        return result
                     else:
                         error_text = await response.text()
+                        self.logger.error(f"Erreur API ({response.status}): {error_text}")
                         raise Exception(f"Erreur API ({response.status}): {error_text}")
             else:
-                data = json.dumps(params) if params else None
-                headers = {"Content-Type": "application/json"} if data else None
+                # Adapter les paramètres selon les attentes de l'API go-librespot
+                adapted_params = params or {}  # Toujours utiliser au moins un objet vide pour POST
+
+                # Adaptation spécifique pour 'seek'
+                if command == 'seek' and 'position_ms' in adapted_params:
+                    adapted_params = {'position': adapted_params['position_ms']}
+                    if 'relative' in params:
+                        adapted_params['relative'] = params['relative']
                 
+                # S'assurer que next reçoit un corps même vide
+                if command == 'next' and not adapted_params:
+                    adapted_params = {}  # Envoyer un objet vide explicit
+                    
+                data = json.dumps(adapted_params)
+                headers = {"Content-Type": "application/json"}
+                
+                # Logs plus détaillés pour le débogage
+                self.logger.info(f"Envoi POST détaillé: {url}, data={data}, headers={headers}")
+                
+                # Faire la requête API
                 async with self.session.post(url, data=data, headers=headers) as response:
                     if response.status in [200, 204]:
                         if response.status == 204:
+                            self.logger.debug(f"Commande exécutée avec succès (204)")
                             return {}
                         else:
-                            return await response.json()
+                            result = await response.json()
+                            self.logger.debug(f"Réponse API: {result}")
+                            return result
                     else:
                         error_text = await response.text()
+                        self.logger.error(f"Erreur API ({response.status}): {error_text}")
                         raise Exception(f"Erreur API ({response.status}): {error_text}")
                         
+        except aiohttp.ClientError as e:
+            self.logger.error(f"Erreur de connexion lors de l'envoi de la commande {command}: {e}")
+            raise Exception(f"Erreur de connexion à go-librespot: {e}")
         except Exception as e:
             self.logger.error(f"Erreur lors de l'envoi de la commande {command}: {str(e)}")
             raise

@@ -22,12 +22,21 @@ export function useLibrespotControl() {
   async function togglePlayPause() {
     console.log('togglePlayPause appelé');
     const isPlaying = audioStore.metadata?.is_playing;
-    await executeCommand(isPlaying ? 'pause' : 'play');
+    
+    // Utiliser 'resume' au lieu de 'play' quand l'état est 'paused'
+    // Selon la doc go-librespot, 'play' est pour démarrer un nouveau contenu
+    // tandis que 'resume' est pour reprendre la lecture après une pause
+    await executeCommand(isPlaying ? 'pause' : 'resume');
+    
+    // Alternative: on peut aussi utiliser 'playpause' qui fait le toggle automatiquement
+    // await executeCommand('playpause');
   }
 
   async function previousTrack() {
     console.log('previousTrack appelé');
-    await executeCommand('previous');
+    // Mettre à jour pour utiliser 'prev' au lieu de 'previous'
+    // conformément à l'API go-librespot
+    await executeCommand('prev');
   }
 
   async function nextTrack() {

@@ -62,6 +62,9 @@ class EventHandler:
                 "deviceConnected": True,
                 "track_uri": event_data.get("uri")
             })
+            
+            # Force immédiate log pour débogage
+            self.logger.info("Événement playing reçu - État mis à jour: is_playing=True")
                 
         elif event_type == 'paused':
             # Lecture en pause - maintenir l'état connecté
@@ -71,6 +74,9 @@ class EventHandler:
                 "deviceConnected": True,
                 "track_uri": event_data.get("uri")
             })
+            
+            # Force immédiate log pour débogage
+            self.logger.info("Événement paused reçu - État mis à jour: is_playing=False")
             
         elif event_type == 'seek':
             # Changement de position dans la piste

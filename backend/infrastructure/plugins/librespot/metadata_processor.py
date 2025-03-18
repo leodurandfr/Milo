@@ -60,7 +60,7 @@ class MetadataProcessor:
     
     async def extract_from_status(self, status: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Extrait les métadonnées à partir d'un statut.
+        Extrait les métadonnées à partir d'un statut avec meilleure prise en charge du format go-librespot.
         
         Args:
             status: Statut de go-librespot
@@ -69,54 +69,133 @@ class MetadataProcessor:
             Dict[str, Any]: Métadonnées extraites
         """
         try:
+            # Journaliser le format complet pour débogage
+            self.logger.debug(f"Format du statut reçu: {status.keys()}")
+            
             # Vérifier si nous avons un username (si connecté à Spotify)
             username = status.get("username")
+            device_name = status.get("device_name", "oakOS")
             
-            player = status.get("player", {})
-            current_track = player.get("current_track", {})
+            # Structure dépend de la version de l'API
+            
+            # 1. Format standard avec 'player'
+            if "player" in status:
+                player = status.get("player", {})
+                current_track = player.get("current_track", {})
+                is_playing = player.get("is_playing", False)
+                position_ms = player.get("position_ms", 0)
+            
+            # 2. Format avec 'track' au niveau racine (documentation OpenAPI)    
+            elif "track" in status:
+                current_track = status.get("track", {})
+                is_playing = not status.get("paused", True)  # Inversé par rapport à "paused"
+                position_ms = status.get("position", 0) or (current_track.get("position") if current_track else 0)
+                
+                # Si aucun statut de lecture explicite, vérifier 'stopped'
+                if status.get("stopped", False):
+                    is_playing = False
+            
+            # 3. Aucun format reconnu    
+            else:
+                current_track = {}
+                is_playing = False
+                position_ms = 0
+                
+                # Log d'avertissement
+                self.logger.warning(f"Format de statut non reconnu: {status}")
             
             # Si pas de piste en cours mais l'utilisateur est connecté
             if not current_track and username:
-                # Retourner simplement l'état connecté, sans avertissement
                 self.logger.debug(f"Appareil connecté via username: {username} - En attente de lecture")
                 return {
                     "connected": True,
                     "deviceConnected": True,
                     "username": username,
-                    "device_name": status.get("device_name", "oakOS")
+                    "device_name": device_name,
+                    "is_playing": is_playing
                 }
                     
             # Si pas de piste en cours et pas connecté, renvoyer des métadonnées vides
             if not current_track:
                 return {}
-                    
+            
+            # Récupération intelligente des artistes (plusieurs formats possibles)
+            artist = ""
+            # 1. Format liste d'objets artistes avec 'name'
+            if "artists" in current_track and isinstance(current_track["artists"], list):
+                artist = self.format_artists(current_track.get("artists", []))
+            # 2. Format liste de noms d'artistes
+            elif "artist_names" in current_track and isinstance(current_track["artist_names"], list):
+                artist = ", ".join(current_track.get("artist_names", []))
+            # 3. Format champ simple 'artist'
+            elif "artist" in current_track:
+                artist = current_track.get("artist", "")
+            
+            # Si l'artiste est toujours vide, vérifier au niveau racine
+            if not artist and "artist_names" in status:
+                artist = ", ".join(status.get("artist_names", []))
+            
+            # Récupération intelligente de l'album
+            album = ""
+            # 1. Format objet album avec 'name'
+            if "album" in current_track and isinstance(current_track["album"], dict):
+                album = current_track.get("album", {}).get("name", "")
+            # 2. Format champ simple 'album_name'
+            elif "album_name" in current_track:
+                album = current_track.get("album_name", "")
+            
+            # Si l'album est toujours vide, vérifier au niveau racine
+            if not album and "album_name" in status:
+                album = status.get("album_name", "")
+            
+            # Récupération intelligente de l'image d'album
+            album_art_url = None
+            # 1. Format objet album avec 'images'
+            if "album" in current_track and isinstance(current_track["album"], dict):
+                album_art_url = self.get_album_art_url(current_track.get("album", {}))
+            # 2. Format champ simple 'album_cover_url'
+            elif "album_cover_url" in current_track:
+                album_art_url = current_track.get("album_cover_url")
+            
+            # Si l'URL est toujours vide, vérifier au niveau racine
+            if not album_art_url and "album_cover_url" in status:
+                album_art_url = status.get("album_cover_url")
+            
+            # Récupération de la durée
+            duration_ms = (
+                current_track.get("duration_ms", 0) or 
+                current_track.get("duration", 0) or
+                status.get("duration", 0)
+            )
+            
+            # Récupération de l'URI de la piste
+            track_uri = current_track.get("uri") or status.get("uri")
+            
             # Extraction des métadonnées si une piste est en cours
             metadata = {
                 "title": current_track.get("name", "Inconnu"),
-                "artist": self.format_artists(current_track.get("artists", [])),
-                "album": current_track.get("album", {}).get("name", "Inconnu"),
-                "album_art_url": self.get_album_art_url(current_track.get("album", {})),
-                "duration_ms": current_track.get("duration_ms", 0),
-                "position_ms": player.get("position_ms", 0),
-                "is_playing": player.get("is_playing", False),
-                # Simplification - un seul état "connected" au lieu de deux
+                "artist": artist or "Inconnu",
+                "album": album or "Inconnu",
+                "album_art_url": album_art_url,
+                "duration_ms": duration_ms,
+                "position_ms": position_ms,
+                "is_playing": is_playing,
                 "connected": True,
+                "deviceConnected": True,
                 "username": username,
-                "device_name": status.get("device_name", "oakOS"),
-                "track_uri": current_track.get("uri")
+                "device_name": device_name,
+                "track_uri": track_uri
             }
             
-            # Log uniquement au niveau debug pour les métadonnées régulières
-            self.logger.debug(f"Métadonnées extraites: {metadata}")
+            # Log détaillé des métadonnées extraites
+            self.logger.info(f"Métadonnées extraites: title={metadata['title']}, "
+                            f"artist={metadata['artist']}, album={metadata['album']}, "
+                            f"album_art_url={'présent' if metadata['album_art_url'] else 'absent'}")
             
             return metadata
                 
         except Exception as e:
-            # Réduire le niveau de log pour les erreurs fréquentes
-            if "Erreur API (204)" in str(e):
-                self.logger.debug(f"Aucun contenu disponible lors de la récupération des métadonnées: {str(e)}")
-            else:
-                self.logger.error(f"Erreur lors de la récupération des métadonnées: {str(e)}")
+            self.logger.error(f"Erreur lors de la récupération des métadonnées: {str(e)}")
             return {}
     
     async def extract_from_event(self, event_type: str, event_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -151,27 +230,55 @@ class MetadataProcessor:
     
     async def publish_metadata(self, metadata: Dict[str, Any]) -> None:
         """
-        Publie des métadonnées sur le bus d'événements.
+        Publie des métadonnées sur le bus d'événements, en préservant les données précédentes utiles.
         
         Args:
             metadata: Métadonnées à publier
         """
-        # Vérifier que les métadonnées sont différentes des dernières publiées
-        if metadata == self.last_metadata:
+        # Vérifier que nous avons des métadonnées non vides
+        if not metadata:
+            self.logger.debug("Métadonnées vides, pas de publication")
+            return
+            
+        # Préserver les informations importantes des métadonnées précédentes
+        merged_metadata = {}
+        
+        # Si nous avions des métadonnées précédentes, les conserver comme base
+        if self.last_metadata:
+            # Pour les champs critiques comme artist, album, album_art_url
+            # garder les anciens si les nouveaux sont vides/None/défaut
+            merged_metadata = self.last_metadata.copy()
+        
+        # Mettre à jour avec les nouvelles métadonnées
+        for key, value in metadata.items():
+            # Ne pas écraser les valeurs importantes par des valeurs "par défaut"
+            if key in ["artist", "album", "album_art_url"]:
+                if key not in merged_metadata or (
+                    value and value != "Inconnu" and value != merged_metadata.get(key)
+                ):
+                    merged_metadata[key] = value
+            else:
+                # Pour les autres champs, toujours prendre la valeur la plus récente
+                merged_metadata[key] = value
+        
+        # Maintenant vérifier si les métadonnées fusionnées sont différentes des dernières publiées
+        if merged_metadata == self.last_metadata:
             self.logger.debug("Métadonnées identiques aux précédentes, pas de publication")
             return
             
-        self.last_metadata = metadata.copy()
+        # Mettre à jour les dernières métadonnées
+        self.last_metadata = merged_metadata.copy()
         
-        # Publier les métadonnées
+        # Log détaillé pour le débogage des métadonnées
+        self.logger.info(f"Publication de métadonnées fusionnées: title={merged_metadata.get('title')}, "
+                        f"artist={merged_metadata.get('artist')}, album={merged_metadata.get('album')}, "
+                        f"album_art_url={'présent' if merged_metadata.get('album_art_url') else 'absent'}")
+        
+        # Publier les métadonnées fusionnées
         await self.event_bus.publish("audio_metadata_updated", {
             "source": self.source_name,
-            "metadata": metadata
+            "metadata": merged_metadata
         })
-        
-        # Log des métadonnées importantes
-        if "title" in metadata:
-            self.logger.info(f"Métadonnées publiées: {metadata.get('title')} - {metadata.get('artist')}")
         
     async def publish_status(self, status: str, details: Optional[Dict[str, Any]] = None) -> None:
         """

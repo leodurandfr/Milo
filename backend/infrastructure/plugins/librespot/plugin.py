@@ -306,42 +306,78 @@ class LibrespotPlugin(BaseAudioPlugin):
         Traite une commande spécifique à cette source.
         
         Args:
-            command: Commande à exécuter (play, pause, next, prev, etc.)
+            command: Commande à exécuter (play, resume, pause, next, prev, etc.)
             data: Données supplémentaires pour la commande
-            
+                
         Returns:
             Dict[str, Any]: Résultat de la commande
         """
         self.logger.info(f"Traitement de la commande librespot: {command}")
         try:
-            if command in ["play", "pause", "next", "previous"]:
+            # Mapper les commandes frontend aux commandes API go-librespot
+            api_command_mapping = {
+                "play": "play",         # Démarrer un nouveau contenu
+                "resume": "resume",     # Reprendre après pause
+                "pause": "pause",       # Mettre en pause
+                "playpause": "playpause", # Toggle play/pause
+                "prev": "prev",         # Piste précédente
+                "previous": "prev",     # Alias pour prev
+                "next": "next",         # Piste suivante  
+                "seek": "seek"          # Seek
+            }
+            
+            # Obtenir la commande API correspondante
+            api_command = api_command_mapping.get(command, command)
+            
+            if api_command in ["play", "resume", "pause", "playpause", "prev", "next"]:
                 # Commandes de base supportées directement
-                await self.api_client.send_command(command)
+                self.logger.info(f"Exécution de la commande API: {api_command}")
+                await self.api_client.send_command(api_command, data)
                 
-                # Mettre à jour le statut
-                try:
-                    status = await self.api_client.fetch_status()
-                    is_playing = status.get("player", {}).get("is_playing", False)
+                # Obtenir immédiatement le nouvel état après la commande
+                status = await self.api_client.fetch_status()
+                
+                # Vérifier si la piste est en cours de lecture selon l'API
+                is_playing = not status.get("paused", True)  # Par défaut considérer comme pausé
+                
+                # Mettre à jour le statut avec les infos correctes
+                new_status = "playing" if is_playing else "paused"
+                await self.metadata_processor.publish_status(new_status, {
+                    "is_playing": is_playing,
+                    "connected": True, 
+                    "deviceConnected": True
+                })
+                
+                # Actualiser les métadonnées complètes
+                metadata = await self.metadata_processor.extract_from_status(status)
+                if metadata:
+                    await self.metadata_processor.publish_metadata(metadata)
+                
+                return {
+                    "success": True, 
+                    "status": new_status,
+                    "is_playing": is_playing
+                }
                     
-                    await self.metadata_processor.publish_status("playing" if is_playing else "paused", {
-                        "is_playing": is_playing,
-                        "connected": True,
-                        "deviceConnected": True
-                    })
-                except Exception as e:
-                    self.logger.error(f"Erreur lors de la mise à jour du statut après {command}: {e}")
-                
-                return {"success": True, "status": "playing" if is_playing else "paused"}
-                
-            elif command == "seek":
+            elif api_command == "seek":
                 # Position en millisecondes
                 position_ms = data.get("position_ms")
                 if position_ms is not None:
-                    await self.api_client.send_command("seek", {"position_ms": position_ms})
-                    return {"success": True}
+                    # Envoyer la commande de seek
+                    await self.api_client.send_command("seek", {"position": position_ms})
+                    
+                    # Publier un événement de seek
+                    seek_data = {
+                        "position_ms": position_ms,
+                        "seek_timestamp": int(time.time() * 1000),
+                        "source": self.name
+                    }
+                    await self.event_bus.publish("audio_seek", seek_data)
+                    
+                    return {"success": True, "position": position_ms}
                 else:
                     return {"success": False, "error": "Position manquante"}
-                    
+                        
             elif command == "volume":
                 # Volume en pourcentage (0-100)
                 volume = data.get("volume")
@@ -352,6 +388,7 @@ class LibrespotPlugin(BaseAudioPlugin):
                 else:
                     return {"success": False, "error": "Volume manquant"}
             
+            # Ajout des autres commandes...
             elif command == "refresh_metadata":
                 # Forcer une actualisation des métadonnées
                 try:
@@ -376,42 +413,10 @@ class LibrespotPlugin(BaseAudioPlugin):
                 except Exception as e:
                     return {"success": False, "error": f"Erreur lors de l'actualisation des métadonnées: {str(e)}"}
             
-            elif command == "restart":
-                # Redémarrer le processus go-librespot
-                try:
-                    # Arrêter les composants
-                    await self.ws_client.stop()
-                    await self.connection_monitor.stop()
-                    
-                    # Redémarrer le processus
-                    if not await self.process_manager.restart_process():
-                        return {"success": False, "error": "Échec du redémarrage du processus go-librespot"}
-                    
-                    # Attendre que le processus démarre
-                    await asyncio.sleep(3)
-                    
-                    # Redémarrer les composants
-                    await self.ws_client.start()
-                    await self.connection_monitor.start()
-                    
-                    return {"success": True, "message": "Processus go-librespot redémarré avec succès"}
-                except Exception as e:
-                    return {"success": False, "error": f"Erreur lors du redémarrage: {str(e)}"}
-                    
-            elif command == "force_disconnect":
-                # Forcer l'envoi d'un événement de déconnexion
-                await self.metadata_processor.publish_status("disconnected", {
-                    "connected": False,
-                    "deviceConnected": False,
-                    "is_playing": False,
-                    "forced_disconnect": True
-                })
-                self.device_connected = False
-                return {"success": True, "message": "Événement de déconnexion forcé envoyé"}
-                
+            # Si on arrive ici, la commande n'est pas supportée
             else:
                 return {"success": False, "error": f"Commande non supportée: {command}"}
-                
+                    
         except Exception as e:
             self.logger.error(f"Erreur lors du traitement de la commande {command}: {str(e)}")
             return {"success": False, "error": str(e)}
