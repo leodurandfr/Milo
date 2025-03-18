@@ -2,14 +2,14 @@
     <div class="progress-bar" v-if="duration > 0">
       <span class="time current">{{ formatTime(currentPosition) }}</span>
       <div class="progress-container" @click="onProgressClick">
-        <div class="progress" :style="{ width: progressPercentage + '%' }"></div>
+        <div class="progress" :style="{ width: progressPercent + '%' }"></div>
       </div>
       <span class="time total">{{ formatTime(duration) }}</span>
     </div>
   </template>
   
   <script setup>
-  import { computed } from 'vue';
+  import { computed, watch } from 'vue';
   
   const props = defineProps({
     currentPosition: {
@@ -27,6 +27,17 @@
   });
   
   const emit = defineEmits(['seek']);
+  
+  // Computed pour garantir une valeur numérique valide
+  const progressPercent = computed(() => {
+    const val = parseFloat(props.progressPercentage);
+    return isNaN(val) ? 0 : Math.min(100, Math.max(0, val));
+  });
+  
+  // Surveiller les changements pour le débogage
+  watch(() => props.currentPosition, (newPos) => {
+    console.log(`ProgressBar - Position: ${newPos}ms (${progressPercent.value.toFixed(1)}%)`);
+  });
   
   function formatTime(ms) {
     if (!ms) return '0:00';
@@ -76,7 +87,7 @@
     height: 100%;
     background-color: #1DB954;
     border-radius: 4px;
-    transition: width 0.1s linear;
+    /* Suppression de la transition pour éviter les interférences */
   }
   
   .time {

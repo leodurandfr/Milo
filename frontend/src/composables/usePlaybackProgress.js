@@ -1,330 +1,193 @@
 /**
- * Service pour gérer la progression de lecture en temps réel
- * Ce service complète le store audio en calculant localement la position
- * entre les mises à jour WebSocket
+ * Version ultra-simplifiée pour simuler la progression de lecture
  */
-import { ref, computed, watch, onMounted, onUnmounted, watchEffect } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useAudioStore } from '@/stores/audio';
 
 export function usePlaybackProgress() {
   const audioStore = useAudioStore();
   
-  // Variables locales pour le suivi de progression
-  const playbackStartTime = ref(null);     // Timestamp de début de lecture
-  const clientStartPosition = ref(0);      // Position au moment du début de lecture
-  const refreshInterval = ref(null);       // Intervalle de rafraîchissement de l'UI
-  const lastSeekTimestamp = ref(0);        // Timestamp du dernier seek reçu
-  const forceActivePlaying = ref(false);   // Forcer l'état de lecture actif
-  const currentPositionMs = ref(0);        // Position actuelle en ms (mise à jour activement)
-  const progressPercentageValue = ref(0);  // Pourcentage de progression (mis à jour activement)
-  const lastUpdateTime = ref(Date.now());  // Dernier moment où la position a été mise à jour
-  const lastLogTime = ref(0);              // Pour limiter les logs
+  // Variables d'état minimales
+  const currentPositionMs = ref(0);        // Position actuelle en ms
+  const progressPercentageValue = ref(0);  // Pourcentage de progression
+  const refreshTimer = ref(null);          // Timer pour la simulation
   
-  // Fonction pour mettre à jour la position actuelle et forcer la réactivité
-  function updateCurrentPosition() {
-    if (!playbackStartTime.value) {
-      currentPositionMs.value = clientStartPosition.value;
-      return;
-    }
-    
-    const now = Date.now();
-    const elapsed = now - playbackStartTime.value;
-    
-    // Calcul de la nouvelle position
-    const newPosition = clientStartPosition.value + elapsed;
-    
-    // Limite pour ne pas dépasser la durée totale
-    const duration = audioStore.metadata?.duration_ms || Infinity;
-    currentPositionMs.value = Math.min(newPosition, duration);
-    
-    // Calcul du pourcentage pour la barre de progression
-    if (duration && duration > 0) {
-      progressPercentageValue.value = (currentPositionMs.value / duration) * 100;
-    } else {
-      progressPercentageValue.value = 0;
-    }
-    
-    // Mettre à jour le timestamp de dernière mise à jour
-    lastUpdateTime.value = now;
-    
-    // Logs limités à chaque 10 secondes
-    if (now - lastLogTime.value > 10000) {
-      console.log(`Position: ${Math.floor(currentPositionMs.value/1000)}s (${progressPercentageValue.value.toFixed(1)}%)`);
-      lastLogTime.value = now;
-    }
-  }
-  
-  // Computed properties exposées (utilisant les refs actives)
+  // Exposition des valeurs via computed pour réactivité
   const currentPosition = computed(() => currentPositionMs.value);
   const progressPercentage = computed(() => progressPercentageValue.value);
   
-  // Vérifier si la lecture est réellement active
-  const isActuallyPlaying = computed(() => {
-    // Si force active est défini, prioritaire sur le reste
-    if (forceActivePlaying.value) {
-      return true;
-    }
+  // Fonction très simple pour incrémenter la position
+  function updatePosition() {
+    // Incrémenter la position de 250ms (puisque c'est notre intervalle)
+    currentPositionMs.value += 250;
     
-    // Récupérer l'état de lecture du store
-    const storeIsPlaying = audioStore.isPlaying;
-    
-    // Si nous avons reçu un seek récemment (dans les 10 dernières secondes),
-    // considérer que nous sommes en lecture
-    const recentSeek = (Date.now() - lastSeekTimestamp.value) < 10000;
-    
-    // Si métadonnées indiquent explicitement lecture en cours
-    const metadataPlaying = audioStore.metadata?.is_playing === true;
-    
-    return storeIsPlaying || recentSeek || metadataPlaying;
-  });
-  
-  // Surveiller l'état de lecture pour démarrer/arrêter le suivi
-  watch(isActuallyPlaying, (isPlaying) => {
-    console.log(`État de lecture changé: ${isPlaying}`);
-    
-    if (isPlaying) {
-      startProgressTracking();
-    } else {
-      // Délai pour éviter d'arrêter trop tôt en cas de transition
-      setTimeout(() => {
-        if (!isActuallyPlaying.value) {
-          stopProgressTracking();
-        }
-      }, 1000);
-    }
-  });
-  
-  // Surveiller les changements de position dans les métadonnées
-  watch(() => audioStore.metadata?.position_ms, (newPosition) => {
-    if (newPosition !== undefined && newPosition !== null) {
-      console.log(`Nouvelle position reçue: ${newPosition}ms`);
+    // Calculer le pourcentage
+    const duration = audioStore.metadata?.duration_ms || 0;
+    if (duration > 0) {
+      progressPercentageValue.value = (currentPositionMs.value / duration) * 100;
       
-      // Mise à jour de la position de référence
-      clientStartPosition.value = newPosition;
+      // Logs pour déboguer
+      if (currentPositionMs.value % 5000 < 250) { // Log environ toutes les 5 secondes
+        console.log(`Position: ${currentPositionMs.value}ms (${progressPercentageValue.value.toFixed(1)}%)`);
+      }
+      
+      // Si on a dépassé la durée, réinitialiser
+      if (currentPositionMs.value >= duration) {
+        currentPositionMs.value = duration;
+      }
+    }
+  }
+  
+  // Fonction pour démarrer la simulation
+  function startSimulation() {
+    // Nettoyage préalable pour être sûr
+    stopSimulation();
+    
+    console.log("⏱️ Démarrage de la simulation de progression");
+    
+    // Créer un nouvel intervalle
+    refreshTimer.value = setInterval(updatePosition, 250);
+  }
+  
+  // Fonction pour arrêter la simulation
+  function stopSimulation() {
+    if (refreshTimer.value) {
+      console.log("⏹️ Arrêt de la simulation de progression");
+      clearInterval(refreshTimer.value);
+      refreshTimer.value = null;
+    }
+  }
+  
+  // Synchroniser depuis les métadonnées
+  function syncFromMetadata() {
+    if (audioStore.metadata?.position_ms !== undefined) {
+      currentPositionMs.value = audioStore.metadata.position_ms;
+      
+      // Calculer le pourcentage
+      const duration = audioStore.metadata?.duration_ms || 0;
+      if (duration > 0) {
+        progressPercentageValue.value = (currentPositionMs.value / duration) * 100;
+      }
+      
+      console.log(`⏺️ Position synchronisée: ${currentPositionMs.value}ms`);
+    }
+  }
+  
+  // Surveiller la position dans les métadonnées
+  watch(() => audioStore.metadata?.position_ms, (newPosition) => {
+    if (newPosition !== undefined) {
+      console.log(`📌 Nouvelle position reçue: ${newPosition}ms`);
       currentPositionMs.value = newPosition;
       
-      // Réinitialiser le temps de début pour un calcul précis
-      if (isActuallyPlaying.value) {
-        playbackStartTime.value = Date.now();
-        
-        // S'assurer que le suivi est actif
-        if (!refreshInterval.value) {
-          startProgressTracking();
-        }
+      // Recalculer le pourcentage
+      const duration = audioStore.metadata?.duration_ms || 0;
+      if (duration > 0) {
+        progressPercentageValue.value = (currentPositionMs.value / duration) * 100;
       }
     }
   });
   
-  // Surveiller le changement de piste pour réinitialiser le suivi
-  watch(() => audioStore.metadata?.title, (newTitle, oldTitle) => {
-    if (newTitle && newTitle !== oldTitle) {
-      console.log(`Nouvelle piste: "${newTitle}"`);
+  // Surveiller l'état de lecture
+  watch(() => audioStore.metadata?.is_playing, (isPlaying) => {
+    if (isPlaying === true) {
+      console.log("▶️ Lecture détectée, démarrage de la simulation");
+      syncFromMetadata();
+      startSimulation();
+    } else if (isPlaying === false) {
+      console.log("⏸️ Pause détectée, arrêt de la simulation");
+      stopSimulation();
+    }
+  });
+  
+  // Surveiller les changements de piste
+  watch(() => audioStore.metadata?.title, (newTitle) => {
+    if (newTitle) {
+      console.log(`🎵 Nouvelle piste: "${newTitle}"`);
+      syncFromMetadata();
       
-      // Réinitialiser la position au début ou à la position indiquée
-      if (audioStore.metadata?.position_ms !== undefined) {
-        clientStartPosition.value = audioStore.metadata.position_ms;
-      } else {
-        clientStartPosition.value = 0;
-      }
-      
-      currentPositionMs.value = clientStartPosition.value;
-      
-      // Redémarrer le suivi si on est en lecture
-      if (isActuallyPlaying.value) {
-        stopProgressTracking();
-        startProgressTracking();
+      // Redémarrer la simulation si lecture en cours
+      if (audioStore.metadata?.is_playing !== false) {
+        startSimulation();
       }
     }
   });
   
-  // Démarrer le suivi de progression
-  function startProgressTracking() {
-    // Éviter les démarrages multiples
-    if (refreshInterval.value) {
-      return;
-    }
-    
-    console.log('Démarrage du suivi de progression');
-    
-    // Initialiser le temps de début
-    playbackStartTime.value = Date.now();
-    
-    // Utiliser la position du store ou la dernière position connue
-    if (audioStore.metadata?.position_ms !== undefined) {
-      clientStartPosition.value = audioStore.metadata.position_ms;
-      currentPositionMs.value = clientStartPosition.value;
-    }
-    
-    // Créer un nouvel intervalle (250ms = 4 fois par seconde, bon équilibre performance/fluidité)
-    refreshInterval.value = setInterval(() => {
-      if (isActuallyPlaying.value) {
-        updateCurrentPosition();
-      }
-    }, 250);
-    
-    // Mettre à jour immédiatement
-    updateCurrentPosition();
-  }
-  
-  // Arrêter le suivi de progression
-  function stopProgressTracking() {
-    // Éviter les arrêts multiples
-    if (!refreshInterval.value) {
-      return;
-    }
-    
-    console.log('Arrêt du suivi de progression');
-    
-    // Sauvegarder la position actuelle
-    updateCurrentPosition();
-    clientStartPosition.value = currentPositionMs.value;
-    
-    // Arrêter l'intervalle
-    clearInterval(refreshInterval.value);
-    refreshInterval.value = null;
-    
-    // Réinitialiser le temps de début
-    playbackStartTime.value = null;
-    
-    // Réinitialiser l'état de force active
-    forceActivePlaying.value = false;
-  }
-  
-  // Forcer une position spécifique (par exemple après un seek manuel)
-  function seekTo(position) {
-    console.log(`Seek manuel à ${position}ms`);
-    
-    // Enregistrer le timestamp du seek
-    lastSeekTimestamp.value = Date.now();
-    
-    // Mettre à jour la position localement
-    clientStartPosition.value = position;
-    currentPositionMs.value = position;
-    
-    // Réinitialiser le temps de début
-    playbackStartTime.value = Date.now();
-    
-    // Forcer la lecture active
-    forceActivePlaying.value = true;
-    
-    // S'assurer que le suivi est actif
-    if (!refreshInterval.value) {
-      startProgressTracking();
-    } else {
-      // Mise à jour immédiate
-      updateCurrentPosition();
-    }
-    
-    // Envoyer la commande au backend
-    audioStore.controlSource('librespot', 'seek', { position_ms: position });
-    
-    // Désactiver l'état forcé après un certain temps
-    setTimeout(() => {
-      forceActivePlaying.value = false;
-    }, 5000);
-  }
-  
-  // Gérer les événements de seek reçus (par ex. depuis l'app Spotify officielle)
+  // Fonction pour gérer les événements de seek
   function handleSeekEvent(event) {
-    console.log('Événement audio-seek reçu:', event.detail);
-    
-    const { position, timestamp, source } = event.detail;
-    
-    // Vérifier que la position est valide et que l'événement concerne notre source
-    if (position !== undefined && (!source || source === 'librespot')) {
-      // Mettre à jour la position
-      clientStartPosition.value = position;
+    const position = event.detail.position_ms;
+    if (position !== undefined) {
+      console.log(`↪️ Événement seek reçu: ${position}ms`);
       currentPositionMs.value = position;
       
-      // Réinitialiser le temps de début
-      playbackStartTime.value = timestamp || Date.now();
-      
-      // Enregistrer le timestamp du seek
-      lastSeekTimestamp.value = Date.now();
-      
-      // Forcer l'état de lecture actif
-      forceActivePlaying.value = true;
-      
-      // S'assurer que le suivi est actif
-      if (!refreshInterval.value) {
-        startProgressTracking();
-      } else {
-        // Mise à jour immédiate
-        updateCurrentPosition();
+      // Recalculer le pourcentage
+      const duration = audioStore.metadata?.duration_ms || 0;
+      if (duration > 0) {
+        progressPercentageValue.value = (currentPositionMs.value / duration) * 100;
       }
-      
-      console.log(`Seek traité: position=${position}ms`);
-      
-      // Désactiver l'état forcé après un certain temps
-      setTimeout(() => {
-        forceActivePlaying.value = false;
-      }, 5000);
     }
   }
   
-  // Initialiser le suivi au montage du composant
+  // Fonction publique pour effectuer un seek manuel
+  function seekTo(position) {
+    console.log(`⏩ Seek manuel à: ${position}ms`);
+    currentPositionMs.value = position;
+    
+    // Recalculer le pourcentage
+    const duration = audioStore.metadata?.duration_ms || 0;
+    if (duration > 0) {
+      progressPercentageValue.value = (currentPositionMs.value / duration) * 100;
+    }
+  }
+  
+  // Initialisation
   onMounted(() => {
-    console.log('Montage du composant de suivi de progression');
+    console.log("🔄 Montage du composable usePlaybackProgress");
     
-    // Nettoyer d'abord les écouteurs existants pour éviter les doublons
-    window.removeEventListener('audio-seek', handleSeekEvent);
-    
-    // Ajouter l'écouteur d'événements
+    // Écouter les événements de seek
     window.addEventListener('audio-seek', handleSeekEvent);
     
-    // Initialiser les valeurs à partir des métadonnées si disponibles
-    if (audioStore.metadata?.position_ms !== undefined) {
-      clientStartPosition.value = audioStore.metadata.position_ms;
-      currentPositionMs.value = clientStartPosition.value;
+    // Synchroniser la position initiale
+    syncFromMetadata();
+    
+    // Démarrer la simulation si une piste est en cours de lecture
+    if (audioStore.metadata?.title && audioStore.metadata?.is_playing !== false) {
+      startSimulation();
     }
     
-    // Démarrer le suivi si la lecture est active
-    if (isActuallyPlaying.value) {
-      // Petit délai pour s'assurer que tout est bien initialisé
-      setTimeout(() => {
-        startProgressTracking();
-      }, 100);
-    }
-    
-    // Créer un watchEffect pour détecter les incohérences (moins agressif)
-    watchEffect(() => {
-      const now = Date.now();
-      
-      // Si on est supposé être en lecture mais que la position n'a pas été mise à jour depuis longtemps
-      // (5 secondes au lieu de 2 pour réduire les faux positifs)
-      if (isActuallyPlaying.value && refreshInterval.value && 
-          (now - lastUpdateTime.value > 5000)) {
-        console.warn("Détection d'incohérence: lecture active mais position non mise à jour");
-        // Forcer le redémarrage du suivi
-        stopProgressTracking();
-        startProgressTracking();
+    // Vérification périodique que la simulation fonctionne
+    const healthCheck = setInterval(() => {
+      // Si on a une piste en cours, la lecture n'est pas en pause,
+      // mais la simulation n'est pas active
+      if (audioStore.metadata?.title && 
+          audioStore.metadata?.is_playing !== false && 
+          !refreshTimer.value) {
+        console.warn("🔄 La simulation devrait être active mais ne l'est pas, redémarrage...");
+        syncFromMetadata();
+        startSimulation();
       }
-    });
+    }, 5000);
     
-    // Forcer une première mise à jour
-    updateCurrentPosition();
+    // Nettoyer la vérification au démontage
+    onUnmounted(() => {
+      clearInterval(healthCheck);
+    });
   });
   
-  // Nettoyer les ressources au démontage du composant
+  // Nettoyage
   onUnmounted(() => {
-    console.log('Démontage du composant de suivi de progression');
-    
-    // Arrêter l'intervalle
-    if (refreshInterval.value) {
-      clearInterval(refreshInterval.value);
-      refreshInterval.value = null;
-    }
-    
-    // Supprimer l'écouteur d'événements
+    console.log("❌ Démontage du composable usePlaybackProgress");
+    stopSimulation();
     window.removeEventListener('audio-seek', handleSeekEvent);
   });
   
+  // Retourner les valeurs et fonctions nécessaires
   return {
-    currentPosition,
-    progressPercentage,
-    isActuallyPlaying,
-    seekTo,
-    startProgressTracking,
-    stopProgressTracking
+    currentPosition,         // Position actuelle en ms
+    progressPercentage,      // Pourcentage de progression
+    seekTo,                  // Fonction pour seek manuel
+    
+    // Pour compatibilité avec l'API précédente
+    startProgressTracking: startSimulation,
+    stopProgressTracking: stopSimulation
   };
 }
