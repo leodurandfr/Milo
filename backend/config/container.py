@@ -29,7 +29,7 @@ class Container(containers.DeclarativeContainer):
         event_bus=event_bus,
         config=providers.Dict({
             "config_path": "~/.config/go-librespot/config.yml",
-            "executable_path": "~/oakOS/go-librespot/go-librespot",  # Mise à jour du chemin selon l'erreur
+            "executable_path": "~/oakOS/go-librespot/go-librespot",
             "polling_interval": 1.0
         })
     )
