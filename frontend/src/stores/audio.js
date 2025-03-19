@@ -28,6 +28,44 @@ export const useAudioStore = defineStore('audio', () => {
     }
   });
 
+  /**
+   * Compare deux métadonnées pour déterminer si une mise à jour est nécessaire
+   * @param {Object} newMeta - Nouvelles métadonnées
+   * @param {Object} oldMeta - Anciennes métadonnées
+   * @returns {Boolean} - true si les métadonnées sont significativement différentes
+   */
+  function hasSignificantChanges(newMeta, oldMeta) {
+    // Si pas d'anciennes métadonnées ou d'identifiants différents, toujours mettre à jour
+    if (!oldMeta || !newMeta) return true;
+    
+    // Vérifier les changements critiques qui nécessitent une mise à jour
+    const criticalChanges = [
+      // Changement de piste
+      newMeta.title !== oldMeta.title || 
+      newMeta.artist !== oldMeta.artist,
+      
+      // Changement d'état de lecture
+      newMeta.is_playing !== oldMeta.is_playing,
+      
+      // Changement d'état de connexion
+      newMeta.connected !== oldMeta.connected || 
+      newMeta.deviceConnected !== oldMeta.deviceConnected,
+      
+      // Changement d'artwork (seulement si les deux valeurs existent)
+      newMeta.album_art_url && oldMeta.album_art_url && 
+      newMeta.album_art_url !== oldMeta.album_art_url
+    ];
+    
+    // Ignorer les mises à jour de position trop fréquentes (moins de 1 seconde)
+    const positionChangeSignificant = 
+      !newMeta.position_ms || 
+      !oldMeta.position_ms || 
+      Math.abs(newMeta.position_ms - oldMeta.position_ms) > 1000;
+    
+    // Retourner true si au moins un changement critique est détecté
+    return criticalChanges.some(change => change) || positionChangeSignificant;
+  }
+
   // Actions
   async function fetchState() {
     try {
@@ -164,23 +202,29 @@ export const useAudioStore = defineStore('audio', () => {
         // Si nous recevons des métadonnées, nous ne sommes probablement pas déconnectés
         isDisconnected.value = false;
 
-        // MODIFICATION: Fusionner avec les métadonnées existantes au lieu de remplacer
+        // OPTIMISATION: Vérifier si les changements sont significatifs
         if (Object.keys(data.metadata).length > 0) {
-          // Préserver les métadonnées valides existantes
+          // Fusionner avec les métadonnées existantes
           const mergedMetadata = {
             ...metadata.value,  // Garder les anciennes métadonnées
-            ...data.metadata     // Ajouter les nouvelles
+            ...data.metadata    // Ajouter les nouvelles
           };
 
-          // Si nous avons des informations valides (titre, artiste), les stocker comme dernières bonnes métadonnées
-          if (hasValidMetadata(mergedMetadata)) {
-            lastKnownGoodMetadata.value = { ...mergedMetadata };
+          // Vérifier si la mise à jour est significative
+          if (hasSignificantChanges(mergedMetadata, metadata.value)) {
+            // Si nous avons des informations valides, les stocker
+            if (hasValidMetadata(mergedMetadata)) {
+              lastKnownGoodMetadata.value = { ...mergedMetadata };
+            }
+
+            // Mettre à jour les métadonnées
+            metadata.value = mergedMetadata;
+            console.log('Mise à jour significative des métadonnées appliquée');
+          } else {
+            console.log('Mise à jour des métadonnées ignorée (changements non significatifs)');
           }
 
-          // Toujours mettre à jour les métadonnées même si incomplètes
-          metadata.value = mergedMetadata;
-
-          // Mettre à jour l'état de connexion
+          // Toujours mettre à jour l'état de connexion indépendamment des métadonnées
           if (data.metadata.connected !== false) {
             lastKnownConnectedState.value = true;
           }
@@ -188,6 +232,7 @@ export const useAudioStore = defineStore('audio', () => {
           console.log('Empty metadata update ignored');
         }
       }
+
 
     } else if (eventType === 'audio_status_updated') {
       console.log('Status update received:', data);

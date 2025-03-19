@@ -1,6 +1,5 @@
-"""
-Surveillance de l'état de connexion pour le plugin librespot.
-"""
+# Remplacer dans backend/infrastructure/plugins/librespot/connection_monitor.py
+
 import asyncio
 import logging
 import time
@@ -9,10 +8,11 @@ from typing import Dict, Any, Callable, Optional
 class ConnectionMonitor:
     """Surveille l'état de connexion des appareils à go-librespot"""
     
-    def __init__(self, api_client, metadata_processor, polling_interval: float = 3.0):  # Fréquence de polling
+    def __init__(self, api_client, metadata_processor, polling_interval: float = 3.0):
         self.api_client = api_client
         self.metadata_processor = metadata_processor
-        self.polling_interval = polling_interval
+        self.base_polling_interval = polling_interval  # Intervalle de base
+        self.current_polling_interval = polling_interval  # Intervalle actuel
         self.logger = logging.getLogger("librespot.connection")
         self.polling_task = None
         self.is_connected = False
@@ -20,6 +20,12 @@ class ConnectionMonitor:
         self.was_connected = False
         self.connection_lost_counter = 0
         self.max_lost_checks = 3  # Nombre de vérifications consécutives échouées avant de déclarer une déconnexion
+        self.is_playing = False  # Suivi de l'état de lecture
+        
+        # Intervalles optimisés selon l'état
+        self.playing_interval = polling_interval  # Intervalle quand lecture en cours
+        self.paused_interval = polling_interval * 2  # Intervalle quand en pause
+        self.idle_interval = polling_interval * 5  # Intervalle quand inactif/déconnecté
     
     async def start(self) -> None:
         """Démarre la surveillance de connexion"""
@@ -58,6 +64,9 @@ class ConnectionMonitor:
                 
             # 2. Vérifier les informations du player
             player_status = status.get("player", {})
+            
+            # Mettre à jour l'état de lecture pour ajuster l'intervalle de polling
+            self.is_playing = player_status.get("is_playing", False)
             
             # Si le player a un statut, on est probablement connecté
             if player_status:
@@ -98,6 +107,18 @@ class ConnectionMonitor:
                     # Vérifier la connexion à chaque itération
                     is_connected = await self.check_connection()
                     
+                    # Adapter l'intervalle de polling en fonction de l'état
+                    if is_connected:
+                        if self.is_playing:
+                            # En lecture: intervalle standard
+                            self.current_polling_interval = self.playing_interval
+                        else:
+                            # En pause: intervalle plus long
+                            self.current_polling_interval = self.paused_interval
+                    else:
+                        # Déconnecté: intervalle encore plus long
+                        self.current_polling_interval = self.idle_interval
+                    
                     # Si la connexion est perdue, incrémenter le compteur
                     if self.was_connected and not is_connected:
                         self.connection_lost_counter += 1
@@ -117,7 +138,7 @@ class ConnectionMonitor:
                         await self.metadata_processor.publish_status("disconnected")
                         
                         # Continuer pour éviter de traiter d'autres cas
-                        await asyncio.sleep(self.polling_interval)
+                        await asyncio.sleep(self.current_polling_interval)
                         continue
                     
                     # Si l'état de connexion a changé, publier immédiatement
@@ -175,7 +196,7 @@ class ConnectionMonitor:
                             # Publier un événement de déconnexion explicite
                             await self.metadata_processor.publish_status("disconnected")
                 
-                await asyncio.sleep(self.polling_interval)
+                await asyncio.sleep(self.current_polling_interval)
                 
         except asyncio.CancelledError:
             self.logger.debug("Boucle de surveillance arrêtée")

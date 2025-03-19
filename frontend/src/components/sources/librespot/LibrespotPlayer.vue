@@ -16,8 +16,7 @@
         </div>
 
         <!-- Affichage quand aucun périphérique n'est connecté OU pas de métadonnées -->
-        <WaitingConnection v-else />
-
+        <WaitingConnection v-else sourceType="librespot" />
         <!-- Panneau de débogage (affiché uniquement quand showDebugInfo est true) -->
         <DebugPanel v-if="showDebugInfo" :statusResult="statusResult" :metadata="metadata"
             :currentPosition="currentPosition" :progressPercentage="progressPercentage"
@@ -45,7 +44,7 @@ import axios from 'axios';
 import NowPlayingInfo from './NowPlayingInfo.vue';
 import PlaybackControls from './PlaybackControls.vue';
 import ProgressBar from './ProgressBar.vue';
-import WaitingConnection from './WaitingConnection.vue';
+import WaitingConnection from './../WaitingConnection.vue';
 import DebugPanel from './DebugPanel.vue';
 
 const audioStore = useAudioStore();
