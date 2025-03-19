@@ -176,12 +176,7 @@ class LibrespotPlugin(BaseAudioPlugin):
             self.device_connected = is_connected
     
     async def start(self) -> bool:
-        """
-        Démarre la lecture audio via librespot.
-        
-        Returns:
-            bool: True si la lecture a démarré avec succès, False sinon
-        """
+        """Démarre la lecture audio via librespot."""
         self.logger.info("Démarrage de la source audio librespot")
         try:
             # Vérifier si go-librespot est déjà en cours d'exécution
@@ -193,12 +188,15 @@ class LibrespotPlugin(BaseAudioPlugin):
                     self.logger.error("Échec du démarrage du processus go-librespot")
                     return False
                 
-                # Attendre que le processus soit prêt
-                await asyncio.sleep(3)
+                # OPTIMISATION 1: Réduire le temps d'attente de 3s à 1s 
+                # et le mettre dans une variable configurable
+                await asyncio.sleep(self.config.get("process_startup_delay", 1.0))
             
-            # Démarrer les connexions et surveillances
-            await self.ws_client.start()
-            await self.connection_monitor.start()
+            # OPTIMISATION 2: Démarrer les connexions en parallèle
+            await asyncio.gather(
+                self.ws_client.start(),
+                self.connection_monitor.start()
+            )
             
             # Activer le plugin
             self.is_active = True

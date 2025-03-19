@@ -42,9 +42,9 @@ class ProcessManager:
             )
             
             # Attendre que le processus démarre
-            for i in range(10):  # Attendre jusqu'à 10 secondes
+            for i in range(1):  # Attendre jusqu'à 3 secondes
                 await asyncio.sleep(1)
-                self.logger.debug(f"Vérification du processus go-librespot ({i+1}/10)...")
+                self.logger.debug(f"Vérification du processus go-librespot ({i+1}/2)...")
                 
                 # Vérifier si le processus est toujours en cours
                 if process.poll() is not None:
@@ -55,7 +55,7 @@ class ProcessManager:
                     return False
                 
                 # Si on arrive ici, le processus est toujours en cours
-                if i >= 3:  # Après 3 secondes, considérer comme démarré
+                if i >= 1:  # Après 2 secondes, considérer comme démarré
                     self.process = process
                     self.logger.info(f"Processus go-librespot démarré avec PID: {process.pid}")
                     return True
