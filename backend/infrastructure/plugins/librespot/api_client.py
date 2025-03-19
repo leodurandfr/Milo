@@ -19,7 +19,7 @@ class LibrespotApiClient:
         self.logger = logging.getLogger("librespot.api")
         # Initialisation du cache pour les requêtes API
         self.status_cache = {"data": None, "timestamp": 0}
-        self.cache_ttl_ms = 500  # 500ms de TTL pour le cache
+        self.cache_ttl_ms = 1500  # 500ms de TTL pour le cache
     
     async def initialize(self) -> bool:
         """Initialise le client API"""

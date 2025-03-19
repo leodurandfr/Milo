@@ -27,7 +27,7 @@ export function usePlaybackProgress() {
       progressPercentageValue.value = (currentPositionMs.value / duration) * 100;
       
       // Logs pour déboguer
-      if (currentPositionMs.value % 5000 < 250) { // Log environ toutes les 5 secondes
+      if (currentPositionMs.value % 10000 < 1000) { // Log environ toutes les 10 secondes
         console.log(`Position: ${currentPositionMs.value}ms (${progressPercentageValue.value.toFixed(1)}%)`);
       }
       
@@ -46,7 +46,7 @@ export function usePlaybackProgress() {
     console.log("⏱️ Démarrage de la simulation de progression");
     
     // Créer un nouvel intervalle
-    refreshTimer.value = setInterval(updatePosition, 250);
+    refreshTimer.value = setInterval(updatePosition, 1000);
   }
   
   // Fonction pour arrêter la simulation

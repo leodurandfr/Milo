@@ -266,11 +266,11 @@ onMounted(() => {
         if (showDebugInfo.value) {
             checkStatus();
         }
-    }, 10000);
+    }, 30000);
 
     connectionCheckInterval.value = setInterval(() => {
         checkConnectionTimeout();
-    }, 10000);
+    }, 15000);
 });
 
 onUnmounted(() => {
