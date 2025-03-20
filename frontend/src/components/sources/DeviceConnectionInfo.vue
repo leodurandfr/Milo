@@ -21,7 +21,7 @@
   </template>
   
   <script setup>
-  import { useAudioStore } from '@/stores/audio';
+import { useAudioStore } from '@/stores/index';
   
   const props = defineProps({
     source: {

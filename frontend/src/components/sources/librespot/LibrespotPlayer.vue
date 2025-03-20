@@ -35,7 +35,7 @@
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
-import { useAudioStore } from '@/stores/audio';
+import { useAudioStore } from '@/stores/index';
 import { useLibrespotControl } from '@/composables/useLibrespotControl';
 import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
 import axios from 'axios';

@@ -1,4 +1,4 @@
-import { useAudioStore } from '@/stores/audio';
+import { useAudioStore } from '@/stores/index';
 import { ref } from 'vue';
 
 export function useLibrespotControl() {

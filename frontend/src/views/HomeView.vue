@@ -48,7 +48,7 @@
 
 <script setup>
 import { onMounted } from 'vue';
-import { useAudioStore } from '@/stores/audio';
+import { useAudioStore } from '@/stores/index';
 import useWebSocket from '@/services/websocket';
 import SourceDisplay from '@/components/SourceDisplay.vue';
 

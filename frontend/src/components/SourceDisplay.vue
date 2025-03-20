@@ -26,7 +26,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { useAudioStore } from '@/stores/audio';
+import { useAudioStore } from '@/stores/index';
 import LibrespotPlayer from './sources/librespot/LibrespotPlayer.vue';
 import DeviceConnectionInfo from './sources/DeviceConnectionInfo.vue';
 import WaitingConnection from './sources/WaitingConnection.vue';

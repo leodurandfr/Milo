@@ -2,7 +2,7 @@
  * Version ultra-simplifiée pour simuler la progression de lecture
  */
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { useAudioStore } from '@/stores/audio';
+import { useAudioStore } from '@/stores/index';
 
 export function usePlaybackProgress() {
   const audioStore = useAudioStore();
