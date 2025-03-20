@@ -85,8 +85,18 @@ onMounted(async () => {
   on('audio_status_updated', (data) => {
     audioStore.handleWebSocketUpdate('audio_status_updated', data);
   });
-    on('audio_seek', (data) => {
+  
+  on('audio_seek', (data) => {
     audioStore.handleWebSocketUpdate('audio_seek', data);
+  });
+  
+  // Événements spécifiques à Snapclient
+  on('snapclient_connection_request', (data) => {
+    audioStore.handleWebSocketUpdate('snapclient_connection_request', data);
+  });
+  
+  on('snapclient_connection_rejected', (data) => {
+    audioStore.handleWebSocketUpdate('snapclient_connection_rejected', data);
   });
 });
 </script>

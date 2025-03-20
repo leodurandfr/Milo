@@ -3,12 +3,14 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useLibrespotStore } from './librespot';
+import { useSnapclientStore } from './snapclient';
 import { useStateStore } from './state';
 import { useVolumeStore } from './volume';
 
 export const useAudioStore = defineStore('audio', () => {
   // Sous-stores
   const librespotStore = useLibrespotStore();
+  const snapclientStore = useSnapclientStore();
   const stateStore = useStateStore();
   const volumeStore = useVolumeStore();
   
@@ -23,10 +25,12 @@ export const useAudioStore = defineStore('audio', () => {
     set: (value) => volumeStore.setVolume(value)
   });
   
-  // Métadonnées actives (pour l'instant uniquement librespot)
+  // Métadonnées actives (sélection en fonction de la source active)
   const metadata = computed(() => {
     if (currentState.value === 'librespot') {
       return librespotStore.metadata;
+    } else if (currentState.value === 'macos') {
+      return snapclientStore.deviceInfo;
     }
     return {};
   });
@@ -42,6 +46,8 @@ export const useAudioStore = defineStore('audio', () => {
   const isDisconnected = computed(() => {
     if (currentState.value === 'librespot') {
       return librespotStore.isDisconnected;
+    } else if (currentState.value === 'macos') {
+      return !snapclientStore.isConnected;
     }
     return true;
   });
@@ -66,6 +72,9 @@ export const useAudioStore = defineStore('audio', () => {
       // Mettre à jour le sous-store approprié
       if (response.data.state === 'librespot') {
         librespotStore.updateMetadata(response.data.metadata || {});
+      } else if (response.data.state === 'macos') {
+        // Pour snapclient, vérifier le statut actuel
+        await snapclientStore.checkStatus();
       }
       
       // Mettre à jour le volume
@@ -108,6 +117,8 @@ export const useAudioStore = defineStore('audio', () => {
       // Déléguer au sous-store approprié
       if (source === 'librespot') {
         return await librespotStore.handleCommand(command, data);
+      } else if (source === 'macos') {
+        return await snapclientStore.handleCommand(command, data);
       }
       
       // Fallback à l'API générique
@@ -132,19 +143,26 @@ export const useAudioStore = defineStore('audio', () => {
   async function checkConnectionStatus() {
     if (currentState.value === 'librespot') {
       return await librespotStore.checkConnectionStatus();
+    } else if (currentState.value === 'macos') {
+      return await snapclientStore.checkStatus();
     }
     return false;
   }
   
   // Fonction pour la validité des métadonnées - pour compatibilité
   function hasValidMetadata(meta) {
-    return librespotStore.hasValidMetadata(meta);
+    if (currentState.value === 'librespot') {
+      return librespotStore.hasValidMetadata(meta);
+    }
+    return !!meta && Object.keys(meta).length > 0;
   }
   
   // Fonction pour effacer les métadonnées - pour compatibilité
   function clearMetadata() {
     if (currentState.value === 'librespot') {
       librespotStore.clearMetadata();
+    } else if (currentState.value === 'macos') {
+      snapclientStore.deviceInfo = {};
     }
   }
   
@@ -152,6 +170,8 @@ export const useAudioStore = defineStore('audio', () => {
   function updateMetadataFromStatus(metadataFromStatus) {
     if (currentState.value === 'librespot') {
       librespotStore.updateMetadata(metadataFromStatus);
+    } else if (currentState.value === 'macos' && metadataFromStatus) {
+      snapclientStore.deviceInfo = { ...metadataFromStatus };
     }
   }
   
@@ -166,6 +186,7 @@ export const useAudioStore = defineStore('audio', () => {
       // Si l'état change à 'none', effacer les métadonnées
       if (data.current_state === 'none') {
         librespotStore.clearMetadata();
+        snapclientStore.deviceInfo = {};
       }
     } 
     else if (eventType === 'volume_changed') {
@@ -174,10 +195,16 @@ export const useAudioStore = defineStore('audio', () => {
     else if (eventType === 'audio_error') {
       error.value = data.error;
     } 
+    else if (eventType === 'snapclient_connection_request') {
+      // Router l'événement vers le store snapclient
+      snapclientStore.handleEvent(eventType, data);
+    }
     else {
-      // Router les événements librespot
+      // Router les événements au store approprié
       if (data.source === 'librespot' || currentState.value === 'librespot') {
         librespotStore.handleEvent(eventType, data);
+      } else if (data.source === 'snapclient' || currentState.value === 'macos') {
+        snapclientStore.handleEvent(eventType, data);
       }
     }
   }

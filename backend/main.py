@@ -16,6 +16,7 @@ from backend.presentation.websockets.manager import WebSocketManager
 from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio import AudioState
 from backend.presentation.api.routes.librespot import setup_librespot_routes
+from backend.presentation.api.routes.snapclient import setup_snapclient_routes
 
 # Configuration du logging
 logging.basicConfig(
@@ -43,9 +44,12 @@ audio_state_machine = container.audio_state_machine()
 ws_manager = WebSocketManager()
 ws_event_handler = WebSocketEventHandler(event_bus, ws_manager)
 
-# Ajout des routes librespot
+# Ajout des routes pour les plugins
 librespot_router = setup_librespot_routes(lambda: container.librespot_plugin())
 app.include_router(librespot_router, prefix="/api")
+
+snapclient_router = setup_snapclient_routes(lambda: container.snapclient_plugin())
+app.include_router(snapclient_router, prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():
@@ -62,6 +66,16 @@ async def startup_event():
             logging.info("Plugin librespot enregistré avec succès")
         else:
             logging.error("Échec de l'initialisation du plugin librespot")
+            
+        # Initialiser le plugin snapclient
+        snapclient_plugin = container.snapclient_plugin()
+        if await snapclient_plugin.initialize():
+            # Enregistrer le plugin dans la machine à états
+            audio_state_machine.register_plugin(AudioState.MACOS, snapclient_plugin)
+            logging.info("Plugin snapclient enregistré avec succès")
+        else:
+            logging.error("Échec de l'initialisation du plugin snapclient")
+            
     except Exception as e:
         logging.error(f"Erreur lors de l'initialisation des plugins: {str(e)}")
 

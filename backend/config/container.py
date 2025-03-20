@@ -6,6 +6,7 @@ from dependency_injector import containers, providers
 from backend.application.event_bus import EventBus
 from backend.infrastructure.state.state_machine import AudioStateMachine
 from backend.infrastructure.plugins.librespot import LibrespotPlugin
+from backend.infrastructure.plugins.snapclient import SnapclientPlugin
 from backend.domain.audio import AudioState
 
 
@@ -31,6 +32,18 @@ class Container(containers.DeclarativeContainer):
             "config_path": "~/.config/go-librespot/config.yml",
             "executable_path": "~/oakOS/go-librespot/go-librespot",
             "polling_interval": 1.0
+        })
+    )
+    
+    # Plugin Snapclient (MacOS via Snapcast)
+    snapclient_plugin = providers.Singleton(
+        SnapclientPlugin,
+        event_bus=event_bus,
+        config=providers.Dict({
+            "executable_path": "/usr/bin/snapclient",  # Chemin standard après installation avec apt
+            "polling_interval": 5.0,
+            "auto_discover": False,  # Désactiver la découverte automatique au démarrage
+            "auto_connect": False    # Désactiver la connexion automatique
         })
     )
 
