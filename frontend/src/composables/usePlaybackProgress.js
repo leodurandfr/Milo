@@ -1,5 +1,5 @@
 /**
- * Version ultra-simplifiée pour simuler la progression de lecture
+ * Gestion optimisée de la progression de lecture
  */
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useAudioStore } from '@/stores/index';
@@ -7,29 +7,31 @@ import { useAudioStore } from '@/stores/index';
 export function usePlaybackProgress() {
   const audioStore = useAudioStore();
   
-  // Variables d'état minimales
-  const currentPositionMs = ref(0);        // Position actuelle en ms
-  const progressPercentageValue = ref(0);  // Pourcentage de progression
-  const refreshTimer = ref(null);          // Timer pour la simulation
+  // Variables d'état
+  const currentPositionMs = ref(0);
+  const progressPercentageValue = ref(0);
+  const refreshTimer = ref(null);
+  const lastUpdateTime = ref(Date.now());
+  const updateInterval = 250; // 250ms - bon compromis entre performance et fluidité
   
-  // Exposition des valeurs via computed pour réactivité
+  // Exposition des valeurs via computed
   const currentPosition = computed(() => currentPositionMs.value);
   const progressPercentage = computed(() => progressPercentageValue.value);
   
-  // Fonction très simple pour incrémenter la position
+  // Fonction pour mettre à jour la position basée sur le temps réel
   function updatePosition() {
-    // Incrémenter la position de 250ms (puisque c'est notre intervalle)
-    currentPositionMs.value += 250;
+    // Calculer le temps écoulé depuis la dernière mise à jour
+    const now = Date.now();
+    const elapsedMs = now - lastUpdateTime.value;
+    lastUpdateTime.value = now;
+    
+    // Mise à jour basée sur le temps réel écoulé
+    currentPositionMs.value += elapsedMs;
     
     // Calculer le pourcentage
     const duration = audioStore.metadata?.duration_ms || 0;
     if (duration > 0) {
       progressPercentageValue.value = (currentPositionMs.value / duration) * 100;
-      
-      // Logs pour déboguer
-      if (currentPositionMs.value % 10000 < 1000) { // Log environ toutes les 10 secondes
-        console.log(`Position: ${currentPositionMs.value}ms (${progressPercentageValue.value.toFixed(1)}%)`);
-      }
       
       // Si on a dépassé la durée, réinitialiser
       if (currentPositionMs.value >= duration) {
@@ -40,19 +42,19 @@ export function usePlaybackProgress() {
   
   // Fonction pour démarrer la simulation
   function startSimulation() {
-    // Nettoyage préalable pour être sûr
+    // Nettoyage préalable
     stopSimulation();
     
-    console.log("⏱️ Démarrage de la simulation de progression");
+    // Initialiser le temps de référence
+    lastUpdateTime.value = Date.now();
     
     // Créer un nouvel intervalle
-    refreshTimer.value = setInterval(updatePosition, 1000);
+    refreshTimer.value = setInterval(updatePosition, updateInterval);
   }
   
   // Fonction pour arrêter la simulation
   function stopSimulation() {
     if (refreshTimer.value) {
-      console.log("⏹️ Arrêt de la simulation de progression");
       clearInterval(refreshTimer.value);
       refreshTimer.value = null;
     }
@@ -63,26 +65,31 @@ export function usePlaybackProgress() {
     if (audioStore.metadata?.position_ms !== undefined) {
       currentPositionMs.value = audioStore.metadata.position_ms;
       
-      // Calculer le pourcentage
+      // Recalculer le pourcentage
       const duration = audioStore.metadata?.duration_ms || 0;
       if (duration > 0) {
         progressPercentageValue.value = (currentPositionMs.value / duration) * 100;
       }
       
-      console.log(`⏺️ Position synchronisée: ${currentPositionMs.value}ms`);
+      // Réinitialiser le temps de référence
+      lastUpdateTime.value = Date.now();
     }
   }
   
   // Surveiller la position dans les métadonnées
   watch(() => audioStore.metadata?.position_ms, (newPosition) => {
     if (newPosition !== undefined) {
-      console.log(`📌 Nouvelle position reçue: ${newPosition}ms`);
-      currentPositionMs.value = newPosition;
-      
-      // Recalculer le pourcentage
-      const duration = audioStore.metadata?.duration_ms || 0;
-      if (duration > 0) {
-        progressPercentageValue.value = (currentPositionMs.value / duration) * 100;
+      // Vérifier si le changement est significatif (>1s)
+      const diff = Math.abs(newPosition - currentPositionMs.value);
+      if (diff > 1000) {
+        currentPositionMs.value = newPosition;
+        lastUpdateTime.value = Date.now();
+        
+        // Recalculer le pourcentage
+        const duration = audioStore.metadata?.duration_ms || 0;
+        if (duration > 0) {
+          progressPercentageValue.value = (currentPositionMs.value / duration) * 100;
+        }
       }
     }
   });
@@ -90,19 +97,16 @@ export function usePlaybackProgress() {
   // Surveiller l'état de lecture
   watch(() => audioStore.metadata?.is_playing, (isPlaying) => {
     if (isPlaying === true) {
-      console.log("▶️ Lecture détectée, démarrage de la simulation");
       syncFromMetadata();
       startSimulation();
     } else if (isPlaying === false) {
-      console.log("⏸️ Pause détectée, arrêt de la simulation");
       stopSimulation();
     }
   });
   
   // Surveiller les changements de piste
-  watch(() => audioStore.metadata?.title, (newTitle) => {
-    if (newTitle) {
-      console.log(`🎵 Nouvelle piste: "${newTitle}"`);
+  watch(() => audioStore.metadata?.title, (newTitle, oldTitle) => {
+    if (newTitle && newTitle !== oldTitle) {
       syncFromMetadata();
       
       // Redémarrer la simulation si lecture en cours
@@ -114,10 +118,10 @@ export function usePlaybackProgress() {
   
   // Fonction pour gérer les événements de seek
   function handleSeekEvent(event) {
-    const position = event.detail.position_ms;
+    const position = event.detail.position;
     if (position !== undefined) {
-      console.log(`↪️ Événement seek reçu: ${position}ms`);
       currentPositionMs.value = position;
+      lastUpdateTime.value = Date.now();
       
       // Recalculer le pourcentage
       const duration = audioStore.metadata?.duration_ms || 0;
@@ -129,8 +133,8 @@ export function usePlaybackProgress() {
   
   // Fonction publique pour effectuer un seek manuel
   function seekTo(position) {
-    console.log(`⏩ Seek manuel à: ${position}ms`);
     currentPositionMs.value = position;
+    lastUpdateTime.value = Date.now();
     
     // Recalculer le pourcentage
     const duration = audioStore.metadata?.duration_ms || 0;
@@ -141,8 +145,6 @@ export function usePlaybackProgress() {
   
   // Initialisation
   onMounted(() => {
-    console.log("🔄 Montage du composable usePlaybackProgress");
-    
     // Écouter les événements de seek
     window.addEventListener('audio-seek', handleSeekEvent);
     
@@ -153,40 +155,19 @@ export function usePlaybackProgress() {
     if (audioStore.metadata?.title && audioStore.metadata?.is_playing !== false) {
       startSimulation();
     }
-    
-    // Vérification périodique que la simulation fonctionne
-    const healthCheck = setInterval(() => {
-      // Si on a une piste en cours, la lecture n'est pas en pause,
-      // mais la simulation n'est pas active
-      if (audioStore.metadata?.title && 
-          audioStore.metadata?.is_playing !== false && 
-          !refreshTimer.value) {
-        console.warn("🔄 La simulation devrait être active mais ne l'est pas, redémarrage...");
-        syncFromMetadata();
-        startSimulation();
-      }
-    }, 5000);
-    
-    // Nettoyer la vérification au démontage
-    onUnmounted(() => {
-      clearInterval(healthCheck);
-    });
   });
   
   // Nettoyage
   onUnmounted(() => {
-    console.log("❌ Démontage du composable usePlaybackProgress");
     stopSimulation();
     window.removeEventListener('audio-seek', handleSeekEvent);
   });
   
   // Retourner les valeurs et fonctions nécessaires
   return {
-    currentPosition,         // Position actuelle en ms
-    progressPercentage,      // Pourcentage de progression
-    seekTo,                  // Fonction pour seek manuel
-    
-    // Pour compatibilité avec l'API précédente
+    currentPosition,
+    progressPercentage,
+    seekTo,
     startProgressTracking: startSimulation,
     stopProgressTracking: stopSimulation
   };
