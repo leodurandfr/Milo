@@ -55,7 +55,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, watch } from 'vue';
+import { computed, ref, onMounted, watch, onUnmounted } from 'vue';
 import { useAudioStore } from '@/stores/index';
 import { useSnapclientStore } from '@/stores/snapclient';
 import LibrespotPlayer from './sources/librespot/LibrespotPlayer.vue';
@@ -68,6 +68,8 @@ const snapclientStore = useSnapclientStore();
 // État local
 const discoveredServers = ref([]);
 const showDiscoveredServers = ref(false);
+const checkServerInterval = ref(null);
+const lastCheckTime = ref(0);
 
 const currentSource = computed(() => audioStore.currentState);
 
@@ -99,6 +101,8 @@ async function discoverSnapcastServers() {
   showDiscoveredServers.value = true;
   const servers = await snapclientStore.discoverServers();
   discoveredServers.value = servers;
+  lastCheckTime.value = Date.now();
+  return servers;
 }
 
 function toggleDiscoveredServers() {
@@ -129,18 +133,66 @@ function dismissSnapcastRequest() {
   snapclientStore.dismissConnectionRequest();
 }
 
-// Fonction pour Bluetooth (à implémenter)
+// Fonction pour Bluetooth
 async function disconnectBluetooth() {
   await audioStore.controlSource('bluetooth', 'disconnect');
 }
 
-// Surveiller les changements de source pour effectuer des actions spécifiques
+// Fonction de vérification périodique qui cherche activement des serveurs
+// quand on est déconnecté, et voit si un nouveau snapserver est disponible
+async function periodicServerCheck() {
+  // Si on n'est pas sur la source macos, ou si on est déjà connecté, ne rien faire
+  if (currentSource.value !== 'macos' || isDeviceConnected.value) {
+    return;
+  }
+  
+  // Si le dernier check est trop récent (<10s), ne pas vérifier à nouveau
+  const now = Date.now();
+  if (now - lastCheckTime.value < 10000) {
+    return;
+  }
+  
+  console.log("Vérification périodique des serveurs Snapcast...");
+  
+  // Forcer la mise à jour du statut d'abord
+  await snapclientStore.checkStatus();
+  
+  // Si toujours pas connecté, chercher des serveurs
+  if (!snapclientStore.isConnected) {
+    const servers = await discoverSnapcastServers();
+    
+    // Si un serveur est trouvé et qu'on n'est pas connecté, tenter une connexion
+    if (servers.length > 0 && !snapclientStore.isConnected) {
+      console.log("Serveur trouvé lors de la vérification périodique, tentative de connexion:", servers[0].host);
+      await connectToSnapcastServer(servers[0]);
+    }
+  }
+}
+
+watch(
+  () => [snapclientStore.isConnected, currentSource.value],
+  ([newIsConnected, newSource]) => {
+    if (newSource === 'macos') {
+      console.log("État de connexion snapclient modifié:", newIsConnected);
+      
+      // Si on vient de se déconnecter, vérifier s'il y a de nouveaux serveurs disponibles
+      if (!newIsConnected) {
+        setTimeout(() => {
+          discoverSnapcastServers();
+        }, 1000);
+      }
+    }
+  },
+  { immediate: true }
+);
+
+// Surveiller les changements de source
 watch(() => currentSource.value, (newSource) => {
   if (newSource === 'macos') {
     // Lorsqu'on active la source MacOS, vérifier le statut
     snapclientStore.checkStatus();
-    // Ne pas lancer automatiquement la découverte pour éviter de surcharger l'interface
-    showDiscoveredServers.value = false;
+    // Forcer une découverte initiale
+    discoverSnapcastServers();
   }
 }, { immediate: true });
 
@@ -148,6 +200,17 @@ onMounted(() => {
   // Vérifier si on est sur la source MacOS au démarrage
   if (currentSource.value === 'macos') {
     snapclientStore.checkStatus();
+    discoverSnapcastServers();
+    
+    // Démarrer la vérification périodique
+    checkServerInterval.value = setInterval(periodicServerCheck, 5000);
+  }
+});
+
+onUnmounted(() => {
+  // Nettoyer l'intervalle lors du démontage
+  if (checkServerInterval.value) {
+    clearInterval(checkServerInterval.value);
   }
 });
 </script>

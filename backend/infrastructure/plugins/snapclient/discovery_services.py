@@ -100,14 +100,31 @@ class DiscoveryService:
         self.last_known_active_server = host
         self.logger.info(f"Dernier serveur actif défini: {host}")
     
-    async def _test_single_server(self, host, port=1704, timeout=0.5) -> bool:
-        """Test la connexion à un serveur spécifique."""
+    async def _test_single_server(self, host, port=1704, timeout=1.0) -> bool:
+        """Test si un vrai serveur Snapcast est disponible."""
         try:
+            # Ouvrir la connexion
             future = asyncio.open_connection(host, port)
             reader, writer = await asyncio.wait_for(future, timeout=timeout)
-            writer.close()
-            await writer.wait_closed()
-            return True
+            
+            try:
+                # Envoyer une requête simple au serveur Snapcast
+                writer.write(b'{"id":1,"jsonrpc":"2.0","method":"Server.GetStatus"}\n')
+                await writer.drain()
+                
+                # Lire la réponse avec un timeout
+                response_future = reader.readline()
+                response = await asyncio.wait_for(response_future, timeout=timeout)
+                
+                # C'est un vrai serveur Snapcast s'il répond correctement
+                is_valid = b'jsonrpc' in response and b'result' in response
+            except Exception:
+                is_valid = False
+            finally:
+                writer.close()
+                await writer.wait_closed()
+                
+            return is_valid
         except Exception:
             return False
     

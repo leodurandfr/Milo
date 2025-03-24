@@ -181,37 +181,30 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       showConnectionRequest.value = true;
     }
     else if (eventType === 'audio_status_updated' && data.source === 'snapclient') {
+      // Mise à jour explicite des états
       if (data.status === 'connected' || data.connected === true || data.deviceConnected === true) {
         // Connexion établie
         isConnected.value = true;
 
-        // Mettre à jour les informations du périphérique et conserver les infos précédentes en cas de données partielles
-        if (data.host || data.device_name) {
-          deviceInfo.value = {
-            ...deviceInfo.value,  // Garder les informations existantes
-            host: data.host || deviceInfo.value.host,
-            deviceName: data.device_name || data.host || deviceInfo.value.deviceName || "Snapcast",
-            // Ajouter un timestamp pour savoir quand les données ont été mises à jour
-            lastUpdated: Date.now()
-          };
-        }
+        // Mettre à jour les informations du périphérique
+        deviceInfo.value = {
+          ...deviceInfo.value,
+          host: data.host || deviceInfo.value.host,
+          deviceName: data.device_name || data.host || deviceInfo.value.deviceName || "Snapcast",
+          lastUpdated: Date.now()
+        };
 
-        // Log de débogage
-        console.log("État snapclient mis à jour (connecté)", deviceInfo.value);
+        console.log("État snapclient: CONNECTÉ", deviceInfo.value);
       }
       else if (data.status === 'disconnected' || data.connected === false) {
-        // En cas de déconnexion explicite, mettre à jour l'état
+        // En cas de déconnexion explicite
         console.log("Déconnexion snapclient détectée");
+        isConnected.value = false;
 
-        // Ne réinitialiser l'état que si c'est une déconnexion explicite
-        if (data.status === 'disconnected') {
-          isConnected.value = false;
-          deviceInfo.value = {};
-        } else {
-          // Pour les autres cas, vérifier l'état actuel via l'API
-          console.log("Vérification de l'état de connexion via API...");
-          checkStatus();
-        }
+        // Forcer le rafraîchissement de la vue
+        setTimeout(() => {
+          deviceInfo.value = { ...deviceInfo.value, lastUpdated: Date.now() };
+        }, 100);
       }
     }
   }
