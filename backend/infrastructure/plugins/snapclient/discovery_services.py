@@ -125,7 +125,7 @@ class DiscoveryService:
             
             # Notifier via le callback si défini
             if self.discovery_callback:
-                await asyncio.to_thread(self.discovery_callback, server_info)
+                self.discovery_callback(server_info)
         
         # Mettre à jour les serveurs existants
         common_servers = servers.intersection(current_servers)

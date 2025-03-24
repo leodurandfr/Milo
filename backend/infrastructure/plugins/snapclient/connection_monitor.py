@@ -62,7 +62,26 @@ class ConnectionMonitor:
             # Obtenir la sortie du processus
             stdout, stderr = await self.process_manager.get_process_output()
             
-            # Analyser la sortie pour déterminer l'état de connexion
+            # AMÉLIORATION: Considérer qu'on reste connecté si le processus est en cours
+            # au lieu de chercher constamment des indications dans la sortie
+            
+            # Si nous étions déjà connectés et que le processus est toujours en cours,
+            # supposer que nous sommes toujours connectés.
+            if self.connected:
+                # Chercher des indications de déconnexion dans les logs
+                if "disconnected" in stdout.lower() or "connection closed" in stdout.lower():
+                    self.logger.info("Déconnexion détectée dans les logs")
+                    self.connected = False
+                    await self.metadata_processor.publish_status("disconnected", {
+                        "deviceConnected": False,
+                        "connected": False
+                    })
+                    return False
+                
+                # Sinon, on reste connecté
+                return True
+                
+            # Si on n'était pas connecté, chercher des indications de connexion
             is_connected = False
             host = None
             
@@ -74,7 +93,7 @@ class ConnectionMonitor:
                 host_match = re.search(r"[Cc]onnected to\s+([^\s:]+)", stdout)
                 if host_match:
                     host = host_match.group(1)
-                    
+            
             # Chercher des informations sur le serveur
             server_name = None
             server_version = None

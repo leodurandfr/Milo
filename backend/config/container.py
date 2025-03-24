@@ -40,10 +40,10 @@ class Container(containers.DeclarativeContainer):
         SnapclientPlugin,
         event_bus=event_bus,
         config=providers.Dict({
-            "executable_path": "/usr/bin/snapclient",  # Chemin standard après installation avec apt
+            "executable_path": "/usr/bin/snapclient",
             "polling_interval": 5.0,
-            "auto_discover": False,  # Désactiver la découverte automatique au démarrage
-            "auto_connect": False    # Désactiver la connexion automatique
+            "auto_discover": True, 
+            "auto_connect": True
         })
     )
 

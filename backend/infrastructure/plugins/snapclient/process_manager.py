@@ -43,10 +43,16 @@ class ProcessManager:
             
             # Ajouter l'hôte s'il est spécifié
             if host:
+                self.logger.info(f"Connexion explicite à l'hôte: {host}:{port}")
                 args.extend(["-h", host, "-p", str(port)])
+            else:
+                self.logger.info("Aucun hôte spécifié, snapclient cherchera automatiquement des serveurs")
+            
+            # Afficher la commande complète dans les logs
+            self.logger.info(f"Commande complète: {' '.join(args)}")
             
             # Démarrer le processus en arrière-plan
-            self.logger.info(f"Démarrage de snapclient: {' '.join(args)}")
+            self.logger.info(f"Démarrage de snapclient")
             process = subprocess.Popen(
                 args,
                 stdout=subprocess.PIPE,
@@ -97,35 +103,59 @@ class ProcessManager:
             if self.process.poll() is None:
                 self.logger.info(f"Arrêt du processus snapclient (PID: {self.process.pid})")
                 
+                # Enregistrer le PID pour contrôle ultérieur
+                pid = self.process.pid
+                
                 # Essayer d'abord un arrêt propre
                 self.process.terminate()
                 
-                # Attendre que le processus se termine (max 5 secondes)
+                # Attendre que le processus se termine (max 3 secondes)
+                killed = False
                 try:
-                    self.process.wait(timeout=5)
+                    self.logger.debug("Attente de la terminaison (timeout: 3s)")
+                    self.process.wait(timeout=3)
                     self.logger.info("Processus snapclient arrêté proprement")
                 except subprocess.TimeoutExpired:
                     # Si le processus ne se termine pas, le forcer
                     self.logger.warning("Le processus snapclient ne répond pas, utilisation de kill")
                     self.process.kill()
-                    await asyncio.sleep(1)
+                    killed = True
+                    await asyncio.sleep(0.5)
                 
                 # Vérifier le résultat
                 if self.process.poll() is None:
-                    self.logger.error("Impossible d'arrêter le processus snapclient")
-                    return False
-                else:
-                    self.logger.info("Processus snapclient arrêté")
-                    self.process = None
-                    return True
+                    # Si même kill ne fonctionne pas, essayer avec pkill
+                    self.logger.error("Impossible d'arrêter le processus snapclient avec les méthodes standard")
+                    
+                    # Essayer avec pkill en dernier recours
+                    try:
+                        subprocess.run(["pkill", "-9", "-P", str(pid)], check=False)
+                        await asyncio.sleep(0.5)
+                        
+                        # Vérifier si ça a fonctionné
+                        if subprocess.run(["ps", "-p", str(pid)], stdout=subprocess.PIPE).returncode == 0:
+                            self.logger.error(f"Impossible d'arrêter le processus {pid} même avec pkill")
+                            return False
+                    except Exception as e:
+                        self.logger.error(f"Erreur lors de l'utilisation de pkill: {str(e)}")
+                        return False
+                
+                if killed:
+                    self.logger.info("Processus snapclient arrêté avec kill")
+                
+                # Nettoyer la référence
+                self.process = None
+                return True
             else:
                 # Le processus est déjà terminé
                 self.logger.info("Le processus snapclient était déjà terminé")
                 self.process = None
                 return True
-                
+                    
         except Exception as e:
             self.logger.error(f"Erreur lors de l'arrêt du processus snapclient: {str(e)}")
+            # Nettoyer la référence même en cas d'erreur
+            self.process = None
             return False
     
     def is_running(self) -> bool:

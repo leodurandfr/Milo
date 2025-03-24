@@ -170,38 +170,50 @@ class ConnectionManager:
             "timestamp": time.time()
         })
         
-        # Démarrer/redémarrer le processus snapclient avec le nouvel hôte
-        if await self.process_manager.restart_process(host):
-            # Mettre à jour la connexion active
-            self.active_connection = {
-                "host": host,
-                "connected_at": time.time(),
-                "status": "connected"
-            }
-            
-            # Supprimer des connexions en attente si présent
-            if host in self.pending_connections:
-                request = self.pending_connections.pop(host)
-                request["status"] = "accepted"
-                self.connection_history.append(request)
-            
-            # Publier un événement de connexion réussie
-            await self.metadata_processor.publish_status("connected", {
-                "host": host,
-                "deviceConnected": True,
-                "connected": True,
-                "device_name": host  # Utiliser l'hôte comme nom d'appareil par défaut
-            })
-            
-            self.logger.info(f"Connexion réussie au serveur Snapcast: {host}")
-            return True
-        else:
-            self.logger.error(f"Échec de la connexion au serveur Snapcast: {host}")
+        try:
+            # Démarrer/redémarrer le processus snapclient avec le nouvel hôte
+            self.logger.info(f"Lancement du processus snapclient vers {host}")
+            if await self.process_manager.restart_process(host):
+                # Mettre à jour la connexion active
+                self.active_connection = {
+                    "host": host,
+                    "connected_at": time.time(),
+                    "status": "connected"
+                }
+                
+                # Supprimer des connexions en attente si présent
+                if host in self.pending_connections:
+                    request = self.pending_connections.pop(host)
+                    request["status"] = "accepted"
+                    self.connection_history.append(request)
+                
+                # Publier un événement de connexion réussie
+                await self.metadata_processor.publish_status("connected", {
+                    "host": host,
+                    "deviceConnected": True,
+                    "connected": True,
+                    "device_name": host  # Utiliser l'hôte comme nom d'appareil par défaut
+                })
+                
+                self.logger.info(f"Connexion réussie au serveur Snapcast: {host}")
+                return True
+            else:
+                self.logger.error(f"Échec du processus snapclient pour l'hôte {host}")
+                
+                # Publier un événement d'échec
+                await self.metadata_processor.publish_status("error", {
+                    "host": host,
+                    "error": "connection_failed"
+                })
+                
+                return False
+        except Exception as e:
+            self.logger.error(f"Exception lors de la connexion au serveur Snapcast {host}: {str(e)}")
             
             # Publier un événement d'échec
             await self.metadata_processor.publish_status("error", {
                 "host": host,
-                "error": "connection_failed"
+                "error": f"exception: {str(e)}"
             })
             
             return False

@@ -12,7 +12,7 @@ from backend.infrastructure.plugins.base import BaseAudioPlugin
 from backend.infrastructure.plugins.snapclient.process_manager import ProcessManager
 from backend.infrastructure.plugins.snapclient.connection_monitor import ConnectionMonitor
 from backend.infrastructure.plugins.snapclient.metadata_processor import MetadataProcessor
-from backend.infrastructure.plugins.snapclient.discovery_service import DiscoveryService
+from backend.infrastructure.plugins.snapclient.discovery_services import DiscoveryService
 from backend.infrastructure.plugins.snapclient.connection_manager import ConnectionManager
 
 class SnapclientPlugin(BaseAudioPlugin):
@@ -68,12 +68,12 @@ class SnapclientPlugin(BaseAudioPlugin):
                 self.polling_interval
             )
             
-            # Fonction de callback pour les découvertes
-            async def discovery_callback(server_info):
+            # Fonction wrapper non-async pour le callback
+            def discovery_callback_wrapper(server_info):
                 if self.connection_manager:
-                    await self.connection_manager.handle_new_server_discovery(server_info)
-            
-            self.discovery_service = DiscoveryService(discovery_callback)
+                    asyncio.create_task(self.connection_manager.handle_new_server_discovery(server_info))
+
+            self.discovery_service = DiscoveryService(discovery_callback_wrapper)
             
             self.connection_manager = ConnectionManager(
                 self.event_bus,
@@ -175,6 +175,22 @@ class SnapclientPlugin(BaseAudioPlugin):
         except Exception as e:
             self.logger.error(f"Erreur lors de l'arrêt de la source audio snapclient: {str(e)}")
             return False
+        
+        async def _force_kill_snapclient(self) -> None:
+            """Méthode de secours pour forcer l'arrêt du processus snapclient"""
+            try:
+                # Utiliser pkill en cas d'échec des méthodes standard
+                self.logger.warning("Tentative de kill forcé du processus snapclient")
+                subprocess.run(["pkill", "-9", "snapclient"], check=False)
+                await asyncio.sleep(0.5)  # Laisser le temps au système
+                
+                # Vérifier si ça a fonctionné
+                if subprocess.run(["pgrep", "snapclient"], stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode == 0:
+                    self.logger.error("Impossible de tuer le processus snapclient même avec pkill -9")
+                else:
+                    self.logger.info("Processus snapclient terminé avec succès par pkill")
+            except Exception as e:
+                self.logger.error(f"Erreur lors de la tentative de kill forcé: {str(e)}")
     
     async def get_status(self) -> Dict[str, Any]:
         """
