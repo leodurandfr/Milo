@@ -21,6 +21,48 @@ class DiscoveryService:
         self.last_scan_time = 0
         self.min_scan_interval = 30  # Minimum de 30 secondes entre les scans complets
         self.scanning = False
+        self.last_known_active_server = None  # Serveur précédemment actif
+        
+        self.local_addresses = self._get_local_addresses()
+        self.logger.info(f"Adresses locales qui seront ignorées: {self.local_addresses}")
+
+    def _get_local_addresses(self) -> List[str]:
+        """
+        Récupère toutes les adresses IP locales du Raspberry Pi (IPv4 et IPv6).
+        
+        Returns:
+            List[str]: Liste des adresses IP locales à ignorer
+        """
+        local_addresses = ["127.0.0.1", "localhost", "::1"]
+        
+        try:
+            # Obtenir toutes les interfaces réseau
+            import netifaces
+            for interface in netifaces.interfaces():
+                # Récupérer les adresses IPv4
+                ipv4_addrs = netifaces.ifaddresses(interface).get(netifaces.AF_INET, [])
+                for addr in ipv4_addrs:
+                    ip = addr.get('addr')
+                    if ip and ip not in local_addresses:
+                        local_addresses.append(ip)
+                
+                # Récupérer les adresses IPv6
+                ipv6_addrs = netifaces.ifaddresses(interface).get(netifaces.AF_INET6, [])
+                for addr in ipv6_addrs:
+                    ip = addr.get('addr')
+                    if ip:
+                        # Supprimer le suffixe d'interface pour IPv6 si présent
+                        if '%' in ip:
+                            ip = ip.split('%')[0]
+                        if ip not in local_addresses:
+                            local_addresses.append(ip)
+            
+            # Ajouter une entrée de log pour mieux déboguer
+            self.logger.info(f"Adresses locales identifiées à ignorer: {local_addresses}")
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la récupération des adresses locales: {str(e)}")
+            
+        return local_addresses
     
     async def start(self) -> None:
         """Démarre le service de découverte en arrière-plan"""
@@ -48,9 +90,31 @@ class DiscoveryService:
         """
         return list(self.known_servers.values())
     
+    def set_last_known_active_server(self, host: str) -> None:
+        """
+        Définit le dernier serveur actif pour optimiser les recherches futures.
+        
+        Args:
+            host: Hôte du dernier serveur actif
+        """
+        self.last_known_active_server = host
+        self.logger.info(f"Dernier serveur actif défini: {host}")
+    
+    async def _test_single_server(self, host, port=1704, timeout=0.5) -> bool:
+        """Test la connexion à un serveur spécifique."""
+        try:
+            future = asyncio.open_connection(host, port)
+            reader, writer = await asyncio.wait_for(future, timeout=timeout)
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except Exception:
+            return False
+    
     async def force_scan(self) -> List[Dict[str, Any]]:
         """
         Force un scan immédiat du réseau pour découvrir les serveurs.
+        Inclut une recherche prioritaire pour le dernier serveur actif.
         
         Returns:
             List[Dict[str, Any]]: Liste des serveurs découverts
@@ -63,6 +127,33 @@ class DiscoveryService:
         
         self.scanning = True
         try:
+            # Rechercher des derniers serveurs connus spécifiquement
+            # Cette optimisation permet de retrouver plus rapidement un serveur qui vient de redémarrer
+            if self.last_known_active_server:
+                host = self.last_known_active_server
+                self.logger.info(f"Recherche prioritaire du dernier serveur actif: {host}")
+                
+                # Tester une connexion directe à ce serveur spécifique
+                try:
+                    result = await self._test_single_server(host)
+                    if result:
+                        self.logger.info(f"Dernier serveur actif retrouvé: {host}")
+                        # Mise à jour si le serveur est retrouvé
+                        if host not in self.known_servers:
+                            self.known_servers[host] = {
+                                "host": host, 
+                                "first_seen": time.time(), 
+                                "last_seen": time.time()
+                            }
+                            # Notifier via le callback si défini
+                            if self.discovery_callback:
+                                self.discovery_callback(self.known_servers[host])
+                        else:
+                            self.known_servers[host]["last_seen"] = time.time()
+                except Exception as e:
+                    self.logger.debug(f"Erreur lors de la recherche du dernier serveur: {str(e)}")
+            
+            # Poursuivre avec le scan standard
             await self._scan_network()
             self.last_scan_time = time.time()
             return list(self.known_servers.values())
@@ -141,6 +232,7 @@ class DiscoveryService:
     async def _scan_with_avahi(self) -> Set[str]:
         """
         Scanne le réseau en utilisant avahi-browse pour mDNS.
+        Filtre les adresses locales.
         
         Returns:
             Set[str]: Ensemble d'adresses de serveurs découverts
@@ -184,7 +276,34 @@ class DiscoveryService:
                         if host:
                             servers.add(host)
             
-            self.logger.debug(f"Serveurs découverts via avahi-browse: {servers}")
+            # Filtrer les adresses locales
+            filtered_servers = set()
+            for host in servers:
+                # Ignorer les adresses locales IPv4 et IPv6
+                should_ignore = False
+                
+                for local_addr in self.local_addresses:
+                    # Comparaison directe pour IPv4
+                    if host == local_addr:
+                        should_ignore = True
+                        break
+                    
+                    # Pour IPv6, comparer les parties significatives
+                    if ':' in host and ':' in local_addr:
+                        # Normaliser les adresses IPv6 pour comparaison
+                        host_parts = host.split('%')[0].lower()  # Retirer les suffixes d'interface
+                        local_parts = local_addr.split('%')[0].lower()
+                        if host_parts == local_parts:
+                            should_ignore = True
+                            break
+                
+                if not should_ignore:
+                    filtered_servers.add(host)
+                else:
+                    self.logger.info(f"Ignoré serveur local: {host}")
+            
+            self.logger.debug(f"Serveurs découverts via avahi-browse (après filtrage): {filtered_servers}")
+            return filtered_servers
             
         except Exception as e:
             self.logger.error(f"Erreur lors du scan avec avahi: {str(e)}")
@@ -195,6 +314,7 @@ class DiscoveryService:
         """
         Scanne le réseau en essayant de se connecter directement aux ports connus de Snapcast.
         Utilisé comme méthode de secours si avahi-browse ne trouve rien.
+        Filtre les adresses locales.
         
         Returns:
             Set[str]: Ensemble d'adresses de serveurs découverts
@@ -221,10 +341,22 @@ class DiscoveryService:
                 except:
                     return False
             
+            # Prioriser le test du dernier serveur actif
+            if self.last_known_active_server:
+                host = self.last_known_active_server
+                if await test_connection(host):
+                    servers.add(host)
+                    self.logger.info(f"Dernier serveur actif {host} trouvé disponible")
+            
             # Scan parallèle limité pour éviter de surcharger le réseau
             tasks = []
             for i in range(1, 255):
                 host = f"{subnet}.{i}"
+                
+                # Éviter de tester à nouveau le dernier serveur actif
+                if host == self.last_known_active_server:
+                    continue
+                    
                 tasks.append(test_connection(host))
                 
                 # Exécuter par lots de 50 pour ne pas surcharger
@@ -237,7 +369,16 @@ class DiscoveryService:
                             servers.add(host)
                     tasks = []
             
-            self.logger.debug(f"Serveurs découverts via scan direct: {servers}")
+            # Filtrer les adresses locales
+            filtered_servers = set()
+            for host in servers:
+                if host not in self.local_addresses:
+                    filtered_servers.add(host)
+                else:
+                    self.logger.debug(f"Ignoré serveur local: {host}")
+            
+            self.logger.debug(f"Serveurs découverts via scan direct (après filtrage): {filtered_servers}")
+            return filtered_servers
             
         except Exception as e:
             self.logger.error(f"Erreur lors du scan direct: {str(e)}")
@@ -253,7 +394,31 @@ class DiscoveryService:
         servers_to_remove = []
         current_time = time.time()
         
+        # Vérifier d'abord le dernier serveur actif en priorité
+        if self.last_known_active_server and self.last_known_active_server in self.known_servers:
+            server = self.last_known_active_server
+            info = self.known_servers[server]
+            
+            try:
+                # Tester la connexion
+                future = asyncio.open_connection(server, 1704)
+                reader, writer = await asyncio.wait_for(future, timeout=1.0)
+                writer.close()
+                await writer.wait_closed()
+                
+                # Serveur toujours disponible, mettre à jour le timestamp
+                info["last_seen"] = current_time
+                self.logger.debug(f"Dernier serveur actif {server} toujours disponible")
+                
+            except:
+                self.logger.info(f"Dernier serveur actif {server} actuellement indisponible")
+        
+        # Vérifier les autres serveurs connus
         for server, info in self.known_servers.items():
+            # Ignorer le dernier serveur actif (déjà vérifié)
+            if server == self.last_known_active_server:
+                continue
+                
             # Si un serveur n'a pas été vu depuis plus de 5 minutes, tester sa disponibilité
             if current_time - info["last_seen"] > 300:  # 5 minutes
                 try:
@@ -269,8 +434,12 @@ class DiscoveryService:
                 except:
                     # Si le serveur n'a pas été vu depuis plus de 10 minutes, le supprimer
                     if current_time - info["last_seen"] > 600:  # 10 minutes
-                        self.logger.info(f"Serveur Snapcast supprimé car inaccessible: {server}")
-                        servers_to_remove.append(server)
+                        # Ne pas supprimer le dernier serveur actif, même s'il est inaccessible
+                        if server == self.last_known_active_server:
+                            self.logger.info(f"Dernier serveur actif {server} inaccessible mais conservé")
+                        else:
+                            self.logger.info(f"Serveur Snapcast supprimé car inaccessible: {server}")
+                            servers_to_remove.append(server)
         
         # Supprimer les serveurs qui ne sont plus disponibles
         for server in servers_to_remove:

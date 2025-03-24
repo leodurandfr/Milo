@@ -4,6 +4,7 @@ Gestionnaire de connexions pour le plugin snapclient.
 import asyncio
 import logging
 import time
+import subprocess
 from typing import Dict, Any, Optional, List, Set, Callable
 
 class ConnectionManager:
@@ -27,6 +28,12 @@ class ConnectionManager:
         # État interne
         self.connection_task = None
         self.listen_task = None
+        
+        # Nouvel attribut pour mémoriser le dernier serveur connecté
+        self.last_successful_server = None
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 3  # Nombre maximal de tentatives de reconnexion
+        self.reconnection_task = None
     
     async def start(self) -> None:
         """Démarre le gestionnaire de connexions"""
@@ -59,6 +66,12 @@ class ConnectionManager:
         # Ignorer les hôtes rejetés récemment
         if host in self.rejected_hosts:
             self.logger.debug(f"Serveur ignoré (rejeté précédemment): {host}")
+            return
+        
+        # Vérifier si c'est un ancien serveur auquel on était connecté
+        if host == self.last_successful_server and not self.active_connection:
+            self.logger.info(f"Ancien serveur reconnecté détecté: {host}")
+            await self.connect_to_server(host)
             return
         
         # Si aucune connexion active, se connecter automatiquement
@@ -148,9 +161,46 @@ class ConnectionManager:
         
         return True
     
+    async def try_reconnect(self) -> bool:
+        """
+        Tente de se reconnecter au dernier serveur connecté avec succès.
+        
+        Returns:
+            bool: True si la reconnexion a réussi, False sinon
+        """
+        if not self.last_successful_server:
+            self.logger.debug("Aucun serveur précédent pour la reconnexion")
+            return False
+            
+        # Limiter le nombre de tentatives
+        if self.reconnect_attempts >= self.max_reconnect_attempts:
+            self.logger.warning(f"Abandon de la reconnexion après {self.reconnect_attempts} tentatives")
+            return False
+            
+        self.reconnect_attempts += 1
+        host = self.last_successful_server
+        
+        self.logger.info(f"Tentative de reconnexion au serveur: {host} (essai {self.reconnect_attempts}/{self.max_reconnect_attempts})")
+        
+        try:
+            result = await self.connect_to_server(host)
+            
+            if result:
+                self.logger.info(f"Reconnexion réussie au serveur: {host}")
+                self.reconnect_attempts = 0  # Réinitialiser le compteur de tentatives
+                return True
+            else:
+                self.logger.warning(f"Échec de reconnexion au serveur: {host}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la tentative de reconnexion: {str(e)}")
+            return False
+    
     async def connect_to_server(self, host: str) -> bool:
         """
         Se connecte à un serveur Snapcast spécifique.
+        S'assure qu'une seule connexion est active à la fois.
         
         Args:
             host: Hôte du serveur
@@ -160,9 +210,44 @@ class ConnectionManager:
         """
         self.logger.info(f"Tentative de connexion au serveur Snapcast: {host}")
         
+        # Vérifier si l'hôte est une adresse locale (à ignorer)
+        try:
+            # Utiliser la liste des adresses locales déjà calculée (si disponible)
+            if hasattr(self, 'local_addresses'):
+                local_addresses = self.local_addresses
+            else:
+                # Autrement, obtenir les adresses locales
+                local_addresses = ["127.0.0.1", "localhost"]
+                try:
+                    # Obtenir toutes les interfaces réseau
+                    import netifaces
+                    for interface in netifaces.interfaces():
+                        addrs = netifaces.ifaddresses(interface).get(netifaces.AF_INET, [])
+                        for addr in addrs:
+                            ip = addr.get('addr')
+                            if ip and ip not in local_addresses:
+                                local_addresses.append(ip)
+                except Exception as e:
+                    self.logger.warning(f"Impossible de récupérer les adresses locales: {str(e)}")
+
+            # Vérification de l'adresse
+            if host in local_addresses:
+                self.logger.warning(f"Tentative de connexion à un serveur local ignorée: {host}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la vérification d'adresse locale: {str(e)}")
+        
+        # Vérifier si on est déjà connecté au même serveur
         if self.active_connection and self.active_connection["host"] == host:
             self.logger.info(f"Déjà connecté à {host}")
             return True
+        
+        # Déconnecter d'abord toute connexion active existante
+        if self.active_connection:
+            old_host = self.active_connection["host"]
+            self.logger.info(f"Déconnexion de l'hôte actuel ({old_host}) avant de se connecter à {host}")
+            await self.disconnect()
         
         # Publier un événement de changement d'état
         await self.metadata_processor.publish_status("connecting", {
@@ -180,6 +265,10 @@ class ConnectionManager:
                     "connected_at": time.time(),
                     "status": "connected"
                 }
+                
+                # Nouvel ajout: enregistrer le serveur pour reconnexion future
+                self.last_successful_server = host
+                self.reconnect_attempts = 0  # Réinitialiser le compteur de tentatives
                 
                 # Supprimer des connexions en attente si présent
                 if host in self.pending_connections:
@@ -220,34 +309,58 @@ class ConnectionManager:
     
     async def disconnect(self) -> bool:
         """
-        Déconnecte du serveur Snapcast actuel.
+        Déconnecte du serveur Snapcast actuel de manière robuste.
         
         Returns:
             bool: True si la déconnexion a réussi, False sinon
         """
         if not self.active_connection:
             self.logger.debug("Aucune connexion active à déconnecter")
+            
+            # Vérifier quand même si un processus est en cours d'exécution
+            if self.process_manager.is_running():
+                self.logger.warning("Processus snapclient actif sans connexion enregistrée, arrêt")
+                await self.process_manager.stop_process()
+                
             return True
         
         host = self.active_connection["host"]
         self.logger.info(f"Déconnexion du serveur Snapcast: {host}")
         
-        # Arrêter le processus snapclient
-        if await self.process_manager.stop_process():
-            # Mettre à jour l'état interne
-            self.active_connection = None
-            
-            # Publier un événement de déconnexion
-            await self.metadata_processor.publish_status("disconnected", {
-                "deviceConnected": False,
-                "connected": False
-            })
-            
+        # Mémoriser l'hôte comme dernier serveur connecté (si pas déjà fait)
+        if not self.last_successful_server:
+            self.last_successful_server = host
+        
+        # Arrêter le processus snapclient avec plusieurs tentatives si nécessaire
+        success = await self.process_manager.stop_process()
+        
+        if not success:
+            self.logger.warning("Première tentative d'arrêt échouée, nouveau essai avec force kill")
+            try:
+                # Utiliser pkill comme dernier recours
+                subprocess.run(["pkill", "-9", "snapclient"], check=False)
+                await asyncio.sleep(0.5)
+                success = True
+            except Exception as e:
+                self.logger.error(f"Erreur lors de la tentative de kill forcé: {str(e)}")
+                success = False
+        
+        # Mettre à jour l'état interne même en cas d'échec
+        previous_connection = self.active_connection
+        self.active_connection = None
+        
+        # Publier un événement de déconnexion
+        await self.metadata_processor.publish_status("disconnected", {
+            "deviceConnected": False,
+            "connected": False
+        })
+        
+        if success:
             self.logger.info(f"Déconnexion réussie du serveur Snapcast: {host}")
-            return True
         else:
-            self.logger.error(f"Échec de la déconnexion du serveur Snapcast: {host}")
-            return False
+            self.logger.error(f"Problèmes lors de la déconnexion du serveur Snapcast: {host}")
+            
+        return success
     
     def get_active_connection(self) -> Optional[Dict[str, Any]]:
         """

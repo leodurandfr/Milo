@@ -5,6 +5,7 @@ C'est la classe principale qui intègre tous les composants.
 import asyncio
 import logging
 import os
+import subprocess
 from typing import Dict, Any, Optional
 
 from backend.application.event_bus import EventBus
@@ -47,6 +48,7 @@ class SnapclientPlugin(BaseAudioPlugin):
         
         # État interne
         self.device_connected = False
+        self.periodic_check_task = None
     
     async def initialize(self) -> bool:
         """
@@ -124,6 +126,9 @@ class SnapclientPlugin(BaseAudioPlugin):
             # Activer le plugin
             self.is_active = True
             
+            # Ajouter une vérification périodique de la connexion
+            self.periodic_check_task = asyncio.create_task(self._periodic_connection_check())
+            
             # Publier l'état initial
             connection_info = await self.get_connection_info()
             if connection_info["device_connected"]:
@@ -148,7 +153,7 @@ class SnapclientPlugin(BaseAudioPlugin):
     
     async def stop(self) -> bool:
         """
-        Arrête la source audio snapclient.
+        Arrête la source audio snapclient de façon complète.
         
         Returns:
             bool: True si l'arrêt a réussi, False sinon
@@ -158,13 +163,31 @@ class SnapclientPlugin(BaseAudioPlugin):
             # Désactiver le plugin
             self.is_active = False
             
+            # Arrêter la tâche de vérification périodique
+            if self.periodic_check_task and not self.periodic_check_task.done():
+                self.logger.debug("Arrêt de la vérification périodique")
+                self.periodic_check_task.cancel()
+                try:
+                    await self.periodic_check_task
+                except asyncio.CancelledError:
+                    pass
+                self.periodic_check_task = None
+            
             # Arrêter les services de surveillance et découverte
             await self.connection_monitor.stop()
             await self.discovery_service.stop()
             await self.connection_manager.stop()
             
             # Déconnecter du serveur actuel
-            await self.connection_manager.disconnect()
+            disconnect_result = await self.connection_manager.disconnect()
+            
+            # S'assurer que le processus est bien arrêté, même si la déconnexion a échoué
+            if not disconnect_result:
+                self.logger.warning("La déconnexion a échoué, tentative d'arrêt forcé du processus")
+                await self.process_manager.stop_process()
+                
+                # Nettoyage des processus orphelins
+                await self._force_kill_snapclient()
             
             # Publier l'état d'arrêt
             await self.metadata_processor.publish_status("stopped")
@@ -174,23 +197,80 @@ class SnapclientPlugin(BaseAudioPlugin):
             
         except Exception as e:
             self.logger.error(f"Erreur lors de l'arrêt de la source audio snapclient: {str(e)}")
-            return False
-        
-        async def _force_kill_snapclient(self) -> None:
-            """Méthode de secours pour forcer l'arrêt du processus snapclient"""
+            
+            # Tentative d'arrêt forcé en cas d'erreur
             try:
-                # Utiliser pkill en cas d'échec des méthodes standard
-                self.logger.warning("Tentative de kill forcé du processus snapclient")
-                subprocess.run(["pkill", "-9", "snapclient"], check=False)
-                await asyncio.sleep(0.5)  # Laisser le temps au système
+                self.logger.warning("Tentative d'arrêt forcé suite à une erreur")
+                await self._force_kill_snapclient()
+            except Exception as e2:
+                self.logger.error(f"Erreur lors de l'arrêt forcé: {str(e2)}")
                 
-                # Vérifier si ça a fonctionné
-                if subprocess.run(["pgrep", "snapclient"], stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode == 0:
-                    self.logger.error("Impossible de tuer le processus snapclient même avec pkill -9")
-                else:
-                    self.logger.info("Processus snapclient terminé avec succès par pkill")
-            except Exception as e:
-                self.logger.error(f"Erreur lors de la tentative de kill forcé: {str(e)}")
+            return False
+            
+    async def _periodic_connection_check(self) -> None:
+        """
+        Vérifie périodiquement la connexion et tente de se reconnecter 
+        si la connexion est perdue et qu'un serveur précédent est connu.
+        """
+        try:
+            reconnect_cooldown = 0  # Temps d'attente entre tentatives de reconnexion
+            
+            while self.is_active:
+                # Vérifier la connexion
+                is_connected = await self.connection_monitor.check_connection()
+                
+                # Si nous ne sommes pas connectés mais avions un serveur précédemment
+                if not is_connected and reconnect_cooldown <= 0:
+                    # Vérifier si nous avions un serveur précédemment connecté
+                    if self.connection_manager.last_successful_server:
+                        self.logger.info(f"Tentative de reconnexion au dernier serveur: {self.connection_manager.last_successful_server}")
+                        
+                        # Vérifier s'il y a des serveurs disponibles (le serveur peut être de nouveau en ligne)
+                        servers = await self.discovery_service.force_scan()
+                        available_hosts = [s["host"] for s in servers]
+                        
+                        # Si le dernier serveur est disponible, tenter de s'y reconnecter
+                        last_server = self.connection_manager.last_successful_server
+                        if last_server in available_hosts:
+                            self.logger.info(f"Serveur précédent {last_server} détecté, tentative de reconnexion")
+                            await self.connection_manager.try_reconnect()
+                            
+                            # Appliquer un temps d'attente avant nouvelle tentative (10 secondes)
+                            reconnect_cooldown = 10
+                        else:
+                            # Serveur précédent non disponible
+                            self.logger.info(f"Serveur précédent {last_server} non disponible actuellement")
+                            reconnect_cooldown = 5  # Attendre moins longtemps avant de réessayer
+                
+                # Décrémenter le cooldown s'il est actif
+                if reconnect_cooldown > 0:
+                    reconnect_cooldown -= 1
+                    
+                # Attendre avant la prochaine vérification
+                await asyncio.sleep(3)
+                
+        except asyncio.CancelledError:
+            # Tâche annulée
+            pass
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la vérification périodique: {str(e)}")
+    
+    async def _force_kill_snapclient(self) -> None:
+        """Méthode de secours pour forcer l'arrêt du processus snapclient"""
+        try:
+            # Utiliser pkill -9 pour un arrêt brutal
+            self.logger.warning("Arrêt forcé de tous les processus snapclient")
+            subprocess.run(["pkill", "-9", "snapclient"], check=False)
+            await asyncio.sleep(0.5)
+            
+            # Vérifier si ça a fonctionné
+            result = subprocess.run(["pgrep", "snapclient"], stdout=subprocess.PIPE)
+            if result.returncode == 0:
+                self.logger.error("Impossible de tuer le processus snapclient même avec pkill -9")
+            else:
+                self.logger.info("Processus snapclient terminé avec succès par pkill")
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la tentative de kill forcé: {str(e)}")
     
     async def get_status(self) -> Dict[str, Any]:
         """

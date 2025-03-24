@@ -89,15 +89,28 @@ class ProcessManager:
     
     async def stop_process(self) -> bool:
         """
-        Arrête le processus snapclient.
+        Arrête le processus snapclient de façon robuste.
         
         Returns:
             bool: True si l'arrêt a réussi, False sinon
         """
         if not self.process:
             self.logger.debug("Aucun processus snapclient à arrêter")
-            return True
             
+            # S'assurer qu'aucun processus snapclient n'est en cours d'exécution
+            try:
+                # Vérifier si des processus snapclient sont en cours d'exécution
+                result = subprocess.run(["pgrep", "snapclient"], stdout=subprocess.PIPE)
+                if result.returncode == 0:
+                    # Des processus snapclient existent encore, les tuer
+                    self.logger.warning("Processus snapclient orphelins détectés, nettoyage")
+                    subprocess.run(["pkill", "-9", "snapclient"], check=False)
+                    await asyncio.sleep(0.5)
+            except Exception as e:
+                self.logger.error(f"Erreur lors du nettoyage des processus: {str(e)}")
+                
+            return True
+        
         try:
             # Vérifier si le processus est toujours en cours
             if self.process.poll() is None:
@@ -109,39 +122,39 @@ class ProcessManager:
                 # Essayer d'abord un arrêt propre
                 self.process.terminate()
                 
-                # Attendre que le processus se termine (max 3 secondes)
-                killed = False
+                # Attendre que le processus se termine (max 2 secondes)
                 try:
-                    self.logger.debug("Attente de la terminaison (timeout: 3s)")
-                    self.process.wait(timeout=3)
+                    self.logger.debug("Attente de la terminaison (timeout: 2s)")
+                    self.process.wait(timeout=2)
                     self.logger.info("Processus snapclient arrêté proprement")
                 except subprocess.TimeoutExpired:
                     # Si le processus ne se termine pas, le forcer
                     self.logger.warning("Le processus snapclient ne répond pas, utilisation de kill")
                     self.process.kill()
-                    killed = True
                     await asyncio.sleep(0.5)
-                
-                # Vérifier le résultat
-                if self.process.poll() is None:
-                    # Si même kill ne fonctionne pas, essayer avec pkill
-                    self.logger.error("Impossible d'arrêter le processus snapclient avec les méthodes standard")
                     
-                    # Essayer avec pkill en dernier recours
-                    try:
-                        subprocess.run(["pkill", "-9", "-P", str(pid)], check=False)
+                    # Vérifier si le processus est toujours en cours
+                    if self.process.poll() is None:
+                        # Utiliser pkill pour être sûr
+                        self.logger.error(f"Impossible d'arrêter le processus snapclient avec kill, utilisation de pkill")
+                        subprocess.run(["pkill", "-9", "snapclient"], check=False)
                         await asyncio.sleep(0.5)
-                        
-                        # Vérifier si ça a fonctionné
-                        if subprocess.run(["ps", "-p", str(pid)], stdout=subprocess.PIPE).returncode == 0:
-                            self.logger.error(f"Impossible d'arrêter le processus {pid} même avec pkill")
-                            return False
-                    except Exception as e:
-                        self.logger.error(f"Erreur lors de l'utilisation de pkill: {str(e)}")
-                        return False
                 
-                if killed:
-                    self.logger.info("Processus snapclient arrêté avec kill")
+                # Tuer tous les processus enfants également pour être sûr
+                try:
+                    subprocess.run(["pkill", "-9", "-P", str(pid)], check=False)
+                except Exception as e:
+                    self.logger.error(f"Erreur lors du kill des processus enfants: {str(e)}")
+                
+                # Effectuer une vérification finale pour s'assurer que tous les processus snapclient sont arrêtés
+                try:
+                    result = subprocess.run(["pgrep", "snapclient"], stdout=subprocess.PIPE)
+                    if result.returncode == 0:
+                        self.logger.warning("Processus snapclient encore détectés, nettoyage final")
+                        subprocess.run(["pkill", "-9", "snapclient"], check=False)
+                        await asyncio.sleep(0.5)
+                except Exception as e:
+                    self.logger.error(f"Erreur lors du nettoyage final: {str(e)}")
                 
                 # Nettoyer la référence
                 self.process = None
@@ -150,10 +163,30 @@ class ProcessManager:
                 # Le processus est déjà terminé
                 self.logger.info("Le processus snapclient était déjà terminé")
                 self.process = None
+                
+                # Vérifier s'il existe d'autres processus snapclient
+                try:
+                    result = subprocess.run(["pgrep", "snapclient"], stdout=subprocess.PIPE)
+                    if result.returncode == 0:
+                        self.logger.warning("Autres processus snapclient détectés, nettoyage")
+                        subprocess.run(["pkill", "-9", "snapclient"], check=False)
+                        await asyncio.sleep(0.5)
+                except Exception as e:
+                    self.logger.error(f"Erreur lors du nettoyage final: {str(e)}")
+                
                 return True
                     
         except Exception as e:
             self.logger.error(f"Erreur lors de l'arrêt du processus snapclient: {str(e)}")
+            
+            # En cas d'erreur, tenter de tuer tous les processus snapclient
+            try:
+                self.logger.warning("Tentative de nettoyage brutal de tous les processus snapclient")
+                subprocess.run(["pkill", "-9", "snapclient"], check=False)
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                self.logger.error(f"Erreur lors du nettoyage brutal: {str(e)}")
+            
             # Nettoyer la référence même en cas d'erreur
             self.process = None
             return False
@@ -199,8 +232,7 @@ class ProcessManager:
     
     async def get_process_output(self) -> Tuple[str, str]:
         """
-        Récupère la sortie du processus snapclient (stdout, stderr).
-        Note: Cette méthode ne retourne que la sortie disponible sans bloquer.
+        Récupère la sortie du processus snapclient de façon plus robuste.
         
         Returns:
             Tuple[str, str]: (stdout, stderr)
@@ -217,19 +249,39 @@ class ProcessManager:
             stderr_data = b""
             
             if self.process.stdout:
-                flags = fcntl.fcntl(self.process.stdout, fcntl.F_GETFL)
-                fcntl.fcntl(self.process.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
                 try:
-                    stdout_data = self.process.stdout.read() or b""
-                except (BlockingIOError, ValueError):
-                    pass
+                    flags = fcntl.fcntl(self.process.stdout, fcntl.F_GETFL)
+                    fcntl.fcntl(self.process.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+                    
+                    try:
+                        stdout_data = self.process.stdout.read(4096) or b""
+                    except (BlockingIOError, ValueError):
+                        pass
+                except Exception as e:
+                    self.logger.error(f"Erreur lors de la lecture de stdout: {str(e)}")
             
             if self.process.stderr:
-                flags = fcntl.fcntl(self.process.stderr, fcntl.F_GETFL)
-                fcntl.fcntl(self.process.stderr, fcntl.F_SETFL, flags | os.O_NONBLOCK)
                 try:
-                    stderr_data = self.process.stderr.read() or b""
-                except (BlockingIOError, ValueError):
+                    flags = fcntl.fcntl(self.process.stderr, fcntl.F_GETFL)
+                    fcntl.fcntl(self.process.stderr, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+                    
+                    try:
+                        stderr_data = self.process.stderr.read(4096) or b""
+                    except (BlockingIOError, ValueError):
+                        pass
+                except Exception as e:
+                    self.logger.error(f"Erreur lors de la lecture de stderr: {str(e)}")
+            
+            # Vérifier si le process existe encore pour éviter des erreurs
+            if self.process.poll() is not None:
+                self.logger.debug(f"Processus terminé avec code: {self.process.returncode}")
+                
+                # Si le processus s'est terminé, récupérer tout ce qui reste
+                try:
+                    remaining_stdout, remaining_stderr = self.process.communicate(timeout=0.1)
+                    stdout_data += remaining_stdout
+                    stderr_data += remaining_stderr
+                except:
                     pass
             
             return (
@@ -239,7 +291,12 @@ class ProcessManager:
             
         except Exception as e:
             self.logger.error(f"Erreur lors de la récupération de la sortie du processus: {str(e)}")
-            return ("", f"Erreur: {str(e)}")
+            
+            # En cas d'erreur, vérifier si le processus s'est terminé
+            if self.process and self.process.poll() is not None:
+                return ("", f"Process terminated with code {self.process.returncode}")
+                
+            return ("", f"Error: {str(e)}")
     
     async def get_active_connections(self) -> List[Dict[str, Any]]:
         """

@@ -6,7 +6,7 @@ import logging
 import time
 import subprocess
 import re
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List
 
 class ConnectionMonitor:
     """Surveille l'état de connexion du client Snapcast"""
@@ -21,6 +21,24 @@ class ConnectionMonitor:
         self.last_host = None
         self.last_connection_check = 0
         self.device_info = {}
+        self.consecutive_failures = 0  # Compteur d'échecs consécutifs
+        self.max_failures = 2  # Nombre d'échecs consécutifs avant de considérer comme déconnecté
+        self.last_stdout = ""  # Pour détecter les changements dans la sortie du processus
+        self.disconnection_patterns = [
+            "disconnected",
+            "connection closed",
+            "error",
+            "connection reset",
+            "timeout",
+            "aborted",
+            "terminated"
+        ]
+        self.reconnection_patterns = [
+            "connected to",
+            "server:",
+            "playing stream",
+            "time of server"
+        ]
     
     async def start(self) -> None:
         """Démarre la surveillance de connexion"""
@@ -42,6 +60,7 @@ class ConnectionMonitor:
     async def check_connection(self) -> bool:
         """
         Vérifie si le client est connecté à un serveur Snapcast.
+        Détecte activement les déconnexions et reconnexions du serveur.
         
         Returns:
             bool: True si connecté, False sinon
@@ -62,23 +81,85 @@ class ConnectionMonitor:
             # Obtenir la sortie du processus
             stdout, stderr = await self.process_manager.get_process_output()
             
-            # AMÉLIORATION: Considérer qu'on reste connecté si le processus est en cours
-            # au lieu de chercher constamment des indications dans la sortie
+            # Vérifier s'il y a des messages indiquant une déconnexion
+            new_output = stdout.lower()
+            
+            # Si nous n'étions pas connectés auparavant, chercher des signes de disponibilité du serveur
+            # Cela permet de détecter quand un serveur précédemment arrêté redémarre
+            if not self.connected and self.last_host:
+                reconnect_detected = False
+                for pattern in self.reconnection_patterns:
+                    if pattern in new_output:
+                        self.logger.info(f"Signe de reconnexion détecté: '{pattern}'")
+                        reconnect_detected = True
+                        
+                        # Si le serveur a redémarré, on peut tenter de se reconnecter directement
+                        # via le système de découverte
+                        if hasattr(self.metadata_processor, 'event_bus'):
+                            self.logger.info(f"Publication d'un événement de redémarrage du serveur {self.last_host}")
+                            await self.metadata_processor.event_bus.publish("snapclient_server_restarted", {
+                                "source": "snapclient",
+                                "host": self.last_host
+                            })
+                            
+                        # Communiquer cette information au service de découverte
+                        # pour optimiser les tentatives de reconnexion
+                        try:
+                            from backend.infrastructure.plugins.snapclient.discovery_services import DiscoveryService
+                            if hasattr(DiscoveryService, 'set_last_known_active_server'):
+                                # Si le service de découverte est accessible, lui signaler le serveur redémarré
+                                DiscoveryService.set_last_known_active_server(self.last_host)
+                        except ImportError:
+                            pass
+                        
+                        break
+                
+                if reconnect_detected:
+                    self.connected = True
+                    return True
+            
+            # Vérifier s'il y a des messages d'erreur ou de déconnexion
+            disconnect_detected = False
+            
+            # Vérifier les messages de déconnexion dans le nouveau texte
+            for pattern in self.disconnection_patterns:
+                if pattern in new_output:
+                    self.logger.info(f"Message de déconnexion détecté: '{pattern}'")
+                    disconnect_detected = True
+                    break
+            
+            # Vérifier également stderr
+            if stderr and any(pattern in stderr.lower() for pattern in self.disconnection_patterns):
+                self.logger.info(f"Message d'erreur détecté dans stderr")
+                disconnect_detected = True
+            
+            # Si une déconnexion est détectée
+            if disconnect_detected:
+                self.consecutive_failures += 1
+                self.logger.info(f"Possible déconnexion détectée ({self.consecutive_failures}/{self.max_failures})")
+                
+                if self.consecutive_failures >= self.max_failures:
+                    self.logger.warning("Déconnexion confirmée après plusieurs détections")
+                    old_connected = self.connected
+                    self.connected = False
+                    
+                    # Ne publier qu'en cas de changement d'état
+                    if old_connected:
+                        await self.metadata_processor.publish_status("disconnected", {
+                            "deviceConnected": False,
+                            "connected": False
+                        })
+                        
+                    self.consecutive_failures = 0
+                    return False
+            else:
+                # Si aucun problème n'est détecté, réinitialiser le compteur d'échecs
+                if self.consecutive_failures > 0:
+                    self.consecutive_failures = 0
             
             # Si nous étions déjà connectés et que le processus est toujours en cours,
-            # supposer que nous sommes toujours connectés.
-            if self.connected:
-                # Chercher des indications de déconnexion dans les logs
-                if "disconnected" in stdout.lower() or "connection closed" in stdout.lower():
-                    self.logger.info("Déconnexion détectée dans les logs")
-                    self.connected = False
-                    await self.metadata_processor.publish_status("disconnected", {
-                        "deviceConnected": False,
-                        "connected": False
-                    })
-                    return False
-                
-                # Sinon, on reste connecté
+            # et qu'aucune déconnexion n'a été détectée, supposer que nous sommes toujours connectés.
+            if self.connected and not disconnect_detected:
                 return True
                 
             # Si on n'était pas connecté, chercher des indications de connexion
@@ -102,29 +183,43 @@ class ConnectionMonitor:
                 server_name = server_match.group(1)
                 server_version = server_match.group(2)
             
+            # Si on trouve des informations de serveur, c'est probablement que la connexion est établie
+            if server_name or "Playing stream" in stdout or "Time of server" in stdout:
+                is_connected = True
+            
             # Mettre à jour l'état interne
             if is_connected != self.connected or host != self.last_host:
+                old_connected = self.connected
                 self.connected = is_connected
                 self.last_host = host
                 
                 # Mettre à jour les informations sur le périphérique
-                self.device_info = {
-                    "deviceName": server_name or host or "Snapcast",
-                    "host": host,
-                    "version": server_version,
-                    "connected": is_connected,
-                    "last_checked": time.time()
-                }
-                
-                # Publier l'état
                 if is_connected:
+                    self.device_info = {
+                        "deviceName": server_name or host or "Snapcast",
+                        "host": host,
+                        "version": server_version,
+                        "connected": is_connected,
+                        "last_checked": time.time()
+                    }
+                    
+                    # Stocker ce serveur dans le service de découverte pour les reconnexions futures
+                    try:
+                        from backend.infrastructure.plugins.snapclient.discovery_services import DiscoveryService
+                        if hasattr(DiscoveryService, 'set_last_known_active_server'):
+                            DiscoveryService.set_last_known_active_server(host)
+                    except ImportError:
+                        pass
+                    
+                    # Publier l'état
                     await self.metadata_processor.publish_status("connected", {
                         "deviceConnected": True,
                         "connected": True,
                         "host": host,
                         "device_name": server_name or host or "Snapcast"
                     })
-                else:
+                elif old_connected:
+                    # Ne publier la déconnexion que si on était connecté avant
                     await self.metadata_processor.publish_status("disconnected", {
                         "deviceConnected": False,
                         "connected": False
@@ -155,18 +250,36 @@ class ConnectionMonitor:
         """
         return self.connected
     
+    def get_last_host(self) -> Optional[str]:
+        """
+        Récupère le dernier hôte auquel le client était connecté.
+        
+        Returns:
+            Optional[str]: Dernier hôte connecté ou None
+        """
+        return self.last_host
+    
     async def _monitoring_loop(self) -> None:
-        """Boucle principale de surveillance"""
+        """Boucle principale de surveillance avec vérifications plus fréquentes"""
         try:
             while True:
                 try:
                     # Vérifier la connexion
-                    await self.check_connection()
+                    is_connected = await self.check_connection()
+                    
+                    # Si la connexion est perdue alors qu'on était connecté
+                    if self.connected and not is_connected:
+                        self.logger.warning("Perte de connexion détectée")
+                        # Force une vérification supplémentaire après un court délai
+                        await asyncio.sleep(1)
+                        await self.check_connection()
                         
                 except Exception as e:
                     self.logger.error(f"Erreur dans la boucle de surveillance: {str(e)}")
                 
-                await asyncio.sleep(self.polling_interval)
+                # Intervalle de surveillance plus dynamique: plus rapide si connected
+                polling_interval = self.polling_interval / 2 if self.connected else self.polling_interval
+                await asyncio.sleep(polling_interval)
                 
         except asyncio.CancelledError:
             self.logger.debug("Boucle de surveillance annulée")
