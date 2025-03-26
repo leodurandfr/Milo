@@ -10,13 +10,18 @@
       
       <div class="device-info">
         <h3>{{ sourceTitle }}</h3>
-        <p class="device-name">{{ deviceName }}</p>
-        <p v-if="deviceAddress" class="device-address">{{ deviceAddress }}</p>
+        <p class="device-name">{{ displayName }}</p>
+        <p v-if="shouldShowAddress" class="device-address">{{ deviceAddress }}</p>
         
-        <!-- Statut de connexion -->
+        <!-- Statut de connexion avec états standardisés -->
         <div class="connection-status">
-          <span class="status-indicator" :class="{ connected: isConnected }"></span>
-          <span class="status-text">{{ isConnected ? 'Connecté' : 'En attente...' }}</span>
+          <span class="status-indicator" :class="{ 
+            connected: isReallyConnected,
+            connecting: isConnecting && !isReallyConnected,
+            waiting: isWaitingConnection && !isReallyConnected,
+            requested: isChangeRequested 
+          }"></span>
+          <span class="status-text">{{ connectionStatusText }}</span>
         </div>
         
         <!-- Actions principales -->
@@ -90,7 +95,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, watch, onMounted } from 'vue';
 
 const props = defineProps({
   // Source audio (bluetooth, macos, etc.)
@@ -145,6 +150,66 @@ const emit = defineEmits([
   'cancel-request'
 ]);
 
+// États standardisés
+const pluginState = computed(() => {
+  return props.deviceInfo?.plugin_state || 'inactive';
+});
+
+// Vérification de connexion réelle avec plus d'indicateurs
+const isReallyConnected = computed(() => {
+  // Vérifier les propriétés explicites d'abord
+  if (props.isConnected === true) {
+    return true;
+  }
+  
+  // Vérifier les propriétés dans deviceInfo
+  if (props.deviceInfo) {
+    if (props.deviceInfo.connected === true || 
+        props.deviceInfo.deviceConnected === true) {
+      return true;
+    }
+    
+    // Vérifier l'état standardisé
+    if (pluginState.value === 'connected') {
+      return true;
+    }
+    
+    // Vérifier si on a des metadata mais qu'on est marqué comme déconnecté
+    if (props.deviceInfo.deviceName && Object.keys(props.deviceInfo).length > 2) {
+      return true;
+    }
+  }
+  
+  return false;
+});
+
+const isConnecting = computed(() => {
+  return pluginState.value === 'ready_to_connect';
+});
+
+const isWaitingConnection = computed(() => {
+  return pluginState.value === 'inactive';
+});
+
+const isChangeRequested = computed(() => {
+  return pluginState.value === 'device_change_requested';
+});
+
+// Texte de statut basé sur l'état
+const connectionStatusText = computed(() => {
+  if (isReallyConnected.value) {
+    return 'Connecté';
+  } else if (isChangeRequested.value) {
+    return 'Nouvel appareil détecté';
+  } else if (isConnecting.value) {
+    return 'En attente de connexion...';
+  } else if (isWaitingConnection.value) {
+    return 'Aucune connexion active';
+  } else {
+    return 'En attente...';
+  }
+});
+
 // Formatage des noms et labels en fonction de la source
 const sourceTitle = computed(() => {
   switch (props.source) {
@@ -170,12 +235,14 @@ const discoveredTitle = computed(() => {
   }
 });
 
-// Extraction des informations d'appareil
-const deviceName = computed(() => {
-  return props.deviceInfo.deviceName || 
+// Extraction des informations d'appareil avec stratégie pour éviter la duplication
+const displayName = computed(() => {
+  const name = props.deviceInfo.deviceName || 
          props.deviceInfo.name || 
          props.deviceInfo.host || 
          'Périphérique inconnu';
+  
+  return name;
 });
 
 const deviceAddress = computed(() => {
@@ -183,6 +250,15 @@ const deviceAddress = computed(() => {
          props.deviceInfo.host || 
          props.deviceInfo.mac ||
          null;
+});
+
+// Nouvelle propriété pour éviter la répétition de l'adresse IP
+const shouldShowAddress = computed(() => {
+  const name = displayName.value;
+  const addr = deviceAddress.value;
+  
+  // N'afficher l'adresse que si elle est différente du nom
+  return addr && addr !== name;
 });
 
 // Fonctions utilitaires pour les appareils découverts
@@ -213,6 +289,13 @@ function formatTimeSince(timestamp) {
   return `${Math.floor(diff / 86400)} j`;
 }
 
+// Forcer l'actualisation quand deviceInfo change
+watch(() => props.deviceInfo, (newVal, oldVal) => {
+  if (newVal && JSON.stringify(newVal) !== JSON.stringify(oldVal)) {
+    console.log("DeviceInfo a changé:", newVal);
+  }
+}, { deep: true });
+
 // Gestionnaires d'événements
 function onDisconnect() {
   emit('disconnect');
@@ -237,6 +320,12 @@ function onRejectRequest() {
 function onCancelRequest() {
   emit('cancel-request');
 }
+
+// Log de débogage au montage
+onMounted(() => {
+  console.log("DeviceConnectionInfo monté avec deviceInfo:", props.deviceInfo);
+  console.log("État de connexion:", isReallyConnected.value);
+});
 </script>
 
 <style scoped>
@@ -300,6 +389,26 @@ function onCancelRequest() {
 
 .status-indicator.connected {
   background-color: #4CAF50;
+}
+
+.status-indicator.connecting {
+  background-color: #FF9800;
+  animation: pulse 1.5s infinite;
+}
+
+.status-indicator.waiting {
+  background-color: #9E9E9E;
+}
+
+.status-indicator.requested {
+  background-color: #2196F3;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
 }
 
 .status-text {

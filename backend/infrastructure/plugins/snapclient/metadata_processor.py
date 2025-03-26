@@ -63,7 +63,8 @@ class MetadataProcessor:
             "source": self.source_name,
             "status": status,
             "connected": is_connected,
-            "deviceConnected": is_connected
+            "deviceConnected": is_connected,
+            "plugin_state": status  # Ajouter l'état pour compatibilité
         }
         
         # Ajouter les détails supplémentaires
@@ -77,6 +78,39 @@ class MetadataProcessor:
         
         # Si déconnecté, effacer les métadonnées
         if status == "disconnected":
+            self.last_metadata = {}
+    
+    # Nouvelle méthode compatible avec la standardisation
+    async def publish_plugin_state(self, state: str, details: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Publie un état standardisé sur le bus d'événements.
+        
+        Args:
+            state: État standardisé (inactive, ready_to_connect, etc.)
+            details: Détails supplémentaires à inclure
+        """
+        # Déterminer l'état de connexion en fonction de l'état standardisé
+        is_connected = state == "connected"
+        
+        # Créer un objet avec les informations essentielles
+        status_data = {
+            "source": self.source_name,
+            "plugin_state": state,
+            "status": state,  # Pour compatibilité avec le code existant
+            "connected": is_connected,
+            "deviceConnected": is_connected
+        }
+        
+        # Ajouter les détails supplémentaires
+        if details:
+            status_data.update(details)
+        
+        # Publier l'événement
+        self.logger.debug(f"Publication de l'état standardisé: {state}")
+        await self.event_bus.publish("audio_status_updated", status_data)
+        
+        # Si déconnecté, effacer les métadonnées
+        if state == "inactive":
             self.last_metadata = {}
     
     def get_last_metadata(self) -> Dict[str, Any]:

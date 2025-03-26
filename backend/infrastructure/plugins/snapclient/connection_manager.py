@@ -5,7 +5,10 @@ import asyncio
 import logging
 import time
 import subprocess
+import socket
 from typing import Dict, Any, Optional, List, Set, Callable
+from backend.infrastructure.plugins.base import BaseAudioPlugin
+
 
 class ConnectionManager:
     """
@@ -32,8 +35,9 @@ class ConnectionManager:
         # Nouvel attribut pour mémoriser le dernier serveur connecté
         self.last_successful_server = None
         self.reconnect_attempts = 0
-        self.max_reconnect_attempts = 3  # Nombre maximal de tentatives de reconnexion
+        self.max_reconnect_attempts = 5  # Augmenté pour plus de persistance
         self.reconnection_task = None
+        self.reconnection_cooldown = 3  # Délai entre tentatives de reconnexion (secondes)
     
     async def start(self) -> None:
         """Démarre le gestionnaire de connexions"""
@@ -91,20 +95,23 @@ class ConnectionManager:
         request = {
             "host": host,
             "timestamp": time.time(),
-            "auto_accept_time": time.time() + 60,  # Auto-accepter après 60 secondes (configurable)
+            "auto_accept_time": time.time() + 30,  # Réduit à 30 secondes pour auto-accepter plus rapidement
             "status": "pending"
         }
         
         # Ajouter aux connexions en attente
         self.pending_connections[host] = request
         
-        # Publier un événement pour notifier l'utilisateur
-        await self.event_bus.publish("snapclient_connection_request", {
-            "source": "snapclient",
-            "host": host,
-            "request_id": host,  # Utiliser l'hôte comme ID de requête pour simplicité
-            "current_host": self.active_connection["host"] if self.active_connection else None
-        })
+        # Publier un événement pour notifier l'utilisateur avec état standardisé
+        await self.metadata_processor.publish_plugin_state(
+            BaseAudioPlugin.STATE_DEVICE_CHANGE_REQUESTED,
+            {
+                "host": host,
+                "request_id": host,  # Utiliser l'hôte comme ID de requête pour simplicité
+                "current_host": self.active_connection["host"] if self.active_connection else None,
+                "forceUpdate": True
+            }
+        )
     
     async def accept_connection_request(self, host: str) -> bool:
         """
@@ -191,11 +198,24 @@ class ConnectionManager:
                 return True
             else:
                 self.logger.warning(f"Échec de reconnexion au serveur: {host}")
+                # Planifier une nouvelle tentative après un délai
+                if self.reconnect_attempts < self.max_reconnect_attempts:
+                    asyncio.create_task(self._delayed_reconnect())
                 return False
                 
         except Exception as e:
             self.logger.error(f"Erreur lors de la tentative de reconnexion: {str(e)}")
+            # Planifier une nouvelle tentative après un délai
+            if self.reconnect_attempts < self.max_reconnect_attempts:
+                asyncio.create_task(self._delayed_reconnect())
             return False
+    
+    async def _delayed_reconnect(self) -> None:
+        """Tentative de reconnexion après un délai."""
+        await asyncio.sleep(self.reconnection_cooldown)
+        if not self.active_connection and self.last_successful_server:
+            self.logger.info(f"Nouvelle tentative de reconnexion planifiée au serveur: {self.last_successful_server}")
+            await self.try_reconnect()
     
     async def connect_to_server(self, host: str) -> bool:
         """
@@ -249,11 +269,25 @@ class ConnectionManager:
             self.logger.info(f"Déconnexion de l'hôte actuel ({old_host}) avant de se connecter à {host}")
             await self.disconnect()
         
-        # Publier un événement de changement d'état
-        await self.metadata_processor.publish_status("connecting", {
-            "host": host,
-            "timestamp": time.time()
-        })
+        # Publier un événement de changement d'état avec état standardisé
+        await self.metadata_processor.publish_plugin_state(
+            BaseAudioPlugin.STATE_READY_TO_CONNECT, 
+            {
+                "host": host,
+                "timestamp": time.time(),
+                "forceUpdate": True
+            }
+        )
+        
+        # Essayer d'obtenir un nom d'hôte pour l'adresse IP
+        device_name = host
+        try:
+            hostname = socket.getfqdn(host)
+            if hostname and hostname != host:
+                device_name = hostname
+                self.logger.info(f"Nom d'hôte résolu pour {host}: {device_name}")
+        except Exception:
+            pass
         
         try:
             # Démarrer/redémarrer le processus snapclient avec le nouvel hôte
@@ -263,7 +297,8 @@ class ConnectionManager:
                 self.active_connection = {
                     "host": host,
                     "connected_at": time.time(),
-                    "status": "connected"
+                    "status": "connected",
+                    "device_name": device_name
                 }
                 
                 # Nouvel ajout: enregistrer le serveur pour reconnexion future
@@ -276,34 +311,55 @@ class ConnectionManager:
                     request["status"] = "accepted"
                     self.connection_history.append(request)
                 
-                # Publier un événement de connexion réussie
-                await self.metadata_processor.publish_status("connected", {
-                    "host": host,
-                    "deviceConnected": True,
-                    "connected": True,
-                    "device_name": host  # Utiliser l'hôte comme nom d'appareil par défaut
-                })
+                # Publier un événement de connexion réussie avec état standardisé
+                await self.metadata_processor.publish_plugin_state(
+                    BaseAudioPlugin.STATE_CONNECTED, 
+                    {
+                        "host": host,
+                        "deviceConnected": True,
+                        "connected": True,
+                        "device_name": device_name,  # Utiliser le nom résolu si disponible
+                        "forceUpdate": True
+                    }
+                )
+                self.logger.info(f"État STATE_CONNECTED publié pour {host}")
                 
                 self.logger.info(f"Connexion réussie au serveur Snapcast: {host}")
                 return True
             else:
                 self.logger.error(f"Échec du processus snapclient pour l'hôte {host}")
                 
-                # Publier un événement d'échec
-                await self.metadata_processor.publish_status("error", {
-                    "host": host,
-                    "error": "connection_failed"
-                })
+                # Publier un événement d'échec - retour à l'état ready_to_connect
+                await self.metadata_processor.publish_plugin_state(
+                    BaseAudioPlugin.STATE_READY_TO_CONNECT, 
+                    {
+                        "host": host,
+                        "error": "connection_failed",
+                        "forceUpdate": True
+                    }
+                )
+                
+                # Planifier une nouvelle tentative après un délai
+                if not self.reconnection_task or self.reconnection_task.done():
+                    self.reconnection_task = asyncio.create_task(self._delayed_reconnect())
                 
                 return False
         except Exception as e:
             self.logger.error(f"Exception lors de la connexion au serveur Snapcast {host}: {str(e)}")
             
-            # Publier un événement d'échec
-            await self.metadata_processor.publish_status("error", {
-                "host": host,
-                "error": f"exception: {str(e)}"
-            })
+            # Publier un événement d'échec - retour à l'état ready_to_connect
+            await self.metadata_processor.publish_plugin_state(
+                BaseAudioPlugin.STATE_READY_TO_CONNECT, 
+                {
+                    "host": host,
+                    "error": f"exception: {str(e)}",
+                    "forceUpdate": True
+                }
+            )
+            
+            # Planifier une nouvelle tentative après un délai
+            if not self.reconnection_task or self.reconnection_task.done():
+                self.reconnection_task = asyncio.create_task(self._delayed_reconnect())
             
             return False
     
@@ -349,11 +405,25 @@ class ConnectionManager:
         previous_connection = self.active_connection
         self.active_connection = None
         
-        # Publier un événement de déconnexion
-        await self.metadata_processor.publish_status("disconnected", {
-            "deviceConnected": False,
-            "connected": False
-        })
+        # Publier un événement de déconnexion avec état standardisé
+        await self.metadata_processor.publish_plugin_state(
+            BaseAudioPlugin.STATE_INACTIVE,
+            {
+                "deviceConnected": False,
+                "connected": False,
+                "forceUpdate": True
+            }
+        )
+        
+        # Forcer une publication d'événement direct pour le WebSocket
+        if hasattr(self.metadata_processor, 'event_bus'):
+            await self.metadata_processor.event_bus.publish("snapclient_disconnected", {
+                "source": "snapclient",
+                "status": "disconnected",
+                "connected": False,
+                "deviceConnected": False,
+                "timestamp": time.time()
+            })
         
         if success:
             self.logger.info(f"Déconnexion réussie du serveur Snapcast: {host}")
@@ -398,6 +468,11 @@ class ConnectionManager:
                     # Traiter les auto-acceptations
                     for host in hosts_to_auto_accept:
                         await self.accept_connection_request(host)
+                    
+                    # Vérifier également si nous devons tenter de reconnecter à un serveur précédent
+                    if not self.active_connection and self.last_successful_server and self.reconnect_attempts < self.max_reconnect_attempts:
+                        # Limiter les tentatives pour ne pas surcharger
+                        await self.try_reconnect()
                         
                 except Exception as e:
                     self.logger.error(f"Erreur lors de la surveillance des connexions: {str(e)}")

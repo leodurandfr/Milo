@@ -6,12 +6,15 @@ import logging
 import time
 import subprocess
 import re
+import socket
 from typing import Dict, Any, Optional, Callable, List
+from backend.infrastructure.plugins.base import BaseAudioPlugin
+
 
 class ConnectionMonitor:
     """Surveille l'état de connexion du client Snapcast"""
     
-    def __init__(self, process_manager, metadata_processor, polling_interval: float = 5.0):
+    def __init__(self, process_manager, metadata_processor, polling_interval: float = 2.0):
         self.process_manager = process_manager
         self.metadata_processor = metadata_processor
         self.polling_interval = polling_interval
@@ -22,7 +25,7 @@ class ConnectionMonitor:
         self.last_connection_check = 0
         self.device_info = {}
         self.consecutive_failures = 0  # Compteur d'échecs consécutifs
-        self.max_failures = 2  # Nombre d'échecs consécutifs avant de considérer comme déconnecté
+        self.max_failures = 1  # Réduit à 1 pour confirmer une déconnexion plus rapidement
         self.last_stdout = ""  # Pour détecter les changements dans la sortie du processus
         self.disconnection_patterns = [
             "disconnected",
@@ -71,10 +74,24 @@ class ConnectionMonitor:
             if self.connected:
                 # Si on était connecté mais le processus n'est plus en cours d'exécution
                 self.connected = False
-                await self.metadata_processor.publish_status("disconnected", {
-                    "deviceConnected": False,
-                    "connected": False
-                })
+                await self.metadata_processor.publish_plugin_state(
+                    BaseAudioPlugin.STATE_INACTIVE,
+                    {
+                        "deviceConnected": False,
+                        "connected": False,
+                        "forceUpdate": True
+                    }
+                )
+                
+                # Forcer une publication d'événement direct pour le WebSocket
+                if hasattr(self.metadata_processor, 'event_bus'):
+                    await self.metadata_processor.event_bus.publish("snapclient_disconnected", {
+                        "source": "snapclient",
+                        "status": "disconnected",
+                        "connected": False,
+                        "deviceConnected": False,
+                        "timestamp": time.time()
+                    })
             return False
         
         try:
@@ -99,23 +116,54 @@ class ConnectionMonitor:
                             self.logger.info(f"Publication d'un événement de redémarrage du serveur {self.last_host}")
                             await self.metadata_processor.event_bus.publish("snapclient_server_restarted", {
                                 "source": "snapclient",
-                                "host": self.last_host
+                                "host": self.last_host,
+                                "timestamp": time.time()
                             })
-                            
-                        # Communiquer cette information au service de découverte
-                        # pour optimiser les tentatives de reconnexion
-                        try:
-                            from backend.infrastructure.plugins.snapclient.discovery_services import DiscoveryService
-                            if hasattr(DiscoveryService, 'set_last_known_active_server'):
-                                # Si le service de découverte est accessible, lui signaler le serveur redémarré
-                                DiscoveryService.set_last_known_active_server(self.last_host)
-                        except ImportError:
-                            pass
                         
-                        break
+                        # Forcer l'état connecté et publier immédiatement
+                        self.connected = True
+                        
+                        # Tenter de détecter le nom du serveur dans les logs
+                        server_name = None
+                        server_version = None
+                        
+                        # Chercher le nom du serveur avec différents patterns
+                        server_match = re.search(r"Server:\s+([^,]+),\s+Version:\s+([^\s]+)", stdout)
+                        if server_match:
+                            server_name = server_match.group(1)
+                            server_version = server_match.group(2)
+                        
+                        # Chercher également avec d'autres patterns
+                        if not server_name:
+                            host_name_match = re.search(r"Hello from [^,]*, host:\s+([^,\s]+)", stdout)
+                            if host_name_match:
+                                server_name = host_name_match.group(1)
+                        
+                        # Essayer de résoudre le nom d'hôte à partir de l'IP
+                        if not server_name and self.last_host:
+                            try:
+                                hostname = socket.getfqdn(self.last_host)
+                                if hostname and hostname != self.last_host:
+                                    server_name = hostname
+                            except:
+                                pass
+                                
+                        # Publier un événement de connexion avec les infos disponibles
+                        await self.metadata_processor.publish_plugin_state(
+                            BaseAudioPlugin.STATE_CONNECTED,
+                            {
+                                "deviceConnected": True,
+                                "connected": True,
+                                "host": self.last_host,
+                                "device_name": server_name or self.last_host or "Snapcast",
+                                "forceUpdate": True
+                            }
+                        )
+                        
+                        self.logger.info(f"Reconnexion automatique détectée pour {self.last_host}")
+                        return True
                 
                 if reconnect_detected:
-                    self.connected = True
                     return True
             
             # Vérifier s'il y a des messages d'erreur ou de déconnexion
@@ -143,13 +191,26 @@ class ConnectionMonitor:
                     old_connected = self.connected
                     self.connected = False
                     
-                    # Ne publier qu'en cas de changement d'état
-                    if old_connected:
-                        await self.metadata_processor.publish_status("disconnected", {
+                    # Publier la déconnexion immédiatement avec force update
+                    await self.metadata_processor.publish_plugin_state(
+                        BaseAudioPlugin.STATE_INACTIVE,
+                        {
                             "deviceConnected": False,
-                            "connected": False
+                            "connected": False,
+                            "forceUpdate": True
+                        }
+                    )
+                    
+                    # Forcer une publication d'événement direct pour le WebSocket
+                    if hasattr(self.metadata_processor, 'event_bus'):
+                        await self.metadata_processor.event_bus.publish("snapclient_disconnected", {
+                            "source": "snapclient",
+                            "status": "disconnected",
+                            "connected": False,
+                            "deviceConnected": False,
+                            "timestamp": time.time()
                         })
-                        
+                    
                     self.consecutive_failures = 0
                     return False
             else:
@@ -175,19 +236,38 @@ class ConnectionMonitor:
                 if host_match:
                     host = host_match.group(1)
             
-            # Chercher des informations sur le serveur
+            # Chercher des informations sur le serveur de façon plus complète
             server_name = None
             server_version = None
+            
+            # Chercher le nom du serveur avec différents patterns
             server_match = re.search(r"Server:\s+([^,]+),\s+Version:\s+([^\s]+)", stdout)
             if server_match:
                 server_name = server_match.group(1)
                 server_version = server_match.group(2)
             
+            # Chercher également avec d'autres patterns courants dans les logs
+            if not server_name:
+                host_name_match = re.search(r"Hello from [^,]*, host:\s+([^,\s]+)", stdout)
+                if host_name_match:
+                    server_name = host_name_match.group(1)
+            
             # Si on trouve des informations de serveur, c'est probablement que la connexion est établie
             if server_name or "Playing stream" in stdout or "Time of server" in stdout:
                 is_connected = True
             
-            # Mettre à jour l'état interne
+            # Essayer de résoudre le nom d'hôte à partir de l'IP si on a trouvé une IP mais pas de nom
+            if host and not server_name:
+                try:
+                    # Essayer de faire une résolution DNS inverse
+                    hostname = socket.getfqdn(host)
+                    if hostname and hostname != host:
+                        server_name = hostname
+                        self.logger.info(f"Nom d'hôte résolu pour {host}: {server_name}")
+                except Exception as e:
+                    self.logger.debug(f"Impossible de résoudre le nom d'hôte pour {host}: {e}")
+            
+            # Mettre à jour l'état interne si quelque chose a changé
             if is_connected != self.connected or host != self.last_host:
                 old_connected = self.connected
                 self.connected = is_connected
@@ -195,6 +275,9 @@ class ConnectionMonitor:
                 
                 # Mettre à jour les informations sur le périphérique
                 if is_connected:
+                    # Ajouter une trace de débogage pour analyse
+                    self.logger.info(f"Périphérique connecté - IP: {host}, Nom: {server_name}")
+                    
                     self.device_info = {
                         "deviceName": server_name or host or "Snapcast",
                         "host": host,
@@ -203,27 +286,39 @@ class ConnectionMonitor:
                         "last_checked": time.time()
                     }
                     
-                    # Stocker ce serveur dans le service de découverte pour les reconnexions futures
-                    try:
-                        from backend.infrastructure.plugins.snapclient.discovery_services import DiscoveryService
-                        if hasattr(DiscoveryService, 'set_last_known_active_server'):
-                            DiscoveryService.set_last_known_active_server(host)
-                    except ImportError:
-                        pass
+                    # Publier l'état standardisé de connexion
+                    await self.metadata_processor.publish_plugin_state(
+                        BaseAudioPlugin.STATE_CONNECTED,
+                        {
+                            "deviceConnected": True,
+                            "connected": True,
+                            "host": host,
+                            "device_name": server_name or host or "Snapcast",
+                            "forceUpdate": True
+                        }
+                    )
+                    self.logger.info(f"Publication d'état STATE_CONNECTED pour {host}")
                     
-                    # Publier l'état
-                    await self.metadata_processor.publish_status("connected", {
-                        "deviceConnected": True,
-                        "connected": True,
-                        "host": host,
-                        "device_name": server_name or host or "Snapcast"
-                    })
                 elif old_connected:
                     # Ne publier la déconnexion que si on était connecté avant
-                    await self.metadata_processor.publish_status("disconnected", {
-                        "deviceConnected": False,
-                        "connected": False
-                    })
+                    await self.metadata_processor.publish_plugin_state(
+                        BaseAudioPlugin.STATE_INACTIVE,
+                        {
+                            "deviceConnected": False,
+                            "connected": False,
+                            "forceUpdate": True
+                        }
+                    )
+                    
+                    # Publier un événement direct pour le WebSocket
+                    if hasattr(self.metadata_processor, 'event_bus'):
+                        await self.metadata_processor.event_bus.publish("snapclient_disconnected", {
+                            "source": "snapclient",
+                            "status": "disconnected",
+                            "connected": False,
+                            "deviceConnected": False,
+                            "timestamp": time.time()
+                        })
             
             self.last_connection_check = time.time()
             return is_connected

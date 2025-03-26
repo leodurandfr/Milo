@@ -107,6 +107,15 @@ class SnapclientPlugin(BaseAudioPlugin):
             
             await self.connection_manager.start()
             
+            # Publier l'état initial standardisé - inactive au démarrage
+            await self.metadata_processor.publish_plugin_state(
+                self.STATE_INACTIVE,
+                {
+                    "deviceConnected": False,
+                    "connected": False
+                }
+            )
+            
             # Activement vérifier la connexion pour mettre à jour l'interface
             is_connected = await self.connection_monitor.check_connection()
             self.device_connected = is_connected
@@ -129,20 +138,26 @@ class SnapclientPlugin(BaseAudioPlugin):
             # Ajouter une vérification périodique de la connexion
             self.periodic_check_task = asyncio.create_task(self._periodic_connection_check())
             
-            # Publier l'état initial
+            # Publier l'état standardisé en fonction de la connexion
             connection_info = await self.get_connection_info()
             if connection_info["device_connected"]:
-                await self.metadata_processor.publish_status("connected", {
-                    "deviceConnected": True,
-                    "connected": True,
-                    "host": connection_info.get("host"),
-                    "device_name": connection_info.get("device_name", "Snapcast")
-                })
+                await self.metadata_processor.publish_plugin_state(
+                    self.STATE_CONNECTED,
+                    {
+                        "deviceConnected": True,
+                        "connected": True,
+                        "host": connection_info.get("host"),
+                        "device_name": connection_info.get("device_name", "Snapcast")
+                    }
+                )
             else:
-                await self.metadata_processor.publish_status("disconnected", {
-                    "deviceConnected": False,
-                    "connected": False
-                })
+                await self.metadata_processor.publish_plugin_state(
+                    self.STATE_READY_TO_CONNECT,
+                    {
+                        "deviceConnected": False,
+                        "connected": False
+                    }
+                )
             
             self.logger.info("Source audio snapclient démarrée avec succès")
             return True
@@ -189,8 +204,8 @@ class SnapclientPlugin(BaseAudioPlugin):
                 # Nettoyage des processus orphelins
                 await self._force_kill_snapclient()
             
-            # Publier l'état d'arrêt
-            await self.metadata_processor.publish_status("stopped")
+            # Publier l'état standardisé d'arrêt
+            await self.metadata_processor.publish_plugin_state(self.STATE_INACTIVE)
             
             self.logger.info("Source audio snapclient arrêtée avec succès")
             return True
@@ -380,11 +395,16 @@ class SnapclientPlugin(BaseAudioPlugin):
                 if device_info:
                     await self.metadata_processor.update_device_info(device_info)
                 
-                # Publier l'état
+                # Publier l'état standardisé selon la connexion
                 if is_connected:
-                    await self.metadata_processor.publish_status("connected", device_info)
+                    await self.metadata_processor.publish_plugin_state(
+                        self.STATE_CONNECTED,
+                        device_info
+                    )
                 else:
-                    await self.metadata_processor.publish_status("disconnected")
+                    await self.metadata_processor.publish_plugin_state(
+                        self.STATE_READY_TO_CONNECT
+                    )
                 
                 return {
                     "success": True,

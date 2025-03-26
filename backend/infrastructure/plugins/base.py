@@ -14,6 +14,17 @@ class BaseAudioPlugin(AudioSourcePlugin, ABC):
     Classe de base qui implémente les fonctionnalités communes à tous les plugins audio.
     """
     
+    # États communs standardisés
+    STATE_INACTIVE = "inactive"  
+    STATE_READY_TO_CONNECT = "ready_to_connect"
+    STATE_DEVICE_CHANGE_REQUESTED = "device_change_requested" 
+    STATE_CONNECTED = "connected"
+    
+    # États spécifiques pour plugins avec contrôle de lecture
+    STATE_PLAYING = "playing"
+    STATE_PAUSED = "paused"
+    STATE_STOPPED = "stopped"
+    
     def __init__(self, event_bus: EventBus, name: str):
         """
         Initialise le plugin de base avec un bus d'événements et un nom.
@@ -40,6 +51,24 @@ class BaseAudioPlugin(AudioSourcePlugin, ABC):
             "source": self.name,
             "metadata": metadata
         })
+    
+    async def publish_plugin_state(self, state: str, details: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Publie un état standardisé sur le bus d'événements.
+        
+        Args:
+            state: État standardisé (STATE_INACTIVE, STATE_READY_TO_CONNECT, etc.)
+            details: Détails supplémentaires à inclure
+        """
+        status_data = {
+            "source": self.name,
+            "plugin_state": state
+        }
+        
+        if details:
+            status_data.update(details)
+            
+        await self.publish_status(state, status_data)
         
     async def publish_status(self, status: str, details: Optional[Dict[str, Any]] = None) -> None:
         """
