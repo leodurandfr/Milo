@@ -44,7 +44,7 @@ import axios from 'axios';
 import NowPlayingInfo from './NowPlayingInfo.vue';
 import PlaybackControls from './PlaybackControls.vue';
 import ProgressBar from './ProgressBar.vue';
-import WaitingConnection from './../WaitingConnection.vue';
+// import WaitingConnection from './../WaitingConnection.vue';
 import DebugPanel from './DebugPanel.vue';
 
 const audioStore = useAudioStore();

@@ -1,211 +1,160 @@
-// frontend/src/stores/index.js
+/**
+ * Store principal pour gérer l'état audio de l'application.
+ */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
-import { useLibrespotStore } from './librespot';
-import { useSnapclientStore } from './snapclient';
-import { useStateStore } from './state';
-import { useVolumeStore } from './volume';
+
+export * from './snapclient';
 
 export const useAudioStore = defineStore('audio', () => {
-  // Sous-stores
-  const librespotStore = useLibrespotStore();
-  const snapclientStore = useSnapclientStore();
-  const stateStore = useStateStore();
-  const volumeStore = useVolumeStore();
-  
-  // État local du store principal
+  // État
+  const currentState = ref('none');
+  const isTransitioning = ref(false);
+  const metadata = ref({});
+  const volume = ref(50);
   const error = ref(null);
   
-  // Proxys pour accéder rapidement aux états importants
-  const currentState = computed(() => stateStore.currentState);
-  const isTransitioning = computed(() => stateStore.isTransitioning);
-  const volume = computed({
-    get: () => volumeStore.volume,
-    set: (value) => volumeStore.setVolume(value)
-  });
-  
-  // Métadonnées actives (sélection en fonction de la source active)
-  const metadata = computed(() => {
-    if (currentState.value === 'librespot') {
-      return librespotStore.metadata;
-    } else if (currentState.value === 'macos') {
-      return snapclientStore.deviceInfo;
-    }
-    return {};
-  });
-  
-  // Proxys pour l'état de lecture
-  const isPlaying = computed(() => {
-    if (currentState.value === 'librespot') {
-      return librespotStore.isPlaying;
-    }
-    return false;
-  });
-  
-  const isDisconnected = computed(() => {
-    if (currentState.value === 'librespot') {
-      return librespotStore.isDisconnected;
-    } else if (currentState.value === 'macos') {
-      return !snapclientStore.isConnected;
-    }
-    return true;
-  });
-  
-  // Labels pour l'UI
+  // Getters
   const stateLabel = computed(() => {
-    switch (currentState.value) {
-      case 'librespot': return 'Spotify';
-      case 'bluetooth': return 'Bluetooth';
-      case 'macos': return 'MacOS';
-      case 'webradio': return 'Web Radio';
-      default: return 'Aucune source';
-    }
+    const labels = {
+      'none': 'Aucune',
+      'transitioning': 'En transition',
+      'librespot': 'Spotify Connect',
+      'bluetooth': 'Bluetooth',
+      'macos': 'MacOS',
+      'webradio': 'Radio Web'
+    };
+    
+    return labels[currentState.value] || currentState.value;
   });
   
-  // Récupération de l'état depuis l'API
+  // Actions
   async function fetchState() {
     try {
       const response = await axios.get('/api/audio/state');
-      stateStore.updateState(response.data.state, response.data.transitioning);
+      const data = response.data;
       
-      // Mettre à jour le sous-store approprié
-      if (response.data.state === 'librespot') {
-        librespotStore.updateMetadata(response.data.metadata || {});
-      } else if (response.data.state === 'macos') {
-        // Pour snapclient, vérifier le statut actuel
-        await snapclientStore.checkStatus();
-      }
+      currentState.value = data.state;
+      isTransitioning.value = data.transitioning;
+      volume.value = data.volume;
+      metadata.value = data.metadata || {};
       
-      // Mettre à jour le volume
-      if (response.data.volume !== undefined) {
-        volumeStore.setVolume(response.data.volume);
-      }
-      
-      return response.data;
+      return data;
     } catch (err) {
+      console.error('Erreur lors de la récupération de l\'état audio:', err);
       error.value = 'Erreur lors de la récupération de l\'état audio';
-      console.error(error.value, err);
+      throw err;
     }
   }
   
-  // Changement de source
   async function changeSource(source) {
     try {
       error.value = null;
-      stateStore.startTransition();
+      isTransitioning.value = true;
+      
       const response = await axios.post(`/api/audio/source/${source}`);
-      if (response.data.status === 'error') {
-        throw new Error(response.data.message);
+      const data = response.data;
+      
+      if (data.status === 'success') {
+        // La mise à jour du currentState sera effectuée par WebSocket
+        return true;
+      } else {
+        throw new Error(data.message || 'Échec du changement de source');
       }
-      return true;
     } catch (err) {
-      error.value = `Erreur lors du changement de source: ${err.message}`;
-      console.error(error.value);
-      return false;
+      console.error('Erreur lors du changement de source:', err);
+      error.value = err.message || 'Erreur lors du changement de source';
+      throw err;
     } finally {
-      // L'état sera mis à jour via WebSocket
+      // Note: isTransitioning devrait être mis à jour par WebSocket
     }
   }
   
-  // Méthode pour contrôler une source audio
-  async function controlSource(source, command, data = {}) {
+  async function setVolume(newVolume) {
+    if (newVolume < 0) newVolume = 0;
+    if (newVolume > 100) newVolume = 100;
+    
+    try {
+      const response = await axios.post('/api/audio/volume', { volume: newVolume });
+      const data = response.data;
+      
+      if (data.status === 'success') {
+        volume.value = newVolume;
+        return true;
+      } else {
+        throw new Error(data.message || 'Échec du changement de volume');
+      }
+    } catch (err) {
+      console.error('Erreur lors du changement de volume:', err);
+      error.value = err.message || 'Erreur lors du changement de volume';
+      throw err;
+    }
+  }
+  
+  async function controlSource(source, command, params = {}) {
     try {
       error.value = null;
-      console.log(`Envoi de la commande "${command}" à la source "${source}"`, data);
       
-      // Déléguer au sous-store approprié
-      if (source === 'librespot') {
-        return await librespotStore.handleCommand(command, data);
-      } else if (source === 'macos') {
-        return await snapclientStore.handleCommand(command, data);
-      }
-      
-      // Fallback à l'API générique
       const response = await axios.post(`/api/audio/control/${source}`, {
         command,
-        data
+        data: params
       });
       
-      if (response.data.status === 'error') {
-        throw new Error(response.data.message);
-      }
+      const data = response.data;
       
-      return true;
+      if (data.status === 'success') {
+        return data.result;
+      } else {
+        throw new Error(data.message || `Échec de la commande ${command}`);
+      }
     } catch (err) {
-      error.value = `Erreur lors du contrôle de la source ${source}: ${err.message}`;
-      console.error(error.value);
-      return false;
+      console.error(`Erreur lors de l'exécution de la commande ${command} sur ${source}:`, err);
+      error.value = err.message || `Erreur lors de l'exécution de la commande ${command}`;
+      throw err;
     }
   }
   
-  // Vérifier l'état de connexion pour la source active
-  async function checkConnectionStatus() {
-    if (currentState.value === 'librespot') {
-      return await librespotStore.checkConnectionStatus();
-    } else if (currentState.value === 'macos') {
-      return await snapclientStore.checkStatus();
-    }
-    return false;
-  }
-  
-  // Fonction pour la validité des métadonnées - pour compatibilité
-  function hasValidMetadata(meta) {
-    if (currentState.value === 'librespot') {
-      return librespotStore.hasValidMetadata(meta);
-    }
-    return !!meta && Object.keys(meta).length > 0;
-  }
-  
-  // Fonction pour effacer les métadonnées - pour compatibilité
-  function clearMetadata() {
-    if (currentState.value === 'librespot') {
-      librespotStore.clearMetadata();
-    } else if (currentState.value === 'macos') {
-      snapclientStore.deviceInfo = {};
-    }
-  }
-  
-  // Mettre à jour les métadonnées d'après un statut - pour compatibilité
-  function updateMetadataFromStatus(metadataFromStatus) {
-    if (currentState.value === 'librespot') {
-      librespotStore.updateMetadata(metadataFromStatus);
-    } else if (currentState.value === 'macos' && metadataFromStatus) {
-      snapclientStore.deviceInfo = { ...metadataFromStatus };
-    }
-  }
-  
-  // Traitement des événements WebSocket
   function handleWebSocketUpdate(eventType, data) {
-    console.log(`WebSocket event received: ${eventType}`, data);
-    
-    // Traiter les événements d'état global
-    if (eventType === 'audio_state_changed') {
-      stateStore.updateState(data.current_state, data.transitioning);
-      
-      // Si l'état change à 'none', effacer les métadonnées
-      if (data.current_state === 'none') {
-        librespotStore.clearMetadata();
-        snapclientStore.deviceInfo = {};
-      }
-    } 
-    else if (eventType === 'volume_changed') {
-      volumeStore.setVolume(data.volume);
-    } 
-    else if (eventType === 'audio_error') {
-      error.value = data.error;
-    } 
-    else if (eventType === 'snapclient_connection_request') {
-      // Router l'événement vers le store snapclient
-      snapclientStore.handleEvent(eventType, data);
-    }
-    else {
-      // Router les événements au store approprié
-      if (data.source === 'librespot' || currentState.value === 'librespot') {
-        librespotStore.handleEvent(eventType, data);
-      } else if (data.source === 'snapclient' || currentState.value === 'macos') {
-        snapclientStore.handleEvent(eventType, data);
-      }
+    switch (eventType) {
+      case 'audio_state_changed':
+        currentState.value = data.current_state;
+        isTransitioning.value = data.transitioning === true;
+        break;
+        
+      case 'audio_state_changing':
+        isTransitioning.value = true;
+        break;
+        
+      case 'volume_changed':
+        volume.value = data.volume;
+        break;
+        
+      case 'audio_error':
+        error.value = data.error;
+        isTransitioning.value = false;
+        break;
+        
+      case 'audio_metadata_updated':
+        if (data.source === currentState.value) {
+          metadata.value = data.metadata || {};
+        }
+        break;
+        
+      case 'audio_status_updated':
+        if (data.source === currentState.value) {
+          // Mise à jour de l'état selon le statut
+          if (data.plugin_state) {
+            // Nouvel état standardisé
+            // (Aucune action requise au niveau du store principal)
+          }
+          
+          // Mettre à jour les métadonnées si disponibles
+          if (data.metadata) {
+            metadata.value = { ...metadata.value, ...data.metadata };
+          }
+        }
+        break;
     }
   }
   
@@ -216,22 +165,15 @@ export const useAudioStore = defineStore('audio', () => {
     metadata,
     volume,
     error,
-    isDisconnected,
     
     // Getters
-    isPlaying,
     stateLabel,
     
     // Actions
     fetchState,
     changeSource,
+    setVolume,
     controlSource,
-    handleWebSocketUpdate,
-    checkConnectionStatus,
-    
-    // Fonctions de compatibilité avec l'ancien code
-    hasValidMetadata,
-    clearMetadata,
-    updateMetadataFromStatus
+    handleWebSocketUpdate
   };
 });

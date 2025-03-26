@@ -1,8 +1,8 @@
 """
 Routes API spécifiques pour le plugin snapclient.
 """
-from fastapi import APIRouter, HTTPException, Query, Depends
-from typing import Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Query, Depends, Body
+from typing import Dict, Any, Optional, List
 
 # Créer un router dédié pour snapclient
 router = APIRouter(
@@ -52,7 +52,8 @@ async def get_snapclient_status(plugin = Depends(get_snapclient_plugin)):
             "device_name": connection_info.get("device_name"),
             "device_info": status.get("metadata", {}),
             "discovered_servers": status.get("discovered_servers", []),
-            "pending_connections": status.get("pending_connections", [])
+            "pending_requests": status.get("pending_requests", []),
+            "blacklisted_servers": status.get("blacklisted_servers", [])
         }
     except Exception as e:
         return {
@@ -69,7 +70,10 @@ async def discover_snapcast_servers(plugin = Depends(get_snapclient_plugin)):
         
         return {
             "status": "success",
-            "servers": result.get("servers", [])
+            "servers": result.get("servers", []),
+            "count": result.get("count", 0),
+            "action": result.get("action"),
+            "message": result.get("message")
         }
     except Exception as e:
         return {
@@ -89,7 +93,8 @@ async def connect_to_snapcast_server(
         if result.get("success", False):
             return {
                 "status": "success",
-                "message": f"Connecté au serveur {host}"
+                "message": f"Connecté au serveur {host}",
+                "server": result.get("server")
             }
         else:
             return {
@@ -124,24 +129,41 @@ async def disconnect_from_snapcast_server(plugin = Depends(get_snapclient_plugin
             "message": f"Erreur lors de la déconnexion du serveur: {str(e)}"
         }
 
-@router.post("/accept-request/{host}")
+@router.post("/accept-request")
 async def accept_connection_request(
-    host: str,
+    data: Dict[str, Any] = Body(...),
     plugin = Depends(get_snapclient_plugin)
 ):
     """Accepte une demande de connexion entrante"""
     try:
-        result = await plugin.handle_command("accept_connection", {"host": host})
+        # Récupérer l'ID de demande ou l'hôte
+        request_id = data.get("request_id")
+        host = data.get("host")
+        
+        if not request_id and not host:
+            return {
+                "status": "error",
+                "message": "Veuillez fournir un request_id ou un host"
+            }
+        
+        command_data = {}
+        if request_id:
+            command_data["request_id"] = request_id
+        if host:
+            command_data["host"] = host
+        
+        result = await plugin.handle_command("accept_connection", command_data)
         
         if result.get("success", False):
             return {
                 "status": "success",
-                "message": f"Demande de connexion de {host} acceptée"
+                "message": result.get("message", "Demande de connexion acceptée"),
+                "server": result.get("server")
             }
         else:
             return {
                 "status": "error",
-                "message": result.get("error", f"Impossible d'accepter la demande de {host}")
+                "message": result.get("error", "Impossible d'accepter la demande de connexion")
             }
     except Exception as e:
         return {
@@ -149,27 +171,87 @@ async def accept_connection_request(
             "message": f"Erreur lors de l'acceptation de la demande: {str(e)}"
         }
 
-@router.post("/reject-request/{host}")
+@router.post("/reject-request")
 async def reject_connection_request(
-    host: str,
+    data: Dict[str, Any] = Body(...),
     plugin = Depends(get_snapclient_plugin)
 ):
     """Rejette une demande de connexion entrante"""
     try:
-        result = await plugin.handle_command("reject_connection", {"host": host})
+        # Récupérer l'ID de demande ou l'hôte
+        request_id = data.get("request_id")
+        host = data.get("host")
+        
+        if not request_id and not host:
+            return {
+                "status": "error",
+                "message": "Veuillez fournir un request_id ou un host"
+            }
+        
+        command_data = {}
+        if request_id:
+            command_data["request_id"] = request_id
+        if host:
+            command_data["host"] = host
+        
+        result = await plugin.handle_command("reject_connection", command_data)
         
         if result.get("success", False):
             return {
                 "status": "success",
-                "message": f"Demande de connexion de {host} rejetée"
+                "message": result.get("message", "Demande de connexion rejetée")
             }
         else:
             return {
                 "status": "error",
-                "message": result.get("error", f"Impossible de rejeter la demande de {host}")
+                "message": result.get("error", "Impossible de rejeter la demande de connexion")
             }
     except Exception as e:
         return {
             "status": "error",
             "message": f"Erreur lors du rejet de la demande: {str(e)}"
+        }
+
+@router.post("/restart")
+async def restart_snapclient(plugin = Depends(get_snapclient_plugin)):
+    """Redémarre le processus snapclient"""
+    try:
+        result = await plugin.handle_command("restart", {})
+        
+        if result.get("success", False):
+            return {
+                "status": "success",
+                "message": result.get("message", "Processus snapclient redémarré")
+            }
+        else:
+            return {
+                "status": "error",
+                "message": result.get("error", "Impossible de redémarrer le processus snapclient")
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Erreur lors du redémarrage du processus: {str(e)}"
+        }
+
+@router.post("/test-audio")
+async def test_audio(plugin = Depends(get_snapclient_plugin)):
+    """Exécute un test audio pour vérifier que le son fonctionne"""
+    try:
+        result = await plugin.handle_command("test_audio", {})
+        
+        if result.get("success", False):
+            return {
+                "status": "success",
+                "message": "Test audio lancé avec succès"
+            }
+        else:
+            return {
+                "status": "error",
+                "message": result.get("error", "Impossible de lancer le test audio")
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Erreur lors du test audio: {str(e)}"
         }
