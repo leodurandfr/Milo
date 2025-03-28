@@ -136,44 +136,20 @@ class SnapclientPlugin(BaseAudioPlugin):
                 except asyncio.CancelledError:
                     pass
             
-            # Déconnecter proprement
+            # Déconnecter proprement - cette méthode s'assure que tous les processus sont arrêtés
             await self.connection_manager.disconnect()
-            
-            # Force kill de tous les processus snapclient
-            try:
-                self.logger.info("Arrêt forcé de tous les processus snapclient")
-                process = await asyncio.create_subprocess_exec(
-                    "killall", "-9", "snapclient",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await process.wait()
-            except Exception as e:
-                self.logger.error(f"Erreur lors du killall: {str(e)}")
             
             # Nettoyer l'état
             self.connection_manager.clear_pending_requests()
+            self.blacklisted_servers = []
             await self.transition_to_state(self.STATE_INACTIVE)
             
-            # Vérification finale
+            # Court délai pour s'assurer que tout est bien arrêté
             await asyncio.sleep(0.5)
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    "killall", "-9", "snapclient",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await process.wait()
-            except Exception:
-                pass
             
             return True
         except Exception as e:
             self.logger.error(f"Erreur lors de l'arrêt du plugin Snapclient: {str(e)}")
-            try:
-                await asyncio.create_subprocess_exec("killall", "-9", "snapclient")
-            except:
-                pass
             return False
     
     async def get_status(self) -> Dict[str, Any]:
