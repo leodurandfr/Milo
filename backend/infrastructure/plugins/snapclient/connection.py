@@ -149,18 +149,9 @@ class SnapclientConnection:
                 "servers": []
             }
         
-        # Filtrer les serveurs blacklistés si une liste est fournie
-        available_servers = []
-        if blacklisted_servers:
-            for server in servers:
-                if server.host not in blacklisted_servers:
-                    available_servers.append(server)
-                else:
-                    self.logger.info(f"Serveur {server.host} ignoré car présent dans la blacklist")
-        else:
-            available_servers = servers
-            
-        # Si aucun serveur disponible après filtrage
+        # Filtrer les serveurs blacklistés
+        available_servers = [s for s in servers if s.host not in (blacklisted_servers or [])]
+        
         if not available_servers:
             return {
                 "action": "all_servers_blacklisted",
@@ -168,33 +159,26 @@ class SnapclientConnection:
                 "servers": [s.to_dict() for s in servers]
             }
         
-        # Si auto_connect est activé et qu'aucun serveur n'est connecté
+        # Auto-connexion à un seul serveur
         if self.auto_connect and not self.current_server and len(available_servers) == 1:
-            # Se connecter automatiquement au seul serveur trouvé
             server = available_servers[0]
-            self.logger.info(f"Tentative de connexion automatique au serveur {server.name} ({server.host})")
+            self.logger.info(f"Tentative de connexion automatique à {server.name} ({server.host})")
             success = await self.connect(server)
             
             return {
                 "action": "auto_connected" if success else "connection_failed",
-                "message": f"Connexion automatique au serveur {server.name}" if success else f"Échec de la connexion automatique au serveur {server.name}",
+                "message": f"Connexion automatique au serveur {server.name}" if success else f"Échec de la connexion",
                 "server": server.to_dict() if success else None,
                 "servers": [s.to_dict() for s in servers]
             }
         
-        # Si un serveur est déjà connecté, vérifier s'il est toujours dans la liste
+        # Serveur déjà connecté - vérifier s'il est toujours disponible
         elif self.current_server:
-            # Trouver le serveur actuel dans la liste des serveurs découverts
-            current_server_found = False
-            for server in servers:
-                if server.host == self.current_server.host:
-                    current_server_found = True
-                    break
+            # Vérifier si le serveur actuel existe toujours
+            current_server_found = any(s.host == self.current_server.host for s in servers)
             
             if not current_server_found:
-                self.logger.warning(f"Le serveur actuellement connecté {self.current_server.name} ({self.current_server.host}) n'est plus disponible")
-                
-                # Déconnecter automatiquement
+                self.logger.warning(f"Le serveur {self.current_server.name} n'est plus disponible")
                 await self.disconnect()
                 
                 return {
@@ -204,16 +188,11 @@ class SnapclientConnection:
                 }
             
             # Vérifier s'il y a de nouveaux serveurs
-            new_servers = []
-            for server in available_servers:  # Utiliser available_servers pour exclure les blacklistés
-                if server.host != self.current_server.host:
-                    new_servers.append(server)
+            new_servers = [s for s in available_servers if s.host != self.current_server.host]
             
             if new_servers:
-                self.logger.info(f"Nouveaux serveurs trouvés pendant qu'un serveur est connecté: {[s.name for s in new_servers]}")
-                
-                # Créer une demande de connexion pour le premier nouveau serveur
                 if len(new_servers) == 1:
+                    # Un seul nouveau serveur
                     request = self.create_connection_request(new_servers[0])
                     
                     return {
@@ -222,10 +201,11 @@ class SnapclientConnection:
                         "request_id": request.request_id,
                         "server": new_servers[0].to_dict(),
                         "current_server": self.current_server.to_dict(),
-                        "servers": [s.to_dict() for s in servers]
+                        "servers": [s.to_dict() for s in servers],
+                        "plugin_state": "device_change_requested"  # État standardisé 
                     }
                 else:
-                    # Plusieurs nouveaux serveurs, laisser l'utilisateur choisir
+                    # Plusieurs nouveaux serveurs
                     return {
                         "action": "multiple_servers_available",
                         "message": f"{len(new_servers)} nouveaux serveurs sont disponibles",
@@ -234,17 +214,15 @@ class SnapclientConnection:
                         "servers": [s.to_dict() for s in servers]
                     }
         
-        # Plusieurs serveurs trouvés sans connexion active
+        # Plusieurs serveurs sans connexion active
         elif len(available_servers) > 1:
-            self.logger.info(f"Plusieurs serveurs trouvés sans connexion active: {[s.name for s in available_servers]}")
-            
             return {
                 "action": "multiple_servers_found",
                 "message": f"{len(available_servers)} serveurs trouvés",
                 "servers": [s.to_dict() for s in servers]
             }
         
-        # Cas par défaut: un seul serveur trouvé, pas de connexion active, pas d'auto-connect
+        # Cas par défaut
         else:
             return {
                 "action": "servers_found",

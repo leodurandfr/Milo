@@ -18,39 +18,48 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted, watch } from 'vue';
 import { useSnapclientStore } from '@/stores/snapclient';
+import { useAudioStore } from '@/stores/index';
 
 const snapclientStore = useSnapclientStore();
+const audioStore = useAudioStore();
 
 // Extraire les propriétés du store
 const error = computed(() => snapclientStore.error);
 const isLoading = computed(() => snapclientStore.isLoading);
+const isActive = computed(() => snapclientStore.isActive);
+
+// CORRECTION: Observer l'état audio pour arrêter la découverte si on change de source
+watch(() => audioStore.currentState, (newState) => {
+  if (newState !== 'macos') {
+    // Arrêter la découverte si on change de source
+    if (discoveryInterval) {
+      clearInterval(discoveryInterval);
+      discoveryInterval = null;
+    }
+  }
+});
 
 // Actions
 async function discoverServers() {
+  // CORRECTION: Vérifier si le plugin est toujours actif
+  if (!isActive.value) {
+    console.log('Découverte ignorée - plugin est inactif');
+    return;
+  }
+
   try {
-    await snapclientStore.discoverServers();
+    const result = await snapclientStore.discoverServers();
     
-    // Si des serveurs sont trouvés et non blacklistés, s'y connecter automatiquement
-    const servers = snapclientStore.discoveredServers;
-    const blacklisted = snapclientStore.blacklistedServers;
-    
-    if (servers && servers.length > 0) {
-      for (const server of servers) {
-        // Ne tenter la connexion qu'aux serveurs non blacklistés
-        if (!blacklisted.includes(server.host)) {
-          console.log(`Tentative de connexion automatique à ${server.host}`);
-          try {
-            await snapclientStore.connectToServer(server.host);
-            return; // Sortir après première connexion réussie
-          } catch (connErr) {
-            console.error(`Échec de connexion à ${server.host}:`, connErr);
-            // Continuer à essayer les autres serveurs
-          }
-        }
-      }
+    // Si le plugin est devenu inactif, ne rien faire
+    if (result && result.inactive === true) {
+      console.log('Résultat de découverte ignoré - plugin devenu inactif');
+      return;
     }
+    
+    // Code existant pour la connexion automatique
+    // ...
   } catch (err) {
     console.error('Erreur lors de la découverte des serveurs:', err);
   }
@@ -63,11 +72,24 @@ onMounted(async () => {
   // Récupérer le statut initial
   await snapclientStore.fetchStatus();
   
+  // CORRECTION: Vérifier si le plugin est actif avant de démarrer
+  if (!isActive.value) {
+    console.log('Composant monté mais plugin inactif, pas de découverte');
+    return;
+  }
+  
   // Découvrir les serveurs immédiatement
   await discoverServers();
   
   // Configurer un intervalle pour la découverte automatique
   discoveryInterval = setInterval(async () => {
+    // CORRECTION: Vérifier l'état actif à chaque itération
+    if (!isActive.value || audioStore.currentState !== 'macos') {
+      clearInterval(discoveryInterval);
+      discoveryInterval = null;
+      return;
+    }
+    
     if (snapclientStore.pluginState === 'ready_to_connect') {
       await discoverServers();
     }

@@ -35,27 +35,26 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     try {
       isLoading.value = true;
       error.value = null;
-      
+
       const response = await axios.get('/api/snapclient/status');
       const data = response.data;
-      
+
       if (data.status === 'error') {
         throw new Error(data.message);
       }
-      
+
       console.log('Statut snapclient récupéré:', data);
-      
+
       isActive.value = data.is_active === true;
       isConnected.value = data.device_connected === true;
       deviceName.value = data.device_name;
       host.value = data.host;
       discoveredServers.value = data.discovered_servers || [];
-      
-      // Récupérer la liste des serveurs blacklistés si disponible
+
       if (data.blacklisted_servers) {
         blacklistedServers.value = data.blacklisted_servers;
       }
-      
+
       // Déduire l'état du plugin à partir des données
       if (!isActive.value) {
         pluginState.value = 'inactive';
@@ -64,19 +63,19 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       } else {
         pluginState.value = 'ready_to_connect';
       }
-      
+
       return data;
     } catch (err) {
       console.error('Erreur lors de la récupération du statut Snapclient:', err);
       error.value = err.message || 'Erreur lors de la récupération du statut';
-      
-      // En cas d'erreur, réinitialiser l'état 
+
+      // Réinitialiser l'état
       isActive.value = false;
       isConnected.value = false;
       deviceName.value = null;
       host.value = null;
-      pluginState.value = 'ready_to_connect';
-      
+      pluginState.value = 'inactive';
+
       throw err;
     } finally {
       isLoading.value = false;
@@ -87,6 +86,12 @@ export const useSnapclientStore = defineStore('snapclient', () => {
    * Déclenche une découverte des serveurs Snapcast sur le réseau.
    */
   async function discoverServers() {
+    // CORRECTION: Ne pas découvrir si le plugin est inactif
+    if (!isActive.value) {
+      console.log('Découverte ignorée - plugin inactif');
+      return { success: false, inactive: true };
+    }
+  
     try {
       isLoading.value = true;
       error.value = null;
@@ -95,17 +100,16 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       const response = await axios.post('/api/snapclient/discover');
       const data = response.data;
       
+      if (data.inactive === true) {
+        console.log('Réponse du serveur: plugin inactif');
+        return { success: false, inactive: true };
+      }
+      
       if (data.status === 'error') {
         throw new Error(data.message);
       }
       
       discoveredServers.value = data.servers || [];
-      
-      // Mettre à jour l'état en fonction de l'action effectuée
-      if (data.action === 'auto_connected') {
-        await fetchStatus(); // Refresh status to get the latest state
-      }
-      
       return data;
     } catch (err) {
       console.error('Erreur lors de la découverte des serveurs:', err);
@@ -121,33 +125,37 @@ export const useSnapclientStore = defineStore('snapclient', () => {
    * @param {string} serverHost - Adresse du serveur
    */
   async function connectToServer(serverHost) {
+    if (!isActive.value) {
+      console.log('Connexion ignorée - plugin inactif');
+      return { success: false, inactive: true };
+    }
     try {
       isLoading.value = true;
       error.value = null;
       lastAction.value = 'connect';
-      
+
       // Vérifier si le serveur est blacklisté
       if (blacklistedServers.value.includes(serverHost)) {
         error.value = `Le serveur ${serverHost} a été déconnecté manuellement. Changez de source audio pour pouvoir vous y reconnecter.`;
         throw new Error(error.value);
       }
-      
+
       const response = await axios.post(`/api/snapclient/connect/${serverHost}`);
       const data = response.data;
-      
+
       if (data.status === 'error') {
         throw new Error(data.message);
       }
-      
+
       // Si le serveur est blacklisté selon le backend
       if (data.blacklisted === true) {
         error.value = `Le serveur ${serverHost} a été déconnecté manuellement. Changez de source audio pour pouvoir vous y reconnecter.`;
         throw new Error(error.value);
       }
-      
+
       // Mettre à jour l'état après la connexion
       await fetchStatus();
-      
+
       return data;
     } catch (err) {
       console.error(`Erreur lors de la connexion au serveur ${serverHost}:`, err);
@@ -166,43 +174,43 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       isLoading.value = true;
       error.value = null;
       lastAction.value = 'disconnect';
-      
+
       const response = await axios.post('/api/snapclient/disconnect');
       const data = response.data;
-      
+
       // Même si le statut est error, considérer que nous sommes déconnectés
       // pour éviter de bloquer l'interface utilisateur
-      
+
       // Mettre à jour la liste des serveurs blacklistés
       if (data.blacklisted) {
         blacklistedServers.value = data.blacklisted;
         console.log('Serveurs blacklistés mis à jour:', blacklistedServers.value);
       }
-      
+
       // Forcer l'état local à déconnecté
       isConnected.value = false;
       deviceName.value = null;
       host.value = null;
       pluginState.value = 'ready_to_connect';
-      
+
       // Mettre à jour l'état après la déconnexion
       try {
         await fetchStatus();
       } catch (statusErr) {
         console.warn('Erreur lors de la mise à jour du statut après déconnexion:', statusErr);
       }
-      
+
       return data;
     } catch (err) {
       console.error('Erreur lors de la déconnexion du serveur:', err);
       error.value = err.message || 'Erreur lors de la déconnexion du serveur';
-      
+
       // Même en cas d'erreur, forcer l'état à déconnecté
       isConnected.value = false;
       deviceName.value = null;
       host.value = null;
       pluginState.value = 'ready_to_connect';
-      
+
       // Ne pas propager l'erreur pour éviter de bloquer l'utilisateur
       return { status: "forced_disconnect", message: "Déconnexion forcée après erreur" };
     } finally {
@@ -221,17 +229,17 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       isLoading.value = true;
       error.value = null;
       lastAction.value = 'accept';
-      
+
       const response = await axios.post('/api/snapclient/accept-request', params);
       const data = response.data;
-      
+
       if (data.status === 'error') {
         throw new Error(data.message);
       }
-      
+
       // Mettre à jour l'état après l'acceptation
       await fetchStatus();
-      
+
       return data;
     } catch (err) {
       console.error('Erreur lors de l\'acceptation de la demande:', err);
@@ -253,17 +261,17 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       isLoading.value = true;
       error.value = null;
       lastAction.value = 'reject';
-      
+
       const response = await axios.post('/api/snapclient/reject-request', params);
       const data = response.data;
-      
+
       if (data.status === 'error') {
         throw new Error(data.message);
       }
-      
+
       // Mettre à jour l'état après le rejet
       await fetchStatus();
-      
+
       return data;
     } catch (err) {
       console.error('Erreur lors du rejet de la demande:', err);
@@ -282,17 +290,17 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       isLoading.value = true;
       error.value = null;
       lastAction.value = 'restart';
-      
+
       const response = await axios.post('/api/snapclient/restart');
       const data = response.data;
-      
+
       if (data.status === 'error') {
         throw new Error(data.message);
       }
-      
+
       // Mettre à jour l'état après le redémarrage
       await fetchStatus();
-      
+
       return data;
     } catch (err) {
       console.error('Erreur lors du redémarrage du processus:', err);
@@ -310,18 +318,18 @@ export const useSnapclientStore = defineStore('snapclient', () => {
    */
   function handleWebSocketUpdate(eventType, data) {
     if (!data) return;
-    
+
     // Vérifier si l'événement concerne snapclient
     if (data.source === 'snapclient') {
       console.log('Événement WebSocket snapclient reçu:', eventType, data);
-      
+
       // Mettre à jour l'état en fonction de l'événement
       if (eventType === 'audio_status_updated') {
         if (data.plugin_state) {
           pluginState.value = data.plugin_state;
           console.log(`État du plugin mis à jour: ${data.plugin_state}`);
         }
-        
+
         if (data.plugin_state === 'connected' && data.connected === true) {
           isConnected.value = true;
           deviceName.value = data.device_name || 'Serveur inconnu';
@@ -333,21 +341,21 @@ export const useSnapclientStore = defineStore('snapclient', () => {
         }
       }
     }
-    
+
     // Événements généraux de changement d'état audio
     if (eventType === 'audio_state_changed') {
       // Si on passe à macos, récupérer le statut
       if (data.current_state === 'macos') {
         console.log('Changement vers source macos détecté, récupération du statut');
         fetchStatus();
-      } 
+      }
       // Si on quitte macos, réinitialiser l'état
       else if (data.from_state === 'macos') {
         console.log('Changement depuis source macos détecté, réinitialisation');
         reset();
       }
     }
-    
+
     // Quand un serveur disparaît, forcer une mise à jour de statut
     if (eventType === 'audio_transition_error' && data.error && data.error.includes('server')) {
       console.log('Erreur de transition détectée, mise à jour du statut');
@@ -361,16 +369,16 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       fetchStatus().catch(err => console.error('Erreur de rafraîchissement automatique:', err));
     }
   };
-  
+
   let storeRefreshInterval = null;
-  
+
   // Démarrer l'intervalle de rafraîchissement
   const startRefreshInterval = () => {
     stopRefreshInterval(); // Arrêter tout intervalle existant
     storeRefreshInterval = setInterval(refreshStore, 3000); // Rafraîchir toutes les 3 secondes
     console.log('Intervalle de rafraîchissement du store démarré');
   };
-  
+
   // Arrêter l'intervalle de rafraîchissement
   const stopRefreshInterval = () => {
     if (storeRefreshInterval) {
@@ -405,12 +413,12 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     error,
     lastAction,
     isLoading,
-    
+
     // Getters
     hasServers,
     currentServer,
     blacklistedServers,
-    
+
     // Actions
     fetchStatus,
     discoverServers,
