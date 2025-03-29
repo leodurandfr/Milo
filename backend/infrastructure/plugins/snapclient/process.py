@@ -1,25 +1,4 @@
-async def get_server_name(self, host: str) -> str:
-        """
-        Essaie de récupérer le nom convivial d'un serveur à partir de son adresse IP.
-        
-        Args:
-            host: Adresse IP du serveur
-            
-        Returns:
-            str: Nom convivial du serveur, ou adresse IP si non trouvé
-        """
-        try:
-            import socket
-            hostname = socket.gethostbyaddr(host)
-            if hostname and hostname[0]:
-                name = hostname[0]
-                # Nettoyer le nom (supprimer les suffixes de domaine)
-                name = name.replace('.local', '').replace('.home', '')
-                return name
-        except Exception as e:
-            self.logger.debug(f"Erreur lors de la récupération du nom du serveur pour {host}: {str(e)}")
-        
-        return f"Snapserver ({host})""""
+""""
 Gestion du processus snapclient.
 """
 import os
