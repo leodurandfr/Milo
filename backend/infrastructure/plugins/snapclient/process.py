@@ -127,72 +127,81 @@ class SnapclientProcess:
             bool: True si l'arrêt a réussi, False sinon
         """
         try:
-            # Si un processus est géré par cette instance, tenter d'abord un arrêt propre
-            if self.process:
-                self.logger.info(f"Arrêt du processus snapclient (PID {self.process.pid})")
+            if not self.process:
+                self.logger.info("Aucun processus snapclient à arrêter")
+                return True
                 
-                try:
-                    import signal
-                    import os
-                    os.kill(self.process.pid, signal.SIGTERM)
-                    self.logger.info(f"Signal SIGTERM envoyé au processus {self.process.pid}")
-                    
-                    # Attendre brièvement que le processus se termine proprement
-                    try:
-                        await asyncio.wait_for(self.process.wait(), timeout=2.0)
-                        self.logger.info(f"Processus {self.process.pid} terminé normalement")
-                    except (asyncio.TimeoutError, ProcessLookupError):
-                        self.logger.warning(f"Le processus ne s'est pas arrêté proprement, force kill")
-                        try:
-                            os.kill(self.process.pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                except Exception as e:
-                    self.logger.warning(f"Erreur lors de l'arrêt propre: {str(e)}")
+            self.logger.info(f"Arrêt du processus snapclient (PID {self.process.pid})")
             
-            # Étape finale: s'assurer qu'AUCUN processus snapclient ne reste en cours d'exécution
-            # Cette partie remplace ensure_no_snapclient_running et garantit le nettoyage complet
+            # Tenter d'abord un arrêt propre
             try:
-                self.logger.info("Vérification finale et nettoyage des processus snapclient")
-                
-                # Tuer tous les processus snapclient encore en cours d'exécution
-                kill_process = await asyncio.create_subprocess_exec(
-                    "killall", "-9", "snapclient",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await kill_process.wait()
-                
-                # Vérifier que tout est bien arrêté
-                check_process = await asyncio.create_subprocess_exec(
-                    "pgrep", "snapclient",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, _ = await check_process.communicate()
-                
-                if stdout.strip():
-                    self.logger.warning(f"Des processus snapclient persistent après killall: {stdout.decode().strip()}")
-                    # Deuxième tentative avec killall
-                    await asyncio.create_subprocess_exec("killall", "-9", "snapclient")
-                else:
-                    self.logger.info("Tous les processus snapclient ont été arrêtés")
+                await self._terminate_process_gracefully()
             except Exception as e:
-                self.logger.error(f"Erreur lors du nettoyage des processus: {str(e)}")
+                self.logger.warning(f"Échec de l'arrêt propre: {str(e)}")
             
-            # Réinitialiser l'état interne
+            # Nettoyer tous les processus snapclient restants
+            await self._cleanup_all_snapclient_processes()
+            
+            # Réinitialiser l'état
             self.process = None
             return True
             
         except Exception as e:
             self.logger.error(f"Erreur lors de l'arrêt du processus snapclient: {str(e)}")
-            # Même en cas d'erreur, tenter un nettoyage et réinitialiser l'état
-            try:
-                await asyncio.create_subprocess_exec("killall", "-9", "snapclient")
-            except:
-                pass
             self.process = None
             return True  # Retourner True pour ne pas bloquer l'utilisateur
+
+    async def _terminate_process_gracefully(self):
+        """Tente d'arrêter proprement le processus avec SIGTERM."""
+        import signal
+        import os
+        
+        try:
+            os.kill(self.process.pid, signal.SIGTERM)
+            self.logger.info(f"Signal SIGTERM envoyé au processus {self.process.pid}")
+            
+            # Attendre brièvement que le processus se termine
+            try:
+                await asyncio.wait_for(self.process.wait(), timeout=2.0)
+                self.logger.info(f"Processus {self.process.pid} terminé normalement")
+            except (asyncio.TimeoutError, ProcessLookupError):
+                self.logger.warning(f"Le processus ne s'est pas arrêté proprement, utilisation de SIGKILL")
+                try:
+                    os.kill(self.process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        except ProcessLookupError:
+            self.logger.info(f"Le processus {self.process.pid} n'existe plus")
+
+    async def _cleanup_all_snapclient_processes(self):
+        """S'assure qu'aucun processus snapclient ne reste en cours d'exécution."""
+        try:
+            self.logger.info("Nettoyage des processus snapclient")
+            
+            # Tuer tous les processus snapclient
+            kill_process = await asyncio.create_subprocess_exec(
+                "killall", "-9", "snapclient",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await kill_process.wait()
+            
+            # Vérifier que tout est bien arrêté
+            check_process = await asyncio.create_subprocess_exec(
+                "pgrep", "snapclient",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await check_process.communicate()
+            
+            if stdout.strip():
+                self.logger.warning(f"Des processus snapclient persistent après killall: {stdout.decode().strip()}")
+                # Deuxième tentative avec killall
+                await asyncio.create_subprocess_exec("killall", "-9", "snapclient")
+            else:
+                self.logger.info("Tous les processus snapclient ont été arrêtés")
+        except Exception as e:
+            self.logger.error(f"Erreur lors du nettoyage des processus: {str(e)}")
     
     async def get_process_info(self) -> Dict[str, Any]:
         """

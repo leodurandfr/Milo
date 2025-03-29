@@ -142,6 +142,7 @@ class SnapclientConnection:
         Returns:
             Dict[str, Any]: Résultat du traitement
         """
+        # Cas où aucun serveur n'est trouvé
         if not servers:
             return {
                 "action": "none",
@@ -150,7 +151,8 @@ class SnapclientConnection:
             }
         
         # Filtrer les serveurs blacklistés
-        available_servers = [s for s in servers if s.host not in (blacklisted_servers or [])]
+        blacklist = blacklisted_servers or []
+        available_servers = [s for s in servers if s.host not in blacklist]
         
         if not available_servers:
             return {
@@ -159,62 +161,15 @@ class SnapclientConnection:
                 "servers": [s.to_dict() for s in servers]
             }
         
-        # Auto-connexion à un seul serveur
+        # Cas de la connexion automatique à un seul serveur disponible
         if self.auto_connect and not self.current_server and len(available_servers) == 1:
-            server = available_servers[0]
-            self.logger.info(f"Tentative de connexion automatique à {server.name} ({server.host})")
-            success = await self.connect(server)
-            
-            return {
-                "action": "auto_connected" if success else "connection_failed",
-                "message": f"Connexion automatique au serveur {server.name}" if success else f"Échec de la connexion",
-                "server": server.to_dict() if success else None,
-                "servers": [s.to_dict() for s in servers]
-            }
+            return await self._handle_single_server_auto_connect(available_servers[0], servers)
         
-        # Serveur déjà connecté - vérifier s'il est toujours disponible
+        # Cas où un serveur est déjà connecté
         elif self.current_server:
-            # Vérifier si le serveur actuel existe toujours
-            current_server_found = any(s.host == self.current_server.host for s in servers)
-            
-            if not current_server_found:
-                self.logger.warning(f"Le serveur {self.current_server.name} n'est plus disponible")
-                await self.disconnect()
-                
-                return {
-                    "action": "server_disappeared",
-                    "message": f"Le serveur {self.current_server.name} n'est plus disponible",
-                    "servers": [s.to_dict() for s in servers]
-                }
-            
-            # Vérifier s'il y a de nouveaux serveurs
-            new_servers = [s for s in available_servers if s.host != self.current_server.host]
-            
-            if new_servers:
-                if len(new_servers) == 1:
-                    # Un seul nouveau serveur
-                    request = self.create_connection_request(new_servers[0])
-                    
-                    return {
-                        "action": "new_server_available",
-                        "message": f"Un nouveau serveur {new_servers[0].name} est disponible",
-                        "request_id": request.request_id,
-                        "server": new_servers[0].to_dict(),
-                        "current_server": self.current_server.to_dict(),
-                        "servers": [s.to_dict() for s in servers],
-                        "plugin_state": "device_change_requested"  # État standardisé 
-                    }
-                else:
-                    # Plusieurs nouveaux serveurs
-                    return {
-                        "action": "multiple_servers_available",
-                        "message": f"{len(new_servers)} nouveaux serveurs sont disponibles",
-                        "new_servers": [s.to_dict() for s in new_servers],
-                        "current_server": self.current_server.to_dict(),
-                        "servers": [s.to_dict() for s in servers]
-                    }
+            return await self._handle_connection_with_existing_server(available_servers, servers)
         
-        # Plusieurs serveurs sans connexion active
+        # Cas où plusieurs serveurs sont disponibles sans connexion active
         elif len(available_servers) > 1:
             return {
                 "action": "multiple_servers_found",
@@ -223,12 +178,71 @@ class SnapclientConnection:
             }
         
         # Cas par défaut
-        else:
+        return {
+            "action": "servers_found",
+            "message": f"{len(available_servers)} serveur(s) trouvé(s)",
+            "servers": [s.to_dict() for s in servers]
+        }
+
+    async def _handle_single_server_auto_connect(self, server: SnapclientServer, all_servers: List[SnapclientServer]) -> Dict[str, Any]:
+        """Gère la connexion automatique à un seul serveur disponible."""
+        self.logger.info(f"Tentative de connexion automatique à {server.name} ({server.host})")
+        success = await self.connect(server)
+        
+        return {
+            "action": "auto_connected" if success else "connection_failed",
+            "message": f"Connexion automatique au serveur {server.name}" if success else f"Échec de la connexion",
+            "server": server.to_dict() if success else None,
+            "servers": [s.to_dict() for s in all_servers]
+        }
+
+    async def _handle_connection_with_existing_server(self, available_servers: List[SnapclientServer], all_servers: List[SnapclientServer]) -> Dict[str, Any]:
+        """Gère le cas où un serveur est déjà connecté."""
+        # Vérifier si le serveur actuel existe toujours
+        current_server_found = any(s.host == self.current_server.host for s in all_servers)
+        
+        if not current_server_found:
+            self.logger.warning(f"Le serveur {self.current_server.name} n'est plus disponible")
+            await self.disconnect()
+            
             return {
-                "action": "servers_found",
-                "message": f"{len(available_servers)} serveur(s) trouvé(s)",
-                "servers": [s.to_dict() for s in servers]
+                "action": "server_disappeared",
+                "message": f"Le serveur {self.current_server.name} n'est plus disponible",
+                "servers": [s.to_dict() for s in all_servers]
             }
+        
+        # Vérifier s'il y a de nouveaux serveurs
+        new_servers = [s for s in available_servers if s.host != self.current_server.host]
+        
+        if len(new_servers) == 1:
+            # Un seul nouveau serveur
+            request = self.create_connection_request(new_servers[0])
+            
+            return {
+                "action": "new_server_available",
+                "message": f"Un nouveau serveur {new_servers[0].name} est disponible",
+                "request_id": request.request_id,
+                "server": new_servers[0].to_dict(),
+                "current_server": self.current_server.to_dict(),
+                "servers": [s.to_dict() for s in all_servers],
+                "plugin_state": "device_change_requested"  # État standardisé 
+            }
+        elif new_servers:
+            # Plusieurs nouveaux serveurs
+            return {
+                "action": "multiple_servers_available",
+                "message": f"{len(new_servers)} nouveaux serveurs sont disponibles",
+                "new_servers": [s.to_dict() for s in new_servers],
+                "current_server": self.current_server.to_dict(),
+                "servers": [s.to_dict() for s in all_servers]
+            }
+        
+        # Aucun nouveau serveur
+        return {
+            "action": "no_change",
+            "message": "Aucun changement détecté",
+            "servers": [s.to_dict() for s in all_servers]
+        }
     
     async def handle_connection_request(self, request_id: str, accept: bool) -> Dict[str, Any]:
         """

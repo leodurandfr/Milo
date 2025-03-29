@@ -1,56 +1,171 @@
 """
 Découverte des serveurs Snapcast sur le réseau.
 """
+import asyncio
 import logging
 import socket
-import asyncio
 import ipaddress
 import netifaces
+import subprocess
 from typing import List, Optional
 
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer
 from backend.infrastructure.plugins.snapclient.protocol import SnapcastProtocol
 
-
+# Remplacer le contenu de la classe SnapclientDiscovery par celui-ci
 class SnapclientDiscovery:
     """
-    Détecte les serveurs Snapcast sur le réseau local.
+    Détecte les serveurs Snapcast sur le réseau local en utilisant mDNS/Avahi si disponible,
+    ou en revenant à un scan réseau si nécessaire.
     """
     
     def __init__(self):
         """Initialise le découvreur de serveurs Snapcast."""
         self.logger = logging.getLogger("plugin.snapclient.discovery")
         self.protocol = SnapcastProtocol()
+        self._has_avahi = self._check_avahi_available()
+    
+    def _check_avahi_available(self) -> bool:
+        """
+        Vérifie si Avahi/mDNS est disponible sur le système.
+        
+        Returns:
+            bool: True si Avahi est disponible, False sinon
+        """
+        try:
+            result = subprocess.run(
+                ["which", "avahi-browse"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            return result.returncode == 0
+        except Exception as e:
+            self.logger.warning(f"Erreur lors de la vérification d'Avahi: {str(e)}")
+            return False
     
     async def discover_servers(self) -> List[SnapclientServer]:
         """
         Découvre les serveurs Snapcast sur le réseau.
+        Utilise mDNS/Avahi si disponible, sinon revient au scan réseau.
         
         Returns:
             List[SnapclientServer]: Liste des serveurs découverts
         """
         self.logger.info("Démarrage de la découverte des serveurs Snapcast")
         
-        # Obtenir les adresses IP locales (IPv4 uniquement)
-        local_ips = self._get_local_ips()
+        servers = []
         
-        # Construire la liste des réseaux locaux
+        # Essayer d'abord avec mDNS/Avahi si disponible
+        if self._has_avahi:
+            self.logger.debug("Tentative de découverte via mDNS/Avahi")
+            try:
+                avahi_servers = await self._discover_via_avahi()
+                if avahi_servers:
+                    self.logger.info(f"Découverte mDNS/Avahi réussie: {len(avahi_servers)} serveurs trouvés")
+                    servers.extend(avahi_servers)
+            except Exception as e:
+                self.logger.warning(f"Échec de la découverte mDNS/Avahi: {str(e)}")
+        
+        # Si aucun serveur n'a été trouvé via mDNS ou si mDNS n'est pas disponible,
+        # utiliser le scan réseau traditionnel
+        if not servers:
+            self.logger.debug("Utilisation du scan réseau traditionnel")
+            try:
+                scan_servers = await self._discover_via_network_scan()
+                servers.extend(scan_servers)
+            except Exception as e:
+                self.logger.error(f"Échec du scan réseau: {str(e)}")
+        
+        self.logger.info(f"Découverte terminée, {len(servers)} serveurs trouvés")
+        return servers
+    
+    async def _discover_via_avahi(self) -> List[SnapclientServer]:
+        """
+        Découvre les serveurs Snapcast en utilisant mDNS/Avahi.
+        
+        Returns:
+            List[SnapclientServer]: Liste des serveurs découverts via mDNS
+        """
+        servers = []
+        
+        try:
+            # Exécuter avahi-browse pour trouver les services Snapcast
+            process = await asyncio.create_subprocess_exec(
+                "avahi-browse", "-ptr", "_snapcast._tcp",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                self.logger.warning(f"avahi-browse a échoué: {stderr.decode()}")
+                return []
+            
+            # Analyser la sortie pour extraire les informations des serveurs
+            lines = stdout.decode().splitlines()
+            current_service = {}
+            
+            for line in lines:
+                if line.startswith("=") and "IPv4" in line and "_snapcast._tcp" in line:
+                    parts = line.split(";")
+                    if len(parts) >= 8:
+                        service_name = parts[3].strip()
+                        current_service = {"name": service_name}
+                
+                elif line.startswith("   address") and current_service:
+                    addr_parts = line.split("[")
+                    if len(addr_parts) >= 2:
+                        ip_addr = addr_parts[1].strip("]").strip()
+                        current_service["host"] = ip_addr
+                
+                elif line.startswith("   port") and current_service:
+                    port_parts = line.split("[")
+                    if len(port_parts) >= 2:
+                        port = int(port_parts[1].strip("]").strip())
+                        current_service["port"] = port
+                
+                # Si nous avons toutes les informations nécessaires, créer un serveur
+                if current_service and "name" in current_service and "host" in current_service:
+                    port = current_service.get("port", 1704)
+                    server = SnapclientServer(
+                        host=current_service["host"],
+                        name=current_service["name"],
+                        port=port
+                    )
+                    servers.append(server)
+                    current_service = {}
+            
+            return servers
+            
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la découverte via Avahi: {str(e)}")
+            return []
+    
+    async def _discover_via_network_scan(self) -> List[SnapclientServer]:
+        """
+        Découvre les serveurs Snapcast en scannant le réseau.
+        Méthode de secours si mDNS/Avahi n'est pas disponible.
+        
+        Returns:
+            List[SnapclientServer]: Liste des serveurs découverts via le scan réseau
+        """
+        # Réutiliser l'implémentation existante pour le scan réseau
+        local_ips = self._get_local_ips()
         networks = []
+        
         for ip in local_ips:
             try:
-                # Pour chaque adresse locale, créer un réseau /24
                 network = ipaddress.ip_network(f"{ip}/24", strict=False)
                 networks.append(network)
             except ValueError:
                 self.logger.warning(f"Impossible de créer un réseau à partir de l'adresse {ip}")
         
-        # Scanner les réseaux pour trouver les serveurs Snapcast
         all_servers = []
         for network in networks:
             servers = await self._scan_network(network)
             all_servers.extend(servers)
         
-        self.logger.info(f"Découverte terminée, {len(all_servers)} serveurs trouvés")
         return all_servers
     
     def _get_local_ips(self) -> List[str]:

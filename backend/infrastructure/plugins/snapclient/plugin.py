@@ -452,50 +452,21 @@ class SnapclientPlugin(BaseAudioPlugin):
         """Boucle optimisée de découverte des serveurs."""
         try:
             while self.is_active:
-                # Si le plugin est en cours d'arrêt, sortir immédiatement
+                # Quitter si le plugin n'est plus actif
                 if not self.is_active:
                     break
                     
-                # Si verrou de reconnexion actif, sauter cette itération
+                # Ignorer si le verrou de reconnexion est actif
                 if self._avoid_reconnect:
                     self.logger.debug("Découverte ignorée (verrou de reconnexion actif)")
                     await asyncio.sleep(self.polling_interval)
                     continue
                     
-                # Si nous sommes connectés, vérifier la connexion actuelle
+                # Vérifier la connexion actuelle ou découvrir de nouveaux serveurs
                 if self.connection_manager.current_server:
-                    server_host = self.connection_manager.current_server.host
-                    
-                    # Vérifications simplifiées pour OPTIM
-                    if server_host in self.blacklisted_servers or not await self._is_server_alive(server_host):
-                        self.logger.warning(f"Serveur {server_host} non disponible ou blacklisté, déconnexion")
-                        await self.connection_manager.disconnect()
-                        await self.transition_to_state(self.STATE_READY_TO_CONNECT, {
-                            "connected": False,
-                            "deviceConnected": False
-                        })
-                
-                # Découverte de nouveaux serveurs si nous ne sommes pas connectés
+                    await self._check_current_connection()
                 elif self.auto_discover:
-                    servers = await self.discovery.discover_servers() or []
-                    filtered_servers = [s for s in servers if s.host not in self.blacklisted_servers]
-                    self.discovered_servers = filtered_servers
-                    
-                    if filtered_servers and self.connection_manager.auto_connect:
-                        self.logger.info(f"Découverte périodique: {len(filtered_servers)} serveurs disponibles")
-                        result = await self.connection_manager.handle_discovered_servers(filtered_servers)
-                        
-                        if result.get("action") == "auto_connected" and result.get("server"):
-                            # Activer le verrou de reconnexion pour éviter les connexions multiples
-                            self._avoid_reconnect = True
-                            asyncio.create_task(self._reset_reconnect_lock())
-                            
-                            await self.transition_to_state(self.STATE_CONNECTED, {
-                                "connected": True,
-                                "deviceConnected": True,
-                                "host": result.get("server", {}).get("host"),
-                                "device_name": result.get("server", {}).get("name")
-                            })
+                    await self._discover_and_connect()
                 
                 # Attendre l'intervalle de polling
                 await asyncio.sleep(self.polling_interval)
@@ -503,6 +474,40 @@ class SnapclientPlugin(BaseAudioPlugin):
             self.logger.info("Tâche de découverte annulée")
         except Exception as e:
             self.logger.error(f"Erreur dans la boucle de découverte: {str(e)}")
+
+    async def _check_current_connection(self):
+        """Vérifie si la connexion actuelle est toujours valide."""
+        server_host = self.connection_manager.current_server.host
+        
+        if server_host in self.blacklisted_servers or not await self._is_server_alive(server_host):
+            self.logger.warning(f"Serveur {server_host} non disponible ou blacklisté, déconnexion")
+            await self.connection_manager.disconnect()
+            await self.transition_to_state(self.STATE_READY_TO_CONNECT, {
+                "connected": False,
+                "deviceConnected": False
+            })
+
+    async def _discover_and_connect(self):
+        """Découvre les serveurs et se connecte automatiquement si possible."""
+        servers = await self.discovery.discover_servers() or []
+        filtered_servers = [s for s in servers if s.host not in self.blacklisted_servers]
+        self.discovered_servers = filtered_servers
+        
+        if filtered_servers and self.connection_manager.auto_connect:
+            self.logger.info(f"Découverte périodique: {len(filtered_servers)} serveurs disponibles")
+            result = await self.connection_manager.handle_discovered_servers(filtered_servers)
+            
+            if result.get("action") == "auto_connected" and result.get("server"):
+                # Activer le verrou de reconnexion pour éviter les connexions multiples
+                self._avoid_reconnect = True
+                asyncio.create_task(self._reset_reconnect_lock())
+                
+                await self.transition_to_state(self.STATE_CONNECTED, {
+                    "connected": True,
+                    "deviceConnected": True,
+                    "host": result.get("server", {}).get("host"),
+                    "device_name": result.get("server", {}).get("name")
+                })
 
     async def _is_server_alive(self, host: str) -> bool:
         """

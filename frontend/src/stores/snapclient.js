@@ -1,3 +1,5 @@
+// frontend/src/stores/snapclient.js
+
 /**
  * Store Pinia pour la gestion de l'état de Snapclient.
  */
@@ -75,6 +77,41 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       host.value = null;
       pluginState.value = 'inactive';
       
+      throw err;
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  /**
+   * Déclenche une découverte des serveurs Snapcast sur le réseau.
+   */
+  async function discoverServers() {
+    if (!isActive.value) {
+      return { success: false, inactive: true };
+    }
+    
+    try {
+      isLoading.value = true;
+      error.value = null;
+      lastAction.value = 'discover';
+      
+      const response = await axios.post('/api/snapclient/discover');
+      const data = response.data;
+      
+      if (data.status === 'error') {
+        throw new Error(data.message);
+      }
+      
+      // Mettre à jour la liste des serveurs découverts
+      if (data.servers) {
+        discoveredServers.value = data.servers;
+      }
+      
+      return data;
+    } catch (err) {
+      console.error('Erreur lors de la découverte des serveurs:', err);
+      error.value = err.message || 'Erreur lors de la découverte des serveurs';
       throw err;
     } finally {
       isLoading.value = false;
@@ -245,6 +282,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     
     // Actions
     fetchStatus,
+    discoverServers,  // Ajout de la nouvelle méthode
     connectToServer,
     disconnectFromServer,
     handleWebSocketUpdate,
