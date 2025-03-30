@@ -49,10 +49,12 @@
 <script setup>
 import { onMounted } from 'vue';
 import { useAudioStore } from '@/stores/index';
+import { useSnapclientStore } from '@/stores/snapclient';
 import useWebSocket from '@/services/websocket';
 import SourceDisplay from '@/components/SourceDisplay.vue';
 
 const audioStore = useAudioStore();
+const snapclientStore = useSnapclientStore();
 const { on } = useWebSocket();
 
 // Changer la source audio
@@ -65,7 +67,7 @@ onMounted(async () => {
   // Récupérer l'état initial
   await audioStore.fetchState();
 
-  // S'abonner aux événements WebSocket
+  // S'abonner aux événements WebSocket standard
   on('audio_state_changed', (data) => {
     audioStore.handleWebSocketUpdate('audio_state_changed', data);
   });
@@ -85,18 +87,51 @@ onMounted(async () => {
   on('audio_status_updated', (data) => {
     audioStore.handleWebSocketUpdate('audio_status_updated', data);
   });
-  
+
   on('audio_seek', (data) => {
     audioStore.handleWebSocketUpdate('audio_seek', data);
   });
-  
+
   // Événements spécifiques à Snapclient
   on('snapclient_connection_request', (data) => {
     audioStore.handleWebSocketUpdate('snapclient_connection_request', data);
   });
-  
+
   on('snapclient_connection_rejected', (data) => {
     audioStore.handleWebSocketUpdate('snapclient_connection_rejected', data);
+  });
+
+  on('snapclient_monitor_connected', (data) => {
+    console.log("Moniteur Snapclient connecté:", data);
+    // Marquer comme connecté si la source active est snapclient
+    if (audioStore.currentState === 'macos') {
+      // Rafraîchir le statut pour mettre à jour l'interface
+      snapclientStore.fetchStatus();
+    }
+  });
+
+  on('snapclient_monitor_disconnected', (data) => {
+    console.log("Moniteur Snapclient déconnecté:", data);
+    // Marquer comme déconnecté si la source active est snapclient
+    if (audioStore.currentState === 'macos') {
+      // Mise à jour immédiate de l'état dans le store
+      snapclientStore.updateFromWebSocketEvent('snapclient_monitor_disconnected', data);
+    }
+  });
+
+  on('snapclient_server_event', (data) => {
+    console.log("Événement serveur Snapclient:", data);
+    // Traiter les événements spécifiques au serveur
+    if (audioStore.currentState === 'macos') {
+      // Analyser et mettre à jour le store si nécessaire
+    }
+  });
+  
+  on('snapclient_server_disappeared', (data) => {
+    console.log("Serveur Snapclient disparu:", data);
+    if (audioStore.currentState === 'macos') {
+      snapclientStore.updateFromWebSocketEvent('snapclient_server_disappeared', data);
+    }
   });
 });
 </script>

@@ -208,7 +208,7 @@ class SnapclientDiscovery:
     
     async def _scan_network(self, network: ipaddress.IPv4Network) -> List[SnapclientServer]:
         """
-        Scanne un réseau à la recherche de serveurs Snapcast.
+        Scanne un réseau à la recherche de serveurs Snapcast de manière optimisée.
         
         Args:
             network: Réseau à scanner
@@ -223,37 +223,38 @@ class SnapclientDiscovery:
             self.logger.warning(f"Réseau non supporté: {network}")
             return []
         
-        servers = []
-        tasks = []
-        
         # Récupérer les adresses IP locales pour les exclure
         local_ips = self._get_local_ips()
         
-        # Limiter le scan aux 254 premières adresses du réseau
-        hosts = list(network.hosts())[:254]
+        # Limiter les connexions simultanées avec un semaphore
+        MAX_CONCURRENT_SCANS = 30  # Réduit considérablement la charge
+        sem = asyncio.Semaphore(MAX_CONCURRENT_SCANS)
         
-        # Scanner chaque hôte du réseau, en excluant les adresses locales
-        for host in hosts:
-            host_str = str(host)
-            # Ne pas scanner les adresses IP locales du Raspberry Pi
-            if host_str not in local_ips:
-                task = asyncio.create_task(self._check_host(host_str))
-                tasks.append(task)
+        # Optimisation: scanner uniquement les hôtes probables pour réduire la charge
+        # (les .1, les x.x.x.1, les passerelles potentielles, etc.)
+        candidate_hosts = self._get_likely_snapcast_hosts(network, local_ips)
+        self.logger.debug(f"Scan ciblé de {len(candidate_hosts)} hôtes probables sur {network}")
         
-        # Attendre tous les résultats avec un timeout global
+        servers = []
+        tasks = []
+        
+        # Async helper limité par semaphore
+        async def check_host_with_limit(host_str):
+            async with sem:  # Limite le nombre de connexions simultanées
+                try:
+                    server = await self._check_host(host_str)
+                    if server:
+                        servers.append(server)
+                except Exception as e:
+                    self.logger.debug(f"Erreur scan de l'hôte {host_str}: {str(e)}")
+        
+        # Créer les tâches pour chaque hôte candidat
+        for host_str in candidate_hosts:
+            tasks.append(asyncio.create_task(check_host_with_limit(host_str)))
+        
+        # Attendre que toutes les tâches soient terminées avec un timeout global
         try:
-            # Utiliser wait_for pour limiter le temps total de scan
-            results = await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True),
-                timeout=30.0  # 30 secondes max pour scanner le réseau
-            )
-            
-            # Traiter les résultats
-            for result in results:
-                if isinstance(result, Exception):
-                    self.logger.debug(f"Erreur lors du scan d'un hôte: {str(result)}")
-                elif result:
-                    servers.append(result)
+            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=15.0)
         except asyncio.TimeoutError:
             self.logger.warning(f"Timeout lors du scan du réseau {network}")
             # Annuler toutes les tâches restantes
@@ -262,7 +263,41 @@ class SnapclientDiscovery:
                     task.cancel()
         
         return servers
-    
+
+    def _get_likely_snapcast_hosts(self, network: ipaddress.IPv4Network, 
+                                local_ips: List[str]) -> List[str]:
+        """
+        Sélectionne les hôtes les plus susceptibles d'exécuter Snapcast au lieu de scanner
+        tous les hôtes possibles.
+        
+        Returns:
+            List[str]: Liste des adresses IP à vérifier en priorité
+        """
+        likely_hosts = []
+        
+        # Ne pas scanner les adresses IP locales
+        network_hosts = [str(h) for h in network.hosts() if str(h) not in local_ips]
+        
+        # 1. Les hôtes avec les derniers octets typiques pour les serveurs/routeurs
+        special_suffixes = [1, 2, 10, 50, 100, 150, 200, 254]
+        for host in network_hosts:
+            if host.split('.')[-1] in [str(s) for s in special_suffixes]:
+                likely_hosts.append(host)
+        
+        # 2. Les adresses récemment découvertes (si disponibles)
+        # Cette liste devrait être maintenue à l'extérieur de cette méthode
+        # dans une version complète avec cache persistant
+        
+        # 3. Si la liste est trop petite, ajouter d'autres hôtes (max 50)
+        if len(likely_hosts) < 50:
+            # Prendre des échantillons uniformément répartis sur le réseau
+            remaining = [h for h in network_hosts if h not in likely_hosts]
+            if remaining:
+                step = max(1, len(remaining) // (50 - len(likely_hosts)))
+                likely_hosts.extend(remaining[::step][:50-len(likely_hosts)])
+        
+        return likely_hosts
+
     async def _check_host(self, host: str) -> Optional[SnapclientServer]:
         """
         Vérifie si un hôte exécute un serveur Snapcast.
@@ -277,7 +312,7 @@ class SnapclientDiscovery:
         port = 1704
         
         try:
-            # Tenter de se connecter au port Snapcast
+            # Tenter de se connecter au port Snapcast avec un court timeout
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, port),
                 timeout=0.5  # 500ms de timeout par hôte
@@ -297,7 +332,4 @@ class SnapclientDiscovery:
             return server
         except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
             # Pas de serveur Snapcast sur cet hôte
-            return None
-        except Exception as e:
-            self.logger.debug(f"Erreur lors de la vérification de l'hôte {host}: {str(e)}")
             return None

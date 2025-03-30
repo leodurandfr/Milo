@@ -1,5 +1,4 @@
 /**
- * file: frontend/src/services/websocket.js
  * Service pour gérer la connexion WebSocket
  */
 import { ref, onUnmounted } from 'vue';
@@ -45,7 +44,15 @@ export default function useWebSocket() {
     socket.value.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        console.log('Message WebSocket reçu:', message);
+        
+        // Ne pas logger les pings pour réduire le bruit
+        if (message.type !== 'ping') {
+          // Log plus détaillé pour les événements Snapclient
+          if (message.type && message.type.startsWith('snapclient_')) {
+            console.log(`📡 WebSocket [${message.type}]:`, message.data);
+          }
+        }
+        
         lastMessage.value = message;
         
         // Traitement spécial pour certains types de messages
@@ -60,7 +67,23 @@ export default function useWebSocket() {
         
         // Déclencher les écouteurs d'événements
         if (message.type && events[message.type]) {
-          events[message.type].forEach(callback => callback(message.data));
+          // Ajout du timestamp pour le debugging
+          const startTime = performance.now();
+          
+          // Appeler tous les callbacks enregistrés
+          events[message.type].forEach(callback => {
+            try {
+              callback(message.data);
+            } catch (callbackError) {
+              console.error('Erreur dans le callback WebSocket:', callbackError);
+            }
+          });
+          
+          // Mesurer le temps total de traitement pour les événements Snapclient
+          if (message.type.startsWith('snapclient_')) {
+            const duration = performance.now() - startTime;
+            console.log(`⏱️ Traitement de ${message.type} en ${duration.toFixed(2)}ms`);
+          }
         }
       } catch (error) {
         console.error('Erreur de parsing WebSocket:', error);

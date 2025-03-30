@@ -9,6 +9,8 @@ from typing import Dict, Any, Optional, List
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer, ConnectionRequest
 from backend.infrastructure.plugins.snapclient.process import SnapclientProcess
 from backend.infrastructure.plugins.snapclient.protocol import SnapcastProtocol
+from backend.infrastructure.plugins.snapclient.monitor import SnapcastMonitor
+
 
 
 class SnapclientConnection:
@@ -16,15 +18,17 @@ class SnapclientConnection:
     Gère la connexion à un serveur Snapcast et les demandes de connexion.
     """
     
-    def __init__(self, process_manager: SnapclientProcess):
+    def __init__(self, process_manager: SnapclientProcess, plugin=None):
         """
         Initialise le gestionnaire de connexion.
         
         Args:
             process_manager: Gestionnaire de processus Snapclient
+            plugin: Référence au plugin parent (pour accéder au moniteur)
         """
         self.logger = logging.getLogger("plugin.snapclient.connection")
         self.process_manager = process_manager
+        self.plugin = plugin 
         self.current_server: Optional[SnapclientServer] = None
         self.pending_requests: Dict[str, ConnectionRequest] = {}
         self.auto_connect = False
@@ -47,7 +51,7 @@ class SnapclientConnection:
         
         Args:
             server: Serveur auquel se connecter
-            
+                
         Returns:
             bool: True si la connexion a réussi, False sinon
         """
@@ -60,11 +64,16 @@ class SnapclientConnection:
             if success:
                 self.current_server = server
                 self.logger.info(f"Connecté au serveur {server.name} ({server.host})")
+                
+                # Démarrer le moniteur WebSocket après la connexion réussie
+                if hasattr(self, 'plugin') and hasattr(self.plugin, 'monitor'):
+                    await self.plugin.monitor.start(server.host)
+                    
                 return True
             else:
                 self.logger.error(f"Échec de la connexion au serveur {server.name} ({server.host})")
                 return False
-                
+                    
         except Exception as e:
             self.logger.error(f"Erreur lors de la connexion au serveur {server.name} ({server.host}): {str(e)}")
             return False
@@ -82,6 +91,10 @@ class SnapclientConnection:
                 return True
             
             self.logger.info(f"Déconnexion du serveur {self.current_server.name} ({self.current_server.host})")
+            
+            # Arrêter le moniteur WebSocket avant la déconnexion
+            if hasattr(self, 'plugin') and hasattr(self.plugin, 'monitor'):
+                await self.plugin.monitor.stop()
             
             # Arrêter le processus
             success = await self.process_manager.stop()

@@ -11,6 +11,22 @@
       Rechercher des serveurs
     </button>
     
+    <div v-if="discoveredServers.length > 0" class="servers-list">
+      <h3>Serveurs disponibles</h3>
+      <ul>
+        <li v-for="server in discoveredServers" :key="server.host" class="server-item">
+          <span>{{ server.name }}</span>
+          <button 
+            @click="connectToServer(server.host)" 
+            :disabled="isLoading"
+            class="connect-button"
+          >
+            Connecter
+          </button>
+        </li>
+      </ul>
+    </div>
+    
     <div v-if="error" class="error-message">
       {{ error }}
     </div>
@@ -18,88 +34,83 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useSnapclientStore } from '@/stores/snapclient';
 import { useAudioStore } from '@/stores/index';
+import useWebSocket from '@/services/websocket';
 
 const snapclientStore = useSnapclientStore();
 const audioStore = useAudioStore();
+const { on } = useWebSocket();
 
 // Extraire les propriétés du store
 const error = computed(() => snapclientStore.error);
 const isLoading = computed(() => snapclientStore.isLoading);
 const isActive = computed(() => snapclientStore.isActive);
+const discoveredServers = computed(() => snapclientStore.discoveredServers);
 
-// CORRECTION: Observer l'état audio pour arrêter la découverte si on change de source
-watch(() => audioStore.currentState, (newState) => {
-  if (newState !== 'macos') {
-    // Arrêter la découverte si on change de source
-    if (discoveryInterval) {
-      clearInterval(discoveryInterval);
-      discoveryInterval = null;
-    }
-  }
-});
+// Références pour les fonctions de désabonnement
+let unsubscribeServerFound = null;
 
 // Actions
 async function discoverServers() {
-  // CORRECTION: Vérifier si le plugin est toujours actif
-  if (!isActive.value) {
-    console.log('Découverte ignorée - plugin est inactif');
-    return;
-  }
-
+  console.log("🔍 Recherche manuelle de serveurs lancée");
+  
   try {
-    const result = await snapclientStore.discoverServers();
-    
-    // Si le plugin est devenu inactif, ne rien faire
-    if (result && result.inactive === true) {
-      console.log('Résultat de découverte ignoré - plugin devenu inactif');
+    if (!isActive.value) {
+      console.log("⚠️ Découverte ignorée - plugin inactif");
       return;
     }
     
-    // Code existant pour la connexion automatique
-    // ...
+    const result = await snapclientStore.discoverServers();
+    
+    if (result && result.inactive === true) {
+      console.log("⚠️ Résultat de découverte ignoré - plugin devenu inactif");
+      return;
+    }
+    
+    console.log(`✅ ${result?.servers?.length || 0} serveurs trouvés`);
   } catch (err) {
-    console.error('Erreur lors de la découverte des serveurs:', err);
+    console.error('❌ Erreur lors de la découverte des serveurs:', err);
   }
 }
 
-// Découvrir les serveurs au montage du composant
-let discoveryInterval = null;
+async function connectToServer(serverHost) {
+  console.log(`🔌 Tentative de connexion à ${serverHost}`);
+  
+  try {
+    await snapclientStore.connectToServer(serverHost);
+  } catch (err) {
+    console.error(`❌ Erreur lors de la connexion à ${serverHost}:`, err);
+  }
+}
 
 onMounted(async () => {
   // Récupérer le statut initial
   await snapclientStore.fetchStatus();
   
-  // CORRECTION: Vérifier si le plugin est actif avant de démarrer
-  if (!isActive.value) {
-    console.log('Composant monté mais plugin inactif, pas de découverte');
-    return;
+  // Si aucun serveur n'est trouvé, lancer une découverte initiale
+  if (discoveredServers.value.length === 0) {
+    console.log("🔍 Aucun serveur dans l'état initial, lancement de la découverte");
+    await discoverServers();
   }
   
-  // Découvrir les serveurs immédiatement
-  await discoverServers();
-  
-  // Configurer un intervalle pour la découverte automatique
-  discoveryInterval = setInterval(async () => {
-    // CORRECTION: Vérifier l'état actif à chaque itération
-    if (!isActive.value || audioStore.currentState !== 'macos') {
-      clearInterval(discoveryInterval);
-      discoveryInterval = null;
-      return;
-    }
+  // Écouter les événements de découverte de serveurs via WebSocket
+  unsubscribeServerFound = on('snapclient_server_event', (data) => {
+    console.log("⚡ Événement serveur reçu dans WaitingConnection");
     
-    if (snapclientStore.pluginState === 'ready_to_connect') {
-      await discoverServers();
+    // Si on reçoit un événement qui indique de nouveaux serveurs, actualiser la liste
+    if (data.method === "Server.GetStatus" || data.method === "Server.OnUpdate") {
+      console.log("🔄 Mise à jour de la liste des serveurs suite à l'événement");
+      snapclientStore.fetchStatus();
     }
-  }, 10000); // 10 secondes
+  });
 });
 
 onUnmounted(() => {
-  // Nettoyer l'intervalle lors du démontage
-  if (discoveryInterval) {
-    clearInterval(discoveryInterval);
+  // Nettoyer les abonnements aux événements
+  if (unsubscribeServerFound) {
+    unsubscribeServerFound();
   }
 });
 </script>

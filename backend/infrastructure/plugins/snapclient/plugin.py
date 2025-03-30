@@ -4,6 +4,7 @@ Plugin principal Snapclient pour oakOS.
 import asyncio
 import logging
 import socket
+import time
 from typing import Dict, Any, List
 
 from backend.application.event_bus import EventBus
@@ -12,7 +13,7 @@ from backend.infrastructure.plugins.snapclient.process import SnapclientProcess
 from backend.infrastructure.plugins.snapclient.discovery import SnapclientDiscovery
 from backend.infrastructure.plugins.snapclient.connection import SnapclientConnection
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer
-
+from backend.infrastructure.plugins.snapclient.monitor import SnapcastMonitor
 
 class SnapclientPlugin(BaseAudioPlugin):
     """
@@ -35,7 +36,8 @@ class SnapclientPlugin(BaseAudioPlugin):
         # Créer les sous-composants
         self.process_manager = SnapclientProcess(self.executable_path)
         self.discovery = SnapclientDiscovery()
-        self.connection_manager = SnapclientConnection(self.process_manager)
+        self.connection_manager = SnapclientConnection(self.process_manager, self)
+        self.monitor = SnapcastMonitor(self._handle_monitor_event)
         self.connection_manager.set_auto_connect(self.auto_connect)
         
         # État interne
@@ -222,7 +224,7 @@ class SnapclientPlugin(BaseAudioPlugin):
                 "accept_connection": self._handle_accept_connection_command,
                 "reject_connection": self._handle_reject_connection_command,
                 "restart": self._handle_restart_command,
-                "test_audio": self._handle_test_audio_command
+                "discover": self._handle_discover_command
             }
             
             handler = command_handlers.get(command)
@@ -235,6 +237,29 @@ class SnapclientPlugin(BaseAudioPlugin):
         except Exception as e:
             self.logger.error(f"Erreur lors du traitement de la commande {command}: {str(e)}")
             return {"success": False, "error": str(e)}
+    
+    async def _handle_discover_command(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Traite la commande de découverte des serveurs."""
+        try:
+            # Déclencher une découverte immédiate
+            servers = await self.discovery.discover_servers()
+            
+            # Filtrer les serveurs blacklistés
+            filtered_servers = [s for s in servers if s.host not in self.blacklisted_servers]
+            self.discovered_servers = filtered_servers
+            
+            return {
+                "success": True,
+                "servers": [s.to_dict() for s in filtered_servers],
+                "count": len(filtered_servers),
+                "message": f"{len(filtered_servers)} serveurs trouvés"
+            }
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la découverte: {str(e)}")
+            return {
+                "success": False,
+                "error": f"Erreur lors de la découverte: {str(e)}"
+            }
     
     async def _handle_connect_command(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Traite la commande de connexion à un serveur."""
@@ -384,69 +409,106 @@ class SnapclientPlugin(BaseAudioPlugin):
             "message": "Processus snapclient redémarré" if success else "Échec du redémarrage du processus snapclient"
         }
     
-    async def _handle_test_audio_command(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Traite la commande de test audio."""
-        # Vérifier si le processus snapclient est en cours d'exécution
-        process_info = await self.process_manager.get_process_info()
-        if not process_info.get("running", False):
-            return {
-                "success": False,
-                "error": "Le processus snapclient n'est pas en cours d'exécution"
-            }
+    async def _handle_monitor_event(self, data: Dict[str, Any]) -> None:
+        """
+        Traite les événements provenant du moniteur WebSocket.
         
-        # Jouer un bip sonore pour tester l'audio
+        Args:
+            data: Données de l'événement
+        """
+        event_type = data.get("event")
+        
+        if event_type == "monitor_connected":
+            self.logger.info(f"Moniteur connecté à {data.get('host')}")
+            
+            # Publier sur le bus d'événements avec des données plus complètes
+            await self.event_bus.publish("snapclient_monitor_connected", {
+                "source": "snapclient",
+                "host": data.get('host'),
+                "plugin_state": self.current_state,
+                "timestamp": time.time()
+            })
+        
+        elif event_type == "monitor_disconnected":
+            host = data.get("host")
+            reason = data.get("reason", "raison inconnue")
+            self.logger.warning(f"Moniteur déconnecté de {host}: {reason}")
+            
+            # Publier sur le bus d'événements avec données enrichies
+            await self.event_bus.publish("snapclient_monitor_disconnected", {
+                "source": "snapclient",
+                "host": host,
+                "reason": reason,
+                "plugin_state": "ready_to_connect",  # État cible après déconnexion
+                "timestamp": time.time()
+            })
+            
+            # Si le serveur a disparu, déconnecter le client
+            if self.is_active and self.connection_manager.current_server:
+                if self.connection_manager.current_server.host == host:
+                    self.logger.warning(f"Serveur {host} déconnecté (détecté via WebSocket)")
+                    
+                    # Éviter les reconnexions automatiques pendant la déconnexion
+                    self._avoid_reconnect = True
+                    
+                    # Déclencher une déconnexion propre
+                    asyncio.create_task(self._handle_server_disconnected(host))
+        
+        elif event_type == "server_event":
+            # Extraire la méthode de l'événement plus proprement
+            data_obj = data.get("data", {})
+            method = data_obj.get("method") if isinstance(data_obj, dict) else None
+            
+            if method:
+                self.logger.info(f"Événement serveur reçu du WebSocket: {method}")
+            else:
+                self.logger.debug("Événement serveur WebSocket sans méthode identifiée")
+            
+            # Publier les événements du serveur avec structure améliorée
+            await self.event_bus.publish("snapclient_server_event", {
+                "source": "snapclient",
+                "method": method,
+                "data": data.get("data", {}),
+                "timestamp": time.time()
+            })
+
+    async def _handle_server_disconnected(self, host: str) -> None:
+        """
+        Gère la déconnexion d'un serveur détectée par le moniteur.
+        
+        Args:
+            host: Adresse du serveur déconnecté
+        """
         try:
-            import wave
-            import struct
-            import tempfile
-            import os
-            
-            temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-            
-            # Créer un fichier WAV avec un bip sonore
-            sample_rate = 44100
-            duration = 1  # secondes
-            
-            with wave.open(temp_file.name, 'w') as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(sample_rate)
+            # Vérifier que nous sommes bien connectés à ce serveur
+            if not self.connection_manager.current_server or self.connection_manager.current_server.host != host:
+                return
                 
-                # Générer un son de test
-                for i in range(int(duration * sample_rate)):
-                    value = int(32767 * 0.5 * 
-                             (1.0 if i < 0.1 * sample_rate else
-                              (0.0 if i > 0.9 * sample_rate else
-                               (0.9 - (i / sample_rate)) / 0.8)) * 
-                             (1.0 if (i // 4000) % 2 == 0 else 0.0))
-                    data = struct.pack('<h', value)
-                    wf.writeframes(data)
+            self.logger.info(f"Déconnexion du serveur {host} détectée par le moniteur")
             
-            # Jouer le fichier avec aplay
-            process = await asyncio.create_subprocess_exec(
-                "aplay", temp_file.name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            # Se déconnecter proprement
+            await self.connection_manager.disconnect()
             
-            await process.wait()
+            # Mettre à jour l'état
+            await self.transition_to_state(self.STATE_READY_TO_CONNECT, {
+                "connected": False,
+                "deviceConnected": False,
+                "disconnection_reason": "server_stopped",
+                "disconnected_host": host
+            })
             
-            # Nettoyer le fichier temporaire
-            try:
-                os.unlink(temp_file.name)
-            except:
-                pass
+            # Publier un événement spécifique pour cette déconnexion
+            await self.event_bus.publish("snapclient_server_disappeared", {
+                "source": "snapclient",
+                "host": host,
+                "plugin_state": self.STATE_READY_TO_CONNECT,
+                "timestamp": time.time()
+            })
             
-            return {
-                "success": True,
-                "message": "Test audio exécuté avec succès"
-            }
-        except Exception as audio_e:
-            self.logger.error(f"Erreur lors du test audio: {str(audio_e)}")
-            return {
-                "success": False,
-                "error": f"Erreur lors du test audio: {str(audio_e)}"
-            }
+            # Réinitialiser le verrou de reconnexion après un court délai
+            asyncio.create_task(self._reset_reconnect_lock())
+        except Exception as e:
+            self.logger.error(f"Erreur lors du traitement de la déconnexion: {str(e)}")
     
     async def _run_discovery_loop(self):
         """Boucle optimisée de découverte des serveurs."""
