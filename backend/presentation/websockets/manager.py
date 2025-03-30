@@ -27,9 +27,13 @@ class WebSocketManager:
     
     def disconnect(self, websocket: WebSocket) -> None:
         """Ferme une connexion WebSocket"""
-        self.active_connections.remove(websocket)
-        self.logger.info(f"WebSocket disconnected, active connections: {len(self.active_connections)}")
-    
+        try:
+            self.active_connections.remove(websocket)
+            self.logger.info(f"WebSocket disconnected, active connections: {len(self.active_connections)}")
+        except (KeyError, ValueError):
+            # La connexion peut avoir déjà été supprimée ou n'était pas dans la liste
+            self.logger.warning(f"Tried to disconnect a WebSocket that was not in active connections")
+            
     async def broadcast(self, event_type: str, data: Dict[str, Any]) -> None:
         """Diffuse un message à toutes les connexions actives"""
         message = {

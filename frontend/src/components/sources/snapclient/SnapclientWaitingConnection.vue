@@ -3,30 +3,6 @@
     <h2>En attente de connexion MacOS</h2>
     <p>Attendez qu'un Mac se connecte via Snapcast...</p>
     
-    <button 
-      @click="discoverServers" 
-      class="discover-button"
-      :disabled="isLoading"
-    >
-      Rechercher des serveurs
-    </button>
-    
-    <div v-if="discoveredServers.length > 0 && !isConnected" class="servers-list">
-      <h3>Serveurs disponibles</h3>
-      <ul>
-        <li v-for="server in discoveredServers" :key="server.host" class="server-item">
-          <span>{{ server.name }}</span>
-          <button 
-            @click="connectToServer(server.host)" 
-            :disabled="isLoading"
-            class="connect-button"
-          >
-            Connecter
-          </button>
-        </li>
-      </ul>
-    </div>
-    
     <div v-if="error" class="error-message">
       {{ error }}
     </div>
@@ -45,153 +21,134 @@ const { on } = useWebSocket();
 
 // Extraire les propriétés du store
 const error = computed(() => snapclientStore.error);
-const isLoading = computed(() => snapclientStore.isLoading);
 const isActive = computed(() => snapclientStore.isActive);
-const discoveredServers = computed(() => snapclientStore.discoveredServers);
 const isConnected = computed(() => snapclientStore.isConnected);
+const lastServer = ref(null);
 
-// Flag pour éviter les découvertes multiples
-const discoveryInProgress = ref(false);
-const lastServerUpdate = ref(0);
-
-// Surveiller les changements dans les serveurs découverts
-watch(discoveredServers, (newServers) => {
-  console.log(`📊 Serveurs détectés mis à jour: ${newServers.length} serveurs disponibles`);
-  // Forcer la réactivité en cas de changement
-  lastServerUpdate.value = Date.now();
-}, { deep: true });
-
-// Surveiller les changements d'état de connexion
+// Surveiller l'état de connexion
 watch(isConnected, (newConnected) => {
   console.log(`📊 État de connexion mis à jour: ${newConnected ? 'connecté' : 'déconnecté'}`);
 });
 
 // Références pour les fonctions de désabonnement
-let unsubscribeServerFound = null;
-let unsubscribeMonitorConnected = null;
 let unsubscribeServerEvent = null;
-
-// Actions
-async function discoverServers() {
-  console.log("🔍 Recherche manuelle de serveurs lancée");
-  
-  if (discoveryInProgress.value) {
-    console.log("⚠️ Découverte déjà en cours, ignorée");
-    return;
-  }
-  
-  discoveryInProgress.value = true;
-  
-  try {
-    if (!isActive.value) {
-      console.log("⚠️ Découverte ignorée - plugin inactif");
-      return;
-    }
-    
-    const result = await snapclientStore.discoverServers();
-    
-    if (result && result.inactive === true) {
-      console.log("⚠️ Résultat de découverte ignoré - plugin devenu inactif");
-      return;
-    }
-    
-    console.log(`✅ ${result?.servers?.length || 0} serveurs trouvés`);
-    
-    // Vérifier s'il y a des serveurs et forcer le rafraîchissement
-    if (result?.servers?.length > 0) {
-      console.log("🔄 Mise à jour forcée de la liste des serveurs");
-      // Réinitialiser le store avec les nouveaux serveurs
-      snapclientStore.$patch({
-        discoveredServers: result.servers
-      });
-    }
-  } catch (err) {
-    console.error('❌ Erreur lors de la découverte des serveurs:', err);
-  } finally {
-    discoveryInProgress.value = false;
-  }
-}
-
-async function connectToServer(serverHost) {
-  console.log(`🔌 Tentative de connexion à ${serverHost}`);
-  
-  try {
-    await snapclientStore.connectToServer(serverHost);
-    
-    // Force une mise à jour du statut après la connexion
-    setTimeout(() => {
-      snapclientStore.fetchStatus(true);
-    }, 500);
-    
-  } catch (err) {
-    console.error(`❌ Erreur lors de la connexion à ${serverHost}:`, err);
-  }
-}
+let unsubscribeMonitorConnected = null;
 
 onMounted(async () => {
-  // Récupérer le statut initial avec force=true pour garantir une mise à jour complète
+  // Récupérer le statut initial
   await snapclientStore.fetchStatus(true);
   
-  // Si aucun serveur n'est trouvé, lancer une découverte initiale
-  if (discoveredServers.value.length === 0) {
-    console.log("🔍 Aucun serveur dans l'état initial, lancement de la découverte");
-    await discoverServers();
+  // S'il y a un dernier serveur enregistré, tenter de s'y reconnecter
+  const savedServer = localStorage.getItem('lastSnapclientServer');
+  if (savedServer && !isConnected.value) {
+    try {
+      const serverData = JSON.parse(savedServer);
+      console.log("💾 Tentative de reconnexion au dernier serveur:", serverData.host);
+      lastServer.value = serverData;
+      
+      // Tenter la reconnexion automatique
+      await tryAutoReconnect();
+    } catch (e) {
+      console.error("❌ Erreur lors de la lecture du dernier serveur:", e);
+    }
   }
   
-  // Écouter les événements de découverte de serveurs via WebSocket
-  unsubscribeServerFound = on('snapclient_server_event', (data) => {
-    console.log("⚡ Événement serveur reçu dans WaitingConnection", data);
-    
-    // Vérifier si c'est un événement pertinent pour la découverte
-    if (data && (data.method === "Client.OnConnect" || data.method === "Client.OnDisconnect" || 
-                data.method === "Server.OnUpdate")) {
+  // Écouter les événements serveur pour la découverte automatique
+  unsubscribeServerEvent = on('snapclient_server_event', (data) => {
+    if (audioStore.currentState === 'macos' && !isConnected.value) {
+      console.log("⚡ Événement serveur reçu:", data);
       
-      console.log("🔄 Lancement d'une découverte suite à un événement serveur");
-      // Force une découverte pour mettre à jour la liste
-      discoverServers();
-      
-      // Force une mise à jour du statut pour détecter les connexions
-      snapclientStore.fetchStatus(true);
+      // Déclencher la découverte et tentative de reconnexion automatique
+      tryAutoReconnect();
     }
   });
   
-  // Écouter les événements de connexion du moniteur
+  // Écouter les événements de découverte
   unsubscribeMonitorConnected = on('snapclient_monitor_connected', (data) => {
-    console.log("⚡ Moniteur connecté dans WaitingConnection", data);
+    console.log("⚡ Moniteur connecté:", data);
     
-    // Forcer une mise à jour du statut quand un moniteur se connecte
-    if (audioStore.currentState === 'macos') {
-      console.log("🔄 Mise à jour du statut suite à la connexion du moniteur");
-      snapclientStore.fetchStatus(true);
+    // Tenter de se reconnecter au dernier serveur connu
+    if (audioStore.currentState === 'macos' && !isConnected.value) {
+      tryAutoReconnect();
     }
   });
   
-  // Écouter les événements audio_status_updated pour détecter les changements d'état
-  unsubscribeServerEvent = on('audio_status_updated', (data) => {
-    if (data.source === 'snapclient') {
-      console.log("⚡ Mise à jour d'état audio reçue:", data);
-      
-      // Force une mise à jour du statut
-      snapclientStore.fetchStatus(true);
+  // Démarrer une vérification périodique pour la reconnexion automatique
+  const reconnectInterval = setInterval(() => {
+    if (audioStore.currentState === 'macos' && !isConnected.value) {
+      tryAutoReconnect();
     }
-  });
-  
-  // Lancer une découverte toutes les 10 secondes si aucun serveur n'est trouvé
-  const discoveryInterval = setInterval(() => {
-    if (audioStore.currentState === 'macos' && !isConnected.value && discoveredServers.value.length === 0 && !discoveryInProgress.value) {
-      console.log("🔄 Découverte périodique (aucun serveur trouvé)");
-      discoverServers();
-    }
-  }, 10000);
+  }, 5000);
   
   // Nettoyage à la destruction
   onUnmounted(() => {
-    if (unsubscribeServerFound) unsubscribeServerFound();
-    if (unsubscribeMonitorConnected) unsubscribeMonitorConnected();
     if (unsubscribeServerEvent) unsubscribeServerEvent();
-    clearInterval(discoveryInterval);
+    if (unsubscribeMonitorConnected) unsubscribeMonitorConnected();
+    clearInterval(reconnectInterval);
   });
 });
+
+// Fonction pour essayer de se reconnecter automatiquement
+async function tryAutoReconnect() {
+  try {
+    // Vérifier d'abord si l'on est déjà connecté
+    if (snapclientStore.isConnected) {
+      console.log("✅ Déjà connecté, pas besoin de reconnexion automatique");
+      return;
+    }
+
+    // Vérifier l'état actuel avant de lancer la découverte
+    const statusResult = await snapclientStore.fetchStatus(false);
+    if (snapclientStore.isConnected) {
+      console.log("✅ Connexion détectée lors du check de statut, pas besoin de reconnexion");
+      return;
+    }
+
+    // Rechercher d'abord des serveurs
+    const result = await snapclientStore.discoverServers();
+    
+    if (!result || !result.servers || result.servers.length === 0) {
+      console.log("🔍 Aucun serveur trouvé pour la reconnexion automatique");
+      return;
+    }
+    
+    console.log("🔍 Serveurs trouvés pour reconnexion:", result.servers);
+    
+    // Prioriser la reconnexion:
+    // 1. Au dernier serveur connu s'il est disponible
+    // 2. Sinon, au premier serveur disponible s'il n'y en a qu'un
+    let serverToConnect = null;
+    
+    if (lastServer.value && lastServer.value.host) {
+      // Vérifier si le dernier serveur est toujours disponible
+      const foundLastServer = result.servers.find(s => s.host === lastServer.value.host);
+      if (foundLastServer) {
+        console.log("🔄 Dernier serveur utilisé trouvé, tentative de reconnexion:", foundLastServer.name);
+        serverToConnect = foundLastServer.host;
+      }
+    }
+    
+    // Si aucun dernier serveur n'est trouvé mais qu'il y a exactement un serveur disponible
+    if (!serverToConnect && result.servers.length === 1) {
+      console.log("🔄 Un seul serveur disponible, tentative de connexion automatique:", result.servers[0].name);
+      serverToConnect = result.servers[0].host;
+    }
+    
+    // Se connecter si un serveur a été identifié et qu'on n'est pas déjà connecté
+    if (serverToConnect && !snapclientStore.isConnected) {
+      console.log("🔌 Connexion automatique à:", serverToConnect);
+      await snapclientStore.connectToServer(serverToConnect);
+      
+      // Enregistrer ce serveur comme dernier serveur utilisé
+      localStorage.setItem('lastSnapclientServer', JSON.stringify({
+        host: serverToConnect,
+        timestamp: Date.now()
+      }));
+    }
+  } catch (err) {
+    console.error("❌ Erreur lors de la tentative de reconnexion automatique:", err);
+  }
+}
 </script>
 
 <style scoped>
@@ -202,58 +159,10 @@ onMounted(async () => {
   text-align: center;
 }
 
-.discover-button {
-  background-color: #2980b9;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 8px 16px;
-  margin: 10px 0;
-  cursor: pointer;
-}
-
-.discover-button:disabled {
-  background-color: #bdc3c7;
-  cursor: not-allowed;
-}
-
 .error-message {
   background-color: #e74c3c;
   color: white;
   padding: 10px;
   margin: 10px 0;
-}
-
-.servers-list {
-  margin-top: 1rem;
-  text-align: left;
-}
-
-.server-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem;
-  margin-bottom: 0.5rem;
-  background-color: #f8f9fa;
-  border-radius: 4px;
-}
-
-.connect-button {
-  background-color: #27ae60;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 4px 8px;
-  cursor: pointer;
-}
-
-.connect-button:hover:not(:disabled) {
-  background-color: #219653;
-}
-
-.connect-button:disabled {
-  background-color: #bdc3c7;
-  cursor: not-allowed;
 }
 </style>

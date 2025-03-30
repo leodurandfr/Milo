@@ -1,7 +1,7 @@
 <template>
   <div class="snapclient-display">
-    <!-- État de chargement -->
-    <div v-if="isLoading" class="loading-state">
+    <!-- État de chargement initial uniquement -->
+    <div v-if="initialLoading" class="loading-state">
       <div class="loading-spinner"></div>
       <p>Chargement de l'état Snapclient...</p>
     </div>
@@ -43,7 +43,7 @@ const snapclientStore = useSnapclientStore();
 // États locaux
 const DEBUG = true;
 const lastUpdate = ref(Date.now());
-const isLoading = ref(true);
+const initialLoading = ref(true); // Seulement pour le chargement initial
 const errorState = ref(false);
 const retryCount = ref(0);
 
@@ -54,9 +54,13 @@ const isConnected = computed(() => {
   return result;
 });
 
-// Fonction pour rafraîchir le statut manuellement
-async function refreshStatus() {
-  isLoading.value = true;
+// Fonction pour rafraîchir le statut manuellement avec indication de chargement
+// uniquement en cas d'erreur ou si on force l'affichage du loader
+async function refreshStatus(showLoader = false) {
+  if (showLoader) {
+    initialLoading.value = true;
+  }
+  
   errorState.value = false;
   retryCount.value++;
   
@@ -67,7 +71,7 @@ async function refreshStatus() {
     console.error("❌ Erreur lors du rafraîchissement du statut:", err);
     errorState.value = true;
   } finally {
-    isLoading.value = false;
+    initialLoading.value = false;
   }
 }
 
@@ -87,14 +91,14 @@ watch(() => audioStore.currentState, async (newState, oldState) => {
   if (newState === 'macos' && oldState !== 'macos') {
     // Activation de la source MacOS - initialisation unique
     console.log("🔄 Source MacOS activée - Chargement initial de l'état");
-    isLoading.value = true;
+    initialLoading.value = true;
     try {
       await snapclientStore.fetchStatus(true);
     } catch (err) {
       console.error("❌ Erreur lors du chargement initial:", err);
       errorState.value = true;
     } finally {
-      isLoading.value = false;
+      initialLoading.value = false;
     }
   } else if (oldState === 'macos' && newState !== 'macos') {
     // Désactivation de la source MacOS
@@ -105,16 +109,9 @@ watch(() => audioStore.currentState, async (newState, oldState) => {
 // Surveillance de l'état de connexion WebSocket
 watch(wsConnected, (connected) => {
   console.log(`⚡ État WebSocket changé: ${connected ? 'connecté' : 'déconnecté'}`);
-  if (connected && audioStore.currentState === 'macos') {
-    // Si on vient de se reconnecter au WebSocket et qu'on est sur la source MacOS,
-    // rafraîchir le statut pour s'assurer que tout est synchronisé
-    refreshStatus();
-    
-    // Activer également le polling automatique du statut
-    snapclientStore.startPolling();
-  } else if (!connected && audioStore.currentState === 'macos') {
-    // Si la connexion WebSocket est perdue, arrêter le polling pour éviter les erreurs
-    snapclientStore.stopPolling();
+  if (connected && audioStore.currentState === 'macos' && (errorState.value || !snapclientStore.isActive)) {
+    // Rafraîchir le statut uniquement si on était en erreur ou inactif
+    refreshStatus(false);
   }
 });
 
@@ -133,11 +130,12 @@ let unsubscribeMonitorConnected = null;
 let unsubscribeMonitorDisconnected = null;
 let unsubscribeServerEvent = null;
 let unsubscribeAudioStatus = null;
+let handleConnectionChange = null;
 
 onMounted(async () => {
   // Chargement initial unique
   console.log("🔄 Chargement initial du statut Snapclient");
-  isLoading.value = true;
+  initialLoading.value = true;
   try {
     await snapclientStore.fetchStatus(true);
     errorState.value = false;
@@ -145,15 +143,16 @@ onMounted(async () => {
     console.error("❌ Erreur lors du chargement initial:", err);
     errorState.value = true;
   } finally {
-    isLoading.value = false;
+    initialLoading.value = false;
   }
 
   console.log("📡 Abonnement aux événements WebSocket pour Snapclient");
 
   // Écouter l'événement personnalisé de changement de connexion
-  const handleConnectionChange = (event) => {
+  handleConnectionChange = (event) => {
     console.log("⚡ Événement de changement de connexion détecté:", event.detail);
-    // Forcer un rafraîchissement de l'UI
+    // On se contente de mettre à jour lastUpdate pour forcer un rafraîchissement de l'UI
+    // SANS appeler refreshStatus qui montrerait un loader
     lastUpdate.value = Date.now();
   };
   window.addEventListener('snapclient-connection-changed', handleConnectionChange);
@@ -162,9 +161,8 @@ onMounted(async () => {
   unsubscribeMonitorConnected = on('snapclient_monitor_connected', (data) => {
     console.log("⚡ Moniteur connecté au serveur:", data.host);
     if (audioStore.currentState === 'macos') {
-      // En cas de connexion du moniteur, charger le statut complet
-      console.log("🔄 Chargement du statut suite à connexion du moniteur");
-      refreshStatus();
+      // En cas de connexion du moniteur, ne pas montrer le loader
+      refreshStatus(false);
     }
   });
 
@@ -175,8 +173,8 @@ onMounted(async () => {
       console.log("🔴 Mise à jour instantanée (sans API): serveur déconnecté");
       snapclientStore.updateFromWebSocketEvent('snapclient_monitor_disconnected', data);
       
-      // Force une mise à jour du statut pour synchroniser l'état
-      setTimeout(() => refreshStatus(), 100);
+      // Rafraîchir sans montrer le loader
+      refreshStatus(false);
     }
   });
   
@@ -185,21 +183,13 @@ onMounted(async () => {
     if (DEBUG) console.log("⚡ Événement serveur reçu:", data);
     
     if (audioStore.currentState === 'macos') {
-      // Forcer une mise à jour du statut périodiquement 
-      // pour s'assurer que l'interface est synchronisée
-      refreshStatus();
-    }
-  });
-  
-  // Écouter les mises à jour d'état audio générales
-  unsubscribeAudioStatus = on('audio_status_updated', (data) => {
-    if (data.source === 'snapclient') {
-      console.log("⚡ État audio mis à jour:", data.plugin_state);
-      // Force une mise à jour complète à chaque changement d'état
-      snapclientStore.updateFromStateEvent(data);
-      
-      // Force une mise à jour du statut pour synchroniser tous les états
-      setTimeout(() => refreshStatus(), 100);
+      // Rafraîchir l'état sans montrer le loader seulement pour les événements importants
+      if (data && data.method && 
+          (data.method === "Client.OnConnect" || 
+           data.method === "Client.OnDisconnect" || 
+           data.method === "Server.OnUpdate")) {
+        refreshStatus(false);
+      }
     }
   });
   
@@ -210,8 +200,8 @@ onMounted(async () => {
       // Mise à jour immédiate du store
       snapclientStore.updateFromWebSocketEvent('snapclient_server_disappeared', data);
       
-      // Forcer le refreshStatus pour s'assurer que l'UI est mise à jour
-      refreshStatus();
+      // Rafraîchir sans montrer le loader
+      refreshStatus(false);
       
       // Assurer que l'interface utilisateur reflète immédiatement la déconnexion
       snapclientStore.$patch({
@@ -220,6 +210,18 @@ onMounted(async () => {
         host: null,
         pluginState: 'ready_to_connect'
       });
+    }
+  });
+  
+  // Écouter les mises à jour d'état audio générales
+  unsubscribeAudioStatus = on('audio_status_updated', (data) => {
+    if (data.source === 'snapclient') {
+      console.log("⚡ État audio mis à jour:", data.plugin_state);
+      // Force une mise à jour complète à chaque changement d'état
+      snapclientStore.updateFromStateEvent(data);
+      
+      // Rafraîchir le statut sans montrer le loader
+      refreshStatus(false);
     }
   });
 });
@@ -232,7 +234,9 @@ onUnmounted(() => {
   if (unsubscribeAudioStatus) unsubscribeAudioStatus();
   
   // Désabonnement de l'événement personnalisé
-  window.removeEventListener('snapclient-connection-changed', handleConnectionChange);
+  if (handleConnectionChange) {
+    window.removeEventListener('snapclient-connection-changed', handleConnectionChange);
+  }
 });
 </script>
 
