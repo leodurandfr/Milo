@@ -11,7 +11,7 @@
       Rechercher des serveurs
     </button>
     
-    <div v-if="discoveredServers.length > 0" class="servers-list">
+    <div v-if="discoveredServers.length > 0 && !isConnected" class="servers-list">
       <h3>Serveurs disponibles</h3>
       <ul>
         <li v-for="server in discoveredServers" :key="server.host" class="server-item">
@@ -48,6 +48,7 @@ const error = computed(() => snapclientStore.error);
 const isLoading = computed(() => snapclientStore.isLoading);
 const isActive = computed(() => snapclientStore.isActive);
 const discoveredServers = computed(() => snapclientStore.discoveredServers);
+const isConnected = computed(() => snapclientStore.isConnected);
 
 // Flag pour éviter les découvertes multiples
 const discoveryInProgress = ref(false);
@@ -60,9 +61,15 @@ watch(discoveredServers, (newServers) => {
   lastServerUpdate.value = Date.now();
 }, { deep: true });
 
+// Surveiller les changements d'état de connexion
+watch(isConnected, (newConnected) => {
+  console.log(`📊 État de connexion mis à jour: ${newConnected ? 'connecté' : 'déconnecté'}`);
+});
+
 // Références pour les fonctions de désabonnement
 let unsubscribeServerFound = null;
 let unsubscribeMonitorConnected = null;
+let unsubscribeServerEvent = null;
 
 // Actions
 async function discoverServers() {
@@ -110,6 +117,12 @@ async function connectToServer(serverHost) {
   
   try {
     await snapclientStore.connectToServer(serverHost);
+    
+    // Force une mise à jour du statut après la connexion
+    setTimeout(() => {
+      snapclientStore.fetchStatus(true);
+    }, 500);
+    
   } catch (err) {
     console.error(`❌ Erreur lors de la connexion à ${serverHost}:`, err);
   }
@@ -130,13 +143,15 @@ onMounted(async () => {
     console.log("⚡ Événement serveur reçu dans WaitingConnection", data);
     
     // Vérifier si c'est un événement pertinent pour la découverte
-    // Note: la structure de data peut varier selon l'implémentation du backend
-    if (data && (data.method === "Server.GetStatus" || data.method === "Server.OnUpdate" || 
-        (data.data && (data.data.method === "Server.GetStatus" || data.data.method === "Server.OnUpdate")))) {
+    if (data && (data.method === "Client.OnConnect" || data.method === "Client.OnDisconnect" || 
+                data.method === "Server.OnUpdate")) {
       
       console.log("🔄 Lancement d'une découverte suite à un événement serveur");
       // Force une découverte pour mettre à jour la liste
       discoverServers();
+      
+      // Force une mise à jour du statut pour détecter les connexions
+      snapclientStore.fetchStatus(true);
     }
   });
   
@@ -144,16 +159,26 @@ onMounted(async () => {
   unsubscribeMonitorConnected = on('snapclient_monitor_connected', (data) => {
     console.log("⚡ Moniteur connecté dans WaitingConnection", data);
     
-    // Forcer une découverte quand un moniteur se connecte
+    // Forcer une mise à jour du statut quand un moniteur se connecte
     if (audioStore.currentState === 'macos') {
-      console.log("🔄 Lancement d'une découverte suite à la connexion du moniteur");
-      discoverServers();
+      console.log("🔄 Mise à jour du statut suite à la connexion du moniteur");
+      snapclientStore.fetchStatus(true);
+    }
+  });
+  
+  // Écouter les événements audio_status_updated pour détecter les changements d'état
+  unsubscribeServerEvent = on('audio_status_updated', (data) => {
+    if (data.source === 'snapclient') {
+      console.log("⚡ Mise à jour d'état audio reçue:", data);
+      
+      // Force une mise à jour du statut
+      snapclientStore.fetchStatus(true);
     }
   });
   
   // Lancer une découverte toutes les 10 secondes si aucun serveur n'est trouvé
   const discoveryInterval = setInterval(() => {
-    if (audioStore.currentState === 'macos' && discoveredServers.value.length === 0 && !discoveryInProgress.value) {
+    if (audioStore.currentState === 'macos' && !isConnected.value && discoveredServers.value.length === 0 && !discoveryInProgress.value) {
       console.log("🔄 Découverte périodique (aucun serveur trouvé)");
       discoverServers();
     }
@@ -163,6 +188,7 @@ onMounted(async () => {
   onUnmounted(() => {
     if (unsubscribeServerFound) unsubscribeServerFound();
     if (unsubscribeMonitorConnected) unsubscribeMonitorConnected();
+    if (unsubscribeServerEvent) unsubscribeServerEvent();
     clearInterval(discoveryInterval);
   });
 });

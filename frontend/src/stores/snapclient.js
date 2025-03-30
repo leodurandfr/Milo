@@ -4,7 +4,7 @@
  * Store Pinia pour la gestion de l'état de Snapclient.
  */
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import axios from 'axios';
 
 export const useSnapclientStore = defineStore('snapclient', () => {
@@ -19,6 +19,8 @@ export const useSnapclientStore = defineStore('snapclient', () => {
   const lastAction = ref(null);
   const isLoading = ref(false);
   const blacklistedServers = ref([]);
+  const lastStatusCheck = ref(0);
+  const statusCheckInterval = ref(null);
 
   // Getters
   const hasServers = computed(() => discoveredServers.value.length > 0);
@@ -70,6 +72,8 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       pluginState.value = 'ready_to_connect';
       error.value = `Le serveur ${data.host} s'est déconnecté`;
 
+      // Déclencher une mise à jour du statut via l'API après un court délai
+      setTimeout(() => fetchStatus(true), 500);
       return true;
     }
 
@@ -82,16 +86,19 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     return false;
   }
 
-  /**
+/**
  * Récupère le statut actuel du plugin Snapclient.
  */
 async function fetchStatus(force = false) {
   try {
-    if (isLoading.value && !force) {
-      console.log("🔄 Requête fetchStatus ignorée (déjà en cours)");
+    // Éviter les requêtes trop fréquentes
+    const now = Date.now();
+    if (!force && isLoading.value && now - lastStatusCheck.value < 2000) {
+      console.log("🔄 Requête fetchStatus ignorée (déjà en cours ou trop récente)");
       return { cached: true };
     }
     
+    lastStatusCheck.value = now;
     isLoading.value = true;
     error.value = null;
     
@@ -110,7 +117,26 @@ async function fetchStatus(force = false) {
     
     // Mise à jour de l'état
     isActive.value = data.is_active === true;
+    
+    // Vérifier s'il y a un changement d'état de connexion
+    const wasConnected = isConnected.value;
     isConnected.value = data.device_connected === true;
+    
+    // Si l'état de connexion a changé, le signaler
+    if (wasConnected !== isConnected.value) {
+      console.log(`⚡ Changement d'état de connexion détecté: ${wasConnected ? 'connecté' : 'déconnecté'} -> ${isConnected.value ? 'connecté' : 'déconnecté'}`);
+      
+      // Émettre un événement personnalisé pour informer les composants de ce changement
+      try {
+        const connectionEvent = new CustomEvent('snapclient-connection-changed', {
+          detail: { connected: isConnected.value }
+        });
+        window.dispatchEvent(connectionEvent);
+      } catch (e) {
+        console.warn("Impossible d'émettre l'événement custom:", e);
+      }
+    }
+    
     deviceName.value = data.device_name;
     host.value = data.host;
     
@@ -138,18 +164,22 @@ async function fetchStatus(force = false) {
     console.error('Erreur lors de la récupération du statut Snapclient:', err);
     error.value = err.message || 'Erreur lors de la récupération du statut';
     
-    // Réinitialiser l'état en cas d'erreur
-    isActive.value = false;
-    isConnected.value = false;
-    deviceName.value = null;
-    host.value = null;
-    pluginState.value = 'inactive';
+    // Si on reçoit une erreur 500 ou une erreur réseau, il y a peut-être un problème avec le serveur
+    // ou la connexion. Dans ce cas, considérons que nous sommes déconnectés.
+    if (err.response?.status >= 500 || err.code === 'ECONNABORTED' || err.message.includes('Network Error')) {
+      console.warn("Erreur serveur, marquage comme déconnecté");
+      isConnected.value = false;
+      deviceName.value = null;
+      host.value = null;
+      pluginState.value = 'ready_to_connect';
+    }
     
     throw err;
   } finally {
     isLoading.value = false;
   }
 }
+
 
   /**
    * Déclenche une découverte des serveurs Snapcast sur le réseau.
@@ -205,24 +235,65 @@ async function fetchStatus(force = false) {
         throw new Error(error.value);
       }
 
+      // Mettre à jour l'état immédiatement (optimistic UI update)
+      // Cela assure que l'UI se met à jour même si la requête est lente
+      isConnected.value = true;
+      pluginState.value = 'connected';
+      host.value = serverHost;
+
+      // Si le serveur est présent dans la liste des découverts, utiliser son nom
+      const server = discoveredServers.value.find(s => s.host === serverHost);
+      if (server) {
+        deviceName.value = server.name;
+      } else {
+        deviceName.value = `Serveur (${serverHost})`;
+      }
+
+      // Envoyer la requête de connexion au backend
       const response = await axios.post(`/api/snapclient/connect/${serverHost}`);
       const data = response.data;
 
       if (data.status === 'error') {
+        // Annuler la mise à jour optimiste en cas d'échec
+        isConnected.value = false;
+        pluginState.value = 'ready_to_connect';
+        host.value = null;
+        deviceName.value = null;
         throw new Error(data.message);
       }
 
       if (data.blacklisted === true) {
+        // Annuler la mise à jour optimiste en cas de blacklist
+        isConnected.value = false;
+        pluginState.value = 'ready_to_connect';
+        host.value = null;
+        deviceName.value = null;
         error.value = `Le serveur ${serverHost} a été déconnecté manuellement. Changez de source audio pour pouvoir vous y reconnecter.`;
         throw new Error(error.value);
       }
 
-      // Mise à jour après connexion
-      await fetchStatus();
+      // Mise à jour complète après connexion (but keep optimistic values if API fails)
+      try {
+        await fetchStatus(true);
+      } catch (statusErr) {
+        console.warn("Erreur lors de la mise à jour du statut après connexion:", statusErr);
+        // Ne pas réinitialiser l'état optimiste même si fetchStatus échoue
+      }
+
+      // Démarrer le polling pour maintenir l'état synchronisé
+      startPolling();
+
       return data;
     } catch (err) {
       console.error(`Erreur lors de la connexion au serveur ${serverHost}:`, err);
       error.value = error.value || err.message || `Erreur lors de la connexion au serveur ${serverHost}`;
+
+      // S'assurer que l'état reflète l'échec de connexion
+      isConnected.value = false;
+      pluginState.value = 'ready_to_connect';
+      host.value = null;
+      deviceName.value = null;
+
       throw err;
     } finally {
       isLoading.value = false;
@@ -246,7 +317,7 @@ async function fetchStatus(force = false) {
         blacklistedServers.value = data.blacklisted;
       }
 
-      // Forcer l'état local à déconnecté
+      // Forcer l'état local à déconnecté immédiatement (pour une UI plus réactive)
       isConnected.value = false;
       deviceName.value = null;
       host.value = null;
@@ -305,14 +376,47 @@ async function fetchStatus(force = false) {
     if (eventType === 'audio_state_changed') {
       if (data.current_state === 'macos') {
         fetchStatus();
+        startPolling();
       } else if (data.from_state === 'macos') {
         reset();
+        stopPolling();
       }
     }
 
     // Erreurs de transition
     if (eventType === 'audio_transition_error' && data.error && data.error.includes('server')) {
       fetchStatus();
+    }
+  }
+
+  /**
+   * Démarre le polling périodique du statut
+   */
+  function startPolling() {
+    // Arrêter tout polling existant
+    stopPolling();
+
+    // Démarrer un nouveau polling toutes les 5 secondes
+    statusCheckInterval.value = setInterval(() => {
+      if (isConnected.value) {
+        // Si connecté, vérifier que la connexion est toujours valide
+        fetchStatus(false).catch(err => {
+          console.warn("Erreur dans le polling de statut:", err);
+        });
+      }
+    }, 5000);
+
+    console.log("📡 Polling de statut démarré");
+  }
+
+  /**
+   * Arrête le polling périodique
+   */
+  function stopPolling() {
+    if (statusCheckInterval.value) {
+      clearInterval(statusCheckInterval.value);
+      statusCheckInterval.value = null;
+      console.log("📡 Polling de statut arrêté");
     }
   }
 
@@ -329,7 +433,18 @@ async function fetchStatus(force = false) {
     error.value = null;
     lastAction.value = null;
     // Ne pas réinitialiser la blacklist - conservée jusqu'au changement de source audio
+
+    // Arrêter le polling
+    stopPolling();
   }
+
+  // Démarrer/arrêter le polling en fonction de l'état de connexion
+  watch(isConnected, (newValue) => {
+    if (newValue === true) {
+      console.log("⚡ Connexion détectée, démarrage du polling");
+      startPolling();
+    }
+  });
 
   return {
     // État
@@ -356,6 +471,8 @@ async function fetchStatus(force = false) {
     handleWebSocketUpdate,
     reset,
     updateFromWebSocketEvent,
-    updateFromStateEvent
+    updateFromStateEvent,
+    startPolling,
+    stopPolling
   };
 });

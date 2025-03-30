@@ -1,3 +1,33 @@
+<template>
+  <div class="snapclient-display">
+    <!-- État de chargement -->
+    <div v-if="isLoading" class="loading-state">
+      <div class="loading-spinner"></div>
+      <p>Chargement de l'état Snapclient...</p>
+    </div>
+    
+    <!-- Erreur websocket -->
+    <div v-else-if="!wsConnected" class="error-state">
+      <h3>Connexion au serveur perdue</h3>
+      <p>La connexion WebSocket au serveur oakOS est interrompue. Vérifiez que le serveur backend est en cours d'exécution.</p>
+      <button @click="refreshStatus" class="retry-button">Réessayer</button>
+    </div>
+    
+    <!-- Erreur état -->
+    <div v-else-if="errorState" class="error-state">
+      <h3>Erreur lors du chargement de Snapclient</h3>
+      <p>{{ snapclientStore.error || 'Une erreur s\'est produite. Veuillez réessayer.' }}</p>
+      <button @click="refreshStatus" class="retry-button">Réessayer</button>
+    </div>
+    
+    <!-- États normaux -->
+    <template v-else>
+      <SnapclientConnectionInfo v-if="isConnected" />
+      <SnapclientWaitingConnection v-else />
+    </template>
+  </div>
+</template>
+
 <script setup>
 import { computed, onMounted, onUnmounted, watch, ref } from 'vue';
 import { useAudioStore } from '@/stores/index';
@@ -6,13 +36,16 @@ import SnapclientWaitingConnection from './SnapclientWaitingConnection.vue';
 import SnapclientConnectionInfo from './SnapclientConnectionInfo.vue';
 import useWebSocket from '@/services/websocket';
 
-const { on } = useWebSocket();
+const { on, isConnected: wsConnected } = useWebSocket();
 const audioStore = useAudioStore();
 const snapclientStore = useSnapclientStore();
 
-// Activer les logs et surveillance
+// États locaux
 const DEBUG = true;
 const lastUpdate = ref(Date.now());
+const isLoading = ref(true);
+const errorState = ref(false);
+const retryCount = ref(0);
 
 // État dérivé pour contrôler l'affichage
 const isConnected = computed(() => {
@@ -20,6 +53,23 @@ const isConnected = computed(() => {
   if (DEBUG) console.log(`🔍 Évaluation isConnected: ${result} (pluginState=${snapclientStore.pluginState}, isConnected=${snapclientStore.isConnected})`);
   return result;
 });
+
+// Fonction pour rafraîchir le statut manuellement
+async function refreshStatus() {
+  isLoading.value = true;
+  errorState.value = false;
+  retryCount.value++;
+  
+  try {
+    await snapclientStore.fetchStatus(true);
+    console.log("✅ Statut rafraîchi avec succès");
+  } catch (err) {
+    console.error("❌ Erreur lors du rafraîchissement du statut:", err);
+    errorState.value = true;
+  } finally {
+    isLoading.value = false;
+  }
+}
 
 // Surveillance des changements d'état importants
 watch(() => snapclientStore.pluginState, (newState, oldState) => {
@@ -37,10 +87,44 @@ watch(() => audioStore.currentState, async (newState, oldState) => {
   if (newState === 'macos' && oldState !== 'macos') {
     // Activation de la source MacOS - initialisation unique
     console.log("🔄 Source MacOS activée - Chargement initial de l'état");
-    await snapclientStore.fetchStatus(true);
+    isLoading.value = true;
+    try {
+      await snapclientStore.fetchStatus(true);
+    } catch (err) {
+      console.error("❌ Erreur lors du chargement initial:", err);
+      errorState.value = true;
+    } finally {
+      isLoading.value = false;
+    }
   } else if (oldState === 'macos' && newState !== 'macos') {
     // Désactivation de la source MacOS
     snapclientStore.reset();
+  }
+});
+
+// Surveillance de l'état de connexion WebSocket
+watch(wsConnected, (connected) => {
+  console.log(`⚡ État WebSocket changé: ${connected ? 'connecté' : 'déconnecté'}`);
+  if (connected && audioStore.currentState === 'macos') {
+    // Si on vient de se reconnecter au WebSocket et qu'on est sur la source MacOS,
+    // rafraîchir le statut pour s'assurer que tout est synchronisé
+    refreshStatus();
+    
+    // Activer également le polling automatique du statut
+    snapclientStore.startPolling();
+  } else if (!connected && audioStore.currentState === 'macos') {
+    // Si la connexion WebSocket est perdue, arrêter le polling pour éviter les erreurs
+    snapclientStore.stopPolling();
+  }
+});
+
+// Surveiller les erreurs et mettre à jour l'état
+watch(() => snapclientStore.error, (newError) => {
+  if (newError) {
+    console.error("⚠️ Erreur dans le store Snapclient:", newError);
+    errorState.value = true;
+  } else {
+    errorState.value = false;
   }
 });
 
@@ -51,11 +135,28 @@ let unsubscribeServerEvent = null;
 let unsubscribeAudioStatus = null;
 
 onMounted(async () => {
-  // Chargement initial unique (pas de polling)
+  // Chargement initial unique
   console.log("🔄 Chargement initial du statut Snapclient");
-  await snapclientStore.fetchStatus(true);
+  isLoading.value = true;
+  try {
+    await snapclientStore.fetchStatus(true);
+    errorState.value = false;
+  } catch (err) {
+    console.error("❌ Erreur lors du chargement initial:", err);
+    errorState.value = true;
+  } finally {
+    isLoading.value = false;
+  }
 
   console.log("📡 Abonnement aux événements WebSocket pour Snapclient");
+
+  // Écouter l'événement personnalisé de changement de connexion
+  const handleConnectionChange = (event) => {
+    console.log("⚡ Événement de changement de connexion détecté:", event.detail);
+    // Forcer un rafraîchissement de l'UI
+    lastUpdate.value = Date.now();
+  };
+  window.addEventListener('snapclient-connection-changed', handleConnectionChange);
 
   // Moniteur connecté
   unsubscribeMonitorConnected = on('snapclient_monitor_connected', (data) => {
@@ -63,7 +164,7 @@ onMounted(async () => {
     if (audioStore.currentState === 'macos') {
       // En cas de connexion du moniteur, charger le statut complet
       console.log("🔄 Chargement du statut suite à connexion du moniteur");
-      snapclientStore.fetchStatus(true);
+      refreshStatus();
     }
   });
 
@@ -75,7 +176,7 @@ onMounted(async () => {
       snapclientStore.updateFromWebSocketEvent('snapclient_monitor_disconnected', data);
       
       // Force une mise à jour du statut pour synchroniser l'état
-      setTimeout(() => snapclientStore.fetchStatus(true), 100);
+      setTimeout(() => refreshStatus(), 100);
     }
   });
   
@@ -86,7 +187,7 @@ onMounted(async () => {
     if (audioStore.currentState === 'macos') {
       // Forcer une mise à jour du statut périodiquement 
       // pour s'assurer que l'interface est synchronisée
-      snapclientStore.fetchStatus(true);
+      refreshStatus();
     }
   });
   
@@ -98,7 +199,27 @@ onMounted(async () => {
       snapclientStore.updateFromStateEvent(data);
       
       // Force une mise à jour du statut pour synchroniser tous les états
-      setTimeout(() => snapclientStore.fetchStatus(true), 100);
+      setTimeout(() => refreshStatus(), 100);
+    }
+  });
+  
+  // S'abonner aux événements de disparition du serveur
+  on('snapclient_server_disappeared', (data) => {
+    console.log("🚨 Serveur Snapcast disparu:", data);
+    if (audioStore.currentState === 'macos') {
+      // Mise à jour immédiate du store
+      snapclientStore.updateFromWebSocketEvent('snapclient_server_disappeared', data);
+      
+      // Forcer le refreshStatus pour s'assurer que l'UI est mise à jour
+      refreshStatus();
+      
+      // Assurer que l'interface utilisateur reflète immédiatement la déconnexion
+      snapclientStore.$patch({
+        isConnected: false,
+        deviceName: null,
+        host: null,
+        pluginState: 'ready_to_connect'
+      });
     }
   });
 });
@@ -109,6 +230,9 @@ onUnmounted(() => {
   if (unsubscribeMonitorDisconnected) unsubscribeMonitorDisconnected();
   if (unsubscribeServerEvent) unsubscribeServerEvent();
   if (unsubscribeAudioStatus) unsubscribeAudioStatus();
+  
+  // Désabonnement de l'événement personnalisé
+  window.removeEventListener('snapclient-connection-changed', handleConnectionChange);
 });
 </script>
 
@@ -116,5 +240,51 @@ onUnmounted(() => {
 .snapclient-display {
   width: 100%;
   padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.loading-state, .error-state {
+  text-align: center;
+  padding: 2rem;
+  width: 100%;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 1rem;
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  border-top: 4px solid #3498db;
+  animation: spin 1s linear infinite;
+}
+
+.retry-button {
+  background-color: #2196F3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  margin-top: 1rem;
+}
+
+.retry-button:hover {
+  background-color: #0b7dda;
+}
+
+.error-state {
+  background-color: #ffebee;
+  border: 1px solid #ffcdd2;
+  border-radius: 4px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style>

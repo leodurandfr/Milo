@@ -1,8 +1,13 @@
 <template>
   <div class="app-container">
     <router-view />
+    <WebSocketStatus />
   </div>
 </template>
+
+<script setup>
+import WebSocketStatus from './components/WebSocketStatus.vue';
+</script>
 
 <style>
 .app-container {
