@@ -101,7 +101,7 @@ class SnapcastMonitor:
         """
         try:
             while not self._stopping:
-                await asyncio.sleep(5)  # Vérifier toutes les 5 secondes
+                await asyncio.sleep(2)  # Vérifier toutes les 5 secondes
                 
                 if not self.is_connected and self.host:
                     # Connexion perdue, notifier

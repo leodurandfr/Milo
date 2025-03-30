@@ -83,57 +83,73 @@ export const useSnapclientStore = defineStore('snapclient', () => {
   }
 
   /**
-   * Récupère le statut actuel du plugin Snapclient.
-   */
-  async function fetchStatus() {
-    try {
-      isLoading.value = true;
-      error.value = null;
-
-      const response = await axios.get('/api/snapclient/status');
-      const data = response.data;
-
-      if (data.status === 'error') {
-        throw new Error(data.message);
-      }
-
-      // Mise à jour de l'état
-      isActive.value = data.is_active === true;
-      isConnected.value = data.device_connected === true;
-      deviceName.value = data.device_name;
-      host.value = data.host;
-      discoveredServers.value = data.discovered_servers || [];
-
-      if (data.blacklisted_servers) {
-        blacklistedServers.value = data.blacklisted_servers;
-      }
-
-      // Déduction de l'état du plugin
-      if (!isActive.value) {
-        pluginState.value = 'inactive';
-      } else if (isConnected.value) {
-        pluginState.value = 'connected';
-      } else {
-        pluginState.value = 'ready_to_connect';
-      }
-
-      return data;
-    } catch (err) {
-      console.error('Erreur lors de la récupération du statut Snapclient:', err);
-      error.value = err.message || 'Erreur lors de la récupération du statut';
-
-      // Réinitialiser l'état en cas d'erreur
-      isActive.value = false;
-      isConnected.value = false;
-      deviceName.value = null;
-      host.value = null;
-      pluginState.value = 'inactive';
-
-      throw err;
-    } finally {
-      isLoading.value = false;
+ * Récupère le statut actuel du plugin Snapclient.
+ */
+async function fetchStatus(force = false) {
+  try {
+    if (isLoading.value && !force) {
+      console.log("🔄 Requête fetchStatus ignorée (déjà en cours)");
+      return { cached: true };
     }
+    
+    isLoading.value = true;
+    error.value = null;
+    
+    const response = await axios.get('/api/snapclient/status');
+    const data = response.data;
+    
+    if (data.status === 'error') {
+      throw new Error(data.message);
+    }
+    
+    console.log("📊 Statut Snapclient reçu:", {
+      is_active: data.is_active,
+      device_connected: data.device_connected,
+      servers: data.discovered_servers?.length || 0
+    });
+    
+    // Mise à jour de l'état
+    isActive.value = data.is_active === true;
+    isConnected.value = data.device_connected === true;
+    deviceName.value = data.device_name;
+    host.value = data.host;
+    
+    // Mise à jour explicite des serveurs découverts
+    if (data.discovered_servers) {
+      console.log(`📊 Mise à jour des serveurs: ${data.discovered_servers.length} serveurs`);
+      discoveredServers.value = [...data.discovered_servers];
+    }
+    
+    if (data.blacklisted_servers) {
+      blacklistedServers.value = data.blacklisted_servers;
+    }
+    
+    // Déduction de l'état du plugin
+    if (!isActive.value) {
+      pluginState.value = 'inactive';
+    } else if (isConnected.value) {
+      pluginState.value = 'connected';
+    } else {
+      pluginState.value = 'ready_to_connect';
+    }
+    
+    return data;
+  } catch (err) {
+    console.error('Erreur lors de la récupération du statut Snapclient:', err);
+    error.value = err.message || 'Erreur lors de la récupération du statut';
+    
+    // Réinitialiser l'état en cas d'erreur
+    isActive.value = false;
+    isConnected.value = false;
+    deviceName.value = null;
+    host.value = null;
+    pluginState.value = 'inactive';
+    
+    throw err;
+  } finally {
+    isLoading.value = false;
   }
+}
 
   /**
    * Déclenche une découverte des serveurs Snapcast sur le réseau.

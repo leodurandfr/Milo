@@ -55,3 +55,26 @@ class WebSocketManager:
         # Retirer les connexions déconnectées
         for connection in disconnected:
             self.disconnect(connection)
+            
+    async def cleanup_stale_connections(self):
+        """Nettoie les connexions inactives ou zombies."""
+        original_count = len(self.active_connections)
+        
+        to_remove = set()
+        for conn in self.active_connections:
+            try:
+                # Envoyer un ping pour vérifier si la connexion est toujours active
+                await conn.send_text(json.dumps({"type": "ping", "data": {"timestamp": time.time()}}))
+            except Exception:
+                # Si on ne peut pas envoyer, la connexion est morte
+                to_remove.add(conn)
+        
+        # Supprimer les connexions mortes
+        for conn in to_remove:
+            self.disconnect(conn)
+        
+        removed = original_count - len(self.active_connections)
+        if removed > 0:
+            self.logger.warning(f"🧹 Nettoyage: {removed} connexions zombies supprimées, {len(self.active_connections)} actives")
+        
+        return removed

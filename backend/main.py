@@ -6,6 +6,7 @@ import asyncio
 import logging
 import uvicorn
 import json
+import time
 import subprocess
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,7 +41,7 @@ app.add_middleware(
 event_bus = container.event_bus()
 audio_state_machine = container.audio_state_machine()
 
-# Initialisation du gestionnaire WebSocket
+# Initialisation du gestionnaire WebSocket - accessible globalement
 ws_manager = WebSocketManager()
 ws_event_handler = WebSocketEventHandler(event_bus, ws_manager)
 
@@ -51,13 +52,32 @@ app.include_router(librespot_router, prefix="/api")
 snapclient_router = setup_snapclient_routes(lambda: container.snapclient_plugin())
 app.include_router(snapclient_router, prefix="/api")
 
+async def periodic_websocket_cleanup():
+    """Nettoie périodiquement les connexions WebSocket inactives."""
+    while True:
+        try:
+            await asyncio.sleep(30)  # Vérifier toutes les 30 secondes
+            if ws_manager:
+                removed = await ws_manager.cleanup_stale_connections()
+                if removed > 0:
+                    logging.info(f"Nettoyage: {removed} connexions WebSocket zombies supprimées")
+        except Exception as e:
+            logging.error(f"Erreur lors du nettoyage des WebSockets: {str(e)}")
+
 @app.on_event("startup")
 async def startup_event():
     """Initialisation de l'application au démarrage"""
     logging.info("Starting oakOS backend...")
     
+    # Démarrer la tâche de nettoyage des WebSockets
+    asyncio.create_task(periodic_websocket_cleanup())
+    
     # Initialisation des plugins
     try:
+        # Nettoyer les connexions WebSocket au démarrage
+        if hasattr(ws_manager, 'cleanup_all_connections'):
+            await ws_manager.cleanup_all_connections()
+            
         # Initialiser le plugin librespot
         librespot_plugin = container.librespot_plugin()
         if await librespot_plugin.initialize():
@@ -82,7 +102,28 @@ async def startup_event():
 @app.get("/api/status")
 async def status():
     """Endpoint de statut simple pour vérifier que l'API fonctionne."""
-    return {"status": "running", "version": "0.1.0"}
+    return {"status": "running", "version": "0.1.0", "ws_connections": len(ws_manager.active_connections)}
+
+@app.get("/api/websocket/status")
+async def websocket_status():
+    """Endpoint pour vérifier l'état des connexions WebSocket."""
+    return {
+        "active_connections": len(ws_manager.active_connections),
+        "timestamp": time.time()
+    }
+
+@app.post("/api/websocket/cleanup")
+async def force_websocket_cleanup():
+    """Force le nettoyage des connexions WebSocket inactives."""
+    try:
+        removed = await ws_manager.cleanup_stale_connections()
+        return {
+            "status": "success", 
+            "removed": removed, 
+            "remaining": len(ws_manager.active_connections)
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/audio/state")
 async def get_audio_state():
@@ -137,12 +178,25 @@ async def control_audio_source(source: str, command_data: Dict[str, Any]):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """Endpoint WebSocket pour la communication en temps réel"""
+    client_id = f"client-{time.time()}"
+    
+    # Nettoyer les connexions zombies avant d'en ajouter une nouvelle
+    await ws_manager.cleanup_stale_connections()
+    
+    # Accepter la nouvelle connexion
     await ws_manager.connect(websocket)
+    logging.info(f"Nouvelle connexion WebSocket: {client_id}, total: {len(ws_manager.active_connections)}")
+    
     try:
         # Envoyer un message de confirmation de connexion
         await websocket.send_json({
             "type": "connection_established",
-            "data": {"message": "Connected to oakOS backend"}
+            "data": {
+                "message": "Connected to oakOS backend",
+                "client_id": client_id,
+                "connections": len(ws_manager.active_connections),
+                "timestamp": time.time()
+            }
         })
         
         # Boucle de réception des messages
@@ -152,27 +206,50 @@ async def websocket_endpoint(websocket: WebSocket):
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
                 
                 # Traiter le message
-                logging.info(f"Received WebSocket message: {data[:100]}...")
-                
-                # Pour l'instant, simplement accuser réception
                 try:
                     message = json.loads(data)
-                    await websocket.send_json({
-                        "type": "message_ack",
-                        "data": {"received_type": message.get("type", "unknown")}
-                    })
+                    msg_type = message.get("type", "unknown")
+                    
+                    # Traitement spécial pour certains types de messages
+                    if msg_type == "heartbeat":
+                        # Répondre immédiatement aux heartbeats pour maintenir la connexion
+                        await websocket.send_json({
+                            "type": "heartbeat_ack",
+                            "data": {"timestamp": time.time()}
+                        })
+                    elif msg_type == "client_connected":
+                        # Enregistrer l'ID du client
+                        client_data = message.get("data", {})
+                        client_id = client_data.get("client_id", client_id)
+                        logging.info(f"Client WebSocket identifié: {client_id}")
+                        
+                        # Accusé de réception
+                        await websocket.send_json({
+                            "type": "message_ack",
+                            "data": {
+                                "received_type": msg_type,
+                                "client_id": client_id
+                            }
+                        })
+                    else:
+                        # Accusé de réception générique
+                        await websocket.send_json({
+                            "type": "message_ack",
+                            "data": {"received_type": msg_type}
+                        })
+                        
                 except json.JSONDecodeError:
-                    logging.error(f"Invalid JSON received: {data}")
+                    logging.error(f"Invalid JSON received from {client_id}: {data[:100]}...")
                     
             except asyncio.TimeoutError:
                 # Envoyer un ping pour maintenir la connexion active
-                await websocket.send_json({"type": "ping"})
+                await websocket.send_json({"type": "ping", "data": {"timestamp": time.time()}})
                 
     except WebSocketDisconnect:
-        logging.info("WebSocket disconnected normally")
+        logging.info(f"WebSocket {client_id} déconnecté normalement")
         ws_manager.disconnect(websocket)
     except Exception as e:
-        logging.error(f"WebSocket error: {str(e)}")
+        logging.error(f"Erreur WebSocket {client_id}: {str(e)}")
         ws_manager.disconnect(websocket)
 
 if __name__ == "__main__":
