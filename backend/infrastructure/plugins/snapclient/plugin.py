@@ -81,43 +81,51 @@ class SnapclientPlugin(BaseAudioPlugin):
             await self.transition_to_state(self.STATE_INACTIVE)
             await self.transition_to_state(self.STATE_READY_TO_CONNECT)
             
-            # Connexion immédiate - SIMPLIFIÉE
-            if self.auto_discover:
-                # Effectuer une découverte immédiate
-                servers = await self.discovery.discover_servers() or []
-                self.discovered_servers = servers
-                
-                # Se connecter au premier serveur si disponible
-                if servers and self.auto_connect:
-                    self.logger.info(f"Découverte initiale: {len(servers)} serveurs trouvés, tentative de connexion")
-                    self._avoid_reconnect = True
-                    
-                    # Mac-mini explicitement: si le Mac-mini est dans la liste, le connecter en priorité
-                    mac_mini_server = next((s for s in servers if s.host == "192.168.1.173"), None)
-                    server_to_connect = mac_mini_server or servers[0]
-                    
-                    # Se connecter au serveur sélectionné
-                    await self.connection_manager.connect(server_to_connect)
-                    self.logger.info(f"Connexion automatique à {server_to_connect.name} ({server_to_connect.host})")
-                    
-                    # Transition d'état
-                    await self.transition_to_state(self.STATE_CONNECTED, {
-                        "connected": True,
-                        "deviceConnected": True,
-                        "host": server_to_connect.host,
-                        "device_name": server_to_connect.name
-                    })
-                    
-                    # Réinitialiser le verrou de reconnexion après un délai
-                    asyncio.create_task(self._reset_reconnect_lock())
-                
-                # Démarrer la boucle de découverte avec un délai
-                self.discovery_task = asyncio.create_task(self._delayed_discovery_loop())
+            # Lancer la découverte en arrière-plan sans bloquer le démarrage
+            self.discovery_task = asyncio.create_task(self._background_discovery())
             
             return True
         except Exception as e:
             self.logger.error(f"Erreur lors du démarrage du plugin Snapclient: {str(e)}")
             return False
+    
+    async def _background_discovery(self):
+        """Effectue la découverte en arrière-plan sans bloquer le démarrage"""
+        try:
+            # Retard initial pour permettre au système de se stabiliser
+            await asyncio.sleep(0.5)
+            
+            self.logger.info("Découverte initiale en arrière-plan")
+            servers = await self.discovery.discover_servers() or []
+            self.discovered_servers = servers
+            
+            # Se connecter au premier serveur si disponible
+            if servers and self.auto_connect and not self.connection_manager.current_server:
+                self.logger.info(f"Découverte initiale: {len(servers)} serveurs trouvés, tentative de connexion")
+                self._avoid_reconnect = True
+                
+                server_to_connect = servers[0]
+                
+                # Se connecter au serveur sélectionné
+                await self.connection_manager.connect(server_to_connect)
+                self.logger.info(f"Connexion automatique à {server_to_connect.name} ({server_to_connect.host})")
+                
+                # Transition d'état
+                await self.transition_to_state(self.STATE_CONNECTED, {
+                    "connected": True,
+                    "deviceConnected": True,
+                    "host": server_to_connect.host,
+                    "device_name": server_to_connect.name
+                })
+                
+                # Réinitialiser le verrou de reconnexion après un délai
+                asyncio.create_task(self._reset_reconnect_lock())
+            
+            # Démarrer la boucle de découverte régulière
+            await self._run_discovery_loop()
+            
+        except Exception as e:
+            self.logger.error(f"Erreur dans la découverte en arrière-plan: {str(e)}")
     
     async def _reset_reconnect_lock(self):
         """Réinitialise le verrou de reconnexion après un délai."""

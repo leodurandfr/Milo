@@ -1,37 +1,34 @@
 """
-Découverte des serveurs Snapcast sur le réseau via multiple méthodes.
+Découverte des serveurs Snapcast sur le réseau via Avahi, avec gestion des timeouts.
 """
 import asyncio
 import logging
 import socket
-import subprocess
+import re
 from typing import List, Optional
 
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer
-from backend.infrastructure.plugins.snapclient.protocol import SnapcastProtocol
 
 class SnapclientDiscovery:
-    """
-    Détecte les serveurs Snapcast sur le réseau local en utilisant Avahi et scan réseau direct.
-    """
+    """Détecte les serveurs Snapcast sur le réseau local via Avahi."""
     
     def __init__(self):
-        """Initialise le découvreur de serveurs Snapcast."""
         self.logger = logging.getLogger("plugin.snapclient.discovery")
-        self.protocol = SnapcastProtocol()
         self._has_avahi = self._check_avahi_available()
         
         if not self._has_avahi:
-            self.logger.warning("Avahi n'est pas disponible. La découverte automatique sera limitée.")
+            self.logger.warning("Avahi n'est pas disponible, la découverte sera limitée")
     
     def _check_avahi_available(self) -> bool:
         """Vérifie si Avahi est disponible sur le système."""
         try:
+            import subprocess
             result = subprocess.run(
                 ["which", "avahi-browse"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                timeout=2  # Ajouter un timeout ici aussi
             )
             return result.returncode == 0
         except Exception as e:
@@ -39,187 +36,172 @@ class SnapclientDiscovery:
             return False
     
     async def discover_servers(self) -> List[SnapclientServer]:
-        """Découvre les serveurs Snapcast sur le réseau via méthodes combinées."""
-        self.logger.info("Démarrage multi-méthode de découverte des serveurs Snapcast")
-        
-        # Lancer les deux méthodes de découverte en parallèle
+        """Découvre les serveurs Snapcast via Avahi avec timeout."""
+        self.logger.info("Démarrage de la découverte des serveurs Snapcast")
         servers = []
         
-        # 1. Méthode directe (rapide et fiable)
-        direct_servers = await self._scan_network_direct()
-        if direct_servers:
-            self.logger.info(f"Scan direct: {len(direct_servers)} serveurs trouvés")
-            servers.extend(direct_servers)
-            for server in direct_servers:
-                self.logger.info(f"Serveur (scan direct): {server.name} ({server.host})")
+        if not self._has_avahi:
+            self.logger.error("Avahi n'est pas disponible, découverte impossible")
+            return []
         
-        # 2. Méthode Avahi (plus complète mais plus lente)
-        if self._has_avahi:
-            try:
-                # Exécuter avahi-browse avec un délai court
-                avahi_servers = await asyncio.wait_for(
-                    self._discover_via_avahi(),
-                    timeout=3.0  # Timeout court pour éviter de bloquer
-                )
-                
-                # Filtrer pour éviter les doublons
-                for server in avahi_servers:
-                    if not any(s.host == server.host for s in servers):
-                        servers.append(server)
-                        self.logger.info(f"Serveur (Avahi): {server.name} ({server.host})")
-            except asyncio.TimeoutError:
-                self.logger.warning("Timeout lors de la découverte Avahi")
-            except Exception as e:
-                self.logger.error(f"Erreur lors de la découverte Avahi: {str(e)}")
-        
-        self.logger.info(f"Découverte terminée, total de {len(servers)} serveurs trouvés")
-        return servers
-    
-    async def _discover_via_avahi(self) -> List[SnapclientServer]:
-        """Exécute avahi-browse dans un processus asynchrone."""
-        servers = []
+        # Obtenir notre propre nom d'hôte pour filtrer les résultats
+        own_hostname = await self._get_own_hostname()
         
         try:
-            # Créer un processus avahi-browse asynchrone
+            # Lancer la commande avec un timeout strict
+            self.logger.info("Exécution de avahi-browse -r _snapcast._tcp avec timeout")
+            
+            # Créer le processus sans attendre qu'il termine
             process = await asyncio.create_subprocess_exec(
                 "avahi-browse", "-r", "_snapcast._tcp",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             
-            # Attendre les résultats avec un timeout
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode != 0:
-                self.logger.error(f"Erreur avahi-browse: {stderr.decode()}")
-                return []
-            
-            # Analyser les résultats
-            for line in stdout.decode().splitlines():
-                # Chercher les lignes d'adresse IPv4
-                if "address = [" in line and "]" in line and ":" not in line:
-                    ip = line.split("[")[1].split("]")[0].strip()
-                    
-                    # Ignorer localhost
-                    if ip.startswith("127.") or "oakos" in line.lower():
-                        continue
-                    
-                    # Trouver le nom associé à cette IP
-                    name = None
-                    try:
-                        hostname = socket.gethostbyaddr(ip)
-                        name = hostname[0].split(".")[0]
-                    except:
-                        name = f"Snapserver ({ip})"
-                    
-                    # Créer le serveur
-                    if not any(s.host == ip for s in servers):
-                        servers.append(SnapclientServer(
-                            host=ip,
-                            name=name,
-                            port=1704
-                        ))
-            
-            return servers
-            
+            # Attendre le résultat avec un timeout de 5 secondes
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+                output = stdout.decode()
+                
+                if stderr:
+                    error = stderr.decode()
+                    if error:
+                        self.logger.warning(f"Erreur avahi-browse: {error}")
+                
+                if not output.strip():
+                    self.logger.warning("Aucune sortie de avahi-browse, vérifier la configuration réseau")
+                    return []
+                
+                # Analyser la sortie pour extraire les serveurs Snapcast externes
+                avahi_servers = self._parse_avahi_output(output, own_hostname)
+                
+                if avahi_servers:
+                    servers.extend(avahi_servers)
+                    self.logger.info(f"Avahi a trouvé {len(avahi_servers)} serveurs externes")
+                    for server in avahi_servers:
+                        self.logger.info(f"Serveur trouvé: {server.name} ({server.host})")
+                else:
+                    self.logger.warning("Aucun serveur externe trouvé via Avahi")
+                
+            except asyncio.TimeoutError:
+                self.logger.error("Timeout lors de l'exécution de avahi-browse")
+                try:
+                    # Nettoyer le processus qui a pris trop de temps
+                    process.kill()
+                except:
+                    pass
+                
+                # Alternative: essayer une commande avahi-browse plus simple
+                self.logger.info("Tentative avec une commande avahi-browse alternative")
+                alt_result = await self._try_alternative_avahi_command(own_hostname)
+                if alt_result:
+                    servers.extend(alt_result)
+                
         except Exception as e:
-            self.logger.error(f"Erreur avahi-browse: {str(e)}")
-            return []
-    
-    async def _scan_network_direct(self) -> List[SnapclientServer]:
-        """Scan direct des ports 1704 sur les adresses réseau courantes."""
-        servers = []
-        
-        # Obtenir notre IP locale
-        local_ip = self._get_local_ip()
-        if not local_ip:
-            self.logger.warning("Impossible de déterminer l'IP locale")
-            return servers
-        
-        # Extraire le préfixe réseau
-        prefix = '.'.join(local_ip.split('.')[:3])
-        self.logger.debug(f"Scan réseau {prefix}.x")
-        
-        # Adresses à scanner
-        targets = []
-        
-        # Adresses courantes (routeurs, serveurs, etc.)
-        for last_octet in [1, 2, 3, 4, 5, 10, 20, 30, 50, 100, 150, 200, 254]:
-            ip = f"{prefix}.{last_octet}"
-            if ip != local_ip:  # Éviter notre propre IP
-                targets.append(ip)
-        
-        # Scannons ces IPs en parallèle
-        tasks = []
-        for ip in targets:
-            tasks.append(self._check_server(ip))
-        
-        # Attendre tous les résultats
-        results = await asyncio.gather(*tasks)
-        
-        # Collecter les serveurs fonctionnels
-        for server in results:
-            if server:
-                servers.append(server)
+            self.logger.error(f"Erreur lors de la découverte Avahi: {str(e)}")
         
         return servers
     
-    async def _check_server(self, ip: str) -> Optional[SnapclientServer]:
-        """Vérifie si un serveur Snapcast est accessible à cette adresse."""
+    async def _try_alternative_avahi_command(self, own_hostname: str) -> List[SnapclientServer]:
+        """Essaie une commande avahi-browse alternative en cas d'échec de la première."""
         try:
-            # Connexion TCP rapide pour vérifier que le port est ouvert
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(ip, 1704),
-                timeout=0.5
+            # Cette commande est plus simple et devrait être plus rapide
+            process = await asyncio.create_subprocess_exec(
+                "avahi-browse", "-t", "-r", "_snapcast._tcp",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
-            writer.close()
-            await writer.wait_closed()
             
-            # Serveur trouvé! Obtenir son nom
-            try:
-                hostname = socket.gethostbyaddr(ip)
-                name = hostname[0].split('.')[0]
-            except:
-                name = f"Snapserver ({ip})"
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=3.0)
+            output = stdout.decode()
             
-            return SnapclientServer(
-                host=ip,
-                name=name,
-                port=1704
-            )
-        except:
-            return None
+            if not output.strip():
+                return []
+                
+            return self._parse_avahi_output(output, own_hostname)
+            
+        except (asyncio.TimeoutError, Exception) as e:
+            self.logger.error(f"Erreur avec la commande alternative: {str(e)}")
+            return []
     
-    def _get_local_ip(self) -> Optional[str]:
-        """Obtient l'adresse IP locale."""
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(('8.8.8.8', 80))  # Pas de connexion réelle établie
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except:
-            return None
+    def _parse_avahi_output(self, output: str, own_hostname: str) -> List[SnapclientServer]:
+        """
+        Parse la sortie de avahi-browse pour extraire les serveurs Snapcast.
+        Ne conserve que les serveurs IPv4 et ignore les entrées localhost et notre propre hostname.
+        """
+        servers = []
+        current_server = {}
+        
+        # Diviser la sortie en lignes
+        lines = output.splitlines()
+        
+        for line in lines:
+            # Ne traiter que les lignes de résultats complets (commençant par =)
+            if line.startswith('='):
+                # Nouvelle entrée de serveur
+                if 'hostname' not in current_server and 'IPv4' in line:
+                    current_server = {'type': 'IPv4'}
+                    
+            # Extraire les informations
+            elif 'hostname = [' in line and current_server:
+                hostname = line.split('[')[1].split(']')[0]
+                current_server['hostname'] = hostname
+                
+            elif 'address = [' in line and current_server:
+                address = line.split('[')[1].split(']')[0]
+                current_server['address'] = address
+                
+            elif 'port = [' in line and current_server:
+                port = int(line.split('[')[1].split(']')[0])
+                current_server['port'] = port
+                
+                # Fin d'une entrée, vérifier et ajouter le serveur
+                if self._is_valid_server(current_server, own_hostname):
+                    server_name = current_server['hostname'].split('.')[0]
+                    servers.append(SnapclientServer(
+                        host=current_server['address'],
+                        name=server_name,
+                        port=current_server['port']
+                    ))
+                
+                # Réinitialiser pour la prochaine entrée
+                current_server = {}
+        
+        return servers
     
-    async def get_server_by_host(self, host: str) -> Optional[SnapclientServer]:
-        """Récupère les informations d'un serveur par son adresse IP."""
+    def _is_valid_server(self, server: dict, own_hostname: str) -> bool:
+        """
+        Vérifie si un serveur découvert est valide (pas localhost, pas nous-même).
+        """
+        if not server or 'address' not in server or 'hostname' not in server:
+            return False
+        
+        # Ignorer localhost
+        if server['address'].startswith('127.'):
+            return False
+        
+        # Ignorer notre propre hostname
+        if own_hostname and own_hostname.lower() in server['hostname'].lower():
+            return False
+            
+        # Ignorer les entrées oakos (c'est nous-même)
+        if 'oakos' in server['hostname'].lower():
+            return False
+        
+        return True
+    
+    async def _get_own_hostname(self) -> str:
+        """Récupère notre propre nom d'hôte."""
         try:
-            # Vérifier l'accessibilité
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, 1704),
-                timeout=1.0
+            process = await asyncio.create_subprocess_exec(
+                "hostname",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
-            writer.close()
-            await writer.wait_closed()
-            
-            # Obtenir le nom
-            try:
-                hostname = socket.gethostbyaddr(host)
-                name = hostname[0].split('.')[0]
-            except:
-                name = f"Snapserver ({host})"
-            
-            return SnapclientServer(host=host, name=name, port=1704)
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=1.0)
+            hostname = stdout.decode().strip()
+            self.logger.debug(f"Notre nom d'hôte: {hostname}")
+            return hostname
         except Exception as e:
-            self.logger.warning(f"Impossible de connecter {host}: {e}")
-            return None
+            self.logger.warning(f"Impossible de déterminer notre nom d'hôte: {e}")
+            return "oakos"  # Fallback par défaut
