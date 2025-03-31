@@ -1,22 +1,18 @@
 """
-Découverte des serveurs Snapcast sur le réseau.
+Découverte des serveurs Snapcast sur le réseau via multiple méthodes.
 """
 import asyncio
 import logging
 import socket
-import ipaddress
-import netifaces
 import subprocess
 from typing import List, Optional
 
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer
 from backend.infrastructure.plugins.snapclient.protocol import SnapcastProtocol
 
-# Remplacer le contenu de la classe SnapclientDiscovery par celui-ci
 class SnapclientDiscovery:
     """
-    Détecte les serveurs Snapcast sur le réseau local en utilisant mDNS/Avahi si disponible,
-    ou en revenant à un scan réseau si nécessaire.
+    Détecte les serveurs Snapcast sur le réseau local en utilisant Avahi et scan réseau direct.
     """
     
     def __init__(self):
@@ -24,14 +20,12 @@ class SnapclientDiscovery:
         self.logger = logging.getLogger("plugin.snapclient.discovery")
         self.protocol = SnapcastProtocol()
         self._has_avahi = self._check_avahi_available()
+        
+        if not self._has_avahi:
+            self.logger.warning("Avahi n'est pas disponible. La découverte automatique sera limitée.")
     
     def _check_avahi_available(self) -> bool:
-        """
-        Vérifie si Avahi/mDNS est disponible sur le système.
-        
-        Returns:
-            bool: True si Avahi est disponible, False sinon
-        """
+        """Vérifie si Avahi est disponible sur le système."""
         try:
             result = subprocess.run(
                 ["which", "avahi-browse"],
@@ -45,291 +39,187 @@ class SnapclientDiscovery:
             return False
     
     async def discover_servers(self) -> List[SnapclientServer]:
-        """
-        Découvre les serveurs Snapcast sur le réseau.
-        Utilise mDNS/Avahi si disponible, sinon revient au scan réseau.
+        """Découvre les serveurs Snapcast sur le réseau via méthodes combinées."""
+        self.logger.info("Démarrage multi-méthode de découverte des serveurs Snapcast")
         
-        Returns:
-            List[SnapclientServer]: Liste des serveurs découverts
-        """
-        self.logger.info("Démarrage de la découverte des serveurs Snapcast")
-        
+        # Lancer les deux méthodes de découverte en parallèle
         servers = []
         
-        # Essayer d'abord avec mDNS/Avahi si disponible
+        # 1. Méthode directe (rapide et fiable)
+        direct_servers = await self._scan_network_direct()
+        if direct_servers:
+            self.logger.info(f"Scan direct: {len(direct_servers)} serveurs trouvés")
+            servers.extend(direct_servers)
+            for server in direct_servers:
+                self.logger.info(f"Serveur (scan direct): {server.name} ({server.host})")
+        
+        # 2. Méthode Avahi (plus complète mais plus lente)
         if self._has_avahi:
-            self.logger.debug("Tentative de découverte via mDNS/Avahi")
             try:
-                avahi_servers = await self._discover_via_avahi()
-                if avahi_servers:
-                    self.logger.info(f"Découverte mDNS/Avahi réussie: {len(avahi_servers)} serveurs trouvés")
-                    servers.extend(avahi_servers)
+                # Exécuter avahi-browse avec un délai court
+                avahi_servers = await asyncio.wait_for(
+                    self._discover_via_avahi(),
+                    timeout=3.0  # Timeout court pour éviter de bloquer
+                )
+                
+                # Filtrer pour éviter les doublons
+                for server in avahi_servers:
+                    if not any(s.host == server.host for s in servers):
+                        servers.append(server)
+                        self.logger.info(f"Serveur (Avahi): {server.name} ({server.host})")
+            except asyncio.TimeoutError:
+                self.logger.warning("Timeout lors de la découverte Avahi")
             except Exception as e:
-                self.logger.warning(f"Échec de la découverte mDNS/Avahi: {str(e)}")
+                self.logger.error(f"Erreur lors de la découverte Avahi: {str(e)}")
         
-        # Si aucun serveur n'a été trouvé via mDNS ou si mDNS n'est pas disponible,
-        # utiliser le scan réseau traditionnel
-        if not servers:
-            self.logger.debug("Utilisation du scan réseau traditionnel")
-            try:
-                scan_servers = await self._discover_via_network_scan()
-                servers.extend(scan_servers)
-            except Exception as e:
-                self.logger.error(f"Échec du scan réseau: {str(e)}")
-        
-        self.logger.info(f"Découverte terminée, {len(servers)} serveurs trouvés")
+        self.logger.info(f"Découverte terminée, total de {len(servers)} serveurs trouvés")
         return servers
     
     async def _discover_via_avahi(self) -> List[SnapclientServer]:
-        """
-        Découvre les serveurs Snapcast en utilisant mDNS/Avahi.
-        
-        Returns:
-            List[SnapclientServer]: Liste des serveurs découverts via mDNS
-        """
+        """Exécute avahi-browse dans un processus asynchrone."""
         servers = []
         
         try:
-            # Exécuter avahi-browse pour trouver les services Snapcast
+            # Créer un processus avahi-browse asynchrone
             process = await asyncio.create_subprocess_exec(
-                "avahi-browse", "-ptr", "_snapcast._tcp",
+                "avahi-browse", "-r", "_snapcast._tcp",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
+            
+            # Attendre les résultats avec un timeout
             stdout, stderr = await process.communicate()
             
             if process.returncode != 0:
-                self.logger.warning(f"avahi-browse a échoué: {stderr.decode()}")
+                self.logger.error(f"Erreur avahi-browse: {stderr.decode()}")
                 return []
             
-            # Analyser la sortie pour extraire les informations des serveurs
-            lines = stdout.decode().splitlines()
-            current_service = {}
-            
-            for line in lines:
-                if line.startswith("=") and "IPv4" in line and "_snapcast._tcp" in line:
-                    parts = line.split(";")
-                    if len(parts) >= 8:
-                        service_name = parts[3].strip()
-                        current_service = {"name": service_name}
-                
-                elif line.startswith("   address") and current_service:
-                    addr_parts = line.split("[")
-                    if len(addr_parts) >= 2:
-                        ip_addr = addr_parts[1].strip("]").strip()
-                        current_service["host"] = ip_addr
-                
-                elif line.startswith("   port") and current_service:
-                    port_parts = line.split("[")
-                    if len(port_parts) >= 2:
-                        port = int(port_parts[1].strip("]").strip())
-                        current_service["port"] = port
-                
-                # Si nous avons toutes les informations nécessaires, créer un serveur
-                if current_service and "name" in current_service and "host" in current_service:
-                    port = current_service.get("port", 1704)
-                    server = SnapclientServer(
-                        host=current_service["host"],
-                        name=current_service["name"],
-                        port=port
-                    )
-                    servers.append(server)
-                    current_service = {}
+            # Analyser les résultats
+            for line in stdout.decode().splitlines():
+                # Chercher les lignes d'adresse IPv4
+                if "address = [" in line and "]" in line and ":" not in line:
+                    ip = line.split("[")[1].split("]")[0].strip()
+                    
+                    # Ignorer localhost
+                    if ip.startswith("127.") or "oakos" in line.lower():
+                        continue
+                    
+                    # Trouver le nom associé à cette IP
+                    name = None
+                    try:
+                        hostname = socket.gethostbyaddr(ip)
+                        name = hostname[0].split(".")[0]
+                    except:
+                        name = f"Snapserver ({ip})"
+                    
+                    # Créer le serveur
+                    if not any(s.host == ip for s in servers):
+                        servers.append(SnapclientServer(
+                            host=ip,
+                            name=name,
+                            port=1704
+                        ))
             
             return servers
             
         except Exception as e:
-            self.logger.error(f"Erreur lors de la découverte via Avahi: {str(e)}")
+            self.logger.error(f"Erreur avahi-browse: {str(e)}")
             return []
     
-    async def _discover_via_network_scan(self) -> List[SnapclientServer]:
-        """
-        Découvre les serveurs Snapcast en scannant le réseau.
-        Méthode de secours si mDNS/Avahi n'est pas disponible.
-        
-        Returns:
-            List[SnapclientServer]: Liste des serveurs découverts via le scan réseau
-        """
-        # Réutiliser l'implémentation existante pour le scan réseau
-        local_ips = self._get_local_ips()
-        networks = []
-        
-        for ip in local_ips:
-            try:
-                network = ipaddress.ip_network(f"{ip}/24", strict=False)
-                networks.append(network)
-            except ValueError:
-                self.logger.warning(f"Impossible de créer un réseau à partir de l'adresse {ip}")
-        
-        all_servers = []
-        for network in networks:
-            servers = await self._scan_network(network)
-            all_servers.extend(servers)
-        
-        return all_servers
-    
-    def _get_local_ips(self) -> List[str]:
-        """
-        Récupère les adresses IP locales (IPv4 uniquement).
-        
-        Returns:
-            List[str]: Liste des adresses IP locales
-        """
-        local_ips = []
-        
-        try:
-            # Obtenir les interfaces réseau
-            interfaces = netifaces.interfaces()
-            
-            for interface in interfaces:
-                try:
-                    # Obtenir les adresses IPv4
-                    addrs = netifaces.ifaddresses(interface).get(netifaces.AF_INET, [])
-                    
-                    for addr in addrs:
-                        ip = addr.get('addr')
-                        if ip and not ip.startswith('127.'):
-                            local_ips.append(ip)
-                except Exception as e:
-                    self.logger.warning(f"Erreur lors de la récupération des adresses de l'interface {interface}: {str(e)}")
-        except Exception as e:
-            self.logger.error(f"Erreur lors de la récupération des interfaces réseau: {str(e)}")
-            # Fallback en cas d'erreur
-            try:
-                hostname = socket.gethostname()
-                ip = socket.gethostbyname(hostname)
-                if ip and not ip.startswith('127.'):
-                    local_ips.append(ip)
-            except Exception as e2:
-                self.logger.error(f"Erreur lors de la récupération de l'IP via le nom d'hôte: {str(e2)}")
-        
-        self.logger.debug(f"Adresses IP locales: {local_ips}")
-        return local_ips
-    
-    async def _scan_network(self, network: ipaddress.IPv4Network) -> List[SnapclientServer]:
-        """
-        Scanne un réseau à la recherche de serveurs Snapcast de manière optimisée.
-        
-        Args:
-            network: Réseau à scanner
-            
-        Returns:
-            List[SnapclientServer]: Liste des serveurs découverts
-        """
-        self.logger.debug(f"Scan du réseau {network}")
-        
-        # Vérifier qu'il s'agit bien d'un réseau IPv4
-        if not isinstance(network, ipaddress.IPv4Network):
-            self.logger.warning(f"Réseau non supporté: {network}")
-            return []
-        
-        # Récupérer les adresses IP locales pour les exclure
-        local_ips = self._get_local_ips()
-        
-        # Limiter les connexions simultanées avec un semaphore
-        MAX_CONCURRENT_SCANS = 30  # Réduit considérablement la charge
-        sem = asyncio.Semaphore(MAX_CONCURRENT_SCANS)
-        
-        # Optimisation: scanner uniquement les hôtes probables pour réduire la charge
-        # (les .1, les x.x.x.1, les passerelles potentielles, etc.)
-        candidate_hosts = self._get_likely_snapcast_hosts(network, local_ips)
-        self.logger.debug(f"Scan ciblé de {len(candidate_hosts)} hôtes probables sur {network}")
-        
+    async def _scan_network_direct(self) -> List[SnapclientServer]:
+        """Scan direct des ports 1704 sur les adresses réseau courantes."""
         servers = []
+        
+        # Obtenir notre IP locale
+        local_ip = self._get_local_ip()
+        if not local_ip:
+            self.logger.warning("Impossible de déterminer l'IP locale")
+            return servers
+        
+        # Extraire le préfixe réseau
+        prefix = '.'.join(local_ip.split('.')[:3])
+        self.logger.debug(f"Scan réseau {prefix}.x")
+        
+        # Adresses à scanner
+        targets = []
+        
+        # Adresses courantes (routeurs, serveurs, etc.)
+        for last_octet in [1, 2, 3, 4, 5, 10, 20, 30, 50, 100, 150, 200, 254]:
+            ip = f"{prefix}.{last_octet}"
+            if ip != local_ip:  # Éviter notre propre IP
+                targets.append(ip)
+        
+        # Scannons ces IPs en parallèle
         tasks = []
+        for ip in targets:
+            tasks.append(self._check_server(ip))
         
-        # Async helper limité par semaphore
-        async def check_host_with_limit(host_str):
-            async with sem:  # Limite le nombre de connexions simultanées
-                try:
-                    server = await self._check_host(host_str)
-                    if server:
-                        servers.append(server)
-                except Exception as e:
-                    self.logger.debug(f"Erreur scan de l'hôte {host_str}: {str(e)}")
+        # Attendre tous les résultats
+        results = await asyncio.gather(*tasks)
         
-        # Créer les tâches pour chaque hôte candidat
-        for host_str in candidate_hosts:
-            tasks.append(asyncio.create_task(check_host_with_limit(host_str)))
-        
-        # Attendre que toutes les tâches soient terminées avec un timeout global
-        try:
-            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=15.0)
-        except asyncio.TimeoutError:
-            self.logger.warning(f"Timeout lors du scan du réseau {network}")
-            # Annuler toutes les tâches restantes
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
+        # Collecter les serveurs fonctionnels
+        for server in results:
+            if server:
+                servers.append(server)
         
         return servers
-
-    def _get_likely_snapcast_hosts(self, network: ipaddress.IPv4Network, 
-                                local_ips: List[str]) -> List[str]:
-        """
-        Sélectionne les hôtes les plus susceptibles d'exécuter Snapcast au lieu de scanner
-        tous les hôtes possibles.
-        
-        Returns:
-            List[str]: Liste des adresses IP à vérifier en priorité
-        """
-        likely_hosts = []
-        
-        # Ne pas scanner les adresses IP locales
-        network_hosts = [str(h) for h in network.hosts() if str(h) not in local_ips]
-        
-        # 1. Les hôtes avec les derniers octets typiques pour les serveurs/routeurs
-        special_suffixes = [1, 2, 10, 50, 100, 150, 200, 254]
-        for host in network_hosts:
-            if host.split('.')[-1] in [str(s) for s in special_suffixes]:
-                likely_hosts.append(host)
-        
-        # 2. Les adresses récemment découvertes (si disponibles)
-        # Cette liste devrait être maintenue à l'extérieur de cette méthode
-        # dans une version complète avec cache persistant
-        
-        # 3. Si la liste est trop petite, ajouter d'autres hôtes (max 50)
-        if len(likely_hosts) < 50:
-            # Prendre des échantillons uniformément répartis sur le réseau
-            remaining = [h for h in network_hosts if h not in likely_hosts]
-            if remaining:
-                step = max(1, len(remaining) // (50 - len(likely_hosts)))
-                likely_hosts.extend(remaining[::step][:50-len(likely_hosts)])
-        
-        return likely_hosts
-
-    async def _check_host(self, host: str) -> Optional[SnapclientServer]:
-        """
-        Vérifie si un hôte exécute un serveur Snapcast.
-        
-        Args:
-            host: Adresse IP de l'hôte à vérifier
-            
-        Returns:
-            Optional[SnapclientServer]: Serveur Snapcast trouvé, ou None
-        """
-        # Port Snapcast standard
-        port = 1704
-        
+    
+    async def _check_server(self, ip: str) -> Optional[SnapclientServer]:
+        """Vérifie si un serveur Snapcast est accessible à cette adresse."""
         try:
-            # Tenter de se connecter au port Snapcast avec un court timeout
+            # Connexion TCP rapide pour vérifier que le port est ouvert
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port),
-                timeout=0.5  # 500ms de timeout par hôte
+                asyncio.open_connection(ip, 1704),
+                timeout=0.5
             )
-            
-            # Fermer la connexion
             writer.close()
             await writer.wait_closed()
             
-            # Utiliser le protocole pour obtenir le nom réel du serveur
-            server_name = await self.protocol.get_server_name(host)
+            # Serveur trouvé! Obtenir son nom
+            try:
+                hostname = socket.gethostbyaddr(ip)
+                name = hostname[0].split('.')[0]
+            except:
+                name = f"Snapserver ({ip})"
             
-            # Créer un serveur avec le nom obtenu
-            server = SnapclientServer(host=host, name=server_name, port=port)
-            self.logger.info(f"Serveur Snapcast trouvé: {server_name} ({host})")
+            return SnapclientServer(
+                host=ip,
+                name=name,
+                port=1704
+            )
+        except:
+            return None
+    
+    def _get_local_ip(self) -> Optional[str]:
+        """Obtient l'adresse IP locale."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))  # Pas de connexion réelle établie
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except:
+            return None
+    
+    async def get_server_by_host(self, host: str) -> Optional[SnapclientServer]:
+        """Récupère les informations d'un serveur par son adresse IP."""
+        try:
+            # Vérifier l'accessibilité
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, 1704),
+                timeout=1.0
+            )
+            writer.close()
+            await writer.wait_closed()
             
-            return server
-        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
-            # Pas de serveur Snapcast sur cet hôte
+            # Obtenir le nom
+            try:
+                hostname = socket.gethostbyaddr(host)
+                name = hostname[0].split('.')[0]
+            except:
+                name = f"Snapserver ({host})"
+            
+            return SnapclientServer(host=host, name=name, port=1704)
+        except Exception as e:
+            self.logger.warning(f"Impossible de connecter {host}: {e}")
             return None
