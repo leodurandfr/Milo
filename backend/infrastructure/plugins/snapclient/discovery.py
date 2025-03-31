@@ -5,6 +5,9 @@ import asyncio
 import logging
 import socket
 import re
+import os
+import json
+import time
 from typing import List, Optional
 
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer
@@ -205,3 +208,98 @@ class SnapclientDiscovery:
         except Exception as e:
             self.logger.warning(f"Impossible de déterminer notre nom d'hôte: {e}")
             return "oakos"  # Fallback par défaut
+        
+    def _get_last_known_server(self) -> dict:
+        """Récupère les informations du dernier serveur connu depuis le cache."""
+        try:
+            # Vérifier si nous avons un fichier de cache
+            cache_path = os.path.expanduser("~/.cache/oakos/last_snapserver.json")
+            
+            if os.path.exists(cache_path):
+                with open(cache_path, 'r') as f:
+                    data = json.load(f)
+                    
+                # Vérifier que les données sont récentes (moins de 7 jours)
+                if data.get('timestamp', 0) > time.time() - 7*24*3600:
+                    self.logger.info(f"Serveur en cache trouvé: {data.get('host')}")
+                    return data
+            
+            return None
+        except Exception as e:
+            self.logger.warning(f"Erreur lors de la lecture du cache: {str(e)}")
+            return None
+
+    def _save_last_known_server(self, server: SnapclientServer) -> None:
+        """Enregistre les informations du serveur dans le cache."""
+        try:
+            cache_dir = os.path.expanduser("~/.cache/oakos")
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir, exist_ok=True)
+                
+            cache_path = os.path.join(cache_dir, "last_snapserver.json")
+            
+            data = {
+                "host": server.host,
+                "name": server.name,
+                "port": server.port,
+                "timestamp": time.time()
+            }
+            
+            with open(cache_path, 'w') as f:
+                json.dump(data, f)
+                
+            self.logger.debug(f"Serveur enregistré dans le cache: {server.host}")
+        except Exception as e:
+            self.logger.warning(f"Erreur lors de l'enregistrement du cache: {str(e)}")
+
+    async def _fast_connect(self, server: SnapclientServer) -> bool:
+        """Connexion rapide au serveur spécifié."""
+        try:
+            # Vérifier rapidement que le port est toujours ouvert
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.5)
+            
+            is_available = False
+            try:
+                result = sock.connect_ex((server.host, server.port))
+                is_available = (result == 0)
+            finally:
+                sock.close()
+            
+            if not is_available:
+                self.logger.warning(f"Le serveur {server.host} n'est plus disponible")
+                return False
+            
+            # Se connecter au serveur
+            success = await self.connection_manager.connect(server)
+            
+            if success:
+                await self.transition_to_state(self.STATE_CONNECTED, {
+                    "connected": True,
+                    "deviceConnected": True,
+                    "host": server.host,
+                    "device_name": server.name
+                })
+                
+                # Enregistrer ce serveur comme dernier serveur connu
+                self._save_last_known_server(server)
+                
+                # Notifier le frontend immédiatement
+                await self.event_bus.publish("snapclient_status_updated", {
+                    "source": "snapclient",
+                    "plugin_state": self.STATE_CONNECTED,
+                    "connected": True,
+                    "deviceConnected": True,
+                    "host": server.host,
+                    "device_name": server.name,
+                    "timestamp": time.time()
+                })
+                
+                return True
+            else:
+                self.logger.warning(f"Échec de la connexion rapide à {server.host}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la connexion rapide: {str(e)}")
+            return False
