@@ -115,42 +115,47 @@ class SnapclientPlugin(BaseAudioPlugin):
 
     
     async def _background_discovery(self, existing_connection_task=None):
-        """Effectue la découverte en arrière-plan sans bloquer le démarrage"""
+        """Découverte et connexion rapide en arrière-plan."""
         try:
-            # Retard initial court pour permettre au système de se stabiliser
-            await asyncio.sleep(0.2)
-            
-            # Si une connexion est déjà en cours, attendre son résultat
+            # Aucun délai - démarrer immédiatement 
+            # Si nous avons déjà une tâche de connexion en cours, nous attendons son résultat
             if existing_connection_task:
                 try:
-                    fast_connection_result = await asyncio.wait_for(
-                        existing_connection_task, 
-                        timeout=2.0
-                    )
-                    
-                    if fast_connection_result:
-                        self.logger.info("Connexion rapide réussie, découverte complète non nécessaire")
-                        asyncio.create_task(self._reset_reconnect_lock())
-                        return
-                        
-                except (asyncio.TimeoutError, Exception):
-                    self.logger.warning("La connexion rapide a échoué ou pris trop de temps")
+                    await asyncio.wait_for(existing_connection_task, timeout=1.5)
+                    return
+                except Exception:
+                    self.logger.warning("La connexion directe a échoué")
             
-            # Lancer la découverte complète
-            self.logger.info("Découverte complète en arrière-plan")
+            # Lancer une découverte rapide
+            self.logger.info("Découverte rapide des serveurs Snapcast")
             servers = await self.discovery.discover_servers() or []
             self.discovered_servers = servers
             
-            # Se connecter seulement si nous ne sommes pas déjà connectés
-            if servers and self.auto_connect and not self.connection_manager.current_server:
-                self.logger.info(f"Découverte a trouvé {len(servers)} serveurs, tentative de connexion")
-                server_to_connect = servers[0]
+            # Se connecter au premier serveur si disponible et si nous ne sommes pas déjà connectés
+            if servers and not self.connection_manager.current_server:
+                server = servers[0]
+                self.logger.info(f"Connexion au serveur découvert {server.name} ({server.host})")
                 
-                # Connexion et transition d'état
-                await self._fast_connect(server_to_connect)
+                # Une seule connexion, pas besoin de _fast_connect
+                success = await self.connection_manager.connect(server)
+                
+                if success:
+                    await self.transition_to_state(self.STATE_CONNECTED, {
+                        "connected": True,
+                        "deviceConnected": True,
+                        "host": server.host, 
+                        "device_name": server.name
+                    })
+                
+                # Démarrer le moniteur WebSocket immédiatement après la connexion
+                if success and hasattr(self, 'monitor'):
+                    try:
+                        await self.monitor.start(server.host)
+                    except Exception as e:
+                        self.logger.error(f"Erreur lors du démarrage du moniteur: {str(e)}")
             
-            # Démarrer le polling régulier
-            await self._run_discovery_loop()
+            # Démarrer le polling avec un intervalle plus long
+            asyncio.create_task(self._run_discovery_loop())
             
         except Exception as e:
             self.logger.error(f"Erreur dans la découverte en arrière-plan: {str(e)}")

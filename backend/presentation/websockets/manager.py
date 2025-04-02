@@ -43,10 +43,10 @@ class WebSocketManager:
         message_str = json.dumps(message)
         
         # Log différent selon le type d'événement
-        if event_type.startswith('snapclient_'):
-            self.logger.info(f"⚡ Diffusion WebSocket: {event_type} à {len(self.active_connections)} clients")
-        else:
-            self.logger.debug(f"Diffusion WebSocket: {event_type} à {len(self.active_connections)} clients")
+        # if event_type.startswith('snapclient_'):
+        #     self.logger.info(f"⚡ Diffusion WebSocket: {event_type} à {len(self.active_connections)} clients")
+        # else:
+        #     self.logger.debug(f"Diffusion WebSocket: {event_type} à {len(self.active_connections)} clients")
         
         disconnected = set()
         for connection in self.active_connections:
