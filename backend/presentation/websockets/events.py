@@ -49,11 +49,25 @@ class WebSocketEventHandler:
                 if 'timestamp' not in data:
                     data['timestamp'] = time.time()
                 
-                # Gérer les logs de manière spécifique selon le type d'événement
-                self._log_event(internal_event, data)
+                # PRIORITÉ: Traitement immédiat pour les événements critiques
+                critical_events = [
+                    'snapclient_monitor_disconnected',
+                    'snapclient_server_disappeared',
+                    'snapclient_monitor_connected',
+                    'audio_status_updated'
+                ]
                 
-                # Diffuser l'événement à tous les clients WebSocket
-                await self.ws_manager.broadcast(ws_event, data)
+                if internal_event in critical_events:
+                    self.logger.info(f"⚡ Diffusion prioritaire de l'événement CRITIQUE {ws_event}")
+                    # Diffuser immédiatement aux clients (avant même le logging)
+                    await self.ws_manager.broadcast(ws_event, data)
+                    # Ensuite faire le logging
+                    self._log_event(internal_event, data)
+                else:
+                    # Pour les événements non-critiques, conserver l'ordre original
+                    self._log_event(internal_event, data)
+                    await self.ws_manager.broadcast(ws_event, data)
+                    
             except Exception as e:
                 self.logger.error(f"Erreur lors de la diffusion de l'événement {ws_event}: {e}")
         

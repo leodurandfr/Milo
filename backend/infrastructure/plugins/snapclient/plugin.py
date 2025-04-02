@@ -486,7 +486,7 @@ class SnapclientPlugin(BaseAudioPlugin):
             reason = data.get("reason", "raison inconnue")
             self.logger.warning(f"Moniteur déconnecté de {host}: {reason}")
             
-            # Publier sur le bus d'événements avec données enrichies
+            # OPTIMISATION: Publier AVANT de traiter la déconnexion pour une UI plus réactive
             await self.event_bus.publish("snapclient_monitor_disconnected", {
                 "source": "snapclient",
                 "host": host,
@@ -506,23 +506,6 @@ class SnapclientPlugin(BaseAudioPlugin):
                     # Déclencher une déconnexion propre
                     asyncio.create_task(self._handle_server_disconnected(host))
         
-        elif event_type == "server_event":
-            # Extraire la méthode de l'événement plus proprement
-            data_obj = data.get("data", {})
-            method = data_obj.get("method") if isinstance(data_obj, dict) else None
-            
-            if method:
-                self.logger.info(f"Événement serveur reçu du WebSocket: {method}")
-            else:
-                self.logger.debug("Événement serveur WebSocket sans méthode identifiée")
-            
-            # Publier les événements du serveur avec structure améliorée
-            await self.event_bus.publish("snapclient_server_event", {
-                "source": "snapclient",
-                "method": method,
-                "data": data.get("data", {}),
-                "timestamp": time.time()
-            })
 
     async def _handle_server_disconnected(self, host: str) -> None:
         """

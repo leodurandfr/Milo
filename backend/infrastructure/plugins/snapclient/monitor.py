@@ -101,7 +101,8 @@ class SnapcastMonitor:
         """
         try:
             while not self._stopping:
-                await asyncio.sleep(2)  # Vérifier toutes les 5 secondes
+                # OPTIMISATION: Réduire l'intervalle pour une détection plus rapide (2s → 1s)
+                await asyncio.sleep(1)  
                 
                 if not self.is_connected and self.host:
                     # Connexion perdue, notifier
@@ -114,10 +115,10 @@ class SnapcastMonitor:
                 # Vérifier si le serveur est toujours en vie
                 if self.host and self.is_connected:
                     try:
-                        # Tester la connexion TCP basique
+                        # Optimisé: Réduire le timeout pour une détection plus rapide
                         reader, writer = await asyncio.wait_for(
                             asyncio.open_connection(self.host, 1704),
-                            timeout=0.5
+                            timeout=0.3  # Réduit de 0.5s à 0.3s
                         )
                         writer.close()
                         await writer.wait_closed()
@@ -126,7 +127,7 @@ class SnapcastMonitor:
                         self.is_connected = False
                         self.logger.warning(f"Health check: serveur {self.host} inaccessible")
                         
-                        # Notifier le callback
+                        # Notifier le callback immédiatement
                         await self._notify_callback({
                             "event": "monitor_disconnected",
                             "host": self.host,
@@ -138,6 +139,7 @@ class SnapcastMonitor:
             pass
         except Exception as e:
             self.logger.error(f"Erreur dans la boucle de vérification de santé: {str(e)}")
+
     
     async def _monitor_websocket(self) -> None:
         """

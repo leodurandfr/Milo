@@ -5,21 +5,22 @@
       <div class="loading-spinner"></div>
       <p>Chargement de l'état Snapclient...</p>
     </div>
-    
+
     <!-- Erreur websocket -->
     <div v-else-if="!wsConnected" class="error-state">
       <h3>Connexion au serveur perdue</h3>
-      <p>La connexion WebSocket au serveur oakOS est interrompue. Vérifiez que le serveur backend est en cours d'exécution.</p>
+      <p>La connexion WebSocket au serveur oakOS est interrompue. Vérifiez que le serveur backend est en cours
+        d'exécution.</p>
       <button @click="refreshStatus" class="retry-button">Réessayer</button>
     </div>
-    
+
     <!-- Erreur état -->
     <div v-else-if="errorState" class="error-state">
       <h3>Erreur lors du chargement de Snapclient</h3>
       <p>{{ snapclientStore.error || 'Une erreur s\'est produite. Veuillez réessayer.' }}</p>
       <button @click="refreshStatus" class="retry-button">Réessayer</button>
     </div>
-    
+
     <!-- États normaux -->
     <template v-else>
       <SnapclientConnectionInfo v-if="isConnected" />
@@ -60,10 +61,10 @@ async function refreshStatus(showLoader = false) {
   if (showLoader) {
     initialLoading.value = true;
   }
-  
+
   errorState.value = false;
   retryCount.value++;
-  
+
   try {
     await snapclientStore.fetchStatus(true);
     console.log("✅ Statut rafraîchi avec succès");
@@ -169,59 +170,77 @@ onMounted(async () => {
   // Moniteur déconnecté - mise à jour instantanée
   unsubscribeMonitorDisconnected = on('snapclient_monitor_disconnected', (data) => {
     console.log("⚡ Moniteur déconnecté du serveur:", data.host, data.reason);
-    if (audioStore.currentState === 'macos') {
-      console.log("🔴 Mise à jour instantanée (sans API): serveur déconnecté");
-      snapclientStore.updateFromWebSocketEvent('snapclient_monitor_disconnected', data);
-      
-      // Rafraîchir sans montrer le loader
-      refreshStatus(false);
-    }
+
+    // IMPORTANT: Ne pas vérifier l'état audio courant, c'est une mise à jour prioritaire
+    // Mise à jour immédiate du store SANS vérification supplémentaire
+    snapclientStore.updateFromWebSocketEvent('snapclient_monitor_disconnected', data);
+
+    // Forcer une mise à jour de l'interface immédiatement
+    snapclientStore.$patch({
+      isConnected: false,
+      deviceName: null,
+      host: null,
+      pluginState: 'ready_to_connect'
+    });
+
+    // Émettre un événement pour notifier les autres composants
+    window.dispatchEvent(new CustomEvent('snapclient-connection-changed', {
+      detail: { connected: false, reason: 'monitor_disconnected' }
+    }));
   });
-  
+
   // Événements serveur
   unsubscribeServerEvent = on('snapclient_server_event', (data) => {
     if (DEBUG) console.log("⚡ Événement serveur reçu:", data);
-    
+
     if (audioStore.currentState === 'macos') {
       // Rafraîchir l'état sans montrer le loader seulement pour les événements importants
-      if (data && data.method && 
-          (data.method === "Client.OnConnect" || 
-           data.method === "Client.OnDisconnect" || 
-           data.method === "Server.OnUpdate")) {
+      if (data && data.method &&
+        (data.method === "Client.OnConnect" ||
+          data.method === "Client.OnDisconnect" ||
+          data.method === "Server.OnUpdate")) {
         refreshStatus(false);
       }
     }
   });
-  
+
   // S'abonner aux événements de disparition du serveur
   on('snapclient_server_disappeared', (data) => {
     console.log("🚨 Serveur Snapcast disparu:", data);
-    if (audioStore.currentState === 'macos') {
-      // Mise à jour immédiate du store
-      snapclientStore.updateFromWebSocketEvent('snapclient_server_disappeared', data);
-      
-      // Rafraîchir sans montrer le loader
-      refreshStatus(false);
-      
-      // Assurer que l'interface utilisateur reflète immédiatement la déconnexion
-      snapclientStore.$patch({
-        isConnected: false,
-        deviceName: null,
-        host: null,
-        pluginState: 'ready_to_connect'
-      });
-    }
+
+    // Mise à jour directe forcée sans vérifications conditionnelles
+    snapclientStore.$patch({
+      isConnected: false,
+      deviceName: null,
+      host: null,
+      pluginState: 'ready_to_connect',
+      error: `Le serveur ${data.host} s'est déconnecté`
+    });
+
+    // Émettre un événement pour notifier les autres composants
+    window.dispatchEvent(new CustomEvent('snapclient-connection-changed', {
+      detail: { connected: false, reason: 'server_disappeared' }
+    }));
   });
-  
+
   // Écouter les mises à jour d'état audio générales
   unsubscribeAudioStatus = on('audio_status_updated', (data) => {
     if (data.source === 'snapclient') {
       console.log("⚡ État audio mis à jour:", data.plugin_state);
-      // Force une mise à jour complète à chaque changement d'état
+
+      // Appliquer la mise à jour instantanément, sans vérification supplémentaire
       snapclientStore.updateFromStateEvent(data);
-      
-      // Rafraîchir le statut sans montrer le loader
-      refreshStatus(false);
+
+      // Optimisation: ne pas appeler refreshStatus qui peut introduire des délais
+      // Mettre à jour l'interface directement si l'état est critique
+      if (data.plugin_state === 'connected' || data.plugin_state === 'ready_to_connect') {
+        snapclientStore.$patch({
+          pluginState: data.plugin_state,
+          isConnected: data.plugin_state === 'connected',
+          deviceName: data.device_name || null,
+          host: data.host || null
+        });
+      }
     }
   });
 });
@@ -232,7 +251,7 @@ onUnmounted(() => {
   if (unsubscribeMonitorDisconnected) unsubscribeMonitorDisconnected();
   if (unsubscribeServerEvent) unsubscribeServerEvent();
   if (unsubscribeAudioStatus) unsubscribeAudioStatus();
-  
+
   // Désabonnement de l'événement personnalisé
   if (handleConnectionChange) {
     window.removeEventListener('snapclient-connection-changed', handleConnectionChange);
@@ -249,7 +268,8 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.loading-state, .error-state {
+.loading-state,
+.error-state {
   text-align: center;
   padding: 2rem;
   width: 100%;
@@ -288,7 +308,12 @@ onUnmounted(() => {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 </style>

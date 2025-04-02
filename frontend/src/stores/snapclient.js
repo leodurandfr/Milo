@@ -38,7 +38,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     // Vérifier que les données viennent bien de snapclient
     if (data.source !== 'snapclient') return false;
 
-    // Mise à jour directe de l'état sans appel réseau
+    // Mise à jour IMMÉDIATE de l'état sans appel réseau
     pluginState.value = data.plugin_state;
 
     if (data.plugin_state === 'connected' && data.connected === true) {
@@ -46,12 +46,26 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       deviceName.value = data.device_name || 'Serveur inconnu';
       host.value = data.host;
       error.value = null;
+
+      // Déclencher l'événement pour une propagation plus rapide
+      window.dispatchEvent(new CustomEvent('snapclient-connection-changed', {
+        detail: { connected: true }
+      }));
+
       console.log("✅ État mis à jour: connecté à", deviceName.value);
     }
     else if (data.plugin_state === 'ready_to_connect') {
-      isConnected.value = false;
-      deviceName.value = null;
-      host.value = null;
+      // Vérifier s'il y a un changement d'état réel avant de mettre à jour
+      if (isConnected.value) {
+        isConnected.value = false;
+        deviceName.value = null;
+        host.value = null;
+
+        // Déclencher l'événement uniquement si l'état a changé
+        window.dispatchEvent(new CustomEvent('snapclient-connection-changed', {
+          detail: { connected: false }
+        }));
+      }
       console.log("✅ État mis à jour: prêt à connecter");
     }
 
@@ -64,25 +78,49 @@ export const useSnapclientStore = defineStore('snapclient', () => {
   function updateFromWebSocketEvent(eventType, data) {
     console.log(`⚡ Mise à jour directe du store depuis: ${eventType}`);
 
+    // PRIORITÉ AUX ÉVÉNEMENTS DE DÉCONNEXION - traitement immédiat et sans délai
     if (eventType === 'snapclient_monitor_disconnected' || eventType === 'snapclient_server_disappeared') {
       console.log("🔴 Déconnexion détectée via WebSocket, mise à jour instantanée de l'UI");
+
+      // Mise à jour synchrone et immédiate de l'état
       isConnected.value = false;
       deviceName.value = null;
       host.value = null;
       pluginState.value = 'ready_to_connect';
       error.value = `Le serveur ${data.host} s'est déconnecté`;
 
-      // Déclencher une mise à jour du statut via l'API après un court délai
-      setTimeout(() => fetchStatus(true), 500);
+      // SUPPRESSION DU DÉLAI - Ne pas attendre pour rafraîchir l'état
+      // Appel synchrone au lieu d'utiliser setTimeout
+      fetchStatus(true).catch(err => {
+        console.warn('Erreur non bloquante lors du refresh après déconnexion:', err);
+      });
+
+      // Émettre un événement de mise à jour pour les autres composants
+      try {
+        window.dispatchEvent(new CustomEvent('snapclient-connection-changed', {
+          detail: { connected: false, source: eventType }
+        }));
+      } catch (e) {
+        console.warn("Impossible d'émettre l'événement custom:", e);
+      }
+
       return true;
     }
 
     if (eventType === 'snapclient_monitor_connected') {
       console.log(`⚡ Moniteur connecté à ${data.host}`);
       error.value = null;
+
+      // Optimisation: vérifier ici si nous sommes déjà connectés au même serveur
+      if (host.value === data.host) {
+        isConnected.value = true;
+        pluginState.value = 'connected';
+      }
+
       return true;
     }
 
+    // Autres événements non gérés
     return false;
   }
 
@@ -242,105 +280,105 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     }
   }
 
-/**
- * Se connecte à un serveur Snapcast spécifique avec vérification préalable.
- */
-async function connectToServer(serverHost) {
-  if (!isActive.value) {
-    return { success: false, inactive: true };
-  }
-
-  // Vérifier si nous sommes déjà connectés à ce serveur
-  if (isConnected.value && host.value === serverHost) {
-    console.log(`🔌 Déjà connecté à ${serverHost}, connexion ignorée`);
-    return { success: true, already_connected: true };
-  }
-
-  try {
-    isLoading.value = true;
-    error.value = null;
-    lastAction.value = 'connect';
-
-    // Vérifier la blacklist
-    if (blacklistedServers.value.includes(serverHost)) {
-      error.value = `Le serveur ${serverHost} a été déconnecté manuellement. Changez de source audio pour pouvoir vous y reconnecter.`;
-      throw new Error(error.value);
+  /**
+   * Se connecte à un serveur Snapcast spécifique avec vérification préalable.
+   */
+  async function connectToServer(serverHost) {
+    if (!isActive.value) {
+      return { success: false, inactive: true };
     }
 
-    // Enregistrer ce serveur comme dernier serveur utilisé
+    // Vérifier si nous sommes déjà connectés à ce serveur
+    if (isConnected.value && host.value === serverHost) {
+      console.log(`🔌 Déjà connecté à ${serverHost}, connexion ignorée`);
+      return { success: true, already_connected: true };
+    }
+
     try {
-      localStorage.setItem('lastSnapclientServer', JSON.stringify({
-        host: serverHost,
-        timestamp: Date.now()
-      }));
-    } catch (e) {
-      console.warn("Impossible d'enregistrer le dernier serveur:", e);
-    }
+      isLoading.value = true;
+      error.value = null;
+      lastAction.value = 'connect';
 
-    // Mettre à jour l'état immédiatement (optimistic UI update)
-    // Cela assure que l'UI se met à jour même si la requête est lente
-    isConnected.value = true;
-    pluginState.value = 'connected';
-    host.value = serverHost;
-    
-    // Si le serveur est présent dans la liste des découverts, utiliser son nom
-    const server = discoveredServers.value.find(s => s.host === serverHost);
-    if (server) {
-      deviceName.value = server.name;
-    } else {
-      deviceName.value = `Serveur (${serverHost})`;
-    }
+      // Vérifier la blacklist
+      if (blacklistedServers.value.includes(serverHost)) {
+        error.value = `Le serveur ${serverHost} a été déconnecté manuellement. Changez de source audio pour pouvoir vous y reconnecter.`;
+        throw new Error(error.value);
+      }
 
-    // Envoyer la requête de connexion au backend
-    const response = await axios.post(`/api/snapclient/connect/${serverHost}`);
-    const data = response.data;
+      // Enregistrer ce serveur comme dernier serveur utilisé
+      try {
+        localStorage.setItem('lastSnapclientServer', JSON.stringify({
+          host: serverHost,
+          timestamp: Date.now()
+        }));
+      } catch (e) {
+        console.warn("Impossible d'enregistrer le dernier serveur:", e);
+      }
 
-    if (data.status === 'error') {
-      // Annuler la mise à jour optimiste en cas d'échec
+      // Mettre à jour l'état immédiatement (optimistic UI update)
+      // Cela assure que l'UI se met à jour même si la requête est lente
+      isConnected.value = true;
+      pluginState.value = 'connected';
+      host.value = serverHost;
+
+      // Si le serveur est présent dans la liste des découverts, utiliser son nom
+      const server = discoveredServers.value.find(s => s.host === serverHost);
+      if (server) {
+        deviceName.value = server.name;
+      } else {
+        deviceName.value = `Serveur (${serverHost})`;
+      }
+
+      // Envoyer la requête de connexion au backend
+      const response = await axios.post(`/api/snapclient/connect/${serverHost}`);
+      const data = response.data;
+
+      if (data.status === 'error') {
+        // Annuler la mise à jour optimiste en cas d'échec
+        isConnected.value = false;
+        pluginState.value = 'ready_to_connect';
+        host.value = null;
+        deviceName.value = null;
+        throw new Error(data.message);
+      }
+
+      if (data.blacklisted === true) {
+        // Annuler la mise à jour optimiste en cas de blacklist
+        isConnected.value = false;
+        pluginState.value = 'ready_to_connect';
+        host.value = null;
+        deviceName.value = null;
+        error.value = `Le serveur ${serverHost} a été déconnecté manuellement. Changez de source audio pour pouvoir vous y reconnecter.`;
+        throw new Error(error.value);
+      }
+
+      // Mise à jour complète après connexion (but keep optimistic values if API fails)
+      try {
+        await fetchStatus(true);
+      } catch (statusErr) {
+        console.warn("Erreur lors de la mise à jour du statut après connexion:", statusErr);
+        // Ne pas réinitialiser l'état optimiste même si fetchStatus échoue
+      }
+
+      // Démarrer le polling pour maintenir l'état synchronisé
+      startPolling();
+
+      return data;
+    } catch (err) {
+      console.error(`Erreur lors de la connexion au serveur ${serverHost}:`, err);
+      error.value = error.value || err.message || `Erreur lors de la connexion au serveur ${serverHost}`;
+
+      // S'assurer que l'état reflète l'échec de connexion
       isConnected.value = false;
       pluginState.value = 'ready_to_connect';
       host.value = null;
       deviceName.value = null;
-      throw new Error(data.message);
-    }
 
-    if (data.blacklisted === true) {
-      // Annuler la mise à jour optimiste en cas de blacklist
-      isConnected.value = false;
-      pluginState.value = 'ready_to_connect';
-      host.value = null;
-      deviceName.value = null;
-      error.value = `Le serveur ${serverHost} a été déconnecté manuellement. Changez de source audio pour pouvoir vous y reconnecter.`;
-      throw new Error(error.value);
+      throw err;
+    } finally {
+      isLoading.value = false;
     }
-
-    // Mise à jour complète après connexion (but keep optimistic values if API fails)
-    try {
-      await fetchStatus(true);
-    } catch (statusErr) {
-      console.warn("Erreur lors de la mise à jour du statut après connexion:", statusErr);
-      // Ne pas réinitialiser l'état optimiste même si fetchStatus échoue
-    }
-
-    // Démarrer le polling pour maintenir l'état synchronisé
-    startPolling();
-    
-    return data;
-  } catch (err) {
-    console.error(`Erreur lors de la connexion au serveur ${serverHost}:`, err);
-    error.value = error.value || err.message || `Erreur lors de la connexion au serveur ${serverHost}`;
-    
-    // S'assurer que l'état reflète l'échec de connexion
-    isConnected.value = false;
-    pluginState.value = 'ready_to_connect';
-    host.value = null;
-    deviceName.value = null;
-    
-    throw err;
-  } finally {
-    isLoading.value = false;
   }
-}
 
   /**
    * Se déconnecte du serveur Snapcast actuel.
