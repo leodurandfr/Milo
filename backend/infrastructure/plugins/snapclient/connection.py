@@ -1,5 +1,5 @@
 """
-Gestion des connexions aux serveurs Snapcast.
+Gestion des connexions aux serveurs Snapcast - Version optimisée.
 """
 import logging
 import asyncio
@@ -9,9 +9,6 @@ from typing import Dict, Any, Optional, List
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer, ConnectionRequest
 from backend.infrastructure.plugins.snapclient.process import SnapclientProcess
 from backend.infrastructure.plugins.snapclient.protocol import SnapcastProtocol
-from backend.infrastructure.plugins.snapclient.monitor import SnapcastMonitor
-
-
 
 class SnapclientConnection:
     """
@@ -47,7 +44,7 @@ class SnapclientConnection:
     
     async def connect(self, server: SnapclientServer) -> bool:
         """
-        Se connecte à un serveur Snapcast.
+        Se connecte à un serveur Snapcast de manière optimisée.
         
         Args:
             server: Serveur auquel se connecter
@@ -57,6 +54,31 @@ class SnapclientConnection:
         """
         try:
             self.logger.info(f"Connexion au serveur Snapcast {server.name} ({server.host})")
+            
+            # Vérifier d'abord si nous sommes déjà connectés au même serveur
+            if self.current_server and self.current_server.host == server.host:
+                # Vérifier si le processus est toujours en cours d'exécution
+                process_info = await self.process_manager.get_process_info()
+                if process_info.get("running", False):
+                    self.logger.info(f"Déjà connecté au serveur {server.name} ({server.host}), pas besoin de reconnecter")
+                    return True
+                
+                # Si le processus n'est plus en cours d'exécution mais que nous pensons être connectés,
+                # simplement redémarrer le processus sans passer par une déconnexion complète
+                self.logger.info(f"Processus snapclient arrêté pour {server.host}, redémarrage direct")
+                success = await self.process_manager.start(server.host)
+                
+                if success:
+                    self.logger.info(f"Processus snapclient redémarré pour {server.name} ({server.host})")
+                    return True
+                else:
+                    self.logger.error(f"Échec du redémarrage du processus pour {server.name} ({server.host})")
+                    return False
+            
+            # Si nous sommes connectés à un serveur différent, nous devons d'abord nous déconnecter
+            if self.current_server:
+                self.logger.info(f"Déconnexion du serveur actuel {self.current_server.name} avant de se connecter à {server.name}")
+                await self.disconnect()
             
             # Démarrer le processus avec le nouvel hôte
             success = await self.process_manager.start(server.host)

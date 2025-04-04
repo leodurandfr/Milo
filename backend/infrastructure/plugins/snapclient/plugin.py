@@ -1,5 +1,5 @@
 """
-Plugin principal Snapclient pour oakOS - Version simplifiée.
+Plugin principal Snapclient pour oakOS - Version corrigée.
 """
 import asyncio
 import logging
@@ -7,7 +7,7 @@ import socket
 import time
 import os
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from backend.application.event_bus import EventBus
 from backend.infrastructure.plugins.base import BaseAudioPlugin
@@ -40,6 +40,10 @@ class SnapclientPlugin(BaseAudioPlugin):
         self.connection_manager = SnapclientConnection(self.process_manager, self)
         self.monitor = SnapcastMonitor(self._handle_monitor_event)
         
+        # Établir une référence croisée entre le moniteur et la connexion
+        if hasattr(self.monitor, 'set_connection_reference'):
+            self.monitor.set_connection_reference(self.connection_manager)
+        
         # État interne
         self.discovered_servers = []
         self.discovery_task = None
@@ -71,7 +75,8 @@ class SnapclientPlugin(BaseAudioPlugin):
             self.is_active = True
             self._avoid_reconnect = False
             
-            # Transition d'état initiale
+            # Transition d'état initiale - forcer l'état inactif d'abord pour permettre la transition
+            self._current_state = self.STATE_INACTIVE
             await self.transition_to_state(self.STATE_READY_TO_CONNECT)
             
             # Démarrer la découverte immédiatement
@@ -81,6 +86,60 @@ class SnapclientPlugin(BaseAudioPlugin):
         except Exception as e:
             self.logger.error(f"Erreur lors du démarrage du plugin Snapclient: {str(e)}")
             return False
+    
+    async def transition_to_state(self, target_state: str, details: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Effectue une transition validée vers un nouvel état.
+        Version modifiée avec plus de tolérance pour les transitions.
+        
+        Args:
+            target_state: État cible de la transition
+            details: Détails supplémentaires à inclure dans l'événement d'état
+            
+        Returns:
+            bool: True si la transition a réussi, False sinon
+        """
+        # Si nous sommes déjà dans l'état cible, ignorer sauf si nous avons des détails différents
+        if self._current_state == target_state:
+            if details:
+                # Si nous avons des détails différents, publier l'état (même s'il n'a pas changé)
+                self.logger.info(f"État inchangé ({target_state}) mais mise à jour des détails")
+                await self.publish_plugin_state(target_state, details)
+                return True
+            else:
+                # Aucun détail nouveau, ignorons complètement
+                return True
+        
+        # Vérifier si la transition est valide
+        valid_targets = self.VALID_TRANSITIONS.get(self._current_state, set())
+        if target_state not in valid_targets:
+            # Ajout d'une exception pour permettre certaines transitions utiles
+            allowed_override = False
+            
+            # Autoriser explicitement certaines transitions qui peuvent être utiles
+            # même si elles ne sont pas dans le graphe standard
+            if (self._current_state == self.STATE_READY_TO_CONNECT and 
+                target_state == self.STATE_INACTIVE):
+                allowed_override = True
+            elif (self._current_state == self.STATE_CONNECTED and 
+                  target_state == self.STATE_READY_TO_CONNECT):
+                allowed_override = True
+            
+            if not allowed_override:
+                self.logger.warning(f"Transition non valide: {self._current_state} -> {target_state}")
+                return False
+            else:
+                self.logger.info(f"Transition non standard autorisée: {self._current_state} -> {target_state}")
+        
+        # Enregistrer l'état précédent pour le logging
+        previous_state = self._current_state
+        
+        # Mettre à jour l'état interne et publier l'événement
+        self._current_state = target_state
+        await self.publish_plugin_state(target_state, details)
+        
+        self.logger.info(f"Transition d'état: {previous_state} -> {target_state}")
+        return True
     
     async def _perform_discovery_and_connect(self):
         """Découvre les serveurs et se connecte au premier disponible."""
@@ -455,6 +514,7 @@ class SnapclientPlugin(BaseAudioPlugin):
     async def _handle_monitor_event(self, data: Dict[str, Any]) -> None:
         """
         Traite les événements provenant du moniteur WebSocket.
+        Version corrigée pour éviter les problèmes de référence.
         
         Args:
             data: Données de l'événement
@@ -504,16 +564,24 @@ class SnapclientPlugin(BaseAudioPlugin):
                         "timestamp": time.time()
                     })
                     
-                    # Mettre à jour l'état immédiatement
-                    await self.transition_to_state(self.STATE_READY_TO_CONNECT, {
-                        "connected": False,
-                        "deviceConnected": False,
-                        "disconnection_reason": "server_stopped",
-                        "disconnected_host": host
-                    })
+                    # Tenter une transition d'état (avec suppression d'erreur)
+                    try:
+                        # Garantir que nous sommes dans un état où la transition est valide
+                        if self._current_state != self.STATE_READY_TO_CONNECT:
+                            await self.transition_to_state(self.STATE_READY_TO_CONNECT, {
+                                "connected": False,
+                                "deviceConnected": False,
+                                "disconnection_reason": "server_stopped",
+                                "disconnected_host": host
+                            })
+                    except Exception as e:
+                        self.logger.error(f"Erreur lors de la transition d'état après déconnexion: {str(e)}")
                     
-                    # Se déconnecter proprement
-                    await self.connection_manager.disconnect()
+                    # Se déconnecter proprement via notre propre méthode
+                    try:
+                        await self.connection_manager.disconnect()
+                    except Exception as e:
+                        self.logger.error(f"Erreur lors de la déconnexion après disparition du serveur: {str(e)}")
         
         elif event_type == "server_event":
             # Extraire la méthode de l'événement plus proprement
@@ -537,16 +605,13 @@ class SnapclientPlugin(BaseAudioPlugin):
                 
                 # Si le serveur indique un client déconnecté, vérifier si c'est nous
                 if method == "Client.OnDisconnect" and self.connection_manager.current_server:
-                    client_data = data_obj.get("params", {})
-                    # Vérifier si les données du client correspondent à notre connexion
-                    # Cette vérification dépend de la structure des données renvoyées
-                    
                     # Forcer une vérification de la connexion
-                    current_server = self.connection_manager.current_server
-                    if current_server:
-                        process_info = await self.process_manager.get_process_info()
-                        if not process_info.get("running", False):
-                            self.logger.warning("Processus snapclient détecté comme arrêté, forçage de la déconnexion")
+                    process_info = await self.process_manager.get_process_info()
+                    if not process_info.get("running", False):
+                        self.logger.warning("Processus snapclient détecté comme arrêté, forçage de la déconnexion")
+                        
+                        # Transition explicite d'état avec marque de déconnexion
+                        if self._current_state != self.STATE_READY_TO_CONNECT:
                             await self.publish_plugin_state(self.STATE_READY_TO_CONNECT, {
                                 "connected": False,
                                 "deviceConnected": False,

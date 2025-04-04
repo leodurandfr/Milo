@@ -1,5 +1,5 @@
 """
-Module pour surveiller un serveur Snapcast en temps réel via WebSocket - Version simplifiée.
+Module pour surveiller un serveur Snapcast en temps réel via WebSocket - Version corrigée.
 """
 import logging
 import json
@@ -27,9 +27,19 @@ class SnapcastMonitor:
         self.ws_task = None
         self.is_connected = False
         self._stopping = False
+        self._connection = None  # Référence à la connexion snapclient si nécessaire
         
         # Tâche de vérification de santé
         self.health_check_task = None
+    
+    def set_connection_reference(self, connection) -> None:
+        """
+        Définit une référence à l'objet de connexion snapclient.
+        
+        Args:
+            connection: Référence à l'objet SnapclientConnection
+        """
+        self._connection = connection
     
     async def start(self, host: str) -> bool:
         """
