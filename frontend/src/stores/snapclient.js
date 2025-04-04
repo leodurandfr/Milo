@@ -1,7 +1,7 @@
 // frontend/src/stores/snapclient.js
 
 /**
- * Store Pinia pour la gestion de l'état de Snapclient - Version simplifiée.
+ * Store Pinia pour la gestion de l'état de Snapclient - Version optimisée.
  */
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
@@ -48,12 +48,12 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       deviceName.value = data.device_name || 'Serveur inconnu';
       host.value = data.host;
       error.value = null;
-      
+
       // Notifier du changement d'état
       window.dispatchEvent(new CustomEvent('snapclient-connection-changed', {
         detail: { connected: true }
       }));
-      
+
       console.log("✅ État mis à jour: connecté à", deviceName.value);
     }
     else if (data.plugin_state === 'ready_to_connect') {
@@ -62,7 +62,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
         isConnected.value = false;
         deviceName.value = null;
         host.value = null;
-        
+
         // Notifier du changement d'état
         window.dispatchEvent(new CustomEvent('snapclient-connection-changed', {
           detail: { connected: false }
@@ -78,24 +78,29 @@ export const useSnapclientStore = defineStore('snapclient', () => {
    * Met à jour l'état du store depuis un événement WebSocket
    */
   function updateFromWebSocketEvent(eventType, data) {
-    console.log(`⚡ Mise à jour depuis événement WebSocket: ${eventType}`);
+    console.log(`⚡ Mise à jour depuis événement WebSocket: ${eventType}`, data);
 
     // Gérer les événements de déconnexion
     if (eventType === 'snapclient_monitor_disconnected' || eventType === 'snapclient_server_disappeared') {
-      console.log("🔴 Déconnexion détectée via WebSocket");
-      
+      console.log("🔴 Déconnexion détectée via WebSocket:", data.host);
+
+      // Forcer la mise à jour de l'état quelle que soit la valeur actuelle
+      if (isConnected.value) {
+        console.log("🔄 Changement d'état: connecté -> déconnecté");
+      }
+
       // Mise à jour immédiate de l'état
       isConnected.value = false;
       deviceName.value = null;
       host.value = null;
       pluginState.value = 'ready_to_connect';
       error.value = `Le serveur ${data.host} s'est déconnecté`;
-      
-      // Notifier du changement d'état
+
+      // Notifier du changement d'état avec force: true
       window.dispatchEvent(new CustomEvent('snapclient-connection-changed', {
-        detail: { connected: false, source: eventType }
+        detail: { connected: false, source: eventType, force: true }
       }));
-      
+
       return true;
     }
 
@@ -103,17 +108,45 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     if (eventType === 'snapclient_monitor_connected') {
       console.log(`⚡ Moniteur connecté à ${data.host}`);
       error.value = null;
-      
+
       // Si on est connecté au même serveur, mettre à jour l'état
       if (host.value === data.host) {
         isConnected.value = true;
         pluginState.value = 'connected';
       }
-      
+
       return true;
     }
 
     return false;
+  }
+
+  /**
+   * Force la déconnexion sans appel API
+   */
+  function forceDisconnect(reason = 'manual') {
+    console.log(`🔌 Forçage de la déconnexion (raison: ${reason})`);
+
+    // Mise à jour forcée de l'état
+    isConnected.value = false;
+    deviceName.value = null;
+    host.value = null;
+    pluginState.value = 'ready_to_connect';
+
+    // Forcer un rendu immédiat
+    setTimeout(() => {
+      // Envoyer une notification DOM explicite
+      document.dispatchEvent(new CustomEvent('snapclient-disconnected', {
+        detail: { timestamp: Date.now(), reason }
+      }));
+
+      // Événement Vue standard
+      window.dispatchEvent(new CustomEvent('snapclient-connection-changed', {
+        detail: { connected: false, source: 'force_disconnect', reason }
+      }));
+    }, 0);
+
+    return { success: true, forced: true };
   }
 
   /**
@@ -277,7 +310,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       isConnected.value = true;
       pluginState.value = 'connected';
       host.value = serverHost;
-      
+
       // Utiliser le nom du serveur s'il est connu
       const server = discoveredServers.value.find(s => s.host === serverHost);
       if (server) {
@@ -301,18 +334,18 @@ export const useSnapclientStore = defineStore('snapclient', () => {
 
       // Mise à jour complète après connexion réussie
       await fetchStatus(true);
-      
+
       return data;
     } catch (err) {
       console.error(`Erreur lors de la connexion au serveur ${serverHost}:`, err);
       error.value = error.value || err.message || `Erreur lors de la connexion au serveur ${serverHost}`;
-      
+
       // Annuler la mise à jour optimiste
       isConnected.value = false;
       pluginState.value = 'ready_to_connect';
       host.value = null;
       deviceName.value = null;
-      
+
       throw err;
     } finally {
       isLoading.value = false;
@@ -346,13 +379,13 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     } catch (err) {
       console.error('Erreur lors de la déconnexion:', err);
       error.value = err.message || 'Erreur lors de la déconnexion du serveur';
-      
+
       // Forcer la déconnexion même en cas d'erreur
       isConnected.value = false;
       deviceName.value = null;
       host.value = null;
       pluginState.value = 'ready_to_connect';
-      
+
       return { status: "forced_disconnect", message: "Déconnexion forcée" };
     } finally {
       isLoading.value = false;
@@ -398,6 +431,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     disconnectFromServer,
     reset,
     updateFromWebSocketEvent,
-    updateFromStateEvent
+    updateFromStateEvent,
+    forceDisconnect
   };
 });

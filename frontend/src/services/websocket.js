@@ -1,6 +1,6 @@
 // frontend/src/services/websocket.js
 /**
- * Service pour gérer la connexion WebSocket avec reconnexion automatique - Version simplifiée.
+ * Service pour gérer la connexion WebSocket avec reconnexion automatique - Version optimisée.
  */
 import { ref, onUnmounted } from 'vue';
 
@@ -76,12 +76,23 @@ export default function useWebSocket() {
         try {
           const message = JSON.parse(event.data);
           
+          // Traitement prioritaire des événements critiques
+          if (message.type === 'snapclient_monitor_disconnected' || 
+              message.type === 'snapclient_server_disappeared') {
+            console.log(`🚨 ÉVÉNEMENT CRITIQUE REÇU: ${message.type}`, message.data);
+            
+            // Notification globale pour forcer tous les composants à réagir
+            window.dispatchEvent(new CustomEvent('global-state-change', { 
+              detail: { type: message.type, data: message.data }
+            }));
+          }
+          
           // Ne pas logger les pings pour réduire le bruit
           if (message.type !== 'ping' && message.type !== 'heartbeat_ack') {
-            // Traitement prioritaire des événements critiques
-            if (message.type === 'snapclient_monitor_disconnected' || 
-                message.type === 'snapclient_server_disappeared') {
-              console.log(`🚨 Événement critique reçu: ${message.type}`);
+            // Log autres événements importants
+            if (message.type.startsWith('snapclient_') || 
+                message.type.startsWith('audio_state_')) {
+              console.log(`📡 WebSocket: ${message.type}`);
             }
           }
           
@@ -192,10 +203,6 @@ export default function useWebSocket() {
     }
   };
   
-  const connect = () => {
-    createNewConnection();
-  };
-  
   const on = (eventType, callback) => {
     if (!events[eventType]) {
       events[eventType] = [];
@@ -279,7 +286,7 @@ export default function useWebSocket() {
   });
   
   // Connexion initiale
-  connect();
+  createNewConnection();
   startConnectionCheck();
   
   return {
@@ -287,7 +294,7 @@ export default function useWebSocket() {
     lastMessage,
     on,
     send,
-    reconnect: connect,
+    reconnect: createNewConnection,
     disconnect: cleanup
   };
 }

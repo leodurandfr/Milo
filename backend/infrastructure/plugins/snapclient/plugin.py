@@ -85,6 +85,11 @@ class SnapclientPlugin(BaseAudioPlugin):
     async def _perform_discovery_and_connect(self):
         """Découvre les serveurs et se connecte au premier disponible."""
         try:
+            # Ne pas effectuer de découverte si déjà connecté
+            if self.connection_manager.current_server:
+                self.logger.info("Déjà connecté, découverte ignorée")
+                return
+                
             self.logger.info("Découverte des serveurs Snapcast")
             
             # Effectuer la découverte
@@ -259,6 +264,16 @@ class SnapclientPlugin(BaseAudioPlugin):
     async def _handle_discover_command(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Traite la commande de découverte des serveurs."""
         try:
+            # Si déjà connecté, renvoyer simplement les serveurs connus sauf si force=true
+            if self.connection_manager.current_server and not data.get("force", False):
+                return {
+                    "success": True,
+                    "servers": [s.to_dict() for s in self.discovered_servers],
+                    "count": len(self.discovered_servers),
+                    "message": f"Connecté à {self.connection_manager.current_server.name}, découverte ignorée",
+                    "already_connected": True
+                }
+            
             # Déclencher une découverte immédiate
             servers = await self.discovery.discover_servers()
             
@@ -447,12 +462,13 @@ class SnapclientPlugin(BaseAudioPlugin):
         event_type = data.get("event")
         
         if event_type == "monitor_connected":
-            self.logger.info(f"Moniteur connecté à {data.get('host')}")
+            host = data.get('host')
+            self.logger.info(f"⚡ Moniteur connecté au serveur: {host}")
             
-            # Publier sur le bus d'événements
+            # Toujours publier l'événement, peu importe l'état interne
             await self.event_bus.publish("snapclient_monitor_connected", {
                 "source": "snapclient",
-                "host": data.get('host'),
+                "host": host,
                 "plugin_state": self.current_state,
                 "timestamp": time.time()
             })
@@ -460,18 +476,20 @@ class SnapclientPlugin(BaseAudioPlugin):
         elif event_type == "monitor_disconnected":
             host = data.get("host")
             reason = data.get("reason", "raison inconnue")
-            self.logger.warning(f"Moniteur déconnecté de {host}: {reason}")
+            self.logger.warning(f"⚡ Moniteur déconnecté du serveur: {host}: {reason}")
             
-            # Publier l'événement immédiatement
+            # TOUJOURS publier l'événement de déconnexion pour le frontend
             await self.event_bus.publish("snapclient_monitor_disconnected", {
                 "source": "snapclient",
                 "host": host,
                 "reason": reason,
-                "plugin_state": "ready_to_connect",
+                "plugin_state": self.STATE_READY_TO_CONNECT,
+                "connected": False,
+                "deviceConnected": False,
                 "timestamp": time.time()
             })
             
-            # Si le serveur a disparu, déconnecter le client
+            # Si on est connecté au serveur qui a disparu, mettre à jour l'état interne
             if self.is_active and self.connection_manager.current_server:
                 if self.connection_manager.current_server.host == host:
                     self.logger.warning(f"Serveur {host} déconnecté (détecté via WebSocket)")
@@ -481,6 +499,8 @@ class SnapclientPlugin(BaseAudioPlugin):
                         "source": "snapclient",
                         "host": host,
                         "plugin_state": self.STATE_READY_TO_CONNECT,
+                        "connected": False,
+                        "deviceConnected": False,
                         "timestamp": time.time()
                     })
                     
@@ -510,6 +530,27 @@ class SnapclientPlugin(BaseAudioPlugin):
                 "data": data.get("data", {}),
                 "timestamp": time.time()
             })
+            
+            # Si l'événement indique un changement important, forcer une vérification de l'état
+            if method in ["Client.OnDisconnect", "Server.OnUpdate"]:
+                self.logger.info(f"Événement critique détecté: {method}, vérification de l'état...")
+                
+                # Si le serveur indique un client déconnecté, vérifier si c'est nous
+                if method == "Client.OnDisconnect" and self.connection_manager.current_server:
+                    client_data = data_obj.get("params", {})
+                    # Vérifier si les données du client correspondent à notre connexion
+                    # Cette vérification dépend de la structure des données renvoyées
+                    
+                    # Forcer une vérification de la connexion
+                    current_server = self.connection_manager.current_server
+                    if current_server:
+                        process_info = await self.process_manager.get_process_info()
+                        if not process_info.get("running", False):
+                            self.logger.warning("Processus snapclient détecté comme arrêté, forçage de la déconnexion")
+                            await self.publish_plugin_state(self.STATE_READY_TO_CONNECT, {
+                                "connected": False,
+                                "deviceConnected": False,
+                            })
     
     def _get_last_known_server(self) -> dict:
         """Récupère les informations du dernier serveur connu depuis le cache."""
