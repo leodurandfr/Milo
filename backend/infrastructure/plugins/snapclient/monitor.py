@@ -1,5 +1,5 @@
 """
-Module pour surveiller un serveur Snapcast en temps réel via WebSocket.
+Module pour surveiller un serveur Snapcast en temps réel via WebSocket - Version simplifiée.
 """
 import logging
 import json
@@ -28,7 +28,7 @@ class SnapcastMonitor:
         self.is_connected = False
         self._stopping = False
         
-        # Ajout d'un intervalle de vérification de santé
+        # Tâche de vérification de santé
         self.health_check_task = None
     
     async def start(self, host: str) -> bool:
@@ -101,11 +101,11 @@ class SnapcastMonitor:
         """
         try:
             while not self._stopping:
-                # OPTIMISATION: Réduire l'intervalle pour une détection plus rapide (2s → 1s)
-                await asyncio.sleep(1)  
+                # Vérification rapide toutes les 0.5 secondes
+                await asyncio.sleep(0.5)
                 
+                # Si le moniteur n'est pas connecté mais qu'on a un hôte, notifier
                 if not self.is_connected and self.host:
-                    # Connexion perdue, notifier
                     await self._notify_callback({
                         "event": "monitor_disconnected",
                         "host": self.host,
@@ -115,31 +115,30 @@ class SnapcastMonitor:
                 # Vérifier si le serveur est toujours en vie
                 if self.host and self.is_connected:
                     try:
-                        # Optimisé: Réduire le timeout pour une détection plus rapide
+                        # Test de connexion rapide
                         reader, writer = await asyncio.wait_for(
                             asyncio.open_connection(self.host, 1704),
-                            timeout=0.3  # Réduit de 0.5s à 0.3s
+                            timeout=0.2
                         )
                         writer.close()
                         await writer.wait_closed()
                     except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
-                        # Serveur inaccessible
+                        # Serveur inaccessible, notifier immédiatement
                         self.is_connected = False
                         self.logger.warning(f"Health check: serveur {self.host} inaccessible")
                         
-                        # Notifier le callback immédiatement
                         await self._notify_callback({
                             "event": "monitor_disconnected",
                             "host": self.host,
                             "reason": "server_unreachable",
                             "timestamp": time.time()
                         })
+                        
         except asyncio.CancelledError:
             # Tâche annulée normalement
             pass
         except Exception as e:
             self.logger.error(f"Erreur dans la boucle de vérification de santé: {str(e)}")
-
     
     async def _monitor_websocket(self) -> None:
         """
@@ -153,9 +152,11 @@ class SnapcastMonitor:
                 self.logger.debug(f"Connexion WebSocket à {uri}")
                 
                 try:
-                    # Version compatible avec toutes les versions de websockets
-                    websocket_connect_task = websockets.connect(uri)
-                    websocket = await asyncio.wait_for(websocket_connect_task, timeout=2.0)
+                    # Se connecter au WebSocket
+                    websocket = await asyncio.wait_for(
+                        websockets.connect(uri),
+                        timeout=2.0
+                    )
                     
                     # Connexion établie
                     self.is_connected = True
@@ -166,7 +167,7 @@ class SnapcastMonitor:
                         "timestamp": time.time()
                     })
                     
-                    # Envoi d'une requête initiale pour s'abonner aux événements
+                    # Envoi d'une requête pour s'abonner aux événements
                     await websocket.send(json.dumps({
                         "id": 3, 
                         "jsonrpc": "2.0",
@@ -193,11 +194,9 @@ class SnapcastMonitor:
                         try:
                             # Attendre un message avec timeout
                             message = await asyncio.wait_for(websocket.recv(), timeout=3.0)
-                            self.logger.debug(f"Message WebSocket reçu: {message[:100]}...")
                             
+                            # Traiter le message
                             data = json.loads(message)
-                            
-                            # Notifier le callback
                             await self._notify_callback({
                                 "event": "server_event",
                                 "data": data,
@@ -205,23 +204,20 @@ class SnapcastMonitor:
                             })
                             
                         except asyncio.TimeoutError:
-                            # Timeout normal pour vérifier _stopping
+                            # Timeout normal, envoyer un ping pour garder la connexion active
                             if not self._stopping:
-                                # Envoyer un ping pour maintenir la connexion active
                                 try:
                                     await websocket.send(json.dumps({
                                         "id": 999,
                                         "jsonrpc": "2.0",
                                         "method": "Server.GetStatus"
                                     }))
-                                    self.logger.debug("Ping envoyé au serveur WebSocket")
                                 except Exception as ping_e:
                                     self.logger.warning(f"Erreur lors de l'envoi du ping: {str(ping_e)}")
                                     break
                             continue
                         except Exception as e:
                             self.logger.warning(f"Erreur lors de la réception d'un message: {str(e)}")
-                            # Pause avant de réessayer
                             await asyncio.sleep(0.5)
                     
                     # Fermer la connexion proprement
@@ -230,7 +226,7 @@ class SnapcastMonitor:
                 except asyncio.TimeoutError:
                     # Timeout de la connexion initiale
                     self.logger.warning(f"Timeout lors de la connexion WebSocket à {uri}")
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(1)
                     continue
             
             except (websockets.exceptions.ConnectionClosed, ConnectionRefusedError) as e:
@@ -249,17 +245,16 @@ class SnapcastMonitor:
                 
                 # Attendre avant de réessayer
                 if not self._stopping:
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(1)
             
             except Exception as e:
                 self.logger.error(f"Erreur dans le moniteur WebSocket: {str(e)}")
                 if not self._stopping:
-                    await asyncio.sleep(5)  # Attendre plus longtemps en cas d'erreur grave
+                    await asyncio.sleep(1)
     
     async def _notify_callback(self, data: Dict[str, Any]) -> None:
         """
         Notifie le callback avec les données fournies.
-        Gère les erreurs pour éviter de casser la boucle principale.
         
         Args:
             data: Données à passer au callback

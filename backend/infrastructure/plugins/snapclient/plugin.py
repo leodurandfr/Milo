@@ -1,5 +1,5 @@
 """
-Plugin principal Snapclient pour oakOS.
+Plugin principal Snapclient pour oakOS - Version simplifiée.
 """
 import asyncio
 import logging
@@ -31,22 +31,18 @@ class SnapclientPlugin(BaseAudioPlugin):
         # Configuration du plugin
         self.config = config
         self.executable_path = config.get("executable_path", "/usr/bin/snapclient")
-        self.polling_interval = config.get("polling_interval", 5.0)
-        self.auto_discover = config.get("auto_discover", True)
-        self.auto_connect = config.get("auto_connect", True)
+        self.blacklisted_servers = []
+        self._avoid_reconnect = False
         
         # Créer les sous-composants
         self.process_manager = SnapclientProcess(self.executable_path)
         self.discovery = SnapclientDiscovery()
         self.connection_manager = SnapclientConnection(self.process_manager, self)
         self.monitor = SnapcastMonitor(self._handle_monitor_event)
-        self.connection_manager.set_auto_connect(self.auto_connect)
         
         # État interne
         self.discovered_servers = []
         self.discovery_task = None
-        self.blacklisted_servers = []
-        self._avoid_reconnect = False
     
     async def initialize(self) -> bool:
         """
@@ -63,113 +59,80 @@ class SnapclientPlugin(BaseAudioPlugin):
     
     async def start(self) -> bool:
         """
-        Démarre le plugin et active la source audio Snapclient avec connexion accélérée.
+        Démarre le plugin et lance la découverte des serveurs.
         """
         try:
             self.logger.info("Démarrage du plugin Snapclient")
             
             # Réinitialiser la blacklist au démarrage
-            if self.blacklisted_servers:
-                self.logger.info(f"Réinitialisation de la blacklist au démarrage")
-                self.blacklisted_servers = []
+            self.blacklisted_servers = []
             
             # Réinitialiser l'état
             self.is_active = True
-            self.auto_connect = self.config.get("auto_connect", True)
-            self.connection_manager.set_auto_connect(self.auto_connect)
             self._avoid_reconnect = False
             
             # Transition d'état initiale
-            await self.transition_to_state(self.STATE_INACTIVE)
             await self.transition_to_state(self.STATE_READY_TO_CONNECT)
             
-            # OPTIMISATION: Vérifier s'il y a un serveur précédent déjà connu
-            last_server = self._get_last_known_server()
-            
-            if last_server and self.auto_connect:
-                # Tenter une connexion rapide au dernier serveur connu pendant que la découverte se déroule
-                self.logger.info(f"Tentative de connexion rapide au dernier serveur connu: {last_server['host']}")
-                
-                # Créer un serveur avec les données du cache
-                server = SnapclientServer(
-                    host=last_server['host'],
-                    name=last_server.get('name', f"Serveur ({last_server['host']})"),
-                    port=last_server.get('port', 1704)
-                )
-                
-                # Démarrer la connexion immédiatement
-                self._avoid_reconnect = True
-                connection_task = asyncio.create_task(self._fast_connect(server))
-                
-                # Démarrer la découverte complète en arrière-plan
-                discovery_task = asyncio.create_task(self._background_discovery(connection_task))
-                self.discovery_task = discovery_task
-            else:
-                # Aucun serveur connu, lancer une découverte standard
-                self.discovery_task = asyncio.create_task(self._background_discovery())
+            # Démarrer la découverte immédiatement
+            asyncio.create_task(self._perform_discovery_and_connect())
             
             return True
         except Exception as e:
             self.logger.error(f"Erreur lors du démarrage du plugin Snapclient: {str(e)}")
             return False
-
     
-    async def _background_discovery(self, existing_connection_task=None):
-        """Découverte et connexion rapide en arrière-plan."""
+    async def _perform_discovery_and_connect(self):
+        """Découvre les serveurs et se connecte au premier disponible."""
         try:
-            # Aucun délai - démarrer immédiatement 
-            # Si nous avons déjà une tâche de connexion en cours, nous attendons son résultat
-            if existing_connection_task:
-                try:
-                    await asyncio.wait_for(existing_connection_task, timeout=1.5)
-                    return
-                except Exception:
-                    self.logger.warning("La connexion directe a échoué")
+            self.logger.info("Découverte des serveurs Snapcast")
             
-            # Lancer une découverte rapide
-            self.logger.info("Découverte rapide des serveurs Snapcast")
+            # Effectuer la découverte
             servers = await self.discovery.discover_servers() or []
             self.discovered_servers = servers
             
-            # Se connecter au premier serveur si disponible et si nous ne sommes pas déjà connectés
+            # Se connecter au premier serveur si disponible
             if servers and not self.connection_manager.current_server:
-                server = servers[0]
-                self.logger.info(f"Connexion au serveur découvert {server.name} ({server.host})")
+                # Filtrer les serveurs blacklistés
+                available_servers = [s for s in servers if s.host not in self.blacklisted_servers]
                 
-                # Une seule connexion, pas besoin de _fast_connect
-                success = await self.connection_manager.connect(server)
-                
-                if success:
-                    await self.transition_to_state(self.STATE_CONNECTED, {
-                        "connected": True,
-                        "deviceConnected": True,
-                        "host": server.host, 
-                        "device_name": server.name
-                    })
-                
-                # Démarrer le moniteur WebSocket immédiatement après la connexion
-                if success and hasattr(self, 'monitor'):
-                    try:
+                if available_servers:
+                    server = available_servers[0]
+                    self.logger.info(f"Connexion au serveur découvert {server.name} ({server.host})")
+                    
+                    success = await self.connection_manager.connect(server)
+                    
+                    if success:
+                        await self.transition_to_state(self.STATE_CONNECTED, {
+                            "connected": True,
+                            "deviceConnected": True,
+                            "host": server.host, 
+                            "device_name": server.name
+                        })
+                        
+                        # Démarrer le moniteur WebSocket immédiatement
                         await self.monitor.start(server.host)
-                    except Exception as e:
-                        self.logger.error(f"Erreur lors du démarrage du moniteur: {str(e)}")
-            
-            # Démarrer le polling avec un intervalle plus long
-            asyncio.create_task(self._run_discovery_loop())
-            
+                        
+                        # Enregistrer ce serveur comme dernier serveur connu
+                        self._save_last_known_server(server)
+                        
+                        # Notifier l'UI immédiatement
+                        await self.event_bus.publish("snapclient_status_updated", {
+                            "source": "snapclient",
+                            "plugin_state": self.STATE_CONNECTED,
+                            "connected": True,
+                            "deviceConnected": True,
+                            "host": server.host,
+                            "device_name": server.name,
+                            "timestamp": time.time()
+                        })
+                else:
+                    self.logger.info("Aucun serveur non blacklisté disponible")
+            else:
+                self.logger.info(f"Découverte terminée: {len(servers)} serveurs trouvés, connexion manuelle requise")
+                
         except Exception as e:
-            self.logger.error(f"Erreur dans la découverte en arrière-plan: {str(e)}")
-    
-    async def _reset_reconnect_lock(self):
-        """Réinitialise le verrou de reconnexion après un délai."""
-        await asyncio.sleep(5)
-        self._avoid_reconnect = False
-        self.logger.debug("Verrou de reconnexion réinitialisé")
-
-    async def _delayed_discovery_loop(self):
-        """Démarre la boucle de découverte après un délai initial."""
-        await asyncio.sleep(3)
-        await self._run_discovery_loop()
+            self.logger.error(f"Erreur lors de la découverte initiale: {str(e)}")
     
     async def stop(self) -> bool:
         """
@@ -187,16 +150,15 @@ class SnapclientPlugin(BaseAudioPlugin):
                 except asyncio.CancelledError:
                     pass
             
+            # Arrêter le moniteur
+            await self.monitor.stop()
+            
             # Déconnecter proprement - cette méthode s'assure que tous les processus sont arrêtés
             await self.connection_manager.disconnect()
             
             # Nettoyer l'état
             self.connection_manager.clear_pending_requests()
-            self.blacklisted_servers = []
             await self.transition_to_state(self.STATE_INACTIVE)
-            
-            # Court délai pour s'assurer que tout est bien arrêté
-            await asyncio.sleep(0.5)
             
             return True
         except Exception as e:
@@ -229,6 +191,13 @@ class SnapclientPlugin(BaseAudioPlugin):
             
             # Ajouter les informations de connexion si disponibles
             if connection_info.get("device_connected"):
+                status.update({
+                    "connected": True,
+                    "deviceConnected": True,
+                    "host": connection_info.get("host"),
+                    "device_name": connection_info.get("device_name")
+                })
+                
                 status["metadata"].update({
                     "device_name": connection_info.get("device_name"),
                     "host": connection_info.get("host")
@@ -353,6 +322,9 @@ class SnapclientPlugin(BaseAudioPlugin):
             
             # Enregistrer dans le cache
             self._save_last_known_server(server)
+            
+            # Démarrer le moniteur
+            await self.monitor.start(server.host)
         
         return {
             "success": success,
@@ -370,9 +342,9 @@ class SnapclientPlugin(BaseAudioPlugin):
             if server_host not in self.blacklisted_servers:
                 self.blacklisted_servers.append(server_host)
                 self.logger.info(f"Serveur {server_host} ajouté à la blacklist: {self.blacklisted_servers}")
-            
-            # Désactiver l'auto-connect
-            self.connection_manager.set_auto_connect(False)
+        
+        # Arrêter le moniteur
+        await self.monitor.stop()
         
         # Déconnecter
         success = await self.connection_manager.disconnect()
@@ -412,6 +384,10 @@ class SnapclientPlugin(BaseAudioPlugin):
                 "host": result.get("server", {}).get("host"),
                 "device_name": result.get("server", {}).get("name", "Appareil MacOS")
             })
+            
+            # Démarrer le moniteur
+            if result.get("server") and result.get("server").get("host"):
+                await self.monitor.start(result.get("server").get("host"))
         
         return result
     
@@ -473,7 +449,7 @@ class SnapclientPlugin(BaseAudioPlugin):
         if event_type == "monitor_connected":
             self.logger.info(f"Moniteur connecté à {data.get('host')}")
             
-            # Publier sur le bus d'événements avec des données plus complètes
+            # Publier sur le bus d'événements
             await self.event_bus.publish("snapclient_monitor_connected", {
                 "source": "snapclient",
                 "host": data.get('host'),
@@ -486,12 +462,12 @@ class SnapclientPlugin(BaseAudioPlugin):
             reason = data.get("reason", "raison inconnue")
             self.logger.warning(f"Moniteur déconnecté de {host}: {reason}")
             
-            # OPTIMISATION: Publier AVANT de traiter la déconnexion pour une UI plus réactive
+            # Publier l'événement immédiatement
             await self.event_bus.publish("snapclient_monitor_disconnected", {
                 "source": "snapclient",
                 "host": host,
                 "reason": reason,
-                "plugin_state": "ready_to_connect",  # État cible après déconnexion
+                "plugin_state": "ready_to_connect",
                 "timestamp": time.time()
             })
             
@@ -500,131 +476,41 @@ class SnapclientPlugin(BaseAudioPlugin):
                 if self.connection_manager.current_server.host == host:
                     self.logger.warning(f"Serveur {host} déconnecté (détecté via WebSocket)")
                     
-                    # Éviter les reconnexions automatiques pendant la déconnexion
-                    self._avoid_reconnect = True
+                    # Publier l'événement de disparition du serveur
+                    await self.event_bus.publish("snapclient_server_disappeared", {
+                        "source": "snapclient",
+                        "host": host,
+                        "plugin_state": self.STATE_READY_TO_CONNECT,
+                        "timestamp": time.time()
+                    })
                     
-                    # Déclencher une déconnexion propre
-                    asyncio.create_task(self._handle_server_disconnected(host))
+                    # Mettre à jour l'état immédiatement
+                    await self.transition_to_state(self.STATE_READY_TO_CONNECT, {
+                        "connected": False,
+                        "deviceConnected": False,
+                        "disconnection_reason": "server_stopped",
+                        "disconnected_host": host
+                    })
+                    
+                    # Se déconnecter proprement
+                    await self.connection_manager.disconnect()
         
-
-    async def _handle_server_disconnected(self, host: str) -> None:
-        """
-        Gère la déconnexion d'un serveur détectée par le moniteur.
-        
-        Args:
-            host: Adresse du serveur déconnecté
-        """
-        try:
-            # Vérifier que nous sommes bien connectés à ce serveur
-            if not self.connection_manager.current_server or self.connection_manager.current_server.host != host:
-                return
-                
-            self.logger.info(f"Déconnexion du serveur {host} détectée par le moniteur")
+        elif event_type == "server_event":
+            # Extraire la méthode de l'événement plus proprement
+            data_obj = data.get("data", {})
+            method = data_obj.get("method") if isinstance(data_obj, dict) else None
             
-            # Se déconnecter proprement
-            await self.connection_manager.disconnect()
+            if method:
+                self.logger.info(f"Événement serveur reçu du WebSocket: {method}")
             
-            # Mettre à jour l'état
-            await self.transition_to_state(self.STATE_READY_TO_CONNECT, {
-                "connected": False,
-                "deviceConnected": False,
-                "disconnection_reason": "server_stopped",
-                "disconnected_host": host
-            })
-            
-            # Publier un événement spécifique pour cette déconnexion
-            await self.event_bus.publish("snapclient_server_disappeared", {
+            # Publier les événements du serveur
+            await self.event_bus.publish("snapclient_server_event", {
                 "source": "snapclient",
-                "host": host,
-                "plugin_state": self.STATE_READY_TO_CONNECT,
+                "method": method,
+                "data": data.get("data", {}),
                 "timestamp": time.time()
             })
-            
-            # Réinitialiser le verrou de reconnexion après un court délai
-            asyncio.create_task(self._reset_reconnect_lock())
-        except Exception as e:
-            self.logger.error(f"Erreur lors du traitement de la déconnexion: {str(e)}")
     
-    async def _run_discovery_loop(self):
-        """Boucle optimisée de découverte des serveurs."""
-        try:
-            while self.is_active:
-                # Quitter si le plugin n'est plus actif
-                if not self.is_active:
-                    break
-                    
-                # Ignorer si le verrou de reconnexion est actif
-                if self._avoid_reconnect:
-                    self.logger.debug("Découverte ignorée (verrou de reconnexion actif)")
-                    await asyncio.sleep(self.polling_interval)
-                    continue
-                    
-                # Vérifier la connexion actuelle ou découvrir de nouveaux serveurs
-                if self.connection_manager.current_server:
-                    await self._check_current_connection()
-                elif self.auto_discover:
-                    await self._discover_and_connect()
-                
-                # Attendre l'intervalle de polling
-                await asyncio.sleep(self.polling_interval)
-        except asyncio.CancelledError:
-            self.logger.info("Tâche de découverte annulée")
-        except Exception as e:
-            self.logger.error(f"Erreur dans la boucle de découverte: {str(e)}")
-
-    async def _check_current_connection(self):
-        """Vérifie si la connexion actuelle est toujours valide."""
-        server_host = self.connection_manager.current_server.host
-        
-        if server_host in self.blacklisted_servers or not await self._is_server_alive(server_host):
-            self.logger.warning(f"Serveur {server_host} non disponible ou blacklisté, déconnexion")
-            await self.connection_manager.disconnect()
-            await self.transition_to_state(self.STATE_READY_TO_CONNECT, {
-                "connected": False,
-                "deviceConnected": False
-            })
-
-    async def _discover_and_connect(self):
-        """Découvre les serveurs et se connecte automatiquement si possible."""
-        servers = await self.discovery.discover_servers() or []
-        filtered_servers = [s for s in servers if s.host not in self.blacklisted_servers]
-        self.discovered_servers = filtered_servers
-        
-        if filtered_servers and self.connection_manager.auto_connect:
-            self.logger.info(f"Découverte périodique: {len(filtered_servers)} serveurs disponibles")
-            result = await self.connection_manager.handle_discovered_servers(filtered_servers)
-            
-            if result.get("action") == "auto_connected" and result.get("server"):
-                # Activer le verrou de reconnexion pour éviter les connexions multiples
-                self._avoid_reconnect = True
-                asyncio.create_task(self._reset_reconnect_lock())
-                
-                await self.transition_to_state(self.STATE_CONNECTED, {
-                    "connected": True,
-                    "deviceConnected": True,
-                    "host": result.get("server", {}).get("host"),
-                    "device_name": result.get("server", {}).get("name")
-                })
-
-    async def _is_server_alive(self, host: str) -> bool:
-        """
-        Vérifie si un serveur est accessible (méthode optimisée).
-        """
-        # Vérifier d'abord si le processus snapclient est toujours en cours
-        process_info = await self.process_manager.get_process_info()
-        if not process_info.get("running", False):
-            return False
-        
-        # Vérification socket rapide
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(0.5)  # Timeout court
-            result = sock.connect_ex((host, 1704))
-            sock.close()
-            return result == 0  # 0 = connecté avec succès
-        except Exception:
-            return False
-        
     def _get_last_known_server(self) -> dict:
         """Récupère les informations du dernier serveur connu depuis le cache."""
         try:
@@ -667,55 +553,3 @@ class SnapclientPlugin(BaseAudioPlugin):
             self.logger.debug(f"Serveur enregistré dans le cache: {server.host}")
         except Exception as e:
             self.logger.warning(f"Erreur lors de l'enregistrement du cache: {str(e)}")
-
-    async def _fast_connect(self, server: SnapclientServer) -> bool:
-        """Connexion rapide au serveur spécifié."""
-        try:
-            # Vérifier rapidement que le port est toujours ouvert
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(0.5)
-            
-            is_available = False
-            try:
-                result = sock.connect_ex((server.host, server.port))
-                is_available = (result == 0)
-            finally:
-                sock.close()
-            
-            if not is_available:
-                self.logger.warning(f"Le serveur {server.host} n'est plus disponible")
-                return False
-            
-            # Se connecter au serveur
-            success = await self.connection_manager.connect(server)
-            
-            if success:
-                await self.transition_to_state(self.STATE_CONNECTED, {
-                    "connected": True,
-                    "deviceConnected": True,
-                    "host": server.host,
-                    "device_name": server.name
-                })
-                
-                # Enregistrer ce serveur comme dernier serveur connu
-                self._save_last_known_server(server)
-                
-                # Notifier le frontend immédiatement
-                await self.event_bus.publish("snapclient_status_updated", {
-                    "source": "snapclient",
-                    "plugin_state": self.STATE_CONNECTED,
-                    "connected": True,
-                    "deviceConnected": True,
-                    "host": server.host,
-                    "device_name": server.name,
-                    "timestamp": time.time()
-                })
-                
-                return True
-            else:
-                self.logger.warning(f"Échec de la connexion rapide à {server.host}")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"Erreur lors de la connexion rapide: {str(e)}")
-            return False
