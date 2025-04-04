@@ -33,59 +33,13 @@ watch(isConnected, (newConnected) => {
 // Références pour les fonctions de désabonnement
 let unsubscribeServerEvent = null;
 let unsubscribeMonitorConnected = null;
+let reconnectInterval = null;
 
-onMounted(async () => {
-  // Récupérer le statut initial
-  await snapclientStore.fetchStatus(true);
-  
-  // S'il y a un dernier serveur enregistré, tenter de s'y reconnecter
-  const savedServer = localStorage.getItem('lastSnapclientServer');
-  if (savedServer && !isConnected.value) {
-    try {
-      const serverData = JSON.parse(savedServer);
-      console.log("💾 Tentative de reconnexion au dernier serveur:", serverData.host);
-      lastServer.value = serverData;
-      
-      // Tenter la reconnexion automatique
-      await tryAutoReconnect();
-    } catch (e) {
-      console.error("❌ Erreur lors de la lecture du dernier serveur:", e);
-    }
-  }
-  
-  // Écouter les événements serveur pour la découverte automatique
-  unsubscribeServerEvent = on('snapclient_server_event', (data) => {
-    if (audioStore.currentState === 'macos' && !isConnected.value) {
-      console.log("⚡ Événement serveur reçu:", data);
-      
-      // Déclencher la découverte et tentative de reconnexion automatique
-      tryAutoReconnect();
-    }
-  });
-  
-  // Écouter les événements de découverte
-  unsubscribeMonitorConnected = on('snapclient_monitor_connected', (data) => {
-    console.log("⚡ Moniteur connecté:", data);
-    
-    // Tenter de se reconnecter au dernier serveur connu
-    if (audioStore.currentState === 'macos' && !isConnected.value) {
-      tryAutoReconnect();
-    }
-  });
-  
-  // Démarrer une vérification périodique pour la reconnexion automatique
-  const reconnectInterval = setInterval(() => {
-    if (audioStore.currentState === 'macos' && !isConnected.value) {
-      tryAutoReconnect();
-    }
-  }, 5000);
-  
-  // Nettoyage à la destruction
-  onUnmounted(() => {
-    if (unsubscribeServerEvent) unsubscribeServerEvent();
-    if (unsubscribeMonitorConnected) unsubscribeMonitorConnected();
-    clearInterval(reconnectInterval);
-  });
+// IMPORTANT: Déclarer tous les hooks de cycle de vie avant les opérations asynchrones
+onUnmounted(() => {
+  if (unsubscribeServerEvent) unsubscribeServerEvent();
+  if (unsubscribeMonitorConnected) unsubscribeMonitorConnected();
+  if (reconnectInterval) clearInterval(reconnectInterval);
 });
 
 // Fonction pour essayer de se reconnecter automatiquement
@@ -149,6 +103,57 @@ async function tryAutoReconnect() {
     console.error("❌ Erreur lors de la tentative de reconnexion automatique:", err);
   }
 }
+
+onMounted(async () => {
+  try {
+    // Récupérer le statut initial
+    await snapclientStore.fetchStatus(true);
+    
+    // S'il y a un dernier serveur enregistré, tenter de s'y reconnecter
+    const savedServer = localStorage.getItem('lastSnapclientServer');
+    if (savedServer && !isConnected.value) {
+      try {
+        const serverData = JSON.parse(savedServer);
+        console.log("💾 Tentative de reconnexion au dernier serveur:", serverData.host);
+        lastServer.value = serverData;
+        
+        // Tenter la reconnexion automatique
+        await tryAutoReconnect();
+      } catch (e) {
+        console.error("❌ Erreur lors de la lecture du dernier serveur:", e);
+      }
+    }
+    
+    // Écouter les événements serveur pour la découverte automatique
+    unsubscribeServerEvent = on('snapclient_server_event', (data) => {
+      if (audioStore.currentState === 'macos' && !isConnected.value) {
+        console.log("⚡ Événement serveur reçu:", data);
+        
+        // Déclencher la découverte et tentative de reconnexion automatique
+        tryAutoReconnect();
+      }
+    });
+    
+    // Écouter les événements de découverte
+    unsubscribeMonitorConnected = on('snapclient_monitor_connected', (data) => {
+      console.log("⚡ Moniteur connecté:", data);
+      
+      // Tenter de se reconnecter au dernier serveur connu
+      if (audioStore.currentState === 'macos' && !isConnected.value) {
+        tryAutoReconnect();
+      }
+    });
+    
+    // Démarrer une vérification périodique pour la reconnexion automatique
+    reconnectInterval = setInterval(() => {
+      if (audioStore.currentState === 'macos' && !isConnected.value) {
+        tryAutoReconnect();
+      }
+    }, 5000);
+  } catch (error) {
+    console.error("Erreur lors de l'initialisation:", error);
+  }
+});
 </script>
 
 <style scoped>
