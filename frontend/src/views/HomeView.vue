@@ -41,8 +41,16 @@
       </button>
     </div>
 
-    <!-- Composant modulaire d'affichage de la source active -->
-    <SourceDisplay v-if="audioStore.currentState !== 'none'" />
+    <!-- Affichage conditionnel direct des composants sources -->
+    <template v-if="audioStore.currentState !== 'none'">
+      <LibrespotDisplay v-if="audioStore.currentState === 'librespot'" />
+      <SnapclientDisplay v-else-if="audioStore.currentState === 'macos'" />
+      <!-- Autres sources peuvent être ajoutées ici -->
+      <div v-else class="no-source-error">
+        <h2>Source non disponible</h2>
+        <p>La source audio "{{ audioStore.currentState }}" n'est pas disponible ou n'est pas encore implémentée.</p>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -51,7 +59,10 @@ import { onMounted } from 'vue';
 import { useAudioStore } from '@/stores/index';
 import { useSnapclientStore } from '@/stores/snapclient';
 import useWebSocket from '@/services/websocket';
-import SourceDisplay from '@/components/SourceDisplay.vue';
+
+// Import direct des composants spécifiques aux sources
+import LibrespotDisplay from '@/components/sources/librespot/LibrespotDisplay.vue';
+import SnapclientDisplay from '@/components/sources/snapclient/SnapclientDisplay.vue';
 
 const audioStore = useAudioStore();
 const snapclientStore = useSnapclientStore();
@@ -189,6 +200,7 @@ h1 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 1rem;
+  margin-bottom: 2rem;
 }
 
 .source-button {
@@ -226,5 +238,15 @@ h1 {
 
 .webradio {
   background-color: #FF5722;
+}
+
+.no-source-error {
+  text-align: center;
+  padding: 2rem;
+  background-color: #ffebee;
+  border: 1px solid #ffcdd2;
+  border-radius: 8px;
+  margin: 0 auto;
+  max-width: 600px;
 }
 </style>
