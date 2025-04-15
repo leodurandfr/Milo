@@ -4,8 +4,9 @@ Gestion des connexions WebSocket.
 """
 from typing import Dict, Any, List, Set
 import logging
-from fastapi import WebSocket, WebSocketDisconnect
+import time  # Ajouter l'import manquant
 import json
+from fastapi import WebSocket, WebSocketDisconnect
 
 
 class WebSocketManager:
@@ -43,11 +44,9 @@ class WebSocketManager:
         message_str = json.dumps(message)
         
         # Log différent selon le type d'événement
-        # if event_type.startswith('snapclient_'):
-        #     self.logger.info(f"⚡ Diffusion WebSocket: {event_type} à {len(self.active_connections)} clients")
-        # else:
-        #     self.logger.debug(f"Diffusion WebSocket: {event_type} à {len(self.active_connections)} clients")
-        
+        if event_type in ['snapclient_monitor_disconnected', 'snapclient_server_disappeared']:
+            self.logger.info(f"⚡ ENVOI ÉVÉNEMENT WEBSOCKET CRITIQUE: {event_type} pour {data.get('host', 'unknown')}")
+            
         disconnected = set()
         for connection in self.active_connections:
             try:

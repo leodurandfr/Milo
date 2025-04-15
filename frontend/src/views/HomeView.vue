@@ -44,7 +44,7 @@
     <!-- Affichage conditionnel direct des composants sources -->
     <template v-if="audioStore.currentState !== 'none'">
       <LibrespotDisplay v-if="audioStore.currentState === 'librespot'" />
-      <SnapclientDisplay v-else-if="audioStore.currentState === 'macos'" />
+      <SnapclientComponent v-else-if="audioStore.currentState === 'macos'" />
       <!-- Autres sources peuvent être ajoutées ici -->
       <div v-else class="no-source-error">
         <h2>Source non disponible</h2>
@@ -62,7 +62,7 @@ import useWebSocket from '@/services/websocket';
 
 // Import direct des composants spécifiques aux sources
 import LibrespotDisplay from '@/components/sources/librespot/LibrespotDisplay.vue';
-import SnapclientDisplay from '@/components/sources/snapclient/SnapclientDisplay.vue';
+import SnapclientComponent from '@/components/sources/snapclient/SnapclientComponent.vue';
 
 const audioStore = useAudioStore();
 const snapclientStore = useSnapclientStore();

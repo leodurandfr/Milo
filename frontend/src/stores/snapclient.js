@@ -32,7 +32,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
   function updateConnectionState(connected, details = {}) {
     const wasConnected = isConnected.value;
     isConnected.value = connected;
-    
+
     if (connected) {
       deviceName.value = details.device_name || details.deviceName || 'Serveur inconnu';
       host.value = details.host;
@@ -43,20 +43,20 @@ export const useSnapclientStore = defineStore('snapclient', () => {
         deviceName.value = null;
         host.value = null;
         pluginState.value = isActive.value ? 'ready' : 'inactive';
-        
+
         // Log explicite de déconnexion pour le débogage
         console.log(`🔴 Déconnexion détectée: ${details.source || 'unknown'}, ${details.reason || 'unknown'}`);
       }
     }
-    
+
     // Notifier seulement si l'état a changé
     if (wasConnected !== connected) {
       connectionLastChanged.value = Date.now();
-      
+
       // Notification globale de changement de connexion
       window.dispatchEvent(new CustomEvent('snapclient-connection-changed', {
-        detail: { 
-          connected, 
+        detail: {
+          connected,
           source: details.source,
           reason: details.reason,
           timestamp: Date.now()
@@ -66,15 +66,15 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       // Notification spécifique de déconnexion
       if (wasConnected && !connected) {
         document.dispatchEvent(new CustomEvent('snapclient-disconnected', {
-          detail: { 
-            timestamp: Date.now(), 
+          detail: {
+            timestamp: Date.now(),
             source: details.source,
             reason: details.reason
           }
         }));
       }
     }
-    
+
     return connected;
   }
 
@@ -107,42 +107,50 @@ export const useSnapclientStore = defineStore('snapclient', () => {
   /**
    * Mise à jour depuis un événement WebSocket - version améliorée
    */
+  /**
+   * Mise à jour depuis un événement WebSocket - version améliorée
+   */
   function updateFromWebSocketEvent(eventType, data) {
     console.log(`⚡ Traitement événement WebSocket: ${eventType}`);
-    
+
     // Gestion prioritaire des déconnexions
-    if (eventType === 'snapclient_monitor_disconnected' || 
-        eventType === 'snapclient_server_disappeared') {
-      
-      if (isConnected.value) {
-        // Traiter immédiatement la déconnexion
-        console.warn(`🚨 Déconnexion serveur détectée via événement ${eventType}: ${data.host}`);
-        
-        // Mettre à jour l'état de connexion avec les détails
-        updateConnectionState(false, {
+    if (eventType === 'snapclient_monitor_disconnected' ||
+      eventType === 'snapclient_server_disappeared') {
+
+      console.warn(`🚨 Déconnexion serveur détectée via événement ${eventType}: ${data.host}`);
+
+      // Mettre à jour l'état de connexion immédiatement sans conditions
+      updateConnectionState(false, {
+        source: eventType,
+        reason: data.reason || 'server_unreachable',
+        host: data.host,
+        timestamp: data.timestamp
+      });
+
+      // Message d'erreur informatif
+      error.value = `Le serveur ${data.host} s'est déconnecté (${data.reason || 'raison inconnue'})`;
+
+      // Publier un événement de déconnexion immédiatement
+      document.dispatchEvent(new CustomEvent('snapclient-disconnected', {
+        detail: {
+          timestamp: Date.now(),
           source: eventType,
-          reason: data.reason || 'server_unreachable',
-          host: data.host,
-          timestamp: data.timestamp
-        });
-        
-        // Message d'erreur informatif
-        error.value = `Le serveur ${data.host} s'est déconnecté (${data.reason || 'raison inconnue'})`;
-        
-        // Forcer une vérification après court délai pour confirmer
-        setTimeout(() => fetchStatus(true), 1000);
-      }
+          reason: data.reason || 'server_disconnected',
+          host: data.host
+        }
+      }));
+
       return true;
     }
 
     // Gestion des événements de connexion
     if (eventType === 'snapclient_monitor_connected') {
       error.value = null;
-      
+
       // Vérifier si c'est le serveur auquel on est censé être connecté
       if (host.value === data.host) {
         console.log(`✅ Moniteur connecté au serveur ${data.host}`);
-        updateConnectionState(true, { 
+        updateConnectionState(true, {
           source: eventType,
           host: data.host,
           timestamp: data.timestamp
@@ -167,8 +175,9 @@ export const useSnapclientStore = defineStore('snapclient', () => {
 
       lastStatusCheck.value = now;
       isLoading.value = true;
-      
-      const response = await axios.get('/api/snapclient/status');
+
+      // Ajouter un paramètre unique pour éviter le cache
+      const response = await axios.get(`/api/snapclient/status?_t=${now}`);
       const data = response.data;
 
       if (data.status === 'error') {
@@ -184,7 +193,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
 
       // Mise à jour de l'état
       isActive.value = data.is_active === true;
-      
+
       // Mise à jour de l'état de connexion
       updateConnectionState(data.device_connected === true, {
         device_name: data.device_name,
@@ -196,7 +205,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       if (data.discovered_servers) {
         discoveredServers.value = [...data.discovered_servers];
       }
-      
+
       if (data.blacklisted_servers) {
         blacklistedServers.value = data.blacklisted_servers;
       }
@@ -205,16 +214,16 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     } catch (err) {
       console.error('Erreur lors de la récupération du statut:', err);
       error.value = err.message || 'Erreur de communication avec le serveur';
-      
+
       // En cas d'erreur réseau, considérer comme déconnecté
-      if (err.response?.status >= 500 || err.code === 'ECONNABORTED' || 
-          err.message.includes('Network Error')) {
-        updateConnectionState(false, { 
+      if (err.response?.status >= 500 || err.code === 'ECONNABORTED' ||
+        err.message.includes('Network Error')) {
+        updateConnectionState(false, {
           source: 'network_error',
-          reason: 'api_unreachable' 
+          reason: 'api_unreachable'
         });
       }
-      
+
       throw err;
     } finally {
       isLoading.value = false;
@@ -310,24 +319,24 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       error.value = null;
 
       const response = await axios.post('/api/snapclient/disconnect');
-      
+
       // Mise à jour immédiate de l'UI
-      updateConnectionState(false, { 
+      updateConnectionState(false, {
         source: 'manual_disconnect',
-        reason: 'user_requested' 
+        reason: 'user_requested'
       });
-      
+
       return response.data;
     } catch (err) {
       console.error('Erreur lors de la déconnexion:', err);
       error.value = err.message || 'Erreur lors de la déconnexion du serveur';
-      
+
       // Forcer la déconnexion même en cas d'erreur
-      updateConnectionState(false, { 
+      updateConnectionState(false, {
         source: 'disconnect_error',
         reason: err.message
       });
-      
+
       return { status: "forced_disconnect", message: "Déconnexion forcée" };
     } finally {
       isLoading.value = false;
@@ -341,7 +350,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     console.log(`🔌 Forçage de la déconnexion (raison: ${reason})`);
 
     // Mise à jour forcée de l'état
-    updateConnectionState(false, { 
+    updateConnectionState(false, {
       source: 'force_disconnect',
       reason: reason
     });

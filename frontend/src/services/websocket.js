@@ -1,6 +1,6 @@
 // frontend/src/services/websocket.js
 /**
- * Service pour gérer la connexion WebSocket avec reconnexion automatique - Version optimisée.
+ * Service pour gérer la connexion WebSocket avec reconnexion automatique - Version améliorée.
  */
 import { ref, onUnmounted } from 'vue';
 
@@ -67,6 +67,20 @@ export default function useWebSocket() {
           if (message.type === 'ping') {
             sendMessage({ type: 'pong', data: { timestamp: Date.now() } });
             return;
+          }
+
+          // Traitement spécial pour les événements critiques de déconnexion
+          if (message.type === 'snapclient_monitor_disconnected' || 
+              message.type === 'snapclient_server_disappeared') {
+            console.warn(`🚨 ÉVÉNEMENT CRITIQUE REÇU: ${message.type}`, message.data);
+            
+            // Émettre un événement DOM spécial pour assurer qu'il est traité
+            window.dispatchEvent(new CustomEvent('snapclient-critical-event', {
+              detail: { 
+                type: message.type,
+                data: message.data
+              }
+            }));
           }
           
           // Dispatcher l'événement aux abonnés
