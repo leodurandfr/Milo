@@ -1,5 +1,5 @@
 """
-Gestion des événements WebSocket.
+Gestion des événements WebSocket - Version optimisée.
 """
 import logging
 import time
@@ -49,22 +49,17 @@ class WebSocketEventHandler:
                 if 'timestamp' not in data:
                     data['timestamp'] = time.time()
                 
-                # PRIORITÉ: Traitement immédiat pour les événements critiques
+                # Liste des événements critiques qui nécessitent une diffusion immédiate
                 critical_events = [
                     'snapclient_monitor_disconnected',
-                    'snapclient_server_disappeared',
-                    'snapclient_monitor_connected',
-                    'audio_status_updated'
+                    'snapclient_server_disappeared'
                 ]
                 
+                # Diffusion prioritaire pour les événements critiques
                 if internal_event in critical_events:
-                    self.logger.info(f"⚡ Diffusion prioritaire de l'événement CRITIQUE {ws_event}")
-                    # Diffuser immédiatement aux clients (avant même le logging)
                     await self.ws_manager.broadcast(ws_event, data)
-                    # Ensuite faire le logging
                     self._log_event(internal_event, data)
                 else:
-                    # Pour les événements non-critiques, conserver l'ordre original
                     self._log_event(internal_event, data)
                     await self.ws_manager.broadcast(ws_event, data)
                     
@@ -75,35 +70,15 @@ class WebSocketEventHandler:
     
     def _log_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """Gère les logs de manière spécifique selon le type d'événement."""
-        # Pour les événements standard, utiliser des logs debug
-        if event_type in ["audio_state_changing", "audio_state_changed"]:
-            self.logger.info(f"Événement {event_type}: {data.get('from_state', 'unknown')} -> {data.get('current_state', data.get('to_state', 'unknown'))}")
-            
-        # Pour les mises à jour de métadonnées, ajouter des détails
-        elif event_type == "audio_metadata_updated":
-            self.logger.info(f"Métadonnées mises à jour: source={data.get('source')}, "
-                           f"titre={data.get('metadata', {}).get('title')}, "
-                           f"artiste={data.get('metadata', {}).get('artist')}")
-        
-        # Pour les événements de seek, ajouter des détails
-        elif event_type == "audio_seek":
-            self.logger.info(f"Seek détecté: position={data.get('position_ms')}ms, "
-                           f"timestamp={data.get('seek_timestamp')}")
-        
-        # Pour les événements Snapclient spécifiques
+        # Pour les événements snapclient critiques, loguer en info
+        if event_type in ["snapclient_monitor_disconnected", "snapclient_server_disappeared"]:
+            self.logger.info(f"⚡ {event_type}: {data.get('host', 'unknown')}, raison: {data.get('reason', 'unknown')}")
+        # Pour les événements d'état audio, loguer en info
+        elif event_type == "audio_status_updated" and data.get("source") == "snapclient":
+            self.logger.info(f"État audio mis à jour: {data.get('plugin_state', 'unknown')} - {data.get('source', 'unknown')}")
+        # Pour les événements de monitoring, loguer en info
         elif event_type == "snapclient_monitor_connected":
-            self.logger.info(f"⚡ Moniteur connecté au serveur: {data.get('host')}")
-            
-        elif event_type == "snapclient_monitor_disconnected":
-            self.logger.info(f"⚡ Moniteur déconnecté du serveur: {data.get('host')}, raison: {data.get('reason', 'unknown')}")
-            
-        elif event_type == "snapclient_server_disappeared":
-            self.logger.info(f"⚡ Serveur disparu: {data.get('host')}")
-            
-        elif event_type == "snapclient_server_event":
-            method = data.get("data", {}).get("method", "unknown")
-            self.logger.debug(f"Événement serveur Snapcast: {method}")
-            
+            self.logger.info(f"⚡ Moniteur connecté au serveur: {data.get('host', 'unknown')}")
+        # Pour les autres événements, loguer en debug
         else:
-            # Pour les autres événements, juste un log de base
             self.logger.debug(f"Événement {event_type} reçu: {data}")

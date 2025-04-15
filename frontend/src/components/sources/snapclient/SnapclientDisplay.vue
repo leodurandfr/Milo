@@ -9,7 +9,7 @@
     <!-- Erreur websocket -->
     <div v-else-if="!wsConnected" class="error-state">
       <h3>Connexion au serveur perdue</h3>
-      <p>La connexion WebSocket au serveur oakOS est interrompue. Vérifiez que le serveur backend est en cours d'exécution.</p>
+      <p>La connexion WebSocket au serveur oakOS est interrompue.</p>
       <button @click="refreshStatus" class="retry-button">Réessayer</button>
     </div>
     
@@ -29,7 +29,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, watch, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useAudioStore } from '@/stores/index';
 import { useSnapclientStore } from '@/stores/snapclient';
 import SnapclientWaitingConnection from './SnapclientWaitingConnection.vue';
@@ -40,186 +40,123 @@ const { on, isConnected: wsConnected } = useWebSocket();
 const audioStore = useAudioStore();
 const snapclientStore = useSnapclientStore();
 
-// États locaux
+// États locaux simplifiés
 const initialLoading = ref(true);
 const errorState = ref(false);
-let connectionCheckInterval = null;
-let lastStatusCheckTime = ref(0);
+let connectionCheck = null;
+const unsubscribeHandlers = [];
 
-// Références pour les fonctions de désabonnement - DÉFINIR ICI
-const unsubscribeMonitorConnected = ref(null);
-const unsubscribeMonitorDisconnected = ref(null);
-const unsubscribeServerEvent = ref(null);
-const unsubscribeAudioStatus = ref(null);
-const unsubscribeServerDisappeared = ref(null);
+// État simplifié pour contrôler l'affichage
+const isConnected = computed(() => snapclientStore.isConnected);
 
-// État dérivé pour contrôler l'affichage
-const isConnected = computed(() => {
-  return snapclientStore.isConnected && snapclientStore.pluginState === 'connected';
+// Surveiller les changements d'état de connexion
+watch(isConnected, (newConnected, oldConnected) => {
+  if (oldConnected && !newConnected) {
+    console.log("📊 Déconnexion détectée dans le watcher");
+    // Éventuellement rafraîchir l'interface si nécessaire
+  }
 });
 
 // Fonction pour rafraîchir le statut
 async function refreshStatus(showLoader = false) {
-  if (showLoader) {
-    initialLoading.value = true;
-  }
-  
+  if (showLoader) initialLoading.value = true;
   errorState.value = false;
-  lastStatusCheckTime.value = Date.now();
   
   try {
     await snapclientStore.fetchStatus(true);
-    console.log("✅ Statut rafraîchi avec succès");
   } catch (err) {
-    console.error("❌ Erreur lors du rafraîchissement du statut:", err);
+    console.error("Erreur lors du rafraîchissement du statut:", err);
     errorState.value = true;
   } finally {
     initialLoading.value = false;
   }
 }
 
-// Vérifie l'état de la connexion périodiquement
-function startConnectionCheck() {
-  // Nettoyer l'intervalle existant s'il y en a un
-  if (connectionCheckInterval) {
-    clearInterval(connectionCheckInterval);
-  }
+// Configurer les événements WebSocket de manière centralisée
+function setupWebSocketEvents() {
+  // Événements critiques qui nécessitent une notification immédiate
+  ['snapclient_monitor_connected', 'snapclient_monitor_disconnected', 'snapclient_server_disappeared'].forEach(eventType => {
+    const unsub = on(eventType, (data) => {
+      console.log(`⚡ Événement WebSocket reçu: ${eventType}`, data);
+      snapclientStore.updateFromWebSocketEvent(eventType, data);
+    });
+    unsubscribeHandlers.push(unsub);
+  });
   
-  // Vérifier la connexion périodiquement
-  connectionCheckInterval = setInterval(async () => {
-    // Ne vérifier que si nous sommes censés être connectés
-    if (isConnected.value && audioStore.currentState === 'macos') {
-      console.log("🔍 Vérification périodique de la connexion Snapclient");
-      
+  // Écouter les mises à jour d'état audio
+  const unsubAudio = on('audio_status_updated', (data) => {
+    if (data.source === 'snapclient') {
+      snapclientStore.updateFromStateEvent(data);
+    }
+  });
+  unsubscribeHandlers.push(unsubAudio);
+  
+  // Ajouter un écouteur pour les événements globaux de déconnexion
+  const handleGlobalDisconnect = (event) => {
+    console.log("🔌 Événement global de déconnexion reçu", event.detail);
+    // Rafraîchir immédiatement le statut
+    refreshStatus(false);
+  };
+  
+  document.addEventListener('snapclient-disconnected', handleGlobalDisconnect);
+  unsubscribeHandlers.push(() => {
+    document.removeEventListener('snapclient-disconnected', handleGlobalDisconnect);
+  });
+}
+
+// Configurer la vérification périodique - plus fréquente et plus robuste
+function setupPeriodicCheck() {
+  return setInterval(async () => {
+    if (audioStore.currentState === 'macos') {
       try {
-        // Éviter les vérifications trop fréquentes
-        if (Date.now() - lastStatusCheckTime.value < 2000) {
-          return;
-        }
+        const result = await snapclientStore.fetchStatus(false);
         
-        lastStatusCheckTime.value = Date.now();
-        const status = await snapclientStore.fetchStatus(false);
-        
-        // Si déconnecté, mettre à jour l'interface
-        if (!status.device_connected && snapclientStore.isConnected) {
-          console.log("🔴 Déconnexion détectée lors de la vérification périodique");
+        // Si la réponse indique une déconnexion mais qu'on pensait être connecté
+        if (!result.device_connected && snapclientStore.isConnected) {
+          console.log("🔴 Déconnexion détectée lors du check périodique");
           snapclientStore.forceDisconnect("periodic_check");
         }
       } catch (err) {
-        console.error("🔴 Erreur lors de la vérification périodique", err);
-        // En cas d'erreur, forcer la déconnexion pour mettre à jour l'UI
-        snapclientStore.forceDisconnect("check_error");
+        console.error("Erreur de vérification périodique:", err);
+        // En cas d'erreur, considérer comme déconnecté
+        if (snapclientStore.isConnected) {
+          snapclientStore.forceDisconnect("check_error");
+        }
       }
     }
-  }, 3000); // Vérifier toutes les 3 secondes
+  }, 3000); // Vérification toutes les 3 secondes
 }
-
-// Surveiller l'état de connexion pour mettre à jour l'UI
-watch(isConnected, (connected) => {
-  console.log(`⚡ État de connexion Snapclient changé: ${connected}`);
-  
-  // Mettre à jour l'UI immédiatement selon l'état de connexion
-  if (!connected && snapclientStore.pluginState !== 'connected') {
-    // Force l'actualisation si on passe de connecté à déconnecté
-    console.log("🔁 Forcer l'actualisation de l'UI après déconnexion");
-  }
-});
-
-// Surveillance des changements d'état audio
-watch(() => audioStore.currentState, async (newState, oldState) => {
-  if (newState === 'macos' && oldState !== 'macos') {
-    // Activation de la source MacOS
-    console.log("🔄 Source MacOS activée - Chargement initial de l'état");
-    initialLoading.value = true;
-    try {
-      await snapclientStore.fetchStatus(true);
-      // Démarrer la vérification périodique quand on active MacOS
-      startConnectionCheck();
-    } catch (err) {
-      console.error("❌ Erreur lors du chargement initial:", err);
-      errorState.value = true;
-    } finally {
-      initialLoading.value = false;
-    }
-  } else if (oldState === 'macos' && newState !== 'macos') {
-    // Désactivation de la source MacOS
-    if (connectionCheckInterval) {
-      clearInterval(connectionCheckInterval);
-      connectionCheckInterval = null;
-    }
-    snapclientStore.reset();
-  }
-});
 
 onMounted(async () => {
   // Chargement initial
-  console.log("🔄 Chargement initial du statut Snapclient");
   initialLoading.value = true;
+  
   try {
     await snapclientStore.fetchStatus(true);
     errorState.value = false;
     
-    // Démarrer la vérification périodique si on est sur MacOS
-    if (audioStore.currentState === 'macos') {
-      startConnectionCheck();
-    }
+    // Configurer les événements WebSocket
+    setupWebSocketEvents();
+    
+    // Démarrer la vérification périodique
+    connectionCheck = setupPeriodicCheck();
+    
   } catch (err) {
-    console.error("❌ Erreur lors du chargement initial:", err);
+    console.error("Erreur lors du chargement initial:", err);
     errorState.value = true;
   } finally {
     initialLoading.value = false;
   }
-
-  // S'abonner aux événements
-  unsubscribeMonitorConnected.value = on('snapclient_monitor_connected', (data) => {
-    console.log("⚡ Moniteur connecté au serveur:", data.host);
-    snapclientStore.updateFromWebSocketEvent('snapclient_monitor_connected', data);
-  });
-
-  unsubscribeMonitorDisconnected.value = on('snapclient_monitor_disconnected', (data) => {
-    console.log("⚡ Moniteur déconnecté du serveur:", data.host, data.reason);
-    snapclientStore.updateFromWebSocketEvent('snapclient_monitor_disconnected', data);
-    
-    // Forcer un refresh après un court délai
-    setTimeout(() => refreshStatus(false), 200);
-  });
-  
-  // Événements serveur
-  unsubscribeServerEvent.value = on('snapclient_server_event', (data) => {
-    console.log("⚡ Événement serveur reçu:", data);
-  });
-  
-  // Disparition du serveur
-  unsubscribeServerDisappeared.value = on('snapclient_server_disappeared', (data) => {
-    console.log("🚨 Serveur Snapcast disparu:", data);
-    snapclientStore.updateFromWebSocketEvent('snapclient_server_disappeared', data);
-    
-    // Forcer un refresh après un court délai
-    setTimeout(() => refreshStatus(false), 200);
-  });
-  
-  // Mises à jour d'état audio
-  unsubscribeAudioStatus.value = on('audio_status_updated', (data) => {
-    if (data.source === 'snapclient') {
-      console.log("⚡ État audio mis à jour:", data.plugin_state);
-      snapclientStore.updateFromStateEvent(data);
-    }
-  });
 });
 
 onUnmounted(() => {
-  // Nettoyer l'intervalle de vérification périodique
-  if (connectionCheckInterval) {
-    clearInterval(connectionCheckInterval);
-    connectionCheckInterval = null;
+  // Nettoyer l'intervalle
+  if (connectionCheck) {
+    clearInterval(connectionCheck);
   }
   
-  // Désinscription des événements
-  if (unsubscribeMonitorConnected.value) unsubscribeMonitorConnected.value();
-  if (unsubscribeMonitorDisconnected.value) unsubscribeMonitorDisconnected.value();
-  if (unsubscribeServerEvent.value) unsubscribeServerEvent.value();
-  if (unsubscribeAudioStatus.value) unsubscribeAudioStatus.value();
-  if (unsubscribeServerDisappeared.value) unsubscribeServerDisappeared.value();
+  // Nettoyer les abonnements WebSocket
+  unsubscribeHandlers.forEach(unsub => unsub && unsub());
 });
 </script>
 

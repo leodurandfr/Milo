@@ -18,34 +18,23 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, watch } from 'vue';
+import { computed } from 'vue';
 import { useSnapclientStore } from '@/stores/snapclient';
 
 const snapclientStore = useSnapclientStore();
 
-// Propriétés calculées
+// Propriétés simplifiées
 const deviceName = computed(() => snapclientStore.deviceName);
 const error = computed(() => snapclientStore.error);
 const isLoading = computed(() => snapclientStore.isLoading);
-const isConnected = computed(() => snapclientStore.isConnected);
 
-// Observer les changements d'état de connexion
-watch(isConnected, (connected) => {
-  if (!connected) {
-    console.log("🔌 Déconnexion détectée dans SnapclientConnectionInfo, rafraîchissement forcé");
-    // Forcer l'actualisation du parent
-    window.dispatchEvent(new Event('snapclient-refresh-needed'));
-  }
-});
-
-// Formater le nom du serveur
+// Formater le nom du serveur - simplification
 const formattedServerName = computed(() => {
   if (!deviceName.value) return 'Serveur inconnu';
   
   // Nettoyer et formater le nom
   const name = deviceName.value
-    .replace('.local', '')
-    .replace('.home', '');
+    .replace(/\.local$|\.home$/g, '');
   
   return name.charAt(0).toUpperCase() + name.slice(1);
 });
@@ -58,22 +47,7 @@ async function disconnect() {
     console.error('Erreur de déconnexion:', err);
   }
 }
-
-// Écouteur de déconnexion global
-function handleDisconnect(event) {
-  console.log("📢 Événement de déconnexion global reçu dans SnapclientConnectionInfo");
-  // Forcer un rendu si nécessaire
-}
-
-onMounted(() => {
-  document.addEventListener('snapclient-disconnected', handleDisconnect);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('snapclient-disconnected', handleDisconnect);
-});
 </script>
-
 
 <style scoped>
 .snapclient-connection-info {
