@@ -1,6 +1,6 @@
 // frontend/src/stores/snapclient.js
 /**
- * Store Pinia pour la gestion de l'état de Snapclient - Version corrigée
+ * Store Pinia pour la gestion de l'état de Snapclient - Version avec Zeroconf
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
@@ -105,10 +105,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
   }
 
   /**
-   * Mise à jour depuis un événement WebSocket - version améliorée
-   */
-  /**
-   * Mise à jour depuis un événement WebSocket - version améliorée
+   * Mise à jour depuis un événement WebSocket - version avec Zeroconf
    */
   function updateFromWebSocketEvent(eventType, data) {
     console.log(`⚡ Traitement événement WebSocket: ${eventType}`);
@@ -156,6 +153,18 @@ export const useSnapclientStore = defineStore('snapclient', () => {
           timestamp: data.timestamp
         });
       }
+      return true;
+    }
+    
+    // Gestion des nouveaux serveurs découverts via Zeroconf
+    if (eventType === 'snapclient_server_discovered') {
+      console.log(`🔍 Nouveau serveur Snapcast découvert: ${data.server?.name}`);
+      
+      // Ajouter le serveur à la liste des serveurs découverts si pas déjà présent
+      if (data.server && !discoveredServers.value.some(s => s.host === data.server.host)) {
+        discoveredServers.value = [...discoveredServers.value, data.server];
+      }
+      
       return true;
     }
 

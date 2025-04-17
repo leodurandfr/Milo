@@ -1,178 +1,291 @@
+# backend/infrastructure/plugins/snapclient/discovery.py
 """
-Découverte des serveurs Snapcast sur le réseau - Version optimisée.
+Découverte des serveurs Snapcast sur le réseau - Version Zeroconf événementielle.
 """
 import asyncio
 import logging
-import os
-import json
-import time
-from typing import List, Optional
+import socket
+import queue  # Standard queue pour communication inter-thread
+from typing import List, Optional, Dict, Any, Set
+
+from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
+from zeroconf.asyncio import AsyncServiceInfo 
 
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer
 
+class SnapclientDiscoveryListener(ServiceListener):
+    """
+    Détecte les serveurs Snapcast via Zeroconf de manière événementielle.
+    Utilise une queue standard pour éviter les problèmes de boucle d'événements.
+    """
+    
+    def __init__(self, event_queue, loop):
+        """
+        Initialise un listener pour la découverte des serveurs Snapcast.
+        
+        Args:
+            event_queue: Queue standard pour les événements de découverte
+            loop: Boucle d'événements principale
+        """
+        self.event_queue = event_queue
+        self.loop = loop
+        self.logger = logging.getLogger("plugin.snapclient.discovery.listener")
+        self.own_hostname = socket.gethostname().lower()
+
+    def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+        """
+        Appelé quand un service est découvert.
+        Met l'événement dans une queue synchrone.
+        """
+        self.logger.debug(f"Service découvert: {name}")
+        # Utiliser une queue standard au lieu d'une queue asyncio
+        self.event_queue.put(("add", type_, name, zc))
+
+    def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+        """
+        Appelé quand un service est mis à jour.
+        """
+        self.logger.debug(f"Service mis à jour: {name}")
+        self.event_queue.put(("update", type_, name, zc))
+
+    def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+        """
+        Appelé quand un service est supprimé.
+        """
+        self.logger.debug(f"Service supprimé: {name}")
+        self.event_queue.put(("remove", type_, name, zc))
+
 class SnapclientDiscovery:
     """
-    Détecte les serveurs Snapcast sur le réseau local via Avahi.
-    Version simplifiée.
+    Détecte les serveurs Snapcast sur le réseau via Zeroconf.
+    Version événementielle avec queue thread-safe.
     """
     
     def __init__(self):
         self.logger = logging.getLogger("plugin.snapclient.discovery")
-        self._has_avahi = self._check_avahi_available()
+        self.zeroconf = None
+        self.browser = None
+        # Utiliser une queue standard au lieu d'une queue asyncio
+        self.event_queue = queue.Queue()
+        self.event_processor_task = None
+        self.discovered_servers: Set[SnapclientServer] = set()
+        self.server_callbacks = []
+        self.own_hostname = socket.gethostname().lower()
         
-        if not self._has_avahi:
-            self.logger.warning("Avahi n'est pas disponible, la découverte sera limitée")
-    
-    def _check_avahi_available(self) -> bool:
-        """Vérifie si Avahi est disponible sur le système."""
+    async def start(self):
+        """Démarre la découverte des serveurs Snapcast."""
+        if self.zeroconf:
+            return
+            
+        self.logger.info("Démarrage de la découverte Zeroconf des serveurs Snapcast")
+        
         try:
-            import subprocess
-            result = subprocess.run(
-                ["which", "avahi-browse"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=2
+            # Stocker la boucle d'événements principale
+            loop = asyncio.get_running_loop()
+            
+            # Créer l'instance Zeroconf dans une tâche séparée pour éviter le blocage
+            self.zeroconf = Zeroconf()
+            self.listener = SnapclientDiscoveryListener(self.event_queue, loop)
+            self.browser = ServiceBrowser(
+                self.zeroconf, 
+                "_snapcast._tcp.local.",
+                self.listener
             )
-            return result.returncode == 0
+            
+            # Démarrer le processeur d'événements
+            if not self.event_processor_task or self.event_processor_task.done():
+                self.event_processor_task = asyncio.create_task(self._process_events())
+                
+            self.logger.info("Découverte Zeroconf démarrée avec succès")
+            return True
+            
         except Exception as e:
-            self.logger.warning(f"Erreur lors de la vérification d'Avahi: {str(e)}")
+            self.logger.error(f"Erreur lors du démarrage de la découverte Zeroconf: {str(e)}")
+            await self.stop()
             return False
+    
+    async def stop(self):
+        """Arrête la découverte des serveurs Snapcast."""
+        if self.event_processor_task and not self.event_processor_task.done():
+            self.event_processor_task.cancel()
+            try:
+                await self.event_processor_task
+            except asyncio.CancelledError:
+                pass
+            self.event_processor_task = None
+            
+        if self.browser:
+            self.browser.cancel()
+            self.browser = None
+            
+        if self.zeroconf:
+            self.zeroconf.close()
+            self.zeroconf = None
+            
+        self.logger.info("Découverte Zeroconf arrêtée")
+    
+    async def _process_events(self):
+        """
+        Traite les événements de la queue standard en arrière-plan.
+        Cette fonction s'exécute dans la boucle d'événements asyncio.
+        """
+        try:
+            while True:
+                # Vérifier la queue de manière non bloquante
+                try:
+                    while not self.event_queue.empty():
+                        event_type, service_type, name, zc = self.event_queue.get_nowait()
+                        try:
+                            if event_type in ("add", "update"):
+                                # Utiliser AsyncServiceInfo au lieu de get_service_info
+                                service_info = AsyncServiceInfo(service_type, name)
+                                await service_info.async_request(zc, timeout=2000)
+                                
+                                # Vérifier si on a reçu des informations
+                                if not service_info.addresses:
+                                    continue
+                                    
+                                server = self._service_info_to_server(service_info)
+                                if server:
+                                    await self._process_server(server, event_type == "add")
+                                    
+                            elif event_type == "remove":
+                                # Traiter la suppression du serveur
+                                hostname = name.split(".")[0].lower()
+                                servers_to_remove = [s for s in self.discovered_servers 
+                                                   if s.name.lower() == hostname]
+                                
+                                for server in servers_to_remove:
+                                    self.discovered_servers.discard(server)
+                                    self.logger.info(f"Serveur supprimé: {server.name} ({server.host})")
+                                    for callback in self.server_callbacks:
+                                        try:
+                                            await callback("removed", server)
+                                        except Exception as e:
+                                            self.logger.error(f"Erreur dans callback: {e}")
+                            
+                        except Exception as e:
+                            self.logger.error(f"Erreur lors du traitement d'un événement: {str(e)}")
+                        finally:
+                            self.event_queue.task_done()
+                except queue.Empty:
+                    pass
+                
+                # Attendre avant de vérifier à nouveau
+                await asyncio.sleep(0.1)
+                    
+        except asyncio.CancelledError:
+            self.logger.debug("Processeur d'événements arrêté")
+        except Exception as e:
+            self.logger.error(f"Erreur dans le processeur d'événements: {str(e)}")
+    
+    def _service_info_to_server(self, info: AsyncServiceInfo) -> Optional[SnapclientServer]:
+        """
+        Convertit les informations de service en objet SnapclientServer.
+        Supporte AsyncServiceInfo.
+        
+        Args:
+            info: Informations sur le service Snapcast
+            
+        Returns:
+            SnapclientServer ou None si le serveur est invalide
+        """
+        try:
+            # Extraire les adresses
+            addresses = info.parsed_addresses()
+            if not addresses:
+                return None
+                
+            # Utiliser la première adresse IPv4 disponible
+            host = next((addr for addr in addresses 
+                        if not addr.startswith('fe80:') and ':' not in addr), 
+                        addresses[0])
+                
+            # Extraire le nom d'hôte
+            name = info.server.split('.')[0] if info.server else info.name.split('.')[0]
+            
+            # Extraire le port
+            port = info.port
+            
+            # Vérifier si c'est nous-même
+            if name.lower() == self.own_hostname:
+                self.logger.debug(f"Ignoré serveur local: {name}")
+                return None
+                
+            # Ignorer les entrées oakos (c'est nous-même)
+            if 'oakos' in name.lower():
+                return None
+                
+            return SnapclientServer(host=host, name=name, port=port)
+            
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la conversion des informations de service: {str(e)}")
+            return None
+    
+    async def _process_server(self, server: SnapclientServer, is_new: bool):
+        """
+        Traite un serveur découvert ou mis à jour.
+        
+        Args:
+            server: Le serveur Snapcast
+            is_new: True si c'est un nouveau serveur, False si c'est une mise à jour
+        """
+        # Vérifier si le serveur existe déjà
+        existing = next((s for s in self.discovered_servers if s.host == server.host), None)
+        
+        if existing:
+            # Mettre à jour le serveur existant si nécessaire
+            if (existing.name != server.name or existing.port != server.port):
+                self.discovered_servers.discard(existing)
+                self.discovered_servers.add(server)
+                self.logger.info(f"Serveur mis à jour: {server.name} ({server.host})")
+                
+                # Appeler les callbacks
+                for callback in self.server_callbacks:
+                    asyncio.create_task(callback("updated", server))
+        else:
+            # Ajouter le nouveau serveur
+            self.discovered_servers.add(server)
+            self.logger.info(f"Nouveau serveur découvert: {server.name} ({server.host})")
+            
+            # Appeler les callbacks
+            for callback in self.server_callbacks:
+                asyncio.create_task(callback("added", server))
+    
+    def register_callback(self, callback):
+        """
+        Enregistre un callback qui sera appelé quand un serveur est découvert/mis à jour/supprimé.
+        Le callback doit être une coroutine prenant (event_type, server) comme arguments.
+        
+        Args:
+            callback: Coroutine à appeler
+        """
+        if callback not in self.server_callbacks:
+            self.server_callbacks.append(callback)
+    
+    def unregister_callback(self, callback):
+        """
+        Supprime un callback précédemment enregistré.
+        
+        Args:
+            callback: Callback à supprimer
+        """
+        if callback in self.server_callbacks:
+            self.server_callbacks.remove(callback)
     
     async def discover_servers(self) -> List[SnapclientServer]:
         """
-        Découvre les serveurs Snapcast via Avahi.
-        Version simplifiée.
+        Découvre les serveurs Snapcast via Zeroconf.
         
         Returns:
             List[SnapclientServer]: Liste des serveurs découverts
         """
-        self.logger.info("Démarrage de la découverte des serveurs Snapcast")
-        servers = []
-        
-        if not self._has_avahi:
-            self.logger.error("Avahi n'est pas disponible, découverte impossible")
-            return []
-        
-        # Obtenir notre propre nom d'hôte pour filtrer les résultats
-        own_hostname = await self._get_own_hostname()
-        
-        try:
-            # Exécuter une commande simplifiée avec timeout
-            process = await asyncio.create_subprocess_exec(
-                "avahi-browse", "-t", "-r", "_snapcast._tcp",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+        # Démarrer la découverte si ce n'est pas déjà fait
+        if not self.zeroconf:
+            await self.start()
             
-            try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=3.0)
-                output = stdout.decode()
-                
-                if stderr:
-                    error = stderr.decode()
-                    if error:
-                        self.logger.warning(f"Erreur avahi-browse: {error}")
-                
-                if not output.strip():
-                    self.logger.warning("Aucune sortie de avahi-browse")
-                    return []
-                
-                # Analyser la sortie pour extraire les serveurs
-                servers = self._parse_avahi_output(output, own_hostname)
-                
-                if servers:
-                    self.logger.info(f"Avahi a trouvé {len(servers)} serveurs")
-                    for server in servers:
-                        self.logger.info(f"Serveur trouvé: {server.name} ({server.host})")
-                else:
-                    self.logger.warning("Aucun serveur externe trouvé via Avahi")
-                
-            except asyncio.TimeoutError:
-                self.logger.error("Timeout lors de l'exécution de avahi-browse")
-                process.kill()
-                
-        except Exception as e:
-            self.logger.error(f"Erreur lors de la découverte Avahi: {str(e)}")
+            # Attendre un peu pour laisser la découverte initiale se faire
+            await asyncio.sleep(1.0)
         
-        return servers
-    
-    def _parse_avahi_output(self, output: str, own_hostname: str) -> List[SnapclientServer]:
-        """
-        Parse la sortie de avahi-browse pour extraire les serveurs Snapcast.
-        Version simplifiée.
-        """
-        servers = []
-        current_server = {}
-        
-        # Diviser la sortie en lignes
-        lines = output.splitlines()
-        
-        for line in lines:
-            # Ne traiter que les lignes de résultats (commençant par =)
-            if line.startswith('='):
-                # Nouvelle entrée de serveur
-                if 'hostname' not in current_server and 'IPv4' in line:
-                    current_server = {'type': 'IPv4'}
-                    
-            # Extraire les informations
-            elif 'hostname = [' in line and current_server:
-                hostname = line.split('[')[1].split(']')[0]
-                current_server['hostname'] = hostname
-                
-            elif 'address = [' in line and current_server:
-                address = line.split('[')[1].split(']')[0]
-                current_server['address'] = address
-                
-            elif 'port = [' in line and current_server:
-                port = int(line.split('[')[1].split(']')[0])
-                current_server['port'] = port
-                
-                # Fin d'une entrée, vérifier et ajouter le serveur
-                if self._is_valid_server(current_server, own_hostname):
-                    server_name = current_server['hostname'].split('.')[0]
-                    servers.append(SnapclientServer(
-                        host=current_server['address'],
-                        name=server_name,
-                        port=current_server['port']
-                    ))
-                
-                # Réinitialiser pour la prochaine entrée
-                current_server = {}
-        
-        return servers
-    
-    def _is_valid_server(self, server: dict, own_hostname: str) -> bool:
-        """
-        Vérifie si un serveur découvert est valide (pas localhost, pas nous-même).
-        """
-        if not server or 'address' not in server or 'hostname' not in server:
-            return False
-        
-        # Ignorer localhost
-        if server['address'].startswith('127.'):
-            return False
-        
-        # Ignorer notre propre hostname
-        if own_hostname and own_hostname.lower() in server['hostname'].lower():
-            return False
-            
-        # Ignorer les entrées oakos (c'est nous-même)
-        if 'oakos' in server['hostname'].lower():
-            return False
-        
-        return True
-    
-    async def _get_own_hostname(self) -> str:
-        """Récupère notre propre nom d'hôte."""
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "hostname",
-                stdout=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await process.communicate()
-            hostname = stdout.decode().strip()
-            return hostname
-        except Exception as e:
-            self.logger.warning(f"Impossible de déterminer notre nom d'hôte: {e}")
-            return "oakos"  # Fallback par défaut
+        # Retourner la liste actuelle des serveurs
+        return list(self.discovered_servers)

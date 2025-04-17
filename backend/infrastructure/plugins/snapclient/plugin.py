@@ -1,5 +1,5 @@
 """
-Plugin principal Snapclient pour oakOS - Version optimisée.
+Plugin principal Snapclient pour oakOS - Version Zeroconf.
 """
 import asyncio
 import logging
@@ -19,7 +19,7 @@ from backend.infrastructure.plugins.snapclient.monitor import SnapcastMonitor
 class SnapclientPlugin(BaseAudioPlugin):
     """
     Plugin pour la source audio Snapclient (MacOS via Snapcast).
-    Version optimisée.
+    Version avec Zeroconf.
     """
     
     def __init__(self, event_bus: EventBus, config: Dict[str, Any]):
@@ -57,6 +57,11 @@ class SnapclientPlugin(BaseAudioPlugin):
             self.logger.error(f"L'exécutable snapclient n'existe pas: {self.executable_path}")
             return False
         
+        # Démarrer la découverte Zeroconf en arrière-plan
+        if hasattr(self.discovery, 'start'):
+            self.discovery.register_callback(self._handle_server_discovery)
+            asyncio.create_task(self.discovery.start())
+        
         return True
     
     async def start(self) -> bool:
@@ -75,37 +80,72 @@ class SnapclientPlugin(BaseAudioPlugin):
             # Transition d'état initiale
             await self.transition_to_state(self.STATE_READY)
             
-            # Démarrer la découverte immédiatement
-            asyncio.create_task(self._perform_discovery())
+            # Démarrer la découverte Zeroconf APRÈS l'initialisation du plugin
+            if hasattr(self.discovery, 'start'):
+                # Enregistrer le callback de découverte
+                self.discovery.register_callback(self._handle_server_discovery)
+                
+                # Démarrer la découverte
+                asyncio.create_task(self.discovery.start())
+                self.logger.info("Tâche de découverte Zeroconf démarrée")
             
             return True
         except Exception as e:
             self.logger.error(f"Erreur lors du démarrage du plugin: {str(e)}")
             return False
     
-    async def _perform_discovery(self):
-        """Découvre les serveurs disponibles."""
+    async def _try_connect_to_last_server(self):
+        """Tente de se connecter au dernier serveur connu."""
+        # Ne pas tenter si déjà connecté
+        if self.connection_manager.current_server:
+            return
+            
+        # Vérifier s'il y a un fichier de cache pour le dernier serveur
         try:
-            # Ne pas effectuer de découverte si déjà connecté
-            if self.connection_manager.current_server:
-                self.logger.info("Déjà connecté, découverte ignorée")
+            cache_dir = os.path.expanduser("~/.cache/oakos")
+            cache_path = os.path.join(cache_dir, "last_snapserver.json")
+            
+            if not os.path.exists(cache_path):
                 return
                 
-            self.logger.info("Découverte des serveurs Snapcast")
-            
-            # Effectuer la découverte
-            servers = await self.discovery.discover_servers() or []
-            self.discovered_servers = servers
-            
-            # Se connecter au premier serveur disponible si aucun n'est connecté
-            if servers and not self.connection_manager.current_server:
-                # Filtrer les serveurs blacklistés
-                available_servers = [s for s in servers if s.host not in self.blacklisted_servers]
+            with open(cache_path, 'r') as f:
+                data = json.load(f)
                 
-                if available_servers:
-                    server = available_servers[0]
-                    self.logger.info(f"Connexion au serveur découvert {server.name}")
+            host = data.get("host")
+            
+            if not host or host in self.blacklisted_servers:
+                return
+                
+            # Vérifier si le serveur est dans la liste des serveurs découverts
+            server = next((s for s in self.discovered_servers if s.host == host), None)
+            
+            if server:
+                self.logger.info(f"Tentative de connexion au dernier serveur connu: {server.name}")
+                await self.connection_manager.connect(server)
+        except Exception as e:
+            self.logger.warning(f"Échec de la connexion au dernier serveur: {str(e)}")
+    
+    async def _handle_server_discovery(self, event_type, server):
+        """
+        Gère les événements de découverte des serveurs.
+        
+        Args:
+            event_type: Type d'événement ('added', 'updated', 'removed')
+            server: Le serveur Snapcast concerné
+        """
+        try:
+            if event_type == "added":
+                # Mettre à jour la liste des serveurs découverts
+                if server not in self.discovered_servers:
+                    self.discovered_servers.append(server)
+                
+                # Se connecter automatiquement si aucun serveur n'est connecté
+                # et que l'auto-connexion est activée
+                if (not self.connection_manager.current_server and 
+                    self.connection_manager.auto_connect and
+                    server.host not in self.blacklisted_servers):
                     
+                    self.logger.info(f"Connexion automatique au serveur découvert {server.name}")
                     success = await self.connection_manager.connect(server)
                     
                     if success:
@@ -118,16 +158,122 @@ class SnapclientPlugin(BaseAudioPlugin):
                         
                         # Démarrer le moniteur WebSocket
                         await self.monitor.start(server.host)
-                        
-                        # Enregistrer ce serveur comme dernier serveur connu
-                        self._save_last_known_server(server)
-                else:
-                    self.logger.info("Aucun serveur non blacklisté disponible")
-            else:
-                self.logger.info(f"Découverte terminée: {len(servers)} serveurs trouvés")
                 
+                # Publier un événement de découverte
+                await self.event_bus.publish("snapclient_server_discovered", {
+                    "source": "snapclient",
+                    "server": server.to_dict()
+                })
+                    
+            elif event_type == "removed":
+                # Vérifier si c'est le serveur auquel on est connecté
+                if (self.connection_manager.current_server and 
+                    self.connection_manager.current_server.host == server.host):
+                    
+                    self.logger.warning(f"Serveur connecté {server.name} a disparu")
+                    
+                    # Publier l'événement de disparition du serveur
+                    await self.event_bus.publish("snapclient_server_disappeared", {
+                        "source": "snapclient",
+                        "host": server.host,
+                        "plugin_state": self.STATE_READY,
+                        "connected": False,
+                        "deviceConnected": False
+                    })
+                    
+                    # Transition d'état
+                    await self.transition_to_state(self.STATE_READY, {
+                        "connected": False,
+                        "deviceConnected": False,
+                        "disconnection_reason": "server_disappeared"
+                    })
+                    
+                    # Se déconnecter proprement
+                    await self.connection_manager.disconnect()
+                
+                # Mettre à jour la liste des serveurs découverts
+                self.discovered_servers = [s for s in self.discovered_servers 
+                                        if s.host != server.host]
+                                        
         except Exception as e:
-            self.logger.error(f"Erreur lors de la découverte: {str(e)}")
+            self.logger.error(f"Erreur lors du traitement de l'événement de découverte: {str(e)}")
+    
+    
+    async def _handle_discovery_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        """
+        Traite les événements de découverte Zeroconf.
+        
+        Args:
+            event_type: Type d'événement ('server_added', 'server_updated', 'server_removed')
+            data: Données de l'événement
+        """
+        try:
+            if event_type == 'server_added':
+                server_dict = data.get("server")
+                if not server_dict:
+                    return
+                    
+                # Convertir en objet SnapclientServer
+                server = SnapclientServer(
+                    host=server_dict["host"],
+                    name=server_dict["name"],
+                    port=server_dict.get("port", 1704)
+                )
+                
+                # Vérifier si le serveur n'est pas déjà dans la liste
+                if not any(s.host == server.host for s in self.discovered_servers):
+                    self.discovered_servers.append(server)
+                    
+                    # Notifier du nouveau serveur
+                    await self.event_bus.publish("snapclient_server_discovered", {
+                        "source": "snapclient",
+                        "server": server_dict,
+                        "timestamp": time.time()
+                    })
+                    
+                    # Si pas connecté et que la connexion auto est activée, se connecter
+                    if (not self.connection_manager.current_server and 
+                        self.connection_manager.auto_connect and
+                        server.host not in self.blacklisted_servers):
+                        self.logger.info(f"Connexion automatique au serveur découvert: {server.name}")
+                        await self.connection_manager.connect(server)
+            
+            elif event_type == 'server_removed':
+                server_dict = data.get("server")
+                if not server_dict:
+                    return
+                    
+                # Supprimer de la liste des serveurs découverts
+                self.discovered_servers = [s for s in self.discovered_servers if s.host != server_dict["host"]]
+                
+                # Vérifier si c'est le serveur actuellement connecté
+                if (self.connection_manager.current_server and 
+                    self.connection_manager.current_server.host == server_dict["host"]):
+                    self.logger.warning(f"Le serveur connecté a disparu: {server_dict['name']}")
+                    
+                    # Publier un événement de disparition
+                    await self.event_bus.publish("snapclient_server_disappeared", {
+                        "source": "snapclient",
+                        "host": server_dict["host"],
+                        "name": server_dict["name"],
+                        "reason": "server_removed",
+                        "plugin_state": self.STATE_READY,
+                        "connected": False,
+                        "deviceConnected": False,
+                        "timestamp": time.time()
+                    })
+                    
+                    # Transition d'état
+                    await self.transition_to_state(self.STATE_READY, {
+                        "connected": False,
+                        "deviceConnected": False,
+                        "disconnection_reason": "server_disappeared"
+                    })
+                    
+                    # Se déconnecter proprement
+                    await self.connection_manager.disconnect()
+        except Exception as e:
+            self.logger.error(f"Erreur lors du traitement d'un événement de découverte: {str(e)}")
     
     async def stop(self) -> bool:
         """
@@ -139,6 +285,9 @@ class SnapclientPlugin(BaseAudioPlugin):
             
             # Arrêter le moniteur
             await self.monitor.stop()
+            
+            # Arrêter la découverte Zeroconf
+            await self.discovery.stop()
             
             # Déconnecter proprement
             await self.connection_manager.disconnect()
@@ -252,12 +401,14 @@ class SnapclientPlugin(BaseAudioPlugin):
                     "already_connected": True
                 }
             
-            # Déclencher une découverte
+            # Récupérer simplement les serveurs connus par Zeroconf
             servers = await self.discovery.discover_servers()
+            
+            # Mettre à jour la liste des serveurs
+            self.discovered_servers = servers
             
             # Filtrer les serveurs blacklistés
             filtered_servers = [s for s in servers if s.host not in self.blacklisted_servers]
-            self.discovered_servers = filtered_servers
             
             return {
                 "success": True,
@@ -424,7 +575,7 @@ class SnapclientPlugin(BaseAudioPlugin):
     async def _handle_monitor_event(self, data: Dict[str, Any]) -> None:
         """
         Traite les événements provenant du moniteur WebSocket.
-        Version simplifiée.
+        Version améliorée avec meilleure gestion des déconnexions.
         
         Args:
             data: Données de l'événement
@@ -446,13 +597,15 @@ class SnapclientPlugin(BaseAudioPlugin):
         elif event_type == "monitor_disconnected":
             host = data.get("host")
             reason = data.get("reason", "raison inconnue")
-            self.logger.warning(f"⚡ Moniteur déconnecté du serveur: {host}: {reason}")
+            error = data.get("error", "")
+            self.logger.warning(f"⚡ Moniteur déconnecté du serveur: {host}: {reason} {error}")
             
-            # Publier l'événement de déconnexion
+            # Publier l'événement de déconnexion immédiatement
             await self.event_bus.publish("snapclient_monitor_disconnected", {
                 "source": "snapclient",
                 "host": host,
                 "reason": reason,
+                "error": error,
                 "plugin_state": self.STATE_READY,
                 "connected": False,
                 "deviceConnected": False,
@@ -484,19 +637,6 @@ class SnapclientPlugin(BaseAudioPlugin):
                     
                     # Se déconnecter proprement
                     await self.connection_manager.disconnect()
-        
-        elif event_type == "server_event":
-            # Extraire la méthode de l'événement
-            data_obj = data.get("data", {})
-            method = data_obj.get("method") if isinstance(data_obj, dict) else None
-            
-            # Publier les événements du serveur
-            await self.event_bus.publish("snapclient_server_event", {
-                "source": "snapclient",
-                "method": method,
-                "data": data.get("data", {}),
-                "timestamp": time.time()
-            })
     
     def _save_last_known_server(self, server: SnapclientServer) -> None:
         """Enregistre les informations du serveur dans le cache."""

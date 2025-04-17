@@ -12,12 +12,15 @@
                 </button>
             </div>
 
-            <!-- Afficher des informations de débogage en dev -->
-            <div v-if="isDev" class="debug-info">
-                <p>État du plugin: {{ snapclientStore.pluginState }}</p>
-                <p>isConnected (store): {{ snapclientStore.isConnected }}</p>
-                <p>isConnected (réactif): {{ realTimeConnected }}</p>
-                <p>Serveurs trouvés: {{ snapclientStore.discoveredServers.length }}</p>
+            <!-- Liste des serveurs découverts si disponible -->
+            <div v-if="snapclientStore.discoveredServers.length > 0" class="servers-list">
+                <h3>Serveurs disponibles:</h3>
+                <ul>
+                    <li v-for="server in snapclientStore.discoveredServers" :key="server.host"
+                        @click="connectToServer(server.host)" class="server-item">
+                        {{ server.name }} ({{ server.host }})
+                    </li>
+                </ul>
             </div>
 
             <div v-if="snapclientStore.error" class="error-message">
@@ -63,8 +66,18 @@ const wsUnsubscribers = [];
 // État réactif pour la connexion, indépendant du store
 const realTimeConnected = ref(snapclientStore.isConnected);
 
-// Définir une constante pour le mode dev
-const isDev = import.meta.env.DEV;
+// Connecter à un serveur spécifique
+async function connectToServer(host) {
+    try {
+        isDiscovering.value = true;
+        await snapclientStore.connectToServer(host);
+        realTimeConnected.value = snapclientStore.isConnected;
+    } catch (err) {
+        console.error('Erreur de connexion:', err);
+    } finally {
+        isDiscovering.value = false;
+    }
+}
 
 // Vérifier la connexion directement avec l'API
 async function checkConnectionStatus() {
@@ -84,27 +97,29 @@ async function checkConnectionStatus() {
             if (!newStatus && snapclientStore.isConnected) {
                 snapclientStore.forceDisconnect("verification_status");
             }
+            // Si connecté, mettre à jour le store aussi
+            if (newStatus && !snapclientStore.isConnected) {
+                snapclientStore.updateConnectionState(true, {
+                    device_name: response.data.device_name,
+                    host: response.data.host
+                });
+            }
         }
     } catch (error) {
         console.error("Erreur lors de la vérification de l'état:", error);
-        // En cas d'erreur, considérer comme déconnecté
-        realTimeConnected.value = false;
     }
 }
 
 // Observer les changements dans le store
 watch(() => snapclientStore.isConnected, (newValue) => {
+    console.log(`🔄 isConnected changé dans le store: ${newValue}`);
     realTimeConnected.value = newValue;
 });
 
 // Formater le nom du serveur
 const formattedServerName = computed(() => {
     if (!snapclientStore.deviceName) return 'Serveur inconnu';
-
-    // Nettoyer et formater le nom
-    const name = snapclientStore.deviceName
-        .replace(/\.local$|\.home$/g, '');
-
+    const name = snapclientStore.deviceName.replace(/\.local$|\.home$/g, '');
     return name.charAt(0).toUpperCase() + name.slice(1);
 });
 
@@ -114,41 +129,10 @@ async function discoverServers() {
 
     try {
         isDiscovering.value = true;
-
-        // Découvrir les serveurs
         const result = await snapclientStore.discoverServers();
-
-        if (!result.servers || result.servers.length === 0) {
-            console.log("Aucun serveur trouvé");
-            return;
-        }
-
-        // Tenter de se connecter au dernier serveur connu
-        const lastServer = localStorage.getItem('lastSnapclientServer');
-        if (lastServer) {
-            try {
-                const serverData = JSON.parse(lastServer);
-                // Vérifier si le dernier serveur est toujours disponible
-                const foundServer = result.servers.find(s => s.host === serverData.host);
-
-                if (foundServer) {
-                    console.log("Reconnexion au dernier serveur:", serverData.host);
-                    await snapclientStore.connectToServer(serverData.host);
-                    return;
-                }
-            } catch (e) {
-                console.error("Erreur de parsing du dernier serveur:", e);
-            }
-        }
-
-        // Si un seul serveur est disponible, s'y connecter automatiquement
-        if (result.servers.length === 1) {
-            const server = result.servers[0];
-            console.log("Un seul serveur disponible, connexion automatique:", server.name);
-            await snapclientStore.connectToServer(server.host);
-        }
+        console.log("Serveurs découverts:", result);
     } catch (err) {
-        console.error("Erreur lors de la découverte/connexion:", err);
+        console.error('Erreur lors de la découverte des serveurs:', err);
     } finally {
         isDiscovering.value = false;
     }
@@ -158,49 +142,36 @@ async function discoverServers() {
 async function disconnect() {
     try {
         await snapclientStore.disconnectFromServer();
-        // Mettre à jour immédiatement notre état local aussi
         realTimeConnected.value = false;
     } catch (err) {
         console.error('Erreur de déconnexion:', err);
-        // Forcer la mise à jour de l'état en cas d'erreur
         realTimeConnected.value = false;
-    }
-}
-
-// Gérer les événements critiques spécifiques
-function handleCriticalEvent(event) {
-    console.warn("🔥 Événement critique reçu via DOM", event.detail);
-    
-    if (audioStore.currentState === 'macos' && 
-        (event.detail.type === 'snapclient_monitor_disconnected' || 
-         event.detail.type === 'snapclient_server_disappeared')) {
-        // Mettre à jour notre état local immédiatement
-        realTimeConnected.value = false;
-        
-        // Forcer la mise à jour du store
-        snapclientStore.forceDisconnect(event.detail.type);
-        
-        // Vérifier l'état réel auprès de l'API
-        checkConnectionStatus();
     }
 }
 
 // Configurer les écouteurs d'événements WebSocket
 function setupWebSocketEvents() {
-    // Événements critiques
-    ['snapclient_monitor_connected', 'snapclient_monitor_disconnected', 'snapclient_server_disappeared'].forEach(eventType => {
+    // Événements critiques - attention au log pour le debug
+    ['snapclient_monitor_connected', 'snapclient_monitor_disconnected', 'snapclient_server_disappeared', 'snapclient_server_discovered'].forEach(eventType => {
         const unsub = on(eventType, (data) => {
             console.log(`⚡ Événement WebSocket reçu: ${eventType}`, data);
             
             // Mise à jour directe de notre état réactif
             if (eventType === 'snapclient_monitor_disconnected' || eventType === 'snapclient_server_disappeared') {
+                console.log('🔌 Déconnexion détectée via WebSocket');
                 realTimeConnected.value = false;
             } else if (eventType === 'snapclient_monitor_connected') {
+                console.log('🔌 Connexion détectée via WebSocket');
                 realTimeConnected.value = true;
             }
             
-            // Mettre à jour le store
-            snapclientStore.updateFromWebSocketEvent(eventType, data);
+            // Mettre à jour le store (vérifie si le WebSocket est connecté)
+            if (wsConnected.value) {
+                snapclientStore.updateFromWebSocketEvent(eventType, data);
+                
+                // Vérifier l'état réel dans tous les cas
+                setTimeout(checkConnectionStatus, 100);
+            }
         });
         wsUnsubscribers.push(unsub);
     });
@@ -208,44 +179,31 @@ function setupWebSocketEvents() {
     // Mettre à jour l'état
     const unsubAudio = on('audio_status_updated', (data) => {
         if (data.source === 'snapclient') {
+            console.log('📊 État audio mis à jour:', data);
             snapclientStore.updateFromStateEvent(data);
+            
             // Synchroniser notre état local avec les mises à jour d'état
             if (data.plugin_state === 'ready' || data.plugin_state === 'inactive') {
                 realTimeConnected.value = false;
             } else if (data.plugin_state === 'connected' && data.connected === true) {
                 realTimeConnected.value = true;
             }
+            
+            // Vérifier l'état réel
+            setTimeout(checkConnectionStatus, 100);
         }
     });
     wsUnsubscribers.push(unsubAudio);
-
-    // Ajouter un écouteur pour les événements globaux de déconnexion
-    const handleGlobalDisconnect = (event) => {
-        console.log("🔌 Événement global de déconnexion reçu", event.detail);
-        // Mettre à jour notre état local
-        realTimeConnected.value = false;
-        // Rafraîchir immédiatement le statut
-        snapclientStore.fetchStatus(true);
-    };
-    
-    document.addEventListener('snapclient-disconnected', handleGlobalDisconnect);
-    wsUnsubscribers.push(() => {
-        document.removeEventListener('snapclient-disconnected', handleGlobalDisconnect);
-    });
-    
-    // Ajouter l'écouteur pour les événements critiques
-    window.addEventListener('snapclient-critical-event', handleCriticalEvent);
-    wsUnsubscribers.push(() => {
-        window.removeEventListener('snapclient-critical-event', handleCriticalEvent);
-    });
 }
 
 onMounted(async () => {
-    // Récupérer le statut initial
+    // Récupérer le statut initial et forcer le rafraîchissement des données
+    console.log('📊 Composant monté, récupération du statut initial');
     await snapclientStore.fetchStatus(true);
     
     // Initialiser notre état local réactif
     realTimeConnected.value = snapclientStore.isConnected;
+    console.log(`État initial: ${realTimeConnected.value ? 'Connecté' : 'Déconnecté'}`);
 
     // Configurer les événements WebSocket
     setupWebSocketEvents();
@@ -256,11 +214,12 @@ onMounted(async () => {
     // Configurer une détection périodique tant qu'on n'est pas connecté
     reconnectTimer = setInterval(() => {
         if (audioStore.currentState === 'macos' && !realTimeConnected.value) {
+            console.log('🔄 Détection périodique des serveurs');
             discoverServers();
         }
     }, 10000); // Toutes les 10 secondes
     
-    // Vérification périodique légère de l'état de connexion réel
+    // Vérification périodique de l'état de connexion réel
     connectionCheckTimer = setInterval(() => {
         if (audioStore.currentState === 'macos') {
             checkConnectionStatus();
@@ -270,13 +229,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
     // Nettoyer les intervalles
-    if (reconnectTimer) {
-        clearInterval(reconnectTimer);
-    }
-    
-    if (connectionCheckTimer) {
-        clearInterval(connectionCheckTimer);
-    }
+    if (reconnectTimer) clearInterval(reconnectTimer);
+    if (connectionCheckTimer) clearInterval(connectionCheckTimer);
 
     // Nettoyer les abonnements WebSocket
     wsUnsubscribers.forEach(unsub => unsub && unsub());
@@ -302,13 +256,22 @@ onUnmounted(() => {
   margin-top: 1rem;
 }
 
-.debug-info {
+.servers-list {
   margin-top: 1rem;
-  padding: 0.5rem;
-  border: 1px dashed #aaa;
-  background-color: #f0f0f0;
-  font-size: 0.8rem;
   text-align: left;
+}
+
+.server-item {
+  padding: 0.5rem;
+  margin: 0.25rem 0;
+  background-color: #eee;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.server-item:hover {
+  background-color: #ddd;
 }
 
 button {

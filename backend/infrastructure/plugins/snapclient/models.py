@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 
-@dataclass
+@dataclass(frozen=True)
 class SnapclientServer:
     """
     Représente un serveur Snapcast découvert sur le réseau.
