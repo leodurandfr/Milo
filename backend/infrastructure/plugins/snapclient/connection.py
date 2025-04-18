@@ -1,8 +1,7 @@
 """
-Gestion des connexions aux serveurs Snapcast - Version optimisée.
+Gestion des connexions aux serveurs Snapcast - Version simplifiée.
 """
 import logging
-import asyncio
 import uuid
 from typing import Dict, Any, Optional, List
 
@@ -11,7 +10,7 @@ from backend.infrastructure.plugins.snapclient.process import SnapclientProcess
 
 class SnapclientConnection:
     """
-    Gère la connexion à un serveur Snapcast et les demandes de connexion.
+    Gère la connexion à un serveur Snapcast.
     Version simplifiée.
     """
     
@@ -28,21 +27,11 @@ class SnapclientConnection:
         self.plugin = plugin 
         self.current_server: Optional[SnapclientServer] = None
         self.pending_requests: Dict[str, ConnectionRequest] = {}
-        self.auto_connect = False
-    
-    def set_auto_connect(self, value: bool):
-        """
-        Définit si le plugin doit se connecter automatiquement aux serveurs découverts.
-        
-        Args:
-            value: True pour activer la connexion automatique, False sinon
-        """
-        self.auto_connect = value
+        self.auto_connect = True  # Auto-connexion activée par défaut
     
     async def connect(self, server: SnapclientServer) -> bool:
         """
         Se connecte à un serveur Snapcast.
-        Version simplifiée.
         
         Args:
             server: Serveur auquel se connecter
@@ -66,10 +55,11 @@ class SnapclientConnection:
                 return success
             
             # Si nous sommes connectés à un serveur différent, nous déconnecter d'abord
+            # mais sans arrêter le processus
             if self.current_server:
-                await self.disconnect()
+                await self.disconnect(stop_process=False)
             
-            # Démarrer le processus avec le nouvel hôte
+            # Démarrer ou rediriger le processus avec le nouvel hôte
             success = await self.process_manager.start(server.host)
             
             if success:
@@ -89,11 +79,14 @@ class SnapclientConnection:
             self.logger.error(f"Erreur lors de la connexion: {str(e)}")
             return False
     
-    async def disconnect(self) -> bool:
+    async def disconnect(self, stop_process: bool = False) -> bool:
         """
         Se déconnecte du serveur actuel.
-        Version simplifiée.
         
+        Args:
+            stop_process: Si True, arrête complètement le processus snapclient.
+                          Si False, le laisse en attente pour une future connexion.
+                
         Returns:
             bool: True si la déconnexion a réussi, False sinon
         """
@@ -107,11 +100,21 @@ class SnapclientConnection:
             if hasattr(self, 'plugin') and hasattr(self.plugin, 'monitor'):
                 await self.plugin.monitor.stop()
             
-            # Arrêter le processus
-            await self.process_manager.stop()
+            # Sauvegarder le nom du serveur pour le log
+            server_name = self.current_server.name
             
             # Réinitialiser l'état de connexion
             self.current_server = None
+            
+            # Arrêter le processus uniquement si demandé
+            if stop_process:
+                self.logger.info(f"Arrêt complet du processus snapclient (déconnexion de {server_name})")
+                await self.process_manager.stop()
+            else:
+                self.logger.info(f"Processus snapclient maintenu en attente (déconnexion de {server_name})")
+                # Optionnel : redémarrer sans hôte spécifique pour être en mode découverte
+                # Décommentez la ligne suivante si vous voulez que snapclient soit en mode "attente"
+                # await self.process_manager.restart()
             
             return True
                 
@@ -159,9 +162,9 @@ class SnapclientConnection:
         if accept:
             self.logger.info(f"Acceptation de la demande {request_id} pour {request.server.name}")
             
-            # Se déconnecter du serveur actuel si nécessaire
+            # Se déconnecter du serveur actuel si nécessaire, sans arrêter le processus
             if self.current_server:
-                await self.disconnect()
+                await self.disconnect(stop_process=False)
             
             # Se connecter au nouveau serveur
             success = await self.connect(request.server)

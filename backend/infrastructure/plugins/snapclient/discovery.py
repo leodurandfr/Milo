@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/snapclient/discovery.py
 """
-Découverte des serveurs Snapcast sur le réseau - Version Zeroconf événementielle.
+Découverte des serveurs Snapcast sur le réseau - Version simplifiée.
 """
 import asyncio
 import logging
@@ -15,8 +15,7 @@ from backend.infrastructure.plugins.snapclient.models import SnapclientServer
 
 class SnapclientDiscoveryListener(ServiceListener):
     """
-    Détecte les serveurs Snapcast via Zeroconf de manière événementielle.
-    Utilise une queue standard pour éviter les problèmes de boucle d'événements.
+    Détecte les serveurs Snapcast via Zeroconf.
     """
     
     def __init__(self, event_queue, loop):
@@ -58,7 +57,7 @@ class SnapclientDiscoveryListener(ServiceListener):
 class SnapclientDiscovery:
     """
     Détecte les serveurs Snapcast sur le réseau via Zeroconf.
-    Version événementielle avec queue thread-safe.
+    Version simplifiée.
     """
     
     def __init__(self):
@@ -75,7 +74,7 @@ class SnapclientDiscovery:
     async def start(self):
         """Démarre la découverte des serveurs Snapcast."""
         if self.zeroconf:
-            return
+            return True
             
         self.logger.info("Démarrage de la découverte Zeroconf des serveurs Snapcast")
         
@@ -106,6 +105,8 @@ class SnapclientDiscovery:
     
     async def stop(self):
         """Arrête la découverte des serveurs Snapcast."""
+        self.logger.info("Arrêt de la découverte Zeroconf")
+        
         if self.event_processor_task and not self.event_processor_task.done():
             self.event_processor_task.cancel()
             try:
@@ -182,7 +183,6 @@ class SnapclientDiscovery:
     def _service_info_to_server(self, info: AsyncServiceInfo) -> Optional[SnapclientServer]:
         """
         Convertit les informations de service en objet SnapclientServer.
-        Supporte AsyncServiceInfo.
         
         Args:
             info: Informations sur le service Snapcast
@@ -285,7 +285,7 @@ class SnapclientDiscovery:
             await self.start()
             
             # Attendre un peu pour laisser la découverte initiale se faire
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.5)
         
         # Retourner la liste actuelle des serveurs
         return list(self.discovered_servers)
