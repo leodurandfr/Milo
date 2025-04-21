@@ -27,17 +27,3 @@ class SnapclientServer:
             "name": self.name,
             "port": self.port
         }
-
-
-@dataclass
-class ConnectionRequest:
-    """
-    Représente une demande de connexion à un serveur Snapcast.
-    """
-    server: SnapclientServer
-    request_id: str
-    timestamp: float = None
-    
-    def __post_init__(self):
-        if self.timestamp is None:
-            self.timestamp = datetime.now().timestamp()

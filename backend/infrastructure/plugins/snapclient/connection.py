@@ -15,32 +15,33 @@ class SnapclientConnection:
         self.process_manager = process_manager
         self.plugin = plugin
         self.current_server: Optional[SnapclientServer] = None
-        self.auto_connect = True
 
     async def connect(self, server: SnapclientServer) -> bool:
         """Se connecte à un serveur Snapcast."""
         try:
             self.logger.info(f"Connexion au serveur {server.name} ({server.host})")
             
-            if self.current_server and self.current_server.host == server.host:
-                process_info = await self.process_manager.get_process_info()
-                if process_info.get("running", False):
-                    self.logger.info(f"Déjà connecté au serveur {server.name}")
-                    return True
+            # Vérification simplifiée si déjà connecté au même serveur
+            if (self.current_server and 
+                self.current_server.host == server.host and 
+                (await self.process_manager.get_process_info()).get("running", False)):
+                self.logger.info(f"Déjà connecté au serveur {server.name}")
+                return True
 
+            # Déconnexion si on est connecté à un autre serveur
             if self.current_server:
                 await self.disconnect()
 
-            success = await self.process_manager.start(server.host)
-            if success:
+            # Démarrage du processus
+            if await self.process_manager.start(server.host):
                 self.current_server = server
                 self.logger.info(f"Connecté au serveur {server.name}")
                 if hasattr(self.plugin, 'monitor'):
                     await self.plugin.monitor.start(server.host)
                 return True
-            else:
-                self.logger.error(f"Échec de connexion au serveur {server.name}")
-                return False
+            
+            self.logger.error(f"Échec de connexion au serveur {server.name}")
+            return False
         except Exception as e:
             self.logger.error(f"Erreur lors de la connexion: {str(e)}")
             return False
@@ -64,7 +65,7 @@ class SnapclientConnection:
         except Exception as e:
             self.logger.error(f"Erreur lors de la déconnexion: {str(e)}")
             self.current_server = None
-            return True
+            return True  
 
     def get_connection_info(self) -> Dict[str, Any]:
         """Récupère des informations sur la connexion actuelle."""
