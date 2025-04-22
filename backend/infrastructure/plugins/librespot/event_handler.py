@@ -1,5 +1,5 @@
 """
-Gestionnaire d'événements pour le plugin librespot.
+Gestionnaire d'événements pour le plugin librespot - Version sans polling.
 """
 import logging
 import time
@@ -10,12 +10,72 @@ class EventHandler:
     
     def __init__(self, 
                  metadata_processor, 
-                 connection_status_callback: Optional[Callable[[bool], None]] = None):
+                 connection_status_callback: Optional[Callable[[bool], None]] = None,
+                 api_client = None):
         self.metadata_processor = metadata_processor
         self.connection_status_callback = connection_status_callback
+        self.api_client = api_client
         self.logger = logging.getLogger("librespot.events")
         self.last_seek_timestamp = 0
         self.min_seek_interval_ms = 100  # Intervalle minimum entre deux événements seek (100ms)
+        self.is_connected = False
+    
+    async def check_initial_state(self) -> None:
+        """
+        Effectue une vérification initiale unique de l'état à partir de l'API.
+        """
+        if not self.api_client:
+            self.logger.warning("API client non disponible, impossible de vérifier l'état initial")
+            return
+            
+        try:
+            self.logger.info("Vérification initiale de l'état de connexion")
+            status = await self.api_client.fetch_status()
+            
+            # Vérifier la connexion dans le statut
+            is_connected = bool(status.get("username")) or bool(status.get("connected")) or bool(status.get("deviceConnected"))
+            
+            # Vérifier si le player a des données
+            if status.get("player", {}).get("current_track"):
+                is_connected = True
+            
+            # Mettre à jour l'état de connexion
+            self.is_connected = is_connected
+            
+            if self.connection_status_callback:
+                self.connection_status_callback(is_connected)
+                
+            # Si connecté, publier les métadonnées initiales
+            if is_connected:
+                metadata = await self.metadata_processor.extract_from_status(status)
+                if metadata:
+                    await self.metadata_processor.publish_metadata(metadata)
+                    
+                    # Publier l'état initial
+                    is_playing = metadata.get("is_playing", False)
+                    await self.metadata_processor.publish_status(
+                        "playing" if is_playing else "paused",
+                        {
+                            "is_playing": is_playing,
+                            "connected": True,
+                            "deviceConnected": True
+                        }
+                    )
+                else:
+                    # Publier juste l'état connecté
+                    await self.metadata_processor.publish_status("connected", {
+                        "connected": True,
+                        "deviceConnected": True
+                    })
+            else:
+                # Publier l'état déconnecté
+                await self.metadata_processor.publish_status("disconnected", {
+                    "connected": False,
+                    "deviceConnected": False
+                })
+                
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la vérification initiale: {e}")
     
     async def handle_event(self, event_type: str, event_data: Dict[str, Any]) -> None:
         """
@@ -25,50 +85,47 @@ class EventHandler:
             event_type: Type d'événement
             event_data: Données de l'événement
         """
-        self.logger.info(f"Événement WebSocket go-librespot reçu: {event_type}")
-        self.logger.debug(f"Données de l'événement: {event_data}")
+        self.logger.info(f"Événement WebSocket reçu: {event_type}")
         
-        # État de connexion persistant
-        connection_state = True
-        
-        # Si un callback d'état de connexion est défini, l'appeler
-        if self.connection_status_callback:
-            self.connection_status_callback(connection_state)
-        
+        # Traiter les événements qui indiquent une connexion
+        if event_type in ['active', 'metadata', 'will_play', 'playing', 'paused', 'seek']:
+            if not self.is_connected:
+                self.is_connected = True
+                if self.connection_status_callback:
+                    self.connection_status_callback(True)
+                    
+        # Traiter les événements spécifiques
         if event_type == 'active':
-            # Appareil devient actif - TOUJOURS considérer comme connecté
             await self.metadata_processor.publish_status("active", {
                 "connected": True,
                 "deviceConnected": True
             })
             
         elif event_type == 'inactive':
-            # Appareil devient inactif - toujours publier l'événement
+            # Cet événement peut indiquer une déconnexion
+            self.is_connected = False
+            if self.connection_status_callback:
+                self.connection_status_callback(False)
+                
             await self.metadata_processor.publish_status("inactive", {
                 "connected": False,
                 "deviceConnected": False
             })
                 
         elif event_type == 'metadata':
-            # Nouvelles métadonnées de piste - TOUJOURS marquer comme connecté
             metadata = await self.metadata_processor.extract_from_event(event_type, event_data)
             if metadata:
                 await self.metadata_processor.publish_metadata(metadata)
             
         elif event_type in ['will_play', 'playing']:
-            # Lecture en cours - TOUJOURS marquer comme connecté
             await self.metadata_processor.publish_status("playing", {
                 "is_playing": True,
                 "connected": True,
                 "deviceConnected": True,
                 "track_uri": event_data.get("uri")
             })
-            
-            # Force immédiate log pour débogage
-            self.logger.info("Événement playing reçu - État mis à jour: is_playing=True")
                 
         elif event_type == 'paused':
-            # Lecture en pause - maintenir l'état connecté
             await self.metadata_processor.publish_status("paused", {
                 "is_playing": False,
                 "connected": True,
@@ -76,24 +133,35 @@ class EventHandler:
                 "track_uri": event_data.get("uri")
             })
             
-            # Force immédiate log pour débogage
-            self.logger.info("Événement paused reçu - État mis à jour: is_playing=False")
-            
         elif event_type == 'seek':
-            # Changement de position dans la piste
             await self._handle_seek_event(event_data)
                 
         elif event_type == 'stopped':
-            # Lecture arrêtée - maintenir l'état connecté
             await self.metadata_processor.publish_status("stopped", {
                 "is_playing": False,
                 "connected": True,
                 "deviceConnected": True
             })
             
-        else:
-            # Autres événements non gérés spécifiquement
-            self.logger.debug(f"Événement non traité spécifiquement: {event_type}")
+        elif event_type == 'ws_connected':
+            self.logger.info("Connexion WebSocket établie")
+            # Vérifier l'état après connexion WebSocket
+            await self.check_initial_state()
+            
+        elif event_type == 'ws_disconnected':
+            self.logger.warning("Connexion WebSocket perdue")
+            # Une déconnexion WebSocket n'implique pas nécessairement une déconnexion du device
+            
+        elif event_type == 'connection_lost':
+            # Événement spécial envoyé par le client WebSocket en cas de déconnexion prolongée
+            self.is_connected = False
+            if self.connection_status_callback:
+                self.connection_status_callback(False)
+                
+            await self.metadata_processor.publish_status("disconnected", {
+                "connected": False,
+                "deviceConnected": False
+            })
     
     async def _handle_seek_event(self, event_data: Dict[str, Any]) -> None:
         """
@@ -112,7 +180,6 @@ class EventHandler:
             
             # Ignorer les événements trop fréquents
             if time_since_last_seek < self.min_seek_interval_ms:
-                self.logger.debug(f"Événement seek ignoré (trop fréquent: {time_since_last_seek}ms < {self.min_seek_interval_ms}ms)")
                 return
             
             # Créer un dictionnaire avec les données de seek enrichies
@@ -131,5 +198,3 @@ class EventHandler:
             
             # Publier un événement spécifique de seek via le bus d'événements
             await self.metadata_processor.event_bus.publish("audio_seek", seek_data)
-            
-            self.logger.info(f"Événement de seek traité: position={position}ms, durée={duration}ms, intervalle={time_since_last_seek}ms")

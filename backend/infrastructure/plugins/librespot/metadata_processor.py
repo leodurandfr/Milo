@@ -2,6 +2,7 @@
 Traitement des métadonnées pour le plugin librespot - Version optimisée.
 """
 import logging
+import time
 from typing import Dict, Any, List, Optional, Callable, Tuple
 from backend.application.event_bus import EventBus
 
@@ -46,7 +47,6 @@ class MetadataProcessor:
         self.source_name = source_name
         self.logger = logging.getLogger(f"librespot.metadata")
         self.last_metadata = {}
-        self.log_interval_counter = 0  # Compteur pour réduire la fréquence des logs
     
     def get_nested_value(self, data: Dict[str, Any], path: str) -> Any:
         """
@@ -75,7 +75,7 @@ class MetadataProcessor:
     
     async def extract_from_status(self, status: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Extrait les métadonnées à partir d'un statut - version optimisée.
+        Extrait les métadonnées à partir d'un statut.
         
         Args:
             status: Statut de go-librespot
@@ -145,11 +145,9 @@ class MetadataProcessor:
                     return result
                 return {}
             
-            # Logs moins fréquents (1 sur 5)
-            self.log_interval_counter = (self.log_interval_counter + 1) % 5
-            if self.log_interval_counter == 0:
-                self.logger.info(f"Métadonnées extraites: title={result.get('title', 'Non disponible')}, "
-                                f"artist={result.get('artist', 'Non disponible')}")
+            # Afficher un résumé des métadonnées
+            self.logger.info(f"Métadonnées extraites: title={result.get('title', 'Non disponible')}, "
+                            f"artist={result.get('artist', 'Non disponible')}")
             
             return result
                 
@@ -192,7 +190,7 @@ class MetadataProcessor:
     
     async def publish_metadata(self, metadata: Dict[str, Any]) -> None:
         """
-        Publie des métadonnées sur le bus d'événements - version optimisée.
+        Publie des métadonnées sur le bus d'événements.
         
         Args:
             metadata: Métadonnées à publier
@@ -221,12 +219,6 @@ class MetadataProcessor:
         # Mettre à jour les dernières métadonnées
         self.last_metadata = merged_metadata.copy()
         
-        # Logs moins fréquents (1 sur 3)
-        self.log_interval_counter = (self.log_interval_counter + 1) % 3
-        if self.log_interval_counter == 0:
-            self.logger.info(f"Publication de métadonnées: title={merged_metadata.get('title', 'Non disponible')}, "
-                            f"artist={merged_metadata.get('artist', 'Non disponible')}")
-        
         # Publier les métadonnées
         await self.event_bus.publish("audio_metadata_updated", {
             "source": self.source_name,
@@ -249,14 +241,13 @@ class MetadataProcessor:
             "source": self.source_name,
             "status": status,
             "connected": is_connected,
+            "deviceConnected": is_connected,
             "is_playing": status == "playing"
         }
         
         # Ajouter les détails supplémentaires s'ils existent
         if details:
-            for key, value in details.items():
-                if key not in status_data or details.get("force_override", False):
-                    status_data[key] = value
+            status_data.update(details)
         
-        # Publier l'événement sans logging excessif
+        # Publier l'événement
         await self.event_bus.publish("audio_status_updated", status_data)

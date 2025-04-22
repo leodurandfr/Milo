@@ -1,5 +1,5 @@
 """
-Client WebSocket pour communiquer avec go-librespot.
+Client WebSocket pour communiquer avec go-librespot - Version améliorée sans polling.
 """
 import aiohttp
 import asyncio
@@ -60,6 +60,7 @@ class LibrespotWebSocketClient:
         """Boucle principale de la connexion WebSocket avec reconnexion automatique"""
         retry_delay = 1
         max_retry_delay = 30
+        connection_lost_time = None
         
         while True:
             try:
@@ -72,6 +73,7 @@ class LibrespotWebSocketClient:
                     self.logger.info("Connexion WebSocket établie")
                     self.is_connected = True
                     retry_delay = 1  # Réinitialiser le délai
+                    connection_lost_time = None  # Réinitialiser le timer de perte de connexion
                     
                     # Informer de la connexion WebSocket
                     await self.event_handler("ws_connected", {"ws_connected": True})
@@ -82,9 +84,6 @@ class LibrespotWebSocketClient:
                                 data = json.loads(msg.data)
                                 event_type = data.get('type')
                                 event_data = data.get('data', {})
-                                
-                                # Log l'événement reçu
-                                self.logger.debug(f"Événement WebSocket reçu: {event_type}")
                                 
                                 # Appeler le gestionnaire d'événements
                                 await self.event_handler(event_type, event_data)
@@ -98,18 +97,52 @@ class LibrespotWebSocketClient:
                             break
                 
                 self.is_connected = False
-                self.logger.warning("Connexion WebSocket fermée, reconnexion...")
+                self.logger.warning("Connexion WebSocket fermée, tentative de reconnexion...")
+                
+                # Marquer le moment où nous avons perdu la connexion
+                if connection_lost_time is None:
+                    connection_lost_time = asyncio.get_event_loop().time()
+                
+                # Informer de la déconnexion WebSocket
+                await self.event_handler("ws_disconnected", {"ws_disconnected": True})
                 
             except aiohttp.ClientError as e:
                 self.is_connected = False
                 self.logger.error(f"Erreur de connexion WebSocket: {e}")
+                
+                # Marquer le moment où nous avons perdu la connexion
+                if connection_lost_time is None:
+                    connection_lost_time = asyncio.get_event_loop().time()
+                
+                # Informer de la déconnexion WebSocket
+                await self.event_handler("ws_disconnected", {"ws_disconnected": True})
+                
             except asyncio.CancelledError:
                 self.is_connected = False
                 self.logger.info("Tâche WebSocket annulée")
                 return
+                
             except Exception as e:
                 self.is_connected = False
                 self.logger.error(f"Erreur WebSocket inattendue: {e}")
+                
+                # Marquer le moment où nous avons perdu la connexion
+                if connection_lost_time is None:
+                    connection_lost_time = asyncio.get_event_loop().time()
+                
+                # Informer de la déconnexion WebSocket
+                await self.event_handler("ws_disconnected", {"ws_disconnected": True})
+            
+            # Vérifier si la déconnexion est prolongée (20 secondes)
+            current_time = asyncio.get_event_loop().time()
+            if connection_lost_time and (current_time - connection_lost_time > 20):
+                # Après 20 secondes sans connexion, considérer comme déconnecté
+                self.logger.warning("Connexion WebSocket perdue depuis plus de 20 secondes")
+                await self.event_handler("connection_lost", {
+                    "reason": "websocket_timeout",
+                    "duration": current_time - connection_lost_time
+                })
+                connection_lost_time = current_time  # Réinitialiser pour ne pas spammer
             
             # Attendre avant de reconnecter (avec backoff exponentiel)
             await asyncio.sleep(retry_delay)

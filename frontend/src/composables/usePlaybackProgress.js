@@ -20,6 +20,9 @@ export function usePlaybackProgress() {
   
   // Fonction pour mettre à jour la position basée sur le temps réel
   function updatePosition() {
+    // Si pas en lecture, ne pas mettre à jour
+    if (!audioStore.metadata?.is_playing) return;
+    
     // Calculer le temps écoulé depuis la dernière mise à jour
     const now = Date.now();
     const elapsedMs = now - lastUpdateTime.value;
@@ -95,11 +98,11 @@ export function usePlaybackProgress() {
   });
   
   // Surveiller l'état de lecture
-  watch(() => audioStore.metadata?.is_playing, (isPlaying) => {
-    if (isPlaying === true) {
+  watch(() => audioStore.isPlaying, (isPlaying) => {
+    if (isPlaying) {
       syncFromMetadata();
       startSimulation();
-    } else if (isPlaying === false) {
+    } else {
       stopSimulation();
     }
   });
@@ -110,9 +113,19 @@ export function usePlaybackProgress() {
       syncFromMetadata();
       
       // Redémarrer la simulation si lecture en cours
-      if (audioStore.metadata?.is_playing !== false) {
+      if (audioStore.isPlaying) {
         startSimulation();
       }
+    }
+  });
+  
+  // Surveiller l'état de connexion
+  watch(() => audioStore.isDisconnected, (isDisconnected) => {
+    if (isDisconnected) {
+      stopSimulation();
+    } else if (audioStore.isPlaying) {
+      syncFromMetadata();
+      startSimulation();
     }
   });
   
@@ -152,7 +165,7 @@ export function usePlaybackProgress() {
     syncFromMetadata();
     
     // Démarrer la simulation si une piste est en cours de lecture
-    if (audioStore.metadata?.title && audioStore.metadata?.is_playing !== false) {
+    if (audioStore.isPlaying) {
       startSimulation();
     }
   });
