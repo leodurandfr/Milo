@@ -75,6 +75,11 @@ const snapclientStore = useSnapclientStore();
 const { on } = useWebSocket();
 
 async function changeSource(source) {
+  // Si on quitte librespot, nettoyer l'état
+  if (audioStore.currentState === 'librespot' && source !== 'librespot') {
+    librespotStore.clearState();
+  }
+  
   await audioStore.changeSource(source);
 }
 

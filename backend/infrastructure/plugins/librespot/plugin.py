@@ -54,6 +54,10 @@ class LibrespotPlugin(BaseAudioPlugin):
     async def start(self) -> bool:
         """Démarre le plugin"""
         try:
+            # S'assurer que la session existe (au cas où elle aurait été fermée dans stop())
+            if not self.session:
+                self.session = aiohttp.ClientSession()
+            
             # Démarrer le processus si nécessaire
             if not self._is_process_running():
                 self.process = subprocess.Popen([self.executable_path])
@@ -85,6 +89,11 @@ class LibrespotPlugin(BaseAudioPlugin):
             if self.session:
                 await self.session.close()
                 self.session = None
+            
+            # Nettoyer les métadonnées et l'état
+            self.last_metadata = {}
+            self.is_playing = False
+            self.device_connected = False
                 
             return True
         except Exception as e:
