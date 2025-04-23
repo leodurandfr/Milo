@@ -16,7 +16,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
   const isLoading = ref(false);
 
   // Un seul getter essentiel
-  const currentServer = computed(() => isConnected.value ? 
+  const currentServer = computed(() => isConnected.value ?
     { name: deviceName.value, host: host.value } : null);
 
   function updateConnectionState(connected, details = {}) {
@@ -74,17 +74,24 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       return true;
     }
 
-    // Gestion des connexions
-    if (eventType === 'snapclient_monitor_connected' && host.value === data.host) {
+    // Gestion des connexions - Correction ici
+    if (eventType === 'snapclient_monitor_connected' && data.host) {
       error.value = null;
+      // Utiliser le nom fourni dans l'événement ou chercher dans les serveurs découverts
+      const serverName = data.device_name || (() => {
+        const server = discoveredServers.value.find(s => s.host === data.host);
+        return server ? server.name : `Snapserver (${data.host})`;
+      })();
+
       updateConnectionState(true, {
         source: eventType,
         host: data.host,
+        device_name: serverName,
         timestamp: data.timestamp
       });
       return true;
     }
-    
+
     // Gestion des découvertes de serveurs
     if (eventType === 'snapclient_server_discovered' && data.server) {
       const exists = discoveredServers.value.some(s => s.host === data.server.host);
@@ -118,10 +125,10 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       return data;
     } catch (err) {
       error.value = err.message || 'Erreur de communication';
-      
+
       // Déconnexion en cas d'erreur réseau
-      if (err.response?.status >= 500 || err.code === 'ECONNABORTED' || 
-          err.message.includes('Network Error')) {
+      if (err.response?.status >= 500 || err.code === 'ECONNABORTED' ||
+        err.message.includes('Network Error')) {
         updateConnectionState(false, { source: 'network_error', reason: 'api_unreachable' });
       }
       throw err;
@@ -140,7 +147,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       const data = response.data;
 
       if (data.status === 'error') throw new Error(data.message);
-      
+
       await fetchStatus(true);
       return data;
     } catch (err) {
@@ -157,7 +164,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
       isLoading.value = true;
       error.value = null;
       const response = await axios.post('/api/snapclient/disconnect');
-      
+
       // Mise à jour immédiate de l'UI
       updateConnectionState(false, { source: 'manual_disconnect', reason: 'user_requested' });
       return response.data;
@@ -175,7 +182,7 @@ export const useSnapclientStore = defineStore('snapclient', () => {
     // État
     isActive, isConnected, deviceName, host, pluginState,
     discoveredServers, blacklistedServers, error, isLoading,
-    
+
     // Getters
     currentServer,
 

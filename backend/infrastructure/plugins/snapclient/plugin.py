@@ -134,8 +134,15 @@ class SnapclientPlugin(BaseAudioPlugin):
         host = data.get("host")
 
         if event_type == "monitor_connected":
+            # Inclure le nom du serveur dans l'événement
+            current_server_obj = self.connection_manager.current_server
+            device_name = current_server_obj.name if current_server_obj else None
+            
             await self.event_bus.publish("snapclient_monitor_connected", {
-                "source": "snapclient", "host": host, "plugin_state": self.current_state,
+                "source": "snapclient", 
+                "host": host, 
+                "device_name": device_name,  # Ajout du nom ici
+                "plugin_state": self.current_state,
                 "timestamp": time.time()
             })
 

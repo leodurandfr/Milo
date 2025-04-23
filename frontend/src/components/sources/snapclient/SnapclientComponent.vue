@@ -65,10 +65,15 @@ function setupWebSocketEvents() {
     return () => unsubscribers.forEach(unsub => unsub && unsub());
 }
 
+// Configurer les événements WebSocket avant le montage
+const cleanup = setupWebSocketEvents();
+
 onMounted(async () => {
     await snapclientStore.fetchStatus(true);
-    const cleanup = setupWebSocketEvents();
-    onUnmounted(cleanup);
+});
+
+onUnmounted(() => {
+    cleanup();
 });
 </script>
 
