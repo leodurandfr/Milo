@@ -1,262 +1,265 @@
 """
-Plugin pour la source audio librespot (Spotify) - Version sans polling.
+Plugin librespot simplifié - Version WebSocket uniquement
 """
 import asyncio
 import logging
 import os
+import subprocess
 import yaml
-from typing import Dict, Any
-
+import aiohttp
+import json
+from typing import Dict, Any, Optional
 from backend.application.event_bus import EventBus
 from backend.infrastructure.plugins.base import BaseAudioPlugin
-from backend.infrastructure.plugins.librespot.api_client import LibrespotApiClient
-from backend.infrastructure.plugins.librespot.websocket_client import LibrespotWebSocketClient
-from backend.infrastructure.plugins.librespot.metadata_processor import MetadataProcessor
-from backend.infrastructure.plugins.librespot.process_manager import ProcessManager
-from backend.infrastructure.plugins.librespot.event_handler import EventHandler
+
 
 class LibrespotPlugin(BaseAudioPlugin):
-    """Plugin pour intégrer go-librespot comme source audio."""
+    """Plugin Spotify via go-librespot - Version simplifiée"""
     
     def __init__(self, event_bus: EventBus, config: Dict[str, Any]):
         super().__init__(event_bus, "librespot")
         self.config = config
-        self.librespot_config_path = os.path.expanduser(config.get("config_path", "~/.config/go-librespot/config.yml"))
+        self.process = None
+        self.ws_task = None
+        self.session = None
+        self.config_path = os.path.expanduser(config.get("config_path", "~/.config/go-librespot/config.yml"))
         self.executable_path = os.path.expanduser(config.get("executable_path", "~/oakOS/go-librespot/go-librespot"))
-        
-        # URLs et composants (seront initialisés plus tard)
         self.api_url = None
         self.ws_url = None
-        self.process_manager = None
-        self.api_client = None
-        self.metadata_processor = None
-        self.event_handler = None
-        self.ws_client = None
-        self.device_connected = False
     
     async def initialize(self) -> bool:
-        """Initialise le plugin."""
-        self.logger.info("Initialisation du plugin librespot")
+        """Initialise le plugin"""
         try:
-            # Configuration URL
-            if not await self._read_librespot_config():
-                self.api_url = "http://localhost:3678"
-                self.ws_url = "ws://localhost:3678/events"
+            # Lire la configuration go-librespot
+            with open(self.config_path, 'r') as f:
+                librespot_config = yaml.safe_load(f)
             
-            # Initialiser les composants
-            self.process_manager = ProcessManager(self.executable_path)
-            self.api_client = LibrespotApiClient(self.api_url, self.librespot_config_path)
-            await self.api_client.initialize()
-            
-            self.metadata_processor = MetadataProcessor(self.event_bus, self.name)
-            self.event_handler = EventHandler(
-                self.metadata_processor, 
-                self._update_connection_status,
-                self.api_client
-            )
-            self.ws_client = LibrespotWebSocketClient(
-                self.ws_url,
-                self.event_handler.handle_event
-            )
-            await self.ws_client.initialize(self.api_client.session)
-            
-            await self.transition_to_state(self.STATE_INACTIVE)
-            return True
-        except Exception as e:
-            self.logger.error(f"Erreur d'initialisation: {str(e)}")
-            return False
-    
-    async def _read_librespot_config(self) -> bool:
-        """Lit la configuration go-librespot."""
-        try:
-            config_path = os.path.expanduser(self.librespot_config_path)
-            
-            if not os.path.exists(config_path):
-                return False
-            
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f)
-            
-            server = config.get('server', {})
-            if not server.get('enabled', False):
-                return False
-                
-            address = server.get('address', 'localhost')
-            if address == "0.0.0.0":
-                address = "localhost"
-                
+            server = librespot_config.get('server', {})
+            addr = server.get('address', 'localhost')
             port = server.get('port', 3678)
             
-            self.api_url = f"http://{address}:{port}"
-            self.ws_url = f"ws://{address}:{port}/events"
+            self.api_url = f"http://{addr}:{port}"
+            self.ws_url = f"ws://{addr}:{port}/events"
             
+            self.session = aiohttp.ClientSession()
             return True
         except Exception as e:
-            self.logger.error(f"Erreur config: {str(e)}")
+            self.logger.error(f"Erreur d'initialisation: {e}")
             return False
     
-    def _update_connection_status(self, is_connected: bool) -> None:
-        """Met à jour l'état de connexion."""
-        if is_connected != self.device_connected:
-            self.logger.info(f"État de connexion: {is_connected}")
-            self.device_connected = is_connected
-            
-            # Mise à jour de l'état
-            state_data = {
-                "connected": is_connected,
-                "deviceConnected": is_connected
-            }
-            asyncio.create_task(
-                self.transition_to_state(
-                    self.STATE_CONNECTED if is_connected else self.STATE_READY, 
-                    state_data
-                )
-            )
-    
     async def start(self) -> bool:
-        """Démarre la source audio."""
+        """Démarre le plugin"""
         try:
             # Démarrer le processus si nécessaire
-            if not self.process_manager.is_running():
-                if not await self.process_manager.start_process():
-                    await self.transition_to_state(self.STATE_ERROR)
-                    return False
-                await asyncio.sleep(1.0)
+            if not self._is_process_running():
+                self.process = subprocess.Popen([self.executable_path])
+                await asyncio.sleep(1)  # Attendre que le processus démarre
             
-            # Démarrer uniquement la connexion WebSocket
-            await self.ws_client.start()
-            
-            # Requête initiale pour vérifier l'état courant
-            await self.event_handler.check_initial_state()
-            
+            # Démarrer la connexion WebSocket
+            self.ws_task = asyncio.create_task(self._websocket_loop())
             self.is_active = True
-            await self.transition_to_state(self.STATE_READY)
             return True
         except Exception as e:
-            self.logger.error(f"Erreur démarrage: {str(e)}")
-            await self.transition_to_state(self.STATE_ERROR)
+            self.logger.error(f"Erreur de démarrage: {e}")
             return False
     
     async def stop(self) -> bool:
-        """Arrête la source audio."""
+        """Arrête le plugin"""
         try:
             self.is_active = False
             
-            # Arrêter la connexion WebSocket
-            await self.ws_client.stop()
-            
-            # Essayer de mettre en pause
-            try:
-                await self.api_client.send_command("pause")
-            except Exception:
-                pass
+            # Arrêter WebSocket
+            if self.ws_task:
+                self.ws_task.cancel()
+                self.ws_task = None
             
             # Arrêter le processus
-            await self.process_manager.stop_process()
+            if self.process:
+                self.process.terminate()
+                self.process = None
             
-            await self.transition_to_state(self.STATE_INACTIVE)
+            if self.session:
+                await self.session.close()
+                self.session = None
+                
             return True
         except Exception as e:
-            self.logger.error(f"Erreur arrêt: {str(e)}")
-            await self.transition_to_state(self.STATE_INACTIVE)
+            self.logger.error(f"Erreur d'arrêt: {e}")
             return False
     
-    async def get_status(self) -> Dict[str, Any]:
-        """Récupère l'état actuel."""
-        if not self.is_active:
-            return {
-                "is_active": False,
-                "plugin_state": self.current_state
-            }
+    def _is_process_running(self) -> bool:
+        """Vérifie si le processus est en cours"""
+        return self.process is not None and self.process.poll() is None
+    
+    async def _websocket_loop(self) -> None:
+        """Boucle WebSocket pour recevoir les événements"""
+        while self.is_active:
+            try:
+                async with self.session.ws_connect(self.ws_url) as ws:
+                    self.logger.info("WebSocket connecté à go-librespot")
+                    
+                    async for msg in ws:
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            event = json.loads(msg.data)
+                            await self._handle_websocket_event(event)
+                        elif msg.type == aiohttp.WSMsgType.ERROR:
+                            break
+            except Exception as e:
+                self.logger.error(f"Erreur WebSocket: {e}")
+                if self.is_active:
+                    await asyncio.sleep(3)  # Attendre avant de reconnecter
+    
+    async def _handle_websocket_event(self, event: Dict[str, Any]) -> None:
+        """Traite un événement WebSocket"""
+        event_type = event.get('type')
+        data = event.get('data', {})
+        
+        # Utiliser INFO au lieu de DEBUG pour voir ce qui se passe
+        self.logger.info(f"Événement WebSocket reçu: {event_type} - {data}")
+        
+        # Capture TOUS les événements pour voir ce qui arrive
+        if event_type:
+            self.logger.info(f"Type d'événement: {event_type}")
+        
+        # Mapping des événements
+        if event_type == 'active':
+            await self.event_bus.publish("audio_status_updated", {
+                "source": self.name,
+                "status": "active",
+                "connected": True,
+                "is_playing": False
+            })
+        
+        elif event_type == 'inactive':
+            await self.event_bus.publish("audio_status_updated", {
+                "source": self.name,
+                "status": "inactive",
+                "connected": False,
+                "is_playing": False
+            })
+        
+        elif event_type == 'playing':
+            await self.event_bus.publish("audio_status_updated", {
+                "source": self.name,
+                "status": "playing",
+                "connected": True,
+                "is_playing": True
+            })
+        
+        elif event_type == 'paused':
+            await self.event_bus.publish("audio_status_updated", {
+                "source": self.name,
+                "status": "paused",
+                "connected": True,
+                "is_playing": False
+            })
+        
+        elif event_type == 'stopped':
+            await self.event_bus.publish("audio_status_updated", {
+                "source": self.name,
+                "status": "stopped",
+                "connected": True,
+                "is_playing": False
+            })
+        
+        elif event_type == 'metadata':
+            # Log des métadonnées reçues
+            self.logger.info(f"Métadonnées reçues: {data}")
             
-        try:
-            status = await self.api_client.fetch_status()
-            metadata = await self.metadata_processor.extract_from_status(status)
+            # Publier les métadonnées
+            await self.event_bus.publish("audio_metadata_updated", {
+                "source": self.name,
+                "metadata": {
+                    "title": data.get('name'),
+                    "artist": ", ".join(data.get('artist_names', [])),
+                    "album": data.get('album_name'),
+                    "album_art_url": data.get('album_cover_url'),
+                    "duration_ms": data.get('duration'),
+                    "position_ms": data.get('position', 0),
+                    "is_playing": True
+                }
+            })
             
-            return {
-                "is_active": self.is_active,
-                "is_playing": status.get("player", {}).get("is_playing", False),
-                "metadata": metadata,
-                "device_connected": self.device_connected,
-                "plugin_state": self.current_state
-            }
-        except Exception as e:
-            return {
-                "is_active": self.is_active,
-                "error": str(e),
-                "plugin_state": self.current_state
-            }
+            # IMPORTANT: Publier aussi un statut connected
+            await self.event_bus.publish("audio_status_updated", {
+                "source": self.name,
+                "status": "connected",
+                "connected": True,
+                "is_playing": True
+            })
+        
+        elif event_type == 'will_play':
+            # Log de l'événement will_play
+            self.logger.info(f"will_play reçu: {data}")
+            
+            await self.event_bus.publish("audio_status_updated", {
+                "source": self.name,
+                "status": "connected",
+                "connected": True,
+                "is_playing": False
+            })
+        
+        elif event_type == 'seek':
+            await self.event_bus.publish("audio_seek", {
+                "source": self.name,
+                "position_ms": data.get('position'),
+                "duration_ms": data.get('duration')
+            })
+        
+        else:
+            # Log des événements non gérés
+            self.logger.info(f"Événement non géré: {event_type} - {data}")
+    
+    async def _websocket_loop(self) -> None:
+        """Boucle WebSocket pour recevoir les événements"""
+        while self.is_active:
+            try:
+                async with self.session.ws_connect(self.ws_url) as ws:
+                    self.logger.info("WebSocket connecté à go-librespot")
+                    
+                    async for msg in ws:
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            self.logger.info(f"Message WebSocket brut reçu: {msg.data}")  # Ajout
+                            event = json.loads(msg.data)
+                            await self._handle_websocket_event(event)
+                        elif msg.type == aiohttp.WSMsgType.ERROR:
+                            self.logger.error(f"Erreur WebSocket: {msg}")  # Ajout
+                            break
+            except Exception as e:
+                self.logger.error(f"Erreur WebSocket: {e}")
+                if self.is_active:
+                    await asyncio.sleep(3)
+    
     
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Traite une commande."""
-        if not self.is_active and command != "get_status":
+        """Traite les commandes"""
+        if not self.is_active:
             return {"success": False, "error": "Plugin inactif"}
-            
+        
         try:
-            # Commande spéciale pour le statut
-            if command == "get_status":
-                return await self.get_status()
-                
-            # Commandes de contrôle
-            if command in ["play", "resume", "pause", "playpause", "prev", "previous", "next"]:
-                # Mapping pour l'API
-                api_cmd = command
-                if command == "previous":
-                    api_cmd = "prev"
-                
-                await self.api_client.send_command(api_cmd, data)
-                
-                # Vérifier le nouvel état
-                status = await self.api_client.fetch_status()
-                is_playing = status.get("player", {}).get("is_playing", False)
-                
-                # Publier le statut
-                new_status = "playing" if is_playing else "paused"
-                await self.metadata_processor.publish_status(new_status, {
-                    "is_playing": is_playing,
-                    "connected": True, 
-                    "deviceConnected": True
-                })
-                
-                # Mettre à jour les métadonnées
-                metadata = await self.metadata_processor.extract_from_status(status)
-                if metadata:
-                    await self.metadata_processor.publish_metadata(metadata)
-                
-                return {"success": True, "status": new_status}
-                
-            # Commande seek
-            elif command == "seek":
-                position_ms = data.get("position_ms")
-                if position_ms is not None:
-                    await self.api_client.send_command("seek", {"position": position_ms})
-                    
-                    await self.event_bus.publish("audio_seek", {
-                        "position_ms": position_ms,
-                        "source": self.name
-                    })
-                    
-                    return {"success": True}
+            if command in ["play", "resume", "pause", "playpause", "next", "prev"]:
+                # Certaines commandes nécessitent un corps JSON même vide
+                if command in ["next", "prev"]:
+                    async with self.session.post(f"{self.api_url}/player/{command}", json={}) as resp:
+                        return {"success": resp.status == 200}
                 else:
-                    return {"success": False, "error": "Position manquante"}
-                    
-            # Commande refresh_metadata
-            elif command == "refresh_metadata":
-                status = await self.api_client.fetch_status()
-                metadata = await self.metadata_processor.extract_from_status(status)
-                
-                if metadata:
-                    await self.metadata_processor.publish_metadata(metadata)
-                    await self.metadata_processor.publish_status(
-                        "playing" if metadata.get("is_playing", False) else "paused",
-                        metadata
-                    )
-                
-                return {"success": True}
-                
-            # Commande non supportée
-            else:
-                return {"success": False, "error": f"Commande non supportée: {command}"}
-                
+                    async with self.session.post(f"{self.api_url}/player/{command}") as resp:
+                        return {"success": resp.status == 200}
+            
+            elif command == "seek":
+                position = data.get("position_ms")
+                if position is not None:
+                    async with self.session.post(f"{self.api_url}/player/seek", 
+                                            json={"position": position}) as resp:
+                        return {"success": resp.status == 200}
+            
+            return {"success": False, "error": f"Commande non supportée: {command}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+    
+    async def get_status(self) -> Dict[str, Any]:
+        """Retourne le statut basique"""
+        return {
+            "is_active": self.is_active,
+            "plugin_state": self.current_state
+        }

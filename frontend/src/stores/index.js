@@ -1,5 +1,5 @@
 /**
- * Store principal pour gérer l'état audio.
+ * Store principal pour gérer l'état audio - Version simplifiée
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
@@ -14,7 +14,8 @@ export const useAudioStore = defineStore('audio', () => {
   const metadata = ref({});
   const volume = ref(50);
   const error = ref(null);
-  const isDisconnected = ref(true);
+  const isPlaying = ref(false);
+  const isConnected = ref(false);
 
   // Getters
   const stateLabel = computed(() => {
@@ -28,8 +29,6 @@ export const useAudioStore = defineStore('audio', () => {
     };
     return labels[currentState.value] || currentState.value;
   });
-
-  const isPlaying = computed(() => metadata.value?.is_playing === true);
 
   // Actions
   async function fetchState() {
@@ -70,7 +69,7 @@ export const useAudioStore = defineStore('audio', () => {
     }
   }
 
-  // Gestion des événements WebSocket
+  // Gestion des événements WebSocket simplifiée
   function handleWebSocketUpdate(eventType, data) {
     switch (eventType) {
       case 'audio_state_changed':
@@ -82,39 +81,59 @@ export const useAudioStore = defineStore('audio', () => {
         isTransitioning.value = true;
         break;
 
-      case 'audio_metadata_updated':
-        if (data.source === currentState.value) {
-          metadata.value = data.metadata || {};
-          isDisconnected.value = false;
-        }
-        break;
-
       case 'audio_status_updated':
         if (data.source === currentState.value) {
-          // Gestion de la connexion
-          if (data.connected === false || data.deviceConnected === false) {
-            isDisconnected.value = true;
-          } else if (data.connected === true || data.deviceConnected === true) {
-            isDisconnected.value = false;
-          }
-
-          // Mise à jour des métadonnées
+          isPlaying.value = data.is_playing;
+          isConnected.value = data.connected;
+          // Merge status into metadata if provided
           if (data.metadata) {
             metadata.value = { ...metadata.value, ...data.metadata };
           }
-
-          // Mise à jour de l'état de lecture
-          if (data.is_playing !== undefined && metadata.value) {
-            metadata.value = { ...metadata.value, is_playing: data.is_playing };
-          }
         }
+        break;
+
+      case 'audio_metadata_updated':
+        if (data.source === currentState.value) {
+          metadata.value = data.metadata || {};
+        }
+        break;
+
+      case 'audio_seek':
+        if (data.source === currentState.value && metadata.value) {
+          metadata.value = {
+            ...metadata.value,
+            position_ms: data.position_ms
+          };
+        }
+        break;
+
+      case 'volume_changed':
+        volume.value = data.value;
+        break;
+
+      case 'audio_error':
+        error.value = data.error_message;
         break;
     }
   }
 
   return {
-    currentState, isTransitioning, metadata, volume, error, isDisconnected,
-    stateLabel, isPlaying,
-    fetchState, changeSource, controlSource, handleWebSocketUpdate
+    // État
+    currentState,
+    isTransitioning,
+    metadata,
+    volume,
+    error,
+    isPlaying,
+    isConnected,
+    
+    // Getters
+    stateLabel,
+    
+    // Actions
+    fetchState,
+    changeSource,
+    controlSource,
+    handleWebSocketUpdate
   };
 });
