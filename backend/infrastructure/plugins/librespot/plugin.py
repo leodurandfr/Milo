@@ -214,9 +214,13 @@ class LibrespotPlugin(BaseAudioPlugin):
             })
         
         elif event_type == 'seek':
+            # Mettre à jour la position dans last_metadata
+            if 'position' in data:
+                self.last_metadata['position_ms'] = data.get('position', 0)
+            
             await self.event_bus.publish("audio_seek", {
                 "source": self.name,
-                "position_ms": data.get('position'),
+                "position_ms": data.get('position', 0),
                 "duration_ms": data.get('duration')
             })
         
@@ -250,14 +254,30 @@ class LibrespotPlugin(BaseAudioPlugin):
             return {"success": False, "error": str(e)}
     
     async def get_status(self) -> Dict[str, Any]:
-        """Retourne le statut basique"""
-        return {
+        """Retourne le statut actuel, incluant la position actuelle"""
+        status = {
             "is_active": self.is_active,
             "plugin_state": self.current_state,
-            "metadata": self.last_metadata,
+            "metadata": self.last_metadata.copy() if self.last_metadata else {},
             "is_playing": self.is_playing,
             "device_connected": self.device_connected
         }
+        
+        # Si on est connecté et en lecture, récupérer la position actuelle
+        if self.is_active and self.device_connected and self.session:
+            try:
+                async with self.session.get(f"{self.api_url}/status") as resp:
+                    if resp.status == 200:
+                        api_status = await resp.json()
+                        
+                        # Mettre à jour la position actuelle si une piste est en cours
+                        if api_status.get('track') and not api_status.get('stopped'):
+                            current_position = api_status.get('track', {}).get('position', 0)
+                            status['metadata']['position_ms'] = current_position
+            except Exception as e:
+                self.logger.warning(f"Impossible de récupérer la position actuelle: {e}")
+        
+        return status
     
     async def get_connection_info(self) -> Dict[str, Any]:
         """Retourne les informations de connexion"""

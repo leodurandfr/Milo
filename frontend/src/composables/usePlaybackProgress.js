@@ -4,8 +4,8 @@ import { useLibrespotStore } from '@/stores/librespot';
 export function usePlaybackProgress() {
   const librespotStore = useLibrespotStore();
   
-  // Variables d'état locales
-  const localPosition = ref(0);
+  // Variables d'état locales - Initialiser avec la position actuelle si disponible
+  const localPosition = ref(librespotStore.metadata?.position_ms || 0);
   const updateInterval = ref(null);
   
   // Computed properties
@@ -61,6 +61,14 @@ export function usePlaybackProgress() {
     }
   });
   
+  // Watcher pour l'initialisation des métadonnées
+  watch(() => librespotStore.metadata, (newMetadata) => {
+    // Si les métadonnées sont chargées pour la première fois (après rafraîchissement)
+    if (newMetadata && newMetadata.position_ms !== undefined && localPosition.value === 0) {
+      localPosition.value = newMetadata.position_ms;
+    }
+  }, { immediate: true });
+  
   watch(() => librespotStore.metadata?.title, (newTitle, oldTitle) => {
     if (newTitle && newTitle !== oldTitle) {
       localPosition.value = librespotStore.metadata?.position_ms || 0;
@@ -74,6 +82,11 @@ export function usePlaybackProgress() {
   });
   
   onMounted(() => {
+    // Initialiser la position si les métadonnées sont déjà chargées
+    if (librespotStore.metadata?.position_ms !== undefined) {
+      localPosition.value = librespotStore.metadata.position_ms;
+    }
+    
     if (librespotStore.isPlaying) {
       startTracking();
     }
