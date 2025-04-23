@@ -1,14 +1,14 @@
-import { useAudioStore } from '@/stores/index';
+import { useLibrespotStore } from '@/stores/librespot';
 import { ref } from 'vue';
 
 export function useLibrespotControl() {
-  const audioStore = useAudioStore();
+  const librespotStore = useLibrespotStore();
   const isLoading = ref(false);
 
   async function executeCommand(command) {
     isLoading.value = true;
     try {
-      await audioStore.controlSource('librespot', command);
+      await librespotStore.handleCommand(command);
     } catch (error) {
       console.error(`Erreur lors de l'exécution de la commande ${command}:`, error);
     } finally {
@@ -19,8 +19,7 @@ export function useLibrespotControl() {
   }
 
   async function togglePlayPause() {
-    // Utiliser l'état isPlaying du store principal au lieu de metadata
-    const isPlaying = audioStore.isPlaying;
+    const isPlaying = librespotStore.isPlaying;
     await executeCommand(isPlaying ? 'pause' : 'resume');
   }
 
@@ -33,7 +32,7 @@ export function useLibrespotControl() {
   }
 
   async function seekTo(positionMs) {
-    await audioStore.controlSource('librespot', 'seek', { position_ms: positionMs });
+    await librespotStore.handleCommand('seek', { position_ms: positionMs });
   }
 
   return {

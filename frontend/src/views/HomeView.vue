@@ -10,7 +10,8 @@
 
       <div class="volume-control">
         <h3>Volume: {{ audioStore.volume }}%</h3>
-        <input type="range" min="0" max="100" v-model.number="audioStore.volume" class="volume-slider">
+        <input type="range" min="0" max="100" v-model.number="audioStore.volume" 
+               @change="updateVolume" class="volume-slider">
       </div>
 
       <div class="error-message" v-if="audioStore.error">
@@ -20,7 +21,8 @@
 
     <div class="source-buttons">
       <button @click="changeSource('librespot')"
-        :disabled="audioStore.isTransitioning || audioStore.currentState === 'librespot'" class="source-button spotify">
+        :disabled="audioStore.isTransitioning || audioStore.currentState === 'librespot'" 
+        class="source-button spotify">
         Spotify
       </button>
 
@@ -31,12 +33,14 @@
       </button>
 
       <button @click="changeSource('macos')"
-        :disabled="audioStore.isTransitioning || audioStore.currentState === 'macos'" class="source-button macos">
+        :disabled="audioStore.isTransitioning || audioStore.currentState === 'macos'" 
+        class="source-button macos">
         MacOS
       </button>
 
       <button @click="changeSource('webradio')"
-        :disabled="audioStore.isTransitioning || audioStore.currentState === 'webradio'" class="source-button webradio">
+        :disabled="audioStore.isTransitioning || audioStore.currentState === 'webradio'" 
+        class="source-button webradio">
         Web Radio
       </button>
     </div>
@@ -57,30 +61,38 @@
 <script setup>
 import { onMounted } from 'vue';
 import { useAudioStore } from '@/stores/index';
+import { useLibrespotStore } from '@/stores/librespot';
 import { useSnapclientStore } from '@/stores/snapclient';
 import useWebSocket from '@/services/websocket';
 
-// Import direct des composants spécifiques aux sources
+// Import des composants
 import LibrespotDisplay from '@/components/sources/librespot/LibrespotDisplay.vue';
 import SnapclientComponent from '@/components/sources/snapclient/SnapclientComponent.vue';
 
 const audioStore = useAudioStore();
+const librespotStore = useLibrespotStore();
 const snapclientStore = useSnapclientStore();
 const { on } = useWebSocket();
 
-// Changer la source audio
 async function changeSource(source) {
   await audioStore.changeSource(source);
 }
 
-// Initialiser les données au montage du composant
+async function updateVolume() {
+  await audioStore.setVolume(audioStore.volume);
+}
+
 onMounted(async () => {
   // Récupérer l'état initial
   await audioStore.fetchState();
 
-  // S'abonner aux événements WebSocket standard
+  // Événements globaux
   on('audio_state_changed', (data) => {
     audioStore.handleWebSocketUpdate('audio_state_changed', data);
+  });
+
+  on('audio_state_changing', (data) => {
+    audioStore.handleWebSocketUpdate('audio_state_changing', data);
   });
 
   on('volume_changed', (data) => {
@@ -91,55 +103,39 @@ onMounted(async () => {
     audioStore.handleWebSocketUpdate('audio_error', data);
   });
 
+  // Événements spécifiques à librespot
   on('audio_metadata_updated', (data) => {
-    audioStore.handleWebSocketUpdate('audio_metadata_updated', data);
+    if (data.source === 'librespot') {
+      librespotStore.handleWebSocketEvent('audio_metadata_updated', data);
+    }
   });
 
   on('audio_status_updated', (data) => {
-    audioStore.handleWebSocketUpdate('audio_status_updated', data);
+    if (data.source === 'librespot') {
+      librespotStore.handleWebSocketEvent('audio_status_updated', data);
+    }
   });
 
   on('audio_seek', (data) => {
-    audioStore.handleWebSocketUpdate('audio_seek', data);
+    if (data.source === 'librespot') {
+      librespotStore.handleWebSocketEvent('audio_seek', data);
+    }
   });
 
   // Événements spécifiques à Snapclient
-  on('snapclient_connection_request', (data) => {
-    audioStore.handleWebSocketUpdate('snapclient_connection_request', data);
-  });
-
-  on('snapclient_connection_rejected', (data) => {
-    audioStore.handleWebSocketUpdate('snapclient_connection_rejected', data);
-  });
-
   on('snapclient_monitor_connected', (data) => {
-    console.log("Moniteur Snapclient connecté:", data);
-    // Marquer comme connecté si la source active est snapclient
     if (audioStore.currentState === 'macos') {
-      // Rafraîchir le statut pour mettre à jour l'interface
-      snapclientStore.fetchStatus();
+      snapclientStore.updateFromWebSocketEvent('snapclient_monitor_connected', data);
     }
   });
 
   on('snapclient_monitor_disconnected', (data) => {
-    console.log("Moniteur Snapclient déconnecté:", data);
-    // Marquer comme déconnecté si la source active est snapclient
     if (audioStore.currentState === 'macos') {
-      // Mise à jour immédiate de l'état dans le store
       snapclientStore.updateFromWebSocketEvent('snapclient_monitor_disconnected', data);
     }
   });
 
-  on('snapclient_server_event', (data) => {
-    console.log("Événement serveur Snapclient:", data);
-    // Traiter les événements spécifiques au serveur
-    if (audioStore.currentState === 'macos') {
-      // Analyser et mettre à jour le store si nécessaire
-    }
-  });
-  
   on('snapclient_server_disappeared', (data) => {
-    console.log("Serveur Snapclient disparu:", data);
     if (audioStore.currentState === 'macos') {
       snapclientStore.updateFromWebSocketEvent('snapclient_server_disappeared', data);
     }
@@ -148,6 +144,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* Style identique à l'original */
 .home-view {
   display: flex;
   flex-direction: column;
@@ -223,7 +220,6 @@ h1 {
   cursor: not-allowed;
 }
 
-/* Couleurs spécifiques à chaque source */
 .spotify {
   background-color: #1DB954;
 }

@@ -1,21 +1,20 @@
 /**
- * Store principal pour gérer l'état audio - Version simplifiée
+ * Store principal pour gérer l'état audio global - Version optimisée
+ * Ne gère que les aspects globaux (source active, transitions, volume)
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 
 export * from './snapclient';
+export * from './librespot';
 
 export const useAudioStore = defineStore('audio', () => {
-  // État
+  // État global uniquement
   const currentState = ref('none');
   const isTransitioning = ref(false);
-  const metadata = ref({});
   const volume = ref(50);
   const error = ref(null);
-  const isPlaying = ref(false);
-  const isConnected = ref(false);
 
   // Getters
   const stateLabel = computed(() => {
@@ -37,7 +36,6 @@ export const useAudioStore = defineStore('audio', () => {
       currentState.value = response.data.state;
       isTransitioning.value = response.data.transitioning;
       volume.value = response.data.volume;
-      metadata.value = response.data.metadata || {};
       return response.data;
     } catch (err) {
       error.value = 'Erreur de récupération d\'état';
@@ -56,20 +54,21 @@ export const useAudioStore = defineStore('audio', () => {
     }
   }
 
-  async function controlSource(source, command, params = {}) {
+  async function setVolume(value) {
     try {
-      const response = await axios.post(`/api/audio/control/${source}`, {
-        command,
-        data: params
-      });
-      return response.data.result || {};
+      const response = await axios.post('/api/audio/volume', { volume: value });
+      if (response.data.status === 'success') {
+        volume.value = value;
+        return true;
+      }
+      return false;
     } catch (err) {
-      error.value = `Erreur: ${command}`;
-      return {};
+      error.value = 'Erreur de réglage du volume';
+      return false;
     }
   }
 
-  // Gestion des événements WebSocket simplifiée
+  // Gestion des événements WebSocket - routage seulement
   function handleWebSocketUpdate(eventType, data) {
     switch (eventType) {
       case 'audio_state_changed':
@@ -79,32 +78,6 @@ export const useAudioStore = defineStore('audio', () => {
 
       case 'audio_state_changing':
         isTransitioning.value = true;
-        break;
-
-      case 'audio_status_updated':
-        if (data.source === currentState.value) {
-          isPlaying.value = data.is_playing;
-          isConnected.value = data.connected;
-          // Merge status into metadata if provided
-          if (data.metadata) {
-            metadata.value = { ...metadata.value, ...data.metadata };
-          }
-        }
-        break;
-
-      case 'audio_metadata_updated':
-        if (data.source === currentState.value) {
-          metadata.value = data.metadata || {};
-        }
-        break;
-
-      case 'audio_seek':
-        if (data.source === currentState.value && metadata.value) {
-          metadata.value = {
-            ...metadata.value,
-            position_ms: data.position_ms
-          };
-        }
         break;
 
       case 'volume_changed':
@@ -118,14 +91,11 @@ export const useAudioStore = defineStore('audio', () => {
   }
 
   return {
-    // État
+    // État global
     currentState,
     isTransitioning,
-    metadata,
     volume,
     error,
-    isPlaying,
-    isConnected,
     
     // Getters
     stateLabel,
@@ -133,7 +103,7 @@ export const useAudioStore = defineStore('audio', () => {
     // Actions
     fetchState,
     changeSource,
-    controlSource,
+    setVolume,
     handleWebSocketUpdate
   };
 });

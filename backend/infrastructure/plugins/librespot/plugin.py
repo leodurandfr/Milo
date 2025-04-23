@@ -26,6 +26,10 @@ class LibrespotPlugin(BaseAudioPlugin):
         self.executable_path = os.path.expanduser(config.get("executable_path", "~/oakOS/go-librespot/go-librespot"))
         self.api_url = None
         self.ws_url = None
+        # Ajout: stockage des dernières métadonnées reçues
+        self.last_metadata = {}
+        self.is_playing = False
+        self.device_connected = False
     
     async def initialize(self) -> bool:
         """Initialise le plugin"""
@@ -100,37 +104,40 @@ class LibrespotPlugin(BaseAudioPlugin):
                     
                     async for msg in ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
+                            self.logger.info(f"Message WebSocket brut reçu: {msg.data}")
                             event = json.loads(msg.data)
                             await self._handle_websocket_event(event)
                         elif msg.type == aiohttp.WSMsgType.ERROR:
+                            self.logger.error(f"Erreur WebSocket: {msg}")
                             break
             except Exception as e:
                 self.logger.error(f"Erreur WebSocket: {e}")
                 if self.is_active:
-                    await asyncio.sleep(3)  # Attendre avant de reconnecter
+                    await asyncio.sleep(3)
     
     async def _handle_websocket_event(self, event: Dict[str, Any]) -> None:
         """Traite un événement WebSocket"""
         event_type = event.get('type')
         data = event.get('data', {})
         
-        # Utiliser INFO au lieu de DEBUG pour voir ce qui se passe
         self.logger.info(f"Événement WebSocket reçu: {event_type} - {data}")
         
-        # Capture TOUS les événements pour voir ce qui arrive
         if event_type:
             self.logger.info(f"Type d'événement: {event_type}")
         
         # Mapping des événements
         if event_type == 'active':
+            self.device_connected = True
             await self.event_bus.publish("audio_status_updated", {
                 "source": self.name,
                 "status": "active",
                 "connected": True,
-                "is_playing": False
+                "is_playing": self.is_playing
             })
         
         elif event_type == 'inactive':
+            self.device_connected = False
+            self.is_playing = False
             await self.event_bus.publish("audio_status_updated", {
                 "source": self.name,
                 "status": "inactive",
@@ -139,6 +146,8 @@ class LibrespotPlugin(BaseAudioPlugin):
             })
         
         elif event_type == 'playing':
+            self.is_playing = True
+            self.device_connected = True
             await self.event_bus.publish("audio_status_updated", {
                 "source": self.name,
                 "status": "playing",
@@ -147,6 +156,7 @@ class LibrespotPlugin(BaseAudioPlugin):
             })
         
         elif event_type == 'paused':
+            self.is_playing = False
             await self.event_bus.publish("audio_status_updated", {
                 "source": self.name,
                 "status": "paused",
@@ -155,43 +165,47 @@ class LibrespotPlugin(BaseAudioPlugin):
             })
         
         elif event_type == 'stopped':
+            self.is_playing = False
             await self.event_bus.publish("audio_status_updated", {
                 "source": self.name,
                 "status": "stopped",
-                "connected": True,
+                "connected": self.device_connected,
                 "is_playing": False
             })
         
         elif event_type == 'metadata':
-            # Log des métadonnées reçues
             self.logger.info(f"Métadonnées reçues: {data}")
+            
+            # Stocker les métadonnées
+            self.last_metadata = {
+                "title": data.get('name'),
+                "artist": ", ".join(data.get('artist_names', [])),
+                "album": data.get('album_name'),
+                "album_art_url": data.get('album_cover_url'),
+                "duration_ms": data.get('duration'),
+                "position_ms": data.get('position', 0),
+                "uri": data.get('uri'),
+                "is_playing": self.is_playing
+            }
             
             # Publier les métadonnées
             await self.event_bus.publish("audio_metadata_updated", {
                 "source": self.name,
-                "metadata": {
-                    "title": data.get('name'),
-                    "artist": ", ".join(data.get('artist_names', [])),
-                    "album": data.get('album_name'),
-                    "album_art_url": data.get('album_cover_url'),
-                    "duration_ms": data.get('duration'),
-                    "position_ms": data.get('position', 0),
-                    "is_playing": True
-                }
+                "metadata": self.last_metadata
             })
             
-            # IMPORTANT: Publier aussi un statut connected
+            # Publier aussi un statut connected
+            self.device_connected = True
             await self.event_bus.publish("audio_status_updated", {
                 "source": self.name,
                 "status": "connected",
                 "connected": True,
-                "is_playing": True
+                "is_playing": self.is_playing
             })
         
         elif event_type == 'will_play':
-            # Log de l'événement will_play
             self.logger.info(f"will_play reçu: {data}")
-            
+            self.device_connected = True
             await self.event_bus.publish("audio_status_updated", {
                 "source": self.name,
                 "status": "connected",
@@ -207,29 +221,7 @@ class LibrespotPlugin(BaseAudioPlugin):
             })
         
         else:
-            # Log des événements non gérés
             self.logger.info(f"Événement non géré: {event_type} - {data}")
-    
-    async def _websocket_loop(self) -> None:
-        """Boucle WebSocket pour recevoir les événements"""
-        while self.is_active:
-            try:
-                async with self.session.ws_connect(self.ws_url) as ws:
-                    self.logger.info("WebSocket connecté à go-librespot")
-                    
-                    async for msg in ws:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            self.logger.info(f"Message WebSocket brut reçu: {msg.data}")  # Ajout
-                            event = json.loads(msg.data)
-                            await self._handle_websocket_event(event)
-                        elif msg.type == aiohttp.WSMsgType.ERROR:
-                            self.logger.error(f"Erreur WebSocket: {msg}")  # Ajout
-                            break
-            except Exception as e:
-                self.logger.error(f"Erreur WebSocket: {e}")
-                if self.is_active:
-                    await asyncio.sleep(3)
-    
     
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Traite les commandes"""
@@ -261,5 +253,25 @@ class LibrespotPlugin(BaseAudioPlugin):
         """Retourne le statut basique"""
         return {
             "is_active": self.is_active,
-            "plugin_state": self.current_state
+            "plugin_state": self.current_state,
+            "metadata": self.last_metadata,
+            "is_playing": self.is_playing,
+            "device_connected": self.device_connected
+        }
+    
+    async def get_connection_info(self) -> Dict[str, Any]:
+        """Retourne les informations de connexion"""
+        return {
+            "device_connected": self.device_connected,
+            "ws_connected": self.ws_task is not None and not self.ws_task.done(),
+            "api_url": self.api_url,
+            "ws_url": self.ws_url
+        }
+    
+    async def get_process_info(self) -> Dict[str, Any]:
+        """Retourne les informations sur le processus"""
+        running = self._is_process_running()
+        return {
+            "running": running,
+            "pid": self.process.pid if running else None
         }
