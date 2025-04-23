@@ -57,7 +57,7 @@ class SnapclientProcess:
         try:
             self.process.terminate()
             try:
-                await asyncio.wait_for(self.process.wait(), timeout=2.0)
+                await asyncio.wait_for(self.process.wait(), timeout=0.2)
             except asyncio.TimeoutError:
                 self.process.kill()
             

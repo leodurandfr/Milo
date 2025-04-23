@@ -61,7 +61,7 @@ class LibrespotPlugin(BaseAudioPlugin):
             # Démarrer le processus si nécessaire
             if not self._is_process_running():
                 self.process = subprocess.Popen([self.executable_path])
-                await asyncio.sleep(1)  # Attendre que le processus démarre
+                await asyncio.sleep(0.2)  # Attendre que le processus démarre
             
             # Démarrer la connexion WebSocket
             self.ws_task = asyncio.create_task(self._websocket_loop())

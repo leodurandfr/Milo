@@ -45,8 +45,11 @@
       </button>
     </div>
 
-    <!-- Affichage conditionnel direct des composants sources -->
-    <template v-if="audioStore.currentState !== 'none'">
+    <!-- Affichage conditionnel avec état de transition -->
+    <div v-if="audioStore.isTransitioning" class="transition-state">
+      <h2>Chargement...</h2>
+    </div>
+    <template v-else-if="audioStore.currentState !== 'none'">
       <LibrespotDisplay v-if="audioStore.currentState === 'librespot'" />
       <SnapclientComponent v-else-if="audioStore.currentState === 'macos'" />
       <!-- Autres sources peuvent être ajoutées ici -->
@@ -149,7 +152,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* Style identique à l'original */
+/* Style existant */
 .home-view {
   display: flex;
   flex-direction: column;
@@ -249,5 +252,12 @@ h1 {
   border-radius: 8px;
   margin: 0 auto;
   max-width: 600px;
+}
+
+/* Nouveau style pour l'état de transition */
+.transition-state {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
 }
 </style>
