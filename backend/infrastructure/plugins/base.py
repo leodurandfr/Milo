@@ -15,16 +15,14 @@ class BaseAudioPlugin(AudioSourcePlugin, ABC):
     """
     
     # États communs standardisés simplifiés
-    STATE_INACTIVE = "inactive"  
-    STATE_READY = "ready"
-    STATE_CONNECTED = "connected"
-    
-    # États d'erreur standardisés
-    STATE_ERROR = "error"
+    STATE_INACTIVE = "inactive"  # Plugin complètement arrêté
+    STATE_READY = "ready"       # Plugin initialisé, en attente de connexion
+    STATE_CONNECTED = "connected" # Plugin connecté et opérationnel
+    STATE_ERROR = "error"       # Plugin en état d'erreur
     
     # Transitions valides entre états - simplifiées
     VALID_TRANSITIONS = {
-        STATE_INACTIVE: {STATE_READY},
+        STATE_INACTIVE: {STATE_READY, STATE_ERROR},
         STATE_READY: {STATE_CONNECTED, STATE_INACTIVE, STATE_ERROR},
         STATE_CONNECTED: {STATE_READY, STATE_INACTIVE, STATE_ERROR},
         STATE_ERROR: {STATE_READY, STATE_INACTIVE},

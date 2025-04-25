@@ -24,7 +24,7 @@
     <div v-else class="waiting-connection">
       <div class="waiting-icon">🎵</div>
       <h3>En attente de connexion</h3>
-      <p v-if="librespotStore.connectionStatus === 'error'" class="error-message">
+      <p v-if="librespotStore.pluginState === 'error'" class="error-message">
         {{ librespotStore.lastError }}
       </p>
       <p v-else>Connectez un appareil via Spotify Connect</p>

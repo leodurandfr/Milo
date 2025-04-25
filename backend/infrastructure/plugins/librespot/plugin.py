@@ -1,5 +1,5 @@
 """
-Plugin librespot simplifié - Version WebSocket uniquement
+Plugin librespot simplifié - Version WebSocket uniquement avec états harmonisés
 """
 import asyncio
 import logging
@@ -14,7 +14,7 @@ from backend.infrastructure.plugins.base import BaseAudioPlugin
 
 
 class LibrespotPlugin(BaseAudioPlugin):
-    """Plugin Spotify via go-librespot - Version simplifiée"""
+    """Plugin Spotify via go-librespot - Version simplifiée et harmonisée"""
     
     def __init__(self, event_bus: EventBus, config: Dict[str, Any]):
         super().__init__(event_bus, "librespot")
@@ -46,9 +46,14 @@ class LibrespotPlugin(BaseAudioPlugin):
             self.ws_url = f"ws://{addr}:{port}/events"
             
             self.session = aiohttp.ClientSession()
+            await self.transition_to_state(self.STATE_INACTIVE)
             return True
         except Exception as e:
             self.logger.error(f"Erreur d'initialisation: {e}")
+            await self.transition_to_state(self.STATE_ERROR, {
+                "error": str(e),
+                "error_type": "initialization_error"
+            })
             return False
     
     async def start(self) -> bool:
@@ -66,9 +71,14 @@ class LibrespotPlugin(BaseAudioPlugin):
             # Démarrer la connexion WebSocket
             self.ws_task = asyncio.create_task(self._websocket_loop())
             self.is_active = True
+            await self.transition_to_state(self.STATE_READY)
             return True
         except Exception as e:
             self.logger.error(f"Erreur de démarrage: {e}")
+            await self.transition_to_state(self.STATE_ERROR, {
+                "error": str(e),
+                "error_type": "start_error"
+            })
             return False
     
     async def stop(self) -> bool:
@@ -94,10 +104,15 @@ class LibrespotPlugin(BaseAudioPlugin):
             self.last_metadata = {}
             self.is_playing = False
             self.device_connected = False
-                
+            
+            await self.transition_to_state(self.STATE_INACTIVE)
             return True
         except Exception as e:
             self.logger.error(f"Erreur d'arrêt: {e}")
+            await self.transition_to_state(self.STATE_ERROR, {
+                "error": str(e),
+                "error_type": "stop_error"
+            })
             return False
     
     def _is_process_running(self) -> bool:
@@ -137,31 +152,47 @@ class LibrespotPlugin(BaseAudioPlugin):
         # Mapping des événements
         if event_type == 'active':
             self.device_connected = True
+            await self.transition_to_state(self.STATE_CONNECTED, {
+                "connected": True,
+                "is_playing": self.is_playing
+            })
             await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "active",
                 "connected": True,
-                "is_playing": self.is_playing
+                "is_playing": self.is_playing,
+                "plugin_state": self.current_state
             })
         
         elif event_type == 'inactive':
             self.device_connected = False
             self.is_playing = False
+            await self.transition_to_state(self.STATE_READY, {
+                "connected": False,
+                "is_playing": False
+            })
             await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "inactive",
                 "connected": False,
-                "is_playing": False
+                "is_playing": False,
+                "plugin_state": self.current_state
             })
         
         elif event_type == 'playing':
             self.is_playing = True
             self.device_connected = True
+            if self.current_state != self.STATE_CONNECTED:
+                await self.transition_to_state(self.STATE_CONNECTED, {
+                    "connected": True,
+                    "is_playing": True
+                })
             await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "playing",
                 "connected": True,
-                "is_playing": True
+                "is_playing": True,
+                "plugin_state": self.current_state
             })
         
         elif event_type == 'paused':
@@ -170,7 +201,8 @@ class LibrespotPlugin(BaseAudioPlugin):
                 "source": self.name,
                 "status": "paused",
                 "connected": True,
-                "is_playing": False
+                "is_playing": False,
+                "plugin_state": self.current_state
             })
         
         elif event_type == 'stopped':
@@ -179,7 +211,8 @@ class LibrespotPlugin(BaseAudioPlugin):
                 "source": self.name,
                 "status": "stopped",
                 "connected": self.device_connected,
-                "is_playing": False
+                "is_playing": False,
+                "plugin_state": self.current_state
             })
         
         elif event_type == 'not_playing':
@@ -191,7 +224,8 @@ class LibrespotPlugin(BaseAudioPlugin):
                 "status": "track_ended",
                 "connected": True,
                 "is_playing": self.is_playing,  # Garder l'état actuel
-                "track_uri": data.get('uri')
+                "track_uri": data.get('uri'),
+                "plugin_state": self.current_state
             })
         
         elif event_type == 'will_play':
@@ -203,7 +237,8 @@ class LibrespotPlugin(BaseAudioPlugin):
                 "status": "preparing",
                 "connected": True,
                 "is_playing": self.is_playing,  # Garder l'état actuel
-                "track_uri": data.get('uri')
+                "track_uri": data.get('uri'),
+                "plugin_state": self.current_state
             })
         
         elif event_type == 'metadata':
@@ -229,11 +264,17 @@ class LibrespotPlugin(BaseAudioPlugin):
             
             # Publier aussi un statut connected
             self.device_connected = True
+            if self.current_state != self.STATE_CONNECTED:
+                await self.transition_to_state(self.STATE_CONNECTED, {
+                    "connected": True,
+                    "is_playing": self.is_playing
+                })
             await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "connected",
                 "connected": True,
-                "is_playing": self.is_playing
+                "is_playing": self.is_playing,
+                "plugin_state": self.current_state
             })
         
         elif event_type == 'seek':

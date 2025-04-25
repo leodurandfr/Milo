@@ -1,10 +1,6 @@
 <template>
     <div v-if="audioStore.currentState === 'macos'" class="snapclient-component">
-        <div v-if="!isConnected" class="waiting-state">
-            <h2>En attente de connexion MacOS</h2>
-            <p>Attendez qu'un Mac se connecte via Snapcast...</p>
-        </div>
-        <div v-else class="connected-state">
+        <div v-if="snapclientStore.pluginState === 'connected'" class="connected-state">
             <h2>Connecté à MacOS</h2>
             <p>{{ formattedServerName }}</p>
             <div class="actions">
@@ -12,6 +8,14 @@
                     Déconnecter
                 </button>
             </div>
+        </div>
+        <div v-else-if="snapclientStore.pluginState === 'error'" class="error-state">
+            <h2>Erreur de connexion</h2>
+            <p>{{ snapclientStore.error }}</p>
+        </div>
+        <div v-else class="waiting-state">
+            <h2>En attente de connexion MacOS</h2>
+            <p>Attendez qu'un Mac se connecte via Snapcast...</p>
         </div>
     </div>
 </template>

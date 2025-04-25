@@ -1,19 +1,22 @@
 /**
- * Store spécifique pour Librespot - Version corrigée
+ * Store spécifique pour Librespot - Version harmonisée
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 
 export const useLibrespotStore = defineStore('librespot', () => {
-  // État
+  // État standard du plugin
+  const pluginState = ref('inactive'); // inactive, ready, connected, error
+  
+  // États spécifiques à Librespot (lecture)
   const metadata = ref({});
-  const isConnected = ref(false);
   const isPlaying = ref(false);
-  const connectionStatus = ref('disconnected'); // connected, disconnected, error
   const lastError = ref(null);
 
   // Getters
+  const isConnected = computed(() => pluginState.value === 'connected');
+  
   const hasTrackInfo = computed(() => {
     return metadata.value?.title && metadata.value?.artist && isConnected.value;
   });
@@ -28,8 +31,7 @@ export const useLibrespotStore = defineStore('librespot', () => {
       
       // Vérifier si connecté
       if (response.data.device_connected) {
-        isConnected.value = true;
-        connectionStatus.value = 'connected';
+        pluginState.value = 'connected';
         
         // Vérifier si des métadonnées sont disponibles
         if (response.data.metadata && Object.keys(response.data.metadata).length > 0) {
@@ -43,14 +45,13 @@ export const useLibrespotStore = defineStore('librespot', () => {
           updateFromApiStatus(response.data.raw_status);
         }
       } else {
-        isConnected.value = false;
-        connectionStatus.value = 'disconnected';
+        pluginState.value = 'inactive';
       }
       
       return true;
     } catch (err) {
       console.error('Erreur d\'initialisation librespot:', err);
-      connectionStatus.value = 'error';
+      pluginState.value = 'error';
       lastError.value = err.message;
       return false;
     }
@@ -58,8 +59,7 @@ export const useLibrespotStore = defineStore('librespot', () => {
 
   function updateFromApiStatus(status) {
     // Mettre à jour l'état de connexion
-    isConnected.value = true;
-    connectionStatus.value = 'connected';
+    pluginState.value = 'connected';
     
     // Mettre à jour l'état de lecture
     isPlaying.value = !status.paused && !status.stopped;
@@ -109,8 +109,7 @@ export const useLibrespotStore = defineStore('librespot', () => {
         if (data.source === 'librespot' && data.metadata) {
           metadata.value = data.metadata;
           // Si on reçoit des métadonnées, on est connecté
-          isConnected.value = true;
-          connectionStatus.value = 'connected';
+          pluginState.value = 'connected';
           // Mettre à jour l'état de lecture
           if (data.metadata.is_playing !== undefined) {
             isPlaying.value = data.metadata.is_playing;
@@ -120,46 +119,46 @@ export const useLibrespotStore = defineStore('librespot', () => {
 
       case 'librespot_status_updated':
         if (data.source === 'librespot') {
+          // Mise à jour de l'état du plugin si fourni
+          if (data.plugin_state) {
+            pluginState.value = data.plugin_state;
+          }
+          
+          // Gestion des états spécifiques de lecture
           switch (data.status) {
             case 'active':
             case 'connected':
-              isConnected.value = true;
-              connectionStatus.value = 'connected';
+              pluginState.value = 'connected';
               isPlaying.value = data.is_playing || false;
               break;
               
             case 'playing':
-              isConnected.value = true;
-              connectionStatus.value = 'connected';
+              pluginState.value = 'connected';
               isPlaying.value = true;
               break;
               
             case 'paused':
-              isConnected.value = true;
-              connectionStatus.value = 'connected';
+              pluginState.value = 'connected';
               isPlaying.value = false;
               break;
             
             case 'track_ended':
             case 'preparing':
               // États de transition - on ne change pas l'état de lecture
-              isConnected.value = true;
-              connectionStatus.value = 'connected';
+              pluginState.value = 'connected';
               // Ne pas modifier isPlaying pour éviter le clignotement
               break;
               
             case 'inactive':
             case 'stopped':
               // Inactive n'est pas une erreur, juste une déconnexion normale
-              isConnected.value = false;
-              connectionStatus.value = 'disconnected';
+              pluginState.value = 'inactive';
               isPlaying.value = false;
               metadata.value = {};
               break;
               
             case 'error':
-              isConnected.value = false;
-              connectionStatus.value = 'error';
+              pluginState.value = 'error';
               isPlaying.value = false;
               lastError.value = data.error_message;
               break;
@@ -180,21 +179,22 @@ export const useLibrespotStore = defineStore('librespot', () => {
 
   function clearState() {
     metadata.value = {};
-    isConnected.value = false;
     isPlaying.value = false;
-    connectionStatus.value = 'disconnected';
+    pluginState.value = 'inactive';
     lastError.value = null;
   }
 
   return {
-    // État
+    // État standard
+    pluginState,
+    
+    // États spécifiques
     metadata,
-    isConnected,
     isPlaying,
-    connectionStatus,
     lastError,
     
     // Getters
+    isConnected,
     hasTrackInfo,
     
     // Actions
