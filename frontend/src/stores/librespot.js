@@ -139,6 +139,14 @@ export const useLibrespotStore = defineStore('librespot', () => {
               connectionStatus.value = 'connected';
               isPlaying.value = false;
               break;
+            
+            case 'track_ended':
+            case 'preparing':
+              // États de transition - on ne change pas l'état de lecture
+              isConnected.value = true;
+              connectionStatus.value = 'connected';
+              // Ne pas modifier isPlaying pour éviter le clignotement
+              break;
               
             case 'inactive':
             case 'stopped':

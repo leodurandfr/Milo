@@ -182,6 +182,30 @@ class LibrespotPlugin(BaseAudioPlugin):
                 "is_playing": False
             })
         
+        elif event_type == 'not_playing':
+            # Cette chanson s'est terminée, mais une autre peut suivre
+            # Ne pas changer is_playing pour éviter le clignotement
+            self.logger.info(f"Transition entre chansons: {data}")
+            await self.event_bus.publish("audio_status_updated", {
+                "source": self.name,
+                "status": "track_ended",
+                "connected": True,
+                "is_playing": self.is_playing,  # Garder l'état actuel
+                "track_uri": data.get('uri')
+            })
+        
+        elif event_type == 'will_play':
+            # Une nouvelle chanson va commencer
+            self.logger.info(f"Préparation nouvelle chanson: {data}")
+            self.device_connected = True
+            await self.event_bus.publish("audio_status_updated", {
+                "source": self.name,
+                "status": "preparing",
+                "connected": True,
+                "is_playing": self.is_playing,  # Garder l'état actuel
+                "track_uri": data.get('uri')
+            })
+        
         elif event_type == 'metadata':
             self.logger.info(f"Métadonnées reçues: {data}")
             
@@ -210,16 +234,6 @@ class LibrespotPlugin(BaseAudioPlugin):
                 "status": "connected",
                 "connected": True,
                 "is_playing": self.is_playing
-            })
-        
-        elif event_type == 'will_play':
-            self.logger.info(f"will_play reçu: {data}")
-            self.device_connected = True
-            await self.event_bus.publish("audio_status_updated", {
-                "source": self.name,
-                "status": "connected",
-                "connected": True,
-                "is_playing": False
             })
         
         elif event_type == 'seek':
