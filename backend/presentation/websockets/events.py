@@ -21,9 +21,9 @@ class WebSocketEventHandler:
             "audio_state_changed": "audio_state_changed",
             "audio_transition_error": "audio_error",
             "volume_changed": "volume_changed",
-            "audio_metadata_updated": "audio_metadata_updated",
-            "audio_status_updated": "audio_status_updated",
-            "audio_seek": "audio_seek",
+            "librespot_metadata_updated": "librespot_metadata_updated",
+            "librespot_status_updated": "librespot_status_updated",
+            "librespot_seek": "librespot_seek",
             
             # Événements spécifiques à Snapclient
             "snapclient_monitor_connected": "snapclient_monitor_connected",
@@ -74,7 +74,7 @@ class WebSocketEventHandler:
         if event_type in ["snapclient_monitor_disconnected", "snapclient_server_disappeared"]:
             self.logger.info(f"⚡ {event_type}: {data.get('host', 'unknown')}, raison: {data.get('reason', 'unknown')}")
         # Pour les événements d'état audio, loguer en info
-        elif event_type == "audio_status_updated" and data.get("source") == "snapclient":
+        elif event_type == "librespot_status_updated" and data.get("source") == "snapclient":
             self.logger.info(f"État audio mis à jour: {data.get('plugin_state', 'unknown')} - {data.get('source', 'unknown')}")
         # Pour les événements de monitoring, loguer en info
         elif event_type == "snapclient_monitor_connected":

@@ -55,7 +55,7 @@ function setupWebSocketEvents() {
     );
 
     unsubscribers.push(
-        on('audio_status_updated', data => {
+        on('librespot_status_updated', data => {
             if (data.source === 'snapclient') {
                 snapclientStore.updateFromStateEvent(data);
             }

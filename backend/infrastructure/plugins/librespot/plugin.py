@@ -137,7 +137,7 @@ class LibrespotPlugin(BaseAudioPlugin):
         # Mapping des événements
         if event_type == 'active':
             self.device_connected = True
-            await self.event_bus.publish("audio_status_updated", {
+            await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "active",
                 "connected": True,
@@ -147,7 +147,7 @@ class LibrespotPlugin(BaseAudioPlugin):
         elif event_type == 'inactive':
             self.device_connected = False
             self.is_playing = False
-            await self.event_bus.publish("audio_status_updated", {
+            await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "inactive",
                 "connected": False,
@@ -157,7 +157,7 @@ class LibrespotPlugin(BaseAudioPlugin):
         elif event_type == 'playing':
             self.is_playing = True
             self.device_connected = True
-            await self.event_bus.publish("audio_status_updated", {
+            await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "playing",
                 "connected": True,
@@ -166,7 +166,7 @@ class LibrespotPlugin(BaseAudioPlugin):
         
         elif event_type == 'paused':
             self.is_playing = False
-            await self.event_bus.publish("audio_status_updated", {
+            await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "paused",
                 "connected": True,
@@ -175,7 +175,7 @@ class LibrespotPlugin(BaseAudioPlugin):
         
         elif event_type == 'stopped':
             self.is_playing = False
-            await self.event_bus.publish("audio_status_updated", {
+            await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "stopped",
                 "connected": self.device_connected,
@@ -186,7 +186,7 @@ class LibrespotPlugin(BaseAudioPlugin):
             # Cette chanson s'est terminée, mais une autre peut suivre
             # Ne pas changer is_playing pour éviter le clignotement
             self.logger.info(f"Transition entre chansons: {data}")
-            await self.event_bus.publish("audio_status_updated", {
+            await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "track_ended",
                 "connected": True,
@@ -198,7 +198,7 @@ class LibrespotPlugin(BaseAudioPlugin):
             # Une nouvelle chanson va commencer
             self.logger.info(f"Préparation nouvelle chanson: {data}")
             self.device_connected = True
-            await self.event_bus.publish("audio_status_updated", {
+            await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "preparing",
                 "connected": True,
@@ -222,14 +222,14 @@ class LibrespotPlugin(BaseAudioPlugin):
             }
             
             # Publier les métadonnées
-            await self.event_bus.publish("audio_metadata_updated", {
+            await self.event_bus.publish("librespot_metadata_updated", {
                 "source": self.name,
                 "metadata": self.last_metadata
             })
             
             # Publier aussi un statut connected
             self.device_connected = True
-            await self.event_bus.publish("audio_status_updated", {
+            await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "connected",
                 "connected": True,
@@ -241,7 +241,7 @@ class LibrespotPlugin(BaseAudioPlugin):
             if 'position' in data:
                 self.last_metadata['position_ms'] = data.get('position', 0)
             
-            await self.event_bus.publish("audio_seek", {
+            await self.event_bus.publish("librespot_seek", {
                 "source": self.name,
                 "position_ms": data.get('position', 0),
                 "duration_ms": data.get('duration')

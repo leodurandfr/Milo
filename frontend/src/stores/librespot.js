@@ -105,7 +105,7 @@ export const useLibrespotStore = defineStore('librespot', () => {
 
   function handleWebSocketEvent(eventType, data) {
     switch (eventType) {
-      case 'audio_metadata_updated':
+      case 'librespot_metadata_updated':
         if (data.source === 'librespot' && data.metadata) {
           metadata.value = data.metadata;
           // Si on reçoit des métadonnées, on est connecté
@@ -118,7 +118,7 @@ export const useLibrespotStore = defineStore('librespot', () => {
         }
         break;
 
-      case 'audio_status_updated':
+      case 'librespot_status_updated':
         if (data.source === 'librespot') {
           switch (data.status) {
             case 'active':
@@ -167,7 +167,7 @@ export const useLibrespotStore = defineStore('librespot', () => {
         }
         break;
 
-      case 'audio_seek':
+      case 'librespot_seek':
         if (data.source === 'librespot' && data.position_ms !== undefined) {
           metadata.value = {
             ...metadata.value,

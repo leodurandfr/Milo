@@ -112,21 +112,21 @@ onMounted(async () => {
   });
 
   // Événements spécifiques à librespot
-  on('audio_metadata_updated', (data) => {
+  on('librespot_metadata_updated', (data) => {
     if (data.source === 'librespot') {
-      librespotStore.handleWebSocketEvent('audio_metadata_updated', data);
+      librespotStore.handleWebSocketEvent('librespot_metadata_updated', data);
     }
   });
 
-  on('audio_status_updated', (data) => {
+  on('librespot_status_updated', (data) => {
     if (data.source === 'librespot') {
-      librespotStore.handleWebSocketEvent('audio_status_updated', data);
+      librespotStore.handleWebSocketEvent('librespot_status_updated', data);
     }
   });
 
-  on('audio_seek', (data) => {
+  on('librespot_seek', (data) => {
     if (data.source === 'librespot') {
-      librespotStore.handleWebSocketEvent('audio_seek', data);
+      librespotStore.handleWebSocketEvent('librespot_seek', data);
     }
   });
 
