@@ -91,8 +91,9 @@ class BaseAudioPlugin(AudioSourcePlugin, ABC):
         
         if details:
             status_data.update(details)
-            
-        await self.event_bus.publish("librespot_status_updated", status_data)
+        
+        event_name = f"{self.name}_status_updated"
+        await self.event_bus.publish(event_name, status_data)
     
     async def publish_error(self, message: str, details: Optional[Dict[str, Any]] = None) -> None:
         """
