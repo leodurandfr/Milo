@@ -45,7 +45,7 @@
       </button>
     </div>
 
-    <!-- Affichage conditionnel avec état de transition -->
+    <!-- Affichage conditionnel avec état de transition simplifié -->
     <div v-if="audioStore.isTransitioning" class="transition-state">
       <h2>Chargement...</h2>
     </div>
@@ -254,7 +254,7 @@ h1 {
   max-width: 600px;
 }
 
-/* Nouveau style pour l'état de transition */
+/* État de transition simplifié */
 .transition-state {
   text-align: center;
   padding: 2rem;

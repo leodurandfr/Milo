@@ -1,6 +1,8 @@
 """
 Implémentation de la machine à états pour gérer les transitions audio.
 """
+import asyncio
+import time
 from typing import Dict, Any, Optional
 import logging
 from backend.domain.audio import AudioState, AudioStateInfo
@@ -10,6 +12,9 @@ from backend.application.event_bus import EventBus
 
 class AudioStateMachine:
     """Gère les transitions entre états audio"""
+    
+    # Configuration du temps de transition standardisé
+    STANDARD_TRANSITION_TIME = 1.0  # Durée standard en secondes
     
     def __init__(self, event_bus: EventBus):
         self.event_bus = event_bus
@@ -32,7 +37,7 @@ class AudioStateMachine:
         return self.state_info.to_dict()
     
     async def transition_to(self, target_state: AudioState) -> bool:
-        """Effectue une transition vers un nouvel état"""
+        """Effectue une transition vers un nouvel état avec timing standardisé"""
         if self.state_info.transitioning:
             self.logger.warning("Already in transition, ignoring request")
             return False
@@ -47,6 +52,8 @@ class AudioStateMachine:
             return False
             
         try:
+            # Début de la mesure du temps
+            start_time = time.time()
             self.state_info.transitioning = True
             
             # Publier événement de début de transition
@@ -65,6 +72,13 @@ class AudioStateMachine:
             if not success:
                 raise ValueError(f"Failed to start {target_state.value} plugin")
                 
+            # Calculer le temps écoulé et ajouter un délai si nécessaire
+            elapsed_time = time.time() - start_time
+            if elapsed_time < self.STANDARD_TRANSITION_TIME:
+                delay = self.STANDARD_TRANSITION_TIME - elapsed_time
+                self.logger.info(f"Adding delay of {delay:.2f}s to standardize transition time")
+                await asyncio.sleep(delay)
+            
             # Mettre à jour l'état
             previous_state = self.state_info.state
             self.state_info.state = target_state
@@ -77,7 +91,7 @@ class AudioStateMachine:
                 "transitioning": False
             })
             
-            self.logger.info(f"Transition successful: {previous_state.value} -> {target_state.value}")
+            self.logger.info(f"Transition successful: {previous_state.value} -> {target_state.value} (took {time.time() - start_time:.2f}s)")
             return True
             
         except Exception as e:
