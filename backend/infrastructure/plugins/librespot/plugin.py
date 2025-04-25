@@ -26,7 +26,6 @@ class LibrespotPlugin(BaseAudioPlugin):
         self.executable_path = os.path.expanduser(config.get("executable_path", "~/oakOS/go-librespot/go-librespot"))
         self.api_url = None
         self.ws_url = None
-        # Ajout: stockage des dernières métadonnées reçues
         self.last_metadata = {}
         self.is_playing = False
         self.device_connected = False
@@ -146,9 +145,6 @@ class LibrespotPlugin(BaseAudioPlugin):
         
         self.logger.info(f"Événement WebSocket reçu: {event_type} - {data}")
         
-        if event_type:
-            self.logger.info(f"Type d'événement: {event_type}")
-        
         # Mapping des événements
         if event_type == 'active':
             self.device_connected = True
@@ -156,6 +152,7 @@ class LibrespotPlugin(BaseAudioPlugin):
                 "connected": True,
                 "is_playing": self.is_playing
             })
+            # Garder l'événement original pour le frontend
             await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "active",
@@ -171,6 +168,7 @@ class LibrespotPlugin(BaseAudioPlugin):
                 "connected": False,
                 "is_playing": False
             })
+            # Garder l'événement original pour le frontend
             await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "inactive",
@@ -187,6 +185,7 @@ class LibrespotPlugin(BaseAudioPlugin):
                     "connected": True,
                     "is_playing": True
                 })
+            # Garder l'événement original pour le frontend
             await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "playing",
@@ -197,6 +196,7 @@ class LibrespotPlugin(BaseAudioPlugin):
         
         elif event_type == 'paused':
             self.is_playing = False
+            # Garder l'événement original pour le frontend
             await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "paused",
@@ -207,6 +207,7 @@ class LibrespotPlugin(BaseAudioPlugin):
         
         elif event_type == 'stopped':
             self.is_playing = False
+            # Garder l'événement original pour le frontend
             await self.event_bus.publish("librespot_status_updated", {
                 "source": self.name,
                 "status": "stopped",

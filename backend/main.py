@@ -81,8 +81,9 @@ async def startup_event():
         # Initialiser le plugin librespot
         librespot_plugin = container.librespot_plugin()
         if await librespot_plugin.initialize():
-            # Enregistrer le plugin dans la machine à états
             audio_state_machine.register_plugin(AudioState.LIBRESPOT, librespot_plugin)
+            # Abonnement aux événements de changement d'état
+            librespot_plugin.on_state_change = audio_state_machine.update_plugin_state
             logging.info("Plugin librespot enregistré avec succès")
         else:
             logging.error("Échec de l'initialisation du plugin librespot")
@@ -90,8 +91,9 @@ async def startup_event():
         # Initialiser le plugin snapclient
         snapclient_plugin = container.snapclient_plugin()
         if await snapclient_plugin.initialize():
-            # Enregistrer le plugin dans la machine à états
             audio_state_machine.register_plugin(AudioState.MACOS, snapclient_plugin)
+            # Abonnement aux événements de changement d'état
+            snapclient_plugin.on_state_change = audio_state_machine.update_plugin_state
             logging.info("Plugin snapclient enregistré avec succès")
         else:
             logging.error("Échec de l'initialisation du plugin snapclient")

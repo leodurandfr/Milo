@@ -11,10 +11,10 @@ from backend.application.event_bus import EventBus
 
 
 class AudioStateMachine:
-    """Gère les transitions entre états audio"""
+    """Gère les transitions entre états audio et l'état des plugins"""
     
     # Configuration du temps de transition standardisé
-    STANDARD_TRANSITION_TIME = 1.0  # Durée standard en secondes
+    STANDARD_TRANSITION_TIME = 1.0
     
     def __init__(self, event_bus: EventBus):
         self.event_bus = event_bus
@@ -23,21 +23,47 @@ class AudioStateMachine:
             state: None for state in AudioState if state != AudioState.NONE and state != AudioState.TRANSITIONING
         }
         self.logger = logging.getLogger(__name__)
+        # États internes des plugins (connecté, en attente, etc.)
+        self.plugin_states: Dict[AudioState, Dict[str, Any]] = {}
     
     def register_plugin(self, state: AudioState, plugin: AudioSourcePlugin) -> None:
         """Enregistre un plugin pour un état spécifique"""
         if state in self.plugins:
             self.plugins[state] = plugin
+            self.plugin_states[state] = {
+                "is_connected": False,
+                "metadata": {},
+                "plugin_state": "inactive"
+            }
             self.logger.info(f"Plugin registered for state: {state.value}")
         else:
             self.logger.error(f"Cannot register plugin for invalid state: {state.value}")
     
     async def get_current_state(self) -> Dict[str, Any]:
         """Renvoie l'état actuel du système"""
-        return self.state_info.to_dict()
+        current_state_data = self.state_info.to_dict()
+        # Ajouter l'état du plugin actif si disponible
+        if self.state_info.state in self.plugin_states:
+            current_state_data["plugin_info"] = self.plugin_states[self.state_info.state]
+        return current_state_data
+    
+    async def update_plugin_state(self, audio_state: AudioState, plugin_state: str, details: Dict[str, Any] = None) -> None:
+        """Met à jour l'état interne d'un plugin"""
+        if audio_state in self.plugin_states:
+            self.plugin_states[audio_state]["plugin_state"] = plugin_state
+            if details:
+                self.plugin_states[audio_state].update(details)
+            
+            # Si c'est le plugin actif, publier un événement
+            if audio_state == self.state_info.state:
+                await self.event_bus.publish("audio_plugin_state_changed", {
+                    "audio_state": audio_state.value,
+                    "plugin_state": plugin_state,
+                    "details": details or {}
+                })
     
     async def transition_to(self, target_state: AudioState) -> bool:
-        """Effectue une transition vers un nouvel état avec timing standardisé"""
+        """Effectue une transition vers un nouvel état"""
         if self.state_info.transitioning:
             self.logger.warning("Already in transition, ignoring request")
             return False
@@ -52,7 +78,6 @@ class AudioStateMachine:
             return False
             
         try:
-            # Début de la mesure du temps
             start_time = time.time()
             self.state_info.transitioning = True
             
@@ -72,11 +97,10 @@ class AudioStateMachine:
             if not success:
                 raise ValueError(f"Failed to start {target_state.value} plugin")
                 
-            # Calculer le temps écoulé et ajouter un délai si nécessaire
+            # Temps standardisé
             elapsed_time = time.time() - start_time
             if elapsed_time < self.STANDARD_TRANSITION_TIME:
                 delay = self.STANDARD_TRANSITION_TIME - elapsed_time
-                self.logger.info(f"Adding delay of {delay:.2f}s to standardize transition time")
                 await asyncio.sleep(delay)
             
             # Mettre à jour l'état
@@ -91,12 +115,10 @@ class AudioStateMachine:
                 "transitioning": False
             })
             
-            self.logger.info(f"Transition successful: {previous_state.value} -> {target_state.value} (took {time.time() - start_time:.2f}s)")
             return True
             
         except Exception as e:
             self.logger.error(f"Transition error: {str(e)}")
-            # Publier événement d'erreur
             await self.event_bus.publish("audio_transition_error", {
                 "error": str(e),
                 "from_state": self.state_info.state.value,

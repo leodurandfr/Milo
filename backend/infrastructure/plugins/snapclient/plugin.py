@@ -1,10 +1,10 @@
 """
-Plugin principal Snapclient pour oakOS - Version optimisée.
+Plugin principal Snapclient pour oakOS - Version corrigée.
 """
 import asyncio
 import logging
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from backend.application.event_bus import EventBus
 from backend.infrastructure.plugins.base import BaseAudioPlugin
@@ -13,6 +13,7 @@ from backend.infrastructure.plugins.snapclient.discovery import SnapclientDiscov
 from backend.infrastructure.plugins.snapclient.connection import SnapclientConnection
 from backend.infrastructure.plugins.snapclient.monitor import SnapcastMonitor
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer
+
 
 class SnapclientPlugin(BaseAudioPlugin):
     """Plugin pour la source audio Snapclient (MacOS via Snapcast)."""
@@ -83,9 +84,11 @@ class SnapclientPlugin(BaseAudioPlugin):
             async with self._connection_lock:
                 current_server_obj = self.connection_manager.current_server
                 if current_server_obj and current_server_obj.host == server.host:
+                    # Événement corrigé : snapclient au lieu de librespot
                     await self.event_bus.publish("snapclient_server_disappeared", {
-                        "source": "snapclient", "host": server.host, "reason": "zeroconf_removed",
-                        "plugin_state": self.STATE_READY, "connected": False, "deviceConnected": False
+                        "source": self.name,  # "snapclient" au lieu de "librespot"
+                        "host": server.host,
+                        "reason": "zeroconf_removed"
                     })
                     await self.monitor.stop()
                     await self.transition_to_state(self.STATE_READY)
@@ -95,7 +98,7 @@ class SnapclientPlugin(BaseAudioPlugin):
 
         if event_type in ["added", "updated"]:
             async with self._connection_lock:
-                # Mettre à jour la liste interne
+                # Mise à jour de la liste interne
                 found = False
                 for i, s in enumerate(self.discovered_servers):
                     if s.host == server.host:
@@ -107,7 +110,7 @@ class SnapclientPlugin(BaseAudioPlugin):
 
                 # Publier l'événement de découverte
                 await self.event_bus.publish("snapclient_server_discovered", {
-                    "source": "snapclient",
+                    "source": self.name,
                     "server": server.to_dict(),
                     "event_type": event_type
                 })
@@ -124,9 +127,8 @@ class SnapclientPlugin(BaseAudioPlugin):
                     success = await self.connection_manager.connect(server)
                     if success:
                         await self.transition_to_state(self.STATE_CONNECTED, {
-                            "connected": True, 
-                            "device_connected": True,
-                            "host": server.host, 
+                            "connected": True,
+                            "host": server.host,
                             "device_name": server.name
                         })
 
@@ -136,27 +138,22 @@ class SnapclientPlugin(BaseAudioPlugin):
         host = data.get("host")
 
         if event_type == "monitor_connected":
-            # Inclure le nom du serveur dans l'événement
             current_server_obj = self.connection_manager.current_server
             device_name = current_server_obj.name if current_server_obj else None
             
             await self.event_bus.publish("snapclient_monitor_connected", {
-                "source": "snapclient", 
-                "host": host, 
+                "source": self.name,
+                "host": host,
                 "device_name": device_name,
-                "plugin_state": self.current_state,
                 "timestamp": time.time()
             })
 
         elif event_type == "monitor_disconnected":
             reason = data.get("reason", "unknown")
             await self.event_bus.publish("snapclient_monitor_disconnected", {
-                "source": "snapclient", 
-                "host": host, 
-                "reason": reason, 
-                "plugin_state": self.current_state, 
-                "connected": False, 
-                "device_connected": False,
+                "source": self.name,
+                "host": host,
+                "reason": reason,
                 "timestamp": time.time()
             })
 
@@ -165,17 +162,18 @@ class SnapclientPlugin(BaseAudioPlugin):
                 if self.is_active and current_server_obj and current_server_obj.host == host:
                     await self.monitor.stop()
                     await self.event_bus.publish("snapclient_server_disappeared", {
-                        "source": "snapclient", "host": host, 
+                        "source": self.name,
+                        "host": host,
                         "reason": f"monitor_disconnected ({reason})",
-                        "plugin_state": self.STATE_READY, "connected": False, 
-                        "deviceConnected": False, "timestamp": time.time()
+                        "timestamp": time.time()
                     })
                     await self.transition_to_state(self.STATE_READY)
                     await self.connection_manager.disconnect(stop_process=True)
 
         elif event_type == "server_event":
             await self.event_bus.publish("snapclient_server_event", {
-                "source": "snapclient", "host": host,
+                "source": self.name,
+                "host": host,
                 "event_data": data.get("data", {}),
                 "timestamp": data.get("timestamp", time.time())
             })
@@ -186,16 +184,18 @@ class SnapclientPlugin(BaseAudioPlugin):
             connection_info = self.connection_manager.get_connection_info()
             process_info = await self.process_manager.get_process_info()
             status = {
-                "source": "snapclient", "plugin_state": self.current_state,
+                "source": self.name,
+                "plugin_state": self.current_state,
                 "is_active": self.is_active,
                 "device_connected": connection_info.get("device_connected", False),
                 "discovered_servers": [s.to_dict() for s in self.discovered_servers],
                 "blacklisted_servers": self.blacklisted_servers,
-                "process_info": process_info, "metadata": {}
+                "process_info": process_info,
+                "metadata": {}
             }
             if connection_info.get("device_connected"):
                 status.update({
-                    "connected": True, "deviceConnected": True,
+                    "connected": True,
                     "host": connection_info.get("host"),
                     "device_name": connection_info.get("device_name")
                 })
@@ -206,8 +206,12 @@ class SnapclientPlugin(BaseAudioPlugin):
             return status
         except Exception as e:
             self.logger.error(f"Erreur récupération statut: {str(e)}")
-            return {"source": "snapclient", "plugin_state": self.current_state,
-                    "is_active": self.is_active, "error": str(e)}
+            return {
+                "source": self.name,
+                "plugin_state": self.current_state,
+                "is_active": self.is_active,
+                "error": str(e)
+            }
 
     async def get_connection_info(self) -> Dict[str, Any]:
         """Récupère les informations de connexion."""
