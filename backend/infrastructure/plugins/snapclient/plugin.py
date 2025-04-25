@@ -124,8 +124,10 @@ class SnapclientPlugin(BaseAudioPlugin):
                     success = await self.connection_manager.connect(server)
                     if success:
                         await self.transition_to_state(self.STATE_CONNECTED, {
-                            "connected": True, "deviceConnected": True,
-                            "host": server.host, "device_name": server.name
+                            "connected": True, 
+                            "device_connected": True,
+                            "host": server.host, 
+                            "device_name": server.name
                         })
 
     async def _handle_monitor_event(self, data: Dict[str, Any]) -> None:
@@ -141,7 +143,7 @@ class SnapclientPlugin(BaseAudioPlugin):
             await self.event_bus.publish("snapclient_monitor_connected", {
                 "source": "snapclient", 
                 "host": host, 
-                "device_name": device_name,  # Ajout du nom ici
+                "device_name": device_name,
                 "plugin_state": self.current_state,
                 "timestamp": time.time()
             })
@@ -149,9 +151,13 @@ class SnapclientPlugin(BaseAudioPlugin):
         elif event_type == "monitor_disconnected":
             reason = data.get("reason", "unknown")
             await self.event_bus.publish("snapclient_monitor_disconnected", {
-                "source": "snapclient", "host": host, "reason": reason, 
-                "plugin_state": self.current_state, "connected": False, 
-                "deviceConnected": False, "timestamp": time.time()
+                "source": "snapclient", 
+                "host": host, 
+                "reason": reason, 
+                "plugin_state": self.current_state, 
+                "connected": False, 
+                "device_connected": False,
+                "timestamp": time.time()
             })
 
             async with self._connection_lock:
