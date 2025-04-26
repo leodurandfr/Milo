@@ -39,43 +39,30 @@ def get_librespot_plugin():
 
 @router.get("/status")
 async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
-    """Récupère le statut actuel de go-librespot pour débogage"""
+    """Récupère le statut actuel de go-librespot avec toutes les métadonnées"""
     try:
-        # Vérifier si l'API de go-librespot est accessible
-        try:
-            # Récupérer les informations de statut
-            status = await plugin.get_status()
-            
-            # Récupérer les informations de connexion
-            connection_info = await plugin.get_connection_info()
-            
-            # Récupérer les informations sur le processus
-            process_info = await plugin.get_process_info()
-            
-            return {
-                "status": "ok",
-                "is_active": plugin.is_active,
-                "device_connected": connection_info.get("device_connected", False),
-                "ws_connected": connection_info.get("ws_connected", False),
-                "api_url": connection_info.get("api_url"),
-                "ws_url": connection_info.get("ws_url"),
-                "process_info": process_info,
-                "metadata": status.get("metadata", {})
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "api_accessible": False,
-                "error": str(e),
-                "message": "Impossible de communiquer avec l'API go-librespot",
-                "device_connected": False,
-                "process_info": await plugin.get_process_info()
-            }
+        # Récupérer les informations de statut complètes
+        status = await plugin.get_status()
+        
+        # S'assurer que toutes les données sont présentes
+        return {
+            "status": "ok",
+            "is_active": plugin.current_state == PluginState.CONNECTED,
+            "plugin_state": plugin.current_state.value,
+            "device_connected": status.get("device_connected", False),
+            "is_playing": status.get("is_playing", False),
+            "metadata": status.get("metadata", {}),
+            "ws_connected": status.get("ws_connected", False)
+        }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur lors de la récupération du plugin librespot: {str(e)}",
-            "device_connected": False
+            "message": str(e),
+            "plugin_state": plugin.current_state.value if plugin else "unknown",
+            "metadata": {},
+            "is_playing": False,
+            "device_connected": False,
+            "ws_connected": False
         }
 
 @router.post("/connect")

@@ -1,6 +1,6 @@
 <template>
   <div class="librespot-player">
-    <div v-if="librespotStore.isConnected && librespotStore.hasTrackInfo" class="now-playing">
+    <div v-if="hasTrackInfo" class="now-playing">
       <NowPlayingInfo 
         :title="librespotStore.metadata.title" 
         :artist="librespotStore.metadata.artist" 
@@ -24,10 +24,11 @@
     <div v-else class="waiting-connection">
       <div class="waiting-icon">🎵</div>
       <h3>En attente de connexion</h3>
-      <p v-if="librespotStore.pluginState === 'error'" class="error-message">
-        {{ librespotStore.lastError }}
-      </p>
-      <p v-else>Connectez un appareil via Spotify Connect</p>
+      <p>Connectez un appareil via Spotify Connect</p>
+    </div>
+    
+    <div v-if="librespotStore.lastError" class="error-message">
+      {{ librespotStore.lastError }}
     </div>
   </div>
 </template>
@@ -48,42 +49,42 @@ const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
 const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackProgress();
 const { on } = useWebSocket();
 
+// Computed plus robuste pour vérifier si on a les infos de la piste
+const hasTrackInfo = computed(() => {
+  return !!(
+    librespotStore.deviceConnected && 
+    librespotStore.metadata?.title && 
+    librespotStore.metadata?.artist
+  );
+});
+
 function seekToPosition(position) {
   seekTo(position);
 }
 
-// Gestion des événements spécifiques à librespot
+// Gestion des événements unifiés
 function setupWebSocketEvents() {
-  const events = {
-    'librespot_metadata_updated': data => {
-      if (data.source === 'librespot') {
-        librespotStore.handleWebSocketEvent('librespot_metadata_updated', data);
-      }
-    },
-    'librespot_status_updated': data => {
-      if (data.source === 'librespot') {
-        librespotStore.handleWebSocketEvent('librespot_status_updated', data);
-      }
-    },
-    'librespot_seek': data => {
-      if (data.source === 'librespot') {
-        librespotStore.handleWebSocketEvent('librespot_seek', data);
-      }
+  const unsubscriber = on('plugin_state_changed', data => {
+    if (data.source === 'librespot') {
+      librespotStore.handleWebSocketEvent('plugin_state_changed', data);
     }
-  };
+  });
 
-  const unsubscribers = Object.entries(events).map(
-    ([event, handler]) => on(event, handler)
-  );
-
-  return () => unsubscribers.forEach(unsub => unsub && unsub());
+  return () => unsubscriber && unsubscriber();
 }
 
-// Configuration avant le montage
 const cleanup = setupWebSocketEvents();
 
 onMounted(async () => {
+  // Initialiser le store pour récupérer l'état actuel
   await librespotStore.initialize();
+  
+  // Si on a déjà des métadonnées, s'assurer que la progression est initialisée correctement
+  if (hasTrackInfo.value) {
+    if (librespotStore.metadata.position !== undefined) {
+      seekTo(librespotStore.metadata.position);
+    }
+  }
 });
 
 onUnmounted(() => {
@@ -93,42 +94,37 @@ onUnmounted(() => {
 
 <style scoped>
 .librespot-player {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  padding: 20px;
 }
 
 .now-playing {
-  background-color: #1E1E1E;
-  border-radius: 10px;
-  padding: 1.5rem;
-  color: white;
   display: flex;
   flex-direction: column;
+  gap: 20px;
   align-items: center;
   width: 100%;
-  max-width: 500px;
 }
 
 .waiting-connection {
-  background-color: #1E1E1E;
-  border-radius: 10px;
-  padding: 2rem;
-  color: white;
-  text-align: center;
-  width: 100%;
-  max-width: 500px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  color: #666;
 }
 
 .waiting-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-  opacity: 0.6;
+  font-size: 48px;
+  margin-bottom: 20px;
 }
 
 .error-message {
-  color: #ff5252;
-  margin-top: 1rem;
+  color: #ff4444;
+  margin-top: 10px;
+  text-align: center;
+  padding: 10px;
+  background-color: #fff0f0;
+  border-radius: 4px;
 }
 </style>

@@ -5,7 +5,6 @@
 
       <div class="current-state">
         <h2>Source actuelle: {{ audioStore.stateLabel }}</h2>
-        <!-- <span v-if="audioStore.isTransitioning" class="transitioning-badge">Transition en cours...</span> -->
       </div>
 
       <div class="volume-control">
@@ -48,7 +47,7 @@
     <div v-if="audioStore.isTransitioning" class="transition-state">
       <h2>Chargement...</h2>
     </div>
-    <template v-else-if="audioStore.currentState !== 'none'">
+    <template v-else-if="audioStore.currentState !== 'none' && audioStore.pluginState !== 'inactive'">
       <LibrespotDisplay v-if="audioStore.currentState === 'librespot'" />
       <SnapclientComponent v-else-if="audioStore.currentState === 'snapclient'" />
       <div v-else class="no-source-error">
@@ -87,21 +86,25 @@ async function updateVolume() {
 onMounted(async () => {
   await audioStore.fetchState();
 
-  // Seulement les événements globaux
-  on('audio_state_changed', (data) => {
-    audioStore.handleWebSocketUpdate('audio_state_changed', data);
+  // Écouter les nouveaux événements unifiés
+  on('transition_completed', (data) => {
+    audioStore.handleWebSocketUpdate('transition_completed', data);
   });
 
-  on('audio_state_changing', (data) => {
-    audioStore.handleWebSocketUpdate('audio_state_changing', data);
+  on('transition_started', (data) => {
+    audioStore.handleWebSocketUpdate('transition_started', data);
+  });
+
+  on('plugin_state_changed', (data) => {
+    audioStore.handleWebSocketUpdate('plugin_state_changed', data);
   });
 
   on('volume_changed', (data) => {
     audioStore.handleWebSocketUpdate('volume_changed', data);
   });
 
-  on('audio_error', (data) => {
-    audioStore.handleWebSocketUpdate('audio_error', data);
+  on('transition_error', (data) => {
+    audioStore.handleWebSocketUpdate('transition_error', data);
   });
 });
 </script>

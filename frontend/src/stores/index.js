@@ -1,6 +1,5 @@
 /**
- * Store principal pour gérer l'état audio global - Version optimisée
- * Ne gère que les aspects globaux (source active, transitions, volume)
+ * Store principal pour gérer l'état audio global - Version adaptée aux événements unifiés
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
@@ -13,6 +12,7 @@ export const useAudioStore = defineStore('audio', () => {
   // État global uniquement
   const currentState = ref('none');
   const isTransitioning = ref(false);
+  const pluginState = ref('inactive');
   const volume = ref(50);
   const error = ref(null);
 
@@ -33,9 +33,10 @@ export const useAudioStore = defineStore('audio', () => {
   async function fetchState() {
     try {
       const response = await axios.get('/api/audio/state');
-      currentState.value = response.data.state;
+      currentState.value = response.data.active_source;
+      pluginState.value = response.data.plugin_state;
       isTransitioning.value = response.data.transitioning;
-      volume.value = response.data.volume;
+      volume.value = response.data.volume || 50;
       return response.data;
     } catch (err) {
       error.value = 'Erreur de récupération d\'état';
@@ -50,6 +51,7 @@ export const useAudioStore = defineStore('audio', () => {
       return response.data.status === 'success';
     } catch (err) {
       error.value = 'Erreur de changement de source';
+      isTransitioning.value = false;
       return false;
     }
   }
@@ -68,24 +70,33 @@ export const useAudioStore = defineStore('audio', () => {
     }
   }
 
-  // Gestion des événements WebSocket - routage seulement
+  // Gestion des événements WebSocket - adaptée aux nouveaux événements
   function handleWebSocketUpdate(eventType, data) {
     switch (eventType) {
-      case 'audio_state_changed':
-        currentState.value = data.current_state;
+      case 'transition_completed':
+        currentState.value = data.active_source;
+        pluginState.value = data.plugin_state;
         isTransitioning.value = false;
         break;
 
-      case 'audio_state_changing':
+      case 'transition_started':
         isTransitioning.value = true;
+        break;
+
+      case 'plugin_state_changed':
+        // Mise à jour uniquement si c'est la source active
+        if (data.source === currentState.value) {
+          pluginState.value = data.new_state;
+        }
         break;
 
       case 'volume_changed':
         volume.value = data.value;
         break;
 
-      case 'audio_error':
-        error.value = data.error_message;
+      case 'transition_error':
+        error.value = data.error;
+        isTransitioning.value = false;
         break;
     }
   }
@@ -94,6 +105,7 @@ export const useAudioStore = defineStore('audio', () => {
     // État global
     currentState,
     isTransitioning,
+    pluginState,
     volume,
     error,
     

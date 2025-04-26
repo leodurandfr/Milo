@@ -1,32 +1,21 @@
+# backend/infrastructure/plugins/base.py
 """
-Classe de base pour les plugins de sources audio.
+Classe de base pour les plugins de sources audio - Version avec contrôle centralisé
 """
 import logging
-from abc import ABC
-from typing import Dict, Any, Optional
+from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional, List
 
 from backend.application.interfaces.audio_source import AudioSourcePlugin
 from backend.application.event_bus import EventBus
+from backend.domain.audio_state import PluginState, AudioSource
 
 
-class BaseAudioPlugin(AudioSourcePlugin, ABC):
+class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
     """
-    Classe de base qui implémente les fonctionnalités communes à tous les plugins audio.
+    Classe de base qui implémente les fonctionnalités communes à tous les plugins audio
+    dans le nouveau modèle unifié avec contrôle centralisé des processus.
     """
-    
-    # États communs standardisés simplifiés
-    STATE_INACTIVE = "inactive"  # Plugin complètement arrêté
-    STATE_READY = "ready"       # Plugin initialisé, en attente de connexion
-    STATE_CONNECTED = "connected" # Plugin connecté et opérationnel
-    STATE_ERROR = "error"       # Plugin en état d'erreur
-    
-    # Transitions valides entre états - simplifiées
-    VALID_TRANSITIONS = {
-        STATE_INACTIVE: {STATE_READY, STATE_ERROR},
-        STATE_READY: {STATE_CONNECTED, STATE_INACTIVE, STATE_ERROR},
-        STATE_CONNECTED: {STATE_READY, STATE_INACTIVE, STATE_ERROR},
-        STATE_ERROR: {STATE_READY, STATE_INACTIVE},
-    }
     
     def __init__(self, event_bus: EventBus, name: str):
         """
@@ -38,123 +27,76 @@ class BaseAudioPlugin(AudioSourcePlugin, ABC):
         """
         self.event_bus = event_bus
         self.name = name
-        self.is_active = False
         self.logger = logging.getLogger(f"plugin.{name}")
-        self.metadata = {}
-        self._current_state = self.STATE_INACTIVE
-        # Ajout d'une référence à la machine à états qui sera définie lors de l'enregistrement
         self._state_machine = None
+        self._metadata = {}
+        self._current_state = PluginState.INACTIVE
     
-    def set_state_machine(self, state_machine):
+    def set_state_machine(self, state_machine) -> None:
         """Définit la référence à la machine à états"""
         self._state_machine = state_machine
     
-    async def transition_to_state(self, target_state: str, details: Optional[Dict[str, Any]] = None) -> bool:
+    async def notify_state_change(self, new_state: PluginState, 
+                                metadata: Optional[Dict[str, Any]] = None) -> None:
         """
-        Effectue une transition validée vers un nouvel état.
-        
-        Args:
-            target_state: État cible de la transition
-            details: Détails supplémentaires à inclure dans l'événement d'état
-            
-        Returns:
-            bool: True si la transition a réussi, False sinon
+        Notifie la machine à états d'un changement d'état du plugin.
         """
-        # Si nous sommes déjà dans l'état cible, mettre à jour uniquement les détails
-        if self._current_state == target_state:
-            if details:
-                await self.publish_plugin_state(target_state, details)
-            return True
-            
-        # Vérifier si la transition est valide
-        valid_targets = self.VALID_TRANSITIONS.get(self._current_state, set())
-        if target_state not in valid_targets:
-            self.logger.warning(f"Transition non valide: {self._current_state} -> {target_state}")
-            return False
+        self._current_state = new_state
         
-        # Enregistrer l'état précédent pour le logging
-        previous_state = self._current_state
-        
-        # Mettre à jour l'état interne et publier l'événement
-        self._current_state = target_state
-        await self.publish_plugin_state(target_state, details)
-        
-        # Notifier la machine à états si elle est disponible
-        if self._state_machine and hasattr(self._state_machine, 'update_plugin_state'):
-            audio_state = None
-            if self.name == 'librespot':
-                from backend.domain.audio import AudioState
-                audio_state = AudioState.LIBRESPOT
-            elif self.name == 'snapclient':
-                from backend.domain.audio import AudioState
-                audio_state = AudioState.SNAPCLIENT
-            
-            if audio_state:
-                await self._state_machine.update_plugin_state(audio_state, target_state, details)
-        
-        self.logger.info(f"Transition d'état: {previous_state} -> {target_state}")
-        return True
+        if self._state_machine:
+            await self._state_machine.update_plugin_state(
+                source=self._get_audio_source(),
+                new_state=new_state,
+                metadata=metadata
+            )
+        else:
+            self.logger.error("State machine not set, cannot notify state change")
     
-    async def publish_plugin_state(self, state: str, details: Optional[Dict[str, Any]] = None) -> None:
-        """
-        Publie un état standardisé sur le bus d'événements.
-        
-        Args:
-            state: État standardisé (STATE_INACTIVE, STATE_READY, etc.)
-            details: Détails supplémentaires à inclure
-        """
-        status_data = {
-            "source": self.name,
-            "plugin_state": state
+    def _get_audio_source(self) -> AudioSource:
+        """Retourne l'enum AudioSource correspondant à ce plugin"""
+        source_map = {
+            'librespot': AudioSource.LIBRESPOT,
+            'snapclient': AudioSource.SNAPCLIENT,
+            'bluetooth': AudioSource.BLUETOOTH,
+            'webradio': AudioSource.WEBRADIO
         }
-        
-        if details:
-            status_data.update(details)
-        
-        event_name = f"{self.name}_status_updated"
-        await self.event_bus.publish(event_name, status_data)
-    
-    async def publish_error(self, message: str, details: Optional[Dict[str, Any]] = None) -> None:
-        """
-        Publie une erreur sur le bus d'événements et met à jour l'état du plugin.
-        
-        Args:
-            message: Message d'erreur
-            details: Détails supplémentaires de l'erreur
-        """
-        error_data = {
-            "source": self.name,
-            "error_message": message
-        }
-        
-        if details:
-            error_data.update(details)
-        
-        # Publier l'erreur
-        await self.event_bus.publish("audio_error", error_data)
-        
-        # Mettre à jour l'état si possible
-        await self.transition_to_state(self.STATE_ERROR, {
-            "error": True,
-            "error_message": message
-        })
+        return source_map.get(self.name, AudioSource.NONE)
     
     @property
-    def current_state(self) -> str:
-        """
-        Récupère l'état actuel du plugin.
-        
-        Returns:
-            str: État actuel du plugin
-        """
+    def current_state(self) -> PluginState:
+        """Récupère l'état actuel du plugin"""
         return self._current_state
     
-    @property
-    def is_connected(self) -> bool:
+    @abstractmethod
+    def get_process_command(self) -> List[str]:
         """
-        Vérifie si le plugin est actuellement connecté.
+        Retourne la commande pour démarrer le processus de ce plugin.
+        Chaque plugin doit fournir sa propre commande.
+        """
+        pass
+    
+    # Méthodes abstraites existantes
+    @abstractmethod
+    async def initialize(self) -> bool:
+        """Initialise le plugin"""
+        pass
         
-        Returns:
-            bool: True si le plugin est connecté, False sinon
-        """
-        return self._current_state == self.STATE_CONNECTED
+    @abstractmethod
+    async def start(self) -> bool:
+        """Démarre la source audio"""
+        pass
+        
+    @abstractmethod
+    async def stop(self) -> bool:
+        """Arrête la source audio"""
+        pass
+        
+    @abstractmethod
+    async def get_status(self) -> Dict[str, Any]:
+        """Récupère l'état actuel de la source audio"""
+        pass
+        
+    @abstractmethod
+    async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Traite une commande spécifique à cette source"""
+        pass

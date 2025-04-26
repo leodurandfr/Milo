@@ -1,6 +1,6 @@
 <template>
     <div v-if="audioStore.currentState === 'snapclient'" class="snapclient-component">
-        <div v-if="snapclientStore.pluginState === 'connected'" class="connected-state">
+        <div v-if="audioStore.pluginState === 'connected'" class="connected-state">
             <h2>Connecté à MacOS</h2>
             <p>{{ formattedServerName }}</p>
             <div class="actions">
@@ -9,7 +9,7 @@
                 </button>
             </div>
         </div>
-        <div v-else-if="snapclientStore.pluginState === 'error'" class="error-state">
+        <div v-else-if="audioStore.pluginState === 'error'" class="error-state">
             <h2>Erreur de connexion</h2>
             <p>{{ snapclientStore.error }}</p>
         </div>
@@ -29,7 +29,7 @@ import useWebSocket from '@/services/websocket';
 const snapclientStore = useSnapclientStore();
 const audioStore = useAudioStore();
 const { on } = useWebSocket();
-const isConnected = computed(() => snapclientStore.isConnected);
+
 const formattedServerName = computed(() => {
     if (!snapclientStore.deviceName) return 'Serveur inconnu';
     const name = snapclientStore.deviceName
@@ -47,29 +47,15 @@ async function disconnect() {
 }
 
 function setupWebSocketEvents() {
-    const events = [
-        'snapclient_monitor_connected',
-        'snapclient_monitor_disconnected',
-        'snapclient_server_disappeared',
-        'snapclient_server_discovered'
-    ];
+    const unsubscriber = on('plugin_state_changed', data => {
+        if (data.source === 'snapclient') {
+            snapclientStore.handleWebSocketEvent('plugin_state_changed', data);
+        }
+    });
 
-    const unsubscribers = events.map(event =>
-        on(event, data => snapclientStore.updateFromWebSocketEvent(event, data))
-    );
-
-    unsubscribers.push(
-        on('librespot_status_updated', data => {
-            if (data.source === 'snapclient') {
-                snapclientStore.updateFromStateEvent(data);
-            }
-        })
-    );
-
-    return () => unsubscribers.forEach(unsub => unsub && unsub());
+    return () => unsubscriber && unsubscriber();
 }
 
-// Configurer les événements WebSocket avant le montage
 const cleanup = setupWebSocketEvents();
 
 onMounted(async () => {
@@ -80,6 +66,7 @@ onUnmounted(() => {
     cleanup();
 });
 </script>
+
 
 <style scoped>
 .snapclient-component {

@@ -22,6 +22,24 @@ export default defineConfig({
           });
         },
       },
+      '/librespot': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('Erreur de proxy librespot:', err);
+          });
+        },
+      },
+      '/snapclient': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('Erreur de proxy snapclient:', err);
+          });
+        },
+      },
       '/ws': {
         target: 'ws://127.0.0.1:8000',    // Utilisation explicite de l'IPv4
         ws: true,

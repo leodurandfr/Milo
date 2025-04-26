@@ -1,135 +1,212 @@
+# backend/infrastructure/state/state_machine.py
 """
-Implémentation de la machine à états pour gérer les transitions audio.
+Machine à états unifiée avec contrôle centralisé des processus
 """
 import asyncio
 import time
 from typing import Dict, Any, Optional
 import logging
-from backend.domain.audio import AudioState, AudioStateInfo
+from backend.domain.audio_state import AudioSource, PluginState, SystemAudioState
 from backend.application.interfaces.audio_source import AudioSourcePlugin
 from backend.application.event_bus import EventBus
+from backend.infrastructure.process.process_manager import ProcessManager
 
 
-class AudioStateMachine:
-    """Gère les transitions entre états audio et l'état des plugins"""
+class UnifiedAudioStateMachine:
+    """Gère l'état complet du système audio avec contrôle centralisé des processus"""
     
-    # Configuration du temps de transition standardisé
-    STANDARD_TRANSITION_TIME = 1.0
+    TRANSITION_TIMEOUT = 5.0  # Timeout pour les transitions
     
     def __init__(self, event_bus: EventBus):
         self.event_bus = event_bus
-        self.state_info = AudioStateInfo()
-        self.plugins: Dict[AudioState, Optional[AudioSourcePlugin]] = {
-            state: None for state in AudioState if state != AudioState.NONE and state != AudioState.TRANSITIONING
+        self.system_state = SystemAudioState()
+        self.plugins: Dict[AudioSource, Optional[AudioSourcePlugin]] = {
+            source: None for source in AudioSource 
+            if source not in (AudioSource.NONE,)
         }
         self.logger = logging.getLogger(__name__)
-        # États internes des plugins (connecté, en attente, etc.)
-        self.plugin_states: Dict[AudioState, Dict[str, Any]] = {}
+        self._transition_lock = asyncio.Lock()
+        self.process_manager = ProcessManager()  # Gestionnaire centralisé des processus
     
-    def register_plugin(self, state: AudioState, plugin: AudioSourcePlugin) -> None:
-        """Enregistre un plugin pour un état spécifique"""
-        if state in self.plugins:
-            self.plugins[state] = plugin
-            self.plugin_states[state] = {
-                "is_connected": False,
-                "metadata": {},
-                "plugin_state": "inactive"
-            }
-            
-            # Injecter la référence à la machine à états dans le plugin
-            if hasattr(plugin, 'set_state_machine'):
-                plugin.set_state_machine(self)
-            
-            self.logger.info(f"Plugin registered for state: {state.value}")
+    def register_plugin(self, source: AudioSource, plugin: AudioSourcePlugin) -> None:
+        """Enregistre un plugin pour une source spécifique"""
+        if source in self.plugins:
+            self.plugins[source] = plugin
+            self.logger.info(f"Plugin registered for source: {source.value}")
         else:
-            self.logger.error(f"Cannot register plugin for invalid state: {state.value}")
+            self.logger.error(f"Cannot register plugin for invalid source: {source.value}")
     
     async def get_current_state(self) -> Dict[str, Any]:
         """Renvoie l'état actuel du système"""
-        current_state_data = self.state_info.to_dict()
-        # Ajouter l'état du plugin actif si disponible
-        if self.state_info.state in self.plugin_states:
-            current_state_data["plugin_info"] = self.plugin_states[self.state_info.state]
-        return current_state_data
+        return self.system_state.to_dict()
     
-    async def update_plugin_state(self, audio_state: AudioState, plugin_state: str, details: Dict[str, Any] = None) -> None:
-        """Met à jour l'état interne d'un plugin"""
-        if audio_state in self.plugin_states:
-            self.plugin_states[audio_state]["plugin_state"] = plugin_state
-            if details:
-                self.plugin_states[audio_state].update(details)
+    async def transition_to_source(self, target_source: AudioSource) -> bool:
+        """
+        Effectue une transition vers une nouvelle source avec contrôle centralisé.
+        """
+        async with self._transition_lock:
+            # Vérification si déjà sur la bonne source
+            if self.system_state.active_source == target_source and \
+               self.system_state.plugin_state != PluginState.ERROR:
+                self.logger.info(f"Already on source {target_source.value}")
+                return True
             
-            # Si c'est le plugin actif, publier un événement
-            if audio_state == self.state_info.state:
-                await self.event_bus.publish("audio_plugin_state_changed", {
-                    "audio_state": audio_state.value,
-                    "plugin_state": plugin_state,
-                    "details": details or {}
+            # Vérification du plugin
+            if target_source != AudioSource.NONE and target_source not in self.plugins:
+                self.logger.error(f"No plugin registered for source: {target_source.value}")
+                return False
+            
+            try:
+                # Début de la transition
+                self.system_state.transitioning = True
+                await self._publish_state_event("audio.transition_started", {
+                    "from_source": self.system_state.active_source.value,
+                    "to_source": target_source.value
                 })
+                
+                # Arrêt de la source actuelle avec gestion centralisée
+                await self._stop_current_source()
+                
+                # Démarrage de la nouvelle source avec gestion centralisée
+                if target_source != AudioSource.NONE:
+                    success = await self._start_new_source(target_source)
+                    if not success:
+                        raise ValueError(f"Failed to start {target_source.value}")
+                else:
+                    # Cas spécial pour NONE
+                    self.system_state.active_source = AudioSource.NONE
+                    self.system_state.plugin_state = PluginState.INACTIVE
+                    self.system_state.metadata = {}
+                
+                # Fin de la transition
+                self.system_state.transitioning = False
+                await self._publish_state_event("audio.transition_completed", {
+                    "active_source": self.system_state.active_source.value,
+                    "plugin_state": self.system_state.plugin_state.value
+                })
+                
+                return True
+                
+            except Exception as e:
+                self.logger.error(f"Transition error: {str(e)}")
+                self.system_state.transitioning = False
+                self.system_state.error = str(e)
+                
+                # En cas d'erreur, arrêter tous les processus
+                await self._emergency_stop()
+                
+                await self._publish_state_event("audio.transition_error", {
+                    "error": str(e),
+                    "attempted_source": target_source.value
+                })
+                
+                return False
     
-    async def transition_to(self, target_state: AudioState) -> bool:
-        """Effectue une transition vers un nouvel état"""
-        if self.state_info.transitioning:
-            self.logger.warning("Already in transition, ignoring request")
-            return False
-            
-        if target_state == self.state_info.state:
-            self.logger.info(f"Already in state {target_state.value}, no transition needed")
-            return True
-            
-        plugin = self.plugins.get(target_state)
-        if not plugin:
-            self.logger.error(f"No plugin registered for state: {target_state.value}")
-            return False
-            
-        try:
-            start_time = time.time()
-            self.state_info.transitioning = True
-            
-            # Publier événement de début de transition
-            await self.event_bus.publish("audio_state_changing", {
-                "from_state": self.state_info.state.value,
-                "to_state": target_state.value
-            })
-            
-            # Arrêter la source actuelle si elle existe
-            current_plugin = self.plugins.get(self.state_info.state)
+    async def update_plugin_state(self, source: AudioSource, new_state: PluginState, 
+                               metadata: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Met à jour l'état d'un plugin.
+        Appelé par les plugins pour notifier leurs changements d'état.
+        """
+        if source != self.system_state.active_source:
+            self.logger.warning(f"Ignoring state update from inactive source: {source.value}")
+            return
+        
+        old_state = self.system_state.plugin_state
+        self.system_state.plugin_state = new_state
+        
+        if metadata:
+            self.system_state.metadata.update(metadata)
+        
+        # Si le plugin passe en erreur, on nettoie
+        if new_state == PluginState.ERROR:
+            self.system_state.error = metadata.get("error") if metadata else "Unknown error"
+        else:
+            self.system_state.error = None
+        
+        await self._publish_state_event("audio.plugin_state_changed", {
+            "source": source.value,
+            "old_state": old_state.value,
+            "new_state": new_state.value,
+            "metadata": metadata
+        })
+    
+    async def _stop_current_source(self) -> None:
+        """Arrête la source actuellement active avec gestion centralisée"""
+        if self.system_state.active_source != AudioSource.NONE:
+            current_plugin = self.plugins.get(self.system_state.active_source)
             if current_plugin:
-                await current_plugin.stop()
-                
-            # Démarrer la nouvelle source
-            success = await plugin.start()
-            if not success:
-                raise ValueError(f"Failed to start {target_state.value} plugin")
-                
-            # Temps standardisé
-            elapsed_time = time.time() - start_time
-            if elapsed_time < self.STANDARD_TRANSITION_TIME:
-                delay = self.STANDARD_TRANSITION_TIME - elapsed_time
-                await asyncio.sleep(delay)
-            
-            # Mettre à jour l'état
-            previous_state = self.state_info.state
-            self.state_info.state = target_state
-            self.state_info.transitioning = False
-            
-            # Publier événement de fin de transition
-            await self.event_bus.publish("audio_state_changed", {
-                "from_state": previous_state.value,
-                "current_state": self.state_info.state.value,
-                "transitioning": False
-            })
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Transition error: {str(e)}")
-            await self.event_bus.publish("audio_transition_error", {
-                "error": str(e),
-                "from_state": self.state_info.state.value,
-                "to_state": target_state.value
-            })
+                try:
+                    # Arrêter le plugin
+                    await current_plugin.stop()
+                    
+                    # Arrêter le processus via le gestionnaire centralisé
+                    await self.process_manager.stop_process(self.system_state.active_source)
+                    
+                    self.system_state.plugin_state = PluginState.INACTIVE
+                    self.system_state.metadata = {}
+                except Exception as e:
+                    self.logger.error(f"Error stopping {self.system_state.active_source.value}: {e}")
+    
+    async def _start_new_source(self, source: AudioSource) -> bool:
+        """Démarre une nouvelle source avec gestion centralisée"""
+        plugin = self.plugins.get(source)
+        if not plugin:
             return False
+        
+        try:
+            # Initialisation si nécessaire
+            if hasattr(plugin, 'initialize') and not hasattr(plugin, '_initialized'):
+                await plugin.initialize()
+                plugin._initialized = True
             
-        finally:
-            self.state_info.transitioning = False
+            # Mettre à jour la source active AVANT de démarrer le plugin
+            self.system_state.active_source = source
+            
+            # Démarrer le processus via le gestionnaire centralisé
+            if hasattr(plugin, 'get_process_command'):
+                command = plugin.get_process_command()
+                process_started = await self.process_manager.start_process(source, command)
+                if not process_started:
+                    raise ValueError(f"Failed to start process for {source.value}")
+            
+            # Démarrer le plugin
+            success = await plugin.start()
+            if success:
+                # Le plugin notifiera son état lui-même
+                return True
+            else:
+                # Si le plugin échoue, arrêter le processus et réinitialiser
+                await self.process_manager.stop_process(source)
+                self.system_state.active_source = AudioSource.NONE
+                return False
+        except Exception as e:
+            self.logger.error(f"Error starting {source.value}: {e}")
+            # En cas d'erreur, arrêter le processus et réinitialiser
+            await self.process_manager.stop_process(source)
+            self.system_state.active_source = AudioSource.NONE
+            return False
+    
+    async def _emergency_stop(self) -> None:
+        """Arrêt d'urgence - arrête tous les processus"""
+        # Arrêter tous les processus via le gestionnaire centralisé
+        await self.process_manager.stop_all_processes()
+        
+        # Arrêter tous les plugins
+        for plugin in self.plugins.values():
+            if plugin:
+                try:
+                    await plugin.stop()
+                except Exception as e:
+                    self.logger.error(f"Emergency stop error: {e}")
+        
+        self.system_state.active_source = AudioSource.NONE
+        self.system_state.plugin_state = PluginState.INACTIVE
+        self.system_state.metadata = {}
+        self.system_state.error = None
+    
+    async def _publish_state_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Publie un événement d'état"""
+        # Ajouter les informations d'état complet
+        data["full_state"] = self.system_state.to_dict()
+        await self.event_bus.publish(event_type, data)
