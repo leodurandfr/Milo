@@ -60,7 +60,7 @@ async def periodic_websocket_cleanup():
             if ws_manager:
                 removed = await ws_manager.cleanup_stale_connections()
                 if removed > 0:
-                    logging.info(f"Nettoyage: {removed} connexions WebSocket zombies supprimées")
+                    logging.debug(f"Nettoyage: {removed} connexions WebSocket zombies supprimées")
         except Exception as e:
             logging.error(f"Erreur lors du nettoyage des WebSockets: {str(e)}")
 
@@ -183,7 +183,7 @@ async def websocket_endpoint(websocket: WebSocket):
     
     # Accepter la nouvelle connexion
     await ws_manager.connect(websocket)
-    logging.info(f"Nouvelle connexion WebSocket: {client_id}, total: {len(ws_manager.active_connections)}")
+    logging.debug(f"Nouvelle connexion WebSocket: {client_id}, total: {len(ws_manager.active_connections)}")
     
     try:
         # Envoyer un message de confirmation de connexion
@@ -219,7 +219,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         # Enregistrer l'ID du client
                         client_data = message.get("data", {})
                         client_id = client_data.get("client_id", client_id)
-                        logging.info(f"Client WebSocket identifié: {client_id}")
+                        logging.debug(f"Client WebSocket identifié: {client_id}")
                         
                         # Accusé de réception
                         await websocket.send_json({
@@ -244,7 +244,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"type": "ping", "data": {"timestamp": time.time()}})
                 
     except WebSocketDisconnect:
-        logging.info(f"WebSocket {client_id} déconnecté normalement")
+        logging.debug(f"WebSocket {client_id} déconnecté normalement")
         ws_manager.disconnect(websocket)
     except Exception as e:
         logging.error(f"Erreur WebSocket {client_id}: {str(e)}")
