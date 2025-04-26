@@ -35,6 +35,11 @@ class AudioStateMachine:
                 "metadata": {},
                 "plugin_state": "inactive"
             }
+            
+            # Injecter la référence à la machine à états dans le plugin
+            if hasattr(plugin, 'set_state_machine'):
+                plugin.set_state_machine(self)
+            
             self.logger.info(f"Plugin registered for state: {state.value}")
         else:
             self.logger.error(f"Cannot register plugin for invalid state: {state.value}")

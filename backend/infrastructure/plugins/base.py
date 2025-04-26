@@ -42,6 +42,12 @@ class BaseAudioPlugin(AudioSourcePlugin, ABC):
         self.logger = logging.getLogger(f"plugin.{name}")
         self.metadata = {}
         self._current_state = self.STATE_INACTIVE
+        # Ajout d'une référence à la machine à états qui sera définie lors de l'enregistrement
+        self._state_machine = None
+    
+    def set_state_machine(self, state_machine):
+        """Définit la référence à la machine à états"""
+        self._state_machine = state_machine
     
     async def transition_to_state(self, target_state: str, details: Optional[Dict[str, Any]] = None) -> bool:
         """
@@ -72,6 +78,19 @@ class BaseAudioPlugin(AudioSourcePlugin, ABC):
         # Mettre à jour l'état interne et publier l'événement
         self._current_state = target_state
         await self.publish_plugin_state(target_state, details)
+        
+        # Notifier la machine à états si elle est disponible
+        if self._state_machine and hasattr(self._state_machine, 'update_plugin_state'):
+            audio_state = None
+            if self.name == 'librespot':
+                from backend.domain.audio import AudioState
+                audio_state = AudioState.LIBRESPOT
+            elif self.name == 'snapclient':
+                from backend.domain.audio import AudioState
+                audio_state = AudioState.SNAPCLIENT
+            
+            if audio_state:
+                await self._state_machine.update_plugin_state(audio_state, target_state, details)
         
         self.logger.info(f"Transition d'état: {previous_state} -> {target_state}")
         return True

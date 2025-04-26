@@ -23,7 +23,7 @@ export const useAudioStore = defineStore('audio', () => {
       'transitioning': 'En transition',
       'librespot': 'Spotify Connect',
       'bluetooth': 'Bluetooth',
-      'macos': 'MacOS',
+      'snapclient': 'MacOS',
       'webradio': 'Radio Web'
     };
     return labels[currentState.value] || currentState.value;

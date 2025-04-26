@@ -11,7 +11,7 @@ class AudioState(Enum):
     TRANSITIONING = "transitioning"
     LIBRESPOT = "librespot"
     BLUETOOTH = "bluetooth"
-    MACOS = "macos"
+    SNAPCLIENT = "snapclient"
     WEBRADIO = "webradio"
 
 

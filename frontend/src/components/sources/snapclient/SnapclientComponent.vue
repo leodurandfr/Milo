@@ -1,5 +1,5 @@
 <template>
-    <div v-if="audioStore.currentState === 'macos'" class="snapclient-component">
+    <div v-if="audioStore.currentState === 'snapclient'" class="snapclient-component">
         <div v-if="snapclientStore.pluginState === 'connected'" class="connected-state">
             <h2>Connecté à MacOS</h2>
             <p>{{ formattedServerName }}</p>

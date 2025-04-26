@@ -5,7 +5,7 @@
 
       <div class="current-state">
         <h2>Source actuelle: {{ audioStore.stateLabel }}</h2>
-        <span v-if="audioStore.isTransitioning" class="transitioning-badge">Transition en cours...</span>
+        <!-- <span v-if="audioStore.isTransitioning" class="transitioning-badge">Transition en cours...</span> -->
       </div>
 
       <div class="volume-control">
@@ -32,8 +32,8 @@
         Bluetooth
       </button>
 
-      <button @click="changeSource('macos')"
-        :disabled="audioStore.isTransitioning || audioStore.currentState === 'macos'" 
+      <button @click="changeSource('snapclient')"
+        :disabled="audioStore.isTransitioning || audioStore.currentState === 'snapclient'" 
         class="source-button macos">
         MacOS
       </button>
@@ -50,7 +50,7 @@
     </div>
     <template v-else-if="audioStore.currentState !== 'none'">
       <LibrespotDisplay v-if="audioStore.currentState === 'librespot'" />
-      <SnapclientComponent v-else-if="audioStore.currentState === 'macos'" />
+      <SnapclientComponent v-else-if="audioStore.currentState === 'snapclient'" />
       <div v-else class="no-source-error">
         <h2>Source non disponible</h2>
         <p>La source audio "{{ audioStore.currentState }}" n'est pas disponible ou n'est pas encore implémentée.</p>
