@@ -29,7 +29,10 @@ class WebSocketEventHandler:
             "snapclient_monitor_connected": "snapclient_monitor_connected",
             "snapclient_monitor_disconnected": "snapclient_monitor_disconnected",
             "snapclient_server_event": "snapclient_server_event",
-            "snapclient_server_disappeared": "snapclient_server_disappeared"
+            "snapclient_server_disappeared": "snapclient_server_disappeared",
+            
+            # AJOUT : Nouvel événement pour l'état des plugins
+            "audio_plugin_state_changed": "audio_plugin_state_changed"
         }
         self._register_handlers()
     

@@ -21,7 +21,7 @@ class WebSocketManager:
         try:
             await websocket.accept()
             self.active_connections.add(websocket)
-            self.logger.info(f"WebSocket connected, active connections: {len(self.active_connections)}")
+            self.logger.debug(f"WebSocket connected, active connections: {len(self.active_connections)}")
         except Exception as e:
             self.logger.error(f"Error accepting WebSocket connection: {str(e)}")
             raise
@@ -30,7 +30,7 @@ class WebSocketManager:
         """Ferme une connexion WebSocket"""
         try:
             self.active_connections.remove(websocket)
-            self.logger.info(f"WebSocket disconnected, active connections: {len(self.active_connections)}")
+            self.logger.debug(f"WebSocket disconnected, active connections: {len(self.active_connections)}")
         except (KeyError, ValueError):
             # La connexion peut avoir déjà été supprimée ou n'était pas dans la liste
             self.logger.warning(f"Tried to disconnect a WebSocket that was not in active connections")
@@ -45,7 +45,7 @@ class WebSocketManager:
         
         # Log différent selon le type d'événement
         if event_type in ['snapclient_monitor_disconnected', 'snapclient_server_disappeared']:
-            self.logger.info(f"⚡ ENVOI ÉVÉNEMENT WEBSOCKET CRITIQUE: {event_type} pour {data.get('host', 'unknown')}")
+            self.logger.debug(f"⚡ ENVOI ÉVÉNEMENT WEBSOCKET CRITIQUE: {event_type} pour {data.get('host', 'unknown')}")
             
         disconnected = set()
         for connection in self.active_connections:
