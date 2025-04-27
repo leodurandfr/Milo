@@ -23,18 +23,12 @@ class WebSocketServer:
             # Récupérer l'état initial de la machine à états
             current_state = await self.state_machine.get_current_state()
             
-            # Si un plugin est actif, forcer la récupération de son état complet
+            # Si un plugin est actif, demander son état complet
             if current_state['active_source'] != 'none':
                 active_plugin = self.state_machine.plugins.get(current_state['active_source'])
                 if active_plugin:
-                    # Forcer une mise à jour depuis l'API pour avoir les données fraîches
-                    plugin_status = await active_plugin.get_status()
-                    
-                    # Pour librespot, s'assurer qu'on a bien toutes les données
-                    if current_state['active_source'] == 'librespot' and active_plugin._device_connected:
-                        # Forcer la récupération des données de l'API
-                        await active_plugin._get_api_data(update_position_only=False)
-                        plugin_status = await active_plugin.get_status()
+                    # Utiliser la méthode standard pour tous les plugins
+                    plugin_status = await active_plugin.get_initial_state()
                     
                     # Mettre à jour l'état courant avec les données fraîches
                     current_state['metadata'] = plugin_status.get('metadata', {})
