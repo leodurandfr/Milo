@@ -174,13 +174,13 @@ class UnifiedAudioStateMachine:
             return False
         
         try:
+            # Sauvegarder l'état précédent
+            previous_source = self.system_state.active_source
+            
             # Initialisation si nécessaire
             if hasattr(plugin, 'initialize') and not hasattr(plugin, '_initialized'):
                 await plugin.initialize()
                 plugin._initialized = True
-            
-            # Mettre à jour la source active AVANT de démarrer le plugin
-            self.system_state.active_source = source
             
             # Démarrer le processus via le gestionnaire centralisé
             if hasattr(plugin, 'get_process_command'):
@@ -192,18 +192,17 @@ class UnifiedAudioStateMachine:
             # Démarrer le plugin
             success = await plugin.start()
             if success:
-                # Le plugin notifiera son état lui-même
+                # Mettre à jour la source active SEULEMENT si tout a réussi
+                self.system_state.active_source = source
                 return True
             else:
-                # Si le plugin échoue, arrêter le processus et réinitialiser
+                # Si le plugin échoue, arrêter le processus et ne pas mettre à jour l'état
                 await self.process_manager.stop_process(source)
-                self.system_state.active_source = AudioSource.NONE
                 return False
         except Exception as e:
             self.logger.error(f"Error starting {source.value}: {e}")
-            # En cas d'erreur, arrêter le processus et réinitialiser
+            # En cas d'erreur, arrêter le processus et restaurer l'état précédent
             await self.process_manager.stop_process(source)
-            self.system_state.active_source = AudioSource.NONE
             return False
     
     async def _emergency_stop(self) -> None:
