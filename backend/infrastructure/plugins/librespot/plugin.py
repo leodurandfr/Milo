@@ -8,7 +8,6 @@ import os
 import yaml
 import aiohttp
 import json
-import time 
 from typing import Dict, Any, Optional, List
 from backend.application.event_bus import EventBus
 from backend.infrastructure.plugins.base import UnifiedAudioPlugin
@@ -140,6 +139,47 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 self._ws_connected = False
                 await asyncio.sleep(3)
     
+    async def _get_api_data(self, update_position_only: bool = False) -> Optional[Dict[str, Any]]:
+        """Récupère les données depuis l'API - flexible pour mise à jour complète ou juste position"""
+        if not self.session:
+            self.logger.warning("No session available for API call")
+            return None
+            
+        try:
+            self.logger.info(f"Fetching API data (update_position_only={update_position_only})")
+            async with self.session.get(f"{self.api_url}/status") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get('track'):
+                        track = data['track']
+                        if update_position_only:
+                            # Mise à jour uniquement de la position
+                            old_position = self._current_metadata.get('position', 0)
+                            self._current_metadata['position'] = track.get('position', 0)
+                            self.logger.info(f"Position updated: {old_position} -> {self._current_metadata['position']}")
+                        else:
+                            # Mise à jour complète des métadonnées
+                            self._current_metadata = {
+                                "title": track.get('name'),
+                                "artist": ", ".join(track.get('artist_names', [])),
+                                "album": track.get('album_name'),
+                                "album_art_url": track.get('album_cover_url'),
+                                "duration": track.get('duration'),
+                                "position": track.get('position', 0),
+                                "uri": track.get('uri'),
+                                "is_playing": not data.get('paused', False)
+                            }
+                            self._is_playing = not data.get('paused', False)
+                            self.logger.info(f"Full metadata updated: position={self._current_metadata['position']}, is_playing={self._is_playing}")
+                        return data
+                    else:
+                        self.logger.warning("No track data in API response")
+                else:
+                    self.logger.error(f"API returned status {resp.status}")
+        except Exception as e:
+            self.logger.error(f"Erreur récupération données API: {e}")
+            return None
+    
     async def _handle_websocket_event(self, event: Dict[str, Any]) -> None:
         """Traite un événement WebSocket"""
         event_type = event.get('type')
@@ -163,35 +203,22 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 "status": "inactive"
             })
         
-        elif event_type == 'playing':
-            self._is_playing = True
+        elif event_type in ['playing', 'paused']:
+            self._is_playing = (event_type == 'playing')
             self._device_connected = True
-            metadata = {**self._current_metadata, "is_playing": True, "timestamp": time.time()}
+            
+            # Mettre à jour uniquement la position depuis l'API
+            await self._get_api_data(update_position_only=True)
+            
+            metadata = {**self._current_metadata, "is_playing": self._is_playing}
             await self.notify_state_change(PluginState.CONNECTED, {
                 **metadata,
-                "status": "playing"
-            })
-        
-        elif event_type == 'paused':
-            self._is_playing = False
-            metadata = {**self._current_metadata, "is_playing": False, "timestamp": time.time()}
-            await self.notify_state_change(PluginState.CONNECTED, {
-                **metadata,
-                "status": "paused"
+                "status": event_type
             })
         
         elif event_type == 'metadata':
-            self._current_metadata = {
-                "title": data.get('name'),
-                "artist": ", ".join(data.get('artist_names', [])),
-                "album": data.get('album_name'),
-                "album_art_url": data.get('album_cover_url'),
-                "duration": data.get('duration'),
-                "position": data.get('position', 0),
-                "uri": data.get('uri'),
-                "is_playing": self._is_playing,
-                "timestamp": time.time()
-            }
+            # Pour metadata, on fait une mise à jour complète
+            await self._get_api_data(update_position_only=False)
             
             await self.notify_state_change(PluginState.CONNECTED, {
                 **self._current_metadata,
@@ -201,13 +228,11 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         elif event_type == 'seek':
             if self._current_metadata:
                 self._current_metadata['position'] = data.get('position', 0)
-                self._current_metadata['timestamp'] = time.time()
             
             await self.notify_state_change(PluginState.CONNECTED, {
                 **self._current_metadata,
                 "position": data.get('position', 0),
-                "status": "seek_update",
-                "timestamp": time.time()
+                "status": "seek_update"
             })
     
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -232,37 +257,8 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         except Exception as e:
             return {"success": False, "error": str(e)}
     
-    async def get_current_state_from_api(self) -> Dict[str, Any]:
-        """Récupère l'état actuel depuis l'API go-librespot"""
-        if not self.session:
-            return {}
-        
-        try:
-            async with self.session.get(f"{self.api_url}/status") as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    # Mettre à jour les métadonnées internes avec timestamp
-                    if data.get('track'):
-                        track = data['track']
-                        self._current_metadata = {
-                            "title": track.get('name'),
-                            "artist": ", ".join(track.get('artist_names', [])),
-                            "album": track.get('album_name'),
-                            "album_art_url": track.get('album_cover_url'),
-                            "duration": track.get('duration'),
-                            "position": track.get('position', 0),
-                            "uri": track.get('uri'),
-                            "is_playing": not data.get('paused', False),
-                            "timestamp": time.time()  # Ajout du timestamp
-                        }
-                        self._is_playing = not data.get('paused', False)
-                    return data
-        except Exception as e:
-            self.logger.error(f"Erreur lors de la récupération de l'état: {e}")
-        return {}
-
     async def get_status(self) -> Dict[str, Any]:
-        """Récupère l'état actuel du plugin avec métadonnées persistées"""
+        """Récupère l'état actuel du plugin"""
         try:
             status = {
                 "device_connected": self._device_connected,
@@ -270,8 +266,9 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 "is_playing": self._is_playing,
             }
             
-            # Inclure les métadonnées actuelles
-            if self._current_metadata:
+            # Si le device est connecté, on s'assure que la position est à jour
+            if self._device_connected and self.session:
+                await self._get_api_data(update_position_only=True)
                 status["metadata"] = self._current_metadata
             else:
                 status["metadata"] = {}
@@ -287,3 +284,16 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 "is_playing": False,
                 "error": str(e)
             }
+            
+    async def get_initial_state(self) -> Dict[str, Any]:
+        """Récupère l'état initial complet du plugin depuis l'API - surcharge la méthode de base"""
+        self.logger.info("Getting initial state - forcing API refresh")
+        
+        if self._device_connected and self.session:
+            # Forcer une mise à jour complète depuis l'API
+            await self._get_api_data(update_position_only=False)
+            self.logger.info(f"Current metadata after API refresh: {self._current_metadata}")
+        else:
+            self.logger.info("Device not connected or no session, returning cached state")
+        
+        return await self.get_status()
