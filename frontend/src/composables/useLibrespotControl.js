@@ -1,14 +1,15 @@
-import { useLibrespotStore } from '@/stores/librespot';
+// frontend/src/composables/useLibrespotControl.js
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { ref } from 'vue';
 
 export function useLibrespotControl() {
-  const librespotStore = useLibrespotStore();
+  const unifiedStore = useUnifiedAudioStore();
   const isLoading = ref(false);
 
   async function executeCommand(command) {
     isLoading.value = true;
     try {
-      await librespotStore.handleCommand(command);
+      await unifiedStore.sendCommand('librespot', command);
     } catch (error) {
       console.error(`Erreur lors de l'exécution de la commande ${command}:`, error);
     } finally {
@@ -19,7 +20,7 @@ export function useLibrespotControl() {
   }
 
   async function togglePlayPause() {
-    const isPlaying = librespotStore.isPlaying;
+    const isPlaying = unifiedStore.metadata?.is_playing;
     await executeCommand(isPlaying ? 'pause' : 'resume');
   }
 
@@ -32,7 +33,7 @@ export function useLibrespotControl() {
   }
 
   async function seekTo(positionMs) {
-    await librespotStore.handleCommand('seek', { position_ms: positionMs });
+    await unifiedStore.sendCommand('librespot', 'seek', { position_ms: positionMs });
   }
 
   return {

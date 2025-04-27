@@ -1,17 +1,17 @@
 <template>
-    <div v-if="audioStore.currentSource === 'snapclient'" class="snapclient-component">
-        <div v-if="audioStore.pluginState === 'connected'" class="connected-state">
+    <div v-if="unifiedStore.currentSource === 'snapclient'" class="snapclient-component">
+        <div v-if="unifiedStore.pluginState === 'connected'" class="connected-state">
             <h2>Connecté à MacOS</h2>
             <p>{{ formattedServerName }}</p>
             <div class="actions">
-                <button @click="disconnect" class="disconnect-button" :disabled="snapclientStore.isLoading">
+                <button @click="disconnect" class="disconnect-button">
                     Déconnecter
                 </button>
             </div>
         </div>
-        <div v-else-if="audioStore.pluginState === 'error'" class="error-state">
+        <div v-else-if="unifiedStore.pluginState === 'error'" class="error-state">
             <h2>Erreur de connexion</h2>
-            <p>{{ audioStore.systemState.error }}</p>
+            <p>{{ unifiedStore.error }}</p>
         </div>
         <div v-else class="waiting-state">
             <h2>En attente de connexion MacOS</h2>
@@ -22,29 +22,23 @@
 
 <script setup>
 import { computed } from 'vue';
-import { useSnapclientStore } from '@/stores/snapclient';
-import { useAudioStore } from '@/stores/audioStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
-const snapclientStore = useSnapclientStore();
-const audioStore = useAudioStore();
+const unifiedStore = useUnifiedAudioStore();
 
 const formattedServerName = computed(() => {
-    if (!snapclientStore.deviceName) return 'Serveur inconnu';
-    const name = snapclientStore.deviceName
+    const deviceName = unifiedStore.metadata?.device_name;
+    if (!deviceName) return 'Serveur inconnu';
+    return deviceName
         .replace(/\.local$|\.home$/g, '')
-        .replace(/-/g, ' ');
-    return name.charAt(0).toUpperCase() + name.slice(1);
+        .replace(/-/g, ' ')
+        .replace(/^\w/, c => c.toUpperCase());
 });
 
 async function disconnect() {
-    try {
-        await snapclientStore.disconnectFromServer();
-    } catch (err) {
-        console.error('Erreur de déconnexion:', err);
-    }
+    await unifiedStore.sendCommand('snapclient', 'disconnect');
 }
 </script>
-
 
 <style scoped>
 .snapclient-component {

@@ -2,82 +2,89 @@
   <div class="home-view">
     <div class="status-panel">
       <h1>oakOS</h1>
-
-      <div class="current-state">
-        <h2>Source actuelle: {{ audioStore.stateLabel }}</h2>
-      </div>
-
-      <div class="error-message" v-if="audioStore.error">
-        {{ audioStore.error }}
+      <h2>Source: {{ sourceLabel }}</h2>
+      <div v-if="unifiedStore.error" class="error-message">
+        {{ unifiedStore.error }}
       </div>
     </div>
 
     <div class="source-buttons">
-      <button @click="changeSource('librespot')"
-        :disabled="audioStore.isTransitioning || audioStore.currentSource === 'librespot'" 
-        class="source-button spotify">
-        Spotify
-      </button>
-
-      <button @click="changeSource('bluetooth')"
-        :disabled="audioStore.isTransitioning || audioStore.currentSource === 'bluetooth'"
-        class="source-button bluetooth">
-        Bluetooth
-      </button>
-
-      <button @click="changeSource('snapclient')"
-        :disabled="audioStore.isTransitioning || audioStore.currentSource === 'snapclient'" 
-        class="source-button macos">
-        MacOS
-      </button>
-
-      <button @click="changeSource('webradio')"
-        :disabled="audioStore.isTransitioning || audioStore.currentSource === 'webradio'" 
-        class="source-button webradio">
-        Web Radio
+      <button 
+        v-for="source in sources" 
+        :key="source.id"
+        @click="changeSource(source.id)"
+        :disabled="unifiedStore.isTransitioning || unifiedStore.currentSource === source.id"
+        :class="['source-button', source.id]"
+      >
+        {{ source.label }}
       </button>
     </div>
 
-    <div v-if="audioStore.isTransitioning" class="transition-state">
+    <div v-if="unifiedStore.isTransitioning" class="transition-state">
       <h2>Chargement...</h2>
     </div>
-    <template v-else-if="audioStore.currentSource !== 'none' && audioStore.pluginState !== 'inactive'">
-      <LibrespotDisplay v-if="audioStore.currentSource === 'librespot'" />
-      <SnapclientComponent v-else-if="audioStore.currentSource === 'snapclient'" />
-      <div v-else class="no-source-error">
-        <h2>Source non disponible</h2>
-        <p>La source audio "{{ audioStore.currentSource }}" n'est pas disponible ou n'est pas encore implémentée.</p>
-      </div>
-    </template>
+    
+    <component 
+      v-else-if="currentComponent"
+      :is="currentComponent"
+    />
   </div>
 </template>
 
 <script setup>
-import { onMounted } from 'vue';
-import { useAudioStore } from '@/stores/audioStore';
+import { computed, onMounted } from 'vue';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
-
 import LibrespotDisplay from '@/components/sources/librespot/LibrespotDisplay.vue';
 import SnapclientComponent from '@/components/sources/snapclient/SnapclientComponent.vue';
 
-const audioStore = useAudioStore();
+const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
-async function changeSource(source) {
-  await audioStore.changeSource(source);
+const sources = [
+  { id: 'librespot', label: 'Spotify' },
+  { id: 'bluetooth', label: 'Bluetooth' },
+  { id: 'snapclient', label: 'MacOS' },
+  { id: 'webradio', label: 'Web Radio' }
+];
+
+const sourceLabel = computed(() => {
+  const source = sources.find(s => s.id === unifiedStore.currentSource);
+  return source ? source.label : 'Aucune';
+});
+
+const currentComponent = computed(() => {
+  switch (unifiedStore.currentSource) {
+    case 'librespot': return LibrespotDisplay;
+    case 'snapclient': return SnapclientComponent;
+    default: return null;
+  }
+});
+
+function changeSource(source) {
+  unifiedStore.changeSource(source);
 }
 
-onMounted(async () => {
-  // Récupérer l'état initial
-  await audioStore.fetchSystemState();
-
-  // S'abonner aux mises à jour d'état
-  on('state_update', (data) => {
-    audioStore.handleWebSocketUpdate(data);
+onMounted(() => {
+  // S'abonner à TOUS les événements qui affectent l'état
+  on('system', 'state_changed', (event) => {
+    console.log('Received state_changed:', event);
+    unifiedStore.updateState(event);
+  });
+  
+  on('system', 'transition_complete', (event) => {
+    console.log('Received transition_complete:', event);
+    unifiedStore.updateState(event);
+  });
+  
+  on('plugin', 'plugin_state_changed', (event) => {
+    console.log('Received plugin_state_changed:', event);
+    unifiedStore.updateState(event);
+  });
+  
+  on('plugin', 'plugin_metadata', (event) => {
+    console.log('Received plugin_metadata:', event);
+    unifiedStore.updateState(event);
   });
 });
 </script>
-
-<style scoped>
-/* Styles inchangés */
-</style>

@@ -224,11 +224,6 @@ class UnifiedAudioStateMachine:
         self.system_state.metadata = {}
         self.system_state.error = None
     
-    async def _publish_state_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Publie un événement d'état (compatible legacy)"""
-        # Ajouter les informations d'état complet
-        data["full_state"] = self.system_state.to_dict()
-        await self.event_bus.publish(event_type, data)
     
     async def _publish_standardized_event(self, category: EventCategory, type: EventType, 
                                         source: str, data: Dict[str, Any]) -> None:

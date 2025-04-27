@@ -1,11 +1,9 @@
-# backend/main.py
 """
-Point d'entrée principal de l'application oakOS - Version unifiée
+Point d'entrée principal de l'application oakOS - Version OPTIM
 """
 import sys
 import os
 
-# Ajouter le répertoire parent au path Python
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
@@ -18,6 +16,7 @@ from backend.presentation.api.routes import audio
 from backend.presentation.api.routes.librespot import setup_librespot_routes
 from backend.presentation.api.routes.snapclient import setup_snapclient_routes
 from backend.presentation.websockets.server import WebSocketServer
+from backend.presentation.websockets.manager import WebSocketManager
 from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
 
@@ -28,18 +27,16 @@ logger = logging.getLogger(__name__)
 # Configuration des dépendances
 event_bus = container.event_bus()
 state_machine = container.audio_state_machine()
-
-# Initialisation du serveur WebSocket
-websocket_server = WebSocketServer(event_bus, state_machine)
-websocket_event_handler = WebSocketEventHandler(event_bus, websocket_server.manager)
+ws_manager = WebSocketManager()
+websocket_event_handler = WebSocketEventHandler(event_bus, ws_manager)
+websocket_server = WebSocketServer(ws_manager, state_machine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
-    # Code d'initialisation (équivalent à startup)
+    # Initialisation
     container.register_plugins()
     
-    # Initialiser tous les plugins
     for source, plugin in state_machine.plugins.items():
         if plugin:
             try:
@@ -52,7 +49,7 @@ async def lifespan(app: FastAPI):
     
     yield  # L'application tourne
     
-    # Code de nettoyage (équivalent à shutdown)
+    # Nettoyage
     for plugin in state_machine.plugins.values():
         if plugin:
             try:
@@ -62,7 +59,7 @@ async def lifespan(app: FastAPI):
     
     logger.info("Application arrêtée proprement")
 
-# Création de l'application FastAPI avec lifespan
+# Création de l'application FastAPI
 app = FastAPI(title="oakOS API", lifespan=lifespan)
 
 # Configuration CORS
@@ -74,26 +71,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routes générales audio
-audio_router = audio.create_router(
-    state_machine=state_machine,
-    event_bus=event_bus
-)
+# Routes
+audio_router = audio.create_router(state_machine)
 app.include_router(audio_router)
 
-# Routes spécifiques librespot
 librespot_router = setup_librespot_routes(
     lambda: state_machine.plugins.get(AudioSource.LIBRESPOT)
 )
 app.include_router(librespot_router)
 
-# Routes spécifiques snapclient
 snapclient_router = setup_snapclient_routes(
     lambda: state_machine.plugins.get(AudioSource.SNAPCLIENT)
 )
 app.include_router(snapclient_router)
 
-# Ajouter la route WebSocket
+# WebSocket
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
 
 if __name__ == "__main__":

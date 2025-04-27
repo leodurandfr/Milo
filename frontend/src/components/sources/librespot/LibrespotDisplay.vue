@@ -2,10 +2,10 @@
   <div class="librespot-player">
     <div v-if="hasTrackInfo" class="now-playing">
       <NowPlayingInfo 
-        :title="librespotStore.metadata.title" 
-        :artist="librespotStore.metadata.artist" 
-        :album="librespotStore.metadata.album"
-        :albumArtUrl="librespotStore.metadata.album_art_url" 
+        :title="unifiedStore.metadata.title" 
+        :artist="unifiedStore.metadata.artist" 
+        :album="unifiedStore.metadata.album"
+        :albumArtUrl="unifiedStore.metadata.album_art_url" 
       />
       <ProgressBar 
         :currentPosition="currentPosition" 
@@ -14,7 +14,7 @@
         @seek="seekToPosition" 
       />
       <PlaybackControls 
-        :isPlaying="librespotStore.isPlaying" 
+        :isPlaying="unifiedStore.metadata.is_playing" 
         @play-pause="togglePlayPause" 
         @previous="previousTrack"
         @next="nextTrack" 
@@ -27,16 +27,15 @@
       <p>Connectez un appareil via Spotify Connect</p>
     </div>
     
-    <div v-if="audioStore.systemState.error && audioStore.currentSource === 'librespot'" class="error-message">
-      {{ audioStore.systemState.error }}
+    <div v-if="unifiedStore.error && unifiedStore.currentSource === 'librespot'" class="error-message">
+      {{ unifiedStore.error }}
     </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted } from 'vue';
-import { useLibrespotStore } from '@/stores/librespot';
-import { useAudioStore } from '@/stores/audioStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLibrespotControl } from '@/composables/useLibrespotControl';
 import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
 
@@ -44,16 +43,15 @@ import NowPlayingInfo from './NowPlayingInfo.vue';
 import PlaybackControls from './PlaybackControls.vue';
 import ProgressBar from './ProgressBar.vue';
 
-const librespotStore = useLibrespotStore();
-const audioStore = useAudioStore();
+const unifiedStore = useUnifiedAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
 const { currentPosition, duration, progressPercentage, seekTo, initializePosition } = usePlaybackProgress();
 
 const hasTrackInfo = computed(() => {
   return !!(
-    librespotStore.deviceConnected && 
-    librespotStore.metadata?.title && 
-    librespotStore.metadata?.artist
+    unifiedStore.currentSource === 'librespot' &&
+    unifiedStore.metadata?.title && 
+    unifiedStore.metadata?.artist
   );
 });
 
@@ -62,9 +60,8 @@ function seekToPosition(position) {
 }
 
 onMounted(() => {  
-  // Initialiser la position sans faire de seek
-  if (hasTrackInfo.value && librespotStore.metadata.position !== undefined) {
-    initializePosition(librespotStore.metadata.position);
+  if (hasTrackInfo.value && unifiedStore.metadata.position !== undefined) {
+    initializePosition(unifiedStore.metadata.position);
   }
 });
 </script>
