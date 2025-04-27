@@ -75,6 +75,13 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         """
         pass
     
+    async def get_initial_state(self) -> Dict[str, Any]:
+        """
+        Récupère l'état initial complet du plugin.
+        Peut être surchargé par les plugins pour fournir des données spécifiques.
+        """
+        return await self.get_status()
+    
     # Méthodes abstraites existantes
     @abstractmethod
     async def initialize(self) -> bool:

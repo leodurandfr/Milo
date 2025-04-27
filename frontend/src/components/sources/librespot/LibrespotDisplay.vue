@@ -34,7 +34,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
+import { computed, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLibrespotControl } from '@/composables/useLibrespotControl';
 import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
@@ -59,11 +59,12 @@ function seekToPosition(position) {
   seekTo(position);
 }
 
-onMounted(() => {  
-  if (hasTrackInfo.value && unifiedStore.metadata.position !== undefined) {
-    initializePosition(unifiedStore.metadata.position);
+// Observer les changements de métadonnées pour initialiser la position
+watch(() => unifiedStore.metadata, (newMetadata) => {
+  if (newMetadata?.position !== undefined && newMetadata?.timestamp) {
+    initializePosition(newMetadata.position, newMetadata.timestamp);
   }
-});
+}, { immediate: true });
 </script>
 
 <style scoped>

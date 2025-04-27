@@ -7,6 +7,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from backend.presentation.websockets.manager import WebSocketManager
 from backend.domain.events import StandardEvent, EventCategory, EventType
 
+
 class WebSocketServer:
     """Serveur WebSocket simplifié"""
     
@@ -19,8 +20,17 @@ class WebSocketServer:
         await self.manager.connect(websocket)
         
         try:
-            # Envoyer l'état initial
+            # Récupérer l'état initial de la machine à états
             current_state = await self.state_machine.get_current_state()
+            
+            # Si un plugin est actif, demander son état initial spécifique
+            if current_state['active_source'] != 'none':
+                active_plugin = self.state_machine.plugins.get(current_state['active_source'])
+                if active_plugin:
+                    # Utiliser la méthode générique get_initial_state
+                    plugin_initial_state = await active_plugin.get_initial_state()
+                    current_state['metadata'] = plugin_initial_state.get('metadata', {})
+            
             initial_event = StandardEvent(
                 category=EventCategory.SYSTEM,
                 type=EventType.STATE_CHANGED,

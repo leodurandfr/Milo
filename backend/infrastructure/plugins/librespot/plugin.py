@@ -8,6 +8,7 @@ import os
 import yaml
 import aiohttp
 import json
+import time 
 from typing import Dict, Any, Optional, List
 from backend.application.event_bus import EventBus
 from backend.infrastructure.plugins.base import UnifiedAudioPlugin
@@ -32,45 +33,6 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         self._ws_connected = False
         self._initialized = False
     
-    async def _handle_ws_event(self, data: Dict[str, Any]) -> None:
-        """Gère les événements WebSocket avec persistance de l'état"""
-        event_type = data.get("event")
-        
-        if event_type == "active":
-            self._device_connected = True
-            self._ws_connected = True
-            await self.notify_state_change(PluginState.CONNECTED, {
-                "device_connected": True,
-                "message": "Device connected via librespot"
-            })
-        
-        elif event_type == "inactive":
-            self._device_connected = False
-            self._is_playing = False
-            self._current_metadata = {}
-            await self.notify_state_change(PluginState.READY, {
-                "device_connected": False,
-                "message": "Device disconnected from librespot"
-            })
-        
-        elif event_type == "metadata":
-            # Persister les métadonnées
-            self._current_metadata = data
-            if data.get("metadata", {}).get("name"):
-                await self.notify_state_change(PluginState.PLAYING, data)
-        
-        elif event_type == "playing":
-            self._is_playing = True
-            metadata = {**self._current_metadata, "is_playing": True}
-            await self.notify_state_change(PluginState.PLAYING, metadata)
-        
-        elif event_type == "paused":
-            self._is_playing = False
-            metadata = {**self._current_metadata, "is_playing": False}
-            await self.notify_state_change(PluginState.PLAYING, metadata)
-        
-        elif event_type == "not_playing":
-            self._is_playing = False  
     
     def get_process_command(self) -> List[str]:
         """Retourne la commande pour démarrer go-librespot"""
@@ -162,7 +124,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             try:
                 async with self.session.ws_connect(self.ws_url) as ws:
                     self.logger.info("WebSocket connecté à go-librespot")
-                    self._ws_connected = True  # Marquer comme connecté
+                    self._ws_connected = True
                     
                     async for msg in ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
@@ -185,7 +147,6 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         
         self.logger.debug(f"Événement WebSocket reçu: {event_type}")
         
-        # Mise à jour de l'état en fonction de l'événement
         if event_type == 'active':
             self._device_connected = True
             await self.notify_state_change(PluginState.CONNECTED, {
@@ -205,22 +166,21 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         elif event_type == 'playing':
             self._is_playing = True
             self._device_connected = True
+            metadata = {**self._current_metadata, "is_playing": True, "timestamp": time.time()}
             await self.notify_state_change(PluginState.CONNECTED, {
-                **self._current_metadata,
-                "is_playing": True,
+                **metadata,
                 "status": "playing"
             })
         
         elif event_type == 'paused':
             self._is_playing = False
+            metadata = {**self._current_metadata, "is_playing": False, "timestamp": time.time()}
             await self.notify_state_change(PluginState.CONNECTED, {
-                **self._current_metadata,
-                "is_playing": False,
+                **metadata,
                 "status": "paused"
             })
         
         elif event_type == 'metadata':
-            # Stocker les métadonnées dans le bon format
             self._current_metadata = {
                 "title": data.get('name'),
                 "artist": ", ".join(data.get('artist_names', [])),
@@ -229,7 +189,8 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 "duration": data.get('duration'),
                 "position": data.get('position', 0),
                 "uri": data.get('uri'),
-                "is_playing": self._is_playing
+                "is_playing": self._is_playing,
+                "timestamp": time.time()
             }
             
             await self.notify_state_change(PluginState.CONNECTED, {
@@ -238,14 +199,15 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             })
         
         elif event_type == 'seek':
-            # Mettre à jour la position dans les métadonnées
             if self._current_metadata:
                 self._current_metadata['position'] = data.get('position', 0)
+                self._current_metadata['timestamp'] = time.time()
             
             await self.notify_state_change(PluginState.CONNECTED, {
                 **self._current_metadata,
                 "position": data.get('position', 0),
-                "status": "seek_update"
+                "status": "seek_update",
+                "timestamp": time.time()
             })
     
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -279,7 +241,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             async with self.session.get(f"{self.api_url}/status") as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    # Mettre à jour les métadonnées internes
+                    # Mettre à jour les métadonnées internes avec timestamp
                     if data.get('track'):
                         track = data['track']
                         self._current_metadata = {
@@ -288,9 +250,10 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                             "album": track.get('album_name'),
                             "album_art_url": track.get('album_cover_url'),
                             "duration": track.get('duration'),
-                            "position": track.get('position', 0),  # Position actuelle
+                            "position": track.get('position', 0),
                             "uri": track.get('uri'),
-                            "is_playing": not data.get('paused', False)
+                            "is_playing": not data.get('paused', False),
+                            "timestamp": time.time()  # Ajout du timestamp
                         }
                         self._is_playing = not data.get('paused', False)
                     return data

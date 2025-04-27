@@ -4,90 +4,76 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 export function usePlaybackProgress() {
   const unifiedStore = useUnifiedAudioStore();
   
-  const localPosition = ref(0);
-  const updateInterval = ref(null);
-  const lastUpdateTime = ref(Date.now());
+  const basePosition = ref(0);
+  const baseTimestamp = ref(0);
+  const ticker = ref(0);  // Déclencheur réactif
+  let intervalId = null;
   
-  const duration = computed(() => unifiedStore.metadata?.duration || 0);
-  const currentPosition = computed(() => localPosition.value);
-  const progressPercentage = computed(() => {
-    if (!duration.value) return 0;
-    return (localPosition.value / duration.value) * 100;
+  // Position calculée basée sur le temps écoulé
+  const currentPosition = computed(() => {
+    // Le ticker force la réévaluation périodique
+    ticker.value; 
+    
+    if (!unifiedStore.metadata?.is_playing) return basePosition.value;
+    
+    const now = Date.now();
+    const elapsed = now - baseTimestamp.value;
+    return Math.min(basePosition.value + elapsed, unifiedStore.metadata?.duration || 0);
   });
   
-  function updatePosition() {
-    if (unifiedStore.metadata?.is_playing) {
-      const now = Date.now();
-      const elapsed = now - lastUpdateTime.value;
-      localPosition.value += elapsed;
-      lastUpdateTime.value = now;
-      
-      if (localPosition.value > duration.value) {
-        localPosition.value = duration.value;
-      }
+  const duration = computed(() => unifiedStore.metadata?.duration || 0);
+  
+  const progressPercentage = computed(() => {
+    if (!duration.value) return 0;
+    return (currentPosition.value / duration.value) * 100;
+  });
+  
+  // Synchronisation avec les métadonnées du store
+  watch(() => unifiedStore.metadata, (newMetadata) => {
+    if (newMetadata?.position !== undefined && newMetadata?.timestamp) {
+      basePosition.value = newMetadata.position;
+      baseTimestamp.value = newMetadata.timestamp * 1000; // Convertir en millisecondes
+    }
+  }, { deep: true });
+  
+  // Gestion de la mise à jour périodique
+  watch(() => unifiedStore.metadata?.is_playing, (isPlaying) => {
+    if (isPlaying) {
+      startTicker();
+    } else {
+      stopTicker();
+    }
+  }, { immediate: true });
+  
+  function startTicker() {
+    if (!intervalId) {
+      intervalId = setInterval(() => {
+        ticker.value++;  // Force la mise à jour des computed
+      }, 100);  // Mise à jour toutes les 100ms
     }
   }
   
-  function startTracking() {
-    if (!updateInterval.value) {
-      lastUpdateTime.value = Date.now();
-      updateInterval.value = setInterval(updatePosition, 100);
-    }
-  }
-  
-  function stopTracking() {
-    if (updateInterval.value) {
-      clearInterval(updateInterval.value);
-      updateInterval.value = null;
+  function stopTicker() {
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
     }
   }
   
   function seekTo(position) {
-    localPosition.value = position;
-    lastUpdateTime.value = Date.now();
+    basePosition.value = position;
+    baseTimestamp.value = Date.now();
     unifiedStore.sendCommand('librespot', 'seek', { position_ms: position });
   }
   
-  function initializePosition(position) {
-    localPosition.value = position;
-    lastUpdateTime.value = Date.now();
+  function initializePosition(position, timestamp) {
+    basePosition.value = position;
+    baseTimestamp.value = timestamp ? timestamp * 1000 : Date.now();
   }
   
-  watch(() => unifiedStore.metadata?.is_playing, (isPlaying) => {
-    if (isPlaying) {
-      startTracking();
-    } else {
-      stopTracking();
-    }
-  });
-  
-  watch(() => unifiedStore.metadata?.position, (newPos) => {
-    if (newPos !== undefined && Math.abs(newPos - localPosition.value) > 1000) {
-      localPosition.value = newPos;
-      lastUpdateTime.value = Date.now();
-    }
-  });
-  
-  watch(() => unifiedStore.metadata?.uri, (newUri, oldUri) => {
-    if (newUri && newUri !== oldUri) {
-      localPosition.value = unifiedStore.metadata?.position || 0;
-      lastUpdateTime.value = Date.now();
-    }
-  });
-  
-  onMounted(() => {
-    if (unifiedStore.metadata?.position !== undefined) {
-      localPosition.value = unifiedStore.metadata.position;
-      lastUpdateTime.value = Date.now();
-    }
-    
-    if (unifiedStore.metadata?.is_playing) {
-      startTracking();
-    }
-  });
-  
+  // Nettoyage lors de la destruction du composant
   onUnmounted(() => {
-    stopTracking();
+    stopTicker();
   });
   
   return {
