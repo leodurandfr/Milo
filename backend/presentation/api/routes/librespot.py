@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 import subprocess
 import asyncio
 from typing import Dict, Any, Optional
+from backend.domain.audio_state import PluginState  # Ajout de l'import manquant
 
 # Créer un router dédié pour librespot
 router = APIRouter(
@@ -41,6 +42,10 @@ def get_librespot_plugin():
 async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
     """Récupère le statut actuel de go-librespot avec toutes les métadonnées"""
     try:
+        # Force toujours une mise à jour depuis l'API pour avoir l'état le plus récent
+        if plugin.session:
+            await plugin._get_api_data()
+        
         # Récupérer les informations de statut complètes
         status = await plugin.get_status()
         

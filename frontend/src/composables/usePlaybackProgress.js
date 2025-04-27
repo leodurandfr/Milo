@@ -59,11 +59,7 @@ export function usePlaybackProgress() {
     unifiedStore.sendCommand('librespot', 'seek', { position_ms: position });
   }
   
-  function initializePosition(position) {
-    if (position !== undefined) {
-      localPosition.value = position;
-    }
-  }
+  // SUPPRESSION de initializePosition - plus nécessaire
   
   // Nettoyage lors de la destruction du composant
   onUnmounted(() => {
@@ -74,7 +70,6 @@ export function usePlaybackProgress() {
     currentPosition,
     duration,
     progressPercentage,
-    seekTo,
-    initializePosition
+    seekTo
   };
 }
