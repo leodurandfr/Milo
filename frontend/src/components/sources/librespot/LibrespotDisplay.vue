@@ -47,9 +47,8 @@ import ProgressBar from './ProgressBar.vue';
 const librespotStore = useLibrespotStore();
 const audioStore = useAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
-const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackProgress();
+const { currentPosition, duration, progressPercentage, seekTo, initializePosition } = usePlaybackProgress();
 
-// Computed plus robuste pour vérifier si on a les infos de la piste
 const hasTrackInfo = computed(() => {
   return !!(
     librespotStore.deviceConnected && 
@@ -63,11 +62,9 @@ function seekToPosition(position) {
 }
 
 onMounted(() => {  
-  // Si on a déjà des métadonnées, s'assurer que la progression est initialisée correctement
-  if (hasTrackInfo.value) {
-    if (librespotStore.metadata.position !== undefined) {
-      seekTo(librespotStore.metadata.position);
-    }
+  // Initialiser la position sans faire de seek
+  if (hasTrackInfo.value && librespotStore.metadata.position !== undefined) {
+    initializePosition(librespotStore.metadata.position);
   }
 });
 </script>

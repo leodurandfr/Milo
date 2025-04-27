@@ -4,10 +4,10 @@ Gestion des connexions WebSocket.
 """
 from typing import Dict, Any, List, Set
 import logging
-import time  # Ajouter l'import manquant
+import time
 import json
 from fastapi import WebSocket, WebSocketDisconnect
-
+from backend.domain.events import StandardEvent
 
 class WebSocketManager:
     """Gestionnaire de connexions WebSocket"""
@@ -32,21 +32,28 @@ class WebSocketManager:
             self.active_connections.remove(websocket)
             self.logger.debug(f"WebSocket disconnected, active connections: {len(self.active_connections)}")
         except (KeyError, ValueError):
-            # La connexion peut avoir déjà été supprimée ou n'était pas dans la liste
             self.logger.warning(f"Tried to disconnect a WebSocket that was not in active connections")
-            
+    
     async def broadcast(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Diffuse un message à toutes les connexions actives"""
+        """Diffuse un message à toutes les connexions actives (legacy)"""
         message = {
             "type": event_type,
             "data": data
         }
+        await self._broadcast_message(message)
+    
+    async def broadcast_standard(self, event: StandardEvent) -> None:
+        """Diffuse un événement standardisé à toutes les connexions"""
+        message = {
+            "type": "standard_event",
+            "data": event.to_dict()
+        }
+        await self._broadcast_message(message)
+    
+    async def _broadcast_message(self, message: Dict[str, Any]) -> None:
+        """Méthode interne pour diffuser un message"""
         message_str = json.dumps(message)
         
-        # Log différent selon le type d'événement
-        if event_type in ['snapclient_monitor_disconnected', 'snapclient_server_disappeared']:
-            self.logger.debug(f"⚡ ENVOI ÉVÉNEMENT WEBSOCKET CRITIQUE: {event_type} pour {data.get('host', 'unknown')}")
-            
         disconnected = set()
         for connection in self.active_connections:
             try:
@@ -58,7 +65,7 @@ class WebSocketManager:
         # Retirer les connexions déconnectées
         for connection in disconnected:
             self.disconnect(connection)
-            
+    
     async def cleanup_stale_connections(self):
         """Nettoie les connexions inactives ou zombies."""
         original_count = len(self.active_connections)

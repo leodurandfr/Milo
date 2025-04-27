@@ -10,7 +10,7 @@ from backend.domain.audio_state import AudioSource, PluginState, SystemAudioStat
 from backend.application.interfaces.audio_source import AudioSourcePlugin
 from backend.application.event_bus import EventBus
 from backend.infrastructure.process.process_manager import ProcessManager
-
+from backend.domain.events import StandardEvent, EventCategory, EventType
 
 class UnifiedAudioStateMachine:
     """Gère l'état complet du système audio avec contrôle centralisé des processus"""
@@ -59,10 +59,15 @@ class UnifiedAudioStateMachine:
             try:
                 # Début de la transition
                 self.system_state.transitioning = True
-                await self._publish_state_event("audio.transition_started", {
-                    "from_source": self.system_state.active_source.value,
-                    "to_source": target_source.value
-                })
+                await self._publish_standardized_event(
+                    EventCategory.SYSTEM,
+                    EventType.TRANSITION_START,
+                    "system",
+                    {
+                        "from_source": self.system_state.active_source.value,
+                        "to_source": target_source.value
+                    }
+                )
                 
                 # Arrêt de la source actuelle avec gestion centralisée
                 await self._stop_current_source()
@@ -80,10 +85,15 @@ class UnifiedAudioStateMachine:
                 
                 # Fin de la transition
                 self.system_state.transitioning = False
-                await self._publish_state_event("audio.transition_completed", {
-                    "active_source": self.system_state.active_source.value,
-                    "plugin_state": self.system_state.plugin_state.value
-                })
+                await self._publish_standardized_event(
+                    EventCategory.SYSTEM,
+                    EventType.TRANSITION_COMPLETE,
+                    "system",
+                    {
+                        "active_source": self.system_state.active_source.value,
+                        "plugin_state": self.system_state.plugin_state.value
+                    }
+                )
                 
                 return True
                 
@@ -95,10 +105,15 @@ class UnifiedAudioStateMachine:
                 # En cas d'erreur, arrêter tous les processus
                 await self._emergency_stop()
                 
-                await self._publish_state_event("audio.transition_error", {
-                    "error": str(e),
-                    "attempted_source": target_source.value
-                })
+                await self._publish_standardized_event(
+                    EventCategory.SYSTEM,
+                    EventType.ERROR,
+                    "system",
+                    {
+                        "error": str(e),
+                        "attempted_source": target_source.value
+                    }
+                )
                 
                 return False
     
@@ -124,12 +139,16 @@ class UnifiedAudioStateMachine:
         else:
             self.system_state.error = None
         
-        await self._publish_state_event("audio.plugin_state_changed", {
-            "source": source.value,
-            "old_state": old_state.value,
-            "new_state": new_state.value,
-            "metadata": metadata
-        })
+        await self._publish_standardized_event(
+            EventCategory.PLUGIN,
+            EventType.PLUGIN_STATE_CHANGED,
+            source.value,
+            {
+                "old_state": old_state.value,
+                "new_state": new_state.value,
+                "metadata": metadata
+            }
+        )
     
     async def _stop_current_source(self) -> None:
         """Arrête la source actuellement active avec gestion centralisée"""
@@ -206,7 +225,18 @@ class UnifiedAudioStateMachine:
         self.system_state.error = None
     
     async def _publish_state_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Publie un événement d'état"""
+        """Publie un événement d'état (compatible legacy)"""
         # Ajouter les informations d'état complet
         data["full_state"] = self.system_state.to_dict()
         await self.event_bus.publish(event_type, data)
+    
+    async def _publish_standardized_event(self, category: EventCategory, type: EventType, 
+                                        source: str, data: Dict[str, Any]) -> None:
+        """Publie un événement standardisé"""
+        event = StandardEvent(
+            category=category,
+            type=type,
+            source=source,
+            data={**data, "full_state": self.system_state.to_dict()}
+        )
+        await self.event_bus.publish_event(event)

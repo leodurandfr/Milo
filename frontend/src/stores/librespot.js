@@ -17,6 +17,7 @@ export const useLibrespotStore = defineStore('librespot', () => {
   
   const isPlaying = computed(() => {
     if (audioStore.currentSource === 'librespot') {
+      // Utiliser l'état de lecture des métadonnées
       return audioStore.metadata?.is_playing ?? false;
     }
     return false;
@@ -24,7 +25,8 @@ export const useLibrespotStore = defineStore('librespot', () => {
   
   const deviceConnected = computed(() => {
     if (audioStore.currentSource === 'librespot') {
-      return audioStore.pluginState === 'connected';
+      // Un device est connecté si le plugin est dans l'état CONNECTED et qu'on a des métadonnées
+      return audioStore.pluginState === 'connected' && (!!audioStore.metadata?.device_connected || !!audioStore.metadata?.title);
     }
     return false;
   });
@@ -46,7 +48,6 @@ export const useLibrespotStore = defineStore('librespot', () => {
       return false;
     }
   }
-  
   
   return {
     // Getters

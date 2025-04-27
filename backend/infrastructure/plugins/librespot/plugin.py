@@ -29,6 +29,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         self._current_metadata = {}
         self._is_playing = False  
         self._device_connected = False
+        self._ws_connected = False
         self._initialized = False
     
     async def _handle_ws_event(self, data: Dict[str, Any]) -> None:
@@ -155,13 +156,13 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             })
             return False
     
-    # Le reste des méthodes reste identique (_websocket_loop, _handle_websocket_event, etc.)
     async def _websocket_loop(self) -> None:
         """Boucle WebSocket pour recevoir les événements"""
         while True:
             try:
                 async with self.session.ws_connect(self.ws_url) as ws:
                     self.logger.info("WebSocket connecté à go-librespot")
+                    self._ws_connected = True  # Marquer comme connecté
                     
                     async for msg in ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
@@ -174,6 +175,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 break
             except Exception as e:
                 self.logger.error(f"Erreur WebSocket: {e}")
+                self._ws_connected = False
                 await asyncio.sleep(3)
     
     async def _handle_websocket_event(self, event: Dict[str, Any]) -> None:
@@ -234,6 +236,17 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 **self._current_metadata,
                 "status": "metadata_updated"
             })
+        
+        elif event_type == 'seek':
+            # Mettre à jour la position dans les métadonnées
+            if self._current_metadata:
+                self._current_metadata['position'] = data.get('position', 0)
+            
+            await self.notify_state_change(PluginState.CONNECTED, {
+                **self._current_metadata,
+                "position": data.get('position', 0),
+                "status": "seek_update"
+            })
     
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Traite les commandes"""
@@ -257,10 +270,37 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         except Exception as e:
             return {"success": False, "error": str(e)}
     
+    async def get_current_state_from_api(self) -> Dict[str, Any]:
+        """Récupère l'état actuel depuis l'API go-librespot"""
+        if not self.session:
+            return {}
+        
+        try:
+            async with self.session.get(f"{self.api_url}/status") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    # Mettre à jour les métadonnées internes
+                    if data.get('track'):
+                        track = data['track']
+                        self._current_metadata = {
+                            "title": track.get('name'),
+                            "artist": ", ".join(track.get('artist_names', [])),
+                            "album": track.get('album_name'),
+                            "album_art_url": track.get('album_cover_url'),
+                            "duration": track.get('duration'),
+                            "position": track.get('position', 0),  # Position actuelle
+                            "uri": track.get('uri'),
+                            "is_playing": not data.get('paused', False)
+                        }
+                        self._is_playing = not data.get('paused', False)
+                    return data
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la récupération de l'état: {e}")
+        return {}
+
     async def get_status(self) -> Dict[str, Any]:
         """Récupère l'état actuel du plugin avec métadonnées persistées"""
         try:
-            # Fusionner toutes les données d'état
             status = {
                 "device_connected": self._device_connected,
                 "ws_connected": self._ws_connected,
@@ -269,7 +309,6 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             
             # Inclure les métadonnées actuelles
             if self._current_metadata:
-                # Utiliser directement _current_metadata qui a déjà le bon format
                 status["metadata"] = self._current_metadata
             else:
                 status["metadata"] = {}

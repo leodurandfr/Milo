@@ -51,7 +51,10 @@ async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
             "plugin_state": plugin.current_state.value,
             "device_connected": status.get("device_connected", False),
             "is_playing": status.get("is_playing", False),
-            "metadata": status.get("metadata", {}),
+            "metadata": {
+                **status.get("metadata", {}),
+                "is_playing": status.get("is_playing", False) 
+            },
             "ws_connected": status.get("ws_connected", False)
         }
     except Exception as e:

@@ -51,15 +51,48 @@ export default function useWebSocket() {
             return;
           }
           
-          // Dispatcher l'événement aux abonnés
-          if (message.type && events[message.type]) {
-            events[message.type].forEach(callback => {
-              try {
-                callback(message.data);
-              } catch (err) {
-                console.error(`Erreur dans callback de ${message.type}:`, err);
+          // Gérer les événements standardisés
+          if (message.type === 'standard_event') {
+            const standardEvent = message.data;
+            console.log(`🔄 Standard event: ${standardEvent.category}.${standardEvent.type}`);
+            
+            // Créer une clé d'événement standard
+            const eventKey = `${standardEvent.category}.${standardEvent.type}`;
+            
+            // Dispatcher aux abonnés
+            if (events[eventKey]) {
+              events[eventKey].forEach(callback => {
+                try {
+                  callback(standardEvent);
+                } catch (err) {
+                  console.error(`Erreur dans callback de ${eventKey}:`, err);
+                }
+              });
+            }
+            
+            // Pour la compatibilité, dispatcher aussi sous l'ancien format "state_update"
+            if (standardEvent.data.full_state) {
+              if (events['state_update']) {
+                events['state_update'].forEach(callback => {
+                  try {
+                    callback(standardEvent.data);
+                  } catch (err) {
+                    console.error('Erreur dans callback de state_update:', err);
+                  }
+                });
               }
-            });
+            }
+          } else {
+            // Gérer les événements legacy
+            if (message.type && events[message.type]) {
+              events[message.type].forEach(callback => {
+                try {
+                  callback(message.data);
+                } catch (err) {
+                  console.error(`Erreur dans callback de ${message.type}:`, err);
+                }
+              });
+            }
           }
         } catch (error) {
           console.error('Erreur de parsing WebSocket:', error);
