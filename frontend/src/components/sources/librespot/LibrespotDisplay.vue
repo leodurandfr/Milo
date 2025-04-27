@@ -27,27 +27,27 @@
       <p>Connectez un appareil via Spotify Connect</p>
     </div>
     
-    <div v-if="librespotStore.lastError" class="error-message">
-      {{ librespotStore.lastError }}
+    <div v-if="audioStore.systemState.error && audioStore.currentSource === 'librespot'" class="error-message">
+      {{ audioStore.systemState.error }}
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useLibrespotStore } from '@/stores/librespot';
+import { useAudioStore } from '@/stores/audioStore';
 import { useLibrespotControl } from '@/composables/useLibrespotControl';
 import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
-import useWebSocket from '@/services/websocket';
 
 import NowPlayingInfo from './NowPlayingInfo.vue';
 import PlaybackControls from './PlaybackControls.vue';
 import ProgressBar from './ProgressBar.vue';
 
 const librespotStore = useLibrespotStore();
+const audioStore = useAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
 const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackProgress();
-const { on } = useWebSocket();
 
 // Computed plus robuste pour vérifier si on a les infos de la piste
 const hasTrackInfo = computed(() => {
@@ -62,33 +62,13 @@ function seekToPosition(position) {
   seekTo(position);
 }
 
-// Gestion des événements unifiés
-function setupWebSocketEvents() {
-  const unsubscriber = on('plugin_state_changed', data => {
-    if (data.source === 'librespot') {
-      librespotStore.handleWebSocketEvent('plugin_state_changed', data);
-    }
-  });
-
-  return () => unsubscriber && unsubscriber();
-}
-
-const cleanup = setupWebSocketEvents();
-
-onMounted(async () => {
-  // Initialiser le store pour récupérer l'état actuel
-  await librespotStore.initialize();
-  
+onMounted(() => {  
   // Si on a déjà des métadonnées, s'assurer que la progression est initialisée correctement
   if (hasTrackInfo.value) {
     if (librespotStore.metadata.position !== undefined) {
       seekTo(librespotStore.metadata.position);
     }
   }
-});
-
-onUnmounted(() => {
-  cleanup();
 });
 </script>
 

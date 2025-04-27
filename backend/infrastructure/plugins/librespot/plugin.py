@@ -218,15 +218,16 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             })
         
         elif event_type == 'metadata':
+            # Stocker les métadonnées dans le bon format
             self._current_metadata = {
                 "title": data.get('name'),
                 "artist": ", ".join(data.get('artist_names', [])),
                 "album": data.get('album_name'),
                 "album_art_url": data.get('album_cover_url'),
-                "duration_ms": data.get('duration'),
-                "position_ms": data.get('position', 0),
+                "duration": data.get('duration'),
+                "position": data.get('position', 0),
                 "uri": data.get('uri'),
-                "is_playing": self._is_playing  # Utiliser l'état de lecture actuel
+                "is_playing": self._is_playing
             }
             
             await self.notify_state_change(PluginState.CONNECTED, {
@@ -266,29 +267,10 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 "is_playing": self._is_playing,
             }
             
-            # Inclure les métadonnées si disponibles
+            # Inclure les métadonnées actuelles
             if self._current_metadata:
-                # Transformer les métadonnées stockées pour correspondre au format attendu
-                metadata = {}
-                
-                # Si les métadonnées du WebSocket sont au format librespot
-                if "metadata" in self._current_metadata:
-                    track_data = self._current_metadata["metadata"]
-                    metadata = {
-                        "title": track_data.get("name"),
-                        "artist": track_data.get("artist_names", [None])[0],
-                        "album": track_data.get("album_name"),
-                        "album_art_url": track_data.get("album_cover_url"),
-                        "duration": track_data.get("duration", 0),
-                        "position": track_data.get("position", 0)
-                    }
-                else:
-                    # Format direct
-                    metadata = self._current_metadata
-                
-                # Supprimer les valeurs None
-                metadata = {k: v for k, v in metadata.items() if v is not None}
-                status["metadata"] = metadata
+                # Utiliser directement _current_metadata qui a déjà le bon format
+                status["metadata"] = self._current_metadata
             else:
                 status["metadata"] = {}
             

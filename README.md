@@ -16,4 +16,9 @@ Instructions coming soon...
 
 ## Documentation
 
-Documentation coming soon...
+* backend :
+- source venv/bin/activate
+- python backend/main.py
+
+* frontend :
+- npm run dev --prefix frontend

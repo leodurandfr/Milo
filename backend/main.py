@@ -2,8 +2,15 @@
 """
 Point d'entrée principal de l'application oakOS - Version unifiée
 """
+import sys
+import os
+
+# Ajouter le répertoire parent au path Python
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config.container import container
@@ -18,30 +25,18 @@ from backend.domain.audio_state import AudioSource
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Création de l'application FastAPI
-app = FastAPI(title="oakOS API")
-
-# Configuration CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Configuration des dépendances
 event_bus = container.event_bus()
 state_machine = container.audio_state_machine()
 
 # Initialisation du serveur WebSocket
-websocket_server = WebSocketServer(event_bus)
+websocket_server = WebSocketServer(event_bus, state_machine)
 websocket_event_handler = WebSocketEventHandler(event_bus, websocket_server.manager)
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialisation au démarrage"""
-    # Enregistrer tous les plugins dans la machine à états
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Gestion du cycle de vie de l'application"""
+    # Code d'initialisation (équivalent à startup)
     container.register_plugins()
     
     # Initialiser tous les plugins
@@ -54,11 +49,10 @@ async def startup_event():
                 logger.error(f"Erreur d'initialisation du plugin {source.value}: {e}")
     
     logger.info("Application démarrée avec succès")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Nettoyage à l'arrêt"""
-    # Arrêter tous les plugins actifs
+    
+    yield  # L'application tourne
+    
+    # Code de nettoyage (équivalent à shutdown)
     for plugin in state_machine.plugins.values():
         if plugin:
             try:
@@ -67,6 +61,18 @@ async def shutdown_event():
                 logger.error(f"Erreur d'arrêt du plugin: {e}")
     
     logger.info("Application arrêtée proprement")
+
+# Création de l'application FastAPI avec lifespan
+app = FastAPI(title="oakOS API", lifespan=lifespan)
+
+# Configuration CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Routes générales audio
 audio_router = audio.create_router(
@@ -92,4 +98,4 @@ app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)

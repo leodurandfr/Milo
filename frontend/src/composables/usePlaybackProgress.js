@@ -1,15 +1,18 @@
+// frontend/src/composables/usePlaybackProgress.js
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useLibrespotStore } from '@/stores/librespot';
+import { useAudioStore } from '@/stores/audioStore';
 
 export function usePlaybackProgress() {
   const librespotStore = useLibrespotStore();
+  const audioStore = useAudioStore();
   
-  // Variables d'état locales - Initialiser avec la position actuelle si disponible
-  const localPosition = ref(librespotStore.metadata?.position_ms || 0);
+  // Variables d'état locales
+  const localPosition = ref(0);
   const updateInterval = ref(null);
   
   // Computed properties
-  const duration = computed(() => librespotStore.metadata?.duration_ms || 0);
+  const duration = computed(() => audioStore.metadata?.duration || 0);
   const currentPosition = computed(() => localPosition.value);
   const progressPercentage = computed(() => {
     if (!duration.value) return 0;
@@ -55,36 +58,24 @@ export function usePlaybackProgress() {
     }
   });
   
-  watch(() => librespotStore.metadata?.position_ms, (newPos) => {
+  // Synchroniser avec la position des métadonnées
+  watch(() => audioStore.metadata?.position, (newPos) => {
     if (newPos !== undefined) {
       localPosition.value = newPos;
     }
   });
   
-  // Watcher pour l'initialisation des métadonnées
-  watch(() => librespotStore.metadata, (newMetadata) => {
-    // Si les métadonnées sont chargées pour la première fois (après rafraîchissement)
-    if (newMetadata && newMetadata.position_ms !== undefined && localPosition.value === 0) {
-      localPosition.value = newMetadata.position_ms;
-    }
-  }, { immediate: true });
-  
-  watch(() => librespotStore.metadata?.title, (newTitle, oldTitle) => {
-    if (newTitle && newTitle !== oldTitle) {
-      localPosition.value = librespotStore.metadata?.position_ms || 0;
-    }
-  });
-  
-  watch(() => librespotStore.metadata?.uri, (newUri, oldUri) => {
+  // Réinitialiser sur changement de piste (avec URI)
+  watch(() => audioStore.metadata?.uri, (newUri, oldUri) => {
     if (newUri && newUri !== oldUri) {
-      localPosition.value = librespotStore.metadata?.position_ms || 0;
+      localPosition.value = audioStore.metadata?.position || 0;
     }
   });
   
   onMounted(() => {
-    // Initialiser la position si les métadonnées sont déjà chargées
-    if (librespotStore.metadata?.position_ms !== undefined) {
-      localPosition.value = librespotStore.metadata.position_ms;
+    // Initialiser la position
+    if (audioStore.metadata?.position !== undefined) {
+      localPosition.value = audioStore.metadata.position;
     }
     
     if (librespotStore.isPlaying) {

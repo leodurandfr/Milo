@@ -1,5 +1,5 @@
 <template>
-    <div v-if="audioStore.currentState === 'snapclient'" class="snapclient-component">
+    <div v-if="audioStore.currentSource === 'snapclient'" class="snapclient-component">
         <div v-if="audioStore.pluginState === 'connected'" class="connected-state">
             <h2>Connecté à MacOS</h2>
             <p>{{ formattedServerName }}</p>
@@ -11,7 +11,7 @@
         </div>
         <div v-else-if="audioStore.pluginState === 'error'" class="error-state">
             <h2>Erreur de connexion</h2>
-            <p>{{ snapclientStore.error }}</p>
+            <p>{{ audioStore.systemState.error }}</p>
         </div>
         <div v-else class="waiting-state">
             <h2>En attente de connexion MacOS</h2>
@@ -21,14 +21,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted } from 'vue';
+import { computed } from 'vue';
 import { useSnapclientStore } from '@/stores/snapclient';
-import { useAudioStore } from '@/stores/index';
-import useWebSocket from '@/services/websocket';
+import { useAudioStore } from '@/stores/audioStore';
 
 const snapclientStore = useSnapclientStore();
 const audioStore = useAudioStore();
-const { on } = useWebSocket();
 
 const formattedServerName = computed(() => {
     if (!snapclientStore.deviceName) return 'Serveur inconnu';
@@ -45,26 +43,6 @@ async function disconnect() {
         console.error('Erreur de déconnexion:', err);
     }
 }
-
-function setupWebSocketEvents() {
-    const unsubscriber = on('plugin_state_changed', data => {
-        if (data.source === 'snapclient') {
-            snapclientStore.handleWebSocketEvent('plugin_state_changed', data);
-        }
-    });
-
-    return () => unsubscriber && unsubscriber();
-}
-
-const cleanup = setupWebSocketEvents();
-
-onMounted(async () => {
-    await snapclientStore.fetchStatus(true);
-});
-
-onUnmounted(() => {
-    cleanup();
-});
 </script>
 
 

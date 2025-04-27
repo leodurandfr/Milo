@@ -1,7 +1,4 @@
 // frontend/src/services/websocket.js
-/**
- * Service pour gérer la connexion WebSocket avec reconnexion automatique - Version améliorée.
- */
 import { ref, onUnmounted } from 'vue';
 
 export default function useWebSocket() {
@@ -12,9 +9,7 @@ export default function useWebSocket() {
   let reconnectTimer = null;
   let heartbeatInterval = null;
   
-  // Fonction pour créer une nouvelle connexion
   const createNewConnection = () => {
-    // Déterminer l'URL WebSocket en fonction de l'environnement
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
     const port = import.meta.env.DEV ? 8000 : window.location.port;
@@ -22,19 +17,16 @@ export default function useWebSocket() {
     
     console.log(`🔌 Connexion WebSocket à ${wsUrl}`);
     
-    // Annuler toute tentative de reconnexion en cours
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
 
     try {
-      // Nettoyer la connexion précédente
       if (socket.value && socket.value.readyState !== WebSocket.CLOSED) {
         socket.value.close();
       }
       
-      // Créer la nouvelle instance WebSocket
       socket.value = new WebSocket(wsUrl);
       
       socket.value.onopen = () => {
@@ -42,12 +34,6 @@ export default function useWebSocket() {
         isConnected.value = true;
         connectionAttempts.value = 0;
         startHeartbeat();
-        
-        // Message d'identification
-        sendMessage({
-          type: 'client_connected',
-          data: { timestamp: Date.now() }
-        });
       };
       
       socket.value.onmessage = (event) => {
@@ -56,31 +42,13 @@ export default function useWebSocket() {
           
           // Filtrer les messages de ping/pong pour le debug
           if (message.type !== 'ping' && message.type !== 'heartbeat_ack') {
-            // Log sélectif des événements importants
-            if (message.type.startsWith('snapclient_') || 
-                message.type.startsWith('audio_state_')) {
-              console.log(`📡 WebSocket: ${message.type}`);
-            }
+            console.log(`📡 WebSocket: ${message.type}`);
           }
           
           // Répondre aux pings
           if (message.type === 'ping') {
             sendMessage({ type: 'pong', data: { timestamp: Date.now() } });
             return;
-          }
-
-          // Traitement spécial pour les événements critiques de déconnexion
-          if (message.type === 'snapclient_monitor_disconnected' || 
-              message.type === 'snapclient_server_disappeared') {
-            console.warn(`🚨 ÉVÉNEMENT CRITIQUE REÇU: ${message.type}`, message.data);
-            
-            // Émettre un événement DOM spécial pour assurer qu'il est traité
-            window.dispatchEvent(new CustomEvent('snapclient-critical-event', {
-              detail: { 
-                type: message.type,
-                data: message.data
-              }
-            }));
           }
           
           // Dispatcher l'événement aux abonnés
@@ -103,12 +71,10 @@ export default function useWebSocket() {
         isConnected.value = false;
         clearHeartbeat();
         
-        // Ne pas tenter de reconnexion si c'est une fermeture propre
         if (event.code === 1000 && event.reason === "Démontage propre") {
           return;
         }
         
-        // Programmation de la reconnexion avec délai exponentiel
         connectionAttempts.value++;
         const delay = Math.min(30000, Math.pow(1.5, Math.min(connectionAttempts.value, 10)) * 1000);
         
@@ -127,7 +93,6 @@ export default function useWebSocket() {
     }
   };
   
-  // Fonctions heartbeat simplifiées
   const startHeartbeat = () => {
     clearHeartbeat();
     heartbeatInterval = setInterval(() => {
@@ -148,7 +113,6 @@ export default function useWebSocket() {
     }
   };
   
-  // Fonction pour envoyer un message
   const sendMessage = (data) => {
     if (socket.value?.readyState === WebSocket.OPEN) {
       try {
@@ -164,14 +128,12 @@ export default function useWebSocket() {
     return false;
   };
   
-  // S'abonner à un type d'événement
   const on = (eventType, callback) => {
     if (!events[eventType]) {
       events[eventType] = [];
     }
     events[eventType].push(callback);
     
-    // Retourner une fonction de désabonnement
     return () => {
       if (events[eventType]) {
         events[eventType] = events[eventType].filter(cb => cb !== callback);
@@ -179,7 +141,6 @@ export default function useWebSocket() {
     };
   };
   
-  // Nettoyer les ressources
   const cleanup = () => {
     if (reconnectTimer) clearTimeout(reconnectTimer);
     if (heartbeatInterval) clearInterval(heartbeatInterval);
@@ -194,10 +155,8 @@ export default function useWebSocket() {
     isConnected.value = false;
   };
   
-  // Établir la connexion
   createNewConnection();
   
-  // Nettoyer lors du démontage
   onUnmounted(cleanup);
   
   return {

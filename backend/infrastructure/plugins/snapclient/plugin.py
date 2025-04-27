@@ -241,3 +241,15 @@ class SnapclientPlugin(UnifiedAudioPlugin):
         except Exception as e:
             self.logger.error(f"Error handling command {command}: {e}")
             return {"success": False, "error": str(e)}
+        
+    async def get_connection_info(self) -> Dict[str, Any]:
+        """Récupère des informations sur la connexion actuelle"""
+        if not self.current_server:
+            return {"device_connected": False, "device_name": None, "host": None}
+
+        return {
+            "device_connected": True,
+            "device_name": self.current_server.name,
+            "host": self.current_server.host,
+            "port": self.current_server.port
+        }
