@@ -1,138 +1,130 @@
 """
-Plugin Snapclient adapté au contrôle centralisé des processus - Version avec gestion optimisée des reconnexions.
+Plugin Snapclient intégré pour oakOS.
 """
 import asyncio
 import logging
-import time
 from typing import Dict, Any, Optional, List
 
 from backend.application.event_bus import EventBus
 from backend.infrastructure.plugins.base import UnifiedAudioPlugin
-from backend.domain.audio_state import PluginState
+from backend.domain.audio_state import PluginState, AudioSource
 from backend.infrastructure.plugins.snapclient.discovery import SnapclientDiscovery
 from backend.infrastructure.plugins.snapclient.monitor import SnapcastMonitor
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer
 from backend.infrastructure.plugins.snapclient.process import SnapclientProcess
-from backend.infrastructure.plugins.snapclient.connection import SnapclientConnection
 
 
 class SnapclientPlugin(UnifiedAudioPlugin):
-    """Plugin pour la source audio Snapclient - Version avec contrôle centralisé"""
+    """Plugin unifié pour la source audio Snapclient."""
 
     def __init__(self, event_bus: EventBus, config: Dict[str, Any]):
         super().__init__(event_bus, "snapclient")
         self.config = config
         self.executable_path = config.get("executable_path", "/usr/bin/snapclient")
-        self.blacklisted_servers = []
-        
-        # Initialisation des composants
-        self.process_manager = SnapclientProcess(self.executable_path)
-        self.discovery = SnapclientDiscovery()
-        self.monitor = SnapcastMonitor(self._handle_monitor_event)
-        self.connection = SnapclientConnection(self.process_manager, self)
+        self.auto_connect = config.get("auto_connect", True)
         
         # État interne
+        self.current_server: Optional[SnapclientServer] = None
+        self.blacklisted_servers = []
         self.discovered_servers = []
-        self._connection_lock = asyncio.Lock()
+        
+        # Composants
+        self.discovery = SnapclientDiscovery()
+        self.monitor = SnapcastMonitor(self._handle_monitor_event)
+        self.process_manager = SnapclientProcess(self.executable_path)
+        
+        # Verrou pour synchronisation
+        self._lock = asyncio.Lock()
         self._initialized = False
-        self._auto_connecting = False  # Flag pour éviter les connexions en cascade
 
     def get_process_command(self) -> List[str]:
-        """Retourne la commande pour démarrer snapclient"""
-        # Si un serveur est configuré, inclure le host dans la commande
+        """Retourne la commande pour démarrer snapclient."""
         cmd = [self.executable_path, "-j"]
-        if self.connection.current_server:
-            cmd.extend(["-h", self.connection.current_server.host])
+        if self.current_server:
+            cmd.extend(["-h", self.current_server.host])
         return cmd
 
     async def initialize(self) -> bool:
-        """Initialise le plugin"""
+        """Initialise le plugin."""
         if self._initialized:
             return True
             
         self.logger.info("Initialisation du plugin Snapclient")
-        # Vérifier que l'exécutable existe
         try:
+            # Vérifier l'exécutable
             import os
             if not os.path.exists(self.executable_path):
                 raise FileNotFoundError(f"Executable not found: {self.executable_path}")
             
+            # Configurer la découverte
             self.discovery.register_callback(self._handle_server_discovery)
+            
             self._initialized = True
             return True
         except Exception as e:
             self.logger.error(f"Erreur d'initialisation: {e}")
-            await self.notify_state_change(PluginState.ERROR, {
-                "error": str(e),
-                "error_type": "initialization_error"
-            })
+            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
             return False
 
     async def start(self) -> bool:
-        """Démarre le plugin - le processus est géré par la machine à états"""
-        async with self._connection_lock:
+        """Démarre le plugin."""
+        async with self._lock:
             try:
                 self.logger.info("Démarrage du plugin Snapclient")
                 self.blacklisted_servers = []
-                self._auto_connecting = False
+                
+                # Démarrer la découverte
                 await self.discovery.start()
+                
                 await self.notify_state_change(PluginState.READY)
                 return True
             except Exception as e:
-                self.logger.error(f"Erreur démarrage plugin: {str(e)}")
-                await self.notify_state_change(PluginState.ERROR, {
-                    "error": str(e),
-                    "error_type": "start_error"
-                })
+                self.logger.error(f"Erreur démarrage: {str(e)}")
+                await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
                 return False
 
     async def stop(self) -> bool:
-        """Arrête le plugin - le processus est géré par la machine à états"""
-        async with self._connection_lock:
+        """Arrête le plugin."""
+        async with self._lock:
             try:
                 self.logger.info("Arrêt du plugin Snapclient")
-                self._auto_connecting = False
+                
+                # Arrêter le moniteur
                 await self.monitor.stop()
-                await self.connection.disconnect()
+                
+                # Arrêter la découverte
                 await self.discovery.stop()
+                
+                # Réinitialiser l'état
+                self.current_server = None
                 self.discovered_servers = []
+                
                 await self.notify_state_change(PluginState.INACTIVE)
                 return True
             except Exception as e:
-                self.logger.error(f"Erreur arrêt plugin: {str(e)}")
-                await self.notify_state_change(PluginState.ERROR, {
-                    "error": str(e),
-                    "error_type": "stop_error"
-                })
+                self.logger.error(f"Erreur arrêt: {str(e)}")
+                await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
                 return False
 
     async def _handle_server_discovery(self, event_type: str, server: SnapclientServer) -> None:
-        """Gère les événements de découverte des serveurs avec logique améliorée pour éviter les reconnexions inutiles"""
-        if event_type == "removed":
-            async with self._connection_lock:
-                # Si c'est notre serveur actuel qui a disparu
-                if self.connection.current_server and self.connection.current_server.host == server.host:
-                    self.logger.info(f"Serveur actuel disparu: {server.name}")
-                    # Ne pas arrêter le processus ni le moniteur ici - permettra une reconnexion plus rapide
-                    # si le serveur réapparaît
-                    
+        """Gère les événements de découverte des serveurs."""
+        async with self._lock:
+            if event_type == "removed":
+                # Si c'est notre serveur actuel
+                if self.current_server and self.current_server.host == server.host:
+                    await self.monitor.stop()
+                    self.current_server = None
                     await self.notify_state_change(PluginState.READY, {
                         "server_disappeared": True,
                         "host": server.host
                     })
                 
-                # Mettre à jour la liste des serveurs découverts
+                # Mettre à jour la liste
                 self.discovered_servers = [s for s in self.discovered_servers if s.host != server.host]
-            return
+                return
 
-        if event_type in ["added", "updated"]:
-            async with self._connection_lock:
-                # Si on est en train de gérer une auto-connexion, éviter les connexions en cascade
-                if self._auto_connecting:
-                    self.logger.debug(f"Auto-connexion en cours, ignorer {server.name}")
-                    return
-                
-                # Mettre à jour la liste des serveurs
+            if event_type in ["added", "updated"]:
+                # Mettre à jour la liste
                 found = False
                 for i, s in enumerate(self.discovered_servers):
                     if s.host == server.host:
@@ -144,7 +136,7 @@ class SnapclientPlugin(UnifiedAudioPlugin):
 
                 # Notifier la découverte
                 await self.notify_state_change(
-                    self.current_state,  # Conserver l'état actuel
+                    self.current_state,  # Garder l'état actuel
                     {
                         "server_discovered": True,
                         "server": server.to_dict(),
@@ -152,125 +144,132 @@ class SnapclientPlugin(UnifiedAudioPlugin):
                     }
                 )
 
-                # Vérifier si on est déjà connecté à ce serveur
-                already_connected = (self.connection.current_server and 
-                                    self.connection.current_server.host == server.host and
-                                    self.monitor.is_connected)
-                
-                # Auto-connexion si configuré, mais pas de reconnexion si déjà connecté
-                if (self.config.get("auto_connect", True) and
-                    not already_connected and
-                    not self.connection.current_server and
+                # Auto-connexion si configuré et pas de serveur actuel
+                if (self.auto_connect and 
+                    not self.current_server and 
                     server.host not in self.blacklisted_servers):
-                    
-                    try:
-                        self._auto_connecting = True
-                        await self.connection.connect(server)
-                    finally:
-                        self._auto_connecting = False
+                    await self._connect_to_server(server)
 
     async def _handle_monitor_event(self, data: Dict[str, Any]) -> None:
-        """Traite les événements du moniteur WebSocket"""
+        """Traite les événements du moniteur WebSocket."""
         event_type = data.get("event")
-        host = data.get("host")
-
+        
         if event_type == "monitor_connected":
-            # IMPORTANT: Toujours notifier la connexion, même lors d'une reconnexion
-            device_name = self.connection.current_server.name if self.connection.current_server else None
-            
-            self.logger.info(f"Moniteur connecté au serveur {device_name}")
             await self.notify_state_change(PluginState.CONNECTED, {
                 "monitor_connected": True,
-                "host": host,
-                "device_name": device_name,
-                "timestamp": data.get("timestamp", time.time())
+                "host": data.get("host"),
+                "device_name": self.current_server.name if self.current_server else None
             })
 
         elif event_type == "monitor_disconnected":
-            reason = data.get("reason", "unknown")
-            async with self._connection_lock:
-                if self.connection.current_server and self.connection.current_server.host == host:
-                    self.logger.info(f"Moniteur déconnecté: {reason}")
-                    # Passer à l'état READY mais garder le current_server pour la reconnexion
+            async with self._lock:
+                if self.current_server and self.current_server.host == data.get("host"):
+                    await self.monitor.stop()
+                    
+                    # On garde self.current_server pour la reconnexion automatique
+                    # mais on notifie que la connexion est perdue
                     await self.notify_state_change(PluginState.READY, {
                         "monitor_disconnected": True,
-                        "host": host,
-                        "reason": reason,
-                        "timestamp": data.get("timestamp", time.time())
+                        "host": data.get("host"),
+                        "reason": data.get("reason", "unknown")
                     })
 
-    async def get_status(self) -> Dict[str, Any]:
-        """Récupère l'état actuel du plugin"""
+        elif event_type == "server_event":
+            # On peut traiter ici les événements spécifiques du serveur si nécessaire
+            pass
+
+    async def _connect_to_server(self, server: SnapclientServer) -> bool:
+        """Connecte à un serveur spécifique."""
         try:
-            connection_info = self.connection.get_connection_info()
-            process_info = await self.process_manager.get_process_info()
+            self.current_server = server
             
-            return {
-                "device_connected": connection_info.get("device_connected", False),
-                "discovered_servers": [s.to_dict() for s in self.discovered_servers],
-                "blacklisted_servers": self.blacklisted_servers,
-                "current_server": (self.connection.current_server.to_dict() 
-                                  if self.connection.current_server else None),
-                "monitor_connected": self.monitor.is_connected,
-                "process_running": process_info.get("running", False)
-            }
+            # Si on utilise la machine à états pour gérer les processus
+            if self._state_machine and hasattr(self._state_machine, 'process_manager'):
+                await self._state_machine.process_manager.stop_process(self._get_audio_source())
+                await self._state_machine.process_manager.start_process(
+                    self._get_audio_source(),
+                    self.get_process_command()
+                )
+            else:
+                # Gestion directe du processus si pas de machine à états
+                await self.process_manager.start(server.host)
+            
+            # Démarrer le moniteur WS
+            await self.monitor.start(server.host)
+            
+            # On ne met pas à jour l'état ici car le moniteur le fera
+            return True
+            
         except Exception as e:
-            self.logger.error(f"Erreur récupération statut: {str(e)}")
-            return {"error": str(e)}
+            self.logger.error(f"Erreur connexion: {e}")
+            return False
+
+    async def get_status(self) -> Dict[str, Any]:
+        """Récupère l'état actuel du plugin."""
+        return {
+            "device_connected": self.current_server is not None,
+            "discovered_servers": [s.to_dict() for s in self.discovered_servers],
+            "blacklisted_servers": self.blacklisted_servers,
+            "current_server": self.current_server.to_dict() if self.current_server else None,
+            "monitor_connected": self.monitor.is_connected
+        }
 
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Traite les commandes spécifiques"""
+        """Traite les commandes spécifiques."""
         try:
-            if command == "connect":
-                host = data.get("host")
-                if not host:
-                    return {"success": False, "error": "Host required"}
-                
-                server = next((s for s in self.discovered_servers if s.host == host), None)
-                if not server:
-                    server = SnapclientServer(host=host, name=f"Snapserver ({host})")
-                
-                success = await self.connection.connect(server)
-                return {"success": success}
-            
-            elif command == "disconnect":
-                async with self._connection_lock:
-                    if self.connection.current_server:
-                        self.blacklisted_servers.append(self.connection.current_server.host)
+            async with self._lock:
+                if command == "connect":
+                    host = data.get("host")
+                    if not host:
+                        return {"success": False, "error": "Host required"}
                     
-                    await self.connection.disconnect()
+                    server = next((s for s in self.discovered_servers if s.host == host), None)
+                    if not server:
+                        server = SnapclientServer(host=host, name=f"Server ({host})")
+                    
+                    success = await self._connect_to_server(server)
+                    return {"success": success}
+                
+                elif command == "disconnect":
+                    if self.current_server:
+                        self.blacklisted_servers.append(self.current_server.host)
+                    
+                    await self.monitor.stop()
+                    
+                    if self._state_machine and hasattr(self._state_machine, 'process_manager'):
+                        await self._state_machine.process_manager.stop_process(self._get_audio_source())
+                    else:
+                        await self.process_manager.stop()
+                    
+                    self.current_server = None
                     await self.notify_state_change(PluginState.READY)
                     
                     return {"success": True}
-            
-            elif command == "discover":
-                servers = await self.discovery.discover_servers()
-                self.discovered_servers = servers
-                return {
-                    "success": True,
-                    "servers": [s.to_dict() for s in servers],
-                    "count": len(servers)
-                }
-            
-            return {"success": False, "error": f"Unknown command: {command}"}
+                
+                elif command == "discover":
+                    servers = await self.discovery.discover_servers()
+                    self.discovered_servers = servers
+                    return {
+                        "success": True,
+                        "servers": [s.to_dict() for s in servers],
+                        "count": len(servers)
+                    }
+                
+                else:
+                    return {"success": False, "error": f"Unknown command: {command}"}
+                
         except Exception as e:
             self.logger.error(f"Error handling command {command}: {e}")
             return {"success": False, "error": str(e)}
-        
-    async def get_connection_info(self) -> Dict[str, Any]:
-        """Récupère des informations sur la connexion actuelle"""
-        return self.connection.get_connection_info()
 
-    async def get_initial_state(self) -> Dict[str, Any]:
-        """
-        Récupère l'état initial complet du plugin.
-        Utilisé lors de l'initialisation d'une connexion WebSocket.
-        """
-        status = await self.get_status()
-        connection_info = await self.get_connection_info()
-        
+    async def get_connection_info(self) -> Dict[str, Any]:
+        """Récupère des informations sur la connexion actuelle."""
+        if not self.current_server:
+            return {"device_connected": False, "device_name": None, "host": None}
+
         return {
-            **status,
-            **connection_info,
-            "is_active": self.current_state != PluginState.INACTIVE
+            "device_connected": True,
+            "device_name": self.current_server.name,
+            "host": self.current_server.host,
+            "port": self.current_server.port
         }
