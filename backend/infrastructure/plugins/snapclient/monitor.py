@@ -11,15 +11,12 @@ from typing import Callable, Dict, Any, Optional, Awaitable
 class SnapcastMonitor:
     """
     Surveille l'état d'un serveur Snapcast en temps réel via l'API WebSocket.
-    Version optimisée sans health check.
+    Version optimisée avec backoff exponentiel et log réduits.
     """
     
     def __init__(self, callback: Callable[[Dict[str, Any]], Awaitable[None]]):
         """
         Initialise le moniteur Snapcast.
-        
-        Args:
-            callback: Fonction appelée lors des événements WebSocket
         """
         self.logger = logging.getLogger("plugin.snapclient.monitor")
         self.callback = callback
@@ -28,32 +25,25 @@ class SnapcastMonitor:
         self.is_connected = False
         self._stopping = False
         self._connection = None
+        
+        # Paramètres pour le backoff exponentiel et la réduction des logs
+        self._reconnect_attempt = 0
+        self._max_reconnect_delay = 30  # secondes
+        self._log_frequency = 5  # ne logger qu'une tentative sur 5 après plusieurs échecs
     
     def set_connection_reference(self, connection) -> None:
-        """
-        Définit une référence à l'objet de connexion snapclient.
-        
-        Args:
-            connection: Référence à l'objet SnapclientConnection
-        """
+        """Définit une référence à l'objet de connexion snapclient."""
         self._connection = connection
     
     async def start(self, host: str) -> bool:
-        """
-        Démarre la surveillance WebSocket pour un serveur spécifique.
-        
-        Args:
-            host: Adresse du serveur Snapcast à surveiller
-            
-        Returns:
-            bool: True si le démarrage a réussi, False sinon
-        """
+        """Démarre la surveillance WebSocket pour un serveur spécifique."""
         try:
             # Arrêter le moniteur existant si nécessaire
             await self.stop()
             
             self.host = host
             self._stopping = False
+            self._reconnect_attempt = 0  # Réinitialiser le compteur de tentatives
             self.ws_task = asyncio.create_task(self._monitor_websocket())
             
             self.logger.info(f"Moniteur WebSocket démarré pour {host}")
@@ -63,12 +53,7 @@ class SnapcastMonitor:
             return False
     
     async def stop(self) -> bool:
-        """
-        Arrête la surveillance WebSocket.
-        
-        Returns:
-            bool: True si l'arrêt a réussi, False sinon
-        """
+        """Arrête la surveillance WebSocket."""
         try:
             self._stopping = True
             
@@ -83,6 +68,7 @@ class SnapcastMonitor:
             
             self.host = None
             self.is_connected = False
+            self._reconnect_attempt = 0
             self.logger.info("Moniteur WebSocket arrêté")
             return True
         except Exception as e:
@@ -92,22 +78,36 @@ class SnapcastMonitor:
     async def _monitor_websocket(self) -> None:
         """
         Surveille le WebSocket pour les événements serveur.
-        Version améliorée avec meilleure détection de déconnexion.
+        Implémente un backoff exponentiel et limite les logs.
         """
         while not self._stopping:
             try:
+                # Vérifier si le host est toujours défini (peut être réinitialisé par stop())
+                if not self.host:
+                    await asyncio.sleep(1)
+                    continue
+                
                 # Construire l'URL WebSocket
                 uri = f"ws://{self.host}:1780/jsonrpc"
-                self.logger.debug(f"Connexion WebSocket à {uri}")
+                
+                # Déterminer si on doit logger cette tentative
+                should_log = (self._reconnect_attempt == 0 or 
+                             self._reconnect_attempt % self._log_frequency == 0)
+                
+                if should_log:
+                    self.logger.debug(f"Tentative {self._reconnect_attempt+1} de connexion WebSocket à {uri}")
                 
                 try:
-                    # Se connecter au WebSocket avec un timeout plus court
+                    # Se connecter au WebSocket avec un timeout
                     websocket = await asyncio.wait_for(
-                        websockets.connect(uri, ping_interval=5, ping_timeout=10),  # Ajouter ping_interval et ping_timeout
+                        websockets.connect(uri, ping_interval=5, ping_timeout=10),
                         timeout=2.0
                     )
                     
-                    # Connexion établie
+                    # Connexion réussie : réinitialiser le compteur de tentatives
+                    self._reconnect_attempt = 0
+                    
+                    # Mettre à jour l'état et notifier
                     self.is_connected = True
                     self.logger.info(f"Connexion WebSocket établie avec {self.host}")
                     await self._notify_callback({
@@ -116,7 +116,7 @@ class SnapcastMonitor:
                         "timestamp": time.time()
                     })
                     
-                    # Abonnement aux événements du serveur
+                    # Abonnement aux événements
                     await websocket.send(json.dumps({
                         "id": 4,
                         "jsonrpc": "2.0",
@@ -126,16 +126,15 @@ class SnapcastMonitor:
                         }
                     }))
 
-                    # Boucle d'écoute des messages avec ping/pong régulier
+                    # Boucle d'écoute des messages
                     last_message_time = time.time()
-                    ping_interval = 3.0  # En secondes
+                    ping_interval = 3.0
                     
                     while not self._stopping:
                         try:
-                            # Vérifier si on doit envoyer un ping
+                            # Gérer les pings
                             current_time = time.time()
                             if current_time - last_message_time > ping_interval:
-                                # Envoyer une requête de ping (GetStatus fait office de ping)
                                 try:
                                     await websocket.send(json.dumps({
                                         "id": 999,
@@ -144,14 +143,15 @@ class SnapcastMonitor:
                                     }))
                                     last_message_time = current_time
                                 except Exception as e:
-                                    self.logger.warning(f"Erreur lors de l'envoi du ping: {e}")
-                                    break  # Sortir de la boucle pour reconnecter
+                                    if should_log:
+                                        self.logger.warning(f"Erreur lors de l'envoi du ping: {e}")
+                                    break
                             
-                            # Attendre un message avec timeout court
+                            # Recevoir les messages
                             message = await asyncio.wait_for(websocket.recv(), timeout=5.0)
-                            last_message_time = time.time()  # Actualiser le temps du dernier message
+                            last_message_time = time.time()
                             
-                            # Traiter le message
+                            # Traiter le message reçu
                             data = json.loads(message)
                             await self._notify_callback({
                                 "event": "server_event",
@@ -160,25 +160,30 @@ class SnapcastMonitor:
                             })
                             
                         except asyncio.TimeoutError:
-                            # Aucun message reçu pendant timeout mais c'est normal
                             continue
                         except websockets.exceptions.ConnectionClosed as e:
-                            self.logger.warning(f"Connexion WebSocket fermée pendant réception: {e}")
+                            if should_log:
+                                self.logger.warning(f"Connexion WebSocket fermée pendant réception: {e}")
                             break
                         except Exception as e:
                             self.logger.error(f"Erreur lors de la réception: {e}")
                             break
                     
-                    # Fermer la connexion proprement
+                    # Fermer proprement
                     try:
                         await websocket.close()
                     except Exception:
                         pass
                         
                 except (asyncio.TimeoutError, ConnectionRefusedError, OSError) as e:
-                    self.logger.warning(f"Impossible d'établir la connexion WebSocket à {self.host}: {e}")
+                    # Incrémenter le compteur de tentatives
+                    self._reconnect_attempt += 1
                     
-                    # Notifier la déconnexion si on était connecté
+                    # Ne logger que si nécessaire
+                    if should_log:
+                        self.logger.warning(f"Impossible d'établir la connexion WebSocket à {self.host}: {e}")
+                    
+                    # Notifier la déconnexion uniquement lors de la première erreur
                     if self.is_connected:
                         self.is_connected = False
                         await self._notify_callback({
@@ -189,12 +194,23 @@ class SnapcastMonitor:
                             "timestamp": time.time()
                         })
                     
-                    # Attendre avant de réessayer
-                    await asyncio.sleep(1)
+                    # Backoff exponentiel pour les reconnexions
+                    # max(min_delay, min(max_delay, base_delay * 2^attempt))
+                    delay = min(self._max_reconnect_delay, 1 * (2 ** min(self._reconnect_attempt, 10)))
+                    if should_log:
+                        self.logger.debug(f"Attente de {delay}s avant la prochaine tentative")
+                    
+                    # Vérifier régulièrement si on doit s'arrêter pendant le délai
+                    for _ in range(int(delay * 2)):
+                        if self._stopping:
+                            break
+                        await asyncio.sleep(0.5)
                     continue
                 
             except (websockets.exceptions.ConnectionClosed, ConnectionRefusedError, OSError) as e:
                 # Connexion perdue
+                self._reconnect_attempt += 1
+                
                 if self.is_connected:
                     self.is_connected = False
                     self.logger.warning(f"Connexion WebSocket perdue: {str(e)}")
@@ -208,11 +224,13 @@ class SnapcastMonitor:
                         "timestamp": time.time()
                     })
                 
-                # Attendre avant de réessayer
+                # Attendre avec backoff exponentiel
                 if not self._stopping:
-                    await asyncio.sleep(1)
+                    delay = min(self._max_reconnect_delay, 1 * (2 ** min(self._reconnect_attempt, 10)))
+                    await asyncio.sleep(delay)
             
             except Exception as e:
+                self._reconnect_attempt += 1
                 self.logger.error(f"Erreur dans le moniteur WebSocket: {str(e)}")
                 
                 # Notifier la déconnexion si on était connecté
@@ -227,15 +245,11 @@ class SnapcastMonitor:
                     })
                     
                 if not self._stopping:
-                    await asyncio.sleep(1)
+                    delay = min(self._max_reconnect_delay, 1 * (2 ** min(self._reconnect_attempt, 10)))
+                    await asyncio.sleep(delay)
     
     async def _notify_callback(self, data: Dict[str, Any]) -> None:
-        """
-        Notifie le callback avec les données fournies.
-        
-        Args:
-            data: Données à passer au callback
-        """
+        """Notifie le callback avec les données fournies."""
         try:
             await self.callback(data)
         except Exception as e:

@@ -1,5 +1,5 @@
 """
-Gestion des connexions aux serveurs Snapcast - Version optimisée.
+Gestion des connexions aux serveurs Snapcast - Version optimisée pour éviter les redémarrages inutiles.
 """
 import logging
 from typing import Dict, Any, Optional
@@ -17,31 +17,55 @@ class SnapclientConnection:
         self.current_server: Optional[SnapclientServer] = None
 
     async def connect(self, server: SnapclientServer) -> bool:
-        """Se connecte à un serveur Snapcast."""
+        """
+        Se connecte à un serveur Snapcast, en évitant les redémarrages inutiles.
+        """
         try:
             self.logger.info(f"Connexion au serveur {server.name} ({server.host})")
             
-            # Vérification simplifiée si déjà connecté au même serveur
-            if (self.current_server and 
-                self.current_server.host == server.host and 
-                (await self.process_manager.get_process_info()).get("running", False)):
-                self.logger.info(f"Déjà connecté au serveur {server.name}")
-                return True
-
-            # Déconnexion si on est connecté à un autre serveur
-            if self.current_server:
-                await self.disconnect()
-
-            # Démarrage du processus
-            if await self.process_manager.start(server.host):
-                self.current_server = server
-                self.logger.info(f"Connecté au serveur {server.name}")
-                if hasattr(self.plugin, 'monitor'):
-                    await self.plugin.monitor.start(server.host)
-                return True
+            # Vérifier si déjà connecté au même serveur pour éviter un redémarrage inutile
+            if self.current_server and self.current_server.host == server.host:
+                process_info = await self.process_manager.get_process_info()
+                
+                if process_info.get("running", False):
+                    self.logger.info(f"Déjà connecté au serveur {server.name}, pas besoin de redémarrer")
+                    
+                    # Assurer que le moniteur WebSocket est bien démarré
+                    if hasattr(self.plugin, 'monitor') and not self.plugin.monitor.is_connected:
+                        await self.plugin.monitor.start(server.host)
+                    
+                    # Server est déjà défini comme serveur actuel, pas besoin de le changer
+                    return True
             
-            self.logger.error(f"Échec de connexion au serveur {server.name}")
-            return False
+            # Si on est connecté à un autre serveur ou si le processus n'est pas actif,
+            # on doit effectuer une nouvelle connexion
+            if self.current_server and self.current_server.host != server.host:
+                self.logger.info(f"Déconnexion du serveur actuel avant de se connecter à {server.name}")
+                await self.disconnect()
+            
+            # Démarrage du processus (seulement si nécessaire)
+            if not (await self.process_manager.get_process_info()).get("running", False):
+                self.logger.info(f"Démarrage du processus pour {server.name}")
+                if not await self.process_manager.start(server.host):
+                    self.logger.error(f"Échec du démarrage du processus pour {server.name}")
+                    return False
+            
+            # Mettre à jour le serveur actuel
+            self.current_server = server
+            self.logger.info(f"Connecté au serveur {server.name}")
+            
+            # Démarrer le moniteur WebSocket
+            if hasattr(self.plugin, 'monitor'):
+                # Arrêter l'ancien moniteur si on change de serveur
+                if self.plugin.monitor.host != server.host:
+                    await self.plugin.monitor.stop()
+                
+                # Démarrer le nouveau moniteur si nécessaire
+                if not self.plugin.monitor.is_connected:
+                    await self.plugin.monitor.start(server.host)
+            
+            return True
+            
         except Exception as e:
             self.logger.error(f"Erreur lors de la connexion: {str(e)}")
             return False
@@ -54,12 +78,15 @@ class SnapclientConnection:
         try:
             self.logger.info(f"Déconnexion du serveur {self.current_server.name}")
             
+            # Arrêter le moniteur
             if hasattr(self.plugin, 'monitor') and self.plugin.monitor.host == self.current_server.host:
                 await self.plugin.monitor.stop()
 
+            # Arrêter le processus si demandé
             if stop_process:
                 await self.process_manager.stop()
 
+            # Réinitialiser le serveur actuel
             self.current_server = None
             return True
         except Exception as e:
