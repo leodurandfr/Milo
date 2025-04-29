@@ -1,5 +1,5 @@
 """
-Plugin Snapclient adapté au contrôle centralisé des processus - Version avec gestion optimisée des reconnexions.
+Plugin Snapclient adapté au contrôle centralisé des processus - Version simplifiée auto-connexion uniquement.
 """
 import asyncio
 import logging
@@ -17,13 +17,12 @@ from backend.infrastructure.plugins.snapclient.connection import SnapclientConne
 
 
 class SnapclientPlugin(UnifiedAudioPlugin):
-    """Plugin pour la source audio Snapclient - Version avec contrôle centralisé"""
+    """Plugin pour la source audio Snapclient - Version simplifiée auto-connexion uniquement"""
 
     def __init__(self, event_bus: EventBus, config: Dict[str, Any]):
         super().__init__(event_bus, "snapclient")
         self.config = config
         self.executable_path = config.get("executable_path", "/usr/bin/snapclient")
-        self.blacklisted_servers = []
         
         # Initialisation des composants
         self.process_manager = SnapclientProcess(self.executable_path)
@@ -73,7 +72,6 @@ class SnapclientPlugin(UnifiedAudioPlugin):
         async with self._connection_lock:
             try:
                 self.logger.info("Démarrage du plugin Snapclient")
-                self.blacklisted_servers = []
                 self._auto_connecting = False
                 await self.discovery.start()
                 await self.notify_state_change(PluginState.READY)
@@ -107,7 +105,7 @@ class SnapclientPlugin(UnifiedAudioPlugin):
                 return False
 
     async def _handle_server_discovery(self, event_type: str, server: SnapclientServer) -> None:
-        """Gère les événements de découverte des serveurs avec logique améliorée pour éviter les reconnexions inutiles"""
+        """Gère les événements de découverte des serveurs avec auto-connexion automatique"""
         if event_type == "removed":
             async with self._connection_lock:
                 # Si c'est notre serveur actuel qui a disparu
@@ -157,12 +155,8 @@ class SnapclientPlugin(UnifiedAudioPlugin):
                                     self.connection.current_server.host == server.host and
                                     self.monitor.is_connected)
                 
-                # Auto-connexion si configuré, mais pas de reconnexion si déjà connecté
-                if (self.config.get("auto_connect", True) and
-                    not already_connected and
-                    not self.connection.current_server and
-                    server.host not in self.blacklisted_servers):
-                    
+                # Auto-connexion si pas déjà connecté à un serveur
+                if not already_connected and not self.connection.current_server:
                     try:
                         self._auto_connecting = True
                         await self.connection.connect(server)
@@ -208,7 +202,6 @@ class SnapclientPlugin(UnifiedAudioPlugin):
             return {
                 "device_connected": connection_info.get("device_connected", False),
                 "discovered_servers": [s.to_dict() for s in self.discovered_servers],
-                "blacklisted_servers": self.blacklisted_servers,
                 "current_server": (self.connection.current_server.to_dict() 
                                   if self.connection.current_server else None),
                 "monitor_connected": self.monitor.is_connected,
@@ -219,31 +212,9 @@ class SnapclientPlugin(UnifiedAudioPlugin):
             return {"error": str(e)}
 
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Traite les commandes spécifiques"""
+        """Traite les commandes spécifiques - version simplifiée"""
         try:
-            if command == "connect":
-                host = data.get("host")
-                if not host:
-                    return {"success": False, "error": "Host required"}
-                
-                server = next((s for s in self.discovered_servers if s.host == host), None)
-                if not server:
-                    server = SnapclientServer(host=host, name=f"Snapserver ({host})")
-                
-                success = await self.connection.connect(server)
-                return {"success": success}
-            
-            elif command == "disconnect":
-                async with self._connection_lock:
-                    if self.connection.current_server:
-                        self.blacklisted_servers.append(self.connection.current_server.host)
-                    
-                    await self.connection.disconnect()
-                    await self.notify_state_change(PluginState.READY)
-                    
-                    return {"success": True}
-            
-            elif command == "discover":
+            if command == "discover":
                 servers = await self.discovery.discover_servers()
                 self.discovered_servers = servers
                 return {

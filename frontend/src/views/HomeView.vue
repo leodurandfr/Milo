@@ -72,8 +72,18 @@ onMounted(() => {
     unifiedStore.updateState(event);
   });
   
+  on('system', 'transition_start', (event) => {
+    console.log('Received transition_start:', event);
+    unifiedStore.updateState(event);
+  });
+  
   on('system', 'transition_complete', (event) => {
     console.log('Received transition_complete:', event);
+    unifiedStore.updateState(event);
+  });
+  
+  on('system', 'error', (event) => {
+    console.log('Received system error:', event);
     unifiedStore.updateState(event);
   });
   

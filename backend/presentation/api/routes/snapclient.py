@@ -1,7 +1,7 @@
 """
-Routes API spécifiques pour le plugin snapclient.
+Routes API spécifiques pour le plugin snapclient - version simplifiée auto-connexion uniquement.
 """
-from fastapi import APIRouter, HTTPException, Depends, Body
+from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 
 # Créer un router dédié pour snapclient
@@ -47,9 +47,7 @@ async def get_snapclient_status(plugin = Depends(get_snapclient_plugin)):
             "host": connection_info.get("host"),
             "device_name": connection_info.get("device_name"),
             "device_info": status.get("metadata", {}),
-            "discovered_servers": status.get("discovered_servers", []),
-            "blacklisted_servers": status.get("blacklisted_servers", [])
-            # Supprimer "pending_requests" qui n'est pas utilisé
+            "discovered_servers": status.get("discovered_servers", [])
         }
     except Exception as e:
         return error_response(f"Erreur lors de la récupération du statut snapclient: {str(e)}")
@@ -65,43 +63,9 @@ async def discover_snapcast_servers(plugin = Depends(get_snapclient_plugin)):
             "servers": result.get("servers", []),
             "count": result.get("count", 0),
             "message": result.get("message")
-            # Supprimer "action" qui n'est pas utilisé
         }
     except Exception as e:
         return error_response(f"Erreur lors de la découverte des serveurs: {str(e)}")
-
-@router.post("/connect/{host}")
-async def connect_to_snapcast_server(host: str, plugin = Depends(get_snapclient_plugin)):
-    """Se connecte à un serveur Snapcast spécifique"""
-    try:
-        result = await plugin.handle_command("connect", {"host": host})
-        
-        if result.get("success", False):
-            return {
-                "status": "success",
-                "message": f"Connecté au serveur {host}",
-                "server": result.get("server")
-            }
-        else:
-            return error_response(result.get("error", f"Impossible de se connecter au serveur {host}"))
-    except Exception as e:
-        return error_response(f"Erreur lors de la connexion au serveur: {str(e)}")
-
-@router.post("/disconnect")
-async def disconnect_from_snapcast_server(plugin = Depends(get_snapclient_plugin)):
-    """Se déconnecte du serveur Snapcast actuel"""
-    try:
-        result = await plugin.handle_command("disconnect", {})
-        
-        if result.get("success", False):
-            return {
-                "status": "success",
-                "message": "Déconnecté du serveur"
-            }
-        else:
-            return error_response(result.get("error", "Impossible de se déconnecter du serveur"))
-    except Exception as e:
-        return error_response(f"Erreur lors de la déconnexion du serveur: {str(e)}")
 
 @router.post("/restart")
 async def restart_snapclient(plugin = Depends(get_snapclient_plugin)):
@@ -118,4 +82,3 @@ async def restart_snapclient(plugin = Depends(get_snapclient_plugin)):
             return error_response(result.get("error", "Impossible de redémarrer le processus snapclient"))
     except Exception as e:
         return error_response(f"Erreur lors du redémarrage du processus: {str(e)}")
-
