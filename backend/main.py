@@ -15,6 +15,7 @@ from backend.config.container import container
 from backend.presentation.api.routes import audio
 from backend.presentation.api.routes.librespot import setup_librespot_routes
 from backend.presentation.api.routes.snapclient import setup_snapclient_routes
+from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
 from backend.presentation.websockets.server import WebSocketServer
 from backend.presentation.websockets.manager import WebSocketManager
 from backend.presentation.websockets.events import WebSocketEventHandler
@@ -84,6 +85,11 @@ snapclient_router = setup_snapclient_routes(
     lambda: state_machine.plugins.get(AudioSource.SNAPCLIENT)
 )
 app.include_router(snapclient_router)
+
+bluetooth_router = setup_bluetooth_routes(
+    lambda: state_machine.plugins.get(AudioSource.BLUETOOTH)
+)
+app.include_router(bluetooth_router)
 
 # WebSocket
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)

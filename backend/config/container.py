@@ -7,6 +7,8 @@ from backend.application.event_bus import EventBus
 from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
 from backend.infrastructure.plugins.librespot import LibrespotPlugin
 from backend.infrastructure.plugins.snapclient import SnapclientPlugin
+from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
+
 from backend.domain.audio_state import AudioSource
 
 
@@ -44,6 +46,14 @@ class Container(containers.DeclarativeContainer):
         })
     )
     
+    bluetooth_plugin = providers.Singleton(
+        BluetoothPlugin,
+        event_bus=event_bus,
+        config=providers.Dict({
+            "daemon_options": "--keep-alive=5 --initial-volume=80"
+        })
+    )
+    
     # Méthode pour enregistrer les plugins
     @providers.Callable
     def register_plugins():
@@ -52,10 +62,14 @@ class Container(containers.DeclarativeContainer):
         state_machine = container.audio_state_machine()
         state_machine.register_plugin(AudioSource.LIBRESPOT, container.librespot_plugin())
         state_machine.register_plugin(AudioSource.SNAPCLIENT, container.snapclient_plugin())
+        state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
+
         
         # Injecter la référence à la machine à états dans les plugins
         container.librespot_plugin().set_state_machine(state_machine)
         container.snapclient_plugin().set_state_machine(state_machine)
+        container.bluetooth_plugin().set_state_machine(state_machine)
+
 
 
 # Création et configuration du conteneur
