@@ -108,14 +108,34 @@ class BluetoothDBusManager:
                     except:
                         device_info["a2dp_sink_support"] = False
                 
-                # Notifier les callbacks
+                # Notifier les callbacks - sans utiliser asyncio.create_task
                 event_type = "connected" if is_connected else "disconnected"
+                
+                # Nous ne pouvons pas appeler directement une coroutine, créons une tâche
+                # mais dans un thread séparé pour éviter les problèmes avec l'event loop
+                import threading
+                
+                def call_callback_in_thread(callback, event_type, device_info):
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(callback(event_type, device_info))
+                    finally:
+                        loop.close()
+
                 for callback in self.device_callbacks:
-                    asyncio.create_task(callback(event_type, device_info))
+                    thread = threading.Thread(
+                        target=call_callback_in_thread,
+                        args=(callback, event_type, device_info)
+                    )
+                    thread.daemon = True
+                    thread.start()
                     
             except Exception as e:
                 self.logger.error(f"Erreur lors du traitement de l'événement de périphérique: {e}")
-    
+                
+                
     def register_device_callback(self, callback: Callable[[str, Dict[str, Any]], Awaitable[None]]) -> None:
         """Enregistre un callback pour les événements de périphérique"""
         if callback not in self.device_callbacks:

@@ -168,41 +168,47 @@ class UnifiedAudioStateMachine:
                     self.logger.error(f"Error stopping {self.system_state.active_source.value}: {e}")
     
     async def _start_new_source(self, source: AudioSource) -> bool:
-        """Démarre une nouvelle source avec gestion centralisée"""
+        """Démarre une nouvelle source avec gestion centralisée ou déléguée selon le plugin"""
         plugin = self.plugins.get(source)
         if not plugin:
             return False
         
         try:
-            # Sauvegarder l'état précédent
-            previous_source = self.system_state.active_source
-            
             # Initialisation si nécessaire
-            if hasattr(plugin, 'initialize') and not hasattr(plugin, '_initialized'):
-                await plugin.initialize()
-                plugin._initialized = True
+            if not getattr(plugin, '_initialized', False):
+                if await plugin.initialize():
+                    plugin._initialized = True
+                else:
+                    self.logger.error(f"Échec de l'initialisation du plugin {source.value}")
+                    return False
             
-            # Démarrer le processus via le gestionnaire centralisé
-            if hasattr(plugin, 'get_process_command'):
+            # Détermine si le plugin gère son propre processus
+            plugin_manages_process = plugin.manages_own_process()
+            
+            # Démarrer le processus via le gestionnaire si nécessaire
+            if not plugin_manages_process and hasattr(plugin, 'get_process_command'):
                 command = plugin.get_process_command()
                 process_started = await self.process_manager.start_process(source, command)
                 if not process_started:
-                    raise ValueError(f"Failed to start process for {source.value}")
+                    self.logger.error(f"Échec du démarrage du processus pour {source.value}")
+                    return False
             
             # Démarrer le plugin
             success = await plugin.start()
             if success:
-                # Mettre à jour la source active SEULEMENT si tout a réussi
                 self.system_state.active_source = source
                 return True
             else:
-                # Si le plugin échoue, arrêter le processus et ne pas mettre à jour l'état
-                await self.process_manager.stop_process(source)
+                # Nettoyer le processus si nécessaire
+                if not plugin_manages_process:
+                    await self.process_manager.stop_process(source)
                 return False
+                
         except Exception as e:
             self.logger.error(f"Error starting {source.value}: {e}")
-            # En cas d'erreur, arrêter le processus et restaurer l'état précédent
-            await self.process_manager.stop_process(source)
+            # Nettoyer le processus si nécessaire
+            if not getattr(plugin, 'manages_own_process', lambda: False)():
+                await self.process_manager.stop_process(source)
             return False
     
     async def _emergency_stop(self) -> None:

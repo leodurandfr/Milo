@@ -82,6 +82,13 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         """
         return await self.get_status()
     
+    def manages_own_process(self) -> bool:
+        """
+        Indique si le plugin gère son propre processus plutôt que de laisser
+        le ProcessManager le faire. Par défaut, retourne False.
+        """
+        return False
+    
     # Méthodes abstraites existantes
     @abstractmethod
     async def initialize(self) -> bool:

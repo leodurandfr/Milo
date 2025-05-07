@@ -1,3 +1,4 @@
+# backend/infrastructure/plugins/bluetooth/agent.py
 """
 Agent Bluetooth pour gérer les demandes d'autorisation et d'appairage
 """
@@ -16,6 +17,7 @@ class BluetoothAgent(dbus.service.Object):
         super().__init__(bus, self.AGENT_PATH)
         self.bus = bus
         self.logger = logging.getLogger(__name__)
+        self.logger.info("Agent Bluetooth initialisé")
     
     async def register(self) -> bool:
         """Enregistre l'agent avec BlueZ"""
