@@ -112,3 +112,13 @@ async def restart_bluetooth_audio(plugin = Depends(get_bluetooth_plugin)):
             "status": "error",
             "message": f"Erreur de redémarrage audio: {str(e)}"
         }
+        
+        
+@router.get("/debug")
+async def get_bluetooth_debug(plugin = Depends(get_bluetooth_plugin)):
+    """Fournit des informations de débogage complètes"""
+    try:
+        result = await plugin.handle_command("debug_info", {})
+        return result.get("debug_info", {})
+    except Exception as e:
+        return {"error": str(e)}
