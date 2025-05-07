@@ -69,6 +69,20 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 success = await self.start()
                 return {"success": success, "message": "Services Bluetooth redémarrés"}
             
+            elif command == "restart_audio":
+                # Commande spécifique pour redémarrer uniquement la partie audio
+                if not self.current_device or not self.current_device.get("address"):
+                    return {"success": False, "error": "Aucun périphérique connecté"}
+                
+                # Arrêter puis redémarrer la lecture audio
+                if self.playback_process:
+                    self.playback_process.terminate()
+                    self.playback_process = None
+                
+                await asyncio.sleep(1)
+                await self._start_audio_playback(self.current_device.get("address"))
+                return {"success": True, "message": "Lecture audio redémarrée"}
+            
             return {"success": False, "error": f"Commande inconnue: {command}"}
         except Exception as e:
             self.logger.error(f"Erreur commande {command}: {e}")
@@ -370,6 +384,8 @@ sudo bluetoothctl discoverable-timeout 0
             address = device.get("address")
             name = device.get("name", "Appareil inconnu")
             
+            self.logger.info(f"Événement périphérique: {event_type} pour {name} ({address})")
+            
             if event_type == "connected":
                 self.logger.info(f"Périphérique connecté: {name} ({address})")
                 
@@ -386,9 +402,12 @@ sudo bluetoothctl discoverable-timeout 0
                 })
                 
                 # Attendre un peu pour s'assurer que la connexion est stable
-                await asyncio.sleep(2)
+                # Attente plus longue pour les appareils iOS
+                self.logger.info(f"Attente pour stabilisation de la connexion A2DP...")
+                await asyncio.sleep(3)
                 
                 # Démarrer la lecture audio
+                self.logger.info(f"Démarrage de la lecture audio pour {address}...")
                 await self._start_audio_playback(address)
                 
             elif event_type == "disconnected" and self.current_device and self.current_device.get("address") == address:
@@ -429,21 +448,40 @@ sudo bluetoothctl discoverable-timeout 0
                 self.logger.error("bluealsa-aplay non disponible - installation requise")
                 return
             
+            # Vérifier présence de l'adaptateur et du daemon BlueALSA
+            check_prereqs = subprocess.run(["hciconfig", "hci0"], capture_output=True, text=True)
+            if "UP RUNNING" not in check_prereqs.stdout:
+                self.logger.error("L'adaptateur Bluetooth n'est pas actif - activation forcée...")
+                subprocess.run(["sudo", "hciconfig", "hci0", "up"], check=False)
+                await asyncio.sleep(1)
+            
             # Vérifier les périphériques disponibles
             self.logger.info("Vérification des périphériques BlueALSA disponibles...")
             check_devices = subprocess.run(["bluealsa-aplay", "-L"], 
                                         capture_output=True, text=True)
             self.logger.info(f"Périphériques disponibles: {check_devices.stdout}")
+            
+            # Vérifier si notre périphérique est dans la liste
+            if device_address not in check_devices.stdout:
+                self.logger.warning(f"Périphérique {device_address} non trouvé dans la liste BlueALSA. Attente supplémentaire...")
+                await asyncio.sleep(3)
                 
-            # Démarrer la nouvelle lecture avec plus d'options et de verbosité
+                # Vérifier à nouveau
+                check_devices = subprocess.run(["bluealsa-aplay", "-L"], 
+                                            capture_output=True, text=True)
+                self.logger.info(f"Périphériques disponibles après attente: {check_devices.stdout}")
+                
+                if device_address not in check_devices.stdout:
+                    self.logger.error(f"Périphérique {device_address} introuvable dans BlueALSA même après attente")
+                    # Continuer malgré tout, en cas de problème d'affichage du périphérique
+            
+            # Démarrer la nouvelle lecture avec options standard
             self.logger.info(f"Démarrage lecture pour {device_address}")
             
-            # Lancer la lecture avec options de débogage
+            # Tenter d'abord les options standard pour iOS
             self.playback_process = subprocess.Popen([
                 "/usr/bin/bluealsa-aplay",
                 "--profile-a2dp",
-                "--single-audio",  # Une seule sortie audio
-                "--pcm-buffer-time=1000000",  # Buffer plus grand
                 device_address
             ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
@@ -453,7 +491,30 @@ sudo bluetoothctl discoverable-timeout 0
                 stderr = self.playback_process.stderr.read().decode()
                 stdout = self.playback_process.stdout.read().decode()
                 self.logger.error(f"bluealsa-aplay a échoué: {stderr}")
-                self.logger.error(f"Sortie standard: {stdout}")
+                self.logger.info(f"Sortie standard: {stdout}")
+                
+                # Tentative de récupération avec options minimales
+                self.logger.info("Tentative de récupération avec options minimales...")
+                self.playback_process = subprocess.Popen([
+                    "/usr/bin/bluealsa-aplay",
+                    device_address
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                # Vérifier à nouveau
+                await asyncio.sleep(1)
+                if self.playback_process.poll() is not None:
+                    stderr = self.playback_process.stderr.read().decode()
+                    self.logger.error(f"Deuxième tentative échouée: {stderr}")
+                    
+                    # Dernière tentative avec toutes les options spéciales
+                    self.logger.info("Dernière tentative avec options spéciales...")
+                    self.playback_process = subprocess.Popen([
+                        "/usr/bin/bluealsa-aplay",
+                        "--pcm-buffer-time=2000000",  # Buffer très grand (2s)
+                        "--pcm-period-time=100000",   # Période plus grande
+                        "--profile-a2dp",
+                        device_address
+                    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             else:
                 self.logger.info("Lecture audio démarrée avec succès")
                 

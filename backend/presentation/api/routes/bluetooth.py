@@ -94,3 +94,21 @@ async def restart_bluealsa(plugin = Depends(get_bluetooth_plugin)):
             "status": "error",
             "message": f"Erreur: {str(e)}"
         }
+        
+        
+@router.post("/restart-audio")
+async def restart_bluetooth_audio(plugin = Depends(get_bluetooth_plugin)):
+    """Redémarre uniquement la lecture audio pour le périphérique Bluetooth connecté"""
+    try:
+        result = await plugin.handle_command("restart_audio", {})
+        
+        return {
+            "status": "success" if result.get("success") else "error",
+            "message": result.get("message", "Lecture audio redémarrée"),
+            "details": result
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Erreur de redémarrage audio: {str(e)}"
+        }
