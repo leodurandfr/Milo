@@ -1,11 +1,12 @@
 """
-Plugin Bluetooth adapté au contrôle centralisé des processus
+Plugin Bluetooth gérant la configuration complète pour oakOS
 """
 import asyncio
 import logging
 import subprocess
 import time
 import os
+import shutil
 from typing import Dict, Any, Optional, List
 
 from backend.application.event_bus import EventBus
@@ -17,7 +18,7 @@ from backend.infrastructure.plugins.bluetooth.alsa_manager import AlsaManager
 
 
 class BluetoothPlugin(UnifiedAudioPlugin):
-    """Plugin Bluetooth pour oakOS - Réception audio uniquement via a2dp-sink"""
+    """Plugin Bluetooth pour oakOS - Configuration complète et auto-connexion"""
     
     def __init__(self, event_bus: EventBus, config: Dict[str, Any]):
         super().__init__(event_bus, "bluetooth")
@@ -29,11 +30,79 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         self._initialized = False
         self.playback_process = None
         self.bluetooth_service_active = False
+        self.bluetooth_conf_path = "/etc/bluetooth/main.conf"
+        self.backup_conf_path = "/tmp/bluetooth_main.conf.bak"
+    
+    async def get_status(self) -> Dict[str, Any]:
+        """Récupère l'état actuel du plugin"""
+        try:
+            # Vérifier que les services sont en cours d'exécution
+            bluealsa_running = False
+            try:
+                result = subprocess.run(["pgrep", "-f", "blue(alsa|alsad)"], shell=True, capture_output=True)
+                bluealsa_running = result.returncode == 0
+            except Exception:
+                pass
+                    
+            # Vérifier que le processus de lecture est toujours en cours
+            playback_running = False
+            if self.playback_process:
+                playback_running = self.playback_process.poll() is None
+            
+            return {
+                "device_connected": self.current_device is not None,
+                "device_name": self.current_device.get("name", "Unknown") if self.current_device else None,
+                "device_address": self.current_device.get("address") if self.current_device else None,
+                "playback_running": playback_running,
+                "services_running": bluealsa_running,
+                "a2dp_sink_support": self.current_device.get("a2dp_sink_support", False) if self.current_device else False
+            }
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la récupération du statut: {e}")
+            return {
+                "device_connected": False,
+                "services_running": False,
+                "error": str(e)
+            }
+
+    async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Traite les commandes spécifiques à cette source"""
+        try:
+            if command == "disconnect":
+                if not self.current_device:
+                    return {"success": False, "error": "Aucun périphérique connecté"}
+                
+                address = self.current_device.get("address")
+                if not address:
+                    return {"success": False, "error": "Adresse du périphérique invalide"}
+                
+                success = await self.dbus_manager.disconnect_device(address)
+                return {"success": success}
+            
+            elif command == "restart_services":
+                # Redémarrer les services Bluetooth
+                await self._stop_bluetooth_services()
+                success = await self._start_bluetooth_services()
+                return {"success": success, "message": "Services Bluetooth redémarrés"}
+            
+            return {"success": False, "error": f"Commande inconnue: {command}"}
+        except Exception as e:
+            self.logger.error(f"Erreur dans le traitement de la commande {command}: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def get_initial_state(self) -> Dict[str, Any]:
+        """Récupère l'état initial complet du plugin"""
+        return await self.get_status()
+    
     
     def get_process_command(self) -> List[str]:
         """Retourne la commande pour démarrer BlueALSA"""
         # Variable d'environnement pour éviter les deadlocks
-        cmd = ["env", "LIBASOUND_THREAD_SAFE=0", "/usr/bin/bluealsa", "-p", "a2dp-sink"]
+        executable = "/usr/bin/bluealsa"  # On sait que c'est cette version qui est installée
+        
+        # Ne pas inclure sudo ici car subprocess.Popen(['sudo', ...]) ne fonctionne pas bien avec PIPE
+        # Le sudo sera ajouté dans la méthode _start_bluetooth_services
+        cmd = ["env", "LIBASOUND_THREAD_SAFE=0", executable, "-p", "a2dp-sink"]
         
         # Options additionnelles
         options = self.config.get("daemon_options", "--keep-alive=5 --initial-volume=80")
@@ -49,6 +118,10 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             
         try:
             self.logger.info("Initialisation du plugin Bluetooth")
+            
+            # Configurer le fichier de configuration Bluetooth
+            if not await self._configure_bluetooth_conf():
+                self.logger.warning("Impossible de configurer le fichier Bluetooth - continuera quand même")
             
             # Vérifier si les services sont déjà actifs et les arrêter si nécessaire
             await self._stop_bluetooth_services()
@@ -107,6 +180,13 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                     "error_type": "adapter_configuration_error"
                 })
                 return False
+            
+            # Définir la classe de périphérique manuellement (plus fiable que via D-Bus)
+            try:
+                subprocess.run(["sudo", "hciconfig", "hci0", "class", "0x240414"], check=True)
+                self.logger.info("Classe de périphérique définie à 0x240414 (récepteur audio)")
+            except Exception as e:
+                self.logger.warning(f"Échec définition classe de périphérique: {e}")
             
             # Enregistrer l'agent Bluetooth
             if not await self.agent.register():
@@ -174,6 +254,17 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             # Réinitialiser l'état
             self.current_device = None
             
+            # Assurer que toutes les tâches en arrière-plan sont annulées
+            if hasattr(self, '_background_tasks') and self._background_tasks:
+                for task in self._background_tasks:
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                self._background_tasks = []
+                
             await self.notify_state_change(PluginState.INACTIVE)
             return True
         except Exception as e:
@@ -182,6 +273,66 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 "error": str(e),
                 "error_type": "stop_error"
             })
+            return False
+
+    async def _configure_bluetooth_conf(self) -> bool:
+        """Configure le fichier /etc/bluetooth/main.conf"""
+        try:
+            # Vérifier si le fichier existe
+            if not os.path.exists(self.bluetooth_conf_path):
+                self.logger.warning(f"Le fichier {self.bluetooth_conf_path} n'existe pas")
+                return False
+            
+            # Créer une sauvegarde du fichier original
+            if not os.path.exists(self.backup_conf_path):
+                shutil.copy2(self.bluetooth_conf_path, self.backup_conf_path)
+                self.logger.info(f"Sauvegarde de {self.bluetooth_conf_path} créée")
+            
+            # Lire le fichier
+            with open(self.bluetooth_conf_path, 'r') as f:
+                content = f.readlines()
+            
+            # Paramètres à configurer
+            params = {
+                "Class": "0x240414",
+                "Name": "oakOS",
+                "DiscoverableTimeout": "0",
+                "PairableTimeout": "0",
+                "Privacy": "off",
+                "FastConnectable": "true"
+            }
+            
+            # Rechercher et modifier les paramètres
+            for param, value in params.items():
+                found = False
+                for i, line in enumerate(content):
+                    if line.strip().startswith(f"#{param} =") or line.strip().startswith(f"{param} ="):
+                        content[i] = f"{param} = {value}\n"
+                        found = True
+                        break
+                
+                if not found:
+                    # Ajouter le paramètre à la fin du fichier
+                    content.append(f"{param} = {value}\n")
+            
+            # Écrire le fichier modifié
+            try:
+                # Essayer d'écrire directement
+                with open(self.bluetooth_conf_path, 'w') as f:
+                    f.writelines(content)
+            except PermissionError:
+                # Si permission refusée, utiliser sudo
+                temp_path = "/tmp/bluetooth_main.conf.new"
+                with open(temp_path, 'w') as f:
+                    f.writelines(content)
+                subprocess.run(["sudo", "cp", temp_path, self.bluetooth_conf_path], check=True)
+                os.remove(temp_path)
+            
+            self.logger.info(f"Configuration {self.bluetooth_conf_path} mise à jour")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Erreur configuration Bluetooth: {e}")
             return False
     
     async def _start_bluetooth_services(self) -> bool:
@@ -200,72 +351,130 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 self.logger.error(f"Erreur lors du démarrage du service bluetooth: {e}")
                 return False
             
-            # Démarrer le service BlueALSA
-            # Vérifier d'abord si le service est déjà en cours d'exécution
+            # Arrêter les instances existantes
+            await self._stop_bluetooth_services()
+            
+            # Fichiers pour la sortie de logs
+            stdout_file = "/tmp/bluealsa_stdout.log"
+            stderr_file = "/tmp/bluealsa_stderr.log"
+            
+            # Utiliser directement bluealsa-aplay pour tester les permissions
             try:
-                result = subprocess.run(["pgrep", "-f", "bluealsa"], capture_output=True)
-                if result.returncode == 0:
-                    self.logger.info("Service BlueALSA déjà en cours d'exécution, arrêt...")
-                    for pid in result.stdout.decode().strip().split():
-                        try:
-                            subprocess.run(["sudo", "kill", pid], check=True)
-                        except Exception as e:
-                            self.logger.warning(f"Erreur lors de l'arrêt du processus BlueALSA {pid}: {e}")
-                    await asyncio.sleep(1)  # Attendre que les processus soient arrêtés
+                self.logger.info("Test de l'état d'installation de BlueALSA")
+                which_result = subprocess.run(["which", "bluealsa"], capture_output=True, text=True)
+                self.logger.info(f"BlueALSA trouvé: {which_result.stdout.strip() if which_result.returncode == 0 else 'Non trouvé'}")
+                
+                # Vérifier les permissions audio de l'utilisateur actuel
+                username = os.getenv("USER") or "unknown"
+                groups_output = subprocess.run(["groups", username], capture_output=True, text=True)
+                self.logger.info(f"Groupes de l'utilisateur {username}: {groups_output.stdout}")
             except Exception as e:
-                self.logger.warning(f"Erreur lors de la vérification des processus BlueALSA: {e}")
+                self.logger.error(f"Erreur lors du test audio: {e}")
             
-            # Démarrer BlueALSA
-            cmd = self.get_process_command()
-            self.logger.info(f"Démarrage de BlueALSA avec la commande: {' '.join(cmd)}")
-            
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            await asyncio.sleep(2)  # Attendre que le service démarre
-            
-            if process.poll() is not None:
-                # Le processus s'est arrêté
-                stderr = process.stderr.read().decode() if process.stderr else "Pas de sortie stderr"
-                self.logger.error(f"BlueALSA s'est arrêté immédiatement. Erreur: {stderr}")
+            # Méthode simplifiée: Démarrer BlueALSA via systemd si disponible
+            try:
+                # Vérifier si le service systemd existe
+                systemd_check = subprocess.run(["systemctl", "list-unit-files", "bluealsa.service"], 
+                                            capture_output=True, text=True)
+                
+                if "bluealsa.service" in systemd_check.stdout:
+                    self.logger.info("Service systemd BlueALSA trouvé, démarrage via systemd")
+                    subprocess.run(["sudo", "systemctl", "restart", "bluealsa"], check=True)
+                    await asyncio.sleep(2)
+                    
+                    # Vérifier si le service est actif
+                    status = subprocess.run(["systemctl", "is-active", "bluealsa"], 
+                                        capture_output=True, text=True)
+                    
+                    if status.stdout.strip() == "active":
+                        self.logger.info("Service BlueALSA démarré avec succès via systemd")
+                        self.bluetooth_service_active = True
+                        return True
+                    else:
+                        self.logger.error(f"Échec du démarrage du service BlueALSA via systemd: {status.stdout}")
+                
+                # Si systemd n'est pas disponible, démarrer manuellement
+                self.logger.info("Démarrage manuel de BlueALSA")
+                
+                # Obtenir la commande mais sans env pour éviter les problèmes avec sudo
+                # et en spécifiant directement le chemin complet vers l'exécutable
+                cmd = ["/usr/bin/bluealsa", "-p", "a2dp-sink"]
+                options = self.config.get("daemon_options", "--keep-alive=5 --initial-volume=80")
+                if options:
+                    cmd.extend(options.split())
+                
+                # Créer un script qui démarre BlueALSA avec LIBASOUND_THREAD_SAFE=0
+                with open("/tmp/start_bluealsa.sh", "w") as f:
+                    f.write("#!/bin/bash\n")
+                    f.write("sudo LIBASOUND_THREAD_SAFE=0 " + " ".join(cmd) + " > " + stdout_file + " 2> " + stderr_file + " &\n")
+                    f.write("echo $!\n")  # Affiche le PID du processus en arrière-plan
+                
+                os.chmod("/tmp/start_bluealsa.sh", 0o755)
+                
+                # Exécuter le script et capturer le PID
+                result = subprocess.run(["/tmp/start_bluealsa.sh"], capture_output=True, text=True)
+                
+                # Attendre que le processus démarre
+                await asyncio.sleep(2)
+                
+                # Vérifier si BlueALSA est en cours d'exécution
+                check = subprocess.run(["pgrep", "-f", "bluealsa"], capture_output=True)
+                if check.returncode != 0:
+                    # Lire les logs d'erreur
+                    stderr_content = ""
+                    stdout_content = ""
+                    try:
+                        if os.path.exists(stderr_file):
+                            with open(stderr_file, "r") as f:
+                                stderr_content = f.read()
+                        if os.path.exists(stdout_file):
+                            with open(stdout_file, "r") as f:
+                                stdout_content = f.read()
+                    except Exception as e:
+                        self.logger.error(f"Erreur lors de la lecture des logs: {e}")
+                    
+                    self.logger.error(f"BlueALSA n'a pas démarré. Stdout: {stdout_content}")
+                    self.logger.error(f"BlueALSA n'a pas démarré. Stderr: {stderr_content}")
+                    return False
+                
+                self.logger.info("BlueALSA démarré avec succès")
+                self.bluetooth_service_active = True
+                return True
+                
+            except Exception as e:
+                self.logger.error(f"Erreur lors du démarrage de BlueALSA: {e}")
                 return False
-            
-            # Démarrer également bluealsa-aplay (s'il y a déjà un périphérique connecté)
-            self.logger.info("Services Bluetooth démarrés avec succès")
-            self.bluetooth_service_active = True
-            return True
             
         except Exception as e:
             self.logger.error(f"Erreur lors du démarrage des services Bluetooth: {e}")
             return False
     
     async def _stop_bluetooth_services(self) -> bool:
-        """Arrête les services Bluetooth via systemd"""
+        """Arrête les services Bluetooth"""
         try:
             self.logger.info("Arrêt des services Bluetooth...")
             
-            # Utiliser systemctl pour arrêter les services
-            try:
-                # Vérifier si un service bluealsa existe dans systemd
-                result = subprocess.run(["systemctl", "list-units", "--all", "*bluealsa*"], 
-                                    capture_output=True, text=True)
-                
-                if "bluealsa" in result.stdout:
-                    # Arrêter le service via systemd
-                    self.logger.info("Arrêt du service BlueALSA via systemd...")
-                    subprocess.run(["sudo", "systemctl", "stop", "bluealsa"], check=False)
-                else:
-                    self.logger.info("Aucun service systemd BlueALSA trouvé, vérification des processus...")
-                    # Créer un fichier temporaire avec un script pour arrêter les processus
-                    script_path = "/tmp/stop_bluealsa.sh"
-                    with open(script_path, "w") as f:
-                        f.write("""#!/bin/bash
-    pkill -f "bluealsa-aplay" || true
-    pkill -f "bluealsa " || true  # Espace important pour différencier de bluealsa-aplay
+            # Créer un script pour arrêter proprement BlueALSA
+            script_path = "/tmp/stop_bluealsa.sh"
+            with open(script_path, "w") as f:
+                f.write("""#!/bin/bash
+    # Arrêter toutes les instances de bluealsa-aplay
+    sudo pkill -f "bluealsa-aplay" || true
+    sleep 0.5
+
+    # Arrêter BlueALSA avec sudo
+    sudo pkill -f "bluealsa" || true
+    sleep 0.5
+
+    # Forcer l'arrêt de toute instance restante
+    for pid in $(sudo pgrep -f "bluealsa"); do
+        sudo kill -9 $pid 2>/dev/null || true
+    done
     """)
-                    os.chmod(script_path, 0o755)
-                    subprocess.run(["sudo", "bash", script_path], check=False)
-                    
-            except Exception as e:
-                self.logger.warning(f"Erreur lors de l'arrêt des services via systemd: {e}")
+            os.chmod(script_path, 0o755)
+            
+            # Exécuter le script d'arrêt
+            subprocess.run(["bash", script_path], check=False)
             
             # Attendre que les processus soient terminés
             await asyncio.sleep(1)
@@ -276,10 +485,10 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 self.logger.warning("Les services BlueALSA sont toujours en cours d'exécution")
             else:
                 self.logger.info("Services Bluetooth arrêtés avec succès")
-                
+                    
             self.bluetooth_service_active = False
             return True
-                
+                    
         except Exception as e:
             self.logger.error(f"Erreur lors de l'arrêt des services Bluetooth: {e}")
             return False
@@ -366,64 +575,3 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 
         except Exception as e:
             self.logger.error(f"Erreur lors du démarrage de la lecture audio: {e}")
-    
-    async def get_status(self) -> Dict[str, Any]:
-        """Récupère l'état actuel du plugin"""
-        try:
-            # Vérifier que les services sont en cours d'exécution
-            bluealsa_running = False
-            try:
-                result = subprocess.run(["pgrep", "-f", "bluealsa "], capture_output=True)  # Espace important
-                bluealsa_running = result.returncode == 0
-            except Exception:
-                pass
-                
-            # Vérifier que le processus de lecture est toujours en cours
-            playback_running = False
-            if self.playback_process:
-                playback_running = self.playback_process.poll() is None
-            
-            return {
-                "device_connected": self.current_device is not None,
-                "device_name": self.current_device.get("name", "Unknown") if self.current_device else None,
-                "device_address": self.current_device.get("address") if self.current_device else None,
-                "playback_running": playback_running,
-                "services_running": bluealsa_running,
-                "a2dp_sink_support": self.current_device.get("a2dp_sink_support", False) if self.current_device else False
-            }
-        except Exception as e:
-            self.logger.error(f"Erreur lors de la récupération du statut: {e}")
-            return {
-                "device_connected": False,
-                "services_running": False,
-                "error": str(e)
-            }
-    
-    async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Traite les commandes spécifiques à cette source"""
-        try:
-            if command == "disconnect":
-                if not self.current_device:
-                    return {"success": False, "error": "No device connected"}
-                
-                address = self.current_device.get("address")
-                if not address:
-                    return {"success": False, "error": "Invalid device address"}
-                
-                success = await self.dbus_manager.disconnect_device(address)
-                return {"success": success}
-            
-            elif command == "restart_services":
-                # Redémarrer les services Bluetooth
-                await self._stop_bluetooth_services()
-                success = await self._start_bluetooth_services()
-                return {"success": success, "message": "Services Bluetooth redémarrés"}
-            
-            return {"success": False, "error": f"Unknown command: {command}"}
-        except Exception as e:
-            self.logger.error(f"Error handling command {command}: {e}")
-            return {"success": False, "error": str(e)}
-    
-    async def get_initial_state(self) -> Dict[str, Any]:
-        """Récupère l'état initial complet du plugin"""
-        return await self.get_status()
