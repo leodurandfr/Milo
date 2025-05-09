@@ -1,12 +1,12 @@
 """
-Plugin Bluetooth minimaliste pour oakOS utilisant les événements D-Bus
+Plugin Bluetooth simplifié pour oakOS - Version optimisée pour la première connexion
 """
 import asyncio
 import logging
 import subprocess
 import os
 import threading
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 import dbus
 import dbus.service
@@ -38,6 +38,10 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         self.mainloop = None
         self.system_bus = None
         self.signal_match = None
+        
+        # Surveillance des périphériques
+        self._device_monitor_task = None
+        self._monitoring_active = False
     
     async def initialize(self) -> bool:
         """Initialisation simple"""
@@ -98,100 +102,193 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 props = dbus.Interface(device_obj, "org.freedesktop.DBus.Properties")
                 
                 address = str(props.Get("org.bluez.Device1", "Address"))
-                name = str(props.Get("org.bluez.Device1", "Name")) if props.Get("org.bluez.Device1", "Name") else "Appareil inconnu"
+                try:
+                    name = str(props.Get("org.bluez.Device1", "Name"))
+                except:
+                    name = "Appareil inconnu"
                 
                 if is_connected:
-                    # Appareil connecté - vérifier s'il supporte A2DP
+                    # Lorsqu'un appareil se connecte, on lance simplement la surveillance des PCMs
                     self.logger.info(f"Appareil connecté: {name} ({address})")
-                    uuids = props.Get("org.bluez.Device1", "UUIDs")
-                    if "0000110d-0000-1000-8000-00805f9b34fb" in uuids:
-                        # Appareil A2DP - lancer un thread pour le gérer
-                        threading.Thread(
-                            target=self._handle_device_connected,
-                            args=(address, name),
-                            daemon=True
-                        ).start()
+                    
+                    # Démarrer la surveillance si elle n'est pas déjà active
+                    if not self._monitoring_active:
+                        self._start_pcm_monitor()
                 else:
                     # Appareil déconnecté
                     self.logger.info(f"Appareil déconnecté: {name} ({address})")
                     if self.current_device and self.current_device.get("address") == address:
-                        threading.Thread(
-                            target=self._handle_device_disconnected,
-                            args=(address, name),
-                            daemon=True
-                        ).start()
+                        # Créer une fonction lambda pour appeler la méthode asynchrone 
+                        # depuis le contexte non-asyncio du signal D-Bus
+                        def handle_disconnect():
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                loop.run_until_complete(self._handle_device_disconnected(address, name))
+                            finally:
+                                loop.close()
+                        
+                        # Exécuter dans un thread séparé
+                        threading.Thread(target=handle_disconnect, daemon=True).start()
                 
         except Exception as e:
             self.logger.error(f"Erreur traitement événement: {e}")
     
-    def _handle_device_connected(self, address, name):
-        """Gère la connexion d'un appareil (thread séparé)"""
-        try:
-            # Créer une boucle asyncio
+    def _start_pcm_monitor(self):
+        """Démarre la surveillance des PCMs BlueALSA dans un thread séparé"""
+        def monitor_thread():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            self._monitoring_active = True
+            try:
+                loop.run_until_complete(self._monitor_bluealsa_pcms())
+            finally:
+                loop.close()
+                self._monitoring_active = False
+        
+        threading.Thread(target=monitor_thread, daemon=True).start()
+    
+    async def _monitor_bluealsa_pcms(self):
+        """Surveille en continu les PCMs disponibles dans BlueALSA"""
+        self.logger.info("Démarrage de la surveillance des PCMs BlueALSA")
+        
+        # Nombre de tentatives
+        max_attempts = 10
+        attempt = 0
+        
+        while attempt < max_attempts:
+            attempt += 1
             
-            # Attendre l'établissement du profil A2DP
-            loop.run_until_complete(asyncio.sleep(2))
+            # Si un appareil est déjà connecté, on arrête la surveillance
+            if self.current_device is not None:
+                self.logger.info("Appareil déjà connecté, arrêt de la surveillance")
+                break
             
-            # Vérifier si l'appareil est disponible dans BlueALSA
-            pcm_check = subprocess.run(
-                ["bluealsa-aplay", "-L"], 
-                capture_output=True, text=True
+            try:
+                # Récupérer les PCMs disponibles
+                pcm_check = subprocess.run(
+                    ["bluealsa-aplay", "-L"], 
+                    capture_output=True, text=True,
+                    timeout=2
+                )
+                
+                self.logger.debug(f"Tentative {attempt} - PCMs trouvés: {pcm_check.stdout}")
+                
+                # Si des PCMs sont disponibles
+                if pcm_check.stdout.strip():
+                    # Analyser la sortie pour extraire les PCMs
+                    connected_devices = self._parse_bluealsa_output(pcm_check.stdout)
+                    
+                    # S'il y a des appareils
+                    if connected_devices:
+                        # Utiliser le premier appareil trouvé
+                        device = connected_devices[0]
+                        self.logger.info(f"PCM trouvé: {device}")
+                        
+                        # Démarrer l'audio pour cet appareil
+                        await self._connect_device(device["address"], device["name"])
+                        break  # Sortir de la boucle, appareil connecté
+                
+            except Exception as e:
+                self.logger.error(f"Erreur surveillance PCMs: {e}")
+            
+            # Attente entre les tentatives (délai croissant)
+            delay = min(1 + attempt * 0.5, 5)  # Max 5 secondes entre les tentatives
+            await asyncio.sleep(delay)
+        
+        self.logger.info(f"Fin de la surveillance des PCMs après {attempt} tentatives")
+    
+    def _parse_bluealsa_output(self, output: str) -> List[Dict[str, str]]:
+        """Analyse la sortie de bluealsa-aplay -L pour extraire les appareils connectés"""
+        devices = []
+        
+        lines = output.strip().split('\n')
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Les lignes de PCM commencent par "bluealsa:"
+            if line.startswith("bluealsa:"):
+                # Extraire l'adresse de l'appareil
+                parts = line.split("DEV=")
+                if len(parts) > 1:
+                    address_part = parts[1].split(",")[0]
+                    
+                    # Extraire le nom de l'appareil (ligne suivante)
+                    name = "Appareil inconnu"
+                    if i + 1 < len(lines) and not lines[i+1].startswith("bluealsa:"):
+                        name_line = lines[i+1].strip()
+                        if name_line:
+                            name = name_line.split(",")[0].strip()
+                    
+                    devices.append({
+                        "address": address_part,
+                        "name": name,
+                        "pcm_line": line
+                    })
+            
+            i += 1
+        
+        return devices
+    
+    async def _connect_device(self, address: str, name: str) -> bool:
+        """Connecte un appareil et démarre la lecture audio"""
+        try:
+            self.logger.info(f"Connexion de l'appareil {name} ({address})")
+            
+            # Enregistrer l'appareil
+            self.current_device = {
+                "address": address,
+                "name": name
+            }
+            
+            # Démarrer la lecture audio
+            await self._start_audio_playback(address)
+            
+            # Notifier le changement d'état
+            await self.notify_state_change(
+                PluginState.CONNECTED, 
+                {
+                    "device_connected": True,
+                    "device_name": name,
+                    "device_address": address
+                }
             )
             
-            if address.lower() in pcm_check.stdout.lower():
-                # Enregistrer l'appareil
-                self.current_device = {
-                    "address": address,
-                    "name": name
-                }
-                
-                # Démarrer la lecture
-                loop.run_until_complete(self._start_audio_playback(address))
-                
-                # Notifier le changement d'état
-                loop.run_until_complete(self.notify_state_change(
-                    PluginState.CONNECTED, 
-                    {
-                        "device_connected": True,
-                        "device_name": name,
-                        "device_address": address
-                    }
-                ))
-            else:
-                self.logger.warning(f"Appareil {name} connecté mais non trouvé dans BlueALSA")
-            
-            loop.close()
+            return True
             
         except Exception as e:
-            self.logger.error(f"Erreur gestion connexion: {e}")
+            self.logger.error(f"Erreur connexion appareil: {e}")
+            return False
     
-    def _handle_device_disconnected(self, address, name):
-        """Gère la déconnexion d'un appareil (thread séparé)"""
+    async def _handle_device_disconnected(self, address: str, name: str) -> None:
+        """Gère la déconnexion d'un appareil"""
         try:
-            # Créer une boucle asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            self.logger.info(f"Déconnexion de l'appareil {name} ({address})")
             
             # Arrêter la lecture
             if self.playback_process and self.playback_process.poll() is None:
                 self.playback_process.terminate()
+                try:
+                    self.playback_process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self.playback_process.kill()
                 self.playback_process = None
+            
+            # Nettoyer les processus existants
+            subprocess.run(["pkill", "-f", "bluealsa-aplay"], check=False)
             
             # Réinitialiser l'état
             self.current_device = None
             
             # Notifier le changement d'état
-            loop.run_until_complete(self.notify_state_change(
+            await self.notify_state_change(
                 PluginState.READY, 
                 {"device_connected": False}
-            ))
-            
-            loop.close()
+            )
             
         except Exception as e:
-            self.logger.error(f"Erreur gestion déconnexion: {e}")
+            self.logger.error(f"Erreur déconnexion appareil: {e}")
     
     async def _start_bluetooth_agent(self):
         """Démarre l'agent Bluetooth et les événements D-Bus"""
@@ -321,16 +418,32 @@ export LIBASOUND_THREAD_SAFE=0
             await self._start_bluetooth_agent()
             
             # 6. Vérifier les appareils déjà connectés
-            devices = subprocess.run(
-                ["bluetoothctl", "devices", "Connected"], 
+            pcm_check = subprocess.run(
+                ["bluealsa-aplay", "-L"], 
                 capture_output=True, text=True
-            ).stdout.strip()
+            )
             
-            if devices:
-                self.logger.info(f"Appareils déjà connectés: {devices}")
+            if pcm_check.stdout.strip():
+                self.logger.info(f"PCMs déjà disponibles: {pcm_check.stdout}")
+                # Analyser la sortie pour extraire les PCMs
+                connected_devices = self._parse_bluealsa_output(pcm_check.stdout)
+                
+                # S'il y a des appareils
+                if connected_devices:
+                    # Utiliser le premier appareil trouvé
+                    device = connected_devices[0]
+                    self.logger.info(f"PCM trouvé au démarrage: {device}")
+                    
+                    # Démarrer l'audio pour cet appareil
+                    await self._connect_device(device["address"], device["name"])
+            else:
+                # Aucun appareil connecté au démarrage, démarrer la surveillance des PCMs
+                self._start_pcm_monitor()
             
             # 7. Notifier l'état prêt
-            await self.notify_state_change(PluginState.READY)
+            if not self.current_device:
+                await self.notify_state_change(PluginState.READY)
+            
             self.logger.info("Plugin Bluetooth démarré avec succès")
             return True
             
@@ -344,7 +457,10 @@ export LIBASOUND_THREAD_SAFE=0
         try:
             self.logger.info("Arrêt du plugin Bluetooth")
             
-            # 1. Supprimer les événements D-Bus
+            # Arrêter la surveillance des PCMs
+            self._monitoring_active = False
+            
+            # Supprimer les événements D-Bus
             if self.signal_match:
                 try:
                     self.signal_match.remove()
@@ -352,7 +468,7 @@ export LIBASOUND_THREAD_SAFE=0
                 except Exception as e:
                     self.logger.warning(f"Erreur suppression signal D-Bus: {e}")
             
-            # 2. Arrêter bluealsa-aplay
+            # Arrêter bluealsa-aplay
             if self.playback_process and self.playback_process.poll() is None:
                 self.playback_process.terminate()
                 try:
@@ -363,7 +479,7 @@ export LIBASOUND_THREAD_SAFE=0
             # Nettoyer tous les processus bluealsa-aplay
             subprocess.run(["pkill", "-f", "bluealsa-aplay"], check=False)
             
-            # 3. Arrêter bluealsa
+            # Arrêter bluealsa
             if self.bluealsa_process and self.bluealsa_process.poll() is None:
                 self.bluealsa_process.terminate()
                 try:
@@ -374,7 +490,7 @@ export LIBASOUND_THREAD_SAFE=0
             # Nettoyer tous les processus bluealsa
             subprocess.run(["pkill", "-f", "/usr/bin/bluealsa"], check=False)
             
-            # 4. Arrêter l'agent Bluetooth
+            # Arrêter l'agent Bluetooth
             if self.mainloop and self.agent:
                 try:
                     if self.agent:
@@ -384,7 +500,7 @@ export LIBASOUND_THREAD_SAFE=0
                 except Exception as e:
                     self.logger.error(f"Erreur arrêt agent: {e}")
             
-            # 5. Réinitialiser l'état
+            # Réinitialiser l'état
             self.current_device = None
             await self.notify_state_change(PluginState.INACTIVE)
             return True
@@ -412,6 +528,34 @@ export LIBASOUND_THREAD_SAFE=0
             address = self.current_device.get("address")
             await self._start_audio_playback(address)
             return {"success": True}
+            
+        elif command == "start_direct_audio":
+            # Vérifier les PCMs disponibles
+            pcm_check = subprocess.run(
+                ["bluealsa-aplay", "-L"], 
+                capture_output=True, text=True
+            )
+            
+            self.logger.info(f"PCMs disponibles pour démarrage direct: {pcm_check.stdout}")
+            
+            if pcm_check.stdout.strip():
+                # Analyser la sortie pour extraire les PCMs
+                devices = self._parse_bluealsa_output(pcm_check.stdout)
+                
+                if devices:
+                    # Utiliser le premier appareil trouvé
+                    device = devices[0]
+                    await self._connect_device(device["address"], device["name"])
+                    
+                    return {
+                        "success": True,
+                        "message": f"Audio démarré pour {device['name']}",
+                        "device": device
+                    }
+                else:
+                    return {"success": False, "error": "Aucun appareil trouvé dans BlueALSA"}
+            else:
+                return {"success": False, "error": "Aucun PCM disponible"}
             
         return {"success": False, "error": f"Commande inconnue: {command}"}
     
@@ -452,9 +596,8 @@ export LIBASOUND_THREAD_SAFE=0
                 ["bluealsa-aplay", "-L"],
                 capture_output=True, text=True
             )
-            for line in result.stdout.strip().split('\n'):
-                if line and not line.startswith(" "):
-                    available_pcms.append(line)
+            devices = self._parse_bluealsa_output(result.stdout)
+            available_pcms = [device["pcm_line"] for device in devices]
         except Exception:
             pass
         
@@ -465,7 +608,8 @@ export LIBASOUND_THREAD_SAFE=0
             "bluetooth_running": bt_running,
             "bluealsa_running": bluealsa_running,
             "playback_running": playback_running,
-            "available_pcms": available_pcms
+            "available_pcms": available_pcms,
+            "monitoring_active": self._monitoring_active
         }
     
     def manages_own_process(self) -> bool:
