@@ -64,6 +64,12 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         """Callback pour les événements de périphérique Bluetooth"""
         self.logger.info(f"Événement Bluetooth: {event_type} - {device_info.get('name')} ({device_info.get('address')})")
         
+        # Ignorer les événements de déconnexion si nous sommes en train de déconnecter
+        # intentionnellement (soit manuellement, soit pendant une transition entre sources)
+        if event_type == "disconnected" and self._disconnecting:
+            self.logger.info(f"Ignorant l'événement de déconnexion pendant un arrêt contrôlé")
+            return
+        
         if event_type == "connected":
             # Vérifier si le périphérique est compatible A2DP
             if device_info.get('a2dp_sink_support', False):
@@ -74,8 +80,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         elif event_type == "disconnected":
             # Vérifier si c'est le périphérique actuel qui s'est déconnecté
             if self.current_device and self.current_device.get('address') == device_info.get('address'):
-                if not self._disconnecting:  # Éviter les actions redondantes lors d'une déconnexion manuelle
-                    await self._handle_device_disconnected(device_info.get('address'), device_info.get('name'))
+                await self._handle_device_disconnected(device_info.get('address'), device_info.get('name'))
     
     async def _connect_device(self, address: str, name: str) -> bool:
         """Connecte un appareil et démarre la lecture audio"""
@@ -263,6 +268,21 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         try:
             self.logger.info("Arrêt du plugin Bluetooth")
             
+            # Définir le drapeau _disconnecting pour éviter le traitement des événements
+            # de déconnexion pendant l'arrêt contrôlé
+            self._disconnecting = True
+            
+            # Si un appareil est connecté, le déconnecter proprement d'abord
+            if self.current_device:
+                address = self.current_device.get("address")
+                self.logger.info(f"Déconnexion de l'appareil {address} pendant l'arrêt")
+                try:
+                    await self.dbus_manager.disconnect_device(address)
+                    # Courte attente pour laisser le temps à BlueZ de traiter la déconnexion
+                    await asyncio.sleep(0.5)
+                except Exception as e:
+                    self.logger.warning(f"Erreur lors de la déconnexion de l'appareil: {e}")
+            
             # 1. Arrêter l'audio
             await self._stop_audio_playback()
             
@@ -301,6 +321,9 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         except Exception as e:
             self.logger.error(f"Erreur arrêt Bluetooth: {e}")
             return False
+        finally:
+            # Réinitialiser le drapeau à la fin
+            self._disconnecting = False
     
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Traite les commandes pour le plugin"""
