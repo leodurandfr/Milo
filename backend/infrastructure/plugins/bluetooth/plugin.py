@@ -25,6 +25,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         self.config = config
         self.current_device = None
         self._initialized = False
+        self._disconnecting = False 
         
         # Agent Bluetooth et D-Bus
         self.agent = None
@@ -290,8 +291,8 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             else:
                 self.logger.info(f"Appareil déconnecté: {name} ({address})")
                 
-                # Gérer la déconnexion seulement pour l'appareil actuel
-                if self.current_device and self.current_device.get("address") == address:
+                # Ne gérer la déconnexion que si elle n'est pas déjà en cours manuellement
+                if self.current_device and self.current_device.get("address") == address and not self._disconnecting:
                     def handle_disconnect():
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
@@ -518,6 +519,9 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 address = self.current_device.get("address")
                 name = self.current_device.get("name", "Appareil inconnu")
                 
+                # Marquer le début de la déconnexion
+                self._disconnecting = True
+                
                 # Arrêter d'abord la lecture audio
                 await self._stop_audio_playback()
                 
@@ -528,10 +532,16 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 
                 if result.returncode != 0:
                     self.logger.error(f"Erreur lors de la déconnexion: {result.stderr}")
+                    self._disconnecting = False  # Réinitialiser l'indicateur
                     return {"success": False, "error": f"Erreur de déconnexion: {result.stderr}"}
                 
-                # Mettre à jour l'état interne
-                await self._handle_device_disconnected(address, name)
+                # Mettre à jour l'état interne directement ici au lieu d'appeler _handle_device_disconnected
+                self.logger.info(f"Réinitialisation de l'état après déconnexion manuelle")
+                self.current_device = None
+                await self.notify_state_change(PluginState.READY, {"device_connected": False})
+                
+                # Réinitialiser l'indicateur
+                self._disconnecting = False
                 
                 return {"success": True, "message": f"Appareil {name} déconnecté avec succès"}
                 
