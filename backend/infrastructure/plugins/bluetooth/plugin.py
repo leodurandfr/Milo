@@ -372,7 +372,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             self.logger.info(f"Service bluealsa-aplay démarré pour {device_address}")
             
             # Vérifier l'état
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.1)
             if not await self._is_service_active(f"bluealsa-aplay@{device_address}.service"):
                 self.logger.error("Le service bluealsa-aplay n'a pas démarré correctement")
                 return
@@ -401,42 +401,105 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             self.agent_thread.start()
             
             # Attendre que le thread démarre
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.1)
             return True
         except Exception as e:
             self.logger.error(f"Erreur démarrage agent: {e}")
             return False
     
     async def start(self) -> bool:
-        """Démarre les services nécessaires via systemd"""
+        """Démarre les services nécessaires avec exécution parallèle pour un démarrage plus rapide"""
         try:
             self.logger.info("Démarrage du plugin Bluetooth")
             
-            # 1. Démarrer le service bluetooth si nécessaire
-            if not await self._is_service_active("bluetooth.service"):
-                self.logger.info("Démarrage du service bluetooth")
-                subprocess.run(["sudo", "systemctl", "start", "bluetooth"], check=True)
-                await asyncio.sleep(2)
+            # 1. Fonctions auxiliaires asynchrones
+            async def ensure_bluetooth_service():
+                """Vérifie et démarre le service bluetooth si nécessaire"""
+                if not await self._is_service_active("bluetooth.service"):
+                    self.logger.info("Démarrage du service bluetooth")
+                    proc = await asyncio.create_subprocess_exec(
+                        "sudo", "systemctl", "start", "bluetooth",
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    _, stderr = await proc.communicate()
+                    if proc.returncode != 0:
+                        raise RuntimeError(f"Échec du démarrage bluetooth: {stderr.decode().strip()}")
+                    
+                    # Attente active plutôt qu'un délai fixe
+                    for _ in range(10):  # 10 tentatives avec 300ms d'intervalle = max 3 sec
+                        if await self._is_service_active("bluetooth.service"):
+                            break
+                        await asyncio.sleep(0.1)
+                    else:
+                        self.logger.warning("Le service bluetooth ne semble pas complètement démarré")
             
-            # 2. Configurer l'adaptateur bluetooth
-            subprocess.run(["sudo", "hciconfig", "hci0", "class", "0x240404"], check=False)
-            subprocess.run(["sudo", "hciconfig", "hci0", "name", "oakOS"], check=False)
-            subprocess.run(["sudo", "bluetoothctl", "discoverable", "on"], check=False)
-            subprocess.run(["sudo", "bluetoothctl", "pairable", "on"], check=False)
-            subprocess.run(["sudo", "bluetoothctl", "discoverable-timeout", "0"], check=False)
+            async def configure_adapter():
+                """Configure l'adaptateur bluetooth en une seule commande"""
+                # Configuration hciconfig en parallèle
+                await asyncio.gather(
+                    asyncio.create_subprocess_exec(
+                        "sudo", "hciconfig", "hci0", "class", "0x240404",
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL
+                    ),
+                    asyncio.create_subprocess_exec(
+                        "sudo", "hciconfig", "hci0", "name", "oakOS",
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL
+                    )
+                )
+                
+                # Configuration bluetoothctl en une seule commande
+                cmd = """
+                discoverable on
+                pairable on
+                discoverable-timeout 0
+                """
+                proc = await asyncio.create_subprocess_exec(
+                    "bluetoothctl",
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL
+                )
+                await proc.communicate(cmd.encode())
             
-            # 3. Démarrer BlueALSA via systemd
-            self.logger.info("Démarrage du service BlueALSA via systemd")
-            subprocess.run(["sudo", "systemctl", "start", "bluealsa.service"], check=True)
+            async def start_bluealsa_service():
+                """Démarre le service BlueALSA"""
+                self.logger.info("Démarrage du service BlueALSA")
+                proc = await asyncio.create_subprocess_exec(
+                    "sudo", "systemctl", "start", "bluealsa.service",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                _, stderr = await proc.communicate()
+                if proc.returncode != 0:
+                    raise RuntimeError(f"Échec du démarrage bluealsa: {stderr.decode().strip()}")
+                
+                # Attente active pour le service bluealsa
+                for _ in range(10):  # 10 tentatives avec 300ms d'intervalle = max 3 sec
+                    if await self._is_service_active("bluealsa.service"):
+                        return
+                    await asyncio.sleep(0.1)
+                
+                raise RuntimeError("Le service BlueALSA n'a pas pu démarrer dans le délai imparti")
             
-            # Vérifier que le service a démarré
-            if not await self._is_service_active("bluealsa.service"):
-                raise RuntimeError("Le service BlueALSA n'a pas pu démarrer")
+            # 2. Démarrer le bluetooth et bluealsa en parallèle avec gestion d'erreurs
+            bluetooth_task = ensure_bluetooth_service()
             
-            # 4. Démarrer l'agent Bluetooth
+            # Nous devons attendre que bluetooth soit prêt avant de démarrer bluealsa
+            await bluetooth_task
+            
+            # Paralléliser la configuration de l'adaptateur et le démarrage de bluealsa
+            await asyncio.gather(
+                configure_adapter(),
+                start_bluealsa_service()
+            )
+            
+            # 3. Démarrer l'agent Bluetooth
             await self._start_bluetooth_agent()
             
-            # 5. Notifier l'état prêt
+            # 4. Notifier l'état prêt
             await self.notify_state_change(PluginState.READY)
             
             self.logger.info("Plugin Bluetooth démarré avec succès")
