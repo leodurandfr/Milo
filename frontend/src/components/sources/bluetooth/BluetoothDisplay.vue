@@ -10,14 +10,8 @@
       <h3>{{ connectedDevice.name }}</h3>
       <p class="device-address">{{ connectedDevice.address }}</p>
       <div class="buttons-container">
-        <button @click="disconnectDevice" class="disconnect-btn">
-          Déconnecter
-        </button>
-        <button @click="restartAudio" class="restart-btn">
-          Redémarrer l'audio
-        </button>
-        <button @click="startDirectAudio" class="emergency-btn">
-          Démarrer Audio (Urgence)
+        <button @click="disconnectDevice" class="disconnect-btn" :disabled="isDisconnecting">
+          {{ isDisconnecting ? 'Déconnexion...' : 'Déconnecter' }}
         </button>
       </div>
     </div>
@@ -31,11 +25,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import axios from 'axios';
 
 const unifiedStore = useUnifiedAudioStore();
+const isDisconnecting = ref(false);
 
 const connectionStatus = computed(() => {
   return `status-${unifiedStore.pluginState}`;
@@ -63,53 +58,49 @@ const connectedDevice = computed(() => {
 
 async function disconnectDevice() {
   try {
-    await axios.post('/bluetooth/control/bluetooth', {
-      command: 'disconnect',
-      data: {}
+    isDisconnecting.value = true;
+    
+    // Utiliser la route correcte pour la déconnexion
+    const response = await fetch('/api/bluetooth/disconnect', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
+    
+    const result = await response.json();
+    
+    if (result.status === 'success' || result.success) {
+      console.log('Appareil déconnecté avec succès');
+    } else {
+      console.error(`Erreur: ${result.message || result.error || 'Échec de la déconnexion'}`);
+    }
   } catch (error) {
     console.error('Erreur lors de la déconnexion:', error);
-  }
-}
-
-async function restartAudio() {
-  try {
-    await axios.post('/bluetooth/control/bluetooth', {
-      command: 'restart_audio',
-      data: {}
-    });
-  } catch (error) {
-    console.error('Erreur lors du redémarrage audio:', error);
-  }
-}
-
-async function startDirectAudio() {
-  try {
-    await axios.post('/bluetooth/control/bluetooth', {
-      command: 'start_direct_audio',
-      data: {}
-    });
-  } catch (error) {
-    console.error('Erreur lors du démarrage direct audio:', error);
+  } finally {
+    isDisconnecting.value = false;
   }
 }
 
 onMounted(async () => {
   if (unifiedStore.currentSource === 'bluetooth') {
     try {
-      const response = await axios.get('/bluetooth/status');
-      if (response.data.status === 'ok') {
+      // Utiliser la route correcte pour le statut
+      const response = await axios.get('/api/bluetooth/status');
+      const data = response.data;
+      
+      if (data.status === 'ok') {
         // Simuler un événement STATE_CHANGED complet
         unifiedStore.updateState({
           data: {
             full_state: {
               active_source: 'bluetooth',
-              plugin_state: response.data.is_active ? 'connected' : 'ready',
+              plugin_state: data.is_active ? 'connected' : 'ready',
               transitioning: false,
               metadata: {
-                device_name: response.data.device_name,
-                device_address: response.data.device_address,
-                device_connected: response.data.device_connected
+                device_name: data.device_name,
+                device_address: data.device_address,
+                device_connected: data.device_connected
               },
               error: null
             }
@@ -193,29 +184,14 @@ onMounted(async () => {
   font-size: 1rem;
 }
 
-.restart-btn {
-  background-color: #4285f4;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
+.disconnect-btn:hover { 
+  background-color: #d32f2f; 
 }
 
-.emergency-btn {
-  background-color: #ff9800;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
+.disconnect-btn:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
 }
-
-.disconnect-btn:hover { background-color: #d32f2f; }
-.restart-btn:hover { background-color: #3367d6; }
-.emergency-btn:hover { background-color: #f57c00; }
 
 .no-device {
   display: flex;

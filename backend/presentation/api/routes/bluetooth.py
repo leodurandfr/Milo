@@ -5,9 +5,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 from backend.domain.audio_state import PluginState
 
-# Créer un router dédié pour bluetooth
+# Créer un router dédié pour bluetooth avec le préfixe corrigé
 router = APIRouter(
-    prefix="/bluetooth",
+    prefix="/api/bluetooth",
     tags=["bluetooth"],
     responses={404: {"description": "Not found"}},
 )
@@ -66,7 +66,7 @@ async def disconnect_bluetooth_device(plugin = Depends(get_bluetooth_plugin)):
         if result.get("success"):
             return {
                 "status": "success",
-                "message": "Périphérique déconnecté avec succès"
+                "message": result.get("message", "Périphérique déconnecté avec succès")
             }
         else:
             return {
@@ -79,23 +79,7 @@ async def disconnect_bluetooth_device(plugin = Depends(get_bluetooth_plugin)):
             "message": f"Erreur: {str(e)}"
         }
 
-# Endpoint pour redémarrer BlueALSA
-@router.post("/restart")
-async def restart_bluealsa(plugin = Depends(get_bluetooth_plugin)):
-    """Redémarre le service BlueALSA"""
-    try:
-        result = await plugin.handle_command("restart_bluealsa", {})
-        return {
-            "status": "success" if result.get("success") else "error",
-            "message": result.get("message", "Redémarrage de BlueALSA terminé")
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Erreur: {str(e)}"
-        }
-        
-        
+# Endpoint pour redémarrer la lecture audio
 @router.post("/restart-audio")
 async def restart_bluetooth_audio(plugin = Depends(get_bluetooth_plugin)):
     """Redémarre uniquement la lecture audio pour le périphérique Bluetooth connecté"""
@@ -112,13 +96,3 @@ async def restart_bluetooth_audio(plugin = Depends(get_bluetooth_plugin)):
             "status": "error",
             "message": f"Erreur de redémarrage audio: {str(e)}"
         }
-        
-        
-@router.get("/debug")
-async def get_bluetooth_debug(plugin = Depends(get_bluetooth_plugin)):
-    """Fournit des informations de débogage complètes"""
-    try:
-        result = await plugin.handle_command("debug_info", {})
-        return result.get("debug_info", {})
-    except Exception as e:
-        return {"error": str(e)}

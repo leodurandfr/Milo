@@ -516,8 +516,24 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                     return {"success": False, "error": "Aucun périphérique connecté"}
                 
                 address = self.current_device.get("address")
-                subprocess.run(["bluetoothctl", "disconnect", address], check=False)
-                return {"success": True}
+                name = self.current_device.get("name", "Appareil inconnu")
+                
+                # Arrêter d'abord la lecture audio
+                await self._stop_audio_playback()
+                
+                # Déconnecter l'appareil via bluetoothctl
+                self.logger.info(f"Déconnexion manuelle de l'appareil {name} ({address})")
+                result = subprocess.run(["bluetoothctl", "disconnect", address], 
+                                        check=False, capture_output=True, text=True)
+                
+                if result.returncode != 0:
+                    self.logger.error(f"Erreur lors de la déconnexion: {result.stderr}")
+                    return {"success": False, "error": f"Erreur de déconnexion: {result.stderr}"}
+                
+                # Mettre à jour l'état interne
+                await self._handle_device_disconnected(address, name)
+                
+                return {"success": True, "message": f"Appareil {name} déconnecté avec succès"}
                 
             elif command == "restart_audio":
                 if not self.current_device:
