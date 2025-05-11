@@ -103,15 +103,6 @@ class SnapclientPlugin(UnifiedAudioPlugin):
                 })
                 return False
 
-    def manages_own_process(self) -> bool:
-        """Le plugin gère son propre processus via systemd"""
-        return True
-    
-    def get_process_command(self) -> List[str]:
-        """
-        Cette méthode est obligatoire mais n'est pas utilisée car manages_own_process retourne True.
-        """
-        return []
 
     async def _handle_server_discovery(self, event_type: str, server: SnapclientServer) -> None:
         """Gère les événements de découverte des serveurs avec auto-connexion automatique"""

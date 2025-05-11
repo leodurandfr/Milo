@@ -35,8 +35,8 @@ class Container(containers.DeclarativeContainer):
         LibrespotPlugin,
         event_bus=event_bus,
         config=providers.Dict({
-            "config_path": "~/.config/go-librespot/config.yml",
-            "service_name": "oakos-go-librespot.service",  # Nom du service systemd
+            "config_path": "/var/lib/oakos/go-librespot/config.yml", 
+            "service_name": "oakos-go-librespot.service" 
         })
     )
     

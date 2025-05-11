@@ -168,7 +168,6 @@ class UnifiedAudioStateMachine:
                     self.logger.error(f"Error stopping {self.system_state.active_source.value}: {e}")
     
     async def _start_new_source(self, source: AudioSource) -> bool:
-        """Démarre une nouvelle source avec gestion centralisée ou déléguée selon le plugin"""
         plugin = self.plugins.get(source)
         if not plugin:
             return False
@@ -183,39 +182,21 @@ class UnifiedAudioStateMachine:
                     return False
             
             # Important: mettre à jour la source active AVANT de démarrer le plugin
-            # Cela permettra au plugin d'envoyer des mises à jour d'état correctement
             self.system_state.active_source = source
             
-            # Détermine si le plugin gère son propre processus
-            plugin_manages_process = plugin.manages_own_process()
-            
-            # Démarrer le processus via le gestionnaire si nécessaire
-            if not plugin_manages_process and hasattr(plugin, 'get_process_command'):
-                command = plugin.get_process_command()
-                process_started = await self.process_manager.start_process(source, command)
-                if not process_started:
-                    self.logger.error(f"Échec du démarrage du processus pour {source.value}")
-                    return False
-            
-            # Démarrer le plugin
+            # Démarrer le plugin (gestion par systemd uniquement)
             success = await plugin.start()
             if success:
                 return True
             else:
                 # En cas d'échec, réinitialiser la source active
                 self.system_state.active_source = AudioSource.NONE
-                # Nettoyer le processus si nécessaire
-                if not plugin_manages_process:
-                    await self.process_manager.stop_process(source)
                 return False
                     
         except Exception as e:
             self.logger.error(f"Error starting {source.value}: {e}")
             # Réinitialiser la source active en cas d'erreur
             self.system_state.active_source = AudioSource.NONE
-            # Nettoyer le processus si nécessaire
-            if not getattr(plugin, 'manages_own_process', lambda: False)():
-                await self.process_manager.stop_process(source)
             return False
     
     async def _emergency_stop(self) -> None:

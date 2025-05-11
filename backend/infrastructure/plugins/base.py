@@ -20,10 +20,6 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
     def __init__(self, event_bus: EventBus, name: str):
         """
         Initialise le plugin de base avec un bus d'événements et un nom.
-        
-        Args:
-            event_bus: Bus d'événements pour la communication
-            name: Nom du plugin pour l'identification et le logging
         """
         self.event_bus = event_bus
         self.name = name
@@ -67,13 +63,6 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         """Récupère l'état actuel du plugin"""
         return self._current_state
     
-    @abstractmethod
-    def get_process_command(self) -> List[str]:
-        """
-        Retourne la commande pour démarrer le processus de ce plugin.
-        Chaque plugin doit fournir sa propre commande.
-        """
-        pass
     
     async def get_initial_state(self) -> Dict[str, Any]:
         """
@@ -82,12 +71,6 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         """
         return await self.get_status()
     
-    def manages_own_process(self) -> bool:
-        """
-        Indique si le plugin gère son propre processus plutôt que de laisser
-        le ProcessManager le faire. Par défaut, retourne False.
-        """
-        return False
     
     # Méthodes abstraites existantes
     @abstractmethod

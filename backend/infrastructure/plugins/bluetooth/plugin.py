@@ -341,13 +341,6 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 "error": str(e)
             }
     
-    def manages_own_process(self) -> bool:
-        """Le plugin gère ses propres processus"""
-        return True
-    
-    def get_process_command(self) -> List[str]:
-        """Non utilisé (manages_own_process = True)"""
-        return []
     
     async def get_initial_state(self) -> Dict[str, Any]:
         """État initial du plugin"""

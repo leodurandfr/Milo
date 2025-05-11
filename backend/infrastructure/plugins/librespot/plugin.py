@@ -25,8 +25,8 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         self.session = None
         
         # Configuration
-        self.config_path = os.path.expanduser(config.get("config_path", "~/.config/go-librespot/config.yml"))
-        self.service_name = config.get("service_name", "go-librespot.service")
+        self.config_path = os.path.expanduser(config.get("config_path"))
+        self.service_name = config.get("service_name")
         
         # Gestionnaire de service systemd
         self.service_manager = SystemdServiceManager()
@@ -42,13 +42,6 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         self._ws_connected = False
         self._initialized = False
     
-    def manages_own_process(self) -> bool:
-        """Le plugin gère son propre processus via systemd"""
-        return True
-    
-    def get_process_command(self) -> List[str]:
-        """Non utilisé car manages_own_process retourne True"""
-        return []
     
     async def initialize(self) -> bool:
         """Initialise le plugin"""
