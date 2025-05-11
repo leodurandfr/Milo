@@ -30,15 +30,6 @@ class BlueAlsaPlayback:
             # Ajouter au dictionnaire des processus
             self.playback_processes[address] = process
             
-            # Attendre un peu pour voir si le processus démarre correctement
-            await asyncio.sleep(1)
-            
-            # Vérifier si le processus tourne toujours
-            if process.returncode is not None:
-                stderr = await process.stderr.read()
-                self.logger.error(f"Erreur démarrage bluealsa-aplay: {stderr.decode().strip()}")
-                return False
-            
             self.logger.info(f"Lecture audio démarrée pour {address}")
             return True
         except Exception as e:

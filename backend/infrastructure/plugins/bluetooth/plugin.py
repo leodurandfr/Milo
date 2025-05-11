@@ -167,7 +167,24 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         
         # Si aucun appareil n'est actuellement connecté, utiliser celui-ci
         if not self.current_device:
-            await self._connect_device(address, name)
+            # Enregistrer l'appareil et notifier immédiatement
+            self.current_device = {
+                "address": address,
+                "name": name
+            }
+            
+            # Notifier tout de suite pour mettre à jour l'interface
+            await self.notify_state_change(
+                PluginState.CONNECTED, 
+                {
+                    "device_connected": True,
+                    "device_name": name,
+                    "device_address": address
+                }
+            )
+            
+            # Démarrer la lecture audio (appel au code existant)
+            await self.playback.start_playback(address)
     
     async def _on_device_disconnected(self, address: str, name: str) -> None:
         """Callback appelé lorsqu'un appareil est déconnecté"""
