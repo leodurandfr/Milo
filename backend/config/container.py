@@ -1,6 +1,6 @@
 # backend/config/container.py
 """
-Conteneur d'injection de dépendances - Version unifiée
+Conteneur d'injection de dépendances - Version unifiée avec support systemd
 """
 from dependency_injector import containers, providers
 from backend.application.event_bus import EventBus
@@ -8,6 +8,7 @@ from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
 from backend.infrastructure.plugins.librespot import LibrespotPlugin
 from backend.infrastructure.plugins.snapclient import SnapclientPlugin
 from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
+from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 from backend.domain.audio_state import AudioSource
 
@@ -19,6 +20,9 @@ class Container(containers.DeclarativeContainer):
     
     # Services centraux
     event_bus = providers.Singleton(EventBus)
+    
+    # Gestionnaire de services systemd
+    systemd_manager = providers.Singleton(SystemdServiceManager)
     
     # Machine à états unifiée
     audio_state_machine = providers.Singleton(
@@ -40,19 +44,31 @@ class Container(containers.DeclarativeContainer):
         SnapclientPlugin,
         event_bus=event_bus,
         config=providers.Dict({
-            "executable_path": "/usr/bin/snapclient",
+            "service_name": "snapclient.service",  # Nom du service systemd
             "auto_discover": True, 
             "auto_connect": True
         })
     )
     
+    # VERSION SYSTEMD
     bluetooth_plugin = providers.Singleton(
         BluetoothPlugin,
         event_bus=event_bus,
         config=providers.Dict({
-            "daemon_options": "--keep-alive=5 --initial-volume=80"
+            "daemon_options": "--keep-alive=5",
+            "service_name": "bluealsa.service"  # Nom du service systemd
         })
     )
+    
+    # VERSION LEGACY
+    # bluetooth_plugin = providers.Singleton(
+    #     BluetoothPlugin,
+    #     event_bus=event_bus,
+    #     config=providers.Dict({
+    #         "daemon_options": "--keep-alive=5 --initial-volume=80"
+    #     })
+    # )
+    
     
     # Méthode pour enregistrer les plugins
     @providers.Callable
@@ -69,7 +85,6 @@ class Container(containers.DeclarativeContainer):
         container.librespot_plugin().set_state_machine(state_machine)
         container.snapclient_plugin().set_state_machine(state_machine)
         container.bluetooth_plugin().set_state_machine(state_machine)
-
 
 
 # Création et configuration du conteneur

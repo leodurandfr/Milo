@@ -1,48 +1,39 @@
 """
-Plugin Snapclient adapté au contrôle centralisé des processus - Version simplifiée auto-connexion uniquement.
+Plugin Snapclient adapté pour utiliser systemd
 """
 import asyncio
 import logging
 import time
 from typing import Dict, Any, Optional, List
 
-from backend.application.event_bus import EventBus
 from backend.infrastructure.plugins.base import UnifiedAudioPlugin
 from backend.domain.audio_state import PluginState
+from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 from backend.infrastructure.plugins.snapclient.discovery import SnapclientDiscovery
 from backend.infrastructure.plugins.snapclient.monitor import SnapcastMonitor
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer
-from backend.infrastructure.plugins.snapclient.process import SnapclientProcess
 from backend.infrastructure.plugins.snapclient.connection import SnapclientConnection
 
 
 class SnapclientPlugin(UnifiedAudioPlugin):
-    """Plugin pour la source audio Snapclient - Version simplifiée auto-connexion uniquement"""
+    """Plugin pour la source audio Snapclient - Version avec gestion systemd"""
 
-    def __init__(self, event_bus: EventBus, config: Dict[str, Any]):
+    def __init__(self, event_bus, config: Dict[str, Any]):
         super().__init__(event_bus, "snapclient")
         self.config = config
-        self.executable_path = config.get("executable_path", "/usr/bin/snapclient")
+        self.service_name = config.get("service_name", "snapclient.service")
         
-        # Initialisation des composants
-        self.process_manager = SnapclientProcess(self.executable_path)
+        # Utiliser le gestionnaire de services systemd
+        self.service_manager = SystemdServiceManager()
         self.discovery = SnapclientDiscovery()
         self.monitor = SnapcastMonitor(self._handle_monitor_event)
-        self.connection = SnapclientConnection(self.process_manager, self)
+        self.connection = SnapclientConnection(self.service_manager, self)
         
         # État interne
         self.discovered_servers = []
         self._connection_lock = asyncio.Lock()
         self._initialized = False
-        self._auto_connecting = False  # Flag pour éviter les connexions en cascade
-
-    def get_process_command(self) -> List[str]:
-        """Retourne la commande pour démarrer snapclient"""
-        # Si un serveur est configuré, inclure le host dans la commande
-        cmd = [self.executable_path, "-j"]
-        if self.connection.current_server:
-            cmd.extend(["-h", self.connection.current_server.host])
-        return cmd
+        self._auto_connecting = False
 
     async def initialize(self) -> bool:
         """Initialise le plugin"""
@@ -50,12 +41,20 @@ class SnapclientPlugin(UnifiedAudioPlugin):
             return True
             
         self.logger.info("Initialisation du plugin Snapclient")
-        # Vérifier que l'exécutable existe
+        # Vérifier que le service systemd existe
         try:
-            import os
-            if not os.path.exists(self.executable_path):
-                raise FileNotFoundError(f"Executable not found: {self.executable_path}")
+            # Vérifier si le service existe
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "list-unit-files", self.service_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
             
+            if proc.returncode != 0 or self.service_name not in stdout.decode():
+                raise FileNotFoundError(f"Service not found: {self.service_name}")
+            
+            # Configurer les callbacks du moniteur
             self.discovery.register_callback(self._handle_server_discovery)
             self._initialized = True
             return True
@@ -68,7 +67,7 @@ class SnapclientPlugin(UnifiedAudioPlugin):
             return False
 
     async def start(self) -> bool:
-        """Démarre le plugin - le processus est géré par la machine à états"""
+        """Démarre le plugin - le processus est géré par systemd"""
         async with self._connection_lock:
             try:
                 self.logger.info("Démarrage du plugin Snapclient")
@@ -85,7 +84,7 @@ class SnapclientPlugin(UnifiedAudioPlugin):
                 return False
 
     async def stop(self) -> bool:
-        """Arrête le plugin - le processus est géré par la machine à états"""
+        """Arrête le plugin - le processus est géré par systemd"""
         async with self._connection_lock:
             try:
                 self.logger.info("Arrêt du plugin Snapclient")
@@ -103,6 +102,16 @@ class SnapclientPlugin(UnifiedAudioPlugin):
                     "error_type": "stop_error"
                 })
                 return False
+
+    def manages_own_process(self) -> bool:
+        """Le plugin gère son propre processus via systemd"""
+        return True
+    
+    def get_process_command(self) -> List[str]:
+        """
+        Cette méthode est obligatoire mais n'est pas utilisée car manages_own_process retourne True.
+        """
+        return []
 
     async def _handle_server_discovery(self, event_type: str, server: SnapclientServer) -> None:
         """Gère les événements de découverte des serveurs avec auto-connexion automatique"""
@@ -197,7 +206,7 @@ class SnapclientPlugin(UnifiedAudioPlugin):
         """Récupère l'état actuel du plugin"""
         try:
             connection_info = self.connection.get_connection_info()
-            process_info = await self.process_manager.get_process_info()
+            service_status = await self.service_manager.get_status(self.service_name)
             
             return {
                 "device_connected": connection_info.get("device_connected", False),
@@ -205,7 +214,9 @@ class SnapclientPlugin(UnifiedAudioPlugin):
                 "current_server": (self.connection.current_server.to_dict() 
                                   if self.connection.current_server else None),
                 "monitor_connected": self.monitor.is_connected,
-                "process_running": process_info.get("running", False)
+                "service_active": service_status.get("active", False),
+                "service_state": service_status.get("state", "unknown"),
+                "service_error": service_status.get("error")
             }
         except Exception as e:
             self.logger.error(f"Erreur récupération statut: {str(e)}")
@@ -222,23 +233,26 @@ class SnapclientPlugin(UnifiedAudioPlugin):
                     "servers": [s.to_dict() for s in servers],
                     "count": len(servers)
                 }
+                
+            elif command == "restart_service":
+                success = await self.service_manager.restart(self.service_name)
+                return {
+                    "success": success,
+                    "message": "Service redémarré avec succès" if success else "Échec du redémarrage du service"
+                }
             
             return {"success": False, "error": f"Unknown command: {command}"}
         except Exception as e:
             self.logger.error(f"Error handling command {command}: {e}")
             return {"success": False, "error": str(e)}
         
-    async def get_connection_info(self) -> Dict[str, Any]:
-        """Récupère des informations sur la connexion actuelle"""
-        return self.connection.get_connection_info()
-
     async def get_initial_state(self) -> Dict[str, Any]:
         """
         Récupère l'état initial complet du plugin.
         Utilisé lors de l'initialisation d'une connexion WebSocket.
         """
         status = await self.get_status()
-        connection_info = await self.get_connection_info()
+        connection_info = self.connection.get_connection_info()
         
         return {
             **status,

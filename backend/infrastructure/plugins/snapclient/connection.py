@@ -1,54 +1,50 @@
 """
-Gestion des connexions aux serveurs Snapcast - Version optimisée pour éviter les redémarrages inutiles.
+Gestion des connexions aux serveurs Snapcast - Version optimisée pour utiliser systemd
 """
+import asyncio
 import logging
 from typing import Dict, Any, Optional
+import aiofiles
 
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer
-from backend.infrastructure.plugins.snapclient.process import SnapclientProcess
 
 class SnapclientConnection:
     """Gère la connexion à un serveur Snapcast."""
 
-    def __init__(self, process_manager: SnapclientProcess, plugin=None):
+    def __init__(self, service_manager, plugin=None):
         self.logger = logging.getLogger("plugin.snapclient.connection")
-        self.process_manager = process_manager
+        self.service_manager = service_manager
         self.plugin = plugin
         self.current_server: Optional[SnapclientServer] = None
+        self.service_name = plugin.service_name if plugin else "snapclient.service"
 
     async def connect(self, server: SnapclientServer) -> bool:
         """
-        Se connecte à un serveur Snapcast, en évitant les redémarrages inutiles.
+        Se connecte à un serveur Snapcast via systemd.
         """
         try:
             self.logger.info(f"Connexion au serveur {server.name} ({server.host})")
             
-            # Vérifier si déjà connecté au même serveur pour éviter un redémarrage inutile
+            # Vérifier si déjà connecté au même serveur
             if self.current_server and self.current_server.host == server.host:
-                process_info = await self.process_manager.get_process_info()
+                service_status = await self.service_manager.get_status(self.service_name)
                 
-                if process_info.get("running", False):
+                if service_status.get("active", False):
                     self.logger.info(f"Déjà connecté au serveur {server.name}, pas besoin de redémarrer")
                     
                     # Assurer que le moniteur WebSocket est bien démarré
                     if hasattr(self.plugin, 'monitor') and not self.plugin.monitor.is_connected:
                         await self.plugin.monitor.start(server.host)
                     
-                    # Server est déjà défini comme serveur actuel, pas besoin de le changer
                     return True
             
-            # Si on est connecté à un autre serveur ou si le processus n'est pas actif,
-            # on doit effectuer une nouvelle connexion
-            if self.current_server and self.current_server.host != server.host:
-                self.logger.info(f"Déconnexion du serveur actuel avant de se connecter à {server.name}")
-                await self.disconnect()
+            # Configurer et redémarrer le service
+            await self._configure_snapclient(server)
             
-            # Démarrage du processus (seulement si nécessaire)
-            if not (await self.process_manager.get_process_info()).get("running", False):
-                self.logger.info(f"Démarrage du processus pour {server.name}")
-                if not await self.process_manager.start(server.host):
-                    self.logger.error(f"Échec du démarrage du processus pour {server.name}")
-                    return False
+            # Redémarrer le service
+            if not await self.service_manager.restart(self.service_name):
+                self.logger.error(f"Échec du redémarrage du service pour {server.name}")
+                return False
             
             # Mettre à jour le serveur actuel
             self.current_server = server
@@ -70,7 +66,7 @@ class SnapclientConnection:
             self.logger.error(f"Erreur lors de la connexion: {str(e)}")
             return False
 
-    async def disconnect(self, stop_process: bool = True) -> bool:
+    async def disconnect(self, stop_service: bool = True) -> bool:
         """Se déconnecte du serveur actuel."""
         if not self.current_server:
             return True
@@ -82,9 +78,9 @@ class SnapclientConnection:
             if hasattr(self.plugin, 'monitor') and self.plugin.monitor.host == self.current_server.host:
                 await self.plugin.monitor.stop()
 
-            # Arrêter le processus si demandé
-            if stop_process:
-                await self.process_manager.stop()
+            # Arrêter le service si demandé
+            if stop_service:
+                await self.service_manager.stop(self.service_name)
 
             # Réinitialiser le serveur actuel
             self.current_server = None
@@ -92,7 +88,43 @@ class SnapclientConnection:
         except Exception as e:
             self.logger.error(f"Erreur lors de la déconnexion: {str(e)}")
             self.current_server = None
-            return True  
+            return True
+    
+    async def _configure_snapclient(self, server: SnapclientServer) -> bool:
+        """
+        Configure snapclient pour le serveur spécifié.
+        Mise à jour du fichier /etc/default/snapclient
+        """
+        try:
+            # Méthode simple: mise à jour d'un fichier d'environnement
+            env_file = "/etc/default/snapclient"
+            temp_file = "/tmp/snapclient.env"
+            
+            # Créer un contenu temporaire
+            content = f"# Généré automatiquement par oakOS\n"
+            content += f"SERVER_HOST={server.host}\n"
+            content += f"SERVER_PORT={server.port}\n"
+            
+            # Écrire dans un fichier temporaire
+            async with aiofiles.open(temp_file, 'w') as f:
+                await f.write(content)
+            
+            # Copier avec sudo vers l'emplacement final
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "cp", temp_file, env_file,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            _, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                self.logger.error(f"Erreur configuration snapclient: {stderr.decode().strip()}")
+                return False
+                
+            return True
+        except Exception as e:
+            self.logger.error(f"Erreur configuration snapclient: {e}")
+            return False
 
     def get_connection_info(self) -> Dict[str, Any]:
         """Récupère des informations sur la connexion actuelle."""

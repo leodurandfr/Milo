@@ -1,0 +1,5 @@
+Looking in indexes: https://pypi.org/simple, https://www.piwheels.org/simple
+Collecting aiofiles
+  Downloading https://www.piwheels.org/simple/aiofiles/aiofiles-24.1.0-py3-none-any.whl (15 kB)
+Installing collected packages: aiofiles
+Successfully installed aiofiles-24.1.0
