@@ -36,7 +36,7 @@ class Container(containers.DeclarativeContainer):
         event_bus=event_bus,
         config=providers.Dict({
             "config_path": "~/.config/go-librespot/config.yml",
-            "executable_path": "~/oakOS/go-librespot/go-librespot"
+            "service_name": "oakos-go-librespot.service",  # Nom du service systemd
         })
     )
     
@@ -44,7 +44,7 @@ class Container(containers.DeclarativeContainer):
         SnapclientPlugin,
         event_bus=event_bus,
         config=providers.Dict({
-            "service_name": "snapclient.service",  # Nom du service systemd
+            "service_name": "oakos-snapclient.service",
             "auto_discover": True, 
             "auto_connect": True
         })
@@ -62,15 +62,6 @@ class Container(containers.DeclarativeContainer):
             "auto_agent": True
         })
     )
-    
-    # VERSION LEGACY
-    # bluetooth_plugin = providers.Singleton(
-    #     BluetoothPlugin,
-    #     event_bus=event_bus,
-    #     config=providers.Dict({
-    #         "daemon_options": "--keep-alive=5 --initial-volume=80"
-    #     })
-    # )
     
     
     # Méthode pour enregistrer les plugins

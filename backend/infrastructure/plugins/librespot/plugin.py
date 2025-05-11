@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/librespot/plugin.py
 """
-Plugin librespot adapté au contrôle centralisé des processus
+Plugin librespot adapté pour utiliser systemd
 """
 import asyncio
 import logging
@@ -12,30 +12,43 @@ from typing import Dict, Any, Optional, List
 from backend.application.event_bus import EventBus
 from backend.infrastructure.plugins.base import UnifiedAudioPlugin
 from backend.domain.audio_state import PluginState
+from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 
 class LibrespotPlugin(UnifiedAudioPlugin):
-    """Plugin Spotify via go-librespot - Version avec contrôle centralisé"""
+    """Plugin Spotify via go-librespot - Version avec gestion systemd"""
     
     def __init__(self, event_bus: EventBus, config: Dict[str, Any]):
         super().__init__(event_bus, "librespot")
         self.config = config
         self.ws_task = None
         self.session = None
+        
+        # Configuration
         self.config_path = os.path.expanduser(config.get("config_path", "~/.config/go-librespot/config.yml"))
-        self.executable_path = os.path.expanduser(config.get("executable_path", "~/oakOS/go-librespot/go-librespot"))
+        self.service_name = config.get("service_name", "go-librespot.service")
+        
+        # Gestionnaire de service systemd
+        self.service_manager = SystemdServiceManager()
+        
+        # Informations d'API
         self.api_url = None
         self.ws_url = None
+        
+        # État interne
         self._current_metadata = {}
         self._is_playing = False  
         self._device_connected = False
         self._ws_connected = False
         self._initialized = False
     
+    def manages_own_process(self) -> bool:
+        """Le plugin gère son propre processus via systemd"""
+        return True
     
     def get_process_command(self) -> List[str]:
-        """Retourne la commande pour démarrer go-librespot"""
-        return [self.executable_path]
+        """Non utilisé car manages_own_process retourne True"""
+        return []
     
     async def initialize(self) -> bool:
         """Initialise le plugin"""
@@ -43,6 +56,17 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return True
             
         try:
+            # Vérifier si le service systemd existe
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "list-unit-files", self.service_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            
+            if proc.returncode != 0 or self.service_name not in stdout.decode():
+                raise FileNotFoundError(f"Service not found: {self.service_name}")
+            
             # Lire la configuration go-librespot
             with open(self.config_path, 'r') as f:
                 librespot_config = yaml.safe_load(f)
@@ -65,14 +89,17 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return False
     
     async def start(self) -> bool:
-        """Démarre le plugin - le processus est géré par la machine à états"""
+        """Démarre le plugin avec gestion systemd"""
         try:
-            # Créer la session HTTP si nécessaire
+            # Démarrer le service go-librespot via systemd
+            if not await self.service_manager.start(self.service_name):
+                raise RuntimeError(f"Impossible de démarrer le service {self.service_name}")
+            
+            # Créer la session HTTP
             if not self.session:
                 self.session = aiohttp.ClientSession()
             
-            # Le processus est maintenant démarré par la machine à états
-            # On démarre seulement la connexion WebSocket
+            # Démarrer la connexion WebSocket
             self.ws_task = asyncio.create_task(self._websocket_loop())
             
             # Notifier que le plugin est prêt
@@ -87,7 +114,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return False
     
     async def stop(self) -> bool:
-        """Arrête le plugin - le processus est géré par la machine à états"""
+        """Arrête le plugin avec gestion systemd"""
         try:
             # Arrêter WebSocket
             if self.ws_task:
@@ -102,6 +129,11 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             if self.session:
                 await self.session.close()
                 self.session = None
+            
+            # Arrêter le service go-librespot (optionnel, selon votre configuration)
+            # Si vous souhaitez que go-librespot reste actif même quand oakOS n'utilise pas ce plugin,
+            # vous pouvez commenter cette ligne
+            await self.service_manager.stop(self.service_name)
             
             # Nettoyer l'état
             self._current_metadata = {}
@@ -239,11 +271,16 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return {"success": False, "error": "Plugin not active"}
         
         try:
-            if command in ["play", "resume", "pause", "playpause", "next", "prev"]:
+            if command == "restart_service":
+                success = await self.service_manager.restart(self.service_name)
+                return {
+                    "success": success,
+                    "message": "Service redémarré avec succès" if success else "Échec du redémarrage du service"
+                }
+            elif command in ["play", "resume", "pause", "playpause", "next", "prev"]:
                 payload = {} if command not in ["next", "prev"] else {}
                 async with self.session.post(f"{self.api_url}/player/{command}", json=payload) as resp:
                     return {"success": resp.status == 200}
-            
             elif command == "seek":
                 position = data.get("position_ms")
                 if position is not None:
@@ -258,11 +295,16 @@ class LibrespotPlugin(UnifiedAudioPlugin):
     async def get_status(self) -> Dict[str, Any]:
         """Récupère l'état actuel du plugin"""
         try:
+            service_status = await self.service_manager.get_status(self.service_name)
+            
             status = {
                 "device_connected": self._device_connected,
                 "ws_connected": self._ws_connected,
                 "is_playing": self._is_playing,
-                "metadata": self._current_metadata
+                "metadata": self._current_metadata,
+                "service_active": service_status.get("active", False),
+                "service_state": service_status.get("state", "unknown"),
+                "service_error": service_status.get("error")
             }
             return status
             
