@@ -1,5 +1,5 @@
 """
-Plugin Bluetooth simplifié pour oakOS utilisant bluealsa-cli et bluealsa-aplay
+Plugin Bluetooth simplifié pour oakOS utilisant bluealsa-cli et bluealsa-aplay avec systemd
 """
 import asyncio
 import logging
@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Optional
 
 from backend.infrastructure.plugins.base import UnifiedAudioPlugin
 from backend.domain.audio_state import PluginState
-from backend.infrastructure.plugins.bluetooth.service_controller import ServiceController
+from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 from backend.infrastructure.plugins.bluetooth.bluealsa_monitor import BlueAlsaMonitor
 from backend.infrastructure.plugins.bluetooth.bluealsa_playback import BlueAlsaPlayback
 from backend.infrastructure.plugins.bluetooth.agent import BluetoothAgent
@@ -19,7 +19,9 @@ class BluetoothPlugin(UnifiedAudioPlugin):
     def __init__(self, event_bus, config: Dict[str, Any]):
         super().__init__(event_bus, "bluetooth")
         self.config = config
-        self.service_controller = ServiceController()
+        self.bluetooth_service = config.get("bluetooth_service", "bluetooth.service")
+        self.bluealsa_service = config.get("service_name", "bluealsa.service")
+        self.service_manager = SystemdServiceManager()
         self.monitor = BlueAlsaMonitor()
         self.playback = BlueAlsaPlayback()
         self.agent = BluetoothAgent()
@@ -54,11 +56,11 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             self.logger.info("Démarrage du plugin Bluetooth")
             
             # 1. Démarrer bluetooth
-            if not await self.service_controller.start("bluetooth.service"):
+            if not await self.service_manager.start(self.bluetooth_service):
                 raise RuntimeError("Impossible de démarrer le service bluetooth")
             
             # 2. Démarrer bluealsa
-            if not await self.service_controller.start("bluealsa.service"):
+            if not await self.service_manager.start(self.bluealsa_service):
                 raise RuntimeError("Impossible de démarrer le service bluealsa")
             
             # 3. Configurer l'adaptateur Bluetooth
@@ -137,8 +139,8 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             
             # Arrêter les services si configuré
             if self.stop_bluetooth:
-                await self.service_controller.stop("bluealsa.service")
-                await self.service_controller.stop("bluetooth.service")
+                await self.service_manager.stop(self.bluealsa_service)
+                await self.service_manager.stop(self.bluetooth_service)
             
             # Réinitialiser l'état
             self.current_device = None
@@ -285,7 +287,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 }
                 
             elif command == "restart_bluealsa":
-                result = await self.service_controller.restart("bluealsa.service")
+                result = await self.service_manager.restart(self.bluealsa_service)
                 return {
                     "success": result, 
                     "message": "Service BlueALSA redémarré avec succès" if result else "Échec du redémarrage"
@@ -313,8 +315,8 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         try:
             # Vérifier l'état des services
             bt_check, bluealsa_check = await asyncio.gather(
-                self.service_controller.is_active("bluetooth.service"),
-                self.service_controller.is_active("bluealsa.service")
+                self.service_manager.is_active(self.bluetooth_service),
+                self.service_manager.is_active(self.bluealsa_service)
             )
             
             # Vérifier si la lecture est active
@@ -345,7 +347,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
     
     def get_process_command(self) -> List[str]:
         """Non utilisé (manages_own_process = True)"""
-        return ["true"]
+        return []
     
     async def get_initial_state(self) -> Dict[str, Any]:
         """État initial du plugin"""

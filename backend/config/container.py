@@ -56,7 +56,10 @@ class Container(containers.DeclarativeContainer):
         event_bus=event_bus,
         config=providers.Dict({
             "daemon_options": "--keep-alive=5",
-            "service_name": "bluealsa.service"  # Nom du service systemd
+            "service_name": "bluealsa.service",
+            "bluetooth_service": "bluetooth.service",
+            "stop_bluetooth_on_exit": True,
+            "auto_agent": True
         })
     )
     
