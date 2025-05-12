@@ -9,7 +9,6 @@ import logging
 from backend.domain.audio_state import AudioSource, PluginState, SystemAudioState
 from backend.application.interfaces.audio_source import AudioSourcePlugin
 from backend.application.event_bus import EventBus
-from backend.infrastructure.process.process_manager import ProcessManager
 from backend.domain.events import StandardEvent, EventCategory, EventType
 
 class UnifiedAudioStateMachine:
@@ -26,7 +25,6 @@ class UnifiedAudioStateMachine:
         }
         self.logger = logging.getLogger(__name__)
         self._transition_lock = asyncio.Lock()
-        self.process_manager = ProcessManager()  # Gestionnaire centralisé des processus
     
     def register_plugin(self, source: AudioSource, plugin: AudioSourcePlugin) -> None:
         """Enregistre un plugin pour une source spécifique"""
@@ -151,16 +149,13 @@ class UnifiedAudioStateMachine:
         )
     
     async def _stop_current_source(self) -> None:
-        """Arrête la source actuellement active avec gestion centralisée"""
+        """Arrête la source actuellement active"""
         if self.system_state.active_source != AudioSource.NONE:
             current_plugin = self.plugins.get(self.system_state.active_source)
             if current_plugin:
                 try:
-                    # Arrêter le plugin
-                    await current_plugin.stop()
-                    
-                    # Arrêter le processus via le gestionnaire centralisé
-                    await self.process_manager.stop_process(self.system_state.active_source)
+                    # Arrêter le plugin (qui gère lui-même l'arrêt du service)
+                    await current_plugin.stop()                 
                     
                     self.system_state.plugin_state = PluginState.INACTIVE
                     self.system_state.metadata = {}
@@ -201,8 +196,6 @@ class UnifiedAudioStateMachine:
     
     async def _emergency_stop(self) -> None:
         """Arrêt d'urgence - arrête tous les processus"""
-        # Arrêter tous les processus via le gestionnaire centralisé
-        await self.process_manager.stop_all_processes()
         
         # Arrêter tous les plugins
         for plugin in self.plugins.values():
