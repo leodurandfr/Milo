@@ -1,47 +1,39 @@
-# backend/infrastructure/plugins/librespot/plugin.py
 """
-Plugin librespot adapté pour utiliser systemd
+Plugin librespot optimisé pour oakOS
 """
 import asyncio
-import logging
 import os
 import yaml
 import aiohttp
 import json
-from typing import Dict, Any, Optional, List
-from backend.application.event_bus import EventBus
+from typing import Dict, Any, Optional
+
 from backend.infrastructure.plugins.base import UnifiedAudioPlugin
 from backend.domain.audio_state import PluginState
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
+from backend.infrastructure.plugins.plugin_utils import safely_control_service, format_response
 
 
 class LibrespotPlugin(UnifiedAudioPlugin):
-    """Plugin Spotify via go-librespot - Version avec gestion systemd"""
+    """Plugin Spotify via go-librespot - Version optimisée"""
     
-    def __init__(self, event_bus: EventBus, config: Dict[str, Any]):
+    def __init__(self, event_bus, config: Dict[str, Any]):
         super().__init__(event_bus, "librespot")
         self.config = config
-        self.ws_task = None
-        self.session = None
-        
-        # Configuration
-        self.config_path = os.path.expanduser(config.get("config_path"))
         self.service_name = config.get("service_name")
-        
-        # Gestionnaire de service systemd
+        self.config_path = os.path.expanduser(config.get("config_path"))
         self.service_manager = SystemdServiceManager()
         
-        # Informations d'API
+        # État
         self.api_url = None
         self.ws_url = None
-        
-        # État interne
-        self._current_metadata = {}
-        self._is_playing = False  
+        self.ws_task = None
+        self.session = None
+        self._metadata = {}
+        self._is_playing = False
         self._device_connected = False
         self._ws_connected = False
         self._initialized = False
-    
     
     async def initialize(self) -> bool:
         """Initialise le plugin"""
@@ -49,22 +41,22 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return True
             
         try:
-            # Vérifier si le service systemd existe
+            # Vérifier l'existence du service
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "list-unit-files", self.service_name,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await proc.communicate()
+            stdout, _ = await proc.communicate()
             
             if proc.returncode != 0 or self.service_name not in stdout.decode():
                 raise FileNotFoundError(f"Service not found: {self.service_name}")
             
-            # Lire la configuration go-librespot
+            # Lire la configuration
             with open(self.config_path, 'r') as f:
-                librespot_config = yaml.safe_load(f)
+                config = yaml.safe_load(f)
             
-            server = librespot_config.get('server', {})
+            server = config.get('server', {})
             addr = server.get('address', 'localhost')
             port = server.get('port', 3678)
             
@@ -75,41 +67,29 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return True
         except Exception as e:
             self.logger.error(f"Erreur d'initialisation: {e}")
-            await self.notify_state_change(PluginState.ERROR, {
-                "error": str(e),
-                "error_type": "initialization_error"
-            })
+            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
             return False
     
     async def start(self) -> bool:
-        """Démarre le plugin avec gestion systemd"""
+        """Démarre le plugin"""
         try:
-            # Démarrer le service go-librespot via systemd
-            if not await self.service_manager.start(self.service_name):
+            if not await safely_control_service(self.service_manager, self.service_name, "start", self.logger):
                 raise RuntimeError(f"Impossible de démarrer le service {self.service_name}")
             
-            # Créer la session HTTP
-            if not self.session:
-                self.session = aiohttp.ClientSession()
-            
-            # Démarrer la connexion WebSocket
+            self.session = aiohttp.ClientSession()
             self.ws_task = asyncio.create_task(self._websocket_loop())
             
-            # Notifier que le plugin est prêt
             await self.notify_state_change(PluginState.READY)
             return True
         except Exception as e:
             self.logger.error(f"Erreur de démarrage: {e}")
-            await self.notify_state_change(PluginState.ERROR, {
-                "error": str(e),
-                "error_type": "start_error"
-            })
+            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
             return False
     
     async def stop(self) -> bool:
-        """Arrête le plugin avec gestion systemd"""
+        """Arrête le plugin"""
         try:
-            # Arrêter WebSocket
+            # Nettoyage des ressources
             if self.ws_task:
                 self.ws_task.cancel()
                 try:
@@ -118,56 +98,53 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                     pass
                 self.ws_task = None
             
-            # Fermer la session HTTP
             if self.session:
                 await self.session.close()
                 self.session = None
             
-            # Arrêter le service go-librespot (optionnel, selon votre configuration)
-            # Si vous souhaitez que go-librespot reste actif même quand oakOS n'utilise pas ce plugin,
-            # vous pouvez commenter cette ligne
-            await self.service_manager.stop(self.service_name)
+            await safely_control_service(self.service_manager, self.service_name, "stop", self.logger)
             
-            # Nettoyer l'état
-            self._current_metadata = {}
+            # Réinitialiser l'état
+            self._metadata = {}
+            self._ws_connected = False
+            self._device_connected = False
+            self._is_playing = False
             
-            # Notifier l'arrêt
             await self.notify_state_change(PluginState.INACTIVE)
             return True
         except Exception as e:
             self.logger.error(f"Erreur d'arrêt: {e}")
-            await self.notify_state_change(PluginState.ERROR, {
-                "error": str(e),
-                "error_type": "stop_error"
-            })
+            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
             return False
     
     async def _websocket_loop(self) -> None:
         """Boucle WebSocket pour recevoir les événements"""
+        retry_delay = 1
+        max_delay = 30
+        
         while True:
             try:
                 async with self.session.ws_connect(self.ws_url) as ws:
                     self.logger.info("WebSocket connecté à go-librespot")
                     self._ws_connected = True
+                    retry_delay = 1
                     
                     async for msg in ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
-                            event = json.loads(msg.data)
-                            await self._handle_websocket_event(event)
+                            await self._handle_websocket_event(json.loads(msg.data))
                         elif msg.type == aiohttp.WSMsgType.ERROR:
-                            self.logger.error(f"Erreur WebSocket: {msg}")
                             break
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self.logger.error(f"Erreur WebSocket: {e}")
                 self._ws_connected = False
-                await asyncio.sleep(3)
+                self.logger.error(f"Erreur WebSocket: {e}")
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(max_delay, retry_delay * 2)
     
     async def _get_api_data(self) -> Optional[Dict[str, Any]]:
-        """Récupère les données depuis l'API - Simplifié pour toujours récupérer tout"""
+        """Récupère les données depuis l'API"""
         if not self.session:
-            self.logger.warning("No session available for API call")
             return None
             
         try:
@@ -175,14 +152,12 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 if resp.status == 200:
                     data = await resp.json()
                     
-                    # Mise à jour des états de base
                     self._device_connected = bool(data.get('track'))
                     self._is_playing = not data.get('paused', True)
                     
-                    # Mise à jour des métadonnées si track présent
                     if data.get('track'):
                         track = data['track']
-                        self._current_metadata = {
+                        self._metadata = {
                             "title": track.get('name'),
                             "artist": ", ".join(track.get('artist_names', [])),
                             "album": track.get('album_name'),
@@ -193,14 +168,12 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                             "is_playing": self._is_playing
                         }
                     else:
-                        self._current_metadata = {}
+                        self._metadata = {}
                     
                     return data
-                else:
-                    self.logger.error(f"API returned status {resp.status}")
-                    return None
+                return None
         except Exception as e:
-            self.logger.error(f"Erreur récupération données API: {e}")
+            self.logger.error(f"Erreur API: {e}")
             return None
     
     async def _handle_websocket_event(self, event: Dict[str, Any]) -> None:
@@ -208,101 +181,120 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         event_type = event.get('type')
         data = event.get('data', {})
         
-        self.logger.debug(f"Événement WebSocket reçu: {event_type}")
+        # Tableau de correspondance type d'événement -> état et actions
+        handlers = {
+            'active': lambda: self._handle_active_state(),
+            'inactive': lambda: self._handle_inactive_state(),
+            'playing': lambda: self._handle_playback_state(True),
+            'paused': lambda: self._handle_playback_state(False),
+            'metadata': lambda: self._handle_metadata_update(),
+            'seek': lambda: self._handle_seek_update(data)
+        }
         
-        if event_type == 'active':
-            self._device_connected = True
-            await self.notify_state_change(PluginState.CONNECTED, {
-                "device_connected": True,
-                "status": "active"
-            })
+        handler = handlers.get(event_type)
+        if handler:
+            await handler()
+    
+    async def _handle_active_state(self):
+        self._device_connected = True
+        await self.notify_state_change(PluginState.CONNECTED, {
+            "device_connected": True,
+            "status": "active"
+        })
+    
+    async def _handle_inactive_state(self):
+        self._device_connected = False
+        self._is_playing = False
+        self._metadata = {}
+        await self.notify_state_change(PluginState.READY, {
+            "device_connected": False,
+            "status": "inactive"
+        })
+    
+    async def _handle_playback_state(self, is_playing):
+        self._is_playing = is_playing
+        self._device_connected = True
         
-        elif event_type == 'inactive':
-            self._device_connected = False
-            self._is_playing = False
-            self._current_metadata = {}
-            await self.notify_state_change(PluginState.READY, {
-                "device_connected": False,
-                "status": "inactive"
-            })
+        if self._metadata:
+            self._metadata['is_playing'] = is_playing
         
-        elif event_type in ['playing', 'paused']:
-            self._is_playing = (event_type == 'playing')
-            self._device_connected = True
-            
-            # Mise à jour de l'état
-            if self._current_metadata:
-                self._current_metadata['is_playing'] = self._is_playing
-            
-            await self.notify_state_change(PluginState.CONNECTED, {
-                **self._current_metadata,
-                "status": event_type
-            })
+        await self.notify_state_change(PluginState.CONNECTED, {
+            **self._metadata,
+            "status": "playing" if is_playing else "paused"
+        })
+    
+    async def _handle_metadata_update(self):
+        await self._get_api_data()
+        await self.notify_state_change(PluginState.CONNECTED, {
+            **self._metadata,
+            "status": "metadata_updated"
+        })
+    
+    async def _handle_seek_update(self, data):
+        if self._metadata:
+            self._metadata['position'] = data.get('position', 0)
         
-        elif event_type == 'metadata':
-            # Pour metadata, on fait une mise à jour complète depuis l'API
-            await self._get_api_data()
-            
-            await self.notify_state_change(PluginState.CONNECTED, {
-                **self._current_metadata,
-                "status": "metadata_updated"
-            })
-        
-        elif event_type == 'seek':
-            if self._current_metadata:
-                self._current_metadata['position'] = data.get('position', 0)
-            
-            await self.notify_state_change(PluginState.CONNECTED, {
-                **self._current_metadata,
-                "position": data.get('position', 0),
-                "status": "seek_update"
-            })
+        await self.notify_state_change(PluginState.CONNECTED, {
+            **self._metadata,
+            "position": data.get('position', 0),
+            "status": "seek_update"
+        })
     
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Traite les commandes"""
+        """Traite les commandes avec réponses standardisées"""
         if not self.session:
-            return {"success": False, "error": "Plugin not active"}
+            return format_response(success=False, error="Plugin not active")
         
         try:
+            # Commandes spéciales
             if command == "restart_service":
-                success = await self.service_manager.restart(self.service_name)
-                return {
-                    "success": success,
-                    "message": "Service redémarré avec succès" if success else "Échec du redémarrage du service"
-                }
+                success = await safely_control_service(self.service_manager, self.service_name, "restart", self.logger)
+                return format_response(success=success, message="Service redémarré" if success else "Échec du redémarrage")
+                
+            elif command == "refresh_metadata":
+                api_data = await self._get_api_data()
+                return format_response(
+                    success=bool(api_data),
+                    message="Métadonnées rafraîchies" if api_data else "Échec du rafraîchissement",
+                    metadata=self._metadata
+                )
+                
+            elif command == "seek" and data.get("position_ms") is not None:
+                async with self.session.post(
+                    f"{self.api_url}/player/seek", 
+                    json={"position": data["position_ms"]}
+                ) as resp:
+                    return format_response(success=resp.status == 200)
+                    
+            # Commandes de lecture standardisées
             elif command in ["play", "resume", "pause", "playpause", "next", "prev"]:
-                payload = {} if command not in ["next", "prev"] else {}
+                payload = {}
+                if command in ["next", "prev"] and data.get("uri"):
+                    payload = {"uri": data["uri"]}
+                
                 async with self.session.post(f"{self.api_url}/player/{command}", json=payload) as resp:
-                    return {"success": resp.status == 200}
-            elif command == "seek":
-                position = data.get("position_ms")
-                if position is not None:
-                    async with self.session.post(f"{self.api_url}/player/seek", 
-                                              json={"position": position}) as resp:
-                        return {"success": resp.status == 200}
+                    return format_response(success=resp.status == 200)
             
-            return {"success": False, "error": f"Commande non supportée: {command}"}
+            return format_response(success=False, error=f"Commande non supportée: {command}")
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return format_response(success=False, error=str(e))
     
     async def get_status(self) -> Dict[str, Any]:
         """Récupère l'état actuel du plugin"""
         try:
             service_status = await self.service_manager.get_status(self.service_name)
             
-            status = {
+            return {
                 "device_connected": self._device_connected,
                 "ws_connected": self._ws_connected,
                 "is_playing": self._is_playing,
-                "metadata": self._current_metadata,
+                "metadata": self._metadata,
                 "service_active": service_status.get("active", False),
                 "service_state": service_status.get("state", "unknown"),
                 "service_error": service_status.get("error")
             }
-            return status
-            
         except Exception as e:
-            self.logger.error(f"Erreur récupération status: {str(e)}")
+            self.logger.error(f"Erreur status: {e}")
             return {
                 "device_connected": False,
                 "ws_connected": False,
@@ -312,13 +304,8 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             }
             
     async def get_initial_state(self) -> Dict[str, Any]:
-        """Récupère l'état initial complet du plugin depuis l'API - force toujours un appel API"""
-        self.logger.info("Getting initial state - forcing API refresh")
-        
-        # Force toujours un appel API pour avoir l'état le plus récent
+        """Récupère l'état initial complet du plugin"""
         if self.session:
             await self._get_api_data()
-        else:
-            self.logger.warning("No session available for initial state")
         
         return await self.get_status()
