@@ -1,15 +1,14 @@
 """
-Fonctions utilitaires partagées entre les différents plugins audio.
+Fonctions utilitaires minimalistes pour les plugins audio.
 """
 import logging
 import asyncio
-from typing import Dict, Any, Callable, Optional, TypeVar, Awaitable
+from typing import Dict, Any, Callable, Awaitable, Tuple, Optional, TypeVar
 
-# Type générique pour les fonctions asynchrones
 T = TypeVar('T')
 
-def format_response(success: bool = True, message: str = None, error: str = None, **kwargs) -> Dict[str, Any]:
-    """Formate une réponse standardisée pour les commandes de plugin."""
+def format_response(success: bool, message: str = None, error: str = None, **kwargs) -> Dict[str, Any]:
+    """Formate une réponse standardisée."""
     response = {"success": success}
     
     if success and message:
@@ -17,70 +16,73 @@ def format_response(success: bool = True, message: str = None, error: str = None
     elif not success and error:
         response["error"] = error
     
-    # Ajouter toutes les données supplémentaires
-    response.update(kwargs)
-    
-    return response
+    return {**response, **kwargs}
 
-
-async def safely_execute(logger: logging.Logger, func: Callable[..., Awaitable[T]], 
-                         *args, error_prefix: str = "", **kwargs) -> tuple[bool, Optional[T], Optional[str]]:
-    """Exécute une fonction de manière sécurisée dans un bloc try-except."""
+async def safely_execute(logger: logging.Logger, 
+                         func: Callable[..., Awaitable[T]], 
+                         *args, **kwargs) -> Tuple[bool, Optional[T], Optional[str]]:
+    """Exécute une fonction de manière sécurisée."""
     try:
         result = await func(*args, **kwargs)
         return True, result, None
     except Exception as e:
-        error_msg = f"{error_prefix}: {str(e)}" if error_prefix else str(e)
-        logger.error(error_msg)
-        return False, None, error_msg
+        logger.error(f"Erreur: {e}")
+        return False, None, str(e)
 
-
-async def safely_control_service(service_manager, service_name: str, 
-                                action: str = "start", logger: Optional[logging.Logger] = None) -> bool:
-    """Contrôle un service systemd de manière sécurisée."""
-    if logger:
-        logger.info(f"{action.capitalize()} du service {service_name}")
+class WebSocketManager:
+    """Gestionnaire simplifié pour les connexions WebSocket."""
     
-    try:
-        if action == "start":
-            success = await service_manager.start(service_name)
-        elif action == "stop":
-            success = await service_manager.stop(service_name)
-        elif action == "restart":
-            success = await service_manager.restart(service_name)
-        else:
-            if logger:
-                logger.error(f"Action non supportée: {action}")
-            return False
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        self.connected = False
+        self.task = None
+        self._stopping = False
+    
+    async def start(self, connect_func: Callable[[], Awaitable[bool]],
+                   process_func: Callable[[], Awaitable[None]]) -> None:
+        """
+        Démarre la connexion WebSocket.
         
-        if not success and logger:
-            logger.error(f"Échec de l'opération {action} sur le service {service_name}")
+        Args:
+            connect_func: Fonction qui établit la connexion initiale
+            process_func: Fonction qui traite les messages
+        """
+        # Annuler toute tâche en cours
+        await self.stop()
         
-        return success
-    except Exception as e:
-        if logger:
-            logger.error(f"Erreur lors de l'opération {action} sur {service_name}: {e}")
-        return False
-
-
-def get_plugin_logger(name: str) -> logging.Logger:
-    """Crée un logger configuré pour un plugin."""
-    return logging.getLogger(f"plugin.{name}")
-
-
-class AsyncLockDecorator:
-    """Décorateur pour simplifier l'utilisation des locks asynchrones."""
-    def __init__(self, lock_attr_name: str):
-        self.lock_attr_name = lock_attr_name
+        self._stopping = False
         
-    def __call__(self, func):
-        async def wrapper(instance, *args, **kwargs):
-            lock = getattr(instance, self.lock_attr_name)
-            async with lock:
-                return await func(instance, *args, **kwargs)
-        return wrapper
-
-
-def with_async_lock(lock_attr_name: str):
-    """Décorateur pour protéger une méthode avec un lock asynchrone."""
-    return AsyncLockDecorator(lock_attr_name)
+        # Créer une nouvelle tâche
+        async def connection_loop():
+            try:
+                # Tenter la connexion
+                if await connect_func():
+                    self.connected = True
+                    
+                    # Traiter les messages
+                    await process_func()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self.logger.error(f"Erreur WebSocket: {e}")
+            finally:
+                self.connected = False
+        
+        self.task = asyncio.create_task(connection_loop())
+    
+    async def stop(self) -> None:
+        """Arrête la connexion WebSocket."""
+        self._stopping = True
+        
+        if self.task and not self.task.done():
+            self.task.cancel()
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                self.logger.error(f"Erreur arrêt WebSocket: {e}")
+            finally:
+                self.task = None
+        
+        self.connected = False
