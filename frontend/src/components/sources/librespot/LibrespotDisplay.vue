@@ -74,6 +74,9 @@ onMounted(async () => {
     try {
       const response = await axios.get('/librespot/status');
       if (response.data.status === 'ok') {
+        // S'assurer que les métadonnées complètes sont utilisées
+        const metadata = response.data.metadata || {};
+        
         // Simuler un événement STATE_CHANGED complet
         unifiedStore.updateState({
           data: {
@@ -81,11 +84,14 @@ onMounted(async () => {
               active_source: 'librespot',
               plugin_state: response.data.plugin_state,
               transitioning: false,
-              metadata: response.data.metadata,
+              metadata: metadata,  // Utiliser les métadonnées telles quelles
               error: null
             }
           }
         });
+        
+        // Log pour le débogage
+        console.log("Position initiale chargée:", metadata.position);
       }
     } catch (error) {
       console.error('Error fetching librespot status:', error);

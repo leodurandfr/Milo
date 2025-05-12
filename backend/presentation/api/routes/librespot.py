@@ -44,7 +44,8 @@ async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
     try:
         # Force toujours une mise à jour depuis l'API pour avoir l'état le plus récent
         if plugin.session:
-            await plugin._get_api_data()
+            # Utiliser la méthode correcte pour rafraîchir les métadonnées
+            await plugin._refresh_metadata()  # Remplacer _get_api_data() par _refresh_metadata()
         
         # Récupérer les informations de statut complètes
         status = await plugin.get_status()
@@ -56,10 +57,7 @@ async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
             "plugin_state": plugin.current_state.value,
             "device_connected": status.get("device_connected", False),
             "is_playing": status.get("is_playing", False),
-            "metadata": {
-                **status.get("metadata", {}),
-                "is_playing": status.get("is_playing", False) 
-            },
+            "metadata": status.get("metadata", {}), 
             "ws_connected": status.get("ws_connected", False)
         }
     except Exception as e:

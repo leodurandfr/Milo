@@ -20,11 +20,12 @@ export function usePlaybackProgress() {
   });
   
   // Synchronisation avec la position de l'API
-  watch(() => unifiedStore.metadata?.position, (newPosition) => {
-    if (newPosition !== undefined) {
-      localPosition.value = newPosition;
-    }
-  }, { immediate: true });
+watch(() => unifiedStore.metadata?.position, (newPosition) => {
+  if (newPosition !== undefined) {
+    console.log("Position mise à jour:", newPosition); 
+    localPosition.value = newPosition;
+  }
+}, { immediate: true });
   
   // Animation locale quand la musique joue
   watch(() => unifiedStore.metadata?.is_playing, (isPlaying) => {
