@@ -1,5 +1,5 @@
 """
-Plugin Bluetooth simplifié pour oakOS utilisant bluealsa
+Plugin Bluetooth optimisé pour oakOS utilisant bluealsa - Version restructurée
 """
 import asyncio
 import subprocess
@@ -15,7 +15,7 @@ from backend.infrastructure.plugins.bluetooth.bluealsa_monitor import BlueAlsaMo
 from backend.infrastructure.plugins.bluetooth.bluealsa_playback import BlueAlsaPlayback
 
 class BluetoothPlugin(UnifiedAudioPlugin):
-    """Plugin Bluetooth pour oakOS - version concise"""
+    """Plugin Bluetooth pour oakOS - version optimisée"""
     
     def __init__(self, event_bus, config: Dict[str, Any]):
         super().__init__(event_bus, "bluetooth")
@@ -36,8 +36,8 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         self.current_device = None
         self._auto_connecting = False
     
-    async def initialize(self) -> bool:
-        """Initialise le plugin Bluetooth"""
+    async def _do_initialize(self) -> bool:
+        """Initialisation spécifique au plugin Bluetooth"""
         try:
             # Vérifier les dépendances
             if not await self._check_dependencies():
@@ -69,8 +69,8 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 return False
         return True
     
-    async def start(self) -> bool:
-        """Démarre le plugin Bluetooth"""
+    async def _do_start(self) -> bool:
+        """Démarrage spécifique au plugin Bluetooth"""
         try:
             # 1. Démarrer les services
             for service in [self.bluetooth_service, self.bluealsa_service]:
@@ -89,12 +89,9 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             if not await self.monitor.start_monitoring():
                 raise RuntimeError("Erreur démarrage surveillance BlueALSA")
             
-            # 5. Notifier l'état prêt
-            await self.notify_state_change(PluginState.READY)
             return True
         except Exception as e:
             self.logger.error(f"Erreur démarrage Bluetooth: {e}")
-            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
             await self._cleanup()
             return False
     

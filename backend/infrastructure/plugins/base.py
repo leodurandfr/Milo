@@ -1,16 +1,16 @@
 """
-Classe de base concise pour les plugins de sources audio.
+Classe de base optimisée pour les plugins de sources audio.
 """
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List, Callable
+from typing import Dict, Any, Optional
 
 from backend.application.interfaces.audio_source import AudioSourcePlugin
 from backend.domain.audio_state import PluginState, AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
-    """Classe de base pour plugins audio avec fonctionnalités communes."""
+    """Classe de base pour plugins audio avec fonctionnalités communes et gestion d'état améliorée."""
     
     def __init__(self, event_bus, name: str):
         self.event_bus = event_bus
@@ -19,6 +19,7 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         self._state_machine = None
         self._current_state = PluginState.INACTIVE
         self.service_manager = SystemdServiceManager()
+        self._initialized = False  # Nouveau flag pour éviter les réinitialisations
     
     def set_state_machine(self, state_machine) -> None:
         """Définit la référence à la machine à états."""
@@ -88,15 +89,53 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
             
         return {**response, **kwargs}
     
-    # Méthodes abstraites que les plugins doivent implémenter
-    @abstractmethod
+    # Nouvelles méthodes standardisées
+    
     async def initialize(self) -> bool:
-        """Initialise le plugin."""
-        pass
-        
+        """Initialise le plugin avec idempotence."""
+        if self._initialized:
+            return True
+            
+        try:
+            success = await self._do_initialize()
+            if success:
+                self._initialized = True
+            return success
+        except Exception as e:
+            self.logger.error(f"Erreur d'initialisation {self.name}: {e}")
+            return False
+    
     @abstractmethod
+    async def _do_initialize(self) -> bool:
+        """Implémentation spécifique de l'initialisation."""
+        pass
+    
     async def start(self) -> bool:
-        """Démarre la source audio."""
+        """Démarre la source audio avec gestion d'état."""
+        # S'assurer que le plugin est initialisé
+        if not self._initialized and not await self.initialize():
+            await self.notify_state_change(PluginState.ERROR, {"error": "Échec d'initialisation"})
+            return False
+            
+        try:
+            # Démarrer le plugin
+            success = await self._do_start()
+            
+            # Notifier le changement d'état
+            if success:
+                await self.notify_state_change(PluginState.READY)
+            else:
+                await self.notify_state_change(PluginState.ERROR, {"error": "Échec du démarrage"})
+                
+            return success
+        except Exception as e:
+            self.logger.error(f"Erreur démarrage {self.name}: {e}")
+            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
+            return False
+    
+    @abstractmethod
+    async def _do_start(self) -> bool:
+        """Implémentation spécifique du démarrage."""
         pass
         
     @abstractmethod
@@ -114,7 +153,7 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         """Traite une commande pour cette source."""
         pass
 
-    # Méthode optionnelle que les plugins peuvent implémenter
+    # Méthode optionnelle avec implémentation par défaut
     async def get_initial_state(self) -> Dict[str, Any]:
         """État initial pour les nouvelles connexions WebSocket."""
         return await self.get_status()

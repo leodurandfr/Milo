@@ -1,5 +1,5 @@
 """
-Plugin Snapclient optimisé pour oakOS
+Plugin Snapclient optimisé pour oakOS - Version restructurée
 """
 import asyncio
 from typing import Dict, Any, List
@@ -12,7 +12,7 @@ from backend.infrastructure.plugins.snapclient.connection import SnapclientConne
 from backend.infrastructure.plugins.snapclient.models import SnapclientServer
 
 class SnapclientPlugin(UnifiedAudioPlugin):
-    """Plugin pour la source audio Snapclient - Version concise"""
+    """Plugin pour la source audio Snapclient - Version optimisée"""
 
     def __init__(self, event_bus, config: Dict[str, Any]):
         super().__init__(event_bus, "snapclient")
@@ -29,8 +29,8 @@ class SnapclientPlugin(UnifiedAudioPlugin):
         self._connection_lock = asyncio.Lock()
         self._auto_connecting = False
 
-    async def initialize(self) -> bool:
-        """Initialise le plugin"""
+    async def _do_initialize(self) -> bool:
+        """Initialisation spécifique à Snapclient"""
         try:
             # Vérifier que le service systemd existe
             proc = await asyncio.create_subprocess_exec(
@@ -50,16 +50,14 @@ class SnapclientPlugin(UnifiedAudioPlugin):
             self.logger.error(f"Erreur initialisation: {e}")
             return False
 
-    async def start(self) -> bool:
-        """Démarre le plugin"""
+    async def _do_start(self) -> bool:
+        """Démarrage spécifique à Snapclient"""
         try:
             # Démarrer la découverte de serveurs
             await self.discovery.start()
-            await self.notify_state_change(PluginState.READY)
             return True
         except Exception as e:
             self.logger.error(f"Erreur démarrage: {e}")
-            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
             return False
 
     async def stop(self) -> bool:
@@ -86,50 +84,64 @@ class SnapclientPlugin(UnifiedAudioPlugin):
         async with self._connection_lock:
             # Serveur supprimé
             if event_type == "removed":
-                if self.connection.current_server and self.connection.current_server.host == server.host:
-                    await self.notify_state_change(PluginState.READY, {
-                        "server_disappeared": True,
-                        "host": server.host
-                    })
-                
-                self.discovered_servers = [s for s in self.discovered_servers if s.host != server.host]
+                self._handle_server_removed(server)
                 return
 
             # Serveur ajouté ou mis à jour
             if event_type in ["added", "updated"]:
-                # Éviter les auto-connexions en cascade
-                if self._auto_connecting:
-                    return
+                await self._handle_server_added_or_updated(server)
                 
-                # Mettre à jour la liste
-                found = False
-                for i, s in enumerate(self.discovered_servers):
-                    if s.host == server.host:
-                        self.discovered_servers[i] = server
-                        found = True
-                        break
-                if not found:
-                    self.discovered_servers.append(server)
+    async def _handle_server_added_or_updated(self, server: SnapclientServer) -> None:
+        """Gère l'ajout ou la mise à jour d'un serveur"""
+        # Éviter les auto-connexions en cascade
+        if self._auto_connecting:
+            return
+        
+        # Mettre à jour la liste
+        self._update_server_list(server)
 
-                # Notifier la découverte
-                await self.notify_state_change(
-                    self.current_state,
-                    {
-                        "server_discovered": True,
-                        "server": server.to_dict(),
-                        "discovered_count": len(self.discovered_servers)
-                    }
-                )
+        # Notifier la découverte
+        await self.notify_state_change(
+            self.current_state,
+            {
+                "server_discovered": True,
+                "server": server.to_dict(),
+                "discovered_count": len(self.discovered_servers)
+            }
+        )
 
-                # Auto-connexion si configuré
-                if (not self.connection.current_server and 
-                        not self._auto_connecting and 
-                        self.config.get("auto_connect", False)):
-                    try:
-                        self._auto_connecting = True
-                        await self.connection.connect(server)
-                    finally:
-                        self._auto_connecting = False
+        # Auto-connexion si configuré
+        if (not self.connection.current_server and 
+                not self._auto_connecting and 
+                self.config.get("auto_connect", False)):
+            try:
+                self._auto_connecting = True
+                await self.connection.connect(server)
+            finally:
+                self._auto_connecting = False
+                
+    def _handle_server_removed(self, server: SnapclientServer) -> None:
+        """Gère la suppression d'un serveur"""
+        # Notifier si le serveur actuel a disparu
+        if self.connection.current_server and self.connection.current_server.host == server.host:
+            asyncio.create_task(self.notify_state_change(PluginState.READY, {
+                "server_disappeared": True,
+                "host": server.host
+            }))
+        
+        # Mettre à jour la liste
+        self.discovered_servers = [s for s in self.discovered_servers if s.host != server.host]
+                
+    def _update_server_list(self, server: SnapclientServer) -> None:
+        """Met à jour la liste des serveurs découverts"""
+        found = False
+        for i, s in enumerate(self.discovered_servers):
+            if s.host == server.host:
+                self.discovered_servers[i] = server
+                found = True
+                break
+        if not found:
+            self.discovered_servers.append(server)
 
     async def _handle_monitor_event(self, data: Dict[str, Any]) -> None:
         """Traite les événements du moniteur WebSocket"""
@@ -156,39 +168,48 @@ class SnapclientPlugin(UnifiedAudioPlugin):
         """Traite les commandes du plugin"""
         try:
             if command == "discover":
-                # Découvrir les serveurs
-                servers = await self.discovery.discover_servers()
-                self.discovered_servers = servers
-                return self.format_response(
-                    True,
-                    servers=[s.to_dict() for s in servers],
-                    count=len(servers)
-                )
+                return await self._handle_discover_command()
                 
             elif command == "restart_service":
-                # Redémarrer le service
-                success = await self.control_service(self.service_name, "restart")
-                return self.format_response(
-                    success,
-                    message="Service redémarré avec succès" if success else "Échec du redémarrage"
-                )
+                return await self._handle_restart_command()
             
             elif command == "connect" and data.get("host"):
-                # Connecter à un serveur
-                server = next((s for s in self.discovered_servers if s.host == data["host"]), None)
-                if not server:
-                    return self.format_response(False, error=f"Serveur non trouvé: {data['host']}")
-                    
-                success = await self.connection.connect(server)
-                return self.format_response(
-                    success,
-                    message=f"Connecté à {server.name}" if success else f"Échec de la connexion à {server.name}"
-                )
+                return await self._handle_connect_command(data["host"])
             
             return self.format_response(False, error=f"Commande inconnue: {command}")
         except Exception as e:
             self.logger.error(f"Erreur commande {command}: {e}")
             return self.format_response(False, error=str(e))
+            
+    async def _handle_discover_command(self) -> Dict[str, Any]:
+        """Gère la commande de découverte"""
+        servers = await self.discovery.discover_servers()
+        self.discovered_servers = servers
+        return self.format_response(
+            True,
+            servers=[s.to_dict() for s in servers],
+            count=len(servers)
+        )
+        
+    async def _handle_restart_command(self) -> Dict[str, Any]:
+        """Gère la commande de redémarrage"""
+        success = await self.control_service(self.service_name, "restart")
+        return self.format_response(
+            success,
+            message="Service redémarré avec succès" if success else "Échec du redémarrage"
+        )
+        
+    async def _handle_connect_command(self, host: str) -> Dict[str, Any]:
+        """Gère la commande de connexion"""
+        server = next((s for s in self.discovered_servers if s.host == host), None)
+        if not server:
+            return self.format_response(False, error=f"Serveur non trouvé: {host}")
+            
+        success = await self.connection.connect(server)
+        return self.format_response(
+            success,
+            message=f"Connecté à {server.name}" if success else f"Échec de la connexion à {server.name}"
+        )
         
     async def get_status(self) -> Dict[str, Any]:
         """Récupère l'état actuel du plugin"""

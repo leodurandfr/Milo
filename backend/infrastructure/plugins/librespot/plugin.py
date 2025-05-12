@@ -1,5 +1,5 @@
 """
-Plugin librespot optimisé pour oakOS - Version cohérente avec les autres plugins
+Plugin librespot optimisé pour oakOS - Version restructurée et simplifiée
 """
 import os
 import yaml
@@ -13,7 +13,7 @@ from backend.domain.audio_state import PluginState
 from backend.infrastructure.plugins.plugin_utils import WebSocketManager
 
 class LibrespotPlugin(UnifiedAudioPlugin):
-    """Plugin Spotify via go-librespot - Version concise et cohérente"""
+    """Plugin Spotify via go-librespot - Optimisé avec la nouvelle architecture"""
     
     def __init__(self, event_bus, config: Dict[str, Any]):
         super().__init__(event_bus, "librespot")
@@ -33,11 +33,8 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         # Créer le gestionnaire WebSocket
         self.ws_manager = WebSocketManager(self.logger)
     
-    async def initialize(self) -> bool:
-        """Initialise le plugin"""
-        if getattr(self, "_initialized", False):
-            return True
-            
+    async def _do_initialize(self) -> bool:
+        """Initialisation spécifique à go-librespot"""
         try:
             # Vérifier l'existence du service
             proc = await asyncio.create_subprocess_exec(
@@ -61,15 +58,13 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             self.api_url = f"http://{addr}:{port}"
             self.ws_url = f"ws://{addr}:{port}/events"
             
-            self._initialized = True
             return True
         except Exception as e:
             self.logger.error(f"Erreur d'initialisation: {e}")
-            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
             return False
     
-    async def start(self) -> bool:
-        """Démarre le plugin"""
+    async def _do_start(self) -> bool:
+        """Démarrage spécifique à go-librespot"""
         try:
             # Démarrer le service
             if not await self.control_service(self.service_name, "start"):
@@ -81,12 +76,35 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             # Démarrer la connexion WebSocket
             await self._start_websocket()
             
-            # Notifier l'état prêt
-            await self.notify_state_change(PluginState.READY)
             return True
         except Exception as e:
             self.logger.error(f"Erreur démarrage: {e}")
-            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
+            return False
+    
+    async def stop(self) -> bool:
+        """Arrête le plugin"""
+        try:
+            # Arrêter le WebSocket
+            await self.ws_manager.stop()
+            
+            # Fermer la session HTTP
+            if self.session:
+                await self.session.close()
+                self.session = None
+            
+            # Arrêter le service
+            await self.control_service(self.service_name, "stop")
+            
+            # Réinitialiser l'état
+            self._ws_connected = False
+            self._device_connected = False
+            self._is_playing = False
+            self._metadata = {}
+            
+            await self.notify_state_change(PluginState.INACTIVE)
+            return True
+        except Exception as e:
+            self.logger.error(f"Erreur arrêt: {e}")
             return False
     
     async def _start_websocket(self) -> None:
@@ -118,32 +136,6 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         
         # Démarrer le gestionnaire WebSocket
         await self.ws_manager.start(connect_func, process_func)
-    
-    async def stop(self) -> bool:
-        """Arrête le plugin"""
-        try:
-            # Arrêter le WebSocket
-            await self.ws_manager.stop()
-            
-            # Fermer la session HTTP
-            if self.session:
-                await self.session.close()
-                self.session = None
-            
-            # Arrêter le service
-            await self.control_service(self.service_name, "stop")
-            
-            # Réinitialiser l'état
-            self._ws_connected = False
-            self._device_connected = False
-            self._is_playing = False
-            self._metadata = {}
-            
-            await self.notify_state_change(PluginState.INACTIVE)
-            return True
-        except Exception as e:
-            self.logger.error(f"Erreur arrêt: {e}")
-            return False
     
     async def _handle_event(self, event: Dict[str, Any]) -> None:
         """Traite un événement WebSocket"""
