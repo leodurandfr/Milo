@@ -51,6 +51,7 @@ const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackPro
 const hasTrackInfo = computed(() => {
   return !!(
     unifiedStore.currentSource === 'librespot' &&
+    unifiedStore.pluginState === 'connected' && 
     unifiedStore.metadata?.title && 
     unifiedStore.metadata?.artist
   );

@@ -1,0 +1,48 @@
+[0m[0;4mUNIT FILE                         [0m[0m[0;4m STATE  [0m[0m[0;4m PRESET [0m
+[0m[0;4mcups.path                         [0m[0m[0;4m [0m[0;1;32m[0;4menabled[0m[0;1;32m[0;4m [0m[0;1;32m[0;4menabled[0m
+accounts-daemon.service            [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+apparmor.service                   [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+avahi-daemon.service               [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+bluetooth.service                  [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+console-setup.service              [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+cron.service                       [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+cups-browsed.service               [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+cups.service                       [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+dphys-swapfile.service             [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+e2scrub_reap.service               [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+fake-hwclock.service               [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+getty@.service                     [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+glamor-test.service                [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+hciuart.service                    [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+keyboard-setup.service             [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+lightdm.service                    [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+ModemManager.service               [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+NetworkManager-dispatcher.service  [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+NetworkManager-wait-online.service [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+NetworkManager.service             [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+rp1-test.service                   [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+rpi-display-backlight.service      [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+rpi-eeprom-update.service          [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+ssh.service                        [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+sshswitch.service                  [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+systemd-pstore.service             [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+systemd-timesyncd.service          [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+triggerhappy.service               [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+udisks2.service                    [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+wayvnc-control.service             [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+wayvnc.service                     [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+[0m[0;4mwpa_supplicant.service            [0m[0m[0;4m [0m[0;1;32m[0;4menabled[0m[0;1;32m[0;4m [0m[0;1;32m[0;4menabled[0m
+avahi-daemon.socket                [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+cups.socket                        [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+[0m[0;4mtriggerhappy.socket               [0m[0m[0;4m [0m[0;1;32m[0;4menabled[0m[0;1;32m[0;4m [0m[0;1;32m[0;4menabled[0m
+nfs-client.target                  [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+[0m[0;4mremote-fs.target                  [0m[0m[0;4m [0m[0;1;32m[0;4menabled[0m[0;1;32m[0;4m [0m[0;1;32m[0;4menabled[0m
+apt-daily-upgrade.timer            [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+apt-daily.timer                    [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+dpkg-db-backup.timer               [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+e2scrub_all.timer                  [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+fstrim.timer                       [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+logrotate.timer                    [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+man-db.timer                       [0;1;32menabled[0m[0;1;32m [0m[0;1;32menabled[0m
+
+45 unit files listed.
