@@ -56,12 +56,12 @@ class Container(containers.DeclarativeContainer):
         event_bus=event_bus,
         config=providers.Dict({
             "daemon_options": "--keep-alive=5",
-            "service_name": "bluealsa.service",
+            "service_name": "oakos-bluealsa.service",
             "bluetooth_service": "bluetooth.service",
             "stop_bluetooth_on_exit": True,
             "auto_agent": True
         })
-    )
+)
     
     
     # Méthode pour enregistrer les plugins

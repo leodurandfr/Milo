@@ -23,7 +23,8 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         # Configuration
         self.config = config
         self.bluetooth_service = config.get("bluetooth_service", "bluetooth.service")
-        self.bluealsa_service = config.get("service_name", "bluealsa.service")
+        self.bluealsa_service = config.get("service_name", "oakos-bluealsa.service")
+        self.bluealsa_aplay_service = "oakos-bluealsa-aplay.service"
         self.stop_bluetooth = config.get("stop_bluetooth_on_exit", True)
         self.auto_agent = config.get("auto_agent", True)
         
