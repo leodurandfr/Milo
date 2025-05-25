@@ -38,7 +38,7 @@ import useWebSocket from '@/services/websocket';
 import LibrespotDisplay from '@/components/sources/librespot/LibrespotDisplay.vue';
 import SnapclientComponent from '@/components/sources/snapclient/SnapclientComponent.vue';
 import BluetoothDisplay from '@/components/sources/bluetooth/BluetoothDisplay.vue';
-
+import RocDisplay from '@/components/sources/roc/RocDisplay.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
@@ -46,6 +46,7 @@ const { on } = useWebSocket();
 const sources = [
   { id: 'librespot', label: 'Spotify' },
   { id: 'bluetooth', label: 'Bluetooth' },
+  { id: 'roc', label: 'ROC' },
   { id: 'snapclient', label: 'MacOS' },
   { id: 'webradio', label: 'Web Radio' }
 ];
@@ -60,6 +61,7 @@ const currentComponent = computed(() => {
     case 'librespot': return LibrespotDisplay;
     case 'snapclient': return SnapclientComponent;
     case 'bluetooth': return BluetoothDisplay;
+    case 'roc': return RocDisplay;
     default: return null;
   }
 });

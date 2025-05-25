@@ -12,6 +12,7 @@ class AudioSource(Enum):
     NONE = "none"
     LIBRESPOT = "librespot"
     BLUETOOTH = "bluetooth"
+    ROC = "roc"
     SNAPCLIENT = "snapclient"
     WEBRADIO = "webradio"
 

@@ -14,7 +14,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',  // Utilisation explicite de l'IPv4
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
@@ -40,8 +40,18 @@ export default defineConfig({
           });
         },
       },
+
+      '/roc': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('Erreur de proxy roc:', err);
+          });
+        },
+      },
       '/ws': {
-        target: 'ws://127.0.0.1:8000',    // Utilisation explicite de l'IPv4
+        target: 'ws://127.0.0.1:8000',
         ws: true,
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
