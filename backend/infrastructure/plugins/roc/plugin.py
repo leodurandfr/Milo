@@ -98,6 +98,7 @@ class RocPlugin(UnifiedAudioPlugin):
 
     async def _monitor_events(self):
         """Surveillance événementielle pure avec journalctl -f"""
+        proc = None
         try:
             # Lire l'état initial
             await self._check_initial_state()
@@ -122,17 +123,20 @@ class RocPlugin(UnifiedAudioPlugin):
                 except Exception as e:
                     self.logger.error(f"Erreur traitement log: {e}")
                     break
-                    
+                        
         except asyncio.CancelledError:
-            if proc:
-                proc.terminate()
-                await proc.wait()
-            raise
+            # Ne pas re-raise ici, laisser le finally faire le cleanup
+            pass
         except Exception as e:
             self.logger.error(f"Erreur surveillance: {e}")
         finally:
-            if proc:
-                proc.terminate()
+            # Terminer le processus une seule fois s'il existe
+            if proc and proc.returncode is None:
+                try:
+                    proc.terminate()
+                    await proc.wait()
+                except ProcessLookupError:
+                    pass  # Le processus est déjà terminé
 
     async def _check_initial_state(self):
         """Vérifie l'état initial rapidement"""
