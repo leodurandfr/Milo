@@ -40,6 +40,7 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         """Retourne l'enum AudioSource correspondant à ce plugin."""
         sources = {
             'librespot': AudioSource.LIBRESPOT,
+            'roc': AudioSource.ROC,
             'snapclient': AudioSource.SNAPCLIENT,
             'bluetooth': AudioSource.BLUETOOTH,
             'webradio': AudioSource.WEBRADIO
