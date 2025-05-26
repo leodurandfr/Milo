@@ -1,5 +1,5 @@
 """
-Plugin ROC pour oakOS - Version OPTIM (simple et efficace)
+Plugin ROC pour oakOS - Version événementielle OPTIM finale
 """
 import asyncio
 import re
@@ -10,7 +10,7 @@ from backend.domain.audio_state import PluginState
 from backend.infrastructure.plugins.plugin_utils import format_response
 
 class RocPlugin(UnifiedAudioPlugin):
-    """Plugin ROC simple avec vérification périodique légère"""
+    """Plugin ROC avec surveillance événementielle et détection précise"""
 
     def __init__(self, event_bus, config: Dict[str, Any]):
         super().__init__(event_bus, "roc")
@@ -26,13 +26,12 @@ class RocPlugin(UnifiedAudioPlugin):
         # État simple
         self.has_connections = False
         self.connected_ip = None
-        self.check_task = None
+        self.monitor_task = None
         self._stopping = False
 
     async def _do_initialize(self) -> bool:
         """Initialisation du plugin ROC"""
         try:
-            # Vérifications de base
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "list-unit-files", self.service_name,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -59,9 +58,9 @@ class RocPlugin(UnifiedAudioPlugin):
                 is_active = await self.service_manager.is_active(self.service_name)
                 
                 if is_active:
-                    # Démarrer la vérification simple
+                    # Démarrer la surveillance événementielle
                     self._stopping = False
-                    self.check_task = asyncio.create_task(self._check_connections())
+                    self.monitor_task = asyncio.create_task(self._monitor_events())
                     
                     await self.notify_state_change(PluginState.READY, {
                         "listening": True,
@@ -77,82 +76,203 @@ class RocPlugin(UnifiedAudioPlugin):
             return False
 
     async def stop(self) -> bool:
-        """Arrêt du plugin ROC"""
+        """Arrêt ultra-simple du plugin ROC"""
+        self.logger.info("Arrêt simple du plugin ROC")
+        self._stopping = True
+        
+        # Cleanup des tâches
+        if self.monitor_task:
+            self.monitor_task.cancel()
+            self.monitor_task = None
+        
+        # Arrêter le service (sans vérification complexe)
+        success = await self.control_service(self.service_name, "stop")
+        
+        # Reset état
+        self.has_connections = False
+        self.connected_ip = None
+        await self.notify_state_change(PluginState.INACTIVE)
+        
+        self.logger.info(f"Arrêt ROC terminé: {success}")
+        return success
+
+    async def _monitor_events(self):
+        """Surveillance événementielle pure avec journalctl -f"""
         try:
-            self._stopping = True
+            # Lire l'état initial
+            await self._check_initial_state()
             
-            # Arrêter la vérification
-            if self.check_task:
-                self.check_task.cancel()
+            # Surveillance temps réel
+            proc = await asyncio.create_subprocess_exec(
+                "journalctl", "-f", "-u", self.service_name, "-o", "short",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            self.logger.info("Surveillance événementielle ROC active")
+            
+            while not self._stopping and proc.returncode is None:
                 try:
-                    await self.check_task
-                except asyncio.CancelledError:
-                    pass
-            
-            # Arrêter le service
-            success = await self.control_service(self.service_name, "stop")
-            
-            # Reset état
-            self.has_connections = False
-            self.connected_ip = None
-            
-            await self.notify_state_change(PluginState.INACTIVE)
-            return success
-            
+                    line = await asyncio.wait_for(proc.stdout.readline(), timeout=1.0)
+                    if line:
+                        log_line = line.decode('utf-8').strip()
+                        await self._process_log_line(log_line)
+                except asyncio.TimeoutError:
+                    continue
+                except Exception as e:
+                    self.logger.error(f"Erreur traitement log: {e}")
+                    break
+                    
+        except asyncio.CancelledError:
+            if proc:
+                proc.terminate()
+                await proc.wait()
+            raise
         except Exception as e:
-            self.logger.error(f"Erreur arrêt ROC: {e}")
-            return False
+            self.logger.error(f"Erreur surveillance: {e}")
+        finally:
+            if proc:
+                proc.terminate()
 
-    async def _check_connections(self):
-        """Vérification simple et périodique"""
-        while not self._stopping:
-            try:
-                await asyncio.sleep(1)  # 1 seconde
-                if not self._stopping:
-                    await self._check_activity()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error(f"Erreur vérification: {e}")
-
-    async def _check_activity(self):
-        """Vérifie l'activité dans les logs récents"""
+    async def _check_initial_state(self):
+        """Vérifie l'état initial rapidement"""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "journalctl", "-u", self.service_name, "-n", "10", "--no-pager", "-o", "short",
+                "journalctl", "-u", self.service_name, "-n", "50", "--no-pager",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await proc.communicate()
+            
+            if proc.returncode == 0:
+                lines = stdout.decode().split('\n')
+                
+                # Chercher les connexions récentes
+                for line in reversed(lines):  # Plus récent en premier
+                    if line.strip():
+                        await self._process_log_line(line)
+                        
+                # Si on a trouvé une activité, vérifier qu'il n'y a pas de déconnexion après
+                if self.has_connections:
+                    for line in lines:  # Dans l'ordre chronologique
+                        if "removing session" in line or "session router: removing route" in line:
+                            self.logger.info("Déconnexion détectée dans l'état initial")
+                            self.has_connections = False
+                            self.connected_ip = None
+                            break
+                            
+        except Exception as e:
+            self.logger.error(f"Erreur état initial: {e}")
+
+    async def _process_log_line(self, line: str):
+        """Traite une ligne de log - Détection connexion ET déconnexion"""
+        try:
+            # DÉCONNEXION - Patterns spécifiques de ROC (priorité)
+            disconnection_patterns = [
+                r"session group: removing session",
+                r"session router: removing route",
+                r"rtcp reporter: removing address"
+            ]
+            
+            for pattern in disconnection_patterns:
+                if re.search(pattern, line):
+                    if self.has_connections:
+                        self.logger.info(f"DÉCONNEXION détectée via log: {pattern}")
+                        self.has_connections = False
+                        self.connected_ip = None
+                        await self._update_state()
+                    return  # Important: sortir après détection
+            
+            # CONNEXION - Patterns d'activité
+            activity_patterns = [
+                r"depacketizer.*got first packet",
+                r"delayed reader.*queue.*packets=",
+                r"fec reader.*update",
+                r"udp port.*recv=\d+.*send=\d+",
+                r"session group: creating session",  # Nouvelle connexion explicite
+                r"creating.*route.*address="         # Nouvelle route
+            ]
+            
+            for pattern in activity_patterns:
+                if re.search(pattern, line):
+                    if not self.has_connections:
+                        self.logger.info(f"CONNEXION détectée via log: {pattern}")
+                        self.has_connections = True
+                        
+                        # Chercher l'IP dans cette ligne ou les logs récents
+                        ip_match = re.search(r"address=([0-9\.]+):\d+", line)
+                        if ip_match:
+                            self.connected_ip = ip_match.group(1)
+                            self.logger.info(f"IP trouvée dans la ligne: {self.connected_ip}")
+                        elif not self.connected_ip:
+                            await self._find_connection_ip()
+                        
+                        await self._update_state()
+                    return  # Important: sortir après détection
+                
+        except Exception as e:
+            self.logger.error(f"Erreur process line: {e}")
+
+    async def _find_connection_ip(self):
+        """Trouve l'IP de connexion dans les logs récents"""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "journalctl", "-u", self.service_name, "-n", "100", "--no-pager",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             stdout, _ = await proc.communicate()
             
             if proc.returncode == 0:
                 logs = stdout.decode()
+                ip_patterns = [
+                    r"address=([0-9\.]+):\d+",
+                    r"src_addr=([0-9\.]+):\d+"
+                ]
                 
-                # Chercher une connexion active
-                has_activity = bool(re.search(r"latency tuner.*e2e_latency=|depacketizer.*loss_ratio=", logs))
-                
-                # Extraire l'IP si trouvée
-                ip_match = re.search(r"address=([0-9\.]+):\d+", logs)
-                current_ip = ip_match.group(1) if ip_match else None
-                
-                # Mettre à jour si changement
-                if has_activity != self.has_connections or current_ip != self.connected_ip:
-                    self.has_connections = has_activity
-                    self.connected_ip = current_ip
-                    await self._update_state()
-                    
+                for pattern in ip_patterns:
+                    ip_match = re.search(pattern, logs)
+                    if ip_match:
+                        self.connected_ip = ip_match.group(1)
+                        self.logger.info(f"IP trouvée: {self.connected_ip}")
+                        break
+                        
         except Exception as e:
-            self.logger.error(f"Erreur vérification activité: {e}")
+            self.logger.error(f"Erreur recherche IP: {e}")
+
+    async def _resolve_hostname(self, ip: str) -> str:
+        """Résout le hostname mDNS"""
+        if not ip:
+            return "Mac connecté"
+        
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "avahi-resolve", "-a", ip,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            stdout, _ = await proc.communicate()
+            
+            if proc.returncode == 0:
+                output = stdout.decode().strip()
+                parts = output.split()
+                if len(parts) >= 2:
+                    return parts[1].rstrip('.')
+        except:
+            pass
+        
+        return ip
 
     async def _update_state(self):
         """Met à jour l'état"""
         if self.has_connections:
+            display_name = await self._resolve_hostname(self.connected_ip)
+            
             await self.notify_state_change(PluginState.CONNECTED, {
                 "listening": True,
                 "rtp_port": self.rtp_port,
                 "audio_output": self.audio_output,
                 "connected": True,
                 "client_ip": self.connected_ip,
-                "client_name": self.connected_ip  # Simple : juste l'IP
+                "client_name": display_name
             })
         else:
             await self.notify_state_change(PluginState.READY, {
@@ -166,13 +286,16 @@ class RocPlugin(UnifiedAudioPlugin):
         """État actuel"""
         try:
             service_status = await self.service_manager.get_status(self.service_name)
+            client_name = await self._resolve_hostname(self.connected_ip) if self.connected_ip else None
+            
             return {
                 "service_active": service_status.get("active", False),
                 "listening": service_status.get("active", False),
                 "rtp_port": self.rtp_port,
                 "audio_output": self.audio_output,
                 "connected": self.has_connections,
-                "client_ip": self.connected_ip
+                "client_ip": self.connected_ip,
+                "client_name": client_name
             }
         except Exception as e:
             return {"error": str(e)}
@@ -182,6 +305,18 @@ class RocPlugin(UnifiedAudioPlugin):
         try:
             if command == "restart":
                 success = await self.control_service(self.service_name, "restart")
+                if success:
+                    # Redémarrer la surveillance
+                    if self.monitor_task:
+                        self.monitor_task.cancel()
+                        try:
+                            await self.monitor_task
+                        except asyncio.CancelledError:
+                            pass
+                    
+                    await asyncio.sleep(1)
+                    self.monitor_task = asyncio.create_task(self._monitor_events())
+                
                 return format_response(success, "Redémarré" if success else "Échec")
             
             return format_response(False, error=f"Commande inconnue: {command}")
