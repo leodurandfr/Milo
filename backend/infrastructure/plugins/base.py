@@ -41,7 +41,6 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         sources = {
             'librespot': AudioSource.LIBRESPOT,
             'roc': AudioSource.ROC,
-            'snapclient': AudioSource.SNAPCLIENT,
             'bluetooth': AudioSource.BLUETOOTH,
             'webradio': AudioSource.WEBRADIO
         }

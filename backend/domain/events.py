@@ -35,7 +35,7 @@ class StandardEvent:
     """Structure standardisée pour tous les événements"""
     category: EventCategory
     type: EventType
-    source: str  # Qui a émis l'événement (system, librespot, snapclient, etc.)
+    source: str  # Qui a émis l'événement (system, librespot, etc.)
     data: Dict[str, Any]
     timestamp: float = None
     

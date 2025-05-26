@@ -8,7 +8,6 @@ from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
 from backend.infrastructure.plugins.librespot import LibrespotPlugin
 from backend.infrastructure.plugins.roc import RocPlugin
 from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
-from backend.infrastructure.plugins.snapclient import SnapclientPlugin
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 from backend.domain.audio_state import AudioSource
@@ -32,6 +31,7 @@ class Container(containers.DeclarativeContainer):
     )
     
     # Plugins audio
+    # GO-LIBRESPOT
     librespot_plugin = providers.Singleton(
         LibrespotPlugin,
         event_bus=event_bus,
@@ -40,7 +40,8 @@ class Container(containers.DeclarativeContainer):
             "service_name": "oakos-go-librespot.service" 
         })
     )
-
+    
+    # ROC-TOOLKIT
     roc_plugin = providers.Singleton(
         RocPlugin,
         event_bus=event_bus,
@@ -52,17 +53,8 @@ class Container(containers.DeclarativeContainer):
             "audio_output": "hw:1,0"
         })
     )
-    snapclient_plugin = providers.Singleton(
-        SnapclientPlugin,
-        event_bus=event_bus,
-        config=providers.Dict({
-            "service_name": "oakos-snapclient.service",
-            "auto_discover": True, 
-            "auto_connect": True
-        })
-    )
     
-    # VERSION SYSTEMD
+    # BLUETOOTH
     bluetooth_plugin = providers.Singleton(
         BluetoothPlugin,
         event_bus=event_bus,
@@ -83,14 +75,12 @@ class Container(containers.DeclarativeContainer):
         # Récupération des instances via le conteneur global
         state_machine = container.audio_state_machine()
         state_machine.register_plugin(AudioSource.LIBRESPOT, container.librespot_plugin())
-        state_machine.register_plugin(AudioSource.SNAPCLIENT, container.snapclient_plugin())
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
         state_machine.register_plugin(AudioSource.ROC, container.roc_plugin())
 
         
         # Injecter la référence à la machine à états dans les plugins
         container.librespot_plugin().set_state_machine(state_machine)
-        container.snapclient_plugin().set_state_machine(state_machine)
         container.bluetooth_plugin().set_state_machine(state_machine)
         container.roc_plugin().set_state_machine(state_machine)
 
