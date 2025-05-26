@@ -125,3 +125,27 @@ async def get_roc_info(plugin = Depends(get_roc_plugin)):
             "status": "error",
             "message": f"Erreur lors de la récupération des informations: {str(e)}"
         }
+        
+        
+@router.get("/connections")
+async def get_roc_connections(plugin = Depends(get_roc_plugin)):
+    """Récupère la liste des connexions actives"""
+    try:
+        result = await plugin.handle_command("get_connections", {})
+        
+        if result.get("success"):
+            return {
+                "status": "success",
+                "connections": result.get("connections", {}),
+                "connection_count": result.get("connection_count", 0)
+            }
+        else:
+            return {
+                "status": "error",
+                "message": result.get("error", "Impossible de récupérer les connexions")
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Erreur lors de la récupération des connexions: {str(e)}"
+        }
