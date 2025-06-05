@@ -19,7 +19,8 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         self._state_machine = None
         self._current_state = PluginState.INACTIVE
         self.service_manager = SystemdServiceManager()
-        self._initialized = False  # Nouveau flag pour éviter les réinitialisations
+        self._initialized = False
+        self._current_device = None
     
     def set_state_machine(self, state_machine) -> None:
         """Définit la référence à la machine à états."""
@@ -50,6 +51,11 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
     def current_state(self) -> PluginState:
         """Récupère l'état actuel du plugin."""
         return self._current_state
+    
+    @property
+    def current_device(self) -> Optional[str]:
+        """Récupère le device audio actuel."""
+        return self._current_device
     
     # Méthodes utilitaires communes
     
@@ -89,8 +95,6 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
             
         return {**response, **kwargs}
     
-    # Nouvelles méthodes standardisées
-    
     async def initialize(self) -> bool:
         """Initialise le plugin avec idempotence."""
         if self._initialized:
@@ -112,16 +116,13 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
     
     async def start(self) -> bool:
         """Démarre la source audio avec gestion d'état."""
-        # S'assurer que le plugin est initialisé
         if not self._initialized and not await self.initialize():
             await self.notify_state_change(PluginState.ERROR, {"error": "Échec d'initialisation"})
             return False
             
         try:
-            # Démarrer le plugin
             success = await self._do_start()
             
-            # Notifier le changement d'état
             if success:
                 await self.notify_state_change(PluginState.READY)
             else:
@@ -153,7 +154,13 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         """Traite une commande pour cette source."""
         pass
 
-    # Méthode optionnelle avec implémentation par défaut
+    # Méthode par défaut pour le changement de device (peut être surchargée)
+    async def change_audio_device(self, new_device: str) -> bool:
+        """Change le device audio de sortie - implémentation par défaut"""
+        self._current_device = new_device
+        self.logger.info(f"Device updated to {new_device} for {self.name}")
+        return True
+
     async def get_initial_state(self) -> Dict[str, Any]:
         """État initial pour les nouvelles connexions WebSocket."""
         return await self.get_status()

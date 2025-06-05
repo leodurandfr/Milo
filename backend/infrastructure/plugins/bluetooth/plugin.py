@@ -33,9 +33,10 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         self.monitor = BlueAlsaMonitor()
         self.playback = BlueAlsaPlayback()
         
-        # État
-        self.current_device = None
+        # État - Renommé pour éviter le conflit avec la classe de base
+        self.connected_device = None
         self._auto_connecting = False
+        self._current_device = "oakos_bluetooth"
     
     async def _do_initialize(self) -> bool:
         """Initialisation spécifique au plugin Bluetooth"""
@@ -78,15 +79,19 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 if not await self.control_service(service, "start"):
                     raise RuntimeError(f"Impossible de démarrer {service}")
             
-            # 2. Configurer l'adaptateur
+            # 2. Démarrer le service aplay
+            if not await self.control_service(self.bluealsa_aplay_service, "start"):
+                raise RuntimeError(f"Impossible de démarrer {self.bluealsa_aplay_service}")
+            
+            # 3. Configurer l'adaptateur
             if not await self._configure_adapter():
                 self.logger.warning("Erreur configuration adaptateur Bluetooth")
             
-            # 3. Enregistrer l'agent si demandé
+            # 4. Enregistrer l'agent si demandé
             if self.auto_agent and not await self.agent.register():
                 self.logger.warning("Erreur enregistrement agent Bluetooth")
             
-            # 4. Démarrer la surveillance
+            # 5. Démarrer la surveillance
             if not await self.monitor.start_monitoring():
                 raise RuntimeError("Erreur démarrage surveillance BlueALSA")
             
@@ -130,16 +135,37 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             
             # Arrêter les services si configuré
             if self.stop_bluetooth:
+                await self.control_service(self.bluealsa_aplay_service, "stop")
                 for service in [self.bluealsa_service, self.bluetooth_service]:
                     await self.control_service(service, "stop")
             
             # Réinitialiser l'état
-            self.current_device = None
+            self.connected_device = None
             await self.notify_state_change(PluginState.INACTIVE)
             
             return True
         except Exception as e:
             self.logger.error(f"Erreur arrêt plugin Bluetooth: {e}")
+            return False
+    
+    async def change_audio_device(self, new_device: str) -> bool:
+        """Change le device audio de Bluetooth - Version simplifiée pour ALSA dynamique"""
+        if self._current_device == new_device:
+            self.logger.info(f"Bluetooth device already set to {new_device}")
+            return True
+        
+        try:
+            self.logger.info(f"Changing bluetooth device from {self._current_device} to {new_device}")
+            
+            # Mettre à jour juste le device (ALSA se charge du routage dynamique)
+            self._current_device = new_device
+            
+            # Le service bluealsa-aplay utilise toujours "oakos_bluetooth"
+            # ALSA se charge de router selon OAKOS_MODE
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Error changing bluetooth device: {e}")
             return False
     
     async def _run_bluetoothctl_command(self, commands) -> bool:
@@ -173,11 +199,11 @@ class BluetoothPlugin(UnifiedAudioPlugin):
     async def _on_device_connected(self, address: str, name: str) -> None:
         """Callback appelé lors de la connexion d'un appareil"""
         # Ne rien faire si on est déjà connecté
-        if self.current_device:
+        if self.connected_device:
             return
             
         # Enregistrer et connecter l'appareil
-        self.current_device = {"address": address, "name": name}
+        self.connected_device = {"address": address, "name": name}
         
         # Notifier l'état et démarrer la lecture
         await self.notify_state_change(
@@ -195,14 +221,14 @@ class BluetoothPlugin(UnifiedAudioPlugin):
     async def _on_device_disconnected(self, address: str, name: str) -> None:
         """Callback appelé lors de la déconnexion d'un appareil"""
         # Vérifier si c'est l'appareil actuel
-        if not self.current_device or self.current_device.get("address") != address:
+        if not self.connected_device or self.connected_device.get("address") != address:
             return
             
         # Arrêter la lecture
         await self.playback.stop_playback(address)
         
         # Réinitialiser l'état
-        self.current_device = None
+        self.connected_device = None
         
         # Notifier le changement d'état
         await self.notify_state_change(PluginState.READY, {"device_connected": False})
@@ -223,10 +249,10 @@ class BluetoothPlugin(UnifiedAudioPlugin):
     
     async def _handle_disconnect(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Gère la commande de déconnexion"""
-        if not self.current_device:
+        if not self.connected_device:
             return self.format_response(False, error="Aucun périphérique connecté")
         
-        address = self.current_device.get("address")
+        address = self.connected_device.get("address")
         
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -245,10 +271,10 @@ class BluetoothPlugin(UnifiedAudioPlugin):
     
     async def _handle_restart_audio(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Gère la commande de redémarrage audio"""
-        if not self.current_device:
+        if not self.connected_device:
             return self.format_response(False, error="Aucun périphérique connecté")
         
-        address = self.current_device.get("address")
+        address = self.connected_device.get("address")
         await self.playback.stop_playback(address)
         success = await self.playback.start_playback(address)
         
@@ -283,21 +309,18 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             # Vérifier l'état des services
             bt_active = await self.service_manager.is_active(self.bluetooth_service)
             bluealsa_active = await self.service_manager.is_active(self.bluealsa_service)
-            
-            # Vérifier si la lecture est active
-            playback_active = False
-            if self.current_device:
-                playback_active = self.playback.is_playing(self.current_device.get("address", ""))
+            aplay_active = await self.service_manager.is_active(self.bluealsa_aplay_service)
             
             return {
-                "device_connected": self.current_device is not None,
-                "device_name": self.current_device.get("name") if self.current_device else None,
-                "device_address": self.current_device.get("address") if self.current_device else None,
+                "device_connected": self.connected_device is not None,
+                "device_name": self.connected_device.get("name") if self.connected_device else None,
+                "device_address": self.connected_device.get("address") if self.connected_device else None,
                 "bluetooth_running": bt_active,
                 "bluealsa_running": bluealsa_active,
-                "playback_running": playback_active,
-                "auto_agent": self.auto_agent
+                "aplay_running": aplay_active,
+                "auto_agent": self.auto_agent,
+                "current_device": self._current_device
             }
         except Exception as e:
             self.logger.error(f"Erreur status: {e}")
-            return {"device_connected": False, "error": str(e)}
+            return {"device_connected": False, "current_device": self._current_device, "error": str(e)}

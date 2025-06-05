@@ -47,9 +47,11 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             if proc.returncode != 0 or self.service_name not in stdout.decode():
                 raise RuntimeError(f"Service {self.service_name} non trouvé")
             
-            # Lire la configuration
+            # Lire la configuration pour récupérer le device actuel
             with open(self.config_path, 'r') as f:
                 config = yaml.safe_load(f)
+            
+            self._current_device = config.get('audio_device', 'oakos_spotify')
             
             server = config.get('server', {})
             addr = server.get('address', 'localhost')
@@ -105,6 +107,26 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return True
         except Exception as e:
             self.logger.error(f"Erreur arrêt: {e}")
+            return False
+    
+    async def change_audio_device(self, new_device: str) -> bool:
+        """Change le device audio de go-librespot - Version simplifiée pour ALSA dynamique"""
+        if self._current_device == new_device:
+            self.logger.info(f"Librespot device already set to {new_device}")
+            return True
+        
+        try:
+            self.logger.info(f"Changing librespot device from {self._current_device} to {new_device}")
+            
+            # Mettre à jour juste le device (ALSA se charge du routage dynamique)
+            self._current_device = new_device
+            
+            # Le service go-librespot utilise toujours "oakos_spotify" 
+            # ALSA se charge de router selon OAKOS_MODE
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Error changing device: {e}")
             return False
     
     async def _start_websocket(self) -> None:
@@ -294,7 +316,8 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 "is_playing": self._is_playing,
                 "metadata": self._metadata,
                 "service_active": service_status.get("active", False),
-                "service_state": service_status.get("state", "unknown")
+                "service_state": service_status.get("state", "unknown"),
+                "current_device": self._current_device
             }
         except Exception as e:
             self.logger.error(f"Erreur status: {e}")
@@ -303,6 +326,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 "ws_connected": False,
                 "metadata": {},
                 "is_playing": False,
+                "current_device": self._current_device,
                 "error": str(e)
             }
     

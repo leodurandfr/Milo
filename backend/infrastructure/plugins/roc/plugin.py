@@ -23,11 +23,12 @@ class RocPlugin(UnifiedAudioPlugin):
         self.rtcp_port = config.get("rtcp_port", 10003)
         self.audio_output = config.get("audio_output", "hw:1,0")
         
-        # État simple
+        # État
         self.has_connections = False
         self.connected_ip = None
         self.monitor_task = None
         self._stopping = False
+        self._current_device = "oakos_roc"
 
     async def _do_initialize(self) -> bool:
         """Initialisation du plugin ROC"""
@@ -95,6 +96,26 @@ class RocPlugin(UnifiedAudioPlugin):
         
         self.logger.info(f"Arrêt ROC terminé: {success}")
         return success
+
+    async def change_audio_device(self, new_device: str) -> bool:
+        """Change le device audio de ROC - Version simplifiée pour ALSA dynamique"""
+        if self._current_device == new_device:
+            self.logger.info(f"ROC device already set to {new_device}")
+            return True
+        
+        try:
+            self.logger.info(f"Changing ROC device from {self._current_device} to {new_device}")
+            
+            # Mettre à jour juste le device (ALSA se charge du routage dynamique)
+            self._current_device = new_device
+            
+            # Le service ROC utilise toujours "oakos_roc"
+            # ALSA se charge de router selon OAKOS_MODE
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Error changing ROC device: {e}")
+            return False
 
     async def _monitor_events(self):
         """Surveillance événementielle pure avec journalctl -f"""
@@ -299,10 +320,11 @@ class RocPlugin(UnifiedAudioPlugin):
                 "audio_output": self.audio_output,
                 "connected": self.has_connections,
                 "client_ip": self.connected_ip,
-                "client_name": client_name
+                "client_name": client_name,
+                "current_device": self._current_device
             }
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": str(e), "current_device": self._current_device}
 
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Commandes simples"""

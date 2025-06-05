@@ -26,6 +26,8 @@ ENV/
 
 # Program
 go-librespot/
+bluez-alsa/
+roc-toolkit/
 
 # Frontend
 node_modules/

@@ -1,5 +1,5 @@
 """
-Point d'entrée principal de l'application oakOS - Version OPTIM
+Point d'entrée principal de l'application oakOS - Version OPTIM avec routage audio ALSA dynamique
 """
 import sys
 import os
@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config.container import container
 from backend.presentation.api.routes import audio
+from backend.presentation.api.routes.routing import create_routing_router
 from backend.presentation.api.routes.librespot import setup_librespot_routes
 from backend.presentation.api.routes.roc import setup_roc_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 # Configuration des dépendances
 event_bus = container.event_bus()
 state_machine = container.audio_state_machine()
+routing_service = container.audio_routing_service()
 ws_manager = WebSocketManager()
 websocket_event_handler = WebSocketEventHandler(event_bus, ws_manager)
 websocket_server = WebSocketServer(ws_manager, state_machine)
@@ -75,6 +77,10 @@ app.add_middleware(
 # Routes
 audio_router = audio.create_router(state_machine)
 app.include_router(audio_router)
+
+# Route de routage audio
+routing_router = create_routing_router(routing_service, state_machine)
+app.include_router(routing_router)
 
 librespot_router = setup_librespot_routes(
     lambda: state_machine.plugins.get(AudioSource.LIBRESPOT)

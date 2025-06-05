@@ -31,12 +31,14 @@ class SystemAudioState:
     - La source active
     - L'état opérationnel du plugin actif
     - Les métadonnées associées
+    - L'état du routage audio
     """
     active_source: AudioSource = AudioSource.NONE
     plugin_state: PluginState = PluginState.INACTIVE
     transitioning: bool = False
     metadata: Dict[str, Any] = None
     error: Optional[str] = None
+    routing_mode: str = "multiroom"  # Nouveau champ pour le routage
     
     def __post_init__(self):
         if self.metadata is None:
@@ -49,7 +51,8 @@ class SystemAudioState:
             "plugin_state": self.plugin_state.value,
             "transitioning": self.transitioning,
             "metadata": self.metadata,
-            "error": self.error
+            "error": self.error,
+            "routing_mode": self.routing_mode
         }
     
     @classmethod
@@ -60,5 +63,6 @@ class SystemAudioState:
             plugin_state=PluginState(data.get("plugin_state", "inactive")),
             transitioning=data.get("transitioning", False),
             metadata=data.get("metadata", {}),
-            error=data.get("error")
+            error=data.get("error"),
+            routing_mode=data.get("routing_mode", "multiroom")
         )

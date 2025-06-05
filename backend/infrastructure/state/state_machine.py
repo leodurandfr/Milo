@@ -1,6 +1,6 @@
 # backend/infrastructure/state/state_machine.py
 """
-Machine à états unifiée avec contrôle centralisé des processus
+Machine à états unifiée avec contrôle centralisé des processus et routage audio
 """
 import asyncio
 import time
@@ -25,6 +25,14 @@ class UnifiedAudioStateMachine:
         }
         self.logger = logging.getLogger(__name__)
         self._transition_lock = asyncio.Lock()
+        self.routing_service = None  # Sera injecté par le conteneur
+    
+    def set_routing_service(self, routing_service) -> None:
+        """Définit le service de routage audio"""
+        self.routing_service = routing_service
+        # Synchroniser l'état initial
+        routing_state = routing_service.get_state()
+        self.system_state.routing_mode = routing_state.mode.value
     
     def register_plugin(self, source: AudioSource, plugin: AudioSourcePlugin) -> None:
         """Enregistre un plugin pour une source spécifique"""
@@ -148,6 +156,22 @@ class UnifiedAudioStateMachine:
             }
         )
     
+    async def update_routing_mode(self, new_mode: str) -> None:
+        """Met à jour le mode de routage dans l'état système"""
+        old_mode = self.system_state.routing_mode
+        self.system_state.routing_mode = new_mode
+        
+        await self._publish_standardized_event(
+            EventCategory.SYSTEM,
+            EventType.STATE_CHANGED,
+            "routing",
+            {
+                "old_mode": old_mode,
+                "new_mode": new_mode,
+                "routing_changed": True
+            }
+        )
+    
     async def _stop_current_source(self) -> None:
         """Arrête la source actuellement active"""
         if self.system_state.active_source != AudioSource.NONE:
@@ -178,6 +202,11 @@ class UnifiedAudioStateMachine:
             
             # Important: mettre à jour la source active AVANT de démarrer le plugin
             self.system_state.active_source = source
+            
+            # Configurer le device audio selon le mode de routage
+            if self.routing_service:
+                device = self.routing_service.get_device_for_source(source)
+                await plugin.change_audio_device(device)
             
             # Démarrer le plugin (gestion par systemd uniquement)
             success = await plugin.start()

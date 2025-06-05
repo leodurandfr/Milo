@@ -10,7 +10,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     plugin_state: 'inactive',
     transitioning: false,
     metadata: {},
-    error: null
+    error: null,
+    routing_mode: 'multiroom'
   });
   
   // Getters unifiés
@@ -19,6 +20,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   const isTransitioning = computed(() => systemState.value.transitioning);
   const metadata = computed(() => systemState.value.metadata || {});
   const error = computed(() => systemState.value.error);
+  const routingMode = computed(() => systemState.value.routing_mode);
   
   // Actions unifiées
   async function changeSource(source) {
@@ -44,6 +46,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
   
+  async function setRoutingMode(mode) {
+    try {
+      const response = await axios.post(`/api/routing/mode/${mode}`);
+      return response.data.status === 'success';
+    } catch (err) {
+      console.error('Set routing mode error:', err);
+      return false;
+    }
+  }
+  
   function updateState(event) {
     if (event.data.full_state) {
       systemState.value = event.data.full_state;
@@ -60,10 +72,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     isTransitioning,
     metadata,
     error,
+    routingMode,
     
     // Actions
     changeSource,
     sendCommand,
+    setRoutingMode,
     updateState
   };
 });
