@@ -1,5 +1,5 @@
 """
-Service de routage audio pour oakOS - Version finale avec séquencement des opérations.
+Service de routage audio pour oakOS - Version optimisée sans blocage des signaux.
 """
 import os
 import logging
@@ -29,7 +29,7 @@ class AudioRoutingService:
         }
     
     async def set_routing_mode(self, mode: AudioRoutingMode, active_source: AudioSource = None) -> bool:
-        """Change le mode de routage audio - avec séquencement des opérations"""
+        """Change le mode de routage audio - version optimisée et stable"""
         if self.state.mode == mode:
             self.logger.info(f"Already in {mode.value} mode")
             return True
@@ -43,12 +43,11 @@ class AudioRoutingService:
             
             # 2. Gérer les transitions selon le mode cible
             if mode == AudioRoutingMode.MULTIROOM:
-                success = await self._transition_to_multiroom(active_source)
+                success = await self._transition_to_multiroom_fast(active_source)
             else:  # DIRECT
-                success = await self._transition_to_direct(active_source)
+                success = await self._transition_to_direct_fast(active_source)
             
             if success:
-                # 3. Mettre à jour l'état seulement si tout s'est bien passé
                 self.state.mode = mode
                 return True
             else:
@@ -59,22 +58,22 @@ class AudioRoutingService:
             self.logger.error(f"Error changing routing mode: {e}")
             return False
     
-    async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
-        """Transition vers le mode multiroom avec séquencement"""
+    async def _transition_to_multiroom_fast(self, active_source: AudioSource = None) -> bool:
+        """Transition rapide vers le mode multiroom sans parallélisation excessive"""
         try:
             # 1. Arrêter le plugin actif s'il y en a un
             if active_source:
                 self.logger.info("Stopping active plugin before multiroom transition")
-                await self._stop_and_wait_plugin(active_source)
+                await self._stop_plugin_fast(active_source)
             
-            # 2. Démarrer snapserver et snapclient
+            # 2. Démarrer snapcast services séquentiellement mais rapidement
             self.logger.info("Starting snapcast services")
-            snapcast_success = await self._start_snapcast_services_with_retry()
+            snapcast_success = await self._start_snapcast_fast()
             
-            # 3. Redémarrer le plugin actif pour qu'il utilise les devices loopback
+            # 3. Redémarrer le plugin actif
             if active_source and snapcast_success:
                 self.logger.info("Starting active plugin for multiroom mode")
-                await self._start_and_wait_plugin(active_source)
+                await self._start_plugin_fast(active_source)
             
             return snapcast_success
             
@@ -82,21 +81,17 @@ class AudioRoutingService:
             self.logger.error(f"Error in multiroom transition: {e}")
             return False
     
-    async def _transition_to_direct(self, active_source: AudioSource = None) -> bool:
-        """Transition vers le mode direct avec séquencement"""
+    async def _transition_to_direct_fast(self, active_source: AudioSource = None) -> bool:
+        """Transition rapide vers le mode direct"""
         try:
-            # 1. Arrêter snapcast d'abord
+            # 1. Arrêter snapcast rapidement
             self.logger.info("Stopping snapcast services")
-            await self.service_manager.stop(self.snapclient_service)
-            await self.service_manager.stop(self.snapserver_service)
+            await self._stop_snapcast_fast()
             
-            # 2. Attendre que snapcast soit complètement arrêté
-            await self._wait_for_service_stop(self.snapserver_service)
-            
-            # 3. Redémarrer le plugin actif pour qu'il utilise la sortie directe
+            # 2. Redémarrer le plugin actif
             if active_source:
                 self.logger.info("Restarting active plugin for direct mode")
-                await self._restart_and_wait_plugin(active_source)
+                await self._restart_plugin_fast(active_source)
             
             return True
             
@@ -104,96 +99,129 @@ class AudioRoutingService:
             self.logger.error(f"Error in direct transition: {e}")
             return False
     
-    async def _stop_and_wait_plugin(self, active_source: AudioSource) -> None:
-        """Arrête un plugin et attend qu'il soit complètement arrêté"""
+    async def _start_snapcast_fast(self) -> bool:
+        """Démarre snapcast rapidement et de manière stable"""
+        try:
+            # Snapserver d'abord
+            server_success = await self._start_service_fast(self.snapserver_service)
+            if not server_success:
+                return False
+            
+            # Délai minimal pour que snapserver soit prêt
+            await asyncio.sleep(0.3)
+            
+            # Puis snapclient
+            client_success = await self._start_service_fast(self.snapclient_service)
+            return client_success
+            
+        except Exception as e:
+            self.logger.error(f"Error starting snapcast: {e}")
+            return False
+    
+    async def _stop_snapcast_fast(self) -> None:
+        """Arrête snapcast rapidement"""
+        try:
+            # Arrêter snapclient d'abord (plus rapide)
+            await self.service_manager.stop(self.snapclient_service)
+            
+            # Puis snapserver
+            await self.service_manager.stop(self.snapserver_service)
+            
+            # Attendre que snapserver soit arrêté (libération des ressources)
+            await self._wait_for_service_stop_fast(self.snapserver_service, max_wait=3)
+            
+        except Exception as e:
+            self.logger.error(f"Error stopping snapcast: {e}")
+    
+    async def _start_service_fast(self, service_name: str, max_retries: int = 2) -> bool:
+        """Démarre un service rapidement avec retry minimal"""
+        for attempt in range(max_retries):
+            try:
+                success = await self.service_manager.start(service_name)
+                if success:
+                    # Vérification rapide mais avec timeout court
+                    await asyncio.sleep(0.3)
+                    is_active = await self.service_manager.is_active(service_name)
+                    if is_active:
+                        self.logger.info(f"Successfully started {service_name}")
+                        return True
+                
+                if attempt < max_retries - 1:
+                    self.logger.warning(f"Retry starting {service_name}...")
+                    await asyncio.sleep(0.5)
+                    
+            except Exception as e:
+                self.logger.error(f"Error starting {service_name} (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.5)
+        
+        return False
+    
+    async def _stop_plugin_fast(self, active_source: AudioSource) -> None:
+        """Arrête un plugin rapidement"""
         service_name = self.source_services.get(active_source)
         if not service_name:
             return
         
-        is_active = await self.service_manager.is_active(service_name)
-        if is_active:
-            self.logger.info(f"Stopping {service_name}")
-            await self.service_manager.stop(service_name)
-            await self._wait_for_service_stop(service_name)
-    
-    async def _start_and_wait_plugin(self, active_source: AudioSource) -> None:
-        """Démarre un plugin et attend qu'il soit opérationnel"""
-        service_name = self.source_services.get(active_source)
-        if not service_name:
-            return
-        
-        self.logger.info(f"Starting {service_name}")
-        await self.service_manager.start(service_name)
-        await self._wait_for_service_start(service_name)
-    
-    async def _restart_and_wait_plugin(self, active_source: AudioSource) -> None:
-        """Redémarre un plugin avec attente complète"""
-        await self._stop_and_wait_plugin(active_source)
-        # Délai supplémentaire pour libérer les ressources
-        await asyncio.sleep(1)
-        await self._start_and_wait_plugin(active_source)
-    
-    async def _wait_for_service_stop(self, service_name: str, max_wait: int = 10) -> None:
-        """Attend qu'un service soit complètement arrêté"""
-        for i in range(max_wait):
+        try:
             is_active = await self.service_manager.is_active(service_name)
-            if not is_active:
-                self.logger.info(f"Service {service_name} fully stopped after {i+1}s")
+            if is_active:
+                await self.service_manager.stop(service_name)
+                await self._wait_for_service_stop_fast(service_name, max_wait=3)
+        except Exception as e:
+            self.logger.error(f"Error stopping plugin {service_name}: {e}")
+    
+    async def _start_plugin_fast(self, active_source: AudioSource) -> None:
+        """Démarre un plugin rapidement"""
+        service_name = self.source_services.get(active_source)
+        if not service_name:
+            return
+        
+        try:
+            await self.service_manager.start(service_name)
+            await self._wait_for_service_start_fast(service_name, max_wait=3)
+        except Exception as e:
+            self.logger.error(f"Error starting plugin {service_name}: {e}")
+    
+    async def _restart_plugin_fast(self, active_source: AudioSource) -> None:
+        """Redémarre un plugin rapidement"""
+        await self._stop_plugin_fast(active_source)
+        await asyncio.sleep(0.2)  # Délai minimal pour libérer les ressources
+        await self._start_plugin_fast(active_source)
+    
+    async def _wait_for_service_stop_fast(self, service_name: str, max_wait: int = 3) -> None:
+        """Attente rapide d'arrêt de service avec timeout court"""
+        for i in range(max_wait * 5):  # Vérifications toutes les 0.2s
+            try:
+                is_active = await self.service_manager.is_active(service_name)
+                if not is_active:
+                    return
+                await asyncio.sleep(0.2)
+            except Exception as e:
+                self.logger.error(f"Error checking service status {service_name}: {e}")
                 return
-            await asyncio.sleep(1)
         
         self.logger.warning(f"Service {service_name} still active after {max_wait}s")
     
-    async def _wait_for_service_start(self, service_name: str, max_wait: int = 10) -> None:
-        """Attend qu'un service soit complètement démarré"""
-        for i in range(max_wait):
-            is_active = await self.service_manager.is_active(service_name)
-            if is_active:
-                self.logger.info(f"Service {service_name} fully started after {i+1}s")
-                return
-            await asyncio.sleep(1)
-        
-        self.logger.warning(f"Service {service_name} not active after {max_wait}s")
-    
-    async def _start_snapcast_services_with_retry(self) -> bool:
-        """Démarre les services snapcast avec retry"""
-        # Démarrer snapserver d'abord
-        server_success = await self._start_service_with_retry(self.snapserver_service)
-        if not server_success:
-            return False
-        
-        # Attendre un peu puis démarrer snapclient
-        await asyncio.sleep(2)
-        client_success = await self._start_service_with_retry(self.snapclient_service)
-        
-        return server_success and client_success
-    
-    async def _start_service_with_retry(self, service_name: str, max_retries: int = 3) -> bool:
-        """Démarre un service avec retry"""
-        for attempt in range(max_retries):
-            self.logger.info(f"Starting {service_name} (attempt {attempt + 1}/{max_retries})")
-            
-            success = await self.service_manager.start(service_name)
-            if success:
-                # Vérifier que le service est vraiment démarré
-                await asyncio.sleep(2)
+    async def _wait_for_service_start_fast(self, service_name: str, max_wait: int = 3) -> None:
+        """Attente rapide de démarrage de service avec timeout court"""
+        for i in range(max_wait * 5):  # Vérifications toutes les 0.2s
+            try:
                 is_active = await self.service_manager.is_active(service_name)
                 if is_active:
-                    self.logger.info(f"Successfully started {service_name}")
-                    return True
-            
-            if attempt < max_retries - 1:
-                self.logger.warning(f"Failed to start {service_name}, retrying in 3s...")
-                await asyncio.sleep(3)
+                    return
+                await asyncio.sleep(0.2)
+            except Exception as e:
+                self.logger.error(f"Error checking service status {service_name}: {e}")
+                return
         
-        return False
+        self.logger.warning(f"Service {service_name} not active after {max_wait}s")
     
     async def _update_systemd_environment(self, mode: AudioRoutingMode) -> None:
         """Met à jour la variable d'environnement via systemctl set-environment"""
         try:
             mode_value = mode.value
             
-            # Utiliser systemctl set-environment (méthode recommandée)
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "set-environment", f"OAKOS_MODE={mode_value}",
                 stdout=asyncio.subprocess.DEVNULL,
@@ -204,9 +232,7 @@ class AudioRoutingService:
             if proc.returncode != 0:
                 raise RuntimeError(f"Failed to set environment: {stderr.decode()}")
             
-            # Mettre à jour l'environnement local pour ce processus
             os.environ["OAKOS_MODE"] = mode_value
-            
             self.logger.info(f"Updated OAKOS_MODE to {mode_value} via systemctl")
             
         except Exception as e:
@@ -256,7 +282,6 @@ class AudioRoutingService:
         
         for service in all_services:
             try:
-                # Vérifier si le service existe
                 proc = await asyncio.create_subprocess_exec(
                     "systemctl", "list-unit-files", service,
                     stdout=asyncio.subprocess.PIPE,
