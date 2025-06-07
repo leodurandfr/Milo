@@ -138,6 +138,15 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
     async def _do_start(self) -> bool:
         """Implémentation spécifique du démarrage."""
         pass
+    
+    async def restart(self) -> bool:
+        """Redémarre le service systemd - Version de base"""
+        try:
+            success = await self.control_service(self.service_name, "restart")
+            return success
+        except Exception as e:
+            self.logger.error(f"Error restarting service: {e}")
+            return False
         
     @abstractmethod
     async def stop(self) -> bool:

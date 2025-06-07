@@ -57,47 +57,50 @@ class AudioRoutingService:
             return False
     
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
-        """Transition vers le mode multiroom - Version CLEAN"""
+        """Transition vers le mode multiroom - Version CLEAN avec update device"""
         try:
-            # 1. Arrêter le plugin actif via ses propres méthodes
+            # 1. Démarrer snapcast d'abord
+            self.logger.info("Starting snapcast services")
+            snapcast_success = await self._start_snapcast()
+            if not snapcast_success:
+                return False
+            
+            # 2. Redémarrer le plugin via restart()
             if active_source and self.state_machine:
                 plugin = self.state_machine.plugins.get(active_source)
                 if plugin:
-                    self.logger.info(f"Stopping plugin {active_source.value}")
-                    await plugin.stop()
+                    self.logger.info(f"Restarting plugin {active_source.value}")
+                    await plugin.restart()
+                    
+                    # 3. Mettre à jour le device audio selon le nouveau mode
+                    device = self.get_device_for_source(active_source)
+                    await plugin.change_audio_device(device)
+                    self.logger.info(f"Updated audio device to {device} for multiroom mode")
             
-            # 2. Démarrer snapcast
-            self.logger.info("Starting snapcast services")
-            snapcast_success = await self._start_snapcast()
-            
-            # 3. Redémarrer le plugin via ses propres méthodes
-            if active_source and snapcast_success and self.state_machine:
-                plugin = self.state_machine.plugins.get(active_source)
-                if plugin:
-                    self.logger.info(f"Starting plugin {active_source.value}")
-                    await plugin.start()
-            
-            return snapcast_success
+            return True
             
         except Exception as e:
             self.logger.error(f"Error in multiroom transition: {e}")
             return False
     
     async def _transition_to_direct(self, active_source: AudioSource = None) -> bool:
-        """Transition vers le mode direct - Version CLEAN"""
+        """Transition vers le mode direct - Version CLEAN avec update device"""
         try:
             # 1. Arrêter snapcast
             self.logger.info("Stopping snapcast services")
             await self._stop_snapcast()
             
-            # 2. Redémarrer le plugin actif via ses propres méthodes
+            # 2. Redémarrer le plugin actif via restart()
             if active_source and self.state_machine:
                 plugin = self.state_machine.plugins.get(active_source)
                 if plugin:
                     self.logger.info(f"Restarting plugin {active_source.value}")
-                    await plugin.stop()
-                    await asyncio.sleep(0.2)  # Délai minimal
-                    await plugin.start()
+                    await plugin.restart()
+                    
+                    # 3. Mettre à jour le device audio selon le nouveau mode
+                    device = self.get_device_for_source(active_source)
+                    await plugin.change_audio_device(device)
+                    self.logger.info(f"Updated audio device to {device} for direct mode")
             
             return True
             

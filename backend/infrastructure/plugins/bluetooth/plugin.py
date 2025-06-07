@@ -28,6 +28,9 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         self.stop_bluetooth = config.get("stop_bluetooth_on_exit", True)
         self.auto_agent = config.get("auto_agent", True)
         
+        # AJOUT: Définir service_name pour la classe de base
+        self.service_name = self.bluealsa_service
+        
         # Composants
         self.agent = BluetoothAgent()
         self.monitor = BlueAlsaMonitor()
@@ -123,6 +126,20 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             return proc.returncode == 0
         except Exception as e:
             self.logger.error(f"Erreur configuration adaptateur: {e}")
+            return False
+    
+    async def restart(self) -> bool:
+        """Redémarre uniquement bluealsa-aplay pour garder l'appareil connecté"""
+        try:
+            self.logger.info("Restarting bluealsa-aplay service (keeping device connected)")
+            
+            # Redémarrer uniquement le service de lecture audio
+            success = await self.control_service(self.bluealsa_aplay_service, "restart")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Error restarting bluealsa-aplay: {e}")
             return False
     
     async def stop(self) -> bool:

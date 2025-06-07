@@ -72,6 +72,11 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             if not await self.control_service(self.service_name, "start"):
                 return False
             
+            # Reset état au démarrage
+            self._device_connected = False
+            self._is_playing = False
+            self._metadata = {}
+            
             # Créer la session HTTP
             self.session = aiohttp.ClientSession()
             
@@ -81,6 +86,38 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return True
         except Exception as e:
             self.logger.error(f"Erreur démarrage: {e}")
+            return False
+    
+    async def restart(self) -> bool:
+        """Redémarre go-librespot avec reset d'état et reconnexion WebSocket"""
+        try:
+            self.logger.info("Restarting librespot with state reset")
+            
+            # Reset état avant redémarrage
+            self._device_connected = False
+            self._is_playing = False
+            self._metadata = {}
+            await self.notify_state_change(PluginState.READY, {"device_connected": False})
+            
+            # Arrêter l'ancienne connexion WebSocket
+            if self.ws_manager:
+                await self.ws_manager.stop()
+            
+            # Redémarrer le service
+            success = await self.control_service(self.service_name, "restart")
+            if not success:
+                return False
+            
+            # Attendre que le nouveau service soit prêt
+            await asyncio.sleep(0.5)
+            
+            # Reconnexion WebSocket au nouveau processus
+            if self.session:
+                await self._start_websocket()
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Error restarting librespot: {e}")
             return False
     
     async def stop(self) -> bool:
@@ -110,7 +147,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return False
     
     async def change_audio_device(self, new_device: str) -> bool:
-        """Change le device audio de go-librespot - Force reconnexion WebSocket"""
+        """Change le device audio de go-librespot - Version simplifiée pour ALSA dynamique"""
         if self._current_device == new_device:
             self.logger.info(f"Librespot device already set to {new_device}")
             return True
@@ -118,14 +155,11 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         try:
             self.logger.info(f"Changing librespot device from {self._current_device} to {new_device}")
             
-            # Mettre à jour le device
+            # Mettre à jour juste le device (ALSA se charge du routage dynamique)
             self._current_device = new_device
             
-            # OPTIM: Fermer et rouvrir la connexion WebSocket pour le nouveau processus
-            if self.session:
-                await self.ws_manager.stop()  # Ferme l'ancienne connexion
-                await asyncio.sleep(0.5)      # Attendre que le nouveau service soit prêt
-                await self._start_websocket() # Rouvrir sur le nouveau processus
+            # Le service go-librespot utilise toujours "oakos_spotify" 
+            # ALSA se charge de router selon OAKOS_MODE
             
             return True
         except Exception as e:
@@ -137,19 +171,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         # Définir les fonctions de callback
         async def connect_func():
             try:
-                # OPTIM: Force sync état initial avec le nouveau processus
-                self._device_connected = False  # Reset avant sync
-                self._is_playing = False
-                self._metadata = {}
-                
-                await self._refresh_metadata()  # Lit l'état réel du nouveau processus
-                
-                # Notifier l'état correct selon ce qu'on a trouvé
-                if self._device_connected:
-                    await self.notify_state_change(PluginState.CONNECTED, self._metadata)
-                else:
-                    await self.notify_state_change(PluginState.READY, {"device_connected": False})
-                
+                await self._refresh_metadata()
                 return True
             except Exception as e:
                 self.logger.error(f"Erreur connexion: {e}")
