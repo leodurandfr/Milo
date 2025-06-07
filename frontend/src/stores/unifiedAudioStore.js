@@ -58,7 +58,23 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   
   function updateState(event) {
     if (event.data.full_state) {
-      systemState.value = event.data.full_state;
+      // Mise à jour complète de l'état
+      const newState = event.data.full_state;
+      
+      // S'assurer que tous les champs sont présents
+      systemState.value = {
+        active_source: newState.active_source || 'none',
+        plugin_state: newState.plugin_state || 'inactive',
+        transitioning: newState.transitioning || false,
+        metadata: newState.metadata || {},
+        error: newState.error || null,
+        routing_mode: newState.routing_mode || 'multiroom'
+      };
+      
+      // Log pour debug
+      if (event.data.initial_connection) {
+        console.log('Initial state received via WebSocket:', systemState.value);
+      }
     }
   }
   

@@ -94,6 +94,9 @@ onMounted(() => {
     console.log('Received plugin_metadata:', event);
     unifiedStore.updateState(event);
   });
+
+  // OPTIM: Faire confiance uniquement au WebSocket, pas de fallback
+  console.log('HomeView mounted, WebSocket should provide initial state');
 });
 </script>
 

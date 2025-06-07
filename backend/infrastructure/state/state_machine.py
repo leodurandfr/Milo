@@ -44,35 +44,10 @@ class UnifiedAudioStateMachine:
     
     async def get_current_state(self) -> Dict[str, Any]:
         """Renvoie l'état actuel du système avec synchronisation automatique du routage"""
-        
-        # DEBUG: Log de l'état avant sync
-        self.logger.info(f"State before sync: routing_mode={self.system_state.routing_mode}")
-        
-        # OPTIM: Synchroniser automatiquement l'état de routage avec la réalité des services
+        # OPTIM: Synchroniser avec l'état réel du service de routage (source de vérité)
         if self.routing_service:
-            try:
-                snapcast_status = await self.routing_service.get_snapcast_status()
-                self.logger.info(f"Snapcast status: {snapcast_status}")  # DEBUG
-                
-                if snapcast_status.get("multiroom_available", False):
-                    self.system_state.routing_mode = "multiroom"
-                    self.logger.info("Set routing_mode to multiroom")  # DEBUG
-                else:
-                    self.system_state.routing_mode = "direct"
-                    self.logger.info("Set routing_mode to direct")  # DEBUG
-            except Exception as e:
-                self.logger.warning(f"Could not sync routing state: {e}")
-                # S'assurer qu'on a une valeur par défaut
-                if not self.system_state.routing_mode:
-                    self.system_state.routing_mode = "multiroom"
-        else:
-            self.logger.warning("No routing_service available")
-            # S'assurer qu'on a une valeur par défaut
-            if not self.system_state.routing_mode:
-                self.system_state.routing_mode = "multiroom"
-        
-        # DEBUG: Log de l'état final
-        self.logger.info(f"Final state: routing_mode={self.system_state.routing_mode}")
+            routing_state = self.routing_service.get_state()
+            self.system_state.routing_mode = routing_state.mode.value
         
         return self.system_state.to_dict()
     

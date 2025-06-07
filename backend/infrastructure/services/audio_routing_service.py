@@ -1,5 +1,5 @@
 """
-Service de routage audio pour oakOS - Version CLEAN sans redondances
+Service de routage audio pour oakOS - Version avec détection d'état initial
 """
 import os
 import logging
@@ -10,13 +10,14 @@ from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class AudioRoutingService:
-    """Service de routage audio - Version simplifiée qui réutilise les plugins existants"""
+    """Service de routage audio - Version avec détection automatique de l'état initial"""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.service_manager = SystemdServiceManager()
-        self.state = AudioRoutingState()
+        self.state = AudioRoutingState()  # État temporaire
         self.state_machine = None  # Référence pour accéder aux plugins
+        self._initial_detection_done = False
         
         # Services snapcast (seuls services gérés directement)
         self.snapserver_service = "oakos-snapserver-multiroom.service"
@@ -25,9 +26,42 @@ class AudioRoutingService:
     def set_state_machine(self, state_machine) -> None:
         """Définit la référence à la machine à états"""
         self.state_machine = state_machine
+        # Lancer la détection d'état initial après configuration
+        if not self._initial_detection_done:
+            asyncio.create_task(self._detect_initial_state())
+    
+    async def _detect_initial_state(self):
+        """Détecte l'état initial selon l'état réel des services snapcast"""
+        try:
+            self.logger.info("Detecting initial routing state...")
+            
+            snapcast_status = await self.get_snapcast_status()
+            if snapcast_status.get("multiroom_available", False):
+                detected_mode = AudioRoutingMode.MULTIROOM
+                self.logger.info("Snapcast services active → detected MULTIROOM mode")
+            else:
+                detected_mode = AudioRoutingMode.DIRECT
+                self.logger.info("Snapcast services inactive → detected DIRECT mode")
+            
+            self.state.mode = detected_mode
+            self._initial_detection_done = True
+            
+            # Synchroniser la variable d'environnement système
+            await self._update_systemd_environment(detected_mode)
+            
+            self.logger.info(f"Initial routing state set to: {detected_mode.value}")
+            
+        except Exception as e:
+            self.logger.error(f"Error detecting initial routing state: {e}")
+            # En cas d'erreur, garder le mode par défaut (multiroom)
+            self._initial_detection_done = True
     
     async def set_routing_mode(self, mode: AudioRoutingMode, active_source: AudioSource = None) -> bool:
         """Change le mode de routage audio"""
+        # S'assurer que la détection initiale est faite
+        if not self._initial_detection_done:
+            await self._detect_initial_state()
+        
         if self.state.mode == mode:
             self.logger.info(f"Already in {mode.value} mode")
             return True

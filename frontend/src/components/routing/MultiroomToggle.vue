@@ -38,6 +38,9 @@ async function handleToggle(event) {
   const newMode = event.target.checked ? 'multiroom' : 'direct';
   await unifiedStore.setRoutingMode(newMode);
 }
+
+// OPTIM: Faire confiance uniquement au WebSocket, pas de fallback API
+console.log('MultiroomToggle mounted, waiting for WebSocket state...');
 </script>
 
 <style scoped>
