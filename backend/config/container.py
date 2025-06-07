@@ -1,6 +1,6 @@
 # backend/config/container.py
 """
-Conteneur d'injection de dépendances - Version unifiée avec support systemd et routage audio
+Conteneur d'injection de dépendances - Version OPTIM simplifiée
 """
 from dependency_injector import containers, providers
 from backend.application.event_bus import EventBus
@@ -72,16 +72,17 @@ class Container(containers.DeclarativeContainer):
     )
     
     
-    # Méthode pour enregistrer les plugins et configurer les dépendances
+    # OPTIM: Méthode simplifiée pour enregistrer les plugins
     @providers.Callable
     def register_plugins():
-        """Enregistre tous les plugins dans la machine à états"""
+        """Enregistre tous les plugins dans la machine à états - Version OPTIM"""
         # Récupération des instances via le conteneur global
         state_machine = container.audio_state_machine()
         routing_service = container.audio_routing_service()
         
-        # Configuration du service de routage dans la machine à états
+        # Configuration bidirectionnelle des services
         state_machine.set_routing_service(routing_service)
+        routing_service.set_state_machine(state_machine)
         
         # Enregistrement des plugins
         state_machine.register_plugin(AudioSource.LIBRESPOT, container.librespot_plugin())

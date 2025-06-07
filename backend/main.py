@@ -1,5 +1,5 @@
 """
-Point d'entrée principal de l'application oakOS - Version OPTIM avec routage audio ALSA dynamique
+Point d'entrée principal de l'application oakOS - Version OPTIM simplifiée
 """
 import sys
 import os
@@ -36,19 +36,27 @@ websocket_server = WebSocketServer(ws_manager, state_machine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Gestion du cycle de vie de l'application"""
-    # Initialisation
-    container.register_plugins()
-    
-    for source, plugin in state_machine.plugins.items():
-        if plugin:
-            try:
-                await plugin.initialize()
-                logger.info(f"Plugin {source.value} initialisé avec succès")
-            except Exception as e:
-                logger.error(f"Erreur d'initialisation du plugin {source.value}: {e}")
-    
-    logger.info("Application démarrée avec succès")
+    """Gestion du cycle de vie de l'application - Version OPTIM"""
+    # OPTIM: Initialisation simplifiée
+    try:
+        # 1. Enregistrer les plugins et configurer les références croisées (synchrone)
+        container.register_plugins()
+        logger.info("Plugins registered and configured")
+        
+        # 2. Initialiser tous les plugins
+        for source, plugin in state_machine.plugins.items():
+            if plugin:
+                try:
+                    await plugin.initialize()
+                    logger.info(f"Plugin {source.value} initialisé avec succès")
+                except Exception as e:
+                    logger.error(f"Erreur d'initialisation du plugin {source.value}: {e}")
+        
+        logger.info("Application démarrée avec succès")
+        
+    except Exception as e:
+        logger.error(f"Erreur lors de l'initialisation: {e}")
+        raise
     
     yield  # L'application tourne
     

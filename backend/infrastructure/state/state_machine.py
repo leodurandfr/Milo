@@ -1,6 +1,6 @@
 # backend/infrastructure/state/state_machine.py
 """
-Machine à états unifiée avec contrôle centralisé des processus et routage audio
+Machine à états unifiée avec contrôle centralisé des processus et routage audio - Version OPTIM
 """
 import asyncio
 import time
@@ -12,7 +12,7 @@ from backend.application.event_bus import EventBus
 from backend.domain.events import StandardEvent, EventCategory, EventType
 
 class UnifiedAudioStateMachine:
-    """Gère l'état complet du système audio avec contrôle centralisé des processus"""
+    """Gère l'état complet du système audio avec synchronisation du routage"""
     
     TRANSITION_TIMEOUT = 5.0  # Timeout pour les transitions
     
@@ -43,7 +43,37 @@ class UnifiedAudioStateMachine:
             self.logger.error(f"Cannot register plugin for invalid source: {source.value}")
     
     async def get_current_state(self) -> Dict[str, Any]:
-        """Renvoie l'état actuel du système"""
+        """Renvoie l'état actuel du système avec synchronisation automatique du routage"""
+        
+        # DEBUG: Log de l'état avant sync
+        self.logger.info(f"State before sync: routing_mode={self.system_state.routing_mode}")
+        
+        # OPTIM: Synchroniser automatiquement l'état de routage avec la réalité des services
+        if self.routing_service:
+            try:
+                snapcast_status = await self.routing_service.get_snapcast_status()
+                self.logger.info(f"Snapcast status: {snapcast_status}")  # DEBUG
+                
+                if snapcast_status.get("multiroom_available", False):
+                    self.system_state.routing_mode = "multiroom"
+                    self.logger.info("Set routing_mode to multiroom")  # DEBUG
+                else:
+                    self.system_state.routing_mode = "direct"
+                    self.logger.info("Set routing_mode to direct")  # DEBUG
+            except Exception as e:
+                self.logger.warning(f"Could not sync routing state: {e}")
+                # S'assurer qu'on a une valeur par défaut
+                if not self.system_state.routing_mode:
+                    self.system_state.routing_mode = "multiroom"
+        else:
+            self.logger.warning("No routing_service available")
+            # S'assurer qu'on a une valeur par défaut
+            if not self.system_state.routing_mode:
+                self.system_state.routing_mode = "multiroom"
+        
+        # DEBUG: Log de l'état final
+        self.logger.info(f"Final state: routing_mode={self.system_state.routing_mode}")
+        
         return self.system_state.to_dict()
     
     async def transition_to_source(self, target_source: AudioSource) -> bool:
