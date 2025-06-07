@@ -10,6 +10,9 @@
 
     <MultiroomToggle />
 
+    <!-- Contrôle Snapcast - affiché seulement quand multiroom actif -->
+    <SnapcastControl v-if="unifiedStore.routingMode === 'multiroom'" />
+
     <div class="source-buttons">
       <button v-for="source in sources" :key="source.id" @click="changeSource(source.id)"
         :disabled="unifiedStore.isTransitioning || unifiedStore.currentSource === source.id"
@@ -31,6 +34,7 @@ import { computed, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import MultiroomToggle from '@/components/routing/MultiroomToggle.vue';
+import SnapcastControl from '@/components/snapcast/SnapcastControl.vue';
 import LibrespotDisplay from '@/components/sources/librespot/LibrespotDisplay.vue';
 import BluetoothDisplay from '@/components/sources/bluetooth/BluetoothDisplay.vue';
 import RocDisplay from '@/components/sources/roc/RocDisplay.vue';
@@ -103,7 +107,7 @@ onMounted(() => {
 <style scoped>
 .home-view {
   padding: 20px;
-  max-width: 800px;
+  width: 460px;
   margin: 0 auto;
 }
 

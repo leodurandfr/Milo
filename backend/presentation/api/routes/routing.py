@@ -1,12 +1,12 @@
 """
-Routes API pour la gestion du routage audio - Version avec gestion du plugin actif.
+Routes API pour la gestion du routage audio - Version avec gestion du plugin actif et Snapcast.
 """
 from fastapi import APIRouter
 from typing import Dict, Any
 from backend.domain.audio_routing import AudioRoutingMode
 from backend.domain.audio_state import AudioSource
 
-def create_routing_router(routing_service, state_machine):
+def create_routing_router(routing_service, state_machine, snapcast_service):
     """Crée le router de routage avec les dépendances injectées"""
     router = APIRouter(prefix="/api/routing", tags=["routing"])
     
@@ -61,6 +61,63 @@ def create_routing_router(routing_service, state_machine):
             }
         except ValueError:
             return {"status": "error", "message": f"Invalid mode: {mode}"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    # === NOUVELLES ROUTES SNAPCAST ===
+    
+    @router.get("/snapcast/status")
+    async def get_snapcast_status():
+        """État de Snapcast"""
+        try:
+            available = await snapcast_service.is_available()
+            clients = await snapcast_service.get_clients() if available else []
+            routing_state = routing_service.get_state()
+            
+            return {
+                "available": available,
+                "client_count": len(clients),
+                "multiroom_active": routing_state.mode.value == "multiroom"
+            }
+        except Exception as e:
+            return {"available": False, "error": str(e)}
+    
+    @router.get("/snapcast/clients")
+    async def get_snapcast_clients():
+        """Récupère les clients Snapcast"""
+        try:
+            routing_state = routing_service.get_state()
+            if routing_state.mode.value != "multiroom":
+                return {"clients": [], "message": "Multiroom not active"}
+            
+            clients = await snapcast_service.get_clients()
+            return {"clients": clients}
+        except Exception as e:
+            return {"clients": [], "error": str(e)}
+    
+    @router.post("/snapcast/client/{client_id}/volume")
+    async def set_snapcast_volume(client_id: str, payload: Dict[str, Any]):
+        """Change le volume d'un client"""
+        try:
+            volume = payload.get("volume")
+            if not isinstance(volume, int) or not (0 <= volume <= 100):
+                return {"status": "error", "message": "Invalid volume (0-100)"}
+            
+            success = await snapcast_service.set_volume(client_id, volume)
+            return {"status": "success" if success else "error"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @router.post("/snapcast/client/{client_id}/mute")
+    async def set_snapcast_mute(client_id: str, payload: Dict[str, Any]):
+        """Mute/unmute un client"""
+        try:
+            muted = payload.get("muted")
+            if not isinstance(muted, bool):
+                return {"status": "error", "message": "Invalid muted state (true/false)"}
+            
+            success = await snapcast_service.set_mute(client_id, muted)
+            return {"status": "success" if success else "error"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
     

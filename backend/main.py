@@ -1,5 +1,5 @@
 """
-Point d'entrée principal de l'application oakOS - Version OPTIM simplifiée
+Point d'entrée principal de l'application oakOS - Version OPTIM simplifiée avec Snapcast
 """
 import sys
 import os
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 event_bus = container.event_bus()
 state_machine = container.audio_state_machine()
 routing_service = container.audio_routing_service()
+snapcast_service = container.snapcast_service()
 ws_manager = WebSocketManager()
 websocket_event_handler = WebSocketEventHandler(event_bus, ws_manager)
 websocket_server = WebSocketServer(ws_manager, state_machine)
@@ -86,8 +87,8 @@ app.add_middleware(
 audio_router = audio.create_router(state_machine)
 app.include_router(audio_router)
 
-# Route de routage audio
-routing_router = create_routing_router(routing_service, state_machine)
+# Route de routage audio (MODIFIÉE pour inclure snapcast_service)
+routing_router = create_routing_router(routing_service, state_machine, snapcast_service)
 app.include_router(routing_router)
 
 librespot_router = setup_librespot_routes(

@@ -1,6 +1,6 @@
 # backend/config/container.py
 """
-Conteneur d'injection de dépendances - Version OPTIM simplifiée
+Conteneur d'injection de dépendances - Version OPTIM simplifiée avec Snapcast
 """
 from dependency_injector import containers, providers
 from backend.application.event_bus import EventBus
@@ -10,6 +10,7 @@ from backend.infrastructure.plugins.roc import RocPlugin
 from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 from backend.infrastructure.services.audio_routing_service import AudioRoutingService
+from backend.infrastructure.services.snapcast_service import SnapcastService
 
 from backend.domain.audio_state import AudioSource
 
@@ -27,6 +28,9 @@ class Container(containers.DeclarativeContainer):
     
     # Service de routage audio
     audio_routing_service = providers.Singleton(AudioRoutingService)
+    
+    # Service Snapcast
+    snapcast_service = providers.Singleton(SnapcastService)
     
     # Machine à états unifiée
     audio_state_machine = providers.Singleton(
