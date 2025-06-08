@@ -92,6 +92,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 import SnapclientItem from '@/components/snapcast/SnapclientItem.vue';
 import SnapcastSettings from '@/components/snapcast/SnapcastSettings.vue';
@@ -99,12 +100,15 @@ import SnapclientDetails from '@/components/snapcast/SnapclientDetails.vue';
 import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 
 const unifiedStore = useUnifiedAudioStore();
+const { on } = useWebSocket();
 
 // État local
 const clients = ref([]);
 const globalVolume = ref(75); // Volume global ALSA (frontend uniquement)
 const showSettings = ref(false);
 const selectedClient = ref(null);
+
+
 
 // Empêcher le polling excessif
 const lastRefreshTime = ref(0);
@@ -204,6 +208,22 @@ function handleClientUpdated() {
   }
 }
 
+// === SYNCHRONISATION MULTI-DEVICES ===
+
+
+
+function handleRoutingUpdate(event) {
+  // Synchronisation du toggle multiroom entre devices
+  if (event.data.routing_changed) {
+    console.log('Routing update received from another device, syncing...');
+    // Le store sera automatiquement mis à jour via le WebSocket oakOS principal
+    // Juste rafraîchir les clients si on passe en mode multiroom
+    if (event.data.new_mode === 'multiroom' && isMultiroomActive.value) {
+      fetchClients();
+    }
+  }
+}
+
 // === GESTION WEBSOCKET ===
 
 function handleSnapcastUpdate(event) {
@@ -230,10 +250,28 @@ onMounted(async () => {
   if (isMultiroomActive.value) {
     await fetchClients();
   }
+  
+  // Écouter les événements système pour synchronisation multi-devices
+  const unsubscribe = on('system', 'state_changed', (event) => {
+    // Synchroniser le store unifié (toggle multiroom, etc.)
+    unifiedStore.updateState(event);
+    
+    // Synchronisation spécifique selon la source
+    if (event.source === 'snapcast') {
+      handleSnapcastUpdate(event);
+    } else if (event.source === 'routing' && event.data.routing_changed) {
+      handleRoutingUpdate(event);
+    }
+  });
+  
+  unsubscribeFunctions.push(unsubscribe);
+  console.log('Multi-device sync activated for Snapcast and Routing');
 });
 
 onUnmounted(() => {
-  // Nettoyage minimal
+  // Nettoyer les abonnements WebSocket
+  unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
+  console.log('Multi-device sync deactivated');
 });
 
 // Watcher pour le mode multiroom
