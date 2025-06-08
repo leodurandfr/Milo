@@ -37,7 +37,7 @@
               :value="getVolume(client)"
               @input="handleVolumeInput(client, $event.target.value)"
               @change="handleVolumeChange(client, $event.target.value)"
-              :disabled="client.muted || updatingClients.has(client.id)"
+              :disabled="client.muted"
               class="volume-slider"
             >
             <span class="volume-label">{{ getVolume(client) }}%</span>
@@ -45,26 +45,30 @@
         </div>
       </div>
     </div>
-    
-    <div class="actions">
-      <button @click="refresh" :disabled="loading" class="refresh-btn">
-        {{ loading ? 'Actualisation...' : 'Actualiser' }}
-      </button>
-    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 
 const unifiedStore = useUnifiedAudioStore();
+const { on } = useWebSocket();
+
 const clients = ref([]);
 const loading = ref(false);
 const updatingClients = ref(new Set());
-const volumeTimeouts = ref(new Map());
 const localVolumes = ref(new Map());
+
+// Gestion du throttling intelligent pour les requêtes volume
+const volumeRequestState = ref(new Map()); // État des requêtes par client
+const THROTTLE_DELAY = 200; // Maximum une requête toutes les 200ms
+const FINAL_DELAY = 500; // Délai final après arrêt du mouvement
+
+// Références aux unsubscribe functions pour le WebSocket
+let unsubscribeFunctions = [];
 
 const isMultiroomActive = computed(() => 
   unifiedStore.routingMode === 'multiroom'
@@ -102,31 +106,68 @@ async function fetchClients() {
 }
 
 function handleVolumeInput(client, volume) {
-  // Feedback visuel immédiat
   const newVolume = parseInt(volume);
-  localVolumes.value.set(client.id, newVolume);
+  const clientId = client.id;
+  
+  // 1. Feedback visuel IMMÉDIAT
+  localVolumes.value.set(clientId, newVolume);
+  
+  // 2. Gestion du throttling intelligent
+  const now = Date.now();
+  const state = volumeRequestState.value.get(clientId) || {};
+  
+  // Annuler les timeouts existants
+  if (state.throttleTimeout) {
+    clearTimeout(state.throttleTimeout);
+  }
+  if (state.finalTimeout) {
+    clearTimeout(state.finalTimeout);
+  }
+  
+  // Si pas de requête récente, envoyer immédiatement
+  if (!state.lastRequestTime || (now - state.lastRequestTime) >= THROTTLE_DELAY) {
+    sendVolumeRequest(client, newVolume);
+    state.lastRequestTime = now;
+  } else {
+    // Sinon, programmer une requête throttlée
+    state.throttleTimeout = setTimeout(() => {
+      sendVolumeRequest(client, newVolume);
+      state.lastRequestTime = Date.now();
+    }, THROTTLE_DELAY - (now - state.lastRequestTime));
+  }
+  
+  // Toujours programmer une requête finale pour s'assurer de la cohérence
+  state.finalTimeout = setTimeout(() => {
+    sendVolumeRequest(client, newVolume);
+    state.lastRequestTime = Date.now();
+  }, FINAL_DELAY);
+  
+  // Mettre à jour l'état
+  volumeRequestState.value.set(clientId, state);
 }
 
 function handleVolumeChange(client, volume) {
+  // @change se déclenche quand on relâche le slider
+  // On envoie une requête finale pour être sûr
   const newVolume = parseInt(volume);
+  const clientId = client.id;
+  const state = volumeRequestState.value.get(clientId) || {};
   
-  // Debouncing - annuler le timeout précédent
-  if (volumeTimeouts.value.has(client.id)) {
-    clearTimeout(volumeTimeouts.value.get(client.id));
+  // Annuler les timeouts en cours
+  if (state.throttleTimeout) {
+    clearTimeout(state.throttleTimeout);
+  }
+  if (state.finalTimeout) {
+    clearTimeout(state.finalTimeout);
   }
   
-  // Programmer la mise à jour avec délai
-  const timeout = setTimeout(() => {
-    updateVolume(client, newVolume);
-    volumeTimeouts.value.delete(client.id);
-  }, 300);
-  
-  volumeTimeouts.value.set(client.id, timeout);
+  // Envoyer la valeur finale immédiatement
+  sendVolumeRequest(client, newVolume);
+  state.lastRequestTime = Date.now();
+  volumeRequestState.value.set(clientId, state);
 }
 
-async function updateVolume(client, volume) {
-  updatingClients.value.add(client.id);
-  
+async function sendVolumeRequest(client, volume) {
   try {
     const response = await axios.post(`/api/routing/snapcast/client/${client.id}/volume`, { 
       volume 
@@ -137,14 +178,11 @@ async function updateVolume(client, volume) {
       client.volume = volume;
       localVolumes.value.delete(client.id);
     } else {
-      // Restaurer en cas d'erreur
-      localVolumes.value.delete(client.id);
+      console.error('Failed to update volume:', response.data.message);
     }
   } catch (error) {
     console.error('Error updating volume:', error);
-    localVolumes.value.delete(client.id);
-  } finally {
-    updatingClients.value.delete(client.id);
+    // En cas d'erreur, garder la valeur locale pour le feedback visuel
   }
 }
 
@@ -166,6 +204,7 @@ async function toggleMute(client) {
     if (response.data.status !== 'success') {
       // Restaurer en cas d'erreur
       client.muted = originalMuted;
+      console.error('Failed to toggle mute:', response.data.message);
     }
   } catch (error) {
     console.error('Error toggling mute:', error);
@@ -176,44 +215,52 @@ async function toggleMute(client) {
   }
 }
 
-async function refresh() {
-  await fetchClients();
-}
-
-// Rafraîchissement automatique quand le mode multiroom change
-let refreshInterval = null;
-
-function startAutoRefresh() {
-  if (refreshInterval) return;
-  
-  refreshInterval = setInterval(() => {
-    if (isMultiroomActive.value && !loading.value) {
+function handleSnapcastUpdate(event) {
+  // Gérer les mises à jour Snapcast reçues via WebSocket
+  if (event.data.snapcast_update && isMultiroomActive.value) {
+    console.log('Received Snapcast update via WebSocket, refreshing clients');
+    
+    // Rafraîchir la liste des clients seulement si pas en cours de modification locale
+    const hasLocalChanges = localVolumes.value.size > 0 || updatingClients.value.size > 0;
+    
+    if (!hasLocalChanges) {
       fetchClients();
+    } else {
+      console.log('Skipping refresh due to local changes in progress');
     }
-  }, 10000); // Rafraîchir toutes les 10 secondes
-}
-
-function stopAutoRefresh() {
-  if (refreshInterval) {
-    clearInterval(refreshInterval);
-    refreshInterval = null;
   }
 }
 
 onMounted(async () => {
   if (isMultiroomActive.value) {
     await fetchClients();
-    startAutoRefresh();
   }
+  
+  // S'abonner aux événements Snapcast via le WebSocket oakOS existant
+  const unsubscribe = on('system', 'state_changed', (event) => {
+    if (event.source === 'snapcast') {
+      handleSnapcastUpdate(event);
+    }
+  });
+  
+  unsubscribeFunctions.push(unsubscribe);
 });
 
 onUnmounted(() => {
-  stopAutoRefresh();
+  // Nettoyer les abonnements WebSocket
+  unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
   
-  // Nettoyer les timeouts en cours
-  for (const timeout of volumeTimeouts.value.values()) {
-    clearTimeout(timeout);
+  // Nettoyer tous les timeouts en cours
+  for (const state of volumeRequestState.value.values()) {
+    if (state.throttleTimeout) {
+      clearTimeout(state.throttleTimeout);
+    }
+    if (state.finalTimeout) {
+      clearTimeout(state.finalTimeout);
+    }
   }
+  
+  volumeRequestState.value.clear();
 });
 
 // Watcher pour le mode multiroom
@@ -221,10 +268,16 @@ import { watch } from 'vue';
 watch(isMultiroomActive, async (newValue) => {
   if (newValue) {
     await fetchClients();
-    startAutoRefresh();
   } else {
     clients.value = [];
-    stopAutoRefresh();
+    localVolumes.value.clear();
+    
+    // Nettoyer les états des requêtes
+    for (const state of volumeRequestState.value.values()) {
+      if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
+      if (state.finalTimeout) clearTimeout(state.finalTimeout);
+    }
+    volumeRequestState.value.clear();
   }
 });
 </script>
@@ -387,29 +440,5 @@ watch(isMultiroomActive, async (newValue) => {
   color: #666;
   width: 32px;
   text-align: right;
-}
-
-.actions {
-  margin-top: 16px;
-  text-align: center;
-}
-
-.refresh-btn {
-  padding: 8px 16px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: white;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-}
-
-.refresh-btn:hover:not(:disabled) {
-  background: #f0f0f0;
-}
-
-.refresh-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 </style>

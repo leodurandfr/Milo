@@ -1,10 +1,11 @@
 """
-Routes API pour la gestion du routage audio - Version avec gestion du plugin actif et Snapcast.
+Routes API pour la gestion du routage audio - Version avec gestion du plugin actif et Snapcast synchronisé.
 """
 from fastapi import APIRouter
 from typing import Dict, Any
 from backend.domain.audio_routing import AudioRoutingMode
 from backend.domain.audio_state import AudioSource
+from backend.domain.events import StandardEvent, EventCategory, EventType
 
 def create_routing_router(routing_service, state_machine, snapcast_service):
     """Crée le router de routage avec les dépendances injectées"""
@@ -64,7 +65,27 @@ def create_routing_router(routing_service, state_machine, snapcast_service):
         except Exception as e:
             return {"status": "error", "message": str(e)}
     
-    # === NOUVELLES ROUTES SNAPCAST ===
+    # === ROUTES SNAPCAST AVEC NOTIFICATIONS WEBSOCKET ===
+    
+    async def _publish_snapcast_update():
+        """Publie une notification de mise à jour Snapcast via le WebSocket oakOS"""
+        try:
+            # Utiliser le bus d'événements existant pour notifier les clients
+            event_bus = state_machine.event_bus
+            
+            event = StandardEvent(
+                category=EventCategory.SYSTEM,
+                type=EventType.STATE_CHANGED,
+                source="snapcast",
+                data={
+                    "snapcast_update": True,
+                    "timestamp": __import__('time').time()
+                }
+            )
+            
+            await event_bus.publish_event(event)
+        except Exception as e:
+            print(f"Error publishing Snapcast update: {e}")
     
     @router.get("/snapcast/status")
     async def get_snapcast_status():
@@ -97,26 +118,36 @@ def create_routing_router(routing_service, state_machine, snapcast_service):
     
     @router.post("/snapcast/client/{client_id}/volume")
     async def set_snapcast_volume(client_id: str, payload: Dict[str, Any]):
-        """Change le volume d'un client"""
+        """Change le volume d'un client et notifie les autres devices"""
         try:
             volume = payload.get("volume")
             if not isinstance(volume, int) or not (0 <= volume <= 100):
                 return {"status": "error", "message": "Invalid volume (0-100)"}
             
             success = await snapcast_service.set_volume(client_id, volume)
+            
+            if success:
+                # Notifier tous les devices connectés via WebSocket
+                await _publish_snapcast_update()
+            
             return {"status": "success" if success else "error"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
     
     @router.post("/snapcast/client/{client_id}/mute")
     async def set_snapcast_mute(client_id: str, payload: Dict[str, Any]):
-        """Mute/unmute un client"""
+        """Mute/unmute un client et notifie les autres devices"""
         try:
             muted = payload.get("muted")
             if not isinstance(muted, bool):
                 return {"status": "error", "message": "Invalid muted state (true/false)"}
             
             success = await snapcast_service.set_mute(client_id, muted)
+            
+            if success:
+                # Notifier tous les devices connectés via WebSocket
+                await _publish_snapcast_update()
+            
             return {"status": "success" if success else "error"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
