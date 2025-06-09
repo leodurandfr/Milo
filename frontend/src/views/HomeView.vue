@@ -82,7 +82,7 @@ onMounted(() => {
 <style scoped>
 .home-view {
   padding: 20px;
-  width: 640px;
+  width: 462px;
   margin: 0 auto;
   min-height: 100vh;
   display: flex;

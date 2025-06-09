@@ -34,9 +34,7 @@
                 :class="['preset-btn', { active: isPresetActive(preset) }]"
                 :disabled="applying"
               >
-                <div class="preset-icon">{{ preset.icon }}</div>
                 <div class="preset-title">{{ preset.name }}</div>
-                <div class="preset-description">{{ preset.description }}</div>
               </button>
             </div>
           </section>
@@ -112,15 +110,6 @@
               </div>
             </div>
           </section>
-
-          <!-- Warning redémarrage -->
-          <div class="warning-box">
-            <span class="warning-icon">⚠️</span>
-            <div>
-              <strong>Attention:</strong> Les modifications nécessitent un redémarrage du serveur Snapcast.
-              Tous les clients seront temporairement déconnectés (~3 secondes).
-            </div>
-          </div>
         </div>
       </div>
 
@@ -153,15 +142,13 @@ const applying = ref(false);
 const error = ref(null);
 const serverInfo = ref({});
 
-// Presets audio prédéfinis
+// Presets audio prédéfinis - SIMPLIFIÉ
 const audioPresets = [
   {
     id: 'reactivity',
     name: 'Réactivité',
-    icon: '⚡',
-    description: 'Latence minimale pour interaction temps réel',
     config: {
-      buffer: 200,
+      buffer: 150,
       codec: 'pcm',
       chunk_ms: 10
     }
@@ -169,8 +156,6 @@ const audioPresets = [
   {
     id: 'balanced',
     name: 'Équilibré',
-    icon: '⚖️',
-    description: 'Bon compromis qualité/latence',
     config: {
       buffer: 1000,
       codec: 'flac',
@@ -180,8 +165,6 @@ const audioPresets = [
   {
     id: 'quality',
     name: 'Qualité Optimale',
-    icon: '🎵',
-    description: 'Meilleure qualité audio, latence plus élevée',
     config: {
       buffer: 1500,
       codec: 'flac',
@@ -195,7 +178,7 @@ const config = ref({
   buffer: 1000,
   codec: 'flac',
   chunk_ms: 20,
-  sampleformat: '48000:16:2'  // Fixe, non modifiable via l'interface
+  sampleformat: '48000:16:2'
 });
 
 const originalConfig = ref({});
@@ -242,11 +225,11 @@ async function loadServerConfig() {
       buffer: parseInt(fileConfig.buffer || streamConfig.buffer_ms || '1000'),
       codec: fileConfig.codec || streamConfig.codec || 'flac',
       chunk_ms: parseInt(fileConfig.chunk_ms || streamConfig.chunk_ms) || 20,
-      sampleformat: '48000:16:2'  // Toujours fixe à cette valeur
+      sampleformat: '48000:16:2'
     };
     
-    // Sauvegarder la config originale
-    originalConfig.value = { ...config.value };
+    // Sauvegarder la config originale - FIX : Clonage profond
+    originalConfig.value = JSON.parse(JSON.stringify(config.value));
     
     console.log('Server config loaded from file:', config.value);
     
@@ -272,14 +255,11 @@ async function applyConfig() {
     });
     
     if (response.data.status === 'success') {
-      // Mise à jour réussie
-      originalConfig.value = { ...config.value };
+      // FIX : Mise à jour immédiate de originalConfig pour éviter le bug de bascule
+      originalConfig.value = JSON.parse(JSON.stringify(config.value));
       emit('config-updated');
       
-      // Recharger la config après redémarrage
-      setTimeout(async () => {
-        await loadServerConfig();
-      }, 4000);  // Attendre 4 secondes pour le redémarrage
+      // Pas de rechargement automatique - laisser l'utilisateur rafraîchir manuellement si besoin
       
     } else {
       error.value = response.data.message || 'Erreur lors de la mise à jour';
@@ -385,7 +365,7 @@ onMounted(async () => {
   font-style: italic;
 }
 
-/* Presets grid */
+/* Presets grid - SIMPLIFIÉ */
 .presets-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -396,7 +376,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 16px 12px;
+  padding: 12px;
   border: 2px solid #ddd;
   background: white;
   cursor: pointer;
@@ -419,21 +399,9 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 
-.preset-icon {
-  font-size: 24px;
-  margin-bottom: 8px;
-}
-
 .preset-title {
   font-weight: bold;
   font-size: 14px;
-  margin-bottom: 4px;
-}
-
-.preset-description {
-  font-size: 11px;
-  color: #666;
-  line-height: 1.3;
 }
 
 /* Formulaire */
@@ -519,22 +487,6 @@ onMounted(async () => {
 .info-value {
   font-weight: bold;
   font-size: 12px;
-}
-
-/* Warning box */
-.warning-box {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
-  background: #fff3cd;
-  border: 1px solid #ffeaa7;
-  color: #856404;
-}
-
-.warning-icon {
-  font-size: 16px;
-  flex-shrink: 0;
 }
 
 /* États communs */

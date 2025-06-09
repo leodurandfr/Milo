@@ -21,32 +21,7 @@
         </div>
 
         <div v-else class="details-content">
-          <!-- Informations générales -->
-          <section class="details-section">
-            <h3>Informations Générales</h3>
-            
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="info-label">Adresse IP:</span>
-                <span class="info-value">{{ clientDetails.ip }}</span>
-              </div>
-              
-              <div class="info-item">
-                <span class="info-label">Hostname:</span>
-                <span class="info-value">{{ clientDetails.host }}</span>
-              </div>
-              
-              <div class="info-item">
-                <span class="info-label">Connexion:</span>
-                <div class="connection-status">
-                  <span :class="['status-dot', getQualityClass(clientDetails.connection_quality)]"></span>
-                  <span>{{ getQualityText(clientDetails.connection_quality) }}</span>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <!-- Configuration éditable -->
+          <!-- Configuration éditable - MAINTENANT EN PREMIER -->
           <section class="details-section">
             <h3>Configuration</h3>
             
@@ -62,13 +37,6 @@
                   class="text-input"
                   maxlength="50"
                 >
-                <button 
-                  @click="updateClientName"
-                  :disabled="updating.name || !hasNameChanged"
-                  class="update-btn"
-                >
-                  {{ updating.name ? '...' : 'OK' }}
-                </button>
               </div>
               <p class="help-text">Nom personnalisé pour identifier ce client</p>
             </div>
@@ -88,13 +56,6 @@
                 >
                 <div class="latency-display">
                   <span class="latency-value">{{ editableConfig.latency }}ms</span>
-                  <button 
-                    @click="updateClientLatency"
-                    :disabled="updating.latency || !hasLatencyChanged"
-                    class="update-btn small"
-                  >
-                    {{ updating.latency ? '...' : 'OK' }}
-                  </button>
                 </div>
               </div>
               <p class="help-text">
@@ -106,23 +67,50 @@
             </div>
           </section>
 
-          <!-- Informations système -->
+          <!-- Informations générales - MAINTENANT EN SECOND -->
           <section class="details-section">
-            <h3>Informations Système</h3>
+            <h3>Informations Générales</h3>
             
             <div class="info-grid">
               <div class="info-item">
+                <span class="info-label">Adresse IP:</span>
+                <span class="info-value">{{ clientDetails.ip }}</span>
+              </div>
+              
+              <div class="info-item">
+                <span class="info-label">Hostname:</span>
+                <span class="info-value">{{ clientDetails.host }}</span>
+              </div>
+              
+              <!-- AJOUT : Version Snapclient -->
+              <div class="info-item">
                 <span class="info-label">Version Snapclient:</span>
                 <span class="info-value">{{ clientDetails.snapclient_info?.version || 'Inconnu' }}</span>
+              </div>
+              
+              <div class="info-item">
+                <span class="info-label">Connexion:</span>
+                <div class="connection-status">
+                  <span :class="['status-dot', getQualityClass(clientDetails.connection_quality)]"></span>
+                  <span>{{ getQualityText(clientDetails.connection_quality) }}</span>
+                </div>
               </div>
             </div>
           </section>
         </div>
       </div>
 
-      <!-- Actions -->
+      <!-- Actions - AJOUT bouton Valider -->
       <div class="modal-actions">
         <button @click="closeDetails" class="close-action-btn">Fermer</button>
+        
+        <button 
+          @click="validateChanges"
+          :disabled="!hasChanges || isUpdating"
+          class="validate-btn"
+        >
+          {{ isUpdating ? 'Validation...' : 'Valider' }}
+        </button>
       </div>
     </div>
   </div>
@@ -147,10 +135,7 @@ const emit = defineEmits(['close', 'client-updated']);
 const loading = ref(false);
 const error = ref(null);
 const clientDetails = ref({});
-const updating = ref({
-  name: false,
-  latency: false
-});
+const isUpdating = ref(false);
 
 // Configuration éditable
 const editableConfig = ref({
@@ -158,13 +143,16 @@ const editableConfig = ref({
   latency: 0
 });
 
-// Détection des changements
-const hasNameChanged = computed(() => {
-  return editableConfig.value.name.trim() !== (clientDetails.value.name || '');
+// Configuration originale pour détecter les changements
+const originalConfig = ref({
+  name: '',
+  latency: 0
 });
 
-const hasLatencyChanged = computed(() => {
-  return editableConfig.value.latency !== clientDetails.value.latency;
+// Détection des changements - OPTIMISÉ
+const hasChanges = computed(() => {
+  return editableConfig.value.name.trim() !== originalConfig.value.name ||
+         editableConfig.value.latency !== originalConfig.value.latency;
 });
 
 // === MÉTHODES ===
@@ -177,11 +165,14 @@ async function loadClientDetails() {
     const response = await axios.get(`/api/routing/snapcast/client/${props.client.id}/details`);
     clientDetails.value = response.data.client;
     
-    // Initialiser la configuration éditable
-    editableConfig.value = {
+    // Initialiser la configuration éditable et originale
+    const configData = {
       name: clientDetails.value.name || '',
       latency: clientDetails.value.latency || 0
     };
+    
+    editableConfig.value = { ...configData };
+    originalConfig.value = { ...configData };
     
   } catch (err) {
     console.error('Error loading client details:', err);
@@ -191,53 +182,63 @@ async function loadClientDetails() {
   }
 }
 
-async function updateClientName() {
-  if (!hasNameChanged.value) return;
+// NOUVEAU : Fonction de validation centralisée
+async function validateChanges() {
+  if (!hasChanges.value) return;
   
-  updating.value.name = true;
+  isUpdating.value = true;
+  error.value = null;
   
   try {
-    const response = await axios.post(`/api/routing/snapcast/client/${props.client.id}/name`, {
-      name: editableConfig.value.name.trim()
-    });
+    const updates = [];
     
-    if (response.data.status === 'success') {
-      clientDetails.value.name = editableConfig.value.name.trim();
-      emit('client-updated');
-    } else {
-      error.value = 'Erreur lors de la mise à jour du nom';
+    // Mettre à jour le nom si changé
+    if (editableConfig.value.name.trim() !== originalConfig.value.name) {
+      updates.push(updateClientName());
     }
     
+    // Mettre à jour la latence si changée
+    if (editableConfig.value.latency !== originalConfig.value.latency) {
+      updates.push(updateClientLatency());
+    }
+    
+    // Exécuter toutes les mises à jour en parallèle
+    await Promise.all(updates);
+    
+    // Mettre à jour la config originale
+    originalConfig.value = { ...editableConfig.value };
+    
+    emit('client-updated');
+    
   } catch (err) {
-    console.error('Error updating client name:', err);
-    error.value = 'Erreur lors de la mise à jour du nom';
+    console.error('Error validating changes:', err);
+    error.value = 'Erreur lors de la validation des modifications';
   } finally {
-    updating.value.name = false;
+    isUpdating.value = false;
+  }
+}
+
+async function updateClientName() {
+  const response = await axios.post(`/api/routing/snapcast/client/${props.client.id}/name`, {
+    name: editableConfig.value.name.trim()
+  });
+  
+  if (response.data.status === 'success') {
+    clientDetails.value.name = editableConfig.value.name.trim();
+  } else {
+    throw new Error('Erreur lors de la mise à jour du nom');
   }
 }
 
 async function updateClientLatency() {
-  if (!hasLatencyChanged.value) return;
+  const response = await axios.post(`/api/routing/snapcast/client/${props.client.id}/latency`, {
+    latency: editableConfig.value.latency
+  });
   
-  updating.value.latency = true;
-  
-  try {
-    const response = await axios.post(`/api/routing/snapcast/client/${props.client.id}/latency`, {
-      latency: editableConfig.value.latency
-    });
-    
-    if (response.data.status === 'success') {
-      clientDetails.value.latency = editableConfig.value.latency;
-      emit('client-updated');
-    } else {
-      error.value = 'Erreur lors de la mise à jour de la latence';
-    }
-    
-  } catch (err) {
-    console.error('Error updating client latency:', err);
-    error.value = 'Erreur lors de la mise à jour de la latence';
-  } finally {
-    updating.value.latency = false;
+  if (response.data.status === 'success') {
+    clientDetails.value.latency = editableConfig.value.latency;
+  } else {
+    throw new Error('Erreur lors de la mise à jour de la latence');
   }
 }
 
@@ -260,35 +261,6 @@ function getQualityText(quality) {
     case 'good': return 'Bonne';
     case 'poor': return 'Faible';
     default: return 'Inconnue';
-  }
-}
-
-function getQualityDescription(quality) {
-  switch (quality) {
-    case 'good': return 'Connexion stable';
-    case 'poor': return 'Connexion instable';
-    default: return 'État inconnu';
-  }
-}
-
-function formatLastSeen(lastSeen) {
-  if (!lastSeen || !lastSeen.sec) {
-    return 'Jamais vu';
-  }
-  
-  // Conversion du timestamp en date lisible
-  const date = new Date(lastSeen.sec * 1000);
-  const now = new Date();
-  const diffMs = now - date;
-  const diffSec = Math.floor(diffMs / 1000);
-  
-  if (diffSec < 60) {
-    return `Il y a ${diffSec} seconde${diffSec > 1 ? 's' : ''}`;
-  } else if (diffSec < 3600) {
-    const diffMin = Math.floor(diffSec / 60);
-    return `Il y a ${diffMin} minute${diffMin > 1 ? 's' : ''}`;
-  } else {
-    return date.toLocaleString();
   }
 }
 
@@ -535,29 +507,6 @@ watch(() => props.client.id, () => {
   text-align: right;
 }
 
-.update-btn {
-  padding: 6px 12px;
-  background: #28a745;
-  color: white;
-  border: none;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.update-btn.small {
-  padding: 4px 8px;
-}
-
-.update-btn:hover:not(:disabled) {
-  background: #218838;
-}
-
-.update-btn:disabled {
-  background: #6c757d;
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
 .help-text {
   font-size: 12px;
   color: #666;
@@ -570,25 +519,44 @@ watch(() => props.client.id, () => {
   font-weight: bold;
 }
 
-/* Actions */
+/* Actions - NOUVEAU STYLE */
 .modal-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
   padding: 20px;
   border-top: 1px solid #eee;
   background: #f8f9fa;
 }
 
-.close-action-btn {
+.close-action-btn, .validate-btn {
   padding: 10px 20px;
-  background: #6c757d;
-  color: white;
   border: none;
   cursor: pointer;
   font-weight: bold;
 }
 
+.close-action-btn {
+  background: #6c757d;
+  color: white;
+}
+
 .close-action-btn:hover {
   background: #545b62;
+}
+
+.validate-btn {
+  background: #28a745;
+  color: white;
+}
+
+.validate-btn:hover:not(:disabled) {
+  background: #218838;
+}
+
+.validate-btn:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 </style>

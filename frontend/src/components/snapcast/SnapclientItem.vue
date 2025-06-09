@@ -10,9 +10,10 @@
     <div class="client-controls">
       <!-- Bouton Mute -->
       <button 
-        @click="toggleMute"
+        @click="handleMuteToggle"
         :class="['mute-btn', { muted: client.muted }]"
         :title="client.muted ? 'Activer le son' : 'Couper le son'"
+        :disabled="updating"
       >
         {{ client.muted ? '🔇' : '🔊' }}
       </button>
@@ -23,29 +24,20 @@
           type="range"
           min="0"
           max="100"
-          :value="localVolume !== null ? localVolume : client.volume"
+          :value="displayVolume"
           @input="handleVolumeInput"
           @change="handleVolumeChange"
           :disabled="client.muted"
           class="volume-slider"
         >
-        <span class="volume-label">{{ localVolume !== null ? localVolume : client.volume }}%</span>
+        <span class="volume-label">{{ displayVolume }}%</span>
       </div>
-      
-      <!-- Bouton Détails -->
-      <button 
-        @click="showDetails"
-        class="details-btn"
-        title="Voir les détails du client"
-      >
-        ℹ️
-      </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 
 // Props
 const props = defineProps({
@@ -56,39 +48,57 @@ const props = defineProps({
 });
 
 // Émissions
-const emit = defineEmits(['volume-change', 'mute-toggle', 'show-details']);
+const emit = defineEmits(['volume-change', 'mute-toggle']);
 
-// État local pour feedback immédiat
+// État local optimisé
 const localVolume = ref(null);
+const updating = ref(false);
 
-// === MÉTHODES ===
+// Volume affiché avec feedback immédiat
+const displayVolume = computed(() => {
+  return localVolume.value !== null ? localVolume.value : props.client.volume;
+});
 
-function toggleMute() {
+// === GESTIONNAIRES D'ÉVÉNEMENTS OPTIMISÉS ===
+
+async function handleMuteToggle() {
+  if (updating.value) return;
+  
+  updating.value = true;
   const newMuted = !props.client.muted;
-  emit('mute-toggle', props.client.id, newMuted);
+  
+  // Feedback immédiat
+  props.client.muted = newMuted;
+  
+  try {
+    emit('mute-toggle', props.client.id, newMuted);
+  } catch (error) {
+    // Restaurer en cas d'erreur
+    props.client.muted = !newMuted;
+    console.error('Error toggling mute:', error);
+  } finally {
+    updating.value = false;
+  }
 }
 
 function handleVolumeInput(event) {
   const newVolume = parseInt(event.target.value);
   
-  // 1. Feedback visuel IMMÉDIAT - SYSTÈME ORIGINAL
+  // Feedback visuel immédiat
   localVolume.value = newVolume;
   
-  // 2. Émettre l'événement avec throttling intelligent dans le parent
-  emit('volume-change', props.client.id, newVolume);
+  // Émettre pour throttling dans le parent
+  emit('volume-change', props.client.id, newVolume, 'input');
 }
 
 function handleVolumeChange(event) {
-  // @change se déclenche quand on relâche le slider
   const newVolume = parseInt(event.target.value);
   
   // Nettoyer le volume local et émettre la valeur finale
   localVolume.value = null;
-  emit('volume-change', props.client.id, newVolume);
-}
-
-function showDetails() {
-  emit('show-details', props.client);
+  props.client.volume = newVolume; // Mise à jour immédiate
+  
+  emit('volume-change', props.client.id, newVolume, 'change');
 }
 </script>
 
@@ -100,6 +110,7 @@ function showDetails() {
   padding: 16px;
   border: 1px solid #e0e0e0;
   background: #fafafa;
+  transition: background-color 0.2s;
 }
 
 .snapclient-item:hover {
@@ -118,7 +129,10 @@ function showDetails() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-bottom: 2px;
 }
+
+
 
 /* Contrôles du client */
 .client-controls {
@@ -128,7 +142,7 @@ function showDetails() {
   flex-shrink: 0;
 }
 
-.mute-btn, .details-btn {
+.mute-btn {
   width: 36px;
   height: 36px;
   border: 1px solid #ddd;
@@ -138,9 +152,10 @@ function showDetails() {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.2s;
 }
 
-.mute-btn:hover:not(:disabled), .details-btn:hover {
+.mute-btn:hover:not(:disabled) {
   background: #f0f0f0;
 }
 
@@ -150,18 +165,9 @@ function showDetails() {
   border-color: #dc3545;
 }
 
-.mute-btn:disabled, .details-btn:disabled {
+.mute-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.details-btn {
-  background: #e9ecef;
-  border-color: #ced4da;
-}
-
-.details-btn:hover {
-  background: #dee2e6;
 }
 
 /* Contrôle du volume */
@@ -178,6 +184,7 @@ function showDetails() {
   background: #ddd;
   outline: none;
   appearance: none;
+  transition: background-color 0.2s;
 }
 
 .volume-slider:hover:not(:disabled) {
@@ -191,6 +198,7 @@ function showDetails() {
   background: #2196F3;
   border-radius: 50%;
   cursor: pointer;
+  transition: background-color 0.2s;
 }
 
 .volume-slider::-webkit-slider-thumb:hover {
@@ -204,6 +212,7 @@ function showDetails() {
   border-radius: 50%;
   cursor: pointer;
   border: none;
+  transition: background-color 0.2s;
 }
 
 .volume-slider::-moz-range-thumb:hover {

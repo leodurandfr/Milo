@@ -6,22 +6,12 @@
       <h1>Multiroom</h1>
       
       <div class="header-controls">
-        <!-- Volume global ALSA (frontend uniquement pour l'instant) -->
-        <div class="volume-global">
-          <label>Volume Global</label>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            v-model="globalVolume"
-            @input="handleGlobalVolumeChange"
-            class="global-volume-slider"
-          >
-          <span class="volume-value">{{ globalVolume }}%</span>
-        </div>
-        
-        <!-- Bouton Settings -->
-        <button @click="showSettings = true" class="settings-btn">
+        <!-- Bouton Settings - SEULEMENT si multiroom actif -->
+        <button 
+          v-if="isMultiroomActive"
+          @click="showSettings = true" 
+          class="settings-btn"
+        >
           Settings
         </button>
         
@@ -63,7 +53,6 @@
             :client="client"
             @volume-change="handleClientVolumeChange"
             @mute-toggle="handleClientMuteToggle"
-            @show-details="handleShowClientDetails"
           />
         </div>
       </div>
@@ -78,14 +67,6 @@
       @close="showSettings = false"
       @config-updated="handleConfigUpdated"
     />
-
-    <!-- Popin détails client -->
-    <SnapclientDetails
-      v-if="selectedClient"
-      :client="selectedClient"
-      @close="selectedClient = null"
-      @client-updated="handleClientUpdated"
-    />
   </div>
 </template>
 
@@ -96,7 +77,6 @@ import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 import SnapclientItem from '@/components/snapcast/SnapclientItem.vue';
 import SnapcastSettings from '@/components/snapcast/SnapcastSettings.vue';
-import SnapclientDetails from '@/components/snapcast/SnapclientDetails.vue';
 import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 
 const unifiedStore = useUnifiedAudioStore();
@@ -104,11 +84,7 @@ const { on } = useWebSocket();
 
 // État local
 const clients = ref([]);
-const globalVolume = ref(75); // Volume global ALSA (frontend uniquement)
 const showSettings = ref(false);
-const selectedClient = ref(null);
-
-
 
 // Empêcher le polling excessif
 const lastRefreshTime = ref(0);
@@ -151,12 +127,6 @@ async function handleMultiroomToggle(event) {
   await unifiedStore.setRoutingMode(newMode);
 }
 
-function handleGlobalVolumeChange() {
-  // Pour l'instant, juste du feedback visuel
-  // L'intégration backend sera faite plus tard
-  console.log('Global volume changed to:', globalVolume.value);
-}
-
 // === GESTIONNAIRES SIMPLIFIÉS - MISE À JOUR LOCALE IMMÉDIATE ===
 
 async function handleClientVolumeChange(clientId, volume) {
@@ -190,10 +160,6 @@ async function handleClientMuteToggle(clientId, muted) {
   }
 }
 
-function handleShowClientDetails(client) {
-  selectedClient.value = client;
-}
-
 function handleConfigUpdated() {
   console.log('Server config updated, refreshing...');
   if (isMultiroomActive.value) {
@@ -201,16 +167,7 @@ function handleConfigUpdated() {
   }
 }
 
-function handleClientUpdated() {
-  console.log('Client updated, refreshing...');
-  if (isMultiroomActive.value) {
-    fetchClients();
-  }
-}
-
 // === SYNCHRONISATION MULTI-DEVICES ===
-
-
 
 function handleRoutingUpdate(event) {
   // Synchronisation du toggle multiroom entre devices
@@ -280,7 +237,6 @@ watch(isMultiroomActive, async (newValue) => {
     await fetchClients();
   } else {
     clients.value = [];
-    selectedClient.value = null;
     showSettings.value = false;
   }
 });
@@ -289,7 +245,7 @@ watch(isMultiroomActive, async (newValue) => {
 <style scoped>
 .multiroom-view {
   padding: 20px;
-  max-width: 800px;
+  width: 462px;
   margin: 0 auto;
   min-height: 100vh;
   display: flex;
@@ -316,42 +272,6 @@ watch(isMultiroomActive, async (newValue) => {
   display: flex;
   align-items: center;
   gap: 20px;
-}
-
-/* Volume global */
-.volume-global {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.volume-global label {
-  font-size: 12px;
-  color: #666;
-  font-weight: bold;
-}
-
-.global-volume-slider {
-  width: 100px;
-  height: 4px;
-  background: #ddd;
-  outline: none;
-  appearance: none;
-}
-
-.global-volume-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  background: #2196F3;
-  border-radius: 50%;
-  cursor: pointer;
-}
-
-.volume-value {
-  font-size: 12px;
-  color: #666;
-  min-width: 32px;
 }
 
 /* Boutons */
