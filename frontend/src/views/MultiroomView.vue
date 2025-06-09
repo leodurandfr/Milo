@@ -53,6 +53,7 @@
             :client="client"
             @volume-change="handleClientVolumeChange"
             @mute-toggle="handleClientMuteToggle"
+            @show-details="handleShowClientDetails"
           />
         </div>
       </div>
@@ -67,6 +68,14 @@
       @close="showSettings = false"
       @config-updated="handleConfigUpdated"
     />
+
+    <!-- Popin détails client -->
+    <SnapclientDetails
+      v-if="selectedClient"
+      :client="selectedClient"
+      @close="selectedClient = null"
+      @client-updated="handleClientUpdated"
+    />
   </div>
 </template>
 
@@ -77,6 +86,7 @@ import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 import SnapclientItem from '@/components/snapcast/SnapclientItem.vue';
 import SnapcastSettings from '@/components/snapcast/SnapcastSettings.vue';
+import SnapclientDetails from '@/components/snapcast/SnapclientDetails.vue';
 import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 
 const unifiedStore = useUnifiedAudioStore();
@@ -85,6 +95,7 @@ const { on } = useWebSocket();
 // État local
 const clients = ref([]);
 const showSettings = ref(false);
+const selectedClient = ref(null);
 
 // Empêcher le polling excessif
 const lastRefreshTime = ref(0);
@@ -167,6 +178,17 @@ function handleConfigUpdated() {
   }
 }
 
+function handleShowClientDetails(client) {
+  selectedClient.value = client;
+}
+
+function handleClientUpdated() {
+  console.log('Client updated, refreshing...');
+  if (isMultiroomActive.value) {
+    fetchClients();
+  }
+}
+
 // === SYNCHRONISATION MULTI-DEVICES ===
 
 function handleRoutingUpdate(event) {
@@ -237,6 +259,7 @@ watch(isMultiroomActive, async (newValue) => {
     await fetchClients();
   } else {
     clients.value = [];
+    selectedClient.value = null;
     showSettings.value = false;
   }
 });
@@ -245,7 +268,7 @@ watch(isMultiroomActive, async (newValue) => {
 <style scoped>
 .multiroom-view {
   padding: 20px;
-  width: 462px;
+  max-width: 800px;
   margin: 0 auto;
   min-height: 100vh;
   display: flex;

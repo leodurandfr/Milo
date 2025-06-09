@@ -32,6 +32,15 @@
         >
         <span class="volume-label">{{ displayVolume }}%</span>
       </div>
+      
+      <!-- Bouton Détails -->
+      <button 
+        @click="handleShowDetails"
+        class="details-btn"
+        title="Voir les détails du client"
+      >
+        ℹ️
+      </button>
     </div>
   </div>
 </template>
@@ -48,7 +57,7 @@ const props = defineProps({
 });
 
 // Émissions
-const emit = defineEmits(['volume-change', 'mute-toggle']);
+const emit = defineEmits(['volume-change', 'mute-toggle', 'show-details']);
 
 // État local optimisé
 const localVolume = ref(null);
@@ -100,6 +109,10 @@ function handleVolumeChange(event) {
   
   emit('volume-change', props.client.id, newVolume, 'change');
 }
+
+function handleShowDetails() {
+  emit('show-details', props.client);
+}
 </script>
 
 <style scoped>
@@ -129,10 +142,7 @@ function handleVolumeChange(event) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-bottom: 2px;
 }
-
-
 
 /* Contrôles du client */
 .client-controls {
@@ -142,7 +152,7 @@ function handleVolumeChange(event) {
   flex-shrink: 0;
 }
 
-.mute-btn {
+.mute-btn, .details-btn {
   width: 36px;
   height: 36px;
   border: 1px solid #ddd;
@@ -155,7 +165,7 @@ function handleVolumeChange(event) {
   transition: all 0.2s;
 }
 
-.mute-btn:hover:not(:disabled) {
+.mute-btn:hover:not(:disabled), .details-btn:hover {
   background: #f0f0f0;
 }
 
@@ -168,6 +178,15 @@ function handleVolumeChange(event) {
 .mute-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.details-btn {
+  background: #e9ecef;
+  border-color: #ced4da;
+}
+
+.details-btn:hover {
+  background: #dee2e6;
 }
 
 /* Contrôle du volume */

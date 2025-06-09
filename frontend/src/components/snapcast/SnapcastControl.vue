@@ -20,8 +20,17 @@
         :client="client"
         @volume-change="handleVolumeChange"
         @mute-toggle="handleMuteToggle"
+        @show-details="handleShowDetails"
       />
     </div>
+
+    <!-- Modal détails client -->
+    <SnapclientDetails
+      v-if="selectedClient"
+      :client="selectedClient"
+      @close="selectedClient = null"
+      @client-updated="fetchClients"
+    />
   </div>
 </template>
 
@@ -31,6 +40,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 import SnapclientItem from './SnapclientItem.vue';
+import SnapclientDetails from './SnapclientDetails.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
@@ -38,6 +48,7 @@ const { on } = useWebSocket();
 // État local optimisé
 const clients = ref([]);
 const loading = ref(false);
+const selectedClient = ref(null);
 
 // Gestion du throttling optimisée avec Map
 const volumeThrottleMap = new Map();
@@ -149,6 +160,10 @@ async function handleMuteToggle(clientId, muted) {
   }
 }
 
+function handleShowDetails(client) {
+  selectedClient.value = client;
+}
+
 // === GESTION WEBSOCKET ===
 
 function handleSnapcastUpdate(event) {
@@ -199,6 +214,7 @@ watch(isMultiroomActive, async (newValue) => {
     await fetchClients();
   } else {
     clients.value = [];
+    selectedClient.value = null;
     
     // Nettoyer les états des requêtes
     volumeThrottleMap.forEach(state => {
