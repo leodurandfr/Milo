@@ -2,7 +2,7 @@
 <template>
   <div class="settings-overlay" @click.self="closeSettings">
     <div class="settings-modal">
-      <!-- En-tête -->
+      <!-- En-tête simple -->
       <div class="modal-header">
         <h2>Configuration Snapcast</h2>
         <button @click="closeSettings" class="close-btn">✕</button>
@@ -21,13 +21,33 @@
         </div>
 
         <div v-else class="settings-form">
+          <!-- Presets Audio -->
+          <section class="config-section">
+            <h3>Presets Audio</h3>
+            <p class="section-description">Configurations prédéfinies pour différents usages</p>
+            
+            <div class="presets-grid">
+              <button 
+                v-for="preset in audioPresets" 
+                :key="preset.id"
+                @click="applyPreset(preset)"
+                :class="['preset-btn', { active: isPresetActive(preset) }]"
+                :disabled="applying"
+              >
+                <div class="preset-icon">{{ preset.icon }}</div>
+                <div class="preset-title">{{ preset.name }}</div>
+                <div class="preset-description">{{ preset.description }}</div>
+              </button>
+            </div>
+          </section>
+
           <!-- Configuration serveur -->
           <section class="config-section">
-            <h3>Paramètres Serveur</h3>
+            <h3>Paramètres Audio</h3>
             
-            <!-- Buffer serveur -->
+            <!-- Buffer global -->
             <div class="form-group">
-              <label for="buffer">Buffer Serveur (ms)</label>
+              <label for="buffer">Buffer Global (ms)</label>
               <div class="input-with-value">
                 <input
                   id="buffer"
@@ -35,14 +55,14 @@
                   min="100"
                   max="2000"
                   step="50"
-                  v-model.number="config.buffer_ms"
+                  v-model.number="config.buffer"
                   class="range-input"
                 >
-                <span class="value-display">{{ config.buffer_ms }}ms</span>
+                <span class="value-display">{{ config.buffer }}ms</span>
               </div>
-              <p class="help-text">Latence end-to-end du système (100-2000ms)</p>
+              <p class="help-text">Latence end-to-end totale du système (100-2000ms)</p>
             </div>
-
+            
             <!-- Codec -->
             <div class="form-group">
               <label for="codec">Codec Audio</label>
@@ -72,53 +92,33 @@
               </div>
               <p class="help-text">Taille de lecture du buffer source (10-100ms)</p>
             </div>
-
-            <!-- Format d'échantillonnage -->
-            <div class="form-group">
-              <label for="sampleformat">Format d'Échantillonnage</label>
-              <select id="sampleformat" v-model="config.sampleformat" class="select-input">
-                <option value="48000:16:2">48kHz 16-bit Stéréo</option>
-                <option value="44100:16:2">44.1kHz 16-bit Stéréo</option>
-                <option value="48000:24:2">48kHz 24-bit Stéréo</option>
-                <option value="96000:16:2">96kHz 16-bit Stéréo</option>
-              </select>
-              <p class="help-text">Format audio utilisé par les sources</p>
-            </div>
           </section>
 
           <!-- Informations actuelles -->
           <section class="config-section">
-            <h3>État Actuel</h3>
+            <h3>État du Serveur</h3>
             
             <div class="info-grid">
               <div class="info-item">
-                <span class="info-label">Version RPC:</span>
-                <span class="info-value">{{ serverInfo.rpc_version?.major }}.{{ serverInfo.rpc_version?.minor }}.{{ serverInfo.rpc_version?.patch }}</span>
-              </div>
-              
-              <div class="info-item">
-                <span class="info-label">Streams actifs:</span>
-                <span class="info-value">{{ serverInfo.streams?.length || 0 }}</span>
-              </div>
-              
-              <div class="info-item">
-                <span class="info-label">Host serveur:</span>
-                <span class="info-value">{{ serverInfo.server_info?.server?.host?.name || 'Inconnu' }}</span>
-              </div>
-              
-              <div class="info-item">
                 <span class="info-label">Version Snapserver:</span>
-                <span class="info-value">{{ serverInfo.server_info?.server?.snapserver?.version || 'Inconnu' }}</span>
+                <span class="info-value">
+                  {{ serverInfo.server_info?.server?.snapserver?.version || 'Inconnu' }}
+                </span>
+              </div>
+              
+              <div class="info-item">
+                <span class="info-label">Host:</span>
+                <span class="info-value">{{ serverInfo.server_info?.server?.host?.name || 'Inconnu' }}</span>
               </div>
             </div>
           </section>
 
           <!-- Warning redémarrage -->
           <div class="warning-box">
-            <span class="warning-icon">!</span>
+            <span class="warning-icon">⚠️</span>
             <div>
               <strong>Attention:</strong> Les modifications nécessitent un redémarrage du serveur Snapcast.
-              Tous les clients seront temporairement déconnectés.
+              Tous les clients seront temporairement déconnectés (~3 secondes).
             </div>
           </div>
         </div>
@@ -126,7 +126,8 @@
 
       <!-- Actions -->
       <div class="modal-actions">
-        <button @click="closeSettings" class="cancel-btn">Annuler</button>
+        <button @click="closeSettings" class="cancel-btn">Fermer</button>
+        
         <button 
           @click="applyConfig" 
           :disabled="loading || applying || !hasChanges"
@@ -152,12 +153,49 @@ const applying = ref(false);
 const error = ref(null);
 const serverInfo = ref({});
 
+// Presets audio prédéfinis
+const audioPresets = [
+  {
+    id: 'reactivity',
+    name: 'Réactivité',
+    icon: '⚡',
+    description: 'Latence minimale pour interaction temps réel',
+    config: {
+      buffer: 200,
+      codec: 'pcm',
+      chunk_ms: 10
+    }
+  },
+  {
+    id: 'balanced',
+    name: 'Équilibré',
+    icon: '⚖️',
+    description: 'Bon compromis qualité/latence',
+    config: {
+      buffer: 1000,
+      codec: 'flac',
+      chunk_ms: 20
+    }
+  },
+  {
+    id: 'quality',
+    name: 'Qualité Optimale',
+    icon: '🎵',
+    description: 'Meilleure qualité audio, latence plus élevée',
+    config: {
+      buffer: 1500,
+      codec: 'flac',
+      chunk_ms: 40
+    }
+  }
+];
+
 // Configuration actuelle et originale
 const config = ref({
-  buffer_ms: 1000,
+  buffer: 1000,
   codec: 'flac',
   chunk_ms: 20,
-  sampleformat: '48000:16:2'
+  sampleformat: '48000:16:2'  // Fixe, non modifiable via l'interface
 });
 
 const originalConfig = ref({});
@@ -167,7 +205,26 @@ const hasChanges = computed(() => {
   return JSON.stringify(config.value) !== JSON.stringify(originalConfig.value);
 });
 
-// === MÉTHODES ===
+// === MÉTHODES PRESETS ===
+
+function isPresetActive(preset) {
+  const current = config.value;
+  const presetConfig = preset.config;
+  
+  return current.buffer === presetConfig.buffer &&
+         current.codec === presetConfig.codec &&
+         current.chunk_ms === presetConfig.chunk_ms;
+}
+
+function applyPreset(preset) {
+  config.value.buffer = preset.config.buffer;
+  config.value.codec = preset.config.codec;
+  config.value.chunk_ms = preset.config.chunk_ms;
+  
+  console.log(`Applied preset: ${preset.name}`, config.value);
+}
+
+// === MÉTHODES PRINCIPALES ===
 
 async function loadServerConfig() {
   loading.value = true;
@@ -177,17 +234,21 @@ async function loadServerConfig() {
     const response = await axios.get('/api/routing/snapcast/server-config');
     serverInfo.value = response.data.config;
     
-    // Extraire la configuration actuelle
-    const streamConfig = serverInfo.value.stream_config || {};
+    // Lire DEPUIS LE FICHIER /etc/snapserver.conf
+    const fileConfig = serverInfo.value.file_config?.parsed_config?.stream || {};
+    const streamConfig = serverInfo.value.stream_config || {}; // Fallback API
+    
     config.value = {
-      buffer_ms: parseInt(streamConfig.buffer_ms) || 1000,
-      codec: streamConfig.codec || 'flac',
-      chunk_ms: parseInt(streamConfig.chunk_ms) || 20,
-      sampleformat: streamConfig.sampleformat || '48000:16:2'
+      buffer: parseInt(fileConfig.buffer || streamConfig.buffer_ms || '1000'),
+      codec: fileConfig.codec || streamConfig.codec || 'flac',
+      chunk_ms: parseInt(fileConfig.chunk_ms || streamConfig.chunk_ms) || 20,
+      sampleformat: '48000:16:2'  // Toujours fixe à cette valeur
     };
     
-    // Sauvegarder la config originale pour détecter les changements
+    // Sauvegarder la config originale
     originalConfig.value = { ...config.value };
+    
+    console.log('Server config loaded from file:', config.value);
     
   } catch (err) {
     console.error('Error loading server config:', err);
@@ -201,8 +262,11 @@ async function applyConfig() {
   if (!hasChanges.value) return;
   
   applying.value = true;
+  error.value = null;
   
   try {
+    console.log('Applying config:', config.value);
+    
     const response = await axios.post('/api/routing/snapcast/server/config', {
       config: config.value
     });
@@ -212,10 +276,10 @@ async function applyConfig() {
       originalConfig.value = { ...config.value };
       emit('config-updated');
       
-      // Fermer la modal après un court délai
-      setTimeout(() => {
-        closeSettings();
-      }, 1000);
+      // Recharger la config après redémarrage
+      setTimeout(async () => {
+        await loadServerConfig();
+      }, 4000);  // Attendre 4 secondes pour le redémarrage
       
     } else {
       error.value = response.data.message || 'Erreur lors de la mise à jour';
@@ -233,18 +297,15 @@ function closeSettings() {
   emit('close');
 }
 
-function resetConfig() {
-  config.value = { ...originalConfig.value };
-}
-
 // === LIFECYCLE ===
 
-onMounted(() => {
-  loadServerConfig();
+onMounted(async () => {
+  await loadServerConfig();
 });
 </script>
 
 <style scoped>
+/* Styles de base */
 .settings-overlay {
   position: fixed;
   top: 0;
@@ -263,14 +324,14 @@ onMounted(() => {
   background: white;
   border: 1px solid #ddd;
   width: 100%;
-  max-width: 600px;
+  max-width: 650px;
   max-height: 90vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-/* En-tête */
+/* En-tête simple */
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -293,10 +354,6 @@ onMounted(() => {
   padding: 4px;
 }
 
-.close-btn:hover {
-  background: #e9ecef;
-}
-
 /* Contenu */
 .modal-content {
   flex: 1;
@@ -304,40 +361,7 @@ onMounted(() => {
   padding: 20px;
 }
 
-.loading-state, .error-state {
-  text-align: center;
-  padding: 40px 20px;
-}
-
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid #f3f3f3;
-  border-top: 3px solid #2196F3;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 16px;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.error-message {
-  color: #dc3545;
-  margin-bottom: 16px;
-}
-
-.retry-btn {
-  padding: 8px 16px;
-  background: #dc3545;
-  color: white;
-  border: none;
-  cursor: pointer;
-}
-
-/* Formulaire */
+/* Formulaire de configuration */
 .settings-form {
   display: flex;
   flex-direction: column;
@@ -350,10 +374,69 @@ onMounted(() => {
 }
 
 .config-section h3 {
-  margin: 0 0 16px 0;
+  margin: 0 0 8px 0;
   font-size: 16px;
 }
 
+.section-description {
+  margin: 0 0 16px 0;
+  font-size: 13px;
+  color: #666;
+  font-style: italic;
+}
+
+/* Presets grid */
+.presets-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+.preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 12px;
+  border: 2px solid #ddd;
+  background: white;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.preset-btn:hover:not(:disabled) {
+  border-color: #2196F3;
+  background: #f0f8ff;
+}
+
+.preset-btn.active {
+  border-color: #2196F3;
+  background: #e3f2fd;
+}
+
+.preset-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.preset-icon {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.preset-title {
+  font-weight: bold;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.preset-description {
+  font-size: 11px;
+  color: #666;
+  line-height: 1.3;
+}
+
+/* Formulaire */
 .form-group {
   margin-bottom: 16px;
 }
@@ -395,7 +478,7 @@ onMounted(() => {
 .value-display {
   font-weight: bold;
   color: #2196F3;
-  min-width: 60px;
+  min-width: 70px;
   text-align: right;
 }
 
@@ -414,7 +497,6 @@ onMounted(() => {
   line-height: 1.4;
 }
 
-/* Informations */
 .info-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -453,6 +535,40 @@ onMounted(() => {
 .warning-icon {
   font-size: 16px;
   flex-shrink: 0;
+}
+
+/* États communs */
+.loading-state, .error-state {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #2196F3;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.error-message {
+  color: #dc3545;
+  margin-bottom: 16px;
+}
+
+.retry-btn {
+  padding: 8px 16px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  cursor: pointer;
 }
 
 /* Actions */
@@ -494,5 +610,16 @@ onMounted(() => {
   background: #6c757d;
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+/* Responsive pour presets */
+@media (max-width: 600px) {
+  .presets-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .preset-btn {
+    padding: 12px;
+  }
 }
 </style>

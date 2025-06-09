@@ -1,5 +1,6 @@
+# backend/main.py
 """
-Point d'entrée principal de l'application oakOS - Version OPTIM simplifiée avec Snapcast
+Point d'entrée principal de l'application oakOS - Version avec routers séparés SIMPLE
 """
 import sys
 import os
@@ -14,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.config.container import container
 from backend.presentation.api.routes import audio
 from backend.presentation.api.routes.routing import create_routing_router
+from backend.presentation.api.routes.snapcast import create_snapcast_router
 from backend.presentation.api.routes.librespot import setup_librespot_routes
 from backend.presentation.api.routes.roc import setup_roc_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
@@ -37,10 +39,9 @@ websocket_server = WebSocketServer(ws_manager, state_machine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Gestion du cycle de vie de l'application - Version OPTIM"""
-    # OPTIM: Initialisation simplifiée
+    """Gestion du cycle de vie de l'application"""
     try:
-        # 1. Enregistrer les plugins et configurer les références croisées (synchrone)
+        # 1. Enregistrer les plugins et configurer les références croisées
         container.register_plugins()
         logger.info("Plugins registered and configured")
         
@@ -83,14 +84,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routes
+# Routes audio principales
 audio_router = audio.create_router(state_machine)
 app.include_router(audio_router)
 
-# Route de routage audio (MODIFIÉE pour inclure snapcast_service)
-routing_router = create_routing_router(routing_service, state_machine, snapcast_service)
+# Routes de routage (simplifiées)
+routing_router = create_routing_router(routing_service, state_machine)
 app.include_router(routing_router)
 
+# Routes Snapcast (nouvelles, séparées, SIMPLES)
+snapcast_router = create_snapcast_router(routing_service, snapcast_service, state_machine)
+app.include_router(snapcast_router)
+
+# Routes des plugins audio
 librespot_router = setup_librespot_routes(
     lambda: state_machine.plugins.get(AudioSource.LIBRESPOT)
 )
