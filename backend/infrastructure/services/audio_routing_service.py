@@ -61,8 +61,7 @@ class AudioRoutingService:
             self._initial_detection_done = True
     
     async def set_routing_mode(self, mode: AudioRoutingMode, active_source: AudioSource = None) -> bool:
-        """Change le mode de routage audio"""
-        # S'assurer que la détection initiale est faite
+        """Change le mode de routage audio - VERSION CORRIGÉE"""
         if not self._initial_detection_done:
             await self._detect_initial_state()
         
@@ -74,28 +73,34 @@ class AudioRoutingService:
             old_mode = self.state.mode
             self.logger.info(f"Changing routing from {old_mode.value} to {mode.value}")
             
-            # 1. Mettre à jour la variable d'environnement (pour compatibilité - sera supprimé plus tard)
+            # 1. Mettre à jour la variable d'environnement
             await self._update_systemd_environment(mode)
             
-            # 2. Effectuer la transition
+            # 2. IMPORTANT: Mettre à jour l'état AVANT la transition
+            self.state.mode = mode
+            
+            # 3. Effectuer la transition avec le nouvel état
             if mode == AudioRoutingMode.MULTIROOM:
                 success = await self._transition_to_multiroom(active_source)
             else:  # DIRECT
                 success = await self._transition_to_direct(active_source)
             
-            if success:
-                self.state.mode = mode
-                return True
-            else:
-                self.logger.error(f"Failed to transition to {mode.value} mode")
+            if not success:
+                # En cas d'échec, restaurer l'ancien état
+                self.state.mode = old_mode
+                self.logger.error(f"Failed to transition to {mode.value} mode, reverting to {old_mode.value}")
                 return False
             
+            return True
+            
         except Exception as e:
+            # En cas d'erreur, restaurer l'ancien état
+            self.state.mode = old_mode
             self.logger.error(f"Error changing routing mode: {e}")
             return False
-    
+
     async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
-        """Active/désactive l'equalizer"""
+        """Active/désactive l'equalizer - VERSION CORRIGÉE"""
         if self.state.equalizer_enabled == enabled:
             self.logger.info(f"Equalizer already {'enabled' if enabled else 'disabled'}")
             return True
@@ -104,7 +109,7 @@ class AudioRoutingService:
             old_state = self.state.equalizer_enabled
             self.logger.info(f"Changing equalizer from {old_state} to {enabled}")
             
-            # Mettre à jour l'état AVANT de redémarrer le plugin
+            # IMPORTANT: Mettre à jour l'état AVANT de redémarrer le plugin
             self.state.equalizer_enabled = enabled
             
             # Redémarrer le plugin actif avec le nouveau device
@@ -113,7 +118,7 @@ class AudioRoutingService:
                 if plugin:
                     self.logger.info(f"Restarting plugin {active_source.value} with equalizer {'enabled' if enabled else 'disabled'}")
                     
-                    # Redémarrer avec le nouveau device
+                    # Redémarrer avec le nouveau device (maintenant avec le bon état)
                     await plugin.restart()
                     
                     # Mettre à jour le device audio selon le nouvel état
@@ -128,6 +133,29 @@ class AudioRoutingService:
             self.state.equalizer_enabled = old_state
             self.logger.error(f"Error changing equalizer state: {e}")
             return False
+    
+    async def _update_systemd_environment(self, mode: AudioRoutingMode) -> None:
+        """Met à jour les variables d'environnement ALSA"""
+        try:
+            mode_value = mode.value
+            equalizer_suffix = "_eq" if self.state.equalizer_enabled else ""
+            
+            # Mettre à jour OAKOS_MODE  
+            await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "set-environment", f"OAKOS_MODE={mode_value}"
+            )
+            
+            # Mettre à jour OAKOS_EQUALIZER
+            await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "set-environment", f"OAKOS_EQUALIZER={equalizer_suffix}"
+            )
+            
+            os.environ["OAKOS_MODE"] = mode_value
+            os.environ["OAKOS_EQUALIZER"] = equalizer_suffix
+            
+        except Exception as e:
+            self.logger.error(f"Error updating environment: {e}")
+    
     
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
         """Transition vers le mode multiroom - Version avec equalizer"""
