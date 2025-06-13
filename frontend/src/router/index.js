@@ -2,6 +2,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import HomeView from '@/views/HomeView.vue';
 import MultiroomView from '@/views/MultiroomView.vue';
+import EqualizerView from '@/views/EqualizerView.vue';
 
 const routes = [
   {
@@ -18,6 +19,14 @@ const routes = [
     component: MultiroomView,
     meta: {
       title: 'oakOS - Multiroom Control'
+    }
+  },
+  {
+    path: '/equalizer',
+    name: 'equalizer',
+    component: EqualizerView,
+    meta: {
+      title: 'oakOS - Equalizer'
     }
   }
   // D'autres routes seront ajoutées ultérieurement

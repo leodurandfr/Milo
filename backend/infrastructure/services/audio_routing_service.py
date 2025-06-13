@@ -1,5 +1,5 @@
 """
-Service de routage audio pour oakOS - Version avec détection d'état initial
+Service de routage audio pour oakOS - Version finale avec backend intelligent
 """
 import os
 import logging
@@ -10,12 +10,12 @@ from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class AudioRoutingService:
-    """Service de routage audio - Version avec détection automatique de l'état initial"""
+    """Service de routage audio - Version finale avec backend intelligent"""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.service_manager = SystemdServiceManager()
-        self.state = AudioRoutingState()  # État temporaire
+        self.state = AudioRoutingState()  # État étendu avec equalizer
         self.state_machine = None  # Référence pour accéder aux plugins
         self._initial_detection_done = False
         
@@ -44,16 +44,20 @@ class AudioRoutingService:
                 self.logger.info("Snapcast services inactive → detected DIRECT mode")
             
             self.state.mode = detected_mode
+            
+            # Equalizer désactivé par défaut au démarrage
+            self.state.equalizer_enabled = False
+            
             self._initial_detection_done = True
             
-            # Synchroniser la variable d'environnement système
+            # Synchroniser la variable d'environnement système (pour compatibilité - sera supprimé plus tard)
             await self._update_systemd_environment(detected_mode)
             
-            self.logger.info(f"Initial routing state set to: {detected_mode.value}")
+            self.logger.info(f"Initial routing state: {detected_mode.value}, equalizer: {self.state.equalizer_enabled}")
             
         except Exception as e:
             self.logger.error(f"Error detecting initial routing state: {e}")
-            # En cas d'erreur, garder le mode par défaut (multiroom)
+            # En cas d'erreur, garder les valeurs par défaut
             self._initial_detection_done = True
     
     async def set_routing_mode(self, mode: AudioRoutingMode, active_source: AudioSource = None) -> bool:
@@ -70,7 +74,7 @@ class AudioRoutingService:
             old_mode = self.state.mode
             self.logger.info(f"Changing routing from {old_mode.value} to {mode.value}")
             
-            # 1. Mettre à jour la variable d'environnement
+            # 1. Mettre à jour la variable d'environnement (pour compatibilité - sera supprimé plus tard)
             await self._update_systemd_environment(mode)
             
             # 2. Effectuer la transition
@@ -90,8 +94,43 @@ class AudioRoutingService:
             self.logger.error(f"Error changing routing mode: {e}")
             return False
     
+    async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
+        """Active/désactive l'equalizer"""
+        if self.state.equalizer_enabled == enabled:
+            self.logger.info(f"Equalizer already {'enabled' if enabled else 'disabled'}")
+            return True
+        
+        try:
+            old_state = self.state.equalizer_enabled
+            self.logger.info(f"Changing equalizer from {old_state} to {enabled}")
+            
+            # Mettre à jour l'état AVANT de redémarrer le plugin
+            self.state.equalizer_enabled = enabled
+            
+            # Redémarrer le plugin actif avec le nouveau device
+            if active_source and self.state_machine:
+                plugin = self.state_machine.plugins.get(active_source)
+                if plugin:
+                    self.logger.info(f"Restarting plugin {active_source.value} with equalizer {'enabled' if enabled else 'disabled'}")
+                    
+                    # Redémarrer avec le nouveau device
+                    await plugin.restart()
+                    
+                    # Mettre à jour le device audio selon le nouvel état
+                    device = self.get_device_for_source(active_source)
+                    await plugin.change_audio_device(device)
+                    self.logger.info(f"Updated audio device to {device}")
+            
+            return True
+            
+        except Exception as e:
+            # En cas d'erreur, revenir à l'ancien état
+            self.state.equalizer_enabled = old_state
+            self.logger.error(f"Error changing equalizer state: {e}")
+            return False
+    
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
-        """Transition vers le mode multiroom - Version CLEAN avec update device"""
+        """Transition vers le mode multiroom - Version avec equalizer"""
         try:
             # 1. Démarrer snapcast d'abord
             self.logger.info("Starting snapcast services")
@@ -99,14 +138,14 @@ class AudioRoutingService:
             if not snapcast_success:
                 return False
             
-            # 2. Redémarrer le plugin via restart()
+            # 2. Redémarrer le plugin via restart() avec le nouveau device
             if active_source and self.state_machine:
                 plugin = self.state_machine.plugins.get(active_source)
                 if plugin:
                     self.logger.info(f"Restarting plugin {active_source.value}")
                     await plugin.restart()
                     
-                    # 3. Mettre à jour le device audio selon le nouveau mode
+                    # 3. Mettre à jour le device audio selon le nouveau mode et l'état equalizer
                     device = self.get_device_for_source(active_source)
                     await plugin.change_audio_device(device)
                     self.logger.info(f"Updated audio device to {device} for multiroom mode")
@@ -118,20 +157,20 @@ class AudioRoutingService:
             return False
     
     async def _transition_to_direct(self, active_source: AudioSource = None) -> bool:
-        """Transition vers le mode direct - Version CLEAN avec update device"""
+        """Transition vers le mode direct - Version avec equalizer"""
         try:
             # 1. Arrêter snapcast
             self.logger.info("Stopping snapcast services")
             await self._stop_snapcast()
             
-            # 2. Redémarrer le plugin actif via restart()
+            # 2. Redémarrer le plugin actif via restart() avec le nouveau device
             if active_source and self.state_machine:
                 plugin = self.state_machine.plugins.get(active_source)
                 if plugin:
                     self.logger.info(f"Restarting plugin {active_source.value}")
                     await plugin.restart()
                     
-                    # 3. Mettre à jour le device audio selon le nouveau mode
+                    # 3. Mettre à jour le device audio selon le nouveau mode et l'état equalizer
                     device = self.get_device_for_source(active_source)
                     await plugin.change_audio_device(device)
                     self.logger.info(f"Updated audio device to {device} for direct mode")
@@ -170,7 +209,7 @@ class AudioRoutingService:
             self.logger.error(f"Error stopping snapcast: {e}")
     
     async def _update_systemd_environment(self, mode: AudioRoutingMode) -> None:
-        """Met à jour la variable d'environnement OAKOS_MODE"""
+        """Met à jour la variable d'environnement OAKOS_MODE (pour compatibilité - sera supprimé plus tard)"""
         try:
             mode_value = mode.value
             
@@ -192,16 +231,37 @@ class AudioRoutingService:
             raise
     
     def get_device_for_source(self, source: AudioSource) -> str:
-        """Récupère le device ALSA pour une source"""
-        mapping = {
+        """
+        Backend intelligent - Construit le nom du device selon l'état actuel
+        
+        Exemples:
+        - oakos_roc (direct, sans equalizer)
+        - oakos_roc_eq (direct, avec equalizer)
+        - oakos_roc_multiroom (multiroom, sans equalizer)
+        - oakos_roc_multiroom_eq (multiroom, avec equalizer)
+        """
+        # Mapping de base
+        base_mapping = {
             AudioSource.LIBRESPOT: "oakos_spotify",
             AudioSource.BLUETOOTH: "oakos_bluetooth", 
             AudioSource.ROC: "oakos_roc"
         }
-        return mapping.get(source, "default")
+        
+        device = base_mapping.get(source, "default")
+        
+        # Ajouter _multiroom si en mode multiroom
+        if self.state.mode == AudioRoutingMode.MULTIROOM:
+            device += "_multiroom"
+        
+        # Ajouter _eq si equalizer activé
+        if self.state.equalizer_enabled:
+            device += "_eq"
+        
+        self.logger.info(f"Generated device for {source.value}: {device}")
+        return device
     
     def get_state(self) -> AudioRoutingState:
-        """Récupère l'état actuel du routage"""
+        """Récupère l'état actuel du routage (incluant equalizer)"""
         return self.state
     
     async def get_snapcast_status(self) -> Dict[str, Any]:

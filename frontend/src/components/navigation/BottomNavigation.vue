@@ -7,6 +7,9 @@
         <router-link to="/multiroom" class="nav-link" :class="{ active: $route.name === 'multiroom' }">
             Multiroom
         </router-link>
+        <router-link to="/equalizer" class="nav-link" :class="{ active: $route.name === 'equalizer' }">
+            Equalizer
+        </router-link>
         <button @click="changeSource('librespot')" :disabled="unifiedStore.isTransitioning"
             :class="['nav-link', 'source-nav', { active: unifiedStore.currentSource === 'librespot' }]">
             Spotify

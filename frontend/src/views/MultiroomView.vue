@@ -14,24 +14,11 @@
         >
           Settings
         </button>
-        
-        <!-- Toggle Multiroom -->
-        <div class="multiroom-toggle-inline">
-          <label class="toggle">
-            <input 
-              type="checkbox" 
-              :checked="unifiedStore.routingMode === 'multiroom'"
-              @change="handleMultiroomToggle"
-              :disabled="unifiedStore.isTransitioning"
-            >
-            <span class="slider"></span>
-          </label>
-          <span class="toggle-label">
-            {{ unifiedStore.routingMode === 'multiroom' ? 'ON' : 'OFF' }}
-          </span>
-        </div>
       </div>
     </div>
+
+    <!-- Toggle Multiroom - Composant séparé -->
+    <MultiroomToggle />
 
     <!-- Contenu principal -->
     <div class="main-content">
@@ -84,6 +71,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
+import MultiroomToggle from '@/components/routing/MultiroomToggle.vue';
 import SnapclientItem from '@/components/snapcast/SnapclientItem.vue';
 import SnapcastSettings from '@/components/snapcast/SnapcastSettings.vue';
 import SnapclientDetails from '@/components/snapcast/SnapclientDetails.vue';
@@ -129,13 +117,6 @@ async function fetchClients() {
     console.error('Error fetching clients:', error);
     clients.value = [];
   }
-}
-
-// === GESTIONNAIRES D'ÉVÉNEMENTS ===
-
-async function handleMultiroomToggle(event) {
-  const newMode = event.target.checked ? 'multiroom' : 'direct';
-  await unifiedStore.setRoutingMode(newMode);
 }
 
 // === GESTIONNAIRES SIMPLIFIÉS - MISE À JOUR LOCALE IMMÉDIATE ===
@@ -308,64 +289,6 @@ watch(isMultiroomActive, async (newValue) => {
 
 .settings-btn:hover {
   background: #e9e9e9;
-}
-
-/* Toggle inline */
-.multiroom-toggle-inline {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.toggle {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 20px;
-}
-
-.toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #ccc;
-  transition: 0.3s;
-  border-radius: 20px;
-}
-
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 16px;
-  width: 16px;
-  left: 2px;
-  bottom: 2px;
-  background-color: white;
-  transition: 0.3s;
-  border-radius: 50%;
-}
-
-input:checked + .slider {
-  background-color: #2196F3;
-}
-
-input:checked + .slider:before {
-  transform: translateX(24px);
-}
-
-.toggle-label {
-  font-size: 12px;
-  font-weight: bold;
-  min-width: 24px;
 }
 
 /* Contenu principal */

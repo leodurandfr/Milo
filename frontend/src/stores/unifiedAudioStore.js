@@ -4,23 +4,25 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
-  // État miroir du backend
+  // État miroir du backend - Étendu pour l'equalizer
   const systemState = ref({
     active_source: 'none',
     plugin_state: 'inactive',
     transitioning: false,
     metadata: {},
     error: null,
-    routing_mode: 'multiroom'
+    routing_mode: 'multiroom',
+    equalizer_enabled: false  // Nouveau champ pour l'equalizer
   });
   
-  // Getters unifiés
+  // Getters unifiés - Étendus pour l'equalizer
   const currentSource = computed(() => systemState.value.active_source);
   const pluginState = computed(() => systemState.value.plugin_state);
   const isTransitioning = computed(() => systemState.value.transitioning);
   const metadata = computed(() => systemState.value.metadata || {});
   const error = computed(() => systemState.value.error);
   const routingMode = computed(() => systemState.value.routing_mode);
+  const equalizerEnabled = computed(() => systemState.value.equalizer_enabled);
   
   // Actions unifiées
   async function changeSource(source) {
@@ -56,19 +58,30 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
   
+  async function setEqualizerEnabled(enabled) {
+    try {
+      const response = await axios.post(`/api/routing/equalizer/${enabled}`);
+      return response.data.status === 'success';
+    } catch (err) {
+      console.error('Set equalizer error:', err);
+      return false;
+    }
+  }
+  
   function updateState(event) {
     if (event.data.full_state) {
       // Mise à jour complète de l'état
       const newState = event.data.full_state;
       
-      // S'assurer que tous les champs sont présents
+      // S'assurer que tous les champs sont présents (incluant equalizer)
       systemState.value = {
         active_source: newState.active_source || 'none',
         plugin_state: newState.plugin_state || 'inactive',
         transitioning: newState.transitioning || false,
         metadata: newState.metadata || {},
         error: newState.error || null,
-        routing_mode: newState.routing_mode || 'multiroom'
+        routing_mode: newState.routing_mode || 'multiroom',
+        equalizer_enabled: newState.equalizer_enabled || false
       };
       
       // Log pour debug
@@ -89,11 +102,13 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     metadata,
     error,
     routingMode,
+    equalizerEnabled, 
     
     // Actions
     changeSource,
     sendCommand,
     setRoutingMode,
+    setEqualizerEnabled,
     updateState
   };
 });

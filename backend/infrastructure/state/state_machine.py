@@ -1,6 +1,6 @@
 # backend/infrastructure/state/state_machine.py
 """
-Machine à états unifiée avec contrôle centralisé des processus et routage audio - Version OPTIM
+Machine à états unifiée avec contrôle centralisé des processus et routage audio - Version finale avec equalizer
 """
 import asyncio
 import time
@@ -12,7 +12,7 @@ from backend.application.event_bus import EventBus
 from backend.domain.events import StandardEvent, EventCategory, EventType
 
 class UnifiedAudioStateMachine:
-    """Gère l'état complet du système audio avec synchronisation du routage"""
+    """Gère l'état complet du système audio avec synchronisation du routage et equalizer"""
     
     TRANSITION_TIMEOUT = 5.0  # Timeout pour les transitions
     
@@ -33,6 +33,7 @@ class UnifiedAudioStateMachine:
         # Synchroniser l'état initial
         routing_state = routing_service.get_state()
         self.system_state.routing_mode = routing_state.mode.value
+        self.system_state.equalizer_enabled = routing_state.equalizer_enabled
     
     def register_plugin(self, source: AudioSource, plugin: AudioSourcePlugin) -> None:
         """Enregistre un plugin pour une source spécifique"""
@@ -43,11 +44,12 @@ class UnifiedAudioStateMachine:
             self.logger.error(f"Cannot register plugin for invalid source: {source.value}")
     
     async def get_current_state(self) -> Dict[str, Any]:
-        """Renvoie l'état actuel du système avec synchronisation automatique du routage"""
-        # OPTIM: Synchroniser avec l'état réel du service de routage (source de vérité)
+        """Renvoie l'état actuel du système avec synchronisation automatique du routage et equalizer"""
+        # Synchroniser avec l'état réel du service de routage (source de vérité)
         if self.routing_service:
             routing_state = self.routing_service.get_state()
             self.system_state.routing_mode = routing_state.mode.value
+            self.system_state.equalizer_enabled = routing_state.equalizer_enabled
         
         return self.system_state.to_dict()
     
@@ -177,6 +179,22 @@ class UnifiedAudioStateMachine:
             }
         )
     
+    async def update_equalizer_state(self, enabled: bool) -> None:
+        """Met à jour l'état de l'equalizer dans l'état système"""
+        old_state = self.system_state.equalizer_enabled
+        self.system_state.equalizer_enabled = enabled
+        
+        await self._publish_standardized_event(
+            EventCategory.SYSTEM,
+            EventType.STATE_CHANGED,
+            "equalizer",
+            {
+                "old_state": old_state,
+                "new_state": enabled,
+                "equalizer_changed": True
+            }
+        )
+    
     async def _stop_current_source(self) -> None:
         """Arrête la source actuellement active"""
         if self.system_state.active_source != AudioSource.NONE:
@@ -208,10 +226,11 @@ class UnifiedAudioStateMachine:
             # Important: mettre à jour la source active AVANT de démarrer le plugin
             self.system_state.active_source = source
             
-            # Configurer le device audio selon le mode de routage
+            # Configurer le device audio selon le mode de routage ET l'état equalizer
             if self.routing_service:
                 device = self.routing_service.get_device_for_source(source)
                 await plugin.change_audio_device(device)
+                self.logger.info(f"Plugin {source.value} configured with device: {device}")
             
             # Démarrer le plugin (gestion par systemd uniquement)
             success = await plugin.start()

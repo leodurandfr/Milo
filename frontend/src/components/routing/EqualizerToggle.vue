@@ -1,10 +1,10 @@
-<!-- frontend/src/components/routing/MultiroomToggle.vue -->
+<!-- frontend/src/components/routing/EqualizerToggle.vue -->
 <template>
   <Toggle
-    v-model="isMultiroom"
-    title="Audio Output"
-    on-label="Multiroom"
-    off-label="Direct"
+    v-model="isEqualizerEnabled"
+    title="Audio Processing"
+    on-label="Equalizer ON"
+    off-label="Equalizer OFF"
     :status-text="statusText"
     :disabled="unifiedStore.isTransitioning"
     @change="handleToggle"
@@ -18,17 +18,16 @@ import Toggle from '@/components/ui/Toggle.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 
-const isMultiroom = computed({
-  get: () => unifiedStore.routingMode === 'multiroom',
+const isEqualizerEnabled = computed({
+  get: () => unifiedStore.equalizerEnabled,
   set: () => {} // Géré par handleToggle
 });
 
 const statusText = computed(() => 
-  isMultiroom.value ? 'Audio via Snapserver' : 'Audio direct HiFiBerry'
+  isEqualizerEnabled.value ? 'Audio avec égalisation' : 'Audio sans traitement'
 );
 
 async function handleToggle(enabled) {
-  const newMode = enabled ? 'multiroom' : 'direct';
-  await unifiedStore.setRoutingMode(newMode);
+  await unifiedStore.setEqualizerEnabled(enabled);
 }
 </script>

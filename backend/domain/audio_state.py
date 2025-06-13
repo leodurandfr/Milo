@@ -1,6 +1,6 @@
 # backend/domain/audio_state.py
 """
-Modèle d'état unifié pour le système audio.
+Modèle d'état unifié pour le système audio - Étendu pour l'equalizer.
 """
 from enum import Enum
 from dataclasses import dataclass
@@ -32,13 +32,15 @@ class SystemAudioState:
     - L'état opérationnel du plugin actif
     - Les métadonnées associées
     - L'état du routage audio
+    - L'état de l'equalizer
     """
     active_source: AudioSource = AudioSource.NONE
     plugin_state: PluginState = PluginState.INACTIVE
     transitioning: bool = False
     metadata: Dict[str, Any] = None
     error: Optional[str] = None
-    routing_mode: str = "multiroom"  # Nouveau champ pour le routage
+    routing_mode: str = "multiroom"  # Mode de routage audio
+    equalizer_enabled: bool = False  # Nouveau champ pour l'equalizer
     
     def __post_init__(self):
         if self.metadata is None:
@@ -52,7 +54,8 @@ class SystemAudioState:
             "transitioning": self.transitioning,
             "metadata": self.metadata,
             "error": self.error,
-            "routing_mode": self.routing_mode
+            "routing_mode": self.routing_mode,
+            "equalizer_enabled": self.equalizer_enabled
         }
     
     @classmethod
@@ -64,5 +67,6 @@ class SystemAudioState:
             transitioning=data.get("transitioning", False),
             metadata=data.get("metadata", {}),
             error=data.get("error"),
-            routing_mode=data.get("routing_mode", "multiroom")
+            routing_mode=data.get("routing_mode", "multiroom"),
+            equalizer_enabled=data.get("equalizer_enabled", False)
         )
