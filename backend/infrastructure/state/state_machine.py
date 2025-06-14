@@ -1,6 +1,6 @@
 # backend/infrastructure/state/state_machine.py
 """
-Machine à états unifiée avec contrôle centralisé des processus et routage audio - Version finale avec equalizer
+Machine à états unifiée avec contrôle centralisé des processus et routage audio - Version simplifiée
 """
 import asyncio
 import time
@@ -12,7 +12,7 @@ from backend.application.event_bus import EventBus
 from backend.domain.events import StandardEvent, EventCategory, EventType
 
 class UnifiedAudioStateMachine:
-    """Gère l'état complet du système audio avec synchronisation du routage et equalizer"""
+    """Gère l'état complet du système audio avec synchronisation du routage et equalizer - Version simplifiée"""
     
     TRANSITION_TIMEOUT = 5.0  # Timeout pour les transitions
     
@@ -55,7 +55,7 @@ class UnifiedAudioStateMachine:
     
     async def transition_to_source(self, target_source: AudioSource) -> bool:
         """
-        Effectue une transition vers une nouvelle source avec contrôle centralisé.
+        Effectue une transition vers une nouvelle source avec contrôle centralisé - Version simplifiée.
         """
         async with self._transition_lock:
             # Vérification si déjà sur la bonne source
@@ -210,6 +210,7 @@ class UnifiedAudioStateMachine:
                     self.logger.error(f"Error stopping {self.system_state.active_source.value}: {e}")
     
     async def _start_new_source(self, source: AudioSource) -> bool:
+        """Démarre une nouvelle source - Version simplifiée"""
         plugin = self.plugins.get(source)
         if not plugin:
             return False
@@ -226,11 +227,9 @@ class UnifiedAudioStateMachine:
             # Important: mettre à jour la source active AVANT de démarrer le plugin
             self.system_state.active_source = source
             
-            # Configurer le device audio selon le mode de routage ET l'état equalizer
-            if self.routing_service:
-                device = self.routing_service.get_device_for_source(source)
-                await plugin.change_audio_device(device)
-                self.logger.info(f"Plugin {source.value} configured with device: {device}")
+            # Plus besoin de configurer le device - ALSA gère automatiquement !
+            # Le plugin utilise son device fixe (ex: oakos_spotify)
+            # ALSA résout dynamiquement vers le bon device final selon les variables d'environnement
             
             # Démarrer le plugin (gestion par systemd uniquement)
             success = await plugin.start()
