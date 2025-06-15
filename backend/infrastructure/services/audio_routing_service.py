@@ -31,32 +31,40 @@ class AudioRoutingService:
             asyncio.create_task(self._detect_initial_state())
     
     async def _detect_initial_state(self):
-        """Détecte l'état initial selon l'état réel des services snapcast"""
+        """Initialise et détecte l'état initial selon l'état réel des services snapcast"""
         try:
-            self.logger.info("Detecting initial routing state...")
+            self.logger.info("Initializing ALSA environment and detecting routing state...")
             
+            # 1. D'abord initialiser les variables d'environnement avec les valeurs par défaut
+            default_mode = AudioRoutingMode.MULTIROOM
+            default_equalizer = False
+            
+            self.state.mode = default_mode
+            self.state.equalizer_enabled = default_equalizer
+            
+            # Initialiser les variables d'environnement
+            await self._update_systemd_environment(default_mode)
+            self.logger.info(f"ALSA environment initialized: MODE={default_mode.value}, EQUALIZER={default_equalizer}")
+            
+            # 2. Détecter l'état réel des services snapcast
             snapcast_status = await self.get_snapcast_status()
             if snapcast_status.get("multiroom_available", False):
                 detected_mode = AudioRoutingMode.MULTIROOM
-                self.logger.info("Snapcast services active → detected MULTIROOM mode")
+                self.logger.info("Snapcast services active → keeping MULTIROOM mode")
             else:
                 detected_mode = AudioRoutingMode.DIRECT
-                self.logger.info("Snapcast services inactive → detected DIRECT mode")
+                self.logger.info("Snapcast services inactive → switching to DIRECT mode")
             
-            self.state.mode = detected_mode
-            
-            # Equalizer désactivé par défaut au démarrage
-            self.state.equalizer_enabled = False
+            # 3. Si l'état détecté diffère des valeurs par défaut, mettre à jour
+            if detected_mode != default_mode:
+                self.state.mode = detected_mode
+                await self._update_systemd_environment(detected_mode)
             
             self._initial_detection_done = True
-            
-            # Initialiser les variables d'environnement ALSA
-            await self._update_systemd_environment(detected_mode)
-            
-            self.logger.info(f"Initial routing state: {detected_mode.value}, equalizer: {self.state.equalizer_enabled}")
+            self.logger.info(f"Initial routing state: {self.state.mode.value}, equalizer: {self.state.equalizer_enabled}")
             
         except Exception as e:
-            self.logger.error(f"Error detecting initial routing state: {e}")
+            self.logger.error(f"Error during initial state detection: {e}")
             # En cas d'erreur, garder les valeurs par défaut
             self._initial_detection_done = True
     
@@ -140,15 +148,17 @@ class AudioRoutingService:
             mode_value = mode.value
             equalizer_suffix = "_eq" if self.state.equalizer_enabled else ""
             
-            # Mettre à jour OAKOS_MODE  
-            await asyncio.create_subprocess_exec(
+            # Mettre à jour OAKOS_MODE et ATTENDRE que ça finisse
+            proc1 = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "set-environment", f"OAKOS_MODE={mode_value}"
             )
+            await proc1.communicate()  # ← AJOUTÉ
             
-            # Mettre à jour OAKOS_EQUALIZER
-            await asyncio.create_subprocess_exec(
+            # Mettre à jour OAKOS_EQUALIZER et ATTENDRE que ça finisse
+            proc2 = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "set-environment", f"OAKOS_EQUALIZER={equalizer_suffix}"
             )
+            await proc2.communicate()  # ← AJOUTÉ
             
             os.environ["OAKOS_MODE"] = mode_value
             os.environ["OAKOS_EQUALIZER"] = equalizer_suffix

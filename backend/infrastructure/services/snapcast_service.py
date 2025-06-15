@@ -19,10 +19,6 @@ class SnapcastService:
         self._request_id = 0
         self.snapserver_conf = Path("/etc/snapserver.conf")
         
-        # Cache pour éviter des requêtes répétées
-        self._client_cache = {}
-        self._cache_timestamp = 0
-        self._cache_ttl = 1  # 1 seconde de cache
     
     async def _request(self, method: str, params: dict = None) -> dict:
         """Requête JSON-RPC optimisée vers Snapcast"""
@@ -46,24 +42,10 @@ class SnapcastService:
     # === MÉTHODES CLIENT OPTIMISÉES ===
     
     async def get_clients(self) -> List[Dict[str, Any]]:
-        """Récupère les clients avec cache intelligent"""
-        current_time = asyncio.get_event_loop().time()
-        
-        # Utiliser le cache si disponible et récent
-        if (self._client_cache and 
-            current_time - self._cache_timestamp < self._cache_ttl):
-            return self._client_cache
-        
+        """Récupère les clients"""
         try:
             status = await self._request("Server.GetStatus")
-            clients = self._extract_clients(status)
-            
-            # Mettre à jour le cache
-            self._client_cache = clients
-            self._cache_timestamp = current_time
-            
-            return clients
-            
+            return self._extract_clients(status)
         except Exception as e:
             self.logger.error(f"Error getting clients: {e}")
             return []
@@ -139,18 +121,16 @@ class SnapcastService:
     # === MÉTHODES CONTRÔLE CLIENT OPTIMISÉES ===
     
     async def set_volume(self, client_id: str, volume: int) -> bool:
-        """Change le volume d'un client - Version optimisée"""
+        """Change le volume d'un client - Simplifié"""
         try:
-            # Invalider le cache
-            self._client_cache = {}
             
-            # Récupérer l'état mute actuel depuis le cache ou API
+            # Récupérer l'état mute actuel directement
+            clients = await self.get_clients()
             current_muted = False
-            if self._client_cache:
-                for client in self._client_cache:
-                    if client["id"] == client_id:
-                        current_muted = client["muted"]
-                        break
+            for client in clients:
+                if client["id"] == client_id:
+                    current_muted = client["muted"]
+                    break
             
             result = await self._request("Client.SetVolume", {
                 "id": client_id,
@@ -163,27 +143,17 @@ class SnapcastService:
             return False
     
     async def set_mute(self, client_id: str, muted: bool) -> bool:
-        """Mute/unmute un client - Version optimisée FIXÉE"""
+        """Mute/unmute un client - Simplifié"""
         try:
-            # Récupérer le volume actuel AVANT d'invalider le cache
+            # Récupérer le volume actuel directement
+            clients = await self.get_clients()
             current_volume = 50  # Valeur par défaut
             
-            # Essayer de récupérer depuis le cache actuel
-            if self._client_cache:
-                for client in self._client_cache:
-                    if client["id"] == client_id:
-                        current_volume = client["volume"]
-                        break
-            else:
-                # Si pas de cache, récupérer via API
-                clients = await self.get_clients()
-                for client in clients:
-                    if client["id"] == client_id:
-                        current_volume = client["volume"]
-                        break
+            for client in clients:
+                if client["id"] == client_id:
+                    current_volume = client["volume"]
+                    break
             
-            # Maintenant invalider le cache pour la prochaine fois
-            self._client_cache = {}
             
             result = await self._request("Client.SetVolume", {
                 "id": client_id,
@@ -198,8 +168,7 @@ class SnapcastService:
     async def set_client_latency(self, client_id: str, latency: int) -> bool:
         """Configure la latence d'un client"""
         try:
-            self._client_cache = {}  # Invalider le cache
-            
+                        
             result = await self._request("Client.SetLatency", {
                 "id": client_id,
                 "latency": max(0, min(1000, latency))
@@ -213,7 +182,6 @@ class SnapcastService:
     async def set_client_name(self, client_id: str, name: str) -> bool:
         """Configure le nom d'un client"""
         try:
-            self._client_cache = {}  # Invalider le cache
             
             result = await self._request("Client.SetName", {
                 "id": client_id,

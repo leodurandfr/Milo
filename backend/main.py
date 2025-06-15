@@ -37,69 +37,26 @@ ws_manager = WebSocketManager()
 websocket_event_handler = WebSocketEventHandler(event_bus, ws_manager)
 websocket_server = WebSocketServer(ws_manager, state_machine)
 
-async def initialize_alsa_environment():
-    """Initialise les variables d'environnement ALSA au démarrage"""
-    try:
-        # Valeurs par défaut
-        default_mode = "multiroom" 
-        default_equalizer = ""  # Pas d'equalizer par défaut
-        
-        logger.info("Initializing ALSA environment variables...")
-        
-        # Mettre à jour les variables système
-        proc1 = await asyncio.create_subprocess_exec(
-            "sudo", "systemctl", "set-environment", f"OAKOS_MODE={default_mode}",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE
-        )
-        _, stderr1 = await proc1.communicate()
-        
-        proc2 = await asyncio.create_subprocess_exec(
-            "sudo", "systemctl", "set-environment", f"OAKOS_EQUALIZER={default_equalizer}",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE
-        )
-        _, stderr2 = await proc2.communicate()
-        
-        if proc1.returncode != 0:
-            logger.error(f"Error setting OAKOS_MODE: {stderr1.decode()}")
-        if proc2.returncode != 0:
-            logger.error(f"Error setting OAKOS_EQUALIZER: {stderr2.decode()}")
-        
-        # Variables locales
-        os.environ["OAKOS_MODE"] = default_mode
-        os.environ["OAKOS_EQUALIZER"] = default_equalizer
-        
-        logger.info(f"ALSA environment initialized: MODE={default_mode}, EQUALIZER='{default_equalizer}'")
-        
-    except Exception as e:
-        logger.error(f"Error initializing ALSA environment: {e}")
-        raise
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
     try:
-        # 0. Initialiser les variables d'environnement ALSA AVANT tout
-        await initialize_alsa_environment()
-        
         # 1. Enregistrer les plugins et configurer les références croisées
         container.register_plugins()
         logger.info("Plugins registered and configured")
         
-        # 2. Initialiser tous les plugins
+        # 2. Initialiser tous les plugins (ALSA maintenant géré par routing_service)
         for source, plugin in state_machine.plugins.items():
             if plugin:
                 try:
                     await plugin.initialize()
-                    logger.info(f"Plugin {source.value} initialisé avec succès")
                 except Exception as e:
-                    logger.error(f"Erreur d'initialisation du plugin {source.value}: {e}")
-        
-        logger.info("Application démarrée avec succès")
+                    logger.error(f"Plugin {source.value} initialization failed: {e}")
         
     except Exception as e:
-        logger.error(f"Erreur lors de l'initialisation: {e}")
+        logger.error(f"Application startup failed: {e}")
         raise
     
     yield  # L'application tourne
@@ -110,9 +67,7 @@ async def lifespan(app: FastAPI):
             try:
                 await plugin.stop()
             except Exception as e:
-                logger.error(f"Erreur d'arrêt du plugin: {e}")
-    
-    logger.info("Application arrêtée proprement")
+                logger.error(f"Plugin shutdown error: {e}")
 
 # Création de l'application FastAPI
 app = FastAPI(title="oakOS API", lifespan=lifespan)

@@ -86,20 +86,27 @@ class SystemdServiceManager:
             _, stderr = await asyncio.wait_for(proc.communicate(), 10.0)
             
             if proc.returncode != 0:
-                error = stderr.decode().strip()
-                self.logger.error(f"Erreur {action} {service}: {error}")
+                error_msg = stderr.decode().strip() if stderr else "No error details"
+                self.logger.error(f"Failed to {action} {service} (exit code {proc.returncode}): {error_msg}")
                 return False
             
             # Attendre que le service soit dans l'état souhaité
+            expected_active = action != "stop"
             for i in range(5):
                 await asyncio.sleep(0.5)
                 active = await self.is_active(service)
-                expected_active = action != "stop"
                 if active == expected_active:
                     return True
             
-            self.logger.warning(f"Service {service} n'est pas dans l'état attendu après {action}")
+            # Message d'erreur plus explicite si l'état attendu n'est pas atteint
+            actual_state = "active" if await self.is_active(service) else "inactive"
+            expected_state = "active" if expected_active else "inactive"
+            self.logger.error(f"Service {service} is {actual_state} but expected {expected_state} after {action}")
+            return False
+            
+        except asyncio.TimeoutError:
+            self.logger.error(f"Timeout ({action} {service} took more than 10 seconds)")
             return False
         except Exception as e:
-            self.logger.error(f"Erreur {action} service {service}: {e}")
+            self.logger.error(f"Unexpected error during {action} {service}: {e}")
             return False
