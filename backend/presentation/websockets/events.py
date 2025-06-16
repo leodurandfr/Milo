@@ -1,27 +1,21 @@
+# backend/presentation/websockets/events.py
 """
-Gestion des événements WebSocket - Version OPTIM avec uniquement les événements standardisés
+Gestion des événements WebSocket - Version OPTIM simplifiée
 """
 import logging
-from backend.application.event_bus import EventBus
+from typing import Dict, Any
 from backend.presentation.websockets.manager import WebSocketManager
-from backend.domain.events import StandardEvent, EventCategory
 
 class WebSocketEventHandler:
-    """Relais entre le bus d'événements et les WebSockets - Version simplifiée"""
+    """Gestionnaire d'événements WebSocket simplifié - Reçoit directement des dicts"""
     
-    def __init__(self, event_bus: EventBus, ws_manager: WebSocketManager):
-        self.event_bus = event_bus
+    def __init__(self, ws_manager: WebSocketManager):
         self.ws_manager = ws_manager
         self.logger = logging.getLogger(__name__)
-        
-        # Abonnement direct aux catégories d'événements
-        event_bus.subscribe_to_category(EventCategory.SYSTEM, self._handle_event)
-        event_bus.subscribe_to_category(EventCategory.PLUGIN, self._handle_event)
-        event_bus.subscribe_to_category(EventCategory.AUDIO, self._handle_event)
     
-    async def _handle_event(self, event: StandardEvent) -> None:
-        """Diffuse un événement standardisé"""
+    async def handle_event(self, event_data: Dict[str, Any]) -> None:
+        """Traite et diffuse un événement - Version OPTIM"""
         try:
-            await self.ws_manager.broadcast(event)
+            await self.ws_manager.broadcast_dict(event_data)
         except Exception as e:
             self.logger.error(f"Error broadcasting event: {e}")

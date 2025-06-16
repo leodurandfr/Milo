@@ -1,6 +1,6 @@
 # backend/main.py
 """
-Point d'entrée principal de l'application oakOS - Version sans cross-references
+Point d'entrée principal de l'application oakOS - Version WebSocket direct
 """
 import sys
 import os
@@ -20,28 +20,24 @@ from backend.presentation.api.routes.librespot import setup_librespot_routes
 from backend.presentation.api.routes.roc import setup_roc_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
 from backend.presentation.websockets.server import WebSocketServer
-from backend.presentation.websockets.manager import WebSocketManager
-from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration des dépendances
-event_bus = container.event_bus()
+# Configuration des dépendances - Version OPTIM
 state_machine = container.audio_state_machine()
 routing_service = container.audio_routing_service()
 snapcast_service = container.snapcast_service()
-ws_manager = WebSocketManager()
-websocket_event_handler = WebSocketEventHandler(event_bus, ws_manager)
+ws_manager = container.websocket_manager()
 websocket_server = WebSocketServer(ws_manager, state_machine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
     try:
-        # 1. Initialiser les services (remplace register_plugins)
+        # 1. Initialiser les services
         container.initialize_services()
         logger.info("Services initialized and configured")
         

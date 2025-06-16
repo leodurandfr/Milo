@@ -1,9 +1,8 @@
 # backend/config/container.py
 """
-Conteneur d'injection de dépendances - Version OPTIM sans références circulaires
+Conteneur d'injection de dépendances - Version OPTIM avec injection WebSocket directe
 """
 from dependency_injector import containers, providers
-from backend.application.event_bus import EventBus
 from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
 from backend.infrastructure.plugins.librespot import LibrespotPlugin
 from backend.infrastructure.plugins.roc import RocPlugin
@@ -11,32 +10,40 @@ from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 from backend.infrastructure.services.audio_routing_service import AudioRoutingService
 from backend.infrastructure.services.snapcast_service import SnapcastService
+from backend.presentation.websockets.manager import WebSocketManager
+from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
 
 class Container(containers.DeclarativeContainer):
-    """Conteneur d'injection de dépendances pour oakOS - Version sans cross-references"""
+    """Conteneur d'injection de dépendances pour oakOS - Version avec injection WebSocket directe"""
     
     config = providers.Configuration()
     
     # Services centraux
-    event_bus = providers.Singleton(EventBus)
     systemd_manager = providers.Singleton(SystemdServiceManager)
     snapcast_service = providers.Singleton(SnapcastService)
+    
+    # WebSocket (créé ici pour injection)
+    websocket_manager = providers.Singleton(WebSocketManager)
+    websocket_event_handler = providers.Singleton(
+        WebSocketEventHandler,
+        ws_manager=websocket_manager
+    )
     
     # Service de routage audio (sans référence à state_machine)
     audio_routing_service = providers.Singleton(AudioRoutingService)
     
-    # Machine à états unifiée (avec injection du routing_service)
+    # Machine à états unifiée (avec injection du routing_service ET websocket_handler)
     audio_state_machine = providers.Singleton(
         UnifiedAudioStateMachine,
-        event_bus=event_bus,
-        routing_service=audio_routing_service
+        routing_service=audio_routing_service,
+        websocket_handler=websocket_event_handler
     )
     
     # Plugins audio (avec injection de state_machine)
     librespot_plugin = providers.Singleton(
         LibrespotPlugin,
-        event_bus=event_bus,
+        event_bus=None,  # Plus utilisé
         config=providers.Dict({
             "config_path": "/var/lib/oakos/go-librespot/config.yml", 
             "service_name": "oakos-go-librespot.service" 
@@ -46,7 +53,7 @@ class Container(containers.DeclarativeContainer):
     
     roc_plugin = providers.Singleton(
         RocPlugin,
-        event_bus=event_bus,
+        event_bus=None,  # Plus utilisé
         config=providers.Dict({
             "service_name": "oakos-roc.service",
             "rtp_port": 10001,
@@ -59,7 +66,7 @@ class Container(containers.DeclarativeContainer):
     
     bluetooth_plugin = providers.Singleton(
         BluetoothPlugin,
-        event_bus=event_bus,
+        event_bus=None,  # Plus utilisé
         config=providers.Dict({
             "daemon_options": "--keep-alive=5",
             "service_name": "oakos-bluealsa.service",
@@ -91,13 +98,10 @@ class Container(containers.DeclarativeContainer):
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                # Si boucle en cours, programmer l'initialisation
                 asyncio.create_task(routing_service.initialize())
             else:
-                # Sinon, initialiser directement
                 loop.run_until_complete(routing_service.initialize())
         except RuntimeError:
-            # Pas de boucle active, créer une tâche
             asyncio.create_task(routing_service.initialize())
 
 # Création et configuration du conteneur

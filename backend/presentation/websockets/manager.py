@@ -1,11 +1,11 @@
+# backend/presentation/websockets/manager.py
 """
-Gestion des connexions WebSocket - Version OPTIM
+Gestion des connexions WebSocket - Version OPTIM avec support dict
 """
-from typing import Set
+from typing import Set, Dict, Any
 import logging
 import json
 from fastapi import WebSocket
-from backend.domain.events import StandardEvent
 
 class WebSocketManager:
     """Gestionnaire de connexions WebSocket simplifié"""
@@ -25,14 +25,17 @@ class WebSocketManager:
         self.active_connections.discard(websocket)
         self.logger.info(f"WebSocket disconnected, total: {len(self.active_connections)}")
     
-    async def broadcast(self, event: StandardEvent) -> None:
-        """Diffuse un événement standardisé à toutes les connexions"""
+    async def broadcast_dict(self, event_data: Dict[str, Any]) -> None:
+        """Diffuse un dictionnaire d'événement à toutes les connexions - Version OPTIM"""
         if not self.active_connections:
             self.logger.debug("No active connections to broadcast to")
             return
         
-        message = json.dumps(event.to_dict())
-        self.logger.info(f"Broadcasting event: {event.category.value}.{event.type.value} to {len(self.active_connections)} clients")
+        message = json.dumps(event_data)
+        category = event_data.get("category", "unknown")
+        event_type = event_data.get("type", "unknown")
+        
+        self.logger.info(f"Broadcasting event: {category}.{event_type} to {len(self.active_connections)} clients")
         
         disconnected = set()
         for connection in self.active_connections:

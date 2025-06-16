@@ -1,6 +1,6 @@
 # backend/infrastructure/state/state_machine.py
 """
-Machine à états unifiée avec injection propre des dépendances - Version OPTIM sans cross-references
+Machine à états unifiée avec publication directe WebSocket - Version OPTIM
 """
 import asyncio
 import time
@@ -8,17 +8,15 @@ from typing import Dict, Any, Optional
 import logging
 from backend.domain.audio_state import AudioSource, PluginState, SystemAudioState
 from backend.application.interfaces.audio_source import AudioSourcePlugin
-from backend.application.event_bus import EventBus
-from backend.domain.events import StandardEvent, EventCategory, EventType
 
 class UnifiedAudioStateMachine:
-    """Gère l'état complet du système audio - Version sans références circulaires"""
+    """Gère l'état complet du système audio - Version avec publication directe WebSocket"""
     
     TRANSITION_TIMEOUT = 5.0
     
-    def __init__(self, event_bus: EventBus, routing_service=None):
-        self.event_bus = event_bus
-        self.routing_service = routing_service  # Injection directe
+    def __init__(self, routing_service=None, websocket_handler=None):
+        self.routing_service = routing_service
+        self.websocket_handler = websocket_handler  # Injection directe
         self.system_state = SystemAudioState()
         self.plugins: Dict[AudioSource, Optional[AudioSourcePlugin]] = {
             source: None for source in AudioSource 
@@ -49,6 +47,18 @@ class UnifiedAudioStateMachine:
         """Récupère un plugin pour le routing service"""
         return self.plugins.get(source)
     
+    def get_plugin_metadata(self, source: AudioSource) -> Dict[str, Any]:
+        """Récupère les métadonnées d'un plugin spécifique - Utilitaire OPTIM"""
+        if source == self.system_state.active_source:
+            return self.system_state.metadata
+        return {}
+    
+    def get_plugin_state(self, source: AudioSource) -> PluginState:
+        """Récupère l'état d'un plugin spécifique - Utilitaire OPTIM"""
+        if source == self.system_state.active_source:
+            return self.system_state.plugin_state
+        return PluginState.INACTIVE
+    
     async def get_current_state(self) -> Dict[str, Any]:
         """Renvoie l'état actuel du système avec synchronisation automatique"""
         if self.routing_service:
@@ -69,10 +79,10 @@ class UnifiedAudioStateMachine:
             
             try:
                 self.system_state.transitioning = True
-                await self._publish_standardized_event(
-                    EventCategory.SYSTEM, EventType.TRANSITION_START, "system",
-                    {"from_source": self.system_state.active_source.value, "to_source": target_source.value}
-                )
+                await self._broadcast_event("system", "transition_start", {
+                    "from_source": self.system_state.active_source.value,
+                    "to_source": target_source.value
+                })
                 
                 await self._stop_current_source()
                 
@@ -86,10 +96,10 @@ class UnifiedAudioStateMachine:
                     self.system_state.metadata = {}
                 
                 self.system_state.transitioning = False
-                await self._publish_standardized_event(
-                    EventCategory.SYSTEM, EventType.TRANSITION_COMPLETE, "system",
-                    {"active_source": self.system_state.active_source.value, "plugin_state": self.system_state.plugin_state.value}
-                )
+                await self._broadcast_event("system", "transition_complete", {
+                    "active_source": self.system_state.active_source.value,
+                    "plugin_state": self.system_state.plugin_state.value
+                })
                 
                 return True
                 
@@ -98,10 +108,10 @@ class UnifiedAudioStateMachine:
                 self.system_state.transitioning = False
                 self.system_state.error = str(e)
                 await self._emergency_stop()
-                await self._publish_standardized_event(
-                    EventCategory.SYSTEM, EventType.ERROR, "system",
-                    {"error": str(e), "attempted_source": target_source.value}
-                )
+                await self._broadcast_event("system", "error", {
+                    "error": str(e),
+                    "attempted_source": target_source.value
+                })
                 return False
     
     async def update_plugin_state(self, source: AudioSource, new_state: PluginState, 
@@ -122,30 +132,36 @@ class UnifiedAudioStateMachine:
         else:
             self.system_state.error = None
         
-        await self._publish_standardized_event(
-            EventCategory.PLUGIN, EventType.PLUGIN_STATE_CHANGED, source.value,
-            {"old_state": old_state.value, "new_state": new_state.value, "metadata": metadata}
-        )
+        await self._broadcast_event("plugin", "state_changed", {
+            "source": source.value,
+            "old_state": old_state.value,
+            "new_state": new_state.value,
+            "metadata": metadata
+        })
     
     async def update_routing_mode(self, new_mode: str) -> None:
         """Met à jour le mode de routage dans l'état système"""
         old_mode = self.system_state.routing_mode
         self.system_state.routing_mode = new_mode
         
-        await self._publish_standardized_event(
-            EventCategory.SYSTEM, EventType.STATE_CHANGED, "routing",
-            {"old_mode": old_mode, "new_mode": new_mode, "routing_changed": True}
-        )
+        await self._broadcast_event("system", "state_changed", {
+            "old_mode": old_mode,
+            "new_mode": new_mode,
+            "routing_changed": True,
+            "source": "routing"
+        })
     
     async def update_equalizer_state(self, enabled: bool) -> None:
         """Met à jour l'état de l'equalizer dans l'état système"""
         old_state = self.system_state.equalizer_enabled
         self.system_state.equalizer_enabled = enabled
         
-        await self._publish_standardized_event(
-            EventCategory.SYSTEM, EventType.STATE_CHANGED, "equalizer",
-            {"old_state": old_state, "new_state": enabled, "equalizer_changed": True}
-        )
+        await self._broadcast_event("system", "state_changed", {
+            "old_state": old_state,
+            "new_state": enabled,
+            "equalizer_changed": True,
+            "source": "equalizer"
+        })
     
     async def _stop_current_source(self) -> None:
         """Arrête la source actuellement active"""
@@ -200,11 +216,21 @@ class UnifiedAudioStateMachine:
         self.system_state.metadata = {}
         self.system_state.error = None
     
-    async def _publish_standardized_event(self, category: EventCategory, type: EventType, 
-                                        source: str, data: Dict[str, Any]) -> None:
-        """Publie un événement standardisé"""
-        event = StandardEvent(
-            category=category, type=type, source=source,
-            data={**data, "full_state": self.system_state.to_dict()}
-        )
-        await self.event_bus.publish_event(event)
+    async def broadcast_event(self, category: str, event_type: str, data: Dict[str, Any]) -> None:
+        """Publie un événement directement au WebSocket - Méthode publique pour les routes"""
+        await self._broadcast_event(category, event_type, data)
+    
+    async def _broadcast_event(self, category: str, event_type: str, data: Dict[str, Any]) -> None:
+        """Publie un événement directement au WebSocket - Version OPTIM"""
+        if not self.websocket_handler:
+            return
+        
+        event_data = {
+            "category": category,
+            "type": event_type,
+            "source": data.get("source", category),
+            "data": {**data, "full_state": self.system_state.to_dict()},
+            "timestamp": time.time()
+        }
+        
+        await self.websocket_handler.handle_event(event_data)

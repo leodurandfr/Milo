@@ -1,12 +1,10 @@
 # backend/presentation/websockets/server.py
 """
-Serveur WebSocket - Version OPTIM
+Serveur WebSocket - Version OPTIM simplifiée
 """
 import json
 from fastapi import WebSocket, WebSocketDisconnect
 from backend.presentation.websockets.manager import WebSocketManager
-from backend.domain.events import StandardEvent, EventCategory, EventType
-
 
 class WebSocketServer:
     """Serveur WebSocket simplifié"""
@@ -27,7 +25,6 @@ class WebSocketServer:
             if current_state['active_source'] != 'none':
                 active_plugin = self.state_machine.plugins.get(current_state['active_source'])
                 if active_plugin:
-                    # Utiliser la méthode standard pour tous les plugins
                     plugin_status = await active_plugin.get_initial_state()
                     
                     # Mettre à jour l'état courant avec les données fraîches
@@ -36,13 +33,15 @@ class WebSocketServer:
                     current_state['ws_connected'] = plugin_status.get('ws_connected', False)
                     current_state['is_playing'] = plugin_status.get('is_playing', False)
             
-            initial_event = StandardEvent(
-                category=EventCategory.SYSTEM,
-                type=EventType.STATE_CHANGED,
-                source="system",
-                data={"full_state": current_state}
-            )
-            await websocket.send_text(json.dumps(initial_event.to_dict()))
+            # Envoyer l'état initial - Format dict direct
+            initial_event = {
+                "category": "system",
+                "type": "state_changed", 
+                "source": "system",
+                "data": {"full_state": current_state},
+                "timestamp": current_state.get("timestamp", 0)
+            }
+            await websocket.send_text(json.dumps(initial_event))
             
             # Maintenir la connexion ouverte
             while True:

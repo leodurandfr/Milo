@@ -6,7 +6,6 @@
       <h1>Multiroom</h1>
       
       <div class="header-controls">
-        <!-- Bouton Settings - SEULEMENT si multiroom actif -->
         <button 
           v-if="isMultiroomActive"
           @click="showSettings = true" 
@@ -17,7 +16,7 @@
       </div>
     </div>
 
-    <!-- Toggle Multiroom - Composant séparé -->
+    <!-- Toggle Multiroom -->
     <MultiroomToggle />
 
     <!-- Contenu principal -->
@@ -46,28 +45,27 @@
       </div>
     </div>
 
-    <!-- Navigation en bas (composant réutilisable) -->
+    <!-- Navigation en bas -->
     <BottomNavigation />
 
-    <!-- Popin Settings serveur -->
+    <!-- Modals -->
     <SnapcastSettings
       v-if="showSettings"
       @close="showSettings = false"
-      @config-updated="handleConfigUpdated"
+      @config-updated="fetchClients"
     />
 
-    <!-- Popin détails client -->
     <SnapclientDetails
       v-if="selectedClient"
       :client="selectedClient"
       @close="selectedClient = null"
-      @client-updated="handleClientUpdated"
+      @client-updated="fetchClients"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, watchEffect, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
@@ -85,66 +83,58 @@ const clients = ref([]);
 const showSettings = ref(false);
 const selectedClient = ref(null);
 
-// Empêcher le polling excessif
-const lastRefreshTime = ref(0);
-const REFRESH_COOLDOWN = 1000; // Minimum 1 seconde entre les refresh
-
 // État computed
 const isMultiroomActive = computed(() => 
   unifiedStore.routingMode === 'multiroom'
 );
 
-// Gestion des unsubscribe functions WebSocket
-let unsubscribeFunctions = [];
+// Gestion cleanup WebSocket
+let unsubscribeWS = null;
 
-// === FONCTIONS PRINCIPALES ===
+// === LOGIQUE PRINCIPALE OPTIM ===
+
+// watchEffect = onMounted + watcher combinés, plus simple et plus robuste
+watchEffect(async () => {
+  if (isMultiroomActive.value) {
+    await fetchClients();
+  } else {
+    clients.value = [];
+    selectedClient.value = null;
+    showSettings.value = false;
+  }
+});
+
+// === FONCTIONS ===
 
 async function fetchClients() {
-  if (!isMultiroomActive.value) {
-    clients.value = [];
-    return;
-  }
-  
   try {
-    const response = await axios.get('/api/routing/snapcast/monitoring');
-    
-    if (response.data.available) {
-      clients.value = response.data.clients || [];
-    } else {
-      clients.value = [];
-    }
+    const response = await axios.get('/api/routing/snapcast/clients');
+    clients.value = response.data.clients || [];
   } catch (error) {
     console.error('Error fetching clients:', error);
     clients.value = [];
   }
 }
 
-// === GESTIONNAIRES SIMPLIFIÉS - MISE À JOUR LOCALE IMMÉDIATE ===
+// === GESTIONNAIRES D'ÉVÉNEMENTS ===
 
 async function handleClientVolumeChange(clientId, volume) {
-  // 1. Mise à jour immédiate du client local (comportement natif souhaité)
+  // Mise à jour locale immédiate
   const client = clients.value.find(c => c.id === clientId);
-  if (client) {
-    client.volume = volume;
-  }
+  if (client) client.volume = volume;
   
-  // 2. Appel API - Snapcast se charge de notifier les autres clients
   try {
     await axios.post(`/api/routing/snapcast/client/${clientId}/volume`, { volume });
   } catch (error) {
     console.error('Error updating volume:', error);
-    // En cas d'erreur, restaurer la valeur (optionnel)
   }
 }
 
 async function handleClientMuteToggle(clientId, muted) {
-  // 1. Mise à jour immédiate du client local
+  // Mise à jour locale immédiate
   const client = clients.value.find(c => c.id === clientId);
-  if (client) {
-    client.muted = muted;
-  }
+  if (client) client.muted = muted;
   
-  // 2. Appel API - Snapcast se charge du reste
   try {
     await axios.post(`/api/routing/snapcast/client/${clientId}/mute`, { muted });
   } catch (error) {
@@ -152,97 +142,27 @@ async function handleClientMuteToggle(clientId, muted) {
   }
 }
 
-function handleConfigUpdated() {
-  console.log('Server config updated, refreshing...');
-  if (isMultiroomActive.value) {
-    fetchClients();
-  }
-}
-
 function handleShowClientDetails(client) {
   selectedClient.value = client;
 }
 
-function handleClientUpdated() {
-  console.log('Client updated, refreshing...');
-  if (isMultiroomActive.value) {
+// === WEBSOCKET ===
+
+// Setup WebSocket une seule fois
+unsubscribeWS = on('system', 'state_changed', (event) => {
+  // Synchroniser le store
+  unifiedStore.updateState(event);
+  
+  // Rafraîchir si événement Snapcast ET multiroom actif
+  if (event.source === 'snapcast' && event.data.snapcast_update && isMultiroomActive.value) {
     fetchClients();
   }
-}
-
-// === SYNCHRONISATION MULTI-DEVICES ===
-
-function handleRoutingUpdate(event) {
-  // Synchronisation du toggle multiroom entre devices
-  if (event.data.routing_changed) {
-    console.log('Routing update received from another device, syncing...');
-    // Le store sera automatiquement mis à jour via le WebSocket oakOS principal
-    // Juste rafraîchir les clients si on passe en mode multiroom
-    if (event.data.new_mode === 'multiroom' && isMultiroomActive.value) {
-      fetchClients();
-    }
-  }
-}
-
-// === GESTION WEBSOCKET ===
-
-function handleSnapcastUpdate(event) {
-  // Éviter le polling excessif qui interfère avec l'interaction utilisateur
-  if (event.data.snapcast_update && isMultiroomActive.value) {
-    const now = Date.now();
-    
-    // Cooldown pour éviter les refresh trop fréquents
-    if (now - lastRefreshTime.value > REFRESH_COOLDOWN) {
-      console.log('Received Snapcast update via WebSocket, refreshing clients');
-      lastRefreshTime.value = now;
-      fetchClients();
-    } else {
-      console.log('Skipping refresh due to cooldown');
-    }
-  }
-}
-
-// === LIFECYCLE ===
-
-onMounted(async () => {
-  console.log('MultiroomView mounted');
-  
-  if (isMultiroomActive.value) {
-    await fetchClients();
-  }
-  
-  // Écouter les événements système pour synchronisation multi-devices
-  const unsubscribe = on('system', 'state_changed', (event) => {
-    // Synchroniser le store unifié (toggle multiroom, etc.)
-    unifiedStore.updateState(event);
-    
-    // Synchronisation spécifique selon la source
-    if (event.source === 'snapcast') {
-      handleSnapcastUpdate(event);
-    } else if (event.source === 'routing' && event.data.routing_changed) {
-      handleRoutingUpdate(event);
-    }
-  });
-  
-  unsubscribeFunctions.push(unsubscribe);
-  console.log('Multi-device sync activated for Snapcast and Routing');
 });
+
+// === CLEANUP ===
 
 onUnmounted(() => {
-  // Nettoyer les abonnements WebSocket
-  unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
-  console.log('Multi-device sync deactivated');
-});
-
-// Watcher pour le mode multiroom
-watch(isMultiroomActive, async (newValue) => {
-  if (newValue) {
-    await fetchClients();
-  } else {
-    clients.value = [];
-    selectedClient.value = null;
-    showSettings.value = false;
-  }
+  if (unsubscribeWS) unsubscribeWS();
 });
 </script>
 

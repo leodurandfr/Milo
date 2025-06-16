@@ -1,6 +1,6 @@
 # backend/presentation/api/routes/routing.py
 """
-Routes API pour la gestion du routage audio - Version étendue avec equalizer
+Routes API pour la gestion du routage audio - VERSION CORRIGÉE
 """
 from fastapi import APIRouter
 from backend.domain.audio_routing import AudioRoutingMode
@@ -50,7 +50,7 @@ def create_routing_router(routing_service, state_machine):
             if not success:
                 return {"status": "error", "message": "Failed to change routing mode"}
             
-            # Mettre à jour l'état de la machine à états
+            # CORRECTION : GARDER cet appel pour notifier le frontend !
             await state_machine.update_routing_mode(mode)
             
             return {
@@ -85,7 +85,7 @@ def create_routing_router(routing_service, state_machine):
             if not success:
                 return {"status": "error", "message": "Failed to change equalizer state"}
             
-            # Mettre à jour l'état de la machine à états
+            # CORRECTION : GARDER cet appel pour notifier le frontend !
             await state_machine.update_equalizer_state(eq_enabled)
             
             return {
@@ -103,16 +103,5 @@ def create_routing_router(routing_service, state_machine):
         return {
             "equalizer_enabled": routing_state.equalizer_enabled
         }
-    
-    # TODO: Routes futures pour la configuration de l'equalizer
-    # @router.get("/equalizer/config")
-    # async def get_equalizer_config():
-    #     """Récupère la configuration de l'equalizer (bandes, gains, etc.)"""
-    #     pass
-    
-    # @router.post("/equalizer/config")
-    # async def set_equalizer_config(payload: Dict[str, Any]):
-    #     """Configure l'equalizer (bandes, gains, etc.)"""
-    #     pass
     
     return router

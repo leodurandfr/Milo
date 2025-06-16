@@ -4,8 +4,6 @@ Routes API pour Snapcast - Version SIMPLE sans over-engineering
 """
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
-from backend.domain.events import StandardEvent, EventCategory, EventType
-import time
 
 def create_snapcast_router(routing_service, snapcast_service, state_machine):
     """Crée le router Snapcast simple et efficace"""
@@ -14,25 +12,16 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
     # === FONCTION UTILITAIRE WEBSOCKET ===
     
     async def _publish_snapcast_update():
-        """Publie une notification de mise à jour Snapcast via le WebSocket oakOS"""
+        """Publie une notification de mise à jour Snapcast via WebSocket oakOS - FORMAT CORRIGÉ"""
         try:
-            event_bus = state_machine.event_bus
-            
-            event = StandardEvent(
-                category=EventCategory.SYSTEM,
-                type=EventType.STATE_CHANGED,
-                source="snapcast",
-                data={
-                    "snapcast_update": True,
-                    "timestamp": time.time()
-                }
-            )
-            
-            await event_bus.publish_event(event)
+            await state_machine.broadcast_event("system", "state_changed", {
+                "snapcast_update": True,
+                "source": "snapcast"  # Important pour que le frontend filtre correctement
+            })
         except Exception as e:
             print(f"Error publishing Snapcast update: {e}")
     
-    # === ROUTES DE BASE (conservées) ===
+    # === ROUTES DE BASE ===
     
     @router.get("/status")
     async def get_snapcast_status():
@@ -97,7 +86,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
         except Exception as e:
             return {"status": "error", "message": str(e)}
     
-    # === ROUTES MONITORING (simplifiées) ===
+    # === ROUTES MONITORING ===
     
     @router.get("/monitoring")
     async def get_snapcast_monitoring():
@@ -204,7 +193,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     
-    # === ROUTES CONFIGURATION SERVEUR (simplifiées) ===
+    # === ROUTES CONFIGURATION SERVEUR ===
     
     @router.post("/server/config")
     async def update_server_config(payload: Dict[str, Any]):
