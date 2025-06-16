@@ -81,7 +81,8 @@ class UnifiedAudioStateMachine:
                 self.system_state.transitioning = True
                 await self._broadcast_event("system", "transition_start", {
                     "from_source": self.system_state.active_source.value,
-                    "to_source": target_source.value
+                    "to_source": target_source.value,
+                    "source": "system"
                 })
                 
                 await self._stop_current_source()
@@ -98,7 +99,8 @@ class UnifiedAudioStateMachine:
                 self.system_state.transitioning = False
                 await self._broadcast_event("system", "transition_complete", {
                     "active_source": self.system_state.active_source.value,
-                    "plugin_state": self.system_state.plugin_state.value
+                    "plugin_state": self.system_state.plugin_state.value,
+                    "source": "system"
                 })
                 
                 return True
@@ -110,7 +112,8 @@ class UnifiedAudioStateMachine:
                 await self._emergency_stop()
                 await self._broadcast_event("system", "error", {
                     "error": str(e),
-                    "attempted_source": target_source.value
+                    "attempted_source": target_source.value,
+                    "source": "system"
                 })
                 return False
     

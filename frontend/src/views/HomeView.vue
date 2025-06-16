@@ -69,11 +69,11 @@ onMounted(() => {
     unifiedStore.updateState(event);
   });
 
-  on('plugin', 'plugin_state_changed', (event) => {
+  on('plugin', 'state_changed', (event) => {
     unifiedStore.updateState(event);
   });
 
-  on('plugin', 'plugin_metadata', (event) => {
+  on('plugin', 'metadata', (event) => {
     unifiedStore.updateState(event);
   });
 });
