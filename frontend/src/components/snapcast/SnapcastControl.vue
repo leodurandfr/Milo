@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version refactorisée -->
 <template>
   <div class="snapcast-control">
     <h3>Snapcast Clients</h3>
@@ -59,7 +59,7 @@ const FINAL_DELAY = 500;
 let unsubscribeFunctions = [];
 
 const isMultiroomActive = computed(() => 
-  unifiedStore.routingMode === 'multiroom'
+  unifiedStore.multiroomEnabled  // Refactorisé
 );
 
 // === MÉTHODES PRINCIPALES ===

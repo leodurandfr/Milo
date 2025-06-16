@@ -1,4 +1,4 @@
-<!-- frontend/src/views/EqualizerView.vue -->
+<!-- frontend/src/views/EqualizerView.vue - Version refactorisée -->
 <template>
   <div class="equalizer-view">
     <!-- En-tête -->
@@ -79,8 +79,10 @@ const currentDevicePattern = computed(() => {
   
   let device = `oakos_${source === 'librespot' ? 'spotify' : source}`;
   
-  if (unifiedStore.routingMode === 'multiroom') {
+  if (unifiedStore.multiroomEnabled) {  // Refactorisé
     device += '_multiroom';
+  } else {
+    device += '_direct';  // Ajout pour clarification
   }
   
   if (unifiedStore.equalizerEnabled) {

@@ -1,4 +1,4 @@
-<!-- frontend/src/components/routing/MultiroomToggle.vue -->
+<!-- frontend/src/components/routing/MultiroomToggle.vue - Version refactorisée -->
 <template>
   <Toggle
     v-model="isMultiroom"
@@ -19,7 +19,7 @@ import Toggle from '@/components/ui/Toggle.vue';
 const unifiedStore = useUnifiedAudioStore();
 
 const isMultiroom = computed({
-  get: () => unifiedStore.routingMode === 'multiroom',
+  get: () => unifiedStore.multiroomEnabled,  // Refactorisé
   set: () => {} // Géré par handleToggle
 });
 
@@ -28,7 +28,6 @@ const statusText = computed(() =>
 );
 
 async function handleToggle(enabled) {
-  const newMode = enabled ? 'multiroom' : 'direct';
-  await unifiedStore.setRoutingMode(newMode);
+  await unifiedStore.setMultiroomEnabled(enabled);  // Refactorisé
 }
 </script>

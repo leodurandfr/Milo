@@ -1,13 +1,12 @@
 # backend/presentation/api/routes/routing.py
 """
-Routes API pour la gestion du routage audio - VERSION CORRIGÉE
+Routes API pour la gestion du routage audio - Version refactorisée multiroom_enabled
 """
 from fastapi import APIRouter
-from backend.domain.audio_routing import AudioRoutingMode
 from backend.domain.audio_state import AudioSource
 
 def create_routing_router(routing_service, state_machine):
-    """Crée le router de routage (routage audio + equalizer)"""
+    """Crée le router de routage (multiroom + equalizer)"""
     router = APIRouter(prefix="/api/routing", tags=["routing"])
     
     @router.get("/status")
@@ -29,11 +28,12 @@ def create_routing_router(routing_service, state_machine):
             "services": services_status
         }
     
-    @router.post("/mode/{mode}")
-    async def set_routing_mode(mode: str):
-        """Change le mode de routage (multiroom/direct)"""
+    @router.post("/multiroom/{enabled}")
+    async def set_multiroom_enabled(enabled: str):
+        """Active/désactive le mode multiroom - Version refactorisée"""
         try:
-            routing_mode = AudioRoutingMode(mode)
+            # Convertir le paramètre en boolean
+            multiroom_enabled = enabled.lower() in ("true", "1", "on", "enabled")
             
             # Récupérer le plugin actuellement actif
             current_state = await state_machine.get_current_state()
@@ -45,21 +45,19 @@ def create_routing_router(routing_service, state_machine):
                 except ValueError:
                     pass
             
-            # Changer le mode de routage avec le plugin actif
-            success = await routing_service.set_routing_mode(routing_mode, active_source)
+            # Changer l'état du multiroom
+            success = await routing_service.set_multiroom_enabled(multiroom_enabled, active_source)
             if not success:
-                return {"status": "error", "message": "Failed to change routing mode"}
+                return {"status": "error", "message": "Failed to change multiroom state"}
             
-            # CORRECTION : GARDER cet appel pour notifier le frontend !
-            await state_machine.update_routing_mode(mode)
+            # Notifier le frontend via WebSocket
+            await state_machine.update_multiroom_state(multiroom_enabled)
             
             return {
                 "status": "success", 
-                "mode": mode,
+                "multiroom_enabled": multiroom_enabled,
                 "active_source": current_state["active_source"] if active_source else "none"
             }
-        except ValueError:
-            return {"status": "error", "message": f"Invalid mode: {mode}"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
     
@@ -85,7 +83,7 @@ def create_routing_router(routing_service, state_machine):
             if not success:
                 return {"status": "error", "message": "Failed to change equalizer state"}
             
-            # CORRECTION : GARDER cet appel pour notifier le frontend !
+            # Notifier le frontend via WebSocket
             await state_machine.update_equalizer_state(eq_enabled)
             
             return {
@@ -95,6 +93,14 @@ def create_routing_router(routing_service, state_machine):
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
+    
+    @router.get("/multiroom/status")
+    async def get_multiroom_status():
+        """Récupère l'état actuel du multiroom"""
+        routing_state = routing_service.get_state()
+        return {
+            "multiroom_enabled": routing_state.multiroom_enabled
+        }
     
     @router.get("/equalizer/status")
     async def get_equalizer_status():

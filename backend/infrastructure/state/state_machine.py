@@ -1,6 +1,6 @@
 # backend/infrastructure/state/state_machine.py
 """
-Machine à états unifiée avec publication directe WebSocket - Version OPTIM
+Machine à états unifiée avec publication directe WebSocket - Version refactorisée multiroom_enabled
 """
 import asyncio
 import time
@@ -10,7 +10,7 @@ from backend.domain.audio_state import AudioSource, PluginState, SystemAudioStat
 from backend.application.interfaces.audio_source import AudioSourcePlugin
 
 class UnifiedAudioStateMachine:
-    """Gère l'état complet du système audio - Version avec publication directe WebSocket"""
+    """Gère l'état complet du système audio - Version refactorisée avec multiroom_enabled"""
     
     TRANSITION_TIMEOUT = 5.0
     
@@ -30,9 +30,9 @@ class UnifiedAudioStateMachine:
             self._sync_routing_state()
     
     def _sync_routing_state(self) -> None:
-        """Synchronise l'état de routage initial"""
+        """Synchronise l'état de routage initial - Version refactorisée"""
         routing_state = self.routing_service.get_state()
-        self.system_state.routing_mode = routing_state.mode.value
+        self.system_state.multiroom_enabled = routing_state.multiroom_enabled
         self.system_state.equalizer_enabled = routing_state.equalizer_enabled
     
     def register_plugin(self, source: AudioSource, plugin: AudioSourcePlugin) -> None:
@@ -142,15 +142,15 @@ class UnifiedAudioStateMachine:
             "metadata": metadata
         })
     
-    async def update_routing_mode(self, new_mode: str) -> None:
-        """Met à jour le mode de routage dans l'état système"""
-        old_mode = self.system_state.routing_mode
-        self.system_state.routing_mode = new_mode
+    async def update_multiroom_state(self, enabled: bool) -> None:
+        """Met à jour l'état multiroom dans l'état système - Version refactorisée"""
+        old_state = self.system_state.multiroom_enabled
+        self.system_state.multiroom_enabled = enabled
         
         await self._broadcast_event("system", "state_changed", {
-            "old_mode": old_mode,
-            "new_mode": new_mode,
-            "routing_changed": True,
+            "old_state": old_state,
+            "new_state": enabled,
+            "multiroom_changed": True,
             "source": "routing"
         })
     

@@ -1,4 +1,4 @@
-<!-- frontend/src/views/MultiroomView.vue -->
+<!-- frontend/src/views/MultiroomView.vue - Version refactorisée -->
 <template>
   <div class="multiroom-view">
     <!-- En-tête avec contrôles globaux -->
@@ -83,9 +83,9 @@ const clients = ref([]);
 const showSettings = ref(false);
 const selectedClient = ref(null);
 
-// État computed
+// État computed - Refactorisé
 const isMultiroomActive = computed(() => 
-  unifiedStore.routingMode === 'multiroom'
+  unifiedStore.multiroomEnabled  // Refactorisé
 );
 
 // Gestion cleanup WebSocket

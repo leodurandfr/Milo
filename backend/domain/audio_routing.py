@@ -1,25 +1,19 @@
 """
-Modèles pour le routage audio dans oakOS - Étendu pour l'equalizer.
+Modèles pour le routage audio dans oakOS - Version refactorisée avec multiroom_enabled.
 """
-from enum import Enum
 from dataclasses import dataclass
 from typing import Dict, Any
 
-class AudioRoutingMode(Enum):
-    """Modes de routage audio disponibles"""
-    DIRECT = "direct"        # Audio directement vers la carte son
-    MULTIROOM = "multiroom"  # Audio via snapserver pour multiroom
-
 @dataclass
 class AudioRoutingState:
-    """État du routage audio - Étendu pour l'equalizer"""
-    mode: AudioRoutingMode = AudioRoutingMode.MULTIROOM
-    equalizer_enabled: bool = False  # Nouveau champ pour l'equalizer
+    """État du routage audio - Version refactorisée"""
+    multiroom_enabled: bool = True  # Par défaut multiroom activé
+    equalizer_enabled: bool = False  # Par défaut equalizer désactivé
     
     def to_dict(self) -> Dict[str, Any]:
         """Convertit l'état en dictionnaire"""
         return {
-            "mode": self.mode.value,
+            "multiroom_enabled": self.multiroom_enabled,
             "equalizer_enabled": self.equalizer_enabled
         }
     
@@ -27,6 +21,6 @@ class AudioRoutingState:
     def from_dict(cls, data: Dict[str, Any]) -> 'AudioRoutingState':
         """Crée un état à partir d'un dictionnaire"""
         return cls(
-            mode=AudioRoutingMode(data.get("mode", "multiroom")),
+            multiroom_enabled=data.get("multiroom_enabled", True),
             equalizer_enabled=data.get("equalizer_enabled", False)
         )

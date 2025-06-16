@@ -1,17 +1,17 @@
 # backend/infrastructure/services/audio_routing_service.py
 """
-Service de routage audio pour oakOS - Version sans références circulaires
+Service de routage audio pour oakOS - Version refactorisée avec multiroom_enabled
 """
 import os
 import logging
 import asyncio
 from typing import Dict, Any, Callable, Optional
-from backend.domain.audio_routing import AudioRoutingMode, AudioRoutingState
+from backend.domain.audio_routing import AudioRoutingState
 from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class AudioRoutingService:
-    """Service de routage audio - Version OPTIM sans cross-references"""
+    """Service de routage audio - Version refactorisée avec multiroom_enabled"""
     
     def __init__(self, get_plugin_callback: Optional[Callable] = None):
         self.logger = logging.getLogger(__name__)
@@ -40,71 +40,71 @@ class AudioRoutingService:
             self.logger.info("Initializing ALSA environment and detecting routing state...")
             
             # Initialiser avec les valeurs par défaut
-            default_mode = AudioRoutingMode.MULTIROOM
+            default_multiroom = True  # Par défaut multiroom activé
             default_equalizer = False
             
-            self.state.mode = default_mode
+            self.state.multiroom_enabled = default_multiroom
             self.state.equalizer_enabled = default_equalizer
             
-            await self._update_systemd_environment(default_mode)
-            self.logger.info(f"ALSA environment initialized: MODE={default_mode.value}, EQUALIZER={default_equalizer}")
+            await self._update_systemd_environment()
+            self.logger.info(f"ALSA environment initialized: MULTIROOM={default_multiroom}, EQUALIZER={default_equalizer}")
             
             # Détecter l'état réel des services snapcast
             snapcast_status = await self.get_snapcast_status()
             if snapcast_status.get("multiroom_available", False):
-                detected_mode = AudioRoutingMode.MULTIROOM
-                self.logger.info("Snapcast services active → keeping MULTIROOM mode")
+                detected_multiroom = True
+                self.logger.info("Snapcast services active → keeping multiroom enabled")
             else:
-                detected_mode = AudioRoutingMode.DIRECT
-                self.logger.info("Snapcast services inactive → switching to DIRECT mode")
+                detected_multiroom = False
+                self.logger.info("Snapcast services inactive → switching to multiroom disabled")
             
             # Mettre à jour si nécessaire
-            if detected_mode != default_mode:
-                self.state.mode = detected_mode
-                await self._update_systemd_environment(detected_mode)
+            if detected_multiroom != default_multiroom:
+                self.state.multiroom_enabled = detected_multiroom
+                await self._update_systemd_environment()
             
             self._initial_detection_done = True
-            self.logger.info(f"Initial routing state: {self.state.mode.value}, equalizer: {self.state.equalizer_enabled}")
+            self.logger.info(f"Initial routing state: multiroom={self.state.multiroom_enabled}, equalizer={self.state.equalizer_enabled}")
             
         except Exception as e:
             self.logger.error(f"Error during initial state detection: {e}")
             self._initial_detection_done = True
     
-    async def set_routing_mode(self, mode: AudioRoutingMode, active_source: AudioSource = None) -> bool:
-        """Change le mode de routage audio"""
+    async def set_multiroom_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
+        """Active/désactive le mode multiroom"""
         if not self._initial_detection_done:
             await self._detect_initial_state()
         
-        if self.state.mode == mode:
-            self.logger.info(f"Already in {mode.value} mode")
+        if self.state.multiroom_enabled == enabled:
+            self.logger.info(f"Multiroom already {'enabled' if enabled else 'disabled'}")
             return True
         
         try:
-            old_mode = self.state.mode
-            self.logger.info(f"Changing routing from {old_mode.value} to {mode.value}")
+            old_state = self.state.multiroom_enabled
+            self.logger.info(f"Changing multiroom from {old_state} to {enabled}")
             
-            self.state.mode = mode
-            await self._update_systemd_environment(mode)
+            self.state.multiroom_enabled = enabled
+            await self._update_systemd_environment()
             
-            if mode == AudioRoutingMode.MULTIROOM:
+            if enabled:
                 success = await self._transition_to_multiroom(active_source)
             else:
                 success = await self._transition_to_direct(active_source)
             
             if not success:
                 # Restaurer l'ancien état
-                self.state.mode = old_mode
-                await self._update_systemd_environment(old_mode)
-                self.logger.error(f"Failed to transition to {mode.value} mode, reverting to {old_mode.value}")
+                self.state.multiroom_enabled = old_state
+                await self._update_systemd_environment()
+                self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
                 return False
             
             return True
             
         except Exception as e:
             # Restaurer l'ancien état
-            self.state.mode = old_mode
-            await self._update_systemd_environment(old_mode)
-            self.logger.error(f"Error changing routing mode: {e}")
+            self.state.multiroom_enabled = old_state
+            await self._update_systemd_environment()
+            self.logger.error(f"Error changing multiroom state: {e}")
             return False
 
     async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
@@ -118,7 +118,7 @@ class AudioRoutingService:
             self.logger.info(f"Changing equalizer from {old_state} to {enabled}")
             
             self.state.equalizer_enabled = enabled
-            await self._update_systemd_environment(self.state.mode)
+            await self._update_systemd_environment()
             
             # Redémarrer le plugin actif via callback
             if active_source and self.get_plugin:
@@ -132,15 +132,16 @@ class AudioRoutingService:
         except Exception as e:
             # Restaurer l'ancien état
             self.state.equalizer_enabled = old_state
-            await self._update_systemd_environment(self.state.mode)
+            await self._update_systemd_environment()
             self.logger.error(f"Error changing equalizer state: {e}")
             return False
     
-    async def _update_systemd_environment(self, mode: AudioRoutingMode) -> None:
-        """Met à jour les variables d'environnement ALSA"""
+    async def _update_systemd_environment(self) -> None:
+        """Met à jour les variables d'environnement ALSA - Version COMPATIBLE"""
         try:
-            mode_value = mode.value
-            equalizer_suffix = "_eq" if self.state.equalizer_enabled else ""
+            # Conversion bool → string pour ALSA (compatible avec asound.conf existant)
+            mode_value = "multiroom" if self.state.multiroom_enabled else "direct"
+            equalizer_value = "_eq" if self.state.equalizer_enabled else ""
             
             proc1 = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "set-environment", f"OAKOS_MODE={mode_value}"
@@ -148,14 +149,14 @@ class AudioRoutingService:
             await proc1.communicate()
             
             proc2 = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "set-environment", f"OAKOS_EQUALIZER={equalizer_suffix}"
+                "sudo", "systemctl", "set-environment", f"OAKOS_EQUALIZER={equalizer_value}"
             )
             await proc2.communicate()
             
             os.environ["OAKOS_MODE"] = mode_value
-            os.environ["OAKOS_EQUALIZER"] = equalizer_suffix
+            os.environ["OAKOS_EQUALIZER"] = equalizer_value
             
-            self.logger.info(f"Updated ALSA environment: MODE={mode_value}, EQUALIZER={equalizer_suffix}")
+            self.logger.info(f"Updated ALSA environment: MODE={mode_value}, EQUALIZER={equalizer_value}")
             
         except Exception as e:
             self.logger.error(f"Error updating environment: {e}")

@@ -1,22 +1,23 @@
 # backend/presentation/api/routes/snapcast.py
 """
-Routes API pour Snapcast - Version SIMPLE sans over-engineering
+Routes API pour Snapcast - Version refactorisée avec multiroom_enabled
 """
+import time
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
 
 def create_snapcast_router(routing_service, snapcast_service, state_machine):
-    """Crée le router Snapcast simple et efficace"""
+    """Crée le router Snapcast - Version refactorisée"""
     router = APIRouter(prefix="/api/routing/snapcast", tags=["snapcast"])
     
     # === FONCTION UTILITAIRE WEBSOCKET ===
     
     async def _publish_snapcast_update():
-        """Publie une notification de mise à jour Snapcast via WebSocket oakOS - FORMAT CORRIGÉ"""
+        """Publie une notification de mise à jour Snapcast via WebSocket oakOS"""
         try:
             await state_machine.broadcast_event("system", "state_changed", {
                 "snapcast_update": True,
-                "source": "snapcast"  # Important pour que le frontend filtre correctement
+                "source": "snapcast"
             })
         except Exception as e:
             print(f"Error publishing Snapcast update: {e}")
@@ -25,7 +26,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
     
     @router.get("/status")
     async def get_snapcast_status():
-        """État de Snapcast"""
+        """État de Snapcast - Version refactorisée"""
         try:
             available = await snapcast_service.is_available()
             clients = await snapcast_service.get_clients() if available else []
@@ -34,17 +35,17 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
             return {
                 "available": available,
                 "client_count": len(clients),
-                "multiroom_active": routing_state.mode.value == "multiroom"
+                "multiroom_active": routing_state.multiroom_enabled  # Refactorisé
             }
         except Exception as e:
             return {"available": False, "error": str(e)}
     
     @router.get("/clients")
     async def get_snapcast_clients():
-        """Récupère les clients Snapcast"""
+        """Récupère les clients Snapcast - Version refactorisée"""
         try:
             routing_state = routing_service.get_state()
-            if routing_state.mode.value != "multiroom":
+            if not routing_state.multiroom_enabled:  # Refactorisé
                 return {"clients": [], "message": "Multiroom not active"}
             
             clients = await snapcast_service.get_clients()
@@ -90,10 +91,10 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
     
     @router.get("/monitoring")
     async def get_snapcast_monitoring():
-        """Récupère les informations de monitoring Snapcast"""
+        """Récupère les informations de monitoring Snapcast - Version refactorisée"""
         try:
             routing_state = routing_service.get_state()
-            if routing_state.mode.value != "multiroom":
+            if not routing_state.multiroom_enabled:  # Refactorisé
                 return {
                     "available": False, 
                     "message": "Multiroom not active",
