@@ -1,52 +1,55 @@
+# backend/infrastructure/services/audio_routing_service.py
 """
-Service de routage audio pour oakOS - Version simplifiée avec ALSA dynamique
+Service de routage audio pour oakOS - Version sans références circulaires
 """
 import os
 import logging
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, Callable, Optional
 from backend.domain.audio_routing import AudioRoutingMode, AudioRoutingState
 from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class AudioRoutingService:
-    """Service de routage audio - Version simplifiée avec ALSA dynamique"""
+    """Service de routage audio - Version OPTIM sans cross-references"""
     
-    def __init__(self):
+    def __init__(self, get_plugin_callback: Optional[Callable] = None):
         self.logger = logging.getLogger(__name__)
         self.service_manager = SystemdServiceManager()
-        self.state = AudioRoutingState()  # État étendu avec equalizer
-        self.state_machine = None  # Référence pour accéder aux plugins
+        self.state = AudioRoutingState()
+        self.get_plugin = get_plugin_callback  # Callback pour accéder aux plugins
         self._initial_detection_done = False
         
-        # Services snapcast (seuls services gérés directement)
+        # Services snapcast
         self.snapserver_service = "oakos-snapserver-multiroom.service"
         self.snapclient_service = "oakos-snapclient-multiroom.service"
     
-    def set_state_machine(self, state_machine) -> None:
-        """Définit la référence à la machine à états"""
-        self.state_machine = state_machine
-        # Lancer la détection d'état initial après configuration
+    def set_plugin_callback(self, callback: Callable) -> None:
+        """Définit le callback pour accéder aux plugins (fallback si pas dans constructeur)"""
+        if not self.get_plugin:
+            self.get_plugin = callback
+    
+    async def initialize(self) -> None:
+        """Initialise l'état du service (appelé après construction)"""
         if not self._initial_detection_done:
-            asyncio.create_task(self._detect_initial_state())
+            await self._detect_initial_state()
     
     async def _detect_initial_state(self):
         """Initialise et détecte l'état initial selon l'état réel des services snapcast"""
         try:
             self.logger.info("Initializing ALSA environment and detecting routing state...")
             
-            # 1. D'abord initialiser les variables d'environnement avec les valeurs par défaut
+            # Initialiser avec les valeurs par défaut
             default_mode = AudioRoutingMode.MULTIROOM
             default_equalizer = False
             
             self.state.mode = default_mode
             self.state.equalizer_enabled = default_equalizer
             
-            # Initialiser les variables d'environnement
             await self._update_systemd_environment(default_mode)
             self.logger.info(f"ALSA environment initialized: MODE={default_mode.value}, EQUALIZER={default_equalizer}")
             
-            # 2. Détecter l'état réel des services snapcast
+            # Détecter l'état réel des services snapcast
             snapcast_status = await self.get_snapcast_status()
             if snapcast_status.get("multiroom_available", False):
                 detected_mode = AudioRoutingMode.MULTIROOM
@@ -55,7 +58,7 @@ class AudioRoutingService:
                 detected_mode = AudioRoutingMode.DIRECT
                 self.logger.info("Snapcast services inactive → switching to DIRECT mode")
             
-            # 3. Si l'état détecté diffère des valeurs par défaut, mettre à jour
+            # Mettre à jour si nécessaire
             if detected_mode != default_mode:
                 self.state.mode = detected_mode
                 await self._update_systemd_environment(detected_mode)
@@ -65,11 +68,10 @@ class AudioRoutingService:
             
         except Exception as e:
             self.logger.error(f"Error during initial state detection: {e}")
-            # En cas d'erreur, garder les valeurs par défaut
             self._initial_detection_done = True
     
     async def set_routing_mode(self, mode: AudioRoutingMode, active_source: AudioSource = None) -> bool:
-        """Change le mode de routage audio - Version simplifiée"""
+        """Change le mode de routage audio"""
         if not self._initial_detection_done:
             await self._detect_initial_state()
         
@@ -81,20 +83,16 @@ class AudioRoutingService:
             old_mode = self.state.mode
             self.logger.info(f"Changing routing from {old_mode.value} to {mode.value}")
             
-            # 1. Mettre à jour l'état AVANT la transition
             self.state.mode = mode
-            
-            # 2. Mettre à jour les variables d'environnement ALSA
             await self._update_systemd_environment(mode)
             
-            # 3. Effectuer la transition avec le nouvel état
             if mode == AudioRoutingMode.MULTIROOM:
                 success = await self._transition_to_multiroom(active_source)
-            else:  # DIRECT
+            else:
                 success = await self._transition_to_direct(active_source)
             
             if not success:
-                # En cas d'échec, restaurer l'ancien état
+                # Restaurer l'ancien état
                 self.state.mode = old_mode
                 await self._update_systemd_environment(old_mode)
                 self.logger.error(f"Failed to transition to {mode.value} mode, reverting to {old_mode.value}")
@@ -103,14 +101,14 @@ class AudioRoutingService:
             return True
             
         except Exception as e:
-            # En cas d'erreur, restaurer l'ancien état
+            # Restaurer l'ancien état
             self.state.mode = old_mode
             await self._update_systemd_environment(old_mode)
             self.logger.error(f"Error changing routing mode: {e}")
             return False
 
     async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
-        """Active/désactive l'equalizer - Version simplifiée"""
+        """Active/désactive l'equalizer"""
         if self.state.equalizer_enabled == enabled:
             self.logger.info(f"Equalizer already {'enabled' if enabled else 'disabled'}")
             return True
@@ -119,24 +117,20 @@ class AudioRoutingService:
             old_state = self.state.equalizer_enabled
             self.logger.info(f"Changing equalizer from {old_state} to {enabled}")
             
-            # 1. Mettre à jour l'état AVANT de redémarrer le plugin
             self.state.equalizer_enabled = enabled
-            
-            # 2. Mettre à jour les variables d'environnement ALSA
             await self._update_systemd_environment(self.state.mode)
             
-            # 3. Redémarrer le plugin actif - ALSA gère automatiquement le device
-            if active_source and self.state_machine:
-                plugin = self.state_machine.plugins.get(active_source)
+            # Redémarrer le plugin actif via callback
+            if active_source and self.get_plugin:
+                plugin = self.get_plugin(active_source)
                 if plugin:
                     self.logger.info(f"Restarting plugin {active_source.value} with equalizer {'enabled' if enabled else 'disabled'}")
                     await plugin.restart()
-                    # Plus besoin de change_audio_device() - ALSA fait tout !
             
             return True
             
         except Exception as e:
-            # En cas d'erreur, revenir à l'ancien état
+            # Restaurer l'ancien état
             self.state.equalizer_enabled = old_state
             await self._update_systemd_environment(self.state.mode)
             self.logger.error(f"Error changing equalizer state: {e}")
@@ -148,17 +142,15 @@ class AudioRoutingService:
             mode_value = mode.value
             equalizer_suffix = "_eq" if self.state.equalizer_enabled else ""
             
-            # Mettre à jour OAKOS_MODE et ATTENDRE que ça finisse
             proc1 = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "set-environment", f"OAKOS_MODE={mode_value}"
             )
-            await proc1.communicate()  # ← AJOUTÉ
+            await proc1.communicate()
             
-            # Mettre à jour OAKOS_EQUALIZER et ATTENDRE que ça finisse
             proc2 = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "set-environment", f"OAKOS_EQUALIZER={equalizer_suffix}"
             )
-            await proc2.communicate()  # ← AJOUTÉ
+            await proc2.communicate()
             
             os.environ["OAKOS_MODE"] = mode_value
             os.environ["OAKOS_EQUALIZER"] = equalizer_suffix
@@ -169,21 +161,19 @@ class AudioRoutingService:
             self.logger.error(f"Error updating environment: {e}")
     
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
-        """Transition vers le mode multiroom - Version simplifiée"""
+        """Transition vers le mode multiroom"""
         try:
-            # 1. Démarrer snapcast d'abord
             self.logger.info("Starting snapcast services")
             snapcast_success = await self._start_snapcast()
             if not snapcast_success:
                 return False
             
-            # 2. Redémarrer le plugin si actif - ALSA gère le device automatiquement
-            if active_source and self.state_machine:
-                plugin = self.state_machine.plugins.get(active_source)
+            # Redémarrer le plugin via callback
+            if active_source and self.get_plugin:
+                plugin = self.get_plugin(active_source)
                 if plugin:
                     self.logger.info(f"Restarting plugin {active_source.value} for multiroom mode")
                     await plugin.restart()
-                    # Plus besoin de change_audio_device() - ALSA gère tout !
             
             return True
             
@@ -192,19 +182,17 @@ class AudioRoutingService:
             return False
     
     async def _transition_to_direct(self, active_source: AudioSource = None) -> bool:
-        """Transition vers le mode direct - Version simplifiée"""
+        """Transition vers le mode direct"""
         try:
-            # 1. Arrêter snapcast
             self.logger.info("Stopping snapcast services")
             await self._stop_snapcast()
             
-            # 2. Redémarrer le plugin si actif - ALSA gère le device automatiquement
-            if active_source and self.state_machine:
-                plugin = self.state_machine.plugins.get(active_source)
+            # Redémarrer le plugin via callback
+            if active_source and self.get_plugin:
+                plugin = self.get_plugin(active_source)
                 if plugin:
                     self.logger.info(f"Restarting plugin {active_source.value} for direct mode")
                     await plugin.restart()
-                    # Plus besoin de change_audio_device() - ALSA gère tout !
             
             return True
             
@@ -215,15 +203,11 @@ class AudioRoutingService:
     async def _start_snapcast(self) -> bool:
         """Démarre les services snapcast"""
         try:
-            # Snapserver d'abord
             success = await self.service_manager.start(self.snapserver_service)
             if not success:
                 return False
             
-            # Attendre que snapserver soit prêt
             await asyncio.sleep(0.5)
-            
-            # Puis snapclient
             success = await self.service_manager.start(self.snapclient_service)
             return success
             
@@ -240,7 +224,7 @@ class AudioRoutingService:
             self.logger.error(f"Error stopping snapcast: {e}")
     
     def get_state(self) -> AudioRoutingState:
-        """Récupère l'état actuel du routage (incluant equalizer)"""
+        """Récupère l'état actuel du routage"""
         return self.state
     
     async def get_snapcast_status(self) -> Dict[str, Any]:
@@ -256,31 +240,22 @@ class AudioRoutingService:
             }
         except Exception as e:
             self.logger.error(f"Error getting snapcast status: {e}")
-            return {
-                "server_active": False,
-                "client_active": False,
-                "multiroom_available": False
-            }
+            return {"server_active": False, "client_active": False, "multiroom_available": False}
     
     async def get_available_services(self) -> Dict[str, bool]:
         """Récupère la liste des services disponibles"""
         services_status = {}
         
-        # Liste des services à vérifier
         services_to_check = [
-            "oakos-go-librespot.service",
-            "oakos-roc.service", 
-            "oakos-bluealsa-aplay.service",
-            self.snapserver_service,
-            self.snapclient_service
+            "oakos-go-librespot.service", "oakos-roc.service", 
+            "oakos-bluealsa-aplay.service", self.snapserver_service, self.snapclient_service
         ]
         
         for service in services_to_check:
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "systemctl", "list-unit-files", service,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.DEVNULL
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
                 )
                 stdout, _ = await proc.communicate()
                 
@@ -290,17 +265,10 @@ class AudioRoutingService:
                 if exists:
                     is_active = await self.service_manager.is_active(service)
                 
-                services_status[service] = {
-                    "exists": exists,
-                    "active": is_active
-                }
+                services_status[service] = {"exists": exists, "active": is_active}
                 
             except Exception as e:
                 self.logger.error(f"Error checking service {service}: {e}")
-                services_status[service] = {
-                    "exists": False,
-                    "active": False,
-                    "error": str(e)
-                }
+                services_status[service] = {"exists": False, "active": False, "error": str(e)}
         
         return services_status

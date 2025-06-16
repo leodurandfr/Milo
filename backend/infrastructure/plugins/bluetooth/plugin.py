@@ -17,8 +17,8 @@ from backend.infrastructure.plugins.bluetooth.bluealsa_playback import BlueAlsaP
 class BluetoothPlugin(UnifiedAudioPlugin):
     """Plugin Bluetooth pour oakOS - version optimisée"""
     
-    def __init__(self, event_bus, config: Dict[str, Any]):
-        super().__init__(event_bus, "bluetooth")
+    def __init__(self, event_bus, config: Dict[str, Any], state_machine=None):
+        super().__init__(event_bus, "bluetooth", state_machine)
         
         # Configuration
         self.config = config

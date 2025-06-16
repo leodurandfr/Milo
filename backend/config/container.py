@@ -1,6 +1,6 @@
 # backend/config/container.py
 """
-Conteneur d'injection de dépendances - Version OPTIM simplifiée avec Snapcast
+Conteneur d'injection de dépendances - Version OPTIM sans références circulaires
 """
 from dependency_injector import containers, providers
 from backend.application.event_bus import EventBus
@@ -11,45 +11,39 @@ from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 from backend.infrastructure.services.audio_routing_service import AudioRoutingService
 from backend.infrastructure.services.snapcast_service import SnapcastService
-
 from backend.domain.audio_state import AudioSource
 
-
 class Container(containers.DeclarativeContainer):
-    """Conteneur d'injection de dépendances pour oakOS"""
+    """Conteneur d'injection de dépendances pour oakOS - Version sans cross-references"""
     
     config = providers.Configuration()
     
     # Services centraux
     event_bus = providers.Singleton(EventBus)
-    
-    # Gestionnaire de services systemd
     systemd_manager = providers.Singleton(SystemdServiceManager)
-    
-    # Service de routage audio
-    audio_routing_service = providers.Singleton(AudioRoutingService)
-    
-    # Service Snapcast
     snapcast_service = providers.Singleton(SnapcastService)
     
-    # Machine à états unifiée
+    # Service de routage audio (sans référence à state_machine)
+    audio_routing_service = providers.Singleton(AudioRoutingService)
+    
+    # Machine à états unifiée (avec injection du routing_service)
     audio_state_machine = providers.Singleton(
         UnifiedAudioStateMachine,
-        event_bus=event_bus
+        event_bus=event_bus,
+        routing_service=audio_routing_service
     )
     
-    # Plugins audio
-    # GO-LIBRESPOT
+    # Plugins audio (avec injection de state_machine)
     librespot_plugin = providers.Singleton(
         LibrespotPlugin,
         event_bus=event_bus,
         config=providers.Dict({
             "config_path": "/var/lib/oakos/go-librespot/config.yml", 
             "service_name": "oakos-go-librespot.service" 
-        })
+        }),
+        state_machine=audio_state_machine
     )
     
-    # ROC-TOOLKIT
     roc_plugin = providers.Singleton(
         RocPlugin,
         event_bus=event_bus,
@@ -59,10 +53,10 @@ class Container(containers.DeclarativeContainer):
             "rs8m_port": 10002,
             "rtcp_port": 10003,
             "audio_output": "hw:1,0"
-        })
+        }),
+        state_machine=audio_state_machine
     )
     
-    # BLUETOOTH
     bluetooth_plugin = providers.Singleton(
         BluetoothPlugin,
         event_bus=event_bus,
@@ -72,31 +66,39 @@ class Container(containers.DeclarativeContainer):
             "bluetooth_service": "bluetooth.service",
             "stop_bluetooth_on_exit": True,
             "auto_agent": True
-        })
+        }),
+        state_machine=audio_state_machine
     )
     
-    
-    # OPTIM: Méthode simplifiée pour enregistrer les plugins
+    # Configuration post-création
     @providers.Callable
-    def register_plugins():
-        """Enregistre tous les plugins dans la machine à états - Version OPTIM"""
-        # Récupération des instances via le conteneur global
+    def initialize_services():
+        """Initialise les services après création - Version OPTIM"""
+        # Récupération des instances
         state_machine = container.audio_state_machine()
         routing_service = container.audio_routing_service()
         
-        # Configuration bidirectionnelle des services
-        state_machine.set_routing_service(routing_service)
-        routing_service.set_state_machine(state_machine)
+        # Configuration du callback pour que routing_service puisse accéder aux plugins
+        routing_service.set_plugin_callback(lambda source: state_machine.get_plugin(source))
         
-        # Enregistrement des plugins
+        # Enregistrement des plugins dans la machine à états
         state_machine.register_plugin(AudioSource.LIBRESPOT, container.librespot_plugin())
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
         state_machine.register_plugin(AudioSource.ROC, container.roc_plugin())
-
-        # Injecter la référence à la machine à états dans les plugins
-        container.librespot_plugin().set_state_machine(state_machine)
-        container.bluetooth_plugin().set_state_machine(state_machine)
-        container.roc_plugin().set_state_machine(state_machine)
+        
+        # Initialisation asynchrone du routing_service
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Si boucle en cours, programmer l'initialisation
+                asyncio.create_task(routing_service.initialize())
+            else:
+                # Sinon, initialiser directement
+                loop.run_until_complete(routing_service.initialize())
+        except RuntimeError:
+            # Pas de boucle active, créer une tâche
+            asyncio.create_task(routing_service.initialize())
 
 # Création et configuration du conteneur
 container = Container()

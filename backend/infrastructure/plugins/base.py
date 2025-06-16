@@ -1,5 +1,6 @@
+# backend/infrastructure/plugins/base.py
 """
-Classe de base optimisée pour les plugins de sources audio.
+Classe de base optimisée pour les plugins de sources audio - Version sans cross-references
 """
 import logging
 from abc import ABC, abstractmethod
@@ -10,35 +11,31 @@ from backend.domain.audio_state import PluginState, AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
-    """Classe de base pour plugins audio avec fonctionnalités communes et gestion d'état améliorée."""
+    """Classe de base pour plugins audio - Version OPTIM sans références circulaires"""
     
-    def __init__(self, event_bus, name: str):
+    def __init__(self, event_bus, name: str, state_machine=None):
         self.event_bus = event_bus
         self.name = name
         self.logger = logging.getLogger(f"plugin.{name}")
-        self._state_machine = None
+        self.state_machine = state_machine  # Injection directe
         self._current_state = PluginState.INACTIVE
         self.service_manager = SystemdServiceManager()
         self._initialized = False
         self._current_device = None
     
-    def set_state_machine(self, state_machine) -> None:
-        """Définit la référence à la machine à états."""
-        self._state_machine = state_machine
-    
     async def notify_state_change(self, new_state: PluginState, metadata: Dict[str, Any] = None) -> None:
-        """Notifie la machine à états d'un changement d'état du plugin."""
+        """Notifie la machine à états d'un changement d'état du plugin"""
         self._current_state = new_state
         
-        if self._state_machine:
-            await self._state_machine.update_plugin_state(
+        if self.state_machine:
+            await self.state_machine.update_plugin_state(
                 source=self._get_audio_source(),
                 new_state=new_state,
                 metadata=metadata or {}
             )
     
     def _get_audio_source(self) -> AudioSource:
-        """Retourne l'enum AudioSource correspondant à ce plugin."""
+        """Retourne l'enum AudioSource correspondant à ce plugin"""
         sources = {
             'librespot': AudioSource.LIBRESPOT,
             'roc': AudioSource.ROC,
@@ -49,18 +46,18 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
     
     @property
     def current_state(self) -> PluginState:
-        """Récupère l'état actuel du plugin."""
+        """Récupère l'état actuel du plugin"""
         return self._current_state
     
     @property
     def current_device(self) -> Optional[str]:
-        """Récupère le device audio actuel."""
+        """Récupère le device audio actuel"""
         return self._current_device
     
     # Méthodes utilitaires communes
     
     async def control_service(self, service_name: str, action: str) -> bool:
-        """Contrôle un service systemd (start, stop, restart)."""
+        """Contrôle un service systemd (start, stop, restart)"""
         try:
             self.logger.info(f"{action.capitalize()} du service {service_name}")
             
@@ -85,7 +82,7 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
             return False
     
     def format_response(self, success: bool, message: str = None, error: str = None, **kwargs) -> Dict[str, Any]:
-        """Formate une réponse standard pour les commandes."""
+        """Formate une réponse standard pour les commandes"""
         response = {"success": success}
         
         if success and message:
@@ -96,7 +93,7 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         return {**response, **kwargs}
     
     async def initialize(self) -> bool:
-        """Initialise le plugin avec idempotence."""
+        """Initialise le plugin avec idempotence"""
         if self._initialized:
             return True
             
@@ -111,11 +108,11 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
     
     @abstractmethod
     async def _do_initialize(self) -> bool:
-        """Implémentation spécifique de l'initialisation."""
+        """Implémentation spécifique de l'initialisation"""
         pass
     
     async def start(self) -> bool:
-        """Démarre la source audio avec gestion d'état."""
+        """Démarre la source audio avec gestion d'état"""
         if not self._initialized and not await self.initialize():
             await self.notify_state_change(PluginState.ERROR, {"error": "Échec d'initialisation"})
             return False
@@ -136,7 +133,7 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
     
     @abstractmethod
     async def _do_start(self) -> bool:
-        """Implémentation spécifique du démarrage."""
+        """Implémentation spécifique du démarrage"""
         pass
     
     async def restart(self) -> bool:
@@ -150,20 +147,19 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         
     @abstractmethod
     async def stop(self) -> bool:
-        """Arrête la source audio."""
+        """Arrête la source audio"""
         pass
         
     @abstractmethod
     async def get_status(self) -> Dict[str, Any]:
-        """Récupère l'état actuel de la source audio."""
+        """Récupère l'état actuel de la source audio"""
         pass
         
     @abstractmethod
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Traite une commande pour cette source."""
+        """Traite une commande pour cette source"""
         pass
 
-    # Méthode par défaut pour le changement de device (peut être surchargée)
     async def change_audio_device(self, new_device: str) -> bool:
         """Change le device audio de sortie - implémentation par défaut"""
         self._current_device = new_device
@@ -171,5 +167,5 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         return True
 
     async def get_initial_state(self) -> Dict[str, Any]:
-        """État initial pour les nouvelles connexions WebSocket."""
+        """État initial pour les nouvelles connexions WebSocket"""
         return await self.get_status()

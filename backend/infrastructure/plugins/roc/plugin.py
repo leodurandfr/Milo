@@ -12,8 +12,8 @@ from backend.infrastructure.plugins.plugin_utils import format_response
 class RocPlugin(UnifiedAudioPlugin):
     """Plugin ROC avec surveillance événementielle et détection précise"""
 
-    def __init__(self, event_bus, config: Dict[str, Any]):
-        super().__init__(event_bus, "roc")
+    def __init__(self, event_bus, config: Dict[str, Any], state_machine=None):
+        super().__init__(event_bus, "roc", state_machine)
         self.config = config
         self.service_name = config.get("service_name", "oakos-roc.service")
         

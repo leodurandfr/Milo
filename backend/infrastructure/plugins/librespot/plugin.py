@@ -1,5 +1,6 @@
+# backend/infrastructure/plugins/librespot/plugin.py
 """
-Plugin librespot optimisé pour oakOS - Version restructurée et simplifiée
+Plugin librespot optimisé pour oakOS - Version sans cross-references
 """
 import os
 import yaml
@@ -13,10 +14,10 @@ from backend.domain.audio_state import PluginState
 from backend.infrastructure.plugins.plugin_utils import WebSocketManager
 
 class LibrespotPlugin(UnifiedAudioPlugin):
-    """Plugin Spotify via go-librespot - Optimisé avec la nouvelle architecture"""
+    """Plugin Spotify via go-librespot - Version OPTIM sans cross-references"""
     
-    def __init__(self, event_bus, config: Dict[str, Any]):
-        super().__init__(event_bus, "librespot")
+    def __init__(self, event_bus, config: Dict[str, Any], state_machine=None):
+        super().__init__(event_bus, "librespot", state_machine)
         self.config = config
         self.service_name = config.get("service_name")
         self.config_path = os.path.expanduser(config.get("config_path"))

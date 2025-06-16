@@ -1,6 +1,6 @@
 # backend/main.py
 """
-Point d'entrée principal de l'application oakOS - Version avec initialisation ALSA
+Point d'entrée principal de l'application oakOS - Version sans cross-references
 """
 import sys
 import os
@@ -37,21 +37,20 @@ ws_manager = WebSocketManager()
 websocket_event_handler = WebSocketEventHandler(event_bus, ws_manager)
 websocket_server = WebSocketServer(ws_manager, state_machine)
 
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
     try:
-        # 1. Enregistrer les plugins et configurer les références croisées
-        container.register_plugins()
-        logger.info("Plugins registered and configured")
+        # 1. Initialiser les services (remplace register_plugins)
+        container.initialize_services()
+        logger.info("Services initialized and configured")
         
-        # 2. Initialiser tous les plugins (ALSA maintenant géré par routing_service)
+        # 2. Initialiser tous les plugins
         for source, plugin in state_machine.plugins.items():
             if plugin:
                 try:
                     await plugin.initialize()
+                    logger.info(f"Plugin {source.value} initialized successfully")
                 except Exception as e:
                     logger.error(f"Plugin {source.value} initialization failed: {e}")
         
@@ -85,11 +84,11 @@ app.add_middleware(
 audio_router = audio.create_router(state_machine)
 app.include_router(audio_router)
 
-# Routes de routage (simplifiées)
+# Routes de routage
 routing_router = create_routing_router(routing_service, state_machine)
 app.include_router(routing_router)
 
-# Routes Snapcast (nouvelles, séparées, SIMPLES)
+# Routes Snapcast
 snapcast_router = create_snapcast_router(routing_service, snapcast_service, state_machine)
 app.include_router(snapcast_router)
 
