@@ -31,6 +31,7 @@ class SystemAudioState:
     - La source active
     - L'état opérationnel du plugin actif
     - Les métadonnées associées
+    - L'état du routage audio (multiroom_enabled au lieu de routing_mode)
     - L'état de l'equalizer
     """
     active_source: AudioSource = AudioSource.NONE
@@ -38,7 +39,7 @@ class SystemAudioState:
     transitioning: bool = False
     metadata: Dict[str, Any] = None
     error: Optional[str] = None
-    multiroom_enabled: bool = True
+    multiroom_enabled: bool = False  # Refactorisé : multiroom désactivé par défaut
     equalizer_enabled: bool = False
     
     def __post_init__(self):
@@ -66,6 +67,6 @@ class SystemAudioState:
             transitioning=data.get("transitioning", False),
             metadata=data.get("metadata", {}),
             error=data.get("error"),
-            multiroom_enabled=data.get("multiroom_enabled", True),  # Refactorisé
+            multiroom_enabled=data.get("multiroom_enabled", False),
             equalizer_enabled=data.get("equalizer_enabled", False)
         )

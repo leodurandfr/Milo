@@ -11,7 +11,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     transitioning: false,
     metadata: {},
     error: null,
-    multiroom_enabled: true, 
+    multiroom_enabled: false,   // Par défaut multiroom désactivé
     equalizer_enabled: false
   });
   
@@ -79,7 +79,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         transitioning: newState.transitioning || false,
         metadata: newState.metadata || {},
         error: newState.error || null,
-        multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : true,  // Refactorisé
+        multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : false,  // Par défaut False
         equalizer_enabled: newState.equalizer_enabled || false
       };
       

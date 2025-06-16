@@ -1,17 +1,24 @@
 # backend/infrastructure/services/audio_routing_service.py
 """
-Service de routage audio pour oakOS - Version refactorisée avec multiroom_enabled
+Service de routage audio pour oakOS - Version refactorisée avec persistance automatique
 """
 import os
+import json
 import logging
 import asyncio
+import aiofiles
+from pathlib import Path
 from typing import Dict, Any, Callable, Optional
 from backend.domain.audio_routing import AudioRoutingState
 from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class AudioRoutingService:
-    """Service de routage audio - Version refactorisée avec multiroom_enabled"""
+    """Service de routage audio - Version refactorisée avec persistance automatique"""
+    
+    # Constantes pour la persistance
+    STATE_DIR = Path("/var/lib/oakos")
+    STATE_FILE = STATE_DIR / "last_routing_state.json"
     
     def __init__(self, get_plugin_callback: Optional[Callable] = None):
         self.logger = logging.getLogger(__name__)
@@ -23,6 +30,9 @@ class AudioRoutingService:
         # Services snapcast
         self.snapserver_service = "oakos-snapserver-multiroom.service"
         self.snapclient_service = "oakos-snapclient-multiroom.service"
+        
+        # Créer le répertoire d'état si nécessaire
+        self._ensure_state_directory()
     
     def set_plugin_callback(self, callback: Callable) -> None:
         """Définit le callback pour accéder aux plugins (fallback si pas dans constructeur)"""
@@ -34,44 +44,102 @@ class AudioRoutingService:
         if not self._initial_detection_done:
             await self._detect_initial_state()
     
-    async def _detect_initial_state(self):
-        """Initialise et détecte l'état initial selon l'état réel des services snapcast"""
+    def _ensure_state_directory(self) -> None:
+        """Crée le répertoire d'état si nécessaire"""
         try:
-            self.logger.info("Initializing ALSA environment and detecting routing state...")
+            self.STATE_DIR.mkdir(parents=True, exist_ok=True)
+            self.logger.info(f"State directory ensured: {self.STATE_DIR}")
+        except Exception as e:
+            self.logger.error(f"Failed to create state directory {self.STATE_DIR}: {e}")
+    
+    async def load_last_state(self) -> bool:
+        """Charge le dernier état depuis le fichier JSON"""
+        try:
+            if not self.STATE_FILE.exists():
+                self.logger.info(f"No state file found at {self.STATE_FILE}, using defaults")
+                return False
             
-            # Initialiser avec les valeurs par défaut
-            default_multiroom = True  # Par défaut multiroom activé
-            default_equalizer = False
+            async with aiofiles.open(self.STATE_FILE, 'r') as f:
+                content = await f.read()
+                data = json.loads(content)
             
-            self.state.multiroom_enabled = default_multiroom
-            self.state.equalizer_enabled = default_equalizer
+            # Valider et charger les données
+            loaded_state = AudioRoutingState.from_dict(data)
+            self.state = loaded_state
             
+            self.logger.info(f"Loaded last state: multiroom={self.state.multiroom_enabled}, equalizer={self.state.equalizer_enabled}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load last state from {self.STATE_FILE}: {e}")
+            # Garder les valeurs par défaut en cas d'erreur
+            return False
+    
+    async def save_current_state(self) -> bool:
+        """Sauvegarde l'état actuel dans le fichier JSON"""
+        try:
+            data = self.state.to_dict()
+            
+            # Écriture atomique via fichier temporaire
+            temp_file = self.STATE_FILE.with_suffix('.tmp')
+            
+            async with aiofiles.open(temp_file, 'w') as f:
+                await f.write(json.dumps(data, indent=2))
+            
+            # Remplacement atomique
+            temp_file.replace(self.STATE_FILE)
+            
+            self.logger.debug(f"Saved current state: {data}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to save state to {self.STATE_FILE}: {e}")
+            return False
+    
+    async def _detect_initial_state(self):
+        """Initialise et détecte l'état initial - Charge d'abord l'état persisté"""
+        try:
+            self.logger.info("Initializing routing state with persistence...")
+            
+            # 1. Tenter de charger l'état persisté
+            state_loaded = await self.load_last_state()
+            
+            if not state_loaded:
+                # 2. Fallback sur les valeurs par défaut si pas de fichier
+                self.logger.info("Using default values (first run)")
+                self.state.multiroom_enabled = False  # Par défaut multiroom désactivé
+                self.state.equalizer_enabled = False
+            
+            # 3. Appliquer l'état chargé/par défaut à l'environnement
             await self._update_systemd_environment()
-            self.logger.info(f"ALSA environment initialized: MULTIROOM={default_multiroom}, EQUALIZER={default_equalizer}")
+            self.logger.info(f"ALSA environment initialized: MULTIROOM={self.state.multiroom_enabled}, EQUALIZER={self.state.equalizer_enabled}")
             
-            # Détecter l'état réel des services snapcast
+            # 4. Synchroniser avec l'état réel des services snapcast
             snapcast_status = await self.get_snapcast_status()
-            if snapcast_status.get("multiroom_available", False):
-                detected_multiroom = True
-                self.logger.info("Snapcast services active → keeping multiroom enabled")
-            else:
-                detected_multiroom = False
-                self.logger.info("Snapcast services inactive → switching to multiroom disabled")
+            services_running = snapcast_status.get("multiroom_available", False)
             
-            # Mettre à jour si nécessaire
-            if detected_multiroom != default_multiroom:
-                self.state.multiroom_enabled = detected_multiroom
-                await self._update_systemd_environment()
+            if self.state.multiroom_enabled and not services_running:
+                # État persisté = multiroom activé, mais services arrêtés → démarrer
+                self.logger.info("Persisted state requires multiroom, starting snapcast services")
+                await self._start_snapcast()
+            elif not self.state.multiroom_enabled and services_running:
+                # État persisté = multiroom désactivé, mais services démarrés → arrêter
+                self.logger.info("Persisted state requires direct mode, stopping snapcast services")
+                await self._stop_snapcast()
             
             self._initial_detection_done = True
-            self.logger.info(f"Initial routing state: multiroom={self.state.multiroom_enabled}, equalizer={self.state.equalizer_enabled}")
+            self.logger.info(f"Routing initialized with persisted state: multiroom={self.state.multiroom_enabled}, equalizer={self.state.equalizer_enabled}")
             
         except Exception as e:
             self.logger.error(f"Error during initial state detection: {e}")
+            # Fallback sur les valeurs par défaut
+            self.state.multiroom_enabled = False
+            self.state.equalizer_enabled = False
+            await self._update_systemd_environment()
             self._initial_detection_done = True
     
     async def set_multiroom_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
-        """Active/désactive le mode multiroom"""
+        """Active/désactive le mode multiroom avec sauvegarde automatique"""
         if not self._initial_detection_done:
             await self._detect_initial_state()
         
@@ -98,6 +166,10 @@ class AudioRoutingService:
                 self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
                 return False
             
+            # Sauvegarde automatique après changement réussi
+            await self.save_current_state()
+            self.logger.info(f"Multiroom state changed and saved: {enabled}")
+            
             return True
             
         except Exception as e:
@@ -108,7 +180,7 @@ class AudioRoutingService:
             return False
 
     async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
-        """Active/désactive l'equalizer"""
+        """Active/désactive l'equalizer avec sauvegarde automatique"""
         if self.state.equalizer_enabled == enabled:
             self.logger.info(f"Equalizer already {'enabled' if enabled else 'disabled'}")
             return True
@@ -126,6 +198,10 @@ class AudioRoutingService:
                 if plugin:
                     self.logger.info(f"Restarting plugin {active_source.value} with equalizer {'enabled' if enabled else 'disabled'}")
                     await plugin.restart()
+            
+            # Sauvegarde automatique après changement réussi
+            await self.save_current_state()
+            self.logger.info(f"Equalizer state changed and saved: {enabled}")
             
             return True
             

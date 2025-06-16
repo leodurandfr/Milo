@@ -1,3 +1,4 @@
+# backend/infrastructure/plugins/bluetooth/bluealsa_monitor.py
 """
 Moniteur des connexions Bluetooth via bluealsa-cli monitor - Version concise
 """
@@ -45,10 +46,22 @@ class BlueAlsaMonitor:
     async def stop_monitoring(self) -> None:
         """Arrête la surveillance des PCMs BlueALSA"""
         self._stopped = True
-        if self.process:
-            self.process.terminate()
-            await self.process.wait()
-            self.process = None
+        
+        if self.process and self.process.returncode is None:
+            try:
+                self.process.terminate()
+                try:
+                    await asyncio.wait_for(self.process.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    self.process.kill()
+                    await self.process.wait()
+            except ProcessLookupError:
+                pass
+            except Exception as e:
+                self.logger.error(f"Error stopping monitor: {e}")
+            finally:
+                self.process = None
+        
         self.connected_devices.clear()
     
     async def _read_output(self) -> None:

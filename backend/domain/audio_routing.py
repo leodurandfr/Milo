@@ -7,8 +7,8 @@ from typing import Dict, Any
 @dataclass
 class AudioRoutingState:
     """État du routage audio - Version refactorisée"""
-    multiroom_enabled: bool = True  # Par défaut multiroom activé
-    equalizer_enabled: bool = False  # Par défaut equalizer désactivé
+    multiroom_enabled: bool = False
+    equalizer_enabled: bool = False
     
     def to_dict(self) -> Dict[str, Any]:
         """Convertit l'état en dictionnaire"""
@@ -21,6 +21,6 @@ class AudioRoutingState:
     def from_dict(cls, data: Dict[str, Any]) -> 'AudioRoutingState':
         """Crée un état à partir d'un dictionnaire"""
         return cls(
-            multiroom_enabled=data.get("multiroom_enabled", True),
+            multiroom_enabled=data.get("multiroom_enabled", False),
             equalizer_enabled=data.get("equalizer_enabled", False)
         )
