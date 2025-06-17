@@ -1,3 +1,15 @@
+# Installation file v0.1
+
+————————————————————————————————————————————————
+
+To do:
+[ ] Need to be optimized
+[ ] Need to be translated
+[ ] Make a script?
+
+
+————————————————————————————————————————————————
+
 
 # 01 · SETUP
 
@@ -60,15 +72,20 @@ sudo nano /boot/firmware/config.txt
 ```
 
 Supprimer :
+
 ```bash
 dtparam=audio=on
 ```
+
 Ajouter ",noaudio" ou "audio=off" en fonction de "kms" ou "fkms" :
+
 ```bash
 dtoverlay=vc4-fkms-v3d,audio=off
 dtoverlay=vc4-kms-v3d,noaudio
 ```
+
 Ajouter l'ampli audio Hifiberry pour qu'il soit détécté :
+
 ```bash
 #AMP2
 dtoverlay=hifiberry-dacplus-std
@@ -108,7 +125,8 @@ dtoverlay=hifiberry-amp4pro
 ### Supprimer PulseAudio/PipeWire
 
 
-Désactivez et supprimez PulseAudio/PipeWire pour avoir utiliser uniquement ALSA:
+Désactivez et supprimez PulseAudio/PipeWire pour avoir utiliser uniquement ALSA :
+
 ```bash
 sudo apt remove pulseaudio pipewire
 sudo apt autoremove
@@ -121,12 +139,14 @@ sudo apt autoremove
 ## Guide d'installation go-librespot
 
 ### 1. Installation des prérequis
+
 ```bash
 # Installation des dépendances nécessaires
 sudo apt-get install -y libogg-dev libvorbis-dev libasound2-dev
 ```
 
 ### 2. Préparation de l'environnement
+
 ```bash
 # Créer un dossier temporaire pour le téléchargement
 mkdir -p ~/temp/go-librespot
@@ -151,6 +171,7 @@ sudo chown -R oakos:audio /var/lib/oakos/go-librespot
 ### 3. Configuration de go-librespot
 
 Créer le fichier configuration de go-librespot :
+
 ```bash
 # Créer le fichier de configuration principal
 sudo tee /var/lib/oakos/go-librespot/config.yml > /dev/null << 'EOF'
@@ -175,7 +196,8 @@ server:
 EOF
 ```
 
-** Nettoyer les fichiers d'installation : **
+**Nettoyer les fichiers d'installation :**
+
 ```bash
 # Nettoyer les fichiers temporaires
 cd ~
@@ -183,15 +205,6 @@ rm -rf ~/temp/go-librespot
 ```
 
 
-Désactiver au démarrage (TESTER SANS)
-```bash
-sudo systemctl stop oakos-go-librespot.service
-sudo systemctl disable oakos-go-librespot.service
-# Recharger
-sudo systemctl daemon-reload
-# Status
-sudo systemctl status oakos-go-librespot.service
-```
 
 
 # 03 · Installation "roc-toolkit"
@@ -209,9 +222,11 @@ sudo apt install -y g++ pkg-config scons ragel gengetopt libuv1-dev \
 ### 2. Compilation et installation
 
 Dépendance "libpulse-dev" nécessaire pour l'installation de "roc-toolkit"
+
 ```bash
 sudo apt install libpulse-dev
 ```
+
 ```bash
 cd ~/oakOS
 git clone https://github.com/roc-streaming/roc-toolkit.git
@@ -222,6 +237,7 @@ sudo ldconfig
 ```
 
 ### 3. Vérification
+
 ```bash
 roc-recv --version
 ```
@@ -231,16 +247,19 @@ roc-recv --version
 ## Mac
 
 ### 1. Création le dispositif virtuel
+
 ```bash
 roc-vad device add sender --name "oakOS · Network"
 ```
 
 ### 2. Récuperer l'ID du dispositif virtuel
+
 ```bash
 roc-vad device list
 ```
 
 ### 3. Associer le dispositif virtuel avec l'ip du raspberry 
+
 ```bash
 #Si "device list" affiche "6" pour le device virtuel et ajouter l'IP du Raspberry PI.
 roc-vad device connect 6 \
@@ -341,7 +360,6 @@ EOF
 
 ```
 
-
 Une fois ces fichiers créés, exécutez:
 
 ```bash
@@ -364,8 +382,6 @@ sudo systemctl stop bluealsa.service
 sudo systemctl disable bluealsa-aplay.service
 sudo systemctl disable bluealsa.service
 ```
-
-
 
 
 # 05 · Installation de Snapcast
@@ -404,6 +420,7 @@ rm -rf ~/snapcast-install
 
 
 ### 5. Supprimer les .service d'origine de "snapcast"
+
 ```bash
 # Arrêter et désactiver snapserver et snapclient
 sudo systemctl stop snapserver.service
@@ -414,14 +431,12 @@ sudo systemctl disable snapclient.service
 
 ```
 
-
-
-
-# Configuration de Multiroom + Equalizer
+# 07 · Configuration de Multiroom + Equalizer
 
 #### Configuration Snapserver Raspberry #1 :
 
 **Création de ALSA Loopback**
+
 ```bash
 # Création snd-aloop.cong via modules-load.d 
 echo "snd_aloop" | sudo tee /etc/modules-load.d/snd-aloop.conf
@@ -443,12 +458,13 @@ lsmod | grep snd_aloop
 ```
 
 **Installation de ALSA Equal** 
+
 ```bash
 sudo apt-get install -y libasound2-plugin-equal
 ```
 
+**Modifier le fichier : /etc/asound.conf** 
 
-**Modifier le fichier : /etc/asound.conf ** 
 ```bash
 sudo tee /etc/asound.conf > /dev/null << 'EOF'
 # Configuration ALSA oakOS - Version corrigée sans double plug
@@ -612,7 +628,6 @@ ctl.equal {
 EOF
 ```
 
-
 **Configuration du serveur snapcast**
 
 ```bash
@@ -654,10 +669,7 @@ EOF
 ```
 
 
-
 # 06 · Create systemd.service files 
-
-
 
 ## Backend
 
@@ -744,6 +756,7 @@ EOF
 ## go-librespot
 
 **oakos-go-librespot.service** 
+
 ```bash
 sudo tee /etc/systemd/system/oakos-go-librespot.service > /dev/null << 'EOF'
 [Unit]
@@ -777,6 +790,7 @@ EOF
 ## Bluealsa :
 
 **oakos-bluealsa-aplay.service**
+
 ```bash
 sudo tee /etc/systemd/system/oakos-bluealsa-aplay.service > /dev/null << 'EOF'
 [Unit]
@@ -802,6 +816,7 @@ EOF
 ```
 
 **oakos-bluealsa.service**
+
 ```bash
 sudo tee /etc/systemd/system/oakos-bluealsa.service > /dev/null << 'EOF'
 [Unit]
@@ -828,7 +843,6 @@ EOF
 ## Snapcast
 
 **oakos-snapserver-multiroom.service**
-
 
 ```bash
 sudo tee /etc/systemd/system/oakos-snapserver-multiroom.service > /dev/null << 'EOF'
@@ -872,7 +886,7 @@ WantedBy=multi-user.target
 EOF
 ```
 
-**Démarrage automatique **
+**Démarrage automatique**
 
 ```bash
 sudo systemctl daemon-reload
@@ -888,6 +902,7 @@ sudo systemctl start oakos-bluealsa.service
 
 
 **Commande pour faire passer toutes les sources audio "snapserver" sur "Multiroom".**
+
 ```bash
 curl -s http://localhost:1780/jsonrpc -d '{"id":1,"jsonrpc":"2.0","method":"Server.GetStatus"}' | grep -o '"id":"[a-f0-9-]*","muted"' | cut -d'"' -f4 | while read group_id; do curl -s http://localhost:1780/jsonrpc -d "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"Group.SetStream\",\"params\":{\"id\":\"$group_id\",\"stream_id\":\"Multiroom\"}}"; echo "→ $group_id switched"; done
 ```
