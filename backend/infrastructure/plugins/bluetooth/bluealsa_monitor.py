@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/bluetooth/bluealsa_monitor.py
 """
-Moniteur des connexions Bluetooth via bluealsa-cli monitor - Version concise
+Moniteur des connexions Bluetooth via bluealsa-cli monitor - Version concise corrigée
 """
 import asyncio
 import logging
@@ -44,21 +44,27 @@ class BlueAlsaMonitor:
             return False
     
     async def stop_monitoring(self) -> None:
-        """Arrête la surveillance des PCMs BlueALSA"""
+        """Arrête la surveillance des PCMs BlueALSA proprement"""
         self._stopped = True
         
         if self.process and self.process.returncode is None:
             try:
+                # Terminer proprement le processus
                 self.process.terminate()
+                
+                # Attendre la terminaison (avec timeout raisonnable)
                 try:
                     await asyncio.wait_for(self.process.wait(), timeout=2.0)
                 except asyncio.TimeoutError:
+                    # Si timeout, kill définitivement
                     self.process.kill()
                     await self.process.wait()
+                    
             except ProcessLookupError:
+                # Processus déjà terminé
                 pass
             except Exception as e:
-                self.logger.error(f"Error stopping monitor: {e}")
+                self.logger.error(f"Error stopping monitor process: {e}")
             finally:
                 self.process = None
         
@@ -151,7 +157,7 @@ class BlueAlsaMonitor:
         return None
     
     async def _get_device_name(self, address: str) -> str:
-        """Récupère le nom d'un appareil Bluetooth"""
+        """Récupère le nom d'un appareil Bluetooth - Version non-bloquante"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "bluetoothctl", "info", address,
@@ -159,12 +165,21 @@ class BlueAlsaMonitor:
                 stderr=asyncio.subprocess.DEVNULL
             )
             
-            stdout, _ = await proc.communicate()
-            output = stdout.decode()
-            
-            # Rechercher le nom dans la sortie
-            match = re.search(r"Name: (.+)$", output, re.MULTILINE)
-            return match.group(1).strip() if match else "Unknown Device"
+            # Timeout court pour éviter les blocages
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
+                output = stdout.decode()
+                
+                # Rechercher le nom dans la sortie
+                match = re.search(r"Name: (.+)$", output, re.MULTILINE)
+                return match.group(1).strip() if match else f"Device {address}"
+                
+            except asyncio.TimeoutError:
+                # Tuer le processus et retourner l'adresse
+                proc.kill()
+                await proc.wait()
+                return f"Device {address}"
+                
         except Exception as e:
-            self.logger.error(f"Erreur récupération nom: {e}")
-            return "Unknown Device"
+            self.logger.debug(f"Could not get device name for {address}: {e}")
+            return f"Device {address}"
