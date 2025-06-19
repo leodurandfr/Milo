@@ -5,40 +5,24 @@
     <div class="client-info">
       <div class="client-name">{{ client.name }}</div>
     </div>
-    
+
     <!-- Contrôles du client -->
     <div class="client-controls">
       <!-- Contrôle du volume avec RangeSlider -->
       <div class="volume-control">
-        <RangeSlider
-          :model-value="displayVolume"
-          :min="0"
-          :max="100"
-          :step="1"
-          orientation="horizontal"
-          :disabled="client.muted || updating"
-          @input="handleVolumeInput"
-          @change="handleVolumeChange"
-        />
+        <RangeSlider :model-value="displayVolume" :min="0" :max="100" :step="1" orientation="horizontal"
+          :disabled="client.muted || updating" @input="handleVolumeInput" @change="handleVolumeChange" />
         <span class="volume-label">{{ displayVolume }}%</span>
       </div>
-      
+
       <!-- Bouton Détails -->
-      <button 
-        @click="handleShowDetails"
-        class="details-btn"
-        title="Voir les détails du client"
-      >
+      <button @click="handleShowDetails" class="details-btn" title="Voir les détails du client">
         ℹ️
       </button>
 
       <!-- Toggle Mute -->
       <div class="mute-control">
-        <Toggle
-          :model-value="!client.muted"
-          :disabled="updating"
-          @change="handleMuteToggle"
-        />
+        <Toggle :model-value="!client.muted" :disabled="updating" @change="handleMuteToggle" />
       </div>
     </div>
   </div>
@@ -73,13 +57,13 @@ const displayVolume = computed(() => {
 
 async function handleMuteToggle(enabled) {
   if (updating.value) return;
-  
+
   updating.value = true;
   const newMuted = !enabled; // Toggle inversé (enabled = pas muted)
-  
+
   // Feedback immédiat
   props.client.muted = newMuted;
-  
+
   try {
     emit('mute-toggle', props.client.id, newMuted);
   } catch (error) {
@@ -94,7 +78,7 @@ async function handleMuteToggle(enabled) {
 function handleVolumeInput(newVolume) {
   // Feedback visuel immédiat
   localVolume.value = newVolume;
-  
+
   // Émettre pour throttling dans le parent
   emit('volume-change', props.client.id, newVolume, 'input');
 }
@@ -103,7 +87,7 @@ function handleVolumeChange(newVolume) {
   // Nettoyer le volume local et émettre la valeur finale
   localVolume.value = null;
   props.client.volume = newVolume; // Mise à jour immédiate
-  
+
   emit('volume-change', props.client.id, newVolume, 'change');
 }
 
@@ -118,14 +102,9 @@ function handleShowDetails() {
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border: 1px solid #e0e0e0;
-  background: #fafafa;
-  transition: background-color 0.2s;
+  background: #fff;
 }
 
-.snapclient-item:hover {
-  background: #f0f0f0;
-}
 
 /* Informations du client */
 .client-info {
@@ -180,6 +159,16 @@ function handleShowDetails() {
   flex-shrink: 0;
 }
 
+.client-name {
+  display: inline-block;
+  width: 96px
+}
+
+.volume-label {
+  display: inline-block;
+  width: 48px
+}
+
 /* Responsive */
 @media (max-width: 600px) {
   .snapclient-item {
@@ -187,28 +176,28 @@ function handleShowDetails() {
     align-items: stretch;
     gap: 12px;
   }
-  
+
   .client-info {
     margin-right: 0;
     text-align: center;
   }
-  
+
   .client-controls {
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 8px;
   }
-  
+
   .volume-control {
     order: 1;
     flex: 1;
     min-width: 120px;
   }
-  
+
   .details-btn {
     order: 2;
   }
-  
+
   .mute-control {
     order: 3;
   }

@@ -322,7 +322,7 @@ setInterval(() => {
 <style scoped>
 .equalizer-view {
   padding: 20px;
-  max-width: 800px;
+  width: 80%;
   margin: 0 auto;
   min-height: 100vh;
   display: flex;

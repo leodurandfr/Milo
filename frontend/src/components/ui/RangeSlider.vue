@@ -1,168 +1,109 @@
-<!-- frontend/src/components/ui/RangeSlider.vue - Version simplifiée -->
+<!-- frontend/src/components/ui/RangeSlider.vue - Version OPTIM basée sur React -->
 <template>
-  <input
-    type="range"
-    :min="min"
-    :max="max"
-    :step="step"
-    :value="displayValue"
-    @input="handleInput"
-    @change="handleChange"
-    :disabled="disabled"
-    :class="['range-slider', `orientation-${orientation}`]"
-  >
+  <div :class="['slider-container', orientation]" :style="cssVars">
+    <input type="range" :class="['range-slider', orientation]" :min="min" :max="max" :step="step" :value="modelValue"
+      @input="handleInput" @change="handleChange" :disabled="disabled">
+  </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { computed } from 'vue';
 
 const props = defineProps({
-  modelValue: {
-    type: Number,
-    required: true
-  },
-  min: {
-    type: Number,
-    default: 0
-  },
-  max: {
-    type: Number,
-    default: 100
-  },
-  step: {
-    type: Number,
-    default: 1
-  },
-  orientation: {
-    type: String,
-    default: 'horizontal', // 'horizontal' | 'vertical'
-    validator: value => ['horizontal', 'vertical'].includes(value)
-  },
-  disabled: {
-    type: Boolean,
-    default: false
-  }
+  modelValue: { type: Number, required: true },
+  min: { type: Number, default: 0 },
+  max: { type: Number, default: 100 },
+  step: { type: Number, default: 1 },
+  orientation: { type: String, default: 'horizontal' },
+  disabled: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:modelValue', 'input', 'change']);
 
-// État local pour feedback immédiat
-const localValue = ref(null);
+// Calcul du pourcentage pour la track active (ajusté pour le thumb)
+const percentage = computed(() => {
+  const rawPercentage = ((props.modelValue - props.min) / (props.max - props.min)) * 100;
+  
+  // Ajustement pour que la track s'arrête au centre du thumb
+  // Thumb width = 62px, Slider width = 220px
+  const thumbWidthPercentage = (62 / 220) * 100; // ~28%
+  
+  return rawPercentage * (100 - thumbWidthPercentage) / 100 + thumbWidthPercentage / 2;
+});
 
-// Valeur affichée avec feedback immédiat
-const displayValue = computed(() => 
-  localValue.value !== null ? localValue.value : props.modelValue
-);
+// Variables CSS injectées
+const cssVars = computed(() => ({
+  '--fill-percentage': `${percentage.value}%`
+}));
 
-// Gestion des événements
 function handleInput(event) {
-  const newValue = parseInt(event.target.value);
-  
-  // Feedback immédiat
-  localValue.value = newValue;
-  
-  // Émission pour mise à jour temps réel
-  emit('input', newValue);
-  emit('update:modelValue', newValue);
+  const value = parseInt(event.target.value);
+  emit('input', value);
+  emit('update:modelValue', value);
 }
 
 function handleChange(event) {
-  const newValue = parseInt(event.target.value);
-  
-  // Nettoyer le feedback local
-  localValue.value = null;
-  
-  // Émission finale
-  emit('change', newValue);
-  emit('update:modelValue', newValue);
+  const value = parseInt(event.target.value);
+  emit('change', value);
+  emit('update:modelValue', value);
 }
 </script>
 
 <style>
-/* Range slider uniforme - Même style partout (pas de scoped) */
+.slider-container {
+  display: inline-block;
+}
+
+.slider-container.vertical {
+  height: 220px;
+  width: 30px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
 .range-slider {
-  outline: none !important;
-  appearance: none !important;
-  border: none !important;
-  cursor: pointer !important;
-  background: #ddd !important;
-  transition: background-color 0.2s !important;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 220px;
+  height: 40px;
+  border-radius: 99px;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(to right,
+      #767C76 0%,
+      #767C76 var(--fill-percentage),
+      #F2F2F2 var(--fill-percentage),
+      #F2F2F2 100%);
 }
 
-/* Horizontal */
-.range-slider.orientation-horizontal {
-  width: 100% !important;
-  height: 6px !important;
-}
+.range-slider.horizontal {}
 
-/* Vertical */
-.range-slider.orientation-vertical {
-  writing-mode: bt-lr !important; /* IE */
-  -webkit-appearance: slider-vertical !important; /* WebKit */
-  width: 6px !important;
-  height: 150px !important;
-}
-
-/* États hover et disabled - IDENTIQUES pour les deux orientations */
-.range-slider:hover:not(:disabled) {
-  background: #ccc !important;
+.range-slider.vertical {
+  transform: rotate(-90deg);
+  transform-origin: center;
 }
 
 .range-slider:disabled {
-  opacity: 0.5 !important;
-  cursor: not-allowed !important;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-/* Thumb WebKit - IDENTIQUE pour horizontal et vertical */
+/* Thumb WebKit */
 .range-slider::-webkit-slider-thumb {
-  appearance: none !important;
-  width: 18px !important;
-  height: 18px !important;
-  background: #2196F3 !important;
-  border-radius: 50% !important;
-  cursor: pointer !important;
-  transition: background-color 0.2s, transform 0.1s !important;
-  border: none !important;
-}
-
-.range-slider::-webkit-slider-thumb:hover {
-  background: #1976D2 !important;
-  transform: scale(1.1) !important;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 62px;
+  height: 40px;
+  border-radius: 24px;
+  background: #FFFFFF;
+  cursor: pointer;
+  border: 2px solid #767C76;
 }
 
 .range-slider:disabled::-webkit-slider-thumb {
-  cursor: not-allowed !important;
-  transform: none !important;
-  background: #999 !important;
-}
-
-/* Thumb Firefox - IDENTIQUE pour horizontal et vertical */
-.range-slider::-moz-range-thumb {
-  width: 18px !important;
-  height: 18px !important;
-  background: #2196F3 !important;
-  border-radius: 50% !important;
-  cursor: pointer !important;
-  border: none !important;
-  transition: background-color 0.2s, transform 0.1s !important;
-}
-
-.range-slider::-moz-range-thumb:hover {
-  background: #1976D2 !important;
-  transform: scale(1.1) !important;
-}
-
-.range-slider:disabled::-moz-range-thumb {
-  cursor: not-allowed !important;
-  transform: none !important;
-  background: #999 !important;
-}
-
-/* Track Firefox - UNIFORME */
-.range-slider::-moz-range-track {
-  height: 6px !important;
-  background: #ddd !important;
-  border: none !important;
-  border-radius: 3px !important;
+  background: #ccc;
+  border-color: #999;
+  cursor: not-allowed;
 }
 </style>
