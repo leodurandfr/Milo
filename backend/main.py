@@ -1,6 +1,6 @@
-# backend/main.py
+# backend/main.py - Mise à jour avec routes equalizer
 """
-Point d'entrée principal de l'application oakOS - Version minimaliste
+Point d'entrée principal de l'application oakOS - Version avec EqualizerService
 """
 import sys
 import os
@@ -15,6 +15,7 @@ from backend.config.container import container
 from backend.presentation.api.routes import audio
 from backend.presentation.api.routes.routing import create_routing_router
 from backend.presentation.api.routes.snapcast import create_snapcast_router
+from backend.presentation.api.routes.equalizer import create_equalizer_router  # AJOUT
 from backend.presentation.api.routes.librespot import setup_librespot_routes
 from backend.presentation.api.routes.roc import setup_roc_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 state_machine = container.audio_state_machine()
 routing_service = container.audio_routing_service()
 snapcast_service = container.snapcast_service()
+equalizer_service = container.equalizer_service()
 ws_manager = container.websocket_manager()
 websocket_server = WebSocketServer(ws_manager, state_machine)
 
@@ -81,6 +83,9 @@ app.include_router(routing_router)
 
 snapcast_router = create_snapcast_router(routing_service, snapcast_service, state_machine)
 app.include_router(snapcast_router)
+
+equalizer_router = create_equalizer_router(equalizer_service, state_machine)  # AJOUT
+app.include_router(equalizer_router)
 
 librespot_router = setup_librespot_routes(
     lambda: state_machine.plugins.get(AudioSource.LIBRESPOT)

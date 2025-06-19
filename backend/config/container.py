@@ -1,6 +1,6 @@
-# backend/config/container.py
+# backend/config/container.py - Mise à jour avec EqualiserService
 """
-Conteneur d'injection de dépendances - Version OPTIM avec injection WebSocket directe
+Conteneur d'injection de dépendances - Version OPTIM avec EqualizerService
 """
 from dependency_injector import containers, providers
 from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
@@ -10,18 +10,20 @@ from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 from backend.infrastructure.services.audio_routing_service import AudioRoutingService
 from backend.infrastructure.services.snapcast_service import SnapcastService
+from backend.infrastructure.services.equalizer_service import EqualizerService  # AJOUT
 from backend.presentation.websockets.manager import WebSocketManager
 from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
 
 class Container(containers.DeclarativeContainer):
-    """Conteneur d'injection de dépendances pour oakOS - Version avec injection WebSocket directe"""
+    """Conteneur d'injection de dépendances pour oakOS - Version avec EqualizerService"""
     
     config = providers.Configuration()
     
     # Services centraux
     systemd_manager = providers.Singleton(SystemdServiceManager)
     snapcast_service = providers.Singleton(SnapcastService)
+    equalizer_service = providers.Singleton(EqualizerService)  # AJOUT
     
     # WebSocket (créé ici pour injection)
     websocket_manager = providers.Singleton(WebSocketManager)
