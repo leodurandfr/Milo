@@ -1,13 +1,25 @@
-<!-- frontend/src/views/EqualizerView.vue - Version avec contrôles -->
+<!-- frontend/src/views/EqualizerView.vue - Version OPTIM -->
 <template>
   <div class="equalizer-view">
-    <!-- En-tête -->
-    <div class="equalizer-header">
-      <h1>Equalizer</h1>
+    <!-- Toggle Equalizer avec IconButton intégré -->
+    <div class="toggle-wrapper">
+      <div class="toggle-header">
+        <h3>Audio Processing</h3>
+        <div class="controls-wrapper">
+          <IconButton
+            v-if="isEqualizerEnabled"
+            icon="🔄"
+            :disabled="resetting"
+            @click="resetAllBands"
+          />
+          <Toggle
+            v-model="isEqualizerEnabled"
+            :disabled="unifiedStore.isTransitioning"
+            @change="handleEqualizerToggle"
+          />
+        </div>
+      </div>
     </div>
-
-    <!-- Toggle Equalizer -->
-    <EqualizerToggle />
 
     <!-- Contenu principal -->
     <div class="main-content">
@@ -17,32 +29,7 @@
       </div>
 
       <div v-else class="equalizer-active">
-        <!-- Informations sur l'equalizer -->
-        <div class="equalizer-info">
-          <div class="info-item">
-            <strong>Status:</strong> {{ equalizerStatus.available ? 'Actif' : 'Indisponible' }}
-          </div>
-          <div class="info-item">
-            <strong>Source active:</strong> {{ activeSourceLabel }}
-          </div>
-          <div class="info-item">
-            <strong>Device audio:</strong> {{ currentDevicePattern }}
-          </div>
-        </div>
-
-        <!-- Contrôles de l'equalizer -->
         <div v-if="equalizerStatus.available" class="equalizer-controls">
-          <div class="controls-header">
-            <h2>Bandes de Fréquences</h2>
-            <button 
-              @click="resetAllBands" 
-              :disabled="resetting"
-              class="reset-btn"
-            >
-              {{ resetting ? 'Reset...' : 'Reset (50%)' }}
-            </button>
-          </div>
-          
           <div v-if="loading" class="loading-state">
             <div class="loading-spinner"></div>
             <p>Chargement des bandes...</p>
@@ -53,7 +40,7 @@
           </div>
           
           <div v-else class="bands-container">
-            <RangeSlider
+            <RangeSliderEqualizer
               v-for="band in bands" 
               :key="band.id"
               v-model="band.value"
@@ -61,7 +48,6 @@
               :min="0"
               :max="100"
               :step="1"
-              orientation="vertical"
               unit="%"
               :disabled="updating"
               @input="handleBandInput(band.id, $event)"
@@ -90,8 +76,9 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
-import EqualizerToggle from '@/components/routing/EqualizerToggle.vue';
-import RangeSlider from '@/components/ui/RangeSlider.vue';
+import IconButton from '@/components/ui/IconButton.vue';
+import Toggle from '@/components/ui/Toggle.vue';
+import RangeSliderEqualizer from '@/components/equalizer/RangeSliderEqualizer.vue';
 import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 
 const unifiedStore = useUnifiedAudioStore();
@@ -116,35 +103,6 @@ let unsubscribeFunctions = [];
 const isEqualizerEnabled = computed(() => 
   unifiedStore.equalizerEnabled
 );
-
-const activeSourceLabel = computed(() => {
-  const sources = {
-    'librespot': 'Spotify',
-    'bluetooth': 'Bluetooth', 
-    'roc': 'ROC for Mac',
-    'none': 'Aucune'
-  };
-  return sources[unifiedStore.currentSource] || unifiedStore.currentSource;
-});
-
-const currentDevicePattern = computed(() => {
-  const source = unifiedStore.currentSource;
-  if (source === 'none') return 'N/A';
-  
-  let device = `oakos_${source === 'librespot' ? 'spotify' : source}`;
-  
-  if (unifiedStore.multiroomEnabled) {
-    device += '_multiroom';
-  } else {
-    device += '_direct';
-  }
-  
-  if (unifiedStore.equalizerEnabled) {
-    device += '_eq';
-  }
-  
-  return device;
-});
 
 // === MÉTHODES PRINCIPALES ===
 
@@ -264,12 +222,12 @@ async function resetAllBands() {
   
   resetting.value = true;
   try {
-    const response = await axios.post('/api/equalizer/reset', { value: 50 });
+    const response = await axios.post('/api/equalizer/reset', { value: 60 });
     
     if (response.data.status === 'success') {
       // Mettre à jour l'affichage local
       bands.value.forEach(band => {
-        band.value = 50;
+        band.value = 60;
       });
     } else {
       console.error('Failed to reset bands:', response.data.message);
@@ -279,6 +237,12 @@ async function resetAllBands() {
   } finally {
     resetting.value = false;
   }
+}
+
+// === GESTION TOGGLE ===
+
+async function handleEqualizerToggle(enabled) {
+  await unifiedStore.setEqualizerEnabled(enabled);
 }
 
 // === GESTION WEBSOCKET ===
@@ -329,7 +293,7 @@ onUnmounted(() => {
 });
 
 // Watcher pour le mode equalizer
-async function handleEqualizerToggle() {
+async function watchEqualizerState() {
   if (isEqualizerEnabled.value) {
     await loadEqualizerData();
   } else {
@@ -350,7 +314,7 @@ let lastEqualizerState = isEqualizerEnabled.value;
 setInterval(() => {
   if (lastEqualizerState !== isEqualizerEnabled.value) {
     lastEqualizerState = isEqualizerEnabled.value;
-    handleEqualizerToggle();
+    watchEqualizerState();
   }
 }, 100);
 </script>
@@ -365,18 +329,31 @@ setInterval(() => {
   flex-direction: column;
 }
 
-/* En-tête */
-.equalizer-header {
+/* Toggle wrapper */
+.toggle-wrapper {
   background: white;
   border: 1px solid #ddd;
-  padding: 20px;
-  margin-bottom: 20px;
-  text-align: center;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
 }
 
-.equalizer-header h1 {
+.toggle-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.toggle-header h3 {
   margin: 0;
-  font-size: 24px;
+  color: #333;
+  font-size: 16px;
+}
+
+.controls-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 /* Contenu principal */
@@ -421,59 +398,6 @@ setInterval(() => {
   padding: 20px;
 }
 
-/* Informations equalizer */
-.equalizer-info {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 20px;
-}
-
-.info-item {
-  margin-bottom: 8px;
-  font-size: 12px;
-}
-
-.info-item:last-child {
-  margin-bottom: 0;
-}
-
-.info-item strong {
-  color: #333;
-}
-
-/* En-tête des contrôles */
-.controls-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.controls-header h2 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.reset-btn {
-  padding: 8px 16px;
-  background: #6c757d;
-  color: white;
-  border: none;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.reset-btn:hover:not(:disabled) {
-  background: #545b62;
-}
-
-.reset-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 /* États de chargement */
 .loading-state {
   text-align: center;
@@ -501,7 +425,7 @@ setInterval(() => {
   color: #666;
 }
 
-/* Conteneur des bandes - Version horizontale simplifiée */
+/* Conteneur des bandes */
 .bands-container {
   display: flex;
   justify-content: space-between;
@@ -521,14 +445,8 @@ setInterval(() => {
     padding: 12px 8px;
   }
   
-  .controls-header {
-    flex-direction: column;
-    gap: 12px;
-    align-items: stretch;
-  }
-  
-  .reset-btn {
-    align-self: center;
+  .controls-wrapper {
+    gap: 8px;
   }
 }
 

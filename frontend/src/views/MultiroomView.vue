@@ -1,23 +1,24 @@
-<!-- frontend/src/views/MultiroomView.vue - Version refactorisée -->
+<!-- frontend/src/views/MultiroomView.vue - Version OPTIM -->
 <template>
   <div class="multiroom-view">
-    <!-- En-tête avec contrôles globaux -->
-    <div class="multiroom-header">
-      <h1>Multiroom</h1>
-      
-      <div class="header-controls">
-        <button 
-          v-if="isMultiroomActive"
-          @click="showSettings = true" 
-          class="settings-btn"
-        >
-          Settings
-        </button>
+    <!-- Toggle Multiroom avec IconButton intégré -->
+    <div class="toggle-wrapper">
+      <div class="toggle-header">
+        <h3>Multiroom</h3>
+        <div class="controls-wrapper">
+          <IconButton
+            v-if="isMultiroomActive"
+            icon="⚙️"
+            @click="showSettings = true"
+          />
+          <Toggle
+            v-model="isMultiroomActive"
+            :disabled="unifiedStore.isTransitioning"
+            @change="handleMultiroomToggle"
+          />
+        </div>
       </div>
     </div>
-
-    <!-- Toggle Multiroom -->
-    <MultiroomToggle />
 
     <!-- Contenu principal -->
     <div class="main-content">
@@ -29,19 +30,15 @@
         Aucun client connecté
       </div>
 
-      <div v-else class="clients-section">
-        <h2>Clients Snapcast</h2>
-        
-        <div class="clients-list">
-          <SnapclientItem
-            v-for="client in clients"
-            :key="client.id"
-            :client="client"
-            @volume-change="handleClientVolumeChange"
-            @mute-toggle="handleClientMuteToggle"
-            @show-details="handleShowClientDetails"
-          />
-        </div>
+      <div v-else class="clients-list">
+        <SnapclientItem
+          v-for="client in clients"
+          :key="client.id"
+          :client="client"
+          @volume-change="handleClientVolumeChange"
+          @mute-toggle="handleClientMuteToggle"
+          @show-details="handleShowClientDetails"
+        />
       </div>
     </div>
 
@@ -69,7 +66,8 @@ import { ref, computed, watchEffect, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
-import MultiroomToggle from '@/components/routing/MultiroomToggle.vue';
+import IconButton from '@/components/ui/IconButton.vue';
+import Toggle from '@/components/ui/Toggle.vue';
 import SnapclientItem from '@/components/snapcast/SnapclientItem.vue';
 import SnapcastSettings from '@/components/snapcast/SnapcastSettings.vue';
 import SnapclientDetails from '@/components/snapcast/SnapclientDetails.vue';
@@ -83,9 +81,9 @@ const clients = ref([]);
 const showSettings = ref(false);
 const selectedClient = ref(null);
 
-// État computed - Refactorisé
+// État computed
 const isMultiroomActive = computed(() => 
-  unifiedStore.multiroomEnabled  // Refactorisé
+  unifiedStore.multiroomEnabled
 );
 
 // Gestion cleanup WebSocket
@@ -114,6 +112,12 @@ async function fetchClients() {
     console.error('Error fetching clients:', error);
     clients.value = [];
   }
+}
+
+// === GESTION TOGGLE ===
+
+async function handleMultiroomToggle(enabled) {
+  await unifiedStore.setMultiroomEnabled(enabled);
 }
 
 // === GESTIONNAIRES D'ÉVÉNEMENTS ===
@@ -176,39 +180,31 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-/* En-tête */
-.multiroom-header {
+/* Toggle wrapper */
+.toggle-wrapper {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.toggle-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: white;
-  border: 1px solid #ddd;
-  padding: 20px;
-  margin-bottom: 20px;
 }
 
-.multiroom-header h1 {
+.toggle-header h3 {
   margin: 0;
-  font-size: 24px;
+  color: #333;
+  font-size: 16px;
 }
 
-.header-controls {
+.controls-wrapper {
   display: flex;
   align-items: center;
-  gap: 20px;
-}
-
-/* Boutons */
-.settings-btn {
-  padding: 8px 16px;
-  background: #f5f5f5;
-  border: 1px solid #ddd;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.settings-btn:hover {
-  background: #e9e9e9;
+  gap: 12px;
 }
 
 /* Contenu principal */
@@ -225,21 +221,17 @@ onUnmounted(() => {
   color: #666;
 }
 
-/* Section clients */
-.clients-section {
-  background: white;
-  border: 1px solid #ddd;
-  padding: 20px;
-}
-
-.clients-section h2 {
-  margin: 0 0 16px 0;
-  font-size: 18px;
-}
-
+/* Liste des clients - Directement sans wrapper */
 .clients-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .controls-wrapper {
+    gap: 8px;
+  }
 }
 </style>

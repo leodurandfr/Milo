@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapclientItem.vue -->
+<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version avec RangeSlider et Toggle -->
 <template>
   <div class="snapclient-item">
     <!-- Informations du client -->
@@ -8,28 +8,18 @@
     
     <!-- Contrôles du client -->
     <div class="client-controls">
-      <!-- Bouton Mute -->
-      <button 
-        @click="handleMuteToggle"
-        :class="['mute-btn', { muted: client.muted }]"
-        :title="client.muted ? 'Activer le son' : 'Couper le son'"
-        :disabled="updating"
-      >
-        {{ client.muted ? '🔇' : '🔊' }}
-      </button>
-      
-      <!-- Contrôle du volume -->
+      <!-- Contrôle du volume avec RangeSlider -->
       <div class="volume-control">
-        <input
-          type="range"
-          min="0"
-          max="100"
-          :value="displayVolume"
+        <RangeSlider
+          :model-value="displayVolume"
+          :min="0"
+          :max="100"
+          :step="1"
+          orientation="horizontal"
+          :disabled="client.muted || updating"
           @input="handleVolumeInput"
           @change="handleVolumeChange"
-          :disabled="client.muted"
-          class="volume-slider"
-        >
+        />
         <span class="volume-label">{{ displayVolume }}%</span>
       </div>
       
@@ -41,12 +31,23 @@
       >
         ℹ️
       </button>
+
+      <!-- Toggle Mute -->
+      <div class="mute-control">
+        <Toggle
+          :model-value="!client.muted"
+          :disabled="updating"
+          @change="handleMuteToggle"
+        />
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue';
+import RangeSlider from '@/components/ui/RangeSlider.vue';
+import Toggle from '@/components/ui/Toggle.vue';
 
 // Props
 const props = defineProps({
@@ -70,11 +71,11 @@ const displayVolume = computed(() => {
 
 // === GESTIONNAIRES D'ÉVÉNEMENTS OPTIMISÉS ===
 
-async function handleMuteToggle() {
+async function handleMuteToggle(enabled) {
   if (updating.value) return;
   
   updating.value = true;
-  const newMuted = !props.client.muted;
+  const newMuted = !enabled; // Toggle inversé (enabled = pas muted)
   
   // Feedback immédiat
   props.client.muted = newMuted;
@@ -90,9 +91,7 @@ async function handleMuteToggle() {
   }
 }
 
-function handleVolumeInput(event) {
-  const newVolume = parseInt(event.target.value);
-  
+function handleVolumeInput(newVolume) {
   // Feedback visuel immédiat
   localVolume.value = newVolume;
   
@@ -100,9 +99,7 @@ function handleVolumeInput(event) {
   emit('volume-change', props.client.id, newVolume, 'input');
 }
 
-function handleVolumeChange(event) {
-  const newVolume = parseInt(event.target.value);
-  
+function handleVolumeChange(newVolume) {
   // Nettoyer le volume local et émettre la valeur finale
   localVolume.value = null;
   props.client.volume = newVolume; // Mise à jour immédiate
@@ -134,6 +131,7 @@ function handleShowDetails() {
 .client-info {
   flex: 1;
   min-width: 0;
+  margin-right: 16px;
 }
 
 .client-name {
@@ -152,107 +150,34 @@ function handleShowDetails() {
   flex-shrink: 0;
 }
 
-.mute-btn, .details-btn {
+/* Contrôle du volume */
+.volume-control {
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+/* Bouton détails */
+.details-btn {
   width: 36px;
   height: 36px;
-  border: 1px solid #ddd;
-  background: white;
+  border: 1px solid #ced4da;
+  background: #e9ecef;
   cursor: pointer;
   font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
-}
-
-.mute-btn:hover:not(:disabled), .details-btn:hover {
-  background: #f0f0f0;
-}
-
-.mute-btn.muted {
-  background: #dc3545;
-  color: white;
-  border-color: #dc3545;
-}
-
-.mute-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.details-btn {
-  background: #e9ecef;
-  border-color: #ced4da;
+  flex-shrink: 0;
 }
 
 .details-btn:hover {
   background: #dee2e6;
 }
 
-/* Contrôle du volume */
-.volume-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 140px;
-}
-
-.volume-slider {
-  flex: 1;
-  height: 4px;
-  background: #ddd;
-  outline: none;
-  appearance: none;
-  transition: background-color 0.2s;
-}
-
-.volume-slider:hover:not(:disabled) {
-  background: #ccc;
-}
-
-.volume-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  background: #2196F3;
-  border-radius: 50%;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.volume-slider::-webkit-slider-thumb:hover {
-  background: #1976D2;
-}
-
-.volume-slider::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  background: #2196F3;
-  border-radius: 50%;
-  cursor: pointer;
-  border: none;
-  transition: background-color 0.2s;
-}
-
-.volume-slider::-moz-range-thumb:hover {
-  background: #1976D2;
-}
-
-.volume-slider:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.volume-slider:disabled::-webkit-slider-thumb {
-  cursor: not-allowed;
-}
-
-.volume-label {
-  font-size: 12px;
-  color: #666;
-  width: 36px;
-  text-align: right;
-  font-weight: 500;
+/* Contrôle mute */
+.mute-control {
+  flex-shrink: 0;
 }
 
 /* Responsive */
@@ -263,12 +188,29 @@ function handleShowDetails() {
     gap: 12px;
   }
   
+  .client-info {
+    margin-right: 0;
+    text-align: center;
+  }
+  
   .client-controls {
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
   }
   
   .volume-control {
+    order: 1;
+    flex: 1;
     min-width: 120px;
+  }
+  
+  .details-btn {
+    order: 2;
+  }
+  
+  .mute-control {
+    order: 3;
   }
 }
 </style>

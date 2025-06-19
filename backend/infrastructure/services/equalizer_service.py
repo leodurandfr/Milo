@@ -66,7 +66,7 @@ class EqualizerService:
                         "id": band_id,
                         "freq": freq,
                         "display_name": f"{freq}",
-                        "value": 50  # Valeur par défaut
+                        "value": 60  # Valeur par défaut
                     }
             
             # Extraire la valeur (prendre Left comme référence)
@@ -117,8 +117,8 @@ class EqualizerService:
             self.logger.error(f"Error setting band {band_id}: {e}")
             return False
     
-    async def reset_all_bands(self, value: int = 50) -> bool:
-        """Remet toutes les bandes à une valeur donnée (50% par défaut)"""
+    async def reset_all_bands(self, value: int = 60) -> bool:
+        """Remet toutes les bandes à une valeur donnée (60% par défaut)"""
         try:
             success_count = 0
             

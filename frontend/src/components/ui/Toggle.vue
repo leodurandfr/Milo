@@ -1,27 +1,17 @@
 <!-- frontend/src/components/ui/Toggle.vue -->
 <template>
-  <div class="toggle-component">
+  <div class="toggle-container">
     <h3 v-if="title">{{ title }}</h3>
     
-    <div class="toggle-container">
-      <label class="toggle">
-        <input 
-          type="checkbox" 
-          :checked="modelValue"
-          @change="handleToggle"
-          :disabled="disabled"
-        >
-        <span class="slider"></span>
-      </label>
-      <span class="toggle-label">
-        {{ modelValue ? onLabel : offLabel }}
-      </span>
-    </div>
-    
-    <div class="status-info" v-if="statusText">
-      <span :class="['status-dot', modelValue ? 'enabled' : 'disabled']"></span>
-      <span class="status-text">{{ statusText }}</span>
-    </div>
+    <label class="toggle">
+      <input 
+        type="checkbox" 
+        :checked="modelValue"
+        @change="handleToggle"
+        :disabled="disabled"
+      >
+      <span class="slider"></span>
+    </label>
   </div>
 </template>
 
@@ -32,18 +22,6 @@ const props = defineProps({
     required: true
   },
   title: {
-    type: String,
-    default: ''
-  },
-  onLabel: {
-    type: String,
-    default: 'ON'
-  },
-  offLabel: {
-    type: String,
-    default: 'OFF'
-  },
-  statusText: {
     type: String,
     default: ''
   },
@@ -63,25 +41,16 @@ function handleToggle(event) {
 </script>
 
 <style scoped>
-.toggle-component {
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 16px;
-  margin: 16px 0;
-}
-
-.toggle-component h3 {
-  margin: 0 0 12px 0;
-  color: #333;
-  font-size: 16px;
-}
-
 .toggle-container {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 8px;
+}
+
+.toggle-container h3 {
+  margin: 0;
+  color: #333;
+  font-size: 16px;
 }
 
 .toggle {
@@ -104,7 +73,7 @@ function handleToggle(event) {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #ccc;
+  background-color:rgb(252, 155, 0);
   transition: 0.3s;
   border-radius: 24px;
 }
@@ -122,7 +91,8 @@ function handleToggle(event) {
 }
 
 input:checked + .slider {
-  background-color: #2196F3;
+  background-color:rgb(252, 155, 0);
+
 }
 
 input:checked + .slider:before {
@@ -132,33 +102,5 @@ input:checked + .slider:before {
 input:disabled + .slider {
   background-color: #999;
   cursor: not-allowed;
-}
-
-.toggle-label {
-  font-weight: bold;
-  color: #333;
-  min-width: 32px;
-}
-
-.status-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: #666;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.status-dot.enabled {
-  background-color: #2196F3;
-}
-
-.status-dot.disabled {
-  background-color: #999;
 }
 </style>

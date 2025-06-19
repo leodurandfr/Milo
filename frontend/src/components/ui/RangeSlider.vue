@@ -1,29 +1,16 @@
-<!-- frontend/src/components/ui/RangeSlider.vue -->
+<!-- frontend/src/components/ui/RangeSlider.vue - Version simplifiée -->
 <template>
-  <div :class="['range-slider', `orientation-${orientation}`]">
-    <label v-if="label" :for="inputId" class="slider-label">
-      {{ label }}
-    </label>
-    
-    <div class="slider-container">
-      <input
-        :id="inputId"
-        type="range"
-        :min="min"
-        :max="max"
-        :step="step"
-        :value="displayValue"
-        @input="handleInput"
-        @change="handleChange"
-        :disabled="disabled"
-        :class="['slider-input', `orientation-${orientation}`]"
-      >
-      
-      <div v-if="showValue" class="value-display">
-        {{ formatValue(displayValue) }}{{ unit }}
-      </div>
-    </div>
-  </div>
+  <input
+    type="range"
+    :min="min"
+    :max="max"
+    :step="step"
+    :value="displayValue"
+    @input="handleInput"
+    @change="handleChange"
+    :disabled="disabled"
+    :class="['range-slider', `orientation-${orientation}`]"
+  >
 </template>
 
 <script setup>
@@ -46,30 +33,14 @@ const props = defineProps({
     type: Number,
     default: 1
   },
-  label: {
-    type: String,
-    default: ''
-  },
   orientation: {
     type: String,
     default: 'horizontal', // 'horizontal' | 'vertical'
     validator: value => ['horizontal', 'vertical'].includes(value)
   },
-  showValue: {
-    type: Boolean,
-    default: true
-  },
-  unit: {
-    type: String,
-    default: ''
-  },
   disabled: {
     type: Boolean,
     default: false
-  },
-  formatter: {
-    type: Function,
-    default: null
   }
 });
 
@@ -78,23 +49,10 @@ const emit = defineEmits(['update:modelValue', 'input', 'change']);
 // État local pour feedback immédiat
 const localValue = ref(null);
 
-// ID unique pour l'accessibilité
-const inputId = computed(() => 
-  `range-slider-${Math.random().toString(36).substr(2, 9)}`
-);
-
 // Valeur affichée avec feedback immédiat
 const displayValue = computed(() => 
   localValue.value !== null ? localValue.value : props.modelValue
 );
-
-// Formatage de la valeur
-function formatValue(value) {
-  if (props.formatter) {
-    return props.formatter(value);
-  }
-  return value;
-}
 
 // Gestion des événements
 function handleInput(event) {
@@ -120,161 +78,91 @@ function handleChange(event) {
 }
 </script>
 
-<style scoped>
-/* Conteneur principal */
+<style>
+/* Range slider uniforme - Même style partout (pas de scoped) */
 .range-slider {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  outline: none !important;
+  appearance: none !important;
+  border: none !important;
+  cursor: pointer !important;
+  background: #ddd !important;
+  transition: background-color 0.2s !important;
 }
 
-.range-slider.orientation-vertical {
-  flex-direction: column;
-  align-items: center;
-  height: 200px;
-}
-
+/* Horizontal */
 .range-slider.orientation-horizontal {
-  flex-direction: row;
-  width: 100%;
+  width: 100% !important;
+  height: 6px !important;
 }
 
-/* Label */
-.slider-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: #333;
-  white-space: nowrap;
+/* Vertical */
+.range-slider.orientation-vertical {
+  writing-mode: bt-lr !important; /* IE */
+  -webkit-appearance: slider-vertical !important; /* WebKit */
+  width: 6px !important;
+  height: 150px !important;
 }
 
-.orientation-vertical .slider-label {
-  writing-mode: horizontal-tb;
-  text-align: center;
-  margin-bottom: 8px;
+/* États hover et disabled - IDENTIQUES pour les deux orientations */
+.range-slider:hover:not(:disabled) {
+  background: #ccc !important;
 }
 
-/* Conteneur du slider */
-.slider-container {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
+.range-slider:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
 }
 
-.orientation-vertical .slider-container {
-  flex-direction: column;
-  height: 100%;
-  justify-content: center;
+/* Thumb WebKit - IDENTIQUE pour horizontal et vertical */
+.range-slider::-webkit-slider-thumb {
+  appearance: none !important;
+  width: 18px !important;
+  height: 18px !important;
+  background: #2196F3 !important;
+  border-radius: 50% !important;
+  cursor: pointer !important;
+  transition: background-color 0.2s, transform 0.1s !important;
+  border: none !important;
 }
 
-/* Input range */
-.slider-input {
-  flex: 1;
-  height: 6px;
-  background: #ddd;
-  outline: none;
-  appearance: none;
-  border: none;
-  cursor: pointer;
-  transition: background-color 0.2s;
+.range-slider::-webkit-slider-thumb:hover {
+  background: #1976D2 !important;
+  transform: scale(1.1) !important;
 }
 
-.slider-input.orientation-vertical {
-  writing-mode: bt-lr; /* IE */
-  -webkit-appearance: slider-vertical; /* WebKit */
-  width: 6px;
-  height: 150px;
-  flex: 1;
+.range-slider:disabled::-webkit-slider-thumb {
+  cursor: not-allowed !important;
+  transform: none !important;
+  background: #999 !important;
 }
 
-.slider-input:hover:not(:disabled) {
-  background: #ccc;
+/* Thumb Firefox - IDENTIQUE pour horizontal et vertical */
+.range-slider::-moz-range-thumb {
+  width: 18px !important;
+  height: 18px !important;
+  background: #2196F3 !important;
+  border-radius: 50% !important;
+  cursor: pointer !important;
+  border: none !important;
+  transition: background-color 0.2s, transform 0.1s !important;
 }
 
-.slider-input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.range-slider::-moz-range-thumb:hover {
+  background: #1976D2 !important;
+  transform: scale(1.1) !important;
 }
 
-/* Thumb pour WebKit */
-.slider-input::-webkit-slider-thumb {
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  background: #2196F3;
-  border-radius: 50%;
-  cursor: pointer;
-  transition: background-color 0.2s, transform 0.1s;
-  border: none;
+.range-slider:disabled::-moz-range-thumb {
+  cursor: not-allowed !important;
+  transform: none !important;
+  background: #999 !important;
 }
 
-.slider-input::-webkit-slider-thumb:hover {
-  background: #1976D2;
-  transform: scale(1.1);
-}
-
-.slider-input:disabled::-webkit-slider-thumb {
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* Thumb pour Firefox */
-.slider-input::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  background: #2196F3;
-  border-radius: 50%;
-  cursor: pointer;
-  border: none;
-  transition: background-color 0.2s, transform 0.1s;
-}
-
-.slider-input::-moz-range-thumb:hover {
-  background: #1976D2;
-  transform: scale(1.1);
-}
-
-.slider-input:disabled::-moz-range-thumb {
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* Track pour Firefox */
-.slider-input::-moz-range-track {
-  height: 6px;
-  background: #ddd;
-  border: none;
-  border-radius: 3px;
-}
-
-/* Affichage de la valeur */
-.value-display {
-  font-size: 12px;
-  font-weight: bold;
-  color: #2196F3;
-  min-width: 40px;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.orientation-vertical .value-display {
-  writing-mode: horizontal-tb;
-  margin-top: 8px;
-}
-
-/* Responsive */
-@media (max-width: 600px) {
-  .range-slider.orientation-horizontal {
-    gap: 6px;
-  }
-  
-  .slider-label {
-    font-size: 11px;
-  }
-  
-  .value-display {
-    font-size: 11px;
-    min-width: 35px;
-  }
+/* Track Firefox - UNIFORME */
+.range-slider::-moz-range-track {
+  height: 6px !important;
+  background: #ddd !important;
+  border: none !important;
+  border-radius: 3px !important;
 }
 </style>
