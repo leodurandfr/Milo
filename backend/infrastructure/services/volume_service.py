@@ -1,6 +1,6 @@
 # backend/infrastructure/services/volume_service.py
 """
-Service de gestion du volume pour oakOS - Version avec logique multiroom
+Service de gestion du volume pour oakOS - Version avec logique moyenne multiroom
 """
 import asyncio
 import logging
@@ -8,7 +8,7 @@ import alsaaudio
 from typing import Optional
 
 class VolumeService:
-    """Service de gestion du volume système avec support multiroom"""
+    """Service de gestion du volume système avec support multiroom basé sur moyenne"""
     
     # Limites volume ALSA pour HiFiBerry AMP2
     MIN_ALSA_VOLUME = 40
@@ -16,7 +16,7 @@ class VolumeService:
     
     def __init__(self, state_machine, snapcast_service):
         self.state_machine = state_machine
-        self.snapcast_service = snapcast_service  # AJOUT
+        self.snapcast_service = snapcast_service
         self.mixer: Optional[alsaaudio.Mixer] = None
         self.logger = logging.getLogger(__name__)
         self._volume_lock = asyncio.Lock()
@@ -90,8 +90,8 @@ class VolumeService:
         """Récupère le volume affiché actuel (0-100)"""
         try:
             if self._is_multiroom_enabled():
-                # Mode multiroom : récupérer depuis Snapcast
-                return await self._get_volume_multiroom()
+                # Mode multiroom : récupérer la moyenne de tous les clients
+                return await self._get_volume_multiroom_average()
             else:
                 # Mode direct : récupérer depuis ALSA
                 alsa_volume = self._get_alsa_volume()
@@ -100,38 +100,36 @@ class VolumeService:
             self.logger.error(f"Error getting volume: {e}")
             return 0
     
-    async def _get_volume_multiroom(self) -> int:
-        """Récupère le volume en mode multiroom (depuis oakOS client snapcast)"""
+    async def _get_volume_multiroom_average(self) -> int:
+        """Récupère la moyenne du volume de tous les clients Snapcast"""
         try:
             clients = await self.snapcast_service.get_clients()
             
-            # Chercher le client oakOS (localhost/127.0.0.1)
-            oakos_client = None
-            for client in clients:
-                if client["ip"] in ["127.0.0.1", "localhost"] or "oakos" in client["name"].lower():
-                    oakos_client = client
-                    break
-            
-            if oakos_client:
-                return oakos_client["volume"]
-            else:
-                self.logger.warning("oakOS client not found in snapcast clients")
+            if not clients:
+                self.logger.warning("No snapcast clients found, using cached volume")
                 return self._current_volume
+            
+            # Calculer la moyenne des volumes de tous les clients
+            total_volume = sum(client["volume"] for client in clients)
+            average_volume = round(total_volume / len(clients))
+            
+            self.logger.debug(f"Multiroom average volume: {average_volume}% (from {len(clients)} clients)")
+            return average_volume
                 
         except Exception as e:
-            self.logger.error(f"Error getting multiroom volume: {e}")
+            self.logger.error(f"Error getting multiroom average volume: {e}")
             return self._current_volume
     
     async def set_volume(self, display_volume: int, show_bar: bool = True) -> bool:
-        """Définit le volume (0-100) avec logique multiroom"""
+        """Définit le volume (0-100) avec logique multiroom basée sur moyenne"""
         async with self._volume_lock:
             try:
                 # Clamp le volume
                 display_clamped = max(0, min(100, display_volume))
                 
                 if self._is_multiroom_enabled():
-                    # Mode multiroom : utiliser Snapcast pour tous les clients
-                    success = await self._set_volume_multiroom(display_clamped)
+                    # Mode multiroom : utiliser Snapcast pour tous les clients basé sur moyenne
+                    success = await self._set_volume_multiroom_average(display_clamped)
                 else:
                     # Mode direct : utiliser ALSA local
                     success = await self._set_volume_direct(display_clamped)
@@ -157,11 +155,11 @@ class VolumeService:
             self.logger.error(f"Error setting volume direct: {e}")
             return False
     
-    async def _set_volume_multiroom(self, target_volume: int) -> bool:
-        """Définit le volume via Snapcast (mode multiroom - logique hybride intelligente)"""
+    async def _set_volume_multiroom_average(self, target_volume: int) -> bool:
+        """Définit le volume via Snapcast (mode multiroom - logique basée sur moyenne)"""
         try:
-            # Récupérer le volume actuel du client oakOS
-            current_oakos_volume = await self._get_volume_multiroom()
+            # Récupérer la moyenne actuelle de tous les clients
+            current_average_volume = await self._get_volume_multiroom_average()
             
             # Récupérer tous les clients
             clients = await self.snapcast_service.get_clients()
@@ -169,17 +167,17 @@ class VolumeService:
                 self.logger.warning("No snapcast clients found")
                 return False
             
-            # LOGIQUE HYBRIDE INTELLIGENTE
-            if current_oakos_volume <= 5:  # Proche de 0 ou à 0
+            # LOGIQUE HYBRIDE INTELLIGENTE basée sur la moyenne
+            if current_average_volume <= 5:  # Proche de 0 ou à 0
                 # Mode DELTA ABSOLU (pour éviter division par 0 et permettre remontée cohérente)
-                delta = target_volume - current_oakos_volume
-                self.logger.debug(f"Setting volume multiroom (DELTA mode): oakOS {current_oakos_volume}% → {target_volume}% (delta: {delta:+d})")
+                delta = target_volume - current_average_volume
+                self.logger.debug(f"Setting volume multiroom (DELTA mode): average {current_average_volume}% → {target_volume}% (delta: {delta:+d})")
                 calculation_mode = "delta"
                 
             else:
                 # Mode RATIO PROPORTIONNEL (conserve les écarts relatifs)
-                volume_ratio = target_volume / current_oakos_volume
-                self.logger.debug(f"Setting volume multiroom (RATIO mode): oakOS {current_oakos_volume}% → {target_volume}% (ratio: {volume_ratio:.3f})")
+                volume_ratio = target_volume / current_average_volume
+                self.logger.debug(f"Setting volume multiroom (RATIO mode): average {current_average_volume}% → {target_volume}% (ratio: {volume_ratio:.3f})")
                 calculation_mode = "ratio"
             
             # Appliquer selon le mode choisi
@@ -226,9 +224,9 @@ class VolumeService:
             return False
     
     async def adjust_volume(self, delta: int, show_bar: bool = True) -> bool:
-        """Ajuste le volume par delta"""
+        """Ajuste le volume par delta (basé sur moyenne en multiroom)"""
         try:
-            current = await self.get_volume()
+            current = await self.get_volume()  # Récupère maintenant la moyenne en multiroom
             new_volume = current + delta
             return await self.set_volume(new_volume, show_bar=show_bar)
         except Exception as e:
@@ -236,11 +234,11 @@ class VolumeService:
             return False
     
     async def _broadcast_volume_change(self, show_bar: bool = True) -> None:
-        """Publie un changement de volume via WebSocket unifié"""
+        """Publie un changement de volume via WebSocket unifié (avec moyenne en multiroom)"""
         try:
-            # En mode multiroom, obtenir le volume depuis Snapcast
+            # En mode multiroom, obtenir la moyenne depuis Snapcast
             if self._is_multiroom_enabled():
-                display_volume = await self._get_volume_multiroom()
+                display_volume = await self._get_volume_multiroom_average()  # Moyenne de tous les clients
                 alsa_volume = None  # Pas pertinent en mode multiroom
             else:
                 alsa_volume = self._get_alsa_volume()
@@ -254,7 +252,7 @@ class VolumeService:
                 "source": "volume_service"
             })
             
-            self.logger.debug(f"Broadcasted volume change: {display_volume}% (multiroom: {self._is_multiroom_enabled()})")
+            self.logger.debug(f"Broadcasted volume change: {display_volume}% (multiroom: {self._is_multiroom_enabled()}, average: {self._is_multiroom_enabled()})")
             
         except Exception as e:
             self.logger.error(f"Error broadcasting volume change: {e}")
@@ -273,16 +271,19 @@ class VolumeService:
             self.logger.error(f"Error broadcasting clients volume update: {e}")
     
     async def get_status(self) -> dict:
-        """Récupère l'état complet du volume"""
+        """Récupère l'état complet du volume (avec moyenne en multiroom)"""
         try:
             multiroom_enabled = self._is_multiroom_enabled()
             
             if multiroom_enabled:
-                display_volume = await self._get_volume_multiroom()
+                display_volume = await self._get_volume_multiroom_average()  # Moyenne
+                clients = await self.snapcast_service.get_clients()
                 return {
                     "volume": display_volume,
                     "mode": "multiroom",
                     "multiroom_enabled": True,
+                    "client_count": len(clients),
+                    "volume_type": "average",
                     "snapcast_available": await self.snapcast_service.is_available(),
                     "mixer_available": self.mixer is not None
                 }
@@ -294,6 +295,7 @@ class VolumeService:
                     "alsa_volume": alsa_volume,
                     "mode": "direct",
                     "multiroom_enabled": False,
+                    "volume_type": "alsa",
                     "min_alsa": self.MIN_ALSA_VOLUME,
                     "max_alsa": self.MAX_ALSA_VOLUME,
                     "mixer_available": self.mixer is not None
