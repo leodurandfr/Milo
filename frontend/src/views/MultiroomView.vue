@@ -1,4 +1,4 @@
-<!-- frontend/src/views/MultiroomView.vue - Version OPTIM -->
+<!-- frontend/src/views/MultiroomView.vue - Version avec WebSocket volume -->
 <template>
   <div class="multiroom-view">
     <!-- Toggle Multiroom avec IconButton intégré -->
@@ -88,6 +88,7 @@ const isMultiroomActive = computed(() =>
 
 // Gestion cleanup WebSocket
 let unsubscribeWS = null;
+let unsubscribeVolume = null;
 
 // === LOGIQUE PRINCIPALE OPTIM ===
 
@@ -111,6 +112,19 @@ async function fetchClients() {
   } catch (error) {
     console.error('Error fetching clients:', error);
     clients.value = [];
+  }
+}
+
+// AJOUT : Fonction pour mettre à jour les volumes des clients depuis VolumeService
+function updateClientsVolume(updatedClients) {
+  console.log('Updating clients volume in MultiroomView:', updatedClients);
+  
+  for (const updatedClient of updatedClients) {
+    const clientIndex = clients.value.findIndex(c => c.id === updatedClient.id);
+    if (clientIndex !== -1) {
+      clients.value[clientIndex].volume = updatedClient.new_volume;
+      console.log(`Updated client ${updatedClient.name}: ${updatedClient.old_volume}% → ${updatedClient.new_volume}%`);
+    }
   }
 }
 
@@ -163,10 +177,17 @@ unsubscribeWS = on('system', 'state_changed', (event) => {
   }
 });
 
+// AJOUT : Écouter les mises à jour de volume depuis VolumeService
+unsubscribeVolume = on('snapcast', 'clients_volume_updated', (event) => {
+  console.log('Received clients volume update in MultiroomView:', event.data.updated_clients);
+  updateClientsVolume(event.data.updated_clients);
+});
+
 // === CLEANUP ===
 
 onUnmounted(() => {
   if (unsubscribeWS) unsubscribeWS();
+  if (unsubscribeVolume) unsubscribeVolume(); // AJOUT
 });
 </script>
 

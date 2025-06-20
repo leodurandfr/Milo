@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version avec RangeSlider et Toggle -->
+<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version corrigée pour WebSocket -->
 <template>
   <div class="snapclient-item">
     <!-- Informations du client -->
@@ -29,7 +29,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 
@@ -51,6 +51,20 @@ const updating = ref(false);
 // Volume affiché avec feedback immédiat
 const displayVolume = computed(() => {
   return localVolume.value !== null ? localVolume.value : props.client.volume;
+});
+
+// AJOUT : Watcher pour nettoyer localVolume quand client.volume change (mise à jour WebSocket)
+watch(() => props.client.volume, (newVolume, oldVolume) => {
+  // Si le volume client change et qu'on n'a pas de modification locale en cours
+  if (newVolume !== oldVolume && localVolume.value === null) {
+    console.log(`Client ${props.client.name} volume updated externally: ${oldVolume}% → ${newVolume}%`);
+  }
+  
+  // Si le volume change ET qu'on a une valeur locale différente, nettoyer
+  if (localVolume.value !== null && Math.abs(localVolume.value - newVolume) > 2) {
+    console.log(`Clearing local volume for ${props.client.name} due to external update`);
+    localVolume.value = null;
+  }
 });
 
 // === GESTIONNAIRES D'ÉVÉNEMENTS OPTIMISÉS ===

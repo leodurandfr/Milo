@@ -11,8 +11,8 @@ from backend.infrastructure.services.systemd_manager import SystemdServiceManage
 from backend.infrastructure.services.audio_routing_service import AudioRoutingService
 from backend.infrastructure.services.snapcast_service import SnapcastService
 from backend.infrastructure.services.equalizer_service import EqualizerService
-from backend.infrastructure.services.volume_service import VolumeService  # AJOUT
-from backend.infrastructure.hardware.rotary_volume_controller import RotaryVolumeController  # AJOUT
+from backend.infrastructure.services.volume_service import VolumeService  
+from backend.infrastructure.hardware.rotary_volume_controller import RotaryVolumeController  
 from backend.presentation.websockets.manager import WebSocketManager
 from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
@@ -47,7 +47,8 @@ class Container(containers.DeclarativeContainer):
     # Service Volume (avec injection de state_machine pour WebSocket) - AJOUT
     volume_service = providers.Singleton(
         VolumeService,
-        state_machine=audio_state_machine
+        state_machine=audio_state_machine,
+        snapcast_service=snapcast_service
     )
     
     # Contrôleur rotary hardware (avec injection de volume_service) - AJOUT

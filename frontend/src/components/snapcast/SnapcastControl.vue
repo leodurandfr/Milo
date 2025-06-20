@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version refactorisée -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version nettoyée -->
 <template>
   <div class="snapcast-control">
     <h3>Snapcast Clients</h3>
@@ -59,7 +59,7 @@ const FINAL_DELAY = 500;
 let unsubscribeFunctions = [];
 
 const isMultiroomActive = computed(() => 
-  unifiedStore.multiroomEnabled  // Refactorisé
+  unifiedStore.multiroomEnabled
 );
 
 // === MÉTHODES PRINCIPALES ===
@@ -164,7 +164,7 @@ function handleShowDetails(client) {
   selectedClient.value = client;
 }
 
-// === GESTION WEBSOCKET ===
+// === GESTION WEBSOCKET (SNAPCAST UNIQUEMENT) ===
 
 function handleSnapcastUpdate(event) {
   if (event.data.snapcast_update && isMultiroomActive.value) {
@@ -186,7 +186,7 @@ onMounted(async () => {
     await fetchClients();
   }
   
-  // S'abonner aux événements Snapcast
+  // S'abonner uniquement aux événements Snapcast (pas volume)
   const unsubscribe = on('system', 'state_changed', (event) => {
     if (event.source === 'snapcast') {
       handleSnapcastUpdate(event);
