@@ -158,13 +158,10 @@ class VolumeService:
             return False
     
     async def _set_volume_multiroom(self, target_volume: int) -> bool:
-        """Définit le volume via Snapcast (mode multiroom - volume proportionnel)"""
+        """Définit le volume via Snapcast (mode multiroom - logique hybride intelligente)"""
         try:
-            # Récupérer le volume actuel du client oakOS pour calculer le delta
+            # Récupérer le volume actuel du client oakOS
             current_oakos_volume = await self._get_volume_multiroom()
-            delta = target_volume - current_oakos_volume
-            
-            self.logger.debug(f"Setting volume multiroom: oakOS {current_oakos_volume}% → {target_volume}% (delta: {delta:+d}%)")
             
             # Récupérer tous les clients
             clients = await self.snapcast_service.get_clients()
@@ -172,14 +169,31 @@ class VolumeService:
                 self.logger.warning("No snapcast clients found")
                 return False
             
-            # Appliquer le delta proportionnellement à tous les clients
+            # LOGIQUE HYBRIDE INTELLIGENTE
+            if current_oakos_volume <= 5:  # Proche de 0 ou à 0
+                # Mode DELTA ABSOLU (pour éviter division par 0 et permettre remontée cohérente)
+                delta = target_volume - current_oakos_volume
+                self.logger.debug(f"Setting volume multiroom (DELTA mode): oakOS {current_oakos_volume}% → {target_volume}% (delta: {delta:+d})")
+                calculation_mode = "delta"
+                
+            else:
+                # Mode RATIO PROPORTIONNEL (conserve les écarts relatifs)
+                volume_ratio = target_volume / current_oakos_volume
+                self.logger.debug(f"Setting volume multiroom (RATIO mode): oakOS {current_oakos_volume}% → {target_volume}% (ratio: {volume_ratio:.3f})")
+                calculation_mode = "ratio"
+            
+            # Appliquer selon le mode choisi
             success_count = 0
             updated_clients = []
             
             for client in clients:
                 try:
                     current_volume = client["volume"]
-                    new_volume = max(0, min(100, current_volume + delta))
+                    
+                    if calculation_mode == "delta":
+                        new_volume = max(0, min(100, current_volume + delta))
+                    else:  # ratio
+                        new_volume = max(0, min(100, round(current_volume * volume_ratio)))
                     
                     if await self.snapcast_service.set_volume(client["id"], new_volume):
                         success_count += 1
@@ -189,9 +203,14 @@ class VolumeService:
                             "old_volume": current_volume,
                             "new_volume": new_volume
                         })
-                        self.logger.debug(f"Volume adjusted for {client['name']}: {current_volume}% → {new_volume}% (delta: {delta:+d}%)")
+                        
+                        if calculation_mode == "delta":
+                            self.logger.debug(f"Volume adjusted for {client['name']}: {current_volume}% → {new_volume}% (delta: {delta:+d})")
+                        else:
+                            self.logger.debug(f"Volume adjusted for {client['name']}: {current_volume}% → {new_volume}% (ratio: {volume_ratio:.3f})")
                     else:
                         self.logger.warning(f"Failed to set volume for client {client['name']}")
+                        
                 except Exception as e:
                     self.logger.error(f"Error setting volume for client {client['name']}: {e}")
             
