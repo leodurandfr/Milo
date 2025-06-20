@@ -12,3 +12,5 @@ zeroconf>=0.146.5
 dbus-next>=0.2.3
 aiofiles>=23.1.0
 configparser>=5.3.0
+pyalsaaudio>=0.9.2
+lgpio>=0.2.2.0

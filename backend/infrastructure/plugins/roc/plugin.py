@@ -1,5 +1,6 @@
+# backend/infrastructure/plugins/roc/plugin.py
 """
-Plugin ROC pour oakOS - Version événementielle OPTIM finale
+Plugin ROC pour oakOS - Version nettoyée sans EventBus
 """
 import asyncio
 import re
@@ -12,8 +13,8 @@ from backend.infrastructure.plugins.plugin_utils import format_response
 class RocPlugin(UnifiedAudioPlugin):
     """Plugin ROC avec surveillance événementielle et détection précise"""
 
-    def __init__(self, event_bus, config: Dict[str, Any], state_machine=None):
-        super().__init__(event_bus, "roc", state_machine)
+    def __init__(self, config: Dict[str, Any], state_machine=None):
+        super().__init__("roc", state_machine)
         self.config = config
         self.service_name = config.get("service_name", "oakos-roc.service")
         
@@ -108,9 +109,6 @@ class RocPlugin(UnifiedAudioPlugin):
             
             # Mettre à jour juste le device (ALSA se charge du routage dynamique)
             self._current_device = new_device
-            
-            # Le service ROC utilise toujours "oakos_roc"
-            # ALSA se charge de router selon OAKOS_MODE
             
             return True
         except Exception as e:

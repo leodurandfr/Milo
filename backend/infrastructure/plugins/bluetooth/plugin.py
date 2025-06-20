@@ -1,5 +1,6 @@
+# backend/infrastructure/plugins/bluetooth/plugin.py
 """
-Plugin Bluetooth optimisé pour oakOS utilisant bluealsa - Version restructurée
+Plugin Bluetooth optimisé pour oakOS utilisant bluealsa - Version nettoyée sans EventBus
 """
 import asyncio
 import subprocess
@@ -15,10 +16,10 @@ from backend.infrastructure.plugins.bluetooth.bluealsa_monitor import BlueAlsaMo
 from backend.infrastructure.plugins.bluetooth.bluealsa_playback import BlueAlsaPlayback
 
 class BluetoothPlugin(UnifiedAudioPlugin):
-    """Plugin Bluetooth pour oakOS - version optimisée"""
+    """Plugin Bluetooth pour oakOS - version nettoyée"""
     
-    def __init__(self, event_bus, config: Dict[str, Any], state_machine=None):
-        super().__init__(event_bus, "bluetooth", state_machine)
+    def __init__(self, config: Dict[str, Any], state_machine=None):
+        super().__init__("bluetooth", state_machine)
         
         # Configuration
         self.config = config

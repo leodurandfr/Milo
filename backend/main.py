@@ -1,6 +1,6 @@
-# backend/main.py - Mise à jour avec routes equalizer
+# backend/main.py - Mise à jour avec routes volume
 """
-Point d'entrée principal de l'application oakOS - Version avec EqualizerService
+Point d'entrée principal de l'application oakOS - Version avec VolumeService
 """
 import sys
 import os
@@ -15,7 +15,8 @@ from backend.config.container import container
 from backend.presentation.api.routes import audio
 from backend.presentation.api.routes.routing import create_routing_router
 from backend.presentation.api.routes.snapcast import create_snapcast_router
-from backend.presentation.api.routes.equalizer import create_equalizer_router  # AJOUT
+from backend.presentation.api.routes.equalizer import create_equalizer_router
+from backend.presentation.api.routes.volume import create_volume_router  # AJOUT
 from backend.presentation.api.routes.librespot import setup_librespot_routes
 from backend.presentation.api.routes.roc import setup_roc_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
@@ -31,12 +32,14 @@ state_machine = container.audio_state_machine()
 routing_service = container.audio_routing_service()
 snapcast_service = container.snapcast_service()
 equalizer_service = container.equalizer_service()
+volume_service = container.volume_service()  # AJOUT
+rotary_controller = container.rotary_controller()  # AJOUT
 ws_manager = container.websocket_manager()
 websocket_server = WebSocketServer(ws_manager, state_machine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Gestion du cycle de vie simplifiée"""
+    """Gestion du cycle de vie avec services volume et hardware"""
     try:
         # Initialiser les services
         container.initialize_services()
@@ -51,7 +54,7 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     logger.error(f"Plugin {source.value} initialization failed: {e}")
         
-        logger.info("oakOS backend startup completed")
+        logger.info("oakOS backend startup completed with volume control")
         
     except Exception as e:
         logger.error(f"Application startup failed: {e}")
@@ -59,8 +62,14 @@ async def lifespan(app: FastAPI):
     
     yield  # L'application tourne
     
-    # Cleanup minimal
+    # Cleanup avec hardware
     logger.info("oakOS backend shutting down...")
+    try:
+        # Nettoyer le contrôleur rotary
+        rotary_controller.cleanup()
+        logger.info("Hardware cleanup completed")
+    except Exception as e:
+        logger.error(f"Hardware cleanup error: {e}")
 
 # Création de l'application FastAPI
 app = FastAPI(title="oakOS API", lifespan=lifespan)
@@ -84,8 +93,11 @@ app.include_router(routing_router)
 snapcast_router = create_snapcast_router(routing_service, snapcast_service, state_machine)
 app.include_router(snapcast_router)
 
-equalizer_router = create_equalizer_router(equalizer_service, state_machine)  # AJOUT
+equalizer_router = create_equalizer_router(equalizer_service, state_machine)
 app.include_router(equalizer_router)
+
+volume_router = create_volume_router(volume_service)  # AJOUT
+app.include_router(volume_router)
 
 librespot_router = setup_librespot_routes(
     lambda: state_machine.plugins.get(AudioSource.LIBRESPOT)

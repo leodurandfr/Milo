@@ -1,6 +1,6 @@
-# backend/config/container.py - Mise à jour avec EqualiserService
+# backend/config/container.py - Mise à jour avec VolumeService et RotaryController
 """
-Conteneur d'injection de dépendances - Version OPTIM avec EqualizerService
+Conteneur d'injection de dépendances - Version avec VolumeService et hardware
 """
 from dependency_injector import containers, providers
 from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
@@ -10,20 +10,22 @@ from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 from backend.infrastructure.services.audio_routing_service import AudioRoutingService
 from backend.infrastructure.services.snapcast_service import SnapcastService
-from backend.infrastructure.services.equalizer_service import EqualizerService  # AJOUT
+from backend.infrastructure.services.equalizer_service import EqualizerService
+from backend.infrastructure.services.volume_service import VolumeService  # AJOUT
+from backend.infrastructure.hardware.rotary_volume_controller import RotaryVolumeController  # AJOUT
 from backend.presentation.websockets.manager import WebSocketManager
 from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
 
 class Container(containers.DeclarativeContainer):
-    """Conteneur d'injection de dépendances pour oakOS - Version avec EqualizerService"""
+    """Conteneur d'injection de dépendances pour oakOS - Version avec Volume et Hardware"""
     
     config = providers.Configuration()
     
     # Services centraux
     systemd_manager = providers.Singleton(SystemdServiceManager)
     snapcast_service = providers.Singleton(SnapcastService)
-    equalizer_service = providers.Singleton(EqualizerService)  # AJOUT
+    equalizer_service = providers.Singleton(EqualizerService)
     
     # WebSocket (créé ici pour injection)
     websocket_manager = providers.Singleton(WebSocketManager)
@@ -42,10 +44,24 @@ class Container(containers.DeclarativeContainer):
         websocket_handler=websocket_event_handler
     )
     
-    # Plugins audio (avec injection de state_machine)
+    # Service Volume (avec injection de state_machine pour WebSocket) - AJOUT
+    volume_service = providers.Singleton(
+        VolumeService,
+        state_machine=audio_state_machine
+    )
+    
+    # Contrôleur rotary hardware (avec injection de volume_service) - AJOUT
+    rotary_controller = providers.Singleton(
+        RotaryVolumeController,
+        volume_service=volume_service,
+        clk_pin=22,  # Pin CLK
+        dt_pin=27,   # Pin DT
+        sw_pin=23    # Pin SW (bouton)
+    )
+    
+    # Plugins audio 
     librespot_plugin = providers.Singleton(
         LibrespotPlugin,
-        event_bus=None,  # Plus utilisé
         config=providers.Dict({
             "config_path": "/var/lib/oakos/go-librespot/config.yml", 
             "service_name": "oakos-go-librespot.service" 
@@ -55,7 +71,6 @@ class Container(containers.DeclarativeContainer):
     
     roc_plugin = providers.Singleton(
         RocPlugin,
-        event_bus=None,  # Plus utilisé
         config=providers.Dict({
             "service_name": "oakos-roc.service",
             "rtp_port": 10001,
@@ -68,7 +83,6 @@ class Container(containers.DeclarativeContainer):
     
     bluetooth_plugin = providers.Singleton(
         BluetoothPlugin,
-        event_bus=None,  # Plus utilisé
         config=providers.Dict({
             "daemon_options": "--keep-alive=5",
             "service_name": "oakos-bluealsa.service",
@@ -82,10 +96,12 @@ class Container(containers.DeclarativeContainer):
     # Configuration post-création
     @providers.Callable
     def initialize_services():
-        """Initialise les services après création - Version OPTIM"""
+        """Initialise les services après création - Version avec Volume"""
         # Récupération des instances
         state_machine = container.audio_state_machine()
         routing_service = container.audio_routing_service()
+        volume_service = container.volume_service()
+        rotary_controller = container.rotary_controller()
         
         # Configuration du callback pour que routing_service puisse accéder aux plugins
         routing_service.set_plugin_callback(lambda source: state_machine.get_plugin(source))
@@ -95,16 +111,28 @@ class Container(containers.DeclarativeContainer):
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
         state_machine.register_plugin(AudioSource.ROC, container.roc_plugin())
         
-        # Initialisation asynchrone du routing_service
+        # Initialisation asynchrone des services
         import asyncio
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
+                # Services audio
                 asyncio.create_task(routing_service.initialize())
+                # Services volume - AJOUT
+                asyncio.create_task(volume_service.initialize())
+                asyncio.create_task(rotary_controller.initialize())
             else:
+                # Services audio
                 loop.run_until_complete(routing_service.initialize())
+                # Services volume - AJOUT
+                loop.run_until_complete(volume_service.initialize())
+                loop.run_until_complete(rotary_controller.initialize())
         except RuntimeError:
+            # Services audio
             asyncio.create_task(routing_service.initialize())
+            # Services volume - AJOUT
+            asyncio.create_task(volume_service.initialize())
+            asyncio.create_task(rotary_controller.initialize())
 
 # Création et configuration du conteneur
 container = Container()

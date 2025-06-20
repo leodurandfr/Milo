@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/base.py
 """
-Classe de base optimisée pour les plugins - Version OPTIM sans EventBus
+Classe de base optimisée pour les plugins - Version nettoyée sans EventBus
 """
 import logging
 from abc import ABC, abstractmethod
@@ -11,10 +11,9 @@ from backend.domain.audio_state import PluginState, AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
-    """Classe de base pour plugins audio - Version OPTIM sans EventBus"""
+    """Classe de base pour plugins audio - Version nettoyée"""
     
-    def __init__(self, event_bus, name: str, state_machine=None):
-        # event_bus est maintenant ignoré (None)
+    def __init__(self, name: str, state_machine=None):
         self.name = name
         self.logger = logging.getLogger(f"plugin.{name}")
         self.state_machine = state_machine
@@ -60,7 +59,7 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
                 metadata=metadata or {}
             )
     
-    # Méthodes utilitaires communes (inchangées)
+    # Méthodes utilitaires communes
     
     async def control_service(self, service_name: str, action: str) -> bool:
         """Contrôle un service systemd (start, stop, restart)"""
