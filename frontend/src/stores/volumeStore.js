@@ -1,4 +1,4 @@
-// frontend/src/stores/volumeStore.js
+// frontend/src/stores/volumeStore.js - Version avec limites dynamiques
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import axios from 'axios';
@@ -8,12 +8,26 @@ export const useVolumeStore = defineStore('volume', () => {
   const currentVolume = ref(0);
   const isAdjusting = ref(false);
   
+  // NOUVEAUTÉ : Limites de volume dynamiques depuis le backend
+  const volumeLimits = ref(null);
+  
   // Référence vers la VolumeBar pour l'affichage
   let volumeBarRef = null;
   
   // Configuration des références
   function setVolumeBarRef(ref) {
     volumeBarRef = ref;
+  }
+  
+  // NOUVEAUTÉ : Mettre à jour les limites depuis le backend
+  function updateVolumeLimits(limits) {
+    if (limits && limits.min !== undefined && limits.max !== undefined) {
+      volumeLimits.value = {
+        min: limits.min,
+        max: limits.max
+      };
+      console.log(`Volume limits updated: ${limits.min}-${limits.max}%`);
+    }
   }
   
   // Actions API
@@ -97,12 +111,17 @@ export const useVolumeStore = defineStore('volume', () => {
     if (event.data && typeof event.data.volume === 'number') {
       currentVolume.value = event.data.volume;
       
+      // NOUVEAUTÉ : Mettre à jour les limites si présentes
+      if (event.data.limits) {
+        updateVolumeLimits(event.data.limits);
+      }
+      
       // Afficher la VolumeBar si demandé et référence disponible
       if (event.data.show_bar && volumeBarRef) {
         volumeBarRef.showVolume();
       }
       
-      console.log(`Volume updated: ${event.data.volume}% (ALSA: ${event.data.alsa_volume || 'N/A'})`);
+      console.log(`Volume updated: ${event.data.volume}% (limits: ${event.data.limits?.min}-${event.data.limits?.max}%)`);
     }
   }
   
@@ -110,6 +129,7 @@ export const useVolumeStore = defineStore('volume', () => {
     // État
     currentVolume,
     isAdjusting,
+    volumeLimits, // NOUVEAUTÉ : Export des limites
     
     // Configuration
     setVolumeBarRef,
@@ -122,6 +142,9 @@ export const useVolumeStore = defineStore('volume', () => {
     getVolume,
     
     // WebSocket
-    handleVolumeEvent
+    handleVolumeEvent,
+    
+    // NOUVEAUTÉ : Fonction pour mettre à jour les limites
+    updateVolumeLimits
   };
 });
