@@ -1,6 +1,6 @@
 # backend/infrastructure/services/volume_service.py
 """
-Service de gestion du volume pour oakOS - Version avec amixer -M pour mode direct
+Service de gestion du volume pour oakOS - Version corrigée avec broadcast initial garanti
 """
 import asyncio
 import logging
@@ -12,8 +12,8 @@ class VolumeService:
     """Service de gestion du volume système - Mode direct via amixer -M"""
     
     # LIMITES DE VOLUME (utilisées pour direct ET multiroom)
-    MIN_VOLUME = 5  # Volume minimum
-    MAX_VOLUME = 60  # Volume maximum
+    MIN_VOLUME = 0  # Volume minimum
+    MAX_VOLUME = 55  # Volume maximum
     
     def __init__(self, state_machine, snapcast_service):
         self.state_machine = state_machine
@@ -71,14 +71,24 @@ class VolumeService:
             
             self.logger.info(f"Volume service initialized - Display: {self._current_volume}%")
             
-            # Publier l'état initial
-            await self._broadcast_volume_change(show_bar=False)
+            # ✅ AJOUT : S'assurer que l'état initial est diffusé (avec un petit délai pour que WebSocket soit connecté)
+            asyncio.create_task(self._delayed_initial_broadcast())
             
             return True
             
         except Exception as e:
             self.logger.error(f"Failed to initialize volume service: {e}")
             return False
+    
+    async def _delayed_initial_broadcast(self):
+        """Diffuse l'état initial avec un délai pour garantir la connexion WebSocket"""
+        try:
+            # Attendre un peu pour que les connexions WebSocket soient établies
+            await asyncio.sleep(1.0)
+            await self._broadcast_volume_change(show_bar=False)
+            self.logger.info("Initial volume state broadcasted to clients")
+        except Exception as e:
+            self.logger.error(f"Error in delayed initial broadcast: {e}")
     
     def _is_multiroom_enabled(self) -> bool:
         """Vérifie si le mode multiroom est activé"""
@@ -106,7 +116,7 @@ class VolumeService:
                 return None
             
             # Parser la sortie pour extraire le pourcentage
-            # Format attendu: "Front Left: Playback 160 [41%] [-23.50dB] [on]"
+            # Format attendu: "Front Left: Playbook 160 [41%] [-23.50dB] [on]"
             output = stdout.decode()
             pattern = r'\[(\d+)%\]'
             matches = re.findall(pattern, output)

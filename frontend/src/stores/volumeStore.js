@@ -1,4 +1,4 @@
-// frontend/src/stores/volumeStore.js - Version avec limites dynamiques
+// frontend/src/stores/volumeStore.js - Version corrigée avec récupération limites au démarrage
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import axios from 'axios';
@@ -8,7 +8,7 @@ export const useVolumeStore = defineStore('volume', () => {
   const currentVolume = ref(0);
   const isAdjusting = ref(false);
   
-  // NOUVEAUTÉ : Limites de volume dynamiques depuis le backend
+  // Limites de volume dynamiques depuis le backend
   const volumeLimits = ref(null);
   
   // Référence vers la VolumeBar pour l'affichage
@@ -19,7 +19,7 @@ export const useVolumeStore = defineStore('volume', () => {
     volumeBarRef = ref;
   }
   
-  // NOUVEAUTÉ : Mettre à jour les limites depuis le backend
+  // Mettre à jour les limites depuis le backend
   function updateVolumeLimits(limits) {
     if (limits && limits.min !== undefined && limits.max !== undefined) {
       volumeLimits.value = {
@@ -106,12 +106,38 @@ export const useVolumeStore = defineStore('volume', () => {
     return currentVolume.value;
   }
   
+  // ✅ AJOUT : Récupérer le statut complet avec limites au démarrage
+  async function getVolumeStatus() {
+    try {
+      const response = await axios.get('/api/volume/status');
+      if (response.data.status === 'success') {
+        const data = response.data.data;
+        
+        // Mettre à jour le volume
+        if (typeof data.volume === 'number') {
+          currentVolume.value = data.volume;
+        }
+        
+        // Mettre à jour les limites
+        if (data.limits) {
+          updateVolumeLimits(data.limits);
+        }
+        
+        console.log('Volume status loaded:', data);
+        return data;
+      }
+    } catch (error) {
+      console.error('Error getting volume status:', error);
+    }
+    return null;
+  }
+  
   // Gestion des événements WebSocket
   function handleVolumeEvent(event) {
     if (event.data && typeof event.data.volume === 'number') {
       currentVolume.value = event.data.volume;
       
-      // NOUVEAUTÉ : Mettre à jour les limites si présentes
+      // Mettre à jour les limites si présentes
       if (event.data.limits) {
         updateVolumeLimits(event.data.limits);
       }
@@ -129,7 +155,7 @@ export const useVolumeStore = defineStore('volume', () => {
     // État
     currentVolume,
     isAdjusting,
-    volumeLimits, // NOUVEAUTÉ : Export des limites
+    volumeLimits,
     
     // Configuration
     setVolumeBarRef,
@@ -140,11 +166,12 @@ export const useVolumeStore = defineStore('volume', () => {
     increaseVolume,
     decreaseVolume,
     getVolume,
+    getVolumeStatus, // ✅ AJOUT : Nouvelle méthode pour récupérer statut complet
     
     // WebSocket
     handleVolumeEvent,
     
-    // NOUVEAUTÉ : Fonction pour mettre à jour les limites
+    // Fonctions utilitaires
     updateVolumeLimits
   };
 });

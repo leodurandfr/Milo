@@ -1,4 +1,4 @@
-<!-- frontend/src/App.vue -->
+<!-- frontend/src/App.vue - Version corrigée avec récupération statut complet -->
 <template>
   <div class="app-container">
     <router-view />
@@ -21,8 +21,8 @@ onMounted(() => {
     volumeStore.handleVolumeEvent(event);
   });
   
-  // Récupérer le volume initial
-  volumeStore.getVolume();
+  // ✅ MODIFIÉ : Récupérer le statut complet (volume + limites) au démarrage
+  volumeStore.getVolumeStatus();
 });
 </script>
 

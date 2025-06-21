@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version avec interpolation volume -->
+<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version corrigée interpolation -->
 <template>
   <div class="snapclient-item">
     <!-- Informations du client -->
@@ -56,22 +56,26 @@ const emit = defineEmits(['volume-change', 'mute-toggle', 'show-details']);
 // LIMITES DE VOLUME (récupérées automatiquement du backend via store)
 const volumeStore = useVolumeStore();
 
-// Limites dynamiques depuis le backend (avec fallback si pas encore reçues)
-const MIN_VOLUME = computed(() => volumeStore.volumeLimits?.min ?? 40);
-const MAX_VOLUME = computed(() => volumeStore.volumeLimits?.max ?? 75);
+// Limites dynamiques depuis le backend (avec fallback CORRIGÉ)
+const MIN_VOLUME = computed(() => volumeStore.volumeLimits?.min ?? 5);  // ✅ Corrigé : 5 au lieu de 40
+const MAX_VOLUME = computed(() => volumeStore.volumeLimits?.max ?? 60); // ✅ Corrigé : 60 au lieu de 75
 
 // État local optimisé
 const localDisplayVolume = ref(null);
 const updating = ref(false);
 
-// === FONCTIONS D'INTERPOLATION (mêmes que le backend) ===
+// === FONCTIONS D'INTERPOLATION CORRIGÉES ===
 
 function interpolateToDisplay(actualVolume) {
   /**
    * Convertit le volume réel (MIN-MAX) en volume d'affichage (0-100%)
+   * ✅ AJOUT : Clamp pour gérer les valeurs hors bornes existantes
    */
+  // Clamp dans les limites avant interpolation
+  const clampedVolume = Math.max(MIN_VOLUME.value, Math.min(MAX_VOLUME.value, actualVolume));
+  
   const actualRange = MAX_VOLUME.value - MIN_VOLUME.value;
-  const normalized = actualVolume - MIN_VOLUME.value;
+  const normalized = clampedVolume - MIN_VOLUME.value;
   return Math.round((normalized / actualRange) * 100);
 }
 
@@ -85,13 +89,13 @@ function interpolateFromDisplay(displayVolume) {
 
 // === VOLUME AFFICHÉ ===
 
-// Volume affiché avec feedback immédiat (conversion 40-75% → 0-100%)
+// Volume affiché avec feedback immédiat (conversion avec clamp)
 const displayVolume = computed(() => {
   if (localDisplayVolume.value !== null) {
     return localDisplayVolume.value;
   }
   
-  // Convertir le volume client (40-75%) vers affichage (0-100%)
+  // Convertir le volume client vers affichage (avec clamp automatique)
   return interpolateToDisplay(props.client.volume);
 });
 
@@ -140,7 +144,7 @@ function handleVolumeInput(newDisplayVolume) {
   // Feedback visuel immédiat (garde la valeur d'affichage)
   localDisplayVolume.value = newDisplayVolume;
 
-  // Convertir vers volume réel (40-75%) pour l'envoi
+  // Convertir vers volume réel pour l'envoi
   const realVolume = interpolateFromDisplay(newDisplayVolume);
   
   console.log(`Volume input: display=${newDisplayVolume}% → real=${realVolume}%`);
@@ -153,7 +157,7 @@ function handleVolumeChange(newDisplayVolume) {
   // Nettoyer le volume local
   localDisplayVolume.value = null;
   
-  // Convertir vers volume réel (40-75%)
+  // Convertir vers volume réel
   const realVolume = interpolateFromDisplay(newDisplayVolume);
   
   // Mise à jour immédiate du client avec la valeur réelle
