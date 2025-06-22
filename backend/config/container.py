@@ -1,6 +1,6 @@
-# backend/config/container.py - Mise à jour avec ScreenController
+# backend/config/container.py - Version OPTIM avec ScreenController
 """
-Conteneur d'injection de dépendances - Version avec SnapcastWebSocketService et ScreenController
+Conteneur d'injection de dépendances - Version OPTIM avec observer pattern et ScreenController
 """
 from dependency_injector import containers, providers
 from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
@@ -20,7 +20,7 @@ from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
 
 class Container(containers.DeclarativeContainer):
-    """Conteneur d'injection de dépendances pour oakOS - Version avec ScreenController"""
+    """Conteneur d'injection de dépendances pour oakOS - Version OPTIM avec ScreenController"""
     
     config = providers.Configuration()
     
@@ -36,17 +36,17 @@ class Container(containers.DeclarativeContainer):
         ws_manager=websocket_manager
     )
     
-    # Service de routage audio (sans référence à state_machine)
-    audio_routing_service = providers.Singleton(AudioRoutingService)
-    
-    # Machine à états unifiée (avec injection du routing_service ET websocket_handler)
+    # Machine à états unifiée (avec injection du websocket_handler)
     audio_state_machine = providers.Singleton(
         UnifiedAudioStateMachine,
-        routing_service=audio_routing_service,
+        routing_service=providers.Self,  # OPTIM : Will be resolved later
         websocket_handler=websocket_event_handler
     )
     
-    # Service WebSocket Snapcast pour notifications temps réel
+    # Service de routage audio (sans référence à state_machine)
+    audio_routing_service = providers.Singleton(AudioRoutingService)
+    
+    # Service WebSocket Snapcast (avec injection routing_service pour état initial)
     snapcast_websocket_service = providers.Singleton(
         SnapcastWebSocketService,
         state_machine=audio_state_machine,
@@ -55,7 +55,7 @@ class Container(containers.DeclarativeContainer):
         port=1780
     )
     
-    # Service Volume (avec injection de state_machine pour WebSocket)
+    # Service Volume
     volume_service = providers.Singleton(
         VolumeService,
         state_machine=audio_state_machine,
@@ -71,7 +71,7 @@ class Container(containers.DeclarativeContainer):
         sw_pin=23    # Pin SW (bouton)
     )
     
-    # AJOUT : Contrôleur d'écran (avec injection de state_machine)
+    # AJOUT : Contrôleur d'écran avec injection de state_machine
     screen_controller = providers.Singleton(
         ScreenController,
         state_machine=audio_state_machine
@@ -111,10 +111,10 @@ class Container(containers.DeclarativeContainer):
         state_machine=audio_state_machine
     )
     
-    # Configuration post-création
+    # Configuration post-création OPTIM avec observer pattern et ScreenController
     @providers.Callable
     def initialize_services():
-        """Initialise les services après création - Version avec ScreenController"""
+        """Initialise les services après création - Version OPTIM avec ScreenController"""
         # Récupération des instances
         state_machine = container.audio_state_machine()
         routing_service = container.audio_routing_service()
@@ -129,42 +129,42 @@ class Container(containers.DeclarativeContainer):
         # Configuration cross-référence routing_service ↔ snapcast_websocket_service
         routing_service.set_snapcast_websocket_service(snapcast_websocket_service)
         
+        # OPTIM : Résoudre la référence circulaire state_machine ↔ routing_service
+        state_machine.routing_service = routing_service
+        
         # Enregistrement des plugins dans la machine à états
         state_machine.register_plugin(AudioSource.LIBRESPOT, container.librespot_plugin())
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
         state_machine.register_plugin(AudioSource.ROC, container.roc_plugin())
         
-        # Initialisation asynchrone des services
+        # OPTIM : Initialisation asynchrone simplifiée avec gestion d'erreurs
         import asyncio
+        
+        async def init_async():
+            """Initialisation asynchrone avec gestion d'erreurs individuelles"""
+            services = [
+                ("routing_service", routing_service.initialize()),
+                ("volume_service", volume_service.initialize()),
+                ("rotary_controller", rotary_controller.initialize()),
+                ("screen_controller", screen_controller.initialize()),  # AJOUT
+                ("snapcast_websocket_service", snapcast_websocket_service.initialize())
+            ]
+            
+            for service_name, init_coroutine in services:
+                try:
+                    await init_coroutine
+                    print(f"✅ {service_name} initialized successfully")
+                except Exception as e:
+                    print(f"❌ {service_name} initialization failed: {e}")
+        
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                # Services audio
-                asyncio.create_task(routing_service.initialize())
-                # Services volume et hardware
-                asyncio.create_task(volume_service.initialize())
-                asyncio.create_task(rotary_controller.initialize())
-                asyncio.create_task(screen_controller.initialize())  # AJOUT
-                # Service WebSocket Snapcast
-                asyncio.create_task(snapcast_websocket_service.initialize())
+                asyncio.create_task(init_async())
             else:
-                # Services audio
-                loop.run_until_complete(routing_service.initialize())
-                # Services volume et hardware
-                loop.run_until_complete(volume_service.initialize())
-                loop.run_until_complete(rotary_controller.initialize())
-                loop.run_until_complete(screen_controller.initialize())  # AJOUT
-                # Service WebSocket Snapcast
-                loop.run_until_complete(snapcast_websocket_service.initialize())
+                loop.run_until_complete(init_async())
         except RuntimeError:
-            # Services audio
-            asyncio.create_task(routing_service.initialize())
-            # Services volume et hardware
-            asyncio.create_task(volume_service.initialize())
-            asyncio.create_task(rotary_controller.initialize())
-            asyncio.create_task(screen_controller.initialize())  # AJOUT
-            # Service WebSocket Snapcast
-            asyncio.create_task(snapcast_websocket_service.initialize())
+            asyncio.create_task(init_async())
 
 # Création et configuration du conteneur
 container = Container()
