@@ -1,6 +1,6 @@
-# backend/infrastructure/services/audio_routing_service.py - AJOUT pour SnapcastWebSocketService
+# backend/infrastructure/services/audio_routing_service.py - Version OPTIM sans cross-référence
 """
-Service de routage audio pour oakOS - Version avec notification SnapcastWebSocketService
+Service de routage audio pour oakOS - Version OPTIM via événements uniquement
 """
 import os
 import json
@@ -14,7 +14,7 @@ from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class AudioRoutingService:
-    """Service de routage audio - Version avec notification SnapcastWebSocketService"""
+    """Service de routage audio - Version OPTIM sans cross-référence manuelle"""
     
     # Constantes pour la persistance
     STATE_DIR = Path("/var/lib/oakos")
@@ -27,7 +27,7 @@ class AudioRoutingService:
         self.get_plugin = get_plugin_callback  # Callback pour accéder aux plugins
         self._initial_detection_done = False
         
-        # AJOUT : Référence vers SnapcastWebSocketService (sera injectée)
+        # OPTIM : Référence vers SnapcastWebSocketService (sera injectée mais simple)
         self.snapcast_websocket_service = None
         
         # Services snapcast
@@ -134,6 +134,8 @@ class AudioRoutingService:
                 self.logger.info("Persisted state requires direct mode, stopping snapcast services")
                 await self._stop_snapcast()
             
+            # 5. OPTIM : Pas d'événements complexes, la référence directe fonctionnait bien
+            
             self._initial_detection_done = True
             self.logger.info(f"Routing initialized with persisted state: multiroom={self.state.multiroom_enabled}, equalizer={self.state.equalizer_enabled}")
             
@@ -146,7 +148,7 @@ class AudioRoutingService:
             self._initial_detection_done = True
     
     async def set_multiroom_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
-        """Active/désactive le mode multiroom avec notification SnapcastWebSocketService"""
+        """Active/désactive le mode multiroom avec notification via événements OPTIM"""
         if not self._initial_detection_done:
             await self._detect_initial_state()
         
@@ -173,7 +175,7 @@ class AudioRoutingService:
                 self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
                 return False
             
-            # AJOUT : Notifier SnapcastWebSocketService du changement d'état
+            # OPTIM CORRIGÉ : Appel direct qui fonctionnait au lieu d'événements complexes
             if self.snapcast_websocket_service:
                 if enabled:
                     await self.snapcast_websocket_service.start_connection()

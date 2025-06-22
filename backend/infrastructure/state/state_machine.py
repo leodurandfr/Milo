@@ -1,6 +1,6 @@
 # backend/infrastructure/state/state_machine.py
 """
-Machine à états unifiée avec publication directe WebSocket - Version refactorisée multiroom_enabled
+Machine à états unifiée OPTIM avec observer pattern pour événements routing
 """
 import asyncio
 import time
@@ -10,13 +10,13 @@ from backend.domain.audio_state import AudioSource, PluginState, SystemAudioStat
 from backend.application.interfaces.audio_source import AudioSourcePlugin
 
 class UnifiedAudioStateMachine:
-    """Gère l'état complet du système audio - Version refactorisée avec multiroom_enabled"""
+    """Gère l'état complet du système audio - Version OPTIM avec observer pattern"""
     
     TRANSITION_TIMEOUT = 5.0
     
     def __init__(self, routing_service=None, websocket_handler=None):
-        self.routing_service = routing_service
-        self.websocket_handler = websocket_handler  # Injection directe
+        self.routing_service = routing_service  # Sera résolu plus tard
+        self.websocket_handler = websocket_handler
         self.system_state = SystemAudioState()
         self.plugins: Dict[AudioSource, Optional[AudioSourcePlugin]] = {
             source: None for source in AudioSource 
@@ -24,16 +24,14 @@ class UnifiedAudioStateMachine:
         }
         self.logger = logging.getLogger(__name__)
         self._transition_lock = asyncio.Lock()
-        
-        # Synchroniser l'état initial si routing_service disponible
-        if self.routing_service:
-            self._sync_routing_state()
+
     
     def _sync_routing_state(self) -> None:
-        """Synchronise l'état de routage initial - Version refactorisée"""
-        routing_state = self.routing_service.get_state()
-        self.system_state.multiroom_enabled = routing_state.multiroom_enabled
-        self.system_state.equalizer_enabled = routing_state.equalizer_enabled
+        """Synchronise l'état de routage initial"""
+        if self.routing_service:
+            routing_state = self.routing_service.get_state()
+            self.system_state.multiroom_enabled = routing_state.multiroom_enabled
+            self.system_state.equalizer_enabled = routing_state.equalizer_enabled
     
     def register_plugin(self, source: AudioSource, plugin: AudioSourcePlugin) -> None:
         """Enregistre un plugin pour une source spécifique"""
@@ -48,13 +46,13 @@ class UnifiedAudioStateMachine:
         return self.plugins.get(source)
     
     def get_plugin_metadata(self, source: AudioSource) -> Dict[str, Any]:
-        """Récupère les métadonnées d'un plugin spécifique - Utilitaire OPTIM"""
+        """Récupère les métadonnées d'un plugin spécifique"""
         if source == self.system_state.active_source:
             return self.system_state.metadata
         return {}
     
     def get_plugin_state(self, source: AudioSource) -> PluginState:
-        """Récupère l'état d'un plugin spécifique - Utilitaire OPTIM"""
+        """Récupère l'état d'un plugin spécifique"""
         if source == self.system_state.active_source:
             return self.system_state.plugin_state
         return PluginState.INACTIVE
@@ -143,7 +141,7 @@ class UnifiedAudioStateMachine:
         })
     
     async def update_multiroom_state(self, enabled: bool) -> None:
-        """Met à jour l'état multiroom dans l'état système - Version refactorisée"""
+        """Met à jour l'état multiroom dans l'état système"""
         old_state = self.system_state.multiroom_enabled
         self.system_state.multiroom_enabled = enabled
         
@@ -151,6 +149,7 @@ class UnifiedAudioStateMachine:
             "old_state": old_state,
             "new_state": enabled,
             "multiroom_changed": True,
+            "multiroom_enabled": enabled,
             "source": "routing"
         })
     
@@ -165,6 +164,7 @@ class UnifiedAudioStateMachine:
             "equalizer_changed": True,
             "source": "equalizer"
         })
+
     
     async def _stop_current_source(self) -> None:
         """Arrête la source actuellement active"""
@@ -224,7 +224,7 @@ class UnifiedAudioStateMachine:
         await self._broadcast_event(category, event_type, data)
     
     async def _broadcast_event(self, category: str, event_type: str, data: Dict[str, Any]) -> None:
-        """Publie un événement directement au WebSocket - Version OPTIM"""
+        """Publie un événement directement au WebSocket"""
         if not self.websocket_handler:
             return
         

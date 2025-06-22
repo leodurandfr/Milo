@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version OPTIM simplifiée -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version 100% événementielle OPTIM -->
 <template>
   <div class="snapcast-control">
     <h3>Snapcast Clients</h3>
@@ -29,7 +29,7 @@
       v-if="selectedClient"
       :client="selectedClient"
       @close="selectedClient = null"
-      @client-updated="loadClients"
+      @client-updated="handleClientUpdated"
     />
   </div>
 </template>
@@ -56,23 +56,6 @@ const isMultiroomActive = computed(() =>
   unifiedStore.multiroomEnabled
 );
 
-// === FONCTIONS PRINCIPALES ===
-
-async function loadClients() {
-  if (!isMultiroomActive.value) {
-    clients.value = [];
-    return;
-  }
-  
-  try {
-    const response = await axios.get('/api/routing/snapcast/clients');
-    clients.value = response.data.clients || [];
-  } catch (error) {
-    console.error('Error loading clients:', error);
-    clients.value = [];
-  }
-}
-
 // === GESTIONNAIRES D'ÉVÉNEMENTS ULTRA-SIMPLES ===
 
 async function handleVolumeChange(clientId, volume) {
@@ -95,11 +78,17 @@ function handleShowDetails(client) {
   selectedClient.value = client;
 }
 
-// === GESTIONNAIRES WEBSOCKET SNAPCAST TEMPS RÉEL ===
+function handleClientUpdated() {
+  // Plus besoin de loadClients() - les événements WebSocket gèrent tout
+  console.log('Client updated via events');
+}
+
+// === GESTIONNAIRES WEBSOCKET 100% ÉVÉNEMENTIELS ===
 
 function handleClientConnected(event) {
   console.log('Client connected event:', event);
   const clientData = event.data.client;
+  
   if (clientData && !clients.value.find(c => c.id === clientData.id)) {
     // Extraire les données essentielles pour éviter la pollution
     const newClient = {
@@ -112,7 +101,7 @@ function handleClientConnected(event) {
     };
     
     clients.value.push(newClient);
-    console.log('Client connected and added:', newClient.name);
+    console.log('✅ Client connected and added:', newClient.name);
   }
 }
 
@@ -123,7 +112,7 @@ function handleClientDisconnected(event) {
   if (clientIndex !== -1) {
     const clientName = clients.value[clientIndex].name;
     clients.value.splice(clientIndex, 1);
-    console.log('Client disconnected:', clientName);
+    console.log('❌ Client disconnected and removed:', clientName);
     
     // Fermer les détails si c'est le client sélectionné
     if (selectedClient.value?.id === clientId) {
@@ -142,7 +131,7 @@ function handleClientVolumeChanged(event) {
     if (muted !== undefined) {
       client.muted = muted;
     }
-    console.log(`Client ${client.name} volume updated: ${volume}% (real volume)`);
+    console.log(`🔊 Client ${client.name} volume updated: ${volume}% (real volume)`);
   }
 }
 
@@ -152,7 +141,7 @@ function handleClientNameChanged(event) {
   
   if (client) {
     client.name = name;
-    console.log(`Client ${client_id} name updated: ${name}`);
+    console.log(`📝 Client ${client_id} name updated: ${name}`);
   }
 }
 
@@ -165,44 +154,79 @@ function handleClientMuteChanged(event) {
     if (volume !== undefined) {
       client.volume = volume;
     }
-    console.log(`Client ${client.name} mute updated: ${muted}`);
+    console.log(`🔇 Client ${client.name} mute updated: ${muted}`);
   }
 }
 
-// === LIFECYCLE ===
+function handleSystemStateChanged(event) {
+  // OPTIM : Mise à jour du store + gestion multiroom activation
+  unifiedStore.updateState(event);
+  
+  // Si le multiroom vient d'être activé, charger les clients initiaux + attendre événements
+  if (event.data.multiroom_changed && unifiedStore.multiroomEnabled) {
+    console.log('🏠 Multiroom activated - loading initial clients + waiting for real-time events');
+    loadClients();
+  }
+  // Si le multiroom vient d'être désactivé, vider la liste immédiatement
+  else if (event.data.multiroom_changed && !unifiedStore.multiroomEnabled) {
+    console.log('🏠 Multiroom deactivated - clearing clients list');
+    clients.value = [];
+    selectedClient.value = null;
+  }
+}
+
+// === LIFECYCLE OPTIM CORRIGÉ ===
 
 onMounted(async () => {
-  // S'abonner aux événements Snapcast WebSocket temps réel AVANT de charger
+  console.log('🚀 SnapcastControl mounted - OPTIM corrected mode');
+  
+  // S'abonner aux événements WebSocket temps réel AVANT de charger
   const subscriptions = [
+    // Événements Snapcast clients (temps réel)
     on('snapcast', 'client_connected', handleClientConnected),
     on('snapcast', 'client_disconnected', handleClientDisconnected),
     on('snapcast', 'client_volume_changed', handleClientVolumeChanged),
     on('snapcast', 'client_name_changed', handleClientNameChanged),
     on('snapcast', 'client_mute_changed', handleClientMuteChanged),
-    // AJOUT : Écouter les changements d'état système pour le multiroom
-    on('system', 'state_changed', (event) => {
-      unifiedStore.updateState(event);
-      // Si le multiroom vient d'être activé, charger les clients
-      if (event.data.multiroom_changed && unifiedStore.multiroomEnabled) {
-        loadClients();
-      }
-    })
+    
+    // Événements système (multiroom toggle)
+    on('system', 'state_changed', handleSystemStateChanged)
   ];
   
   unsubscribeFunctions.push(...subscriptions);
   
-  // Charger les clients initiaux APRÈS avoir configuré les abonnements
+  // OPTIM CORRIGÉ : Charger les clients initiaux SI multiroom actif
   if (isMultiroomActive.value) {
     await loadClients();
+    console.log('📡 Initial clients loaded + subscribed to real-time events');
+  } else {
+    console.log('📡 Subscribed to events, waiting for multiroom activation');
   }
 });
 
+async function loadClients() {
+  if (!isMultiroomActive.value) {
+    clients.value = [];
+    return;
+  }
+  
+  try {
+    const response = await axios.get('/api/routing/snapcast/clients');
+    clients.value = response.data.clients || [];
+    console.log(`📻 Loaded ${clients.value.length} initial clients`);
+  } catch (error) {
+    console.error('Error loading clients:', error);
+    clients.value = [];
+  }
+}
+
 onUnmounted(() => {
+  console.log('🛑 SnapcastControl unmounted - cleaning up subscriptions');
   // Nettoyer tous les abonnements WebSocket
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
 });
 
-// Watcher pour le mode multiroom (si besoin)
+// OPTIM CORRIGÉ : Garder le watcher pour sécurité + cleanup
 import { watch } from 'vue';
 watch(isMultiroomActive, async (newValue) => {
   if (newValue) {

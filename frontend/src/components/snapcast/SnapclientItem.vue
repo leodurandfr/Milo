@@ -107,10 +107,10 @@ function handleVolumeInput(newDisplayVolume) {
   if (throttleTimeout) clearTimeout(throttleTimeout);
   if (finalTimeout) clearTimeout(finalTimeout);
   
-  // Throttling pendant le drag (150ms)
+  // Throttling pendant le drag (25ms)
   throttleTimeout = setTimeout(() => {
     sendVolumeUpdate(newDisplayVolume);
-  }, 150);
+  }, 25);
   
   // Timeout de sécurité pour garantir l'envoi final (500ms)
   finalTimeout = setTimeout(() => {

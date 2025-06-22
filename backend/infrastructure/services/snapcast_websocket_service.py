@@ -1,6 +1,6 @@
 # backend/infrastructure/services/snapcast_websocket_service.py
 """
-Service WebSocket Snapcast pour notifications temps réel - Version OPTIM oakOS
+Service WebSocket Snapcast OPTIM - Observer pattern au lieu de cross-référence
 """
 import asyncio
 import json
@@ -9,11 +9,11 @@ import aiohttp
 from typing import Dict, Any, Optional
 
 class SnapcastWebSocketService:
-    """Service WebSocket pour notifications Snapcast temps réel"""
+    """Service WebSocket pour notifications Snapcast temps réel - Version OPTIM"""
     
     def __init__(self, state_machine, routing_service, host: str = "localhost", port: int = 1780):
         self.state_machine = state_machine
-        self.routing_service = routing_service
+        self.routing_service = routing_service  # OPTIM : Pour vérifier l'état initial
         self.host = host
         self.port = port
         self.ws_url = f"ws://{host}:{port}/jsonrpc"
@@ -23,14 +23,14 @@ class SnapcastWebSocketService:
         self.session: Optional[aiohttp.ClientSession] = None
         self.websocket: Optional[aiohttp.ClientWebSocketResponse] = None
         self.running = False
-        self.should_connect = False  # AJOUT : contrôle conditionnel
+        self.should_connect = False
         self.reconnect_task = None
         
         # ID pour les requêtes JSON-RPC
         self.request_id = 0
     
     async def initialize(self) -> bool:
-        """Initialise le service WebSocket (mais ne se connecte pas encore)"""
+        """Initialise le service WebSocket - Version OPTIM simplifiée"""
         try:
             self.logger.info(f"Initializing Snapcast WebSocket service: {self.ws_url}")
             self.session = aiohttp.ClientSession()
@@ -51,6 +51,7 @@ class SnapcastWebSocketService:
         except Exception as e:
             self.logger.error(f"Failed to initialize Snapcast WebSocket: {e}")
             return False
+
     
     async def start_connection(self) -> None:
         """Démarre la connexion WebSocket quand le multiroom est activé"""
@@ -108,25 +109,34 @@ class SnapcastWebSocketService:
             await self.session.close()
     
     async def _connection_loop(self) -> None:
-        """Boucle de connexion avec reconnexion automatique"""
+        """Boucle de connexion avec reconnexion intelligente OPTIM"""
+        reconnect_delay = 5  # Délai initial
+        max_delay = 30       # Délai maximum
+        
         while self.running and self.should_connect:
             try:
                 await self._connect_and_listen()
+                # Reset délai si connexion réussie
+                reconnect_delay = 5
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error(f"WebSocket connection error: {e}")
             
             if self.running and self.should_connect:
-                self.logger.info("Reconnecting to Snapcast WebSocket in 5 seconds...")
-                await asyncio.sleep(5)
+                # OPTIM : Backoff exponentiel pour éviter le spam de reconnexion
+                self.logger.info(f"Reconnecting to Snapcast WebSocket in {reconnect_delay} seconds...")
+                await asyncio.sleep(reconnect_delay)
+                reconnect_delay = min(reconnect_delay * 1.5, max_delay)
     
     async def _connect_and_listen(self) -> None:
         """Se connecte et écoute les messages WebSocket"""
         try:
             self.logger.info(f"Connecting to Snapcast WebSocket: {self.ws_url}")
             
-            self.websocket = await self.session.ws_connect(self.ws_url)
+            # OPTIM : Timeout de connexion plus court
+            timeout = aiohttp.ClientTimeout(total=5)
+            self.websocket = await self.session.ws_connect(self.ws_url, timeout=timeout)
             self.logger.info("Connected to Snapcast WebSocket")
             
             # Envoyer un ping initial pour vérifier la connexion
@@ -188,39 +198,33 @@ class SnapcastWebSocketService:
             self.logger.error(f"Error handling message: {e}")
     
     async def _handle_notification(self, notification: Dict[str, Any]) -> None:
-        """Traite une notification Snapcast"""
+        """Traite une notification Snapcast - Version OPTIM avec mapping simplifié"""
         method = notification.get("method")
         params = notification.get("params", {})
         
         self.logger.debug(f"Received Snapcast notification: {method}")
         
-        # Map des notifications Snapcast vers événements oakOS
-        notification_handlers = {
-            "Client.OnConnect": self._handle_client_connect,
-            "Client.OnDisconnect": self._handle_client_disconnect,
-            "Client.OnVolumeChanged": self._handle_client_volume_changed,
-            "Client.OnNameChanged": self._handle_client_name_changed,
-            "Client.OnLatencyChanged": self._handle_client_latency_changed,
-            "Client.OnMute": self._handle_client_mute_changed,
-            "Server.OnUpdate": self._handle_server_update,
-            "Stream.OnUpdate": self._handle_stream_update,
-            "Group.OnMute": self._handle_group_mute,
-            "Group.OnStreamChanged": self._handle_group_stream_changed
+        # OPTIM : Mapping simplifié des notifications importantes
+        critical_notifications = {
+            "Client.OnConnect": lambda p: self._handle_client_connect(p),
+            "Client.OnDisconnect": lambda p: self._handle_client_disconnect(p),
+            "Client.OnVolumeChanged": lambda p: self._handle_client_volume_changed(p),
+            "Client.OnNameChanged": lambda p: self._handle_client_name_changed(p),
+            "Client.OnMute": lambda p: self._handle_client_mute_changed(p)
         }
         
-        handler = notification_handlers.get(method)
-        if handler:
-            await handler(params)
+        if method in critical_notifications:
+            await critical_notifications[method](params)
         else:
+            # OPTIM : Log debug pour les autres notifications (pas de handlers inutiles)
             self.logger.debug(f"Unhandled notification: {method}")
     
     async def _handle_response(self, response: Dict[str, Any]) -> None:
         """Traite une réponse à une requête"""
         if "error" in response:
             self.logger.error(f"Snapcast RPC error: {response['error']}")
-        # Les réponses ne génèrent pas d'événements pour l'instant
     
-    # === HANDLERS DES NOTIFICATIONS SNAPCAST ===
+    # === HANDLERS DES NOTIFICATIONS CRITIQUES OPTIM ===
     
     async def _handle_client_connect(self, params: Dict[str, Any]) -> None:
         """Client connecté"""
@@ -260,13 +264,6 @@ class SnapcastWebSocketService:
             "name": params.get("name")
         })
     
-    async def _handle_client_latency_changed(self, params: Dict[str, Any]) -> None:
-        """Latence client changée"""
-        await self._broadcast_snapcast_event("client_latency_changed", {
-            "client_id": params.get("id"),
-            "latency": params.get("latency")
-        })
-    
     async def _handle_client_mute_changed(self, params: Dict[str, Any]) -> None:
         """Mute client changé"""
         volume_data = params.get("volume", {})
@@ -274,32 +271,6 @@ class SnapcastWebSocketService:
             "client_id": params.get("id"),
             "muted": volume_data.get("muted", False),
             "volume": volume_data.get("percent", 0)
-        })
-    
-    async def _handle_server_update(self, params: Dict[str, Any]) -> None:
-        """Mise à jour serveur"""
-        await self._broadcast_snapcast_event("server_update", {
-            "server": params.get("server", {})
-        })
-    
-    async def _handle_stream_update(self, params: Dict[str, Any]) -> None:
-        """Mise à jour stream"""
-        await self._broadcast_snapcast_event("stream_update", {
-            "stream": params.get("stream", {})
-        })
-    
-    async def _handle_group_mute(self, params: Dict[str, Any]) -> None:
-        """Groupe mute changé"""
-        await self._broadcast_snapcast_event("group_mute_changed", {
-            "group_id": params.get("id"),
-            "muted": params.get("mute")
-        })
-    
-    async def _handle_group_stream_changed(self, params: Dict[str, Any]) -> None:
-        """Stream du groupe changé"""
-        await self._broadcast_snapcast_event("group_stream_changed", {
-            "group_id": params.get("id"),
-            "stream_id": params.get("stream_id")
         })
     
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
