@@ -1,6 +1,6 @@
 # backend/infrastructure/services/snapcast_service.py
 """
-Service Snapcast OPTIMISÉ - Réduction redondances + gestion erreurs améliorée
+Service Snapcast SIMPLIFIÉ - Uniquement commandes REST (WebSocket service gère les notifications)
 """
 import aiohttp
 import asyncio
@@ -11,17 +11,16 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 class SnapcastService:
-    """Service Snapcast optimisé avec réduction des redondances"""
+    """Service Snapcast simplifié - Commandes REST uniquement"""
     
     def __init__(self, host: str = "localhost", port: int = 1780):
         self.base_url = f"http://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
         self._request_id = 0
         self.snapserver_conf = Path("/etc/snapserver.conf")
-        
     
     async def _request(self, method: str, params: dict = None) -> dict:
-        """Requête JSON-RPC optimisée vers Snapcast"""
+        """Requête JSON-RPC simplifiée vers Snapcast"""
         self._request_id += 1
         request = {"id": self._request_id, "jsonrpc": "2.0", "method": method}
         if params:
@@ -39,10 +38,81 @@ class SnapcastService:
             self.logger.error(f"Snapcast request failed: {e}")
             return {}
     
-    # === MÉTHODES CLIENT OPTIMISÉES ===
+    # === COMMANDES CLIENT (REST uniquement) ===
+    
+    async def set_volume(self, client_id: str, volume: int) -> bool:
+        """Change le volume d'un client"""
+        try:
+            # Récupérer l'état mute actuel
+            clients = await self.get_clients()
+            current_muted = False
+            for client in clients:
+                if client["id"] == client_id:
+                    current_muted = client["muted"]
+                    break
+            
+            result = await self._request("Client.SetVolume", {
+                "id": client_id,
+                "volume": {"percent": max(0, min(100, volume)), "muted": current_muted}
+            })
+            return bool(result)
+            
+        except Exception as e:
+            self.logger.error(f"Error setting volume: {e}")
+            return False
+    
+    async def set_mute(self, client_id: str, muted: bool) -> bool:
+        """Mute/unmute un client"""
+        try:
+            # Récupérer le volume actuel
+            clients = await self.get_clients()
+            current_volume = 50  # Valeur par défaut
+            
+            for client in clients:
+                if client["id"] == client_id:
+                    current_volume = client["volume"]
+                    break
+            
+            result = await self._request("Client.SetVolume", {
+                "id": client_id,
+                "volume": {"percent": current_volume, "muted": muted}
+            })
+            return bool(result)
+            
+        except Exception as e:
+            self.logger.error(f"Error setting mute: {e}")
+            return False
+    
+    async def set_client_latency(self, client_id: str, latency: int) -> bool:
+        """Configure la latence d'un client"""
+        try:
+            result = await self._request("Client.SetLatency", {
+                "id": client_id,
+                "latency": max(0, min(1000, latency))
+            })
+            return bool(result)
+            
+        except Exception as e:
+            self.logger.error(f"Error setting client latency: {e}")
+            return False
+    
+    async def set_client_name(self, client_id: str, name: str) -> bool:
+        """Configure le nom d'un client"""
+        try:
+            result = await self._request("Client.SetName", {
+                "id": client_id,
+                "name": name.strip()
+            })
+            return bool(result)
+            
+        except Exception as e:
+            self.logger.error(f"Error setting client name: {e}")
+            return False
+    
+    # === REQUÊTES D'ÉTAT (pour les API REST) ===
     
     async def get_clients(self) -> List[Dict[str, Any]]:
-        """Récupère les clients"""
+        """Récupère les clients (utilisé par les API REST)"""
         try:
             status = await self._request("Server.GetStatus")
             return self._extract_clients(status)
@@ -118,82 +188,15 @@ class SnapcastService:
             self.logger.error(f"Error getting detailed clients: {e}")
             return []
     
-    # === MÉTHODES CONTRÔLE CLIENT OPTIMISÉES ===
+    def _calculate_connection_quality(self, last_seen: Dict[str, Any]) -> str:
+        """Calcule la qualité de connexion basée sur lastSeen"""
+        if not last_seen:
+            return "unknown"
+        
+        sec = last_seen.get("sec", 0)
+        return "good" if sec > 0 else "poor"
     
-    async def set_volume(self, client_id: str, volume: int) -> bool:
-        """Change le volume d'un client - Simplifié"""
-        try:
-            
-            # Récupérer l'état mute actuel directement
-            clients = await self.get_clients()
-            current_muted = False
-            for client in clients:
-                if client["id"] == client_id:
-                    current_muted = client["muted"]
-                    break
-            
-            result = await self._request("Client.SetVolume", {
-                "id": client_id,
-                "volume": {"percent": max(0, min(100, volume)), "muted": current_muted}
-            })
-            return bool(result)
-            
-        except Exception as e:
-            self.logger.error(f"Error setting volume: {e}")
-            return False
-    
-    async def set_mute(self, client_id: str, muted: bool) -> bool:
-        """Mute/unmute un client - Simplifié"""
-        try:
-            # Récupérer le volume actuel directement
-            clients = await self.get_clients()
-            current_volume = 50  # Valeur par défaut
-            
-            for client in clients:
-                if client["id"] == client_id:
-                    current_volume = client["volume"]
-                    break
-            
-            
-            result = await self._request("Client.SetVolume", {
-                "id": client_id,
-                "volume": {"percent": current_volume, "muted": muted}
-            })
-            return bool(result)
-            
-        except Exception as e:
-            self.logger.error(f"Error setting mute: {e}")
-            return False
-    
-    async def set_client_latency(self, client_id: str, latency: int) -> bool:
-        """Configure la latence d'un client"""
-        try:
-                        
-            result = await self._request("Client.SetLatency", {
-                "id": client_id,
-                "latency": max(0, min(1000, latency))
-            })
-            return bool(result)
-            
-        except Exception as e:
-            self.logger.error(f"Error setting client latency: {e}")
-            return False
-    
-    async def set_client_name(self, client_id: str, name: str) -> bool:
-        """Configure le nom d'un client"""
-        try:
-            
-            result = await self._request("Client.SetName", {
-                "id": client_id,
-                "name": name.strip()
-            })
-            return bool(result)
-            
-        except Exception as e:
-            self.logger.error(f"Error setting client name: {e}")
-            return False
-    
-    # === MÉTHODES UTILITAIRES ===
+    # === VÉRIFICATION DE DISPONIBILITÉ ===
     
     async def is_available(self) -> bool:
         """Vérifie si Snapcast est disponible"""
@@ -203,22 +206,14 @@ class SnapcastService:
         except:
             return False
     
-    def _calculate_connection_quality(self, last_seen: Dict[str, Any]) -> str:
-        """Calcule la qualité de connexion basée sur lastSeen"""
-        if not last_seen:
-            return "unknown"
-        
-        sec = last_seen.get("sec", 0)
-        return "good" if sec > 0 else "poor"
-    
-    # === CONFIGURATION SERVEUR OPTIMISÉE ===
+    # === CONFIGURATION SERVEUR ===
     
     async def get_server_config(self) -> Dict[str, Any]:
-        """Récupère la configuration avec parser optimisé"""
+        """Récupère la configuration serveur"""
         try:
-            # Récupérer les infos API en parallèle avec la lecture fichier
+            # Récupérer les infos API et lecture fichier en parallèle
             api_task = self._request("Server.GetStatus")
-            file_task = self._read_snapserver_conf_optimized()
+            file_task = self._read_snapserver_conf()
             
             status, file_config = await asyncio.gather(api_task, file_task)
             
@@ -250,8 +245,8 @@ class SnapcastService:
             self.logger.error(f"Error getting server config: {e}")
             return {}
     
-    async def _read_snapserver_conf_optimized(self) -> Dict[str, Any]:
-        """Parser optimisé pour snapserver.conf"""
+    async def _read_snapserver_conf(self) -> Dict[str, Any]:
+        """Parser pour snapserver.conf"""
         try:
             if not self.snapserver_conf.exists():
                 return {}
@@ -289,15 +284,15 @@ class SnapcastService:
             return {}
     
     async def update_server_config(self, config: Dict[str, Any]) -> bool:
-        """Met à jour la configuration serveur avec validation optimisée"""
+        """Met à jour la configuration serveur"""
         try:
-            if not self._validate_config_optimized(config):
+            if not self._validate_config(config):
                 return False
             
             # Forcer sampleformat
             config["sampleformat"] = "48000:16:2"
             
-            success = await self._update_config_file_optimized(config)
+            success = await self._update_config_file(config)
             if not success:
                 return False
             
@@ -307,8 +302,8 @@ class SnapcastService:
             self.logger.error(f"Error updating server config: {e}")
             return False
     
-    def _validate_config_optimized(self, config: Dict[str, Any]) -> bool:
-        """Validation optimisée des paramètres"""
+    def _validate_config(self, config: Dict[str, Any]) -> bool:
+        """Validation des paramètres"""
         validators = {
             "buffer": lambda x: isinstance(x, int) and 100 <= x <= 2000,
             "codec": lambda x: x in ["flac", "pcm", "opus", "ogg"],
@@ -322,8 +317,8 @@ class SnapcastService:
         
         return True
     
-    async def _update_config_file_optimized(self, config: Dict[str, Any]) -> bool:
-        """Met à jour le fichier avec optimisation"""
+    async def _update_config_file(self, config: Dict[str, Any]) -> bool:
+        """Met à jour le fichier de configuration"""
         try:
             if not self.snapserver_conf.exists():
                 self.logger.error("snapserver.conf not found")
@@ -332,9 +327,9 @@ class SnapcastService:
             async with aiofiles.open(self.snapserver_conf, 'r') as f:
                 content = await f.read()
             
-            updated_content = self._modify_config_content_optimized(content, config)
+            updated_content = self._modify_config_content(content, config)
             
-            # Écriture atomique via fichier temporaire
+            # Écriture atomique
             temp_file = "/tmp/snapserver_temp.conf"
             async with aiofiles.open(temp_file, 'w') as f:
                 await f.write(updated_content)
@@ -359,8 +354,8 @@ class SnapcastService:
             self.logger.error(f"Error updating config file: {e}")
             return False
     
-    def _modify_config_content_optimized(self, content: str, config: Dict[str, Any]) -> str:
-        """Modification optimisée du contenu fichier"""
+    def _modify_config_content(self, content: str, config: Dict[str, Any]) -> str:
+        """Modification du contenu fichier"""
         lines = content.split('\n')
         updated_lines = []
         in_stream_section = False
@@ -432,38 +427,3 @@ class SnapcastService:
         except Exception as e:
             self.logger.error(f"Error restarting snapserver: {e}")
             return False
-    
-    async def get_simple_health(self) -> Dict[str, Any]:
-        """Diagnostic de santé optimisé"""
-        try:
-            api_available = await self.is_available()
-            
-            if not api_available:
-                return {
-                    "status": "error",
-                    "message": "Snapcast API non disponible",
-                    "details": {
-                        "api": False,
-                        "clients": 0,
-                        "config_file": self.snapserver_conf.exists()
-                    }
-                }
-            
-            clients = await self.get_clients()
-            
-            return {
-                "status": "ok",
-                "message": f"Snapcast opérationnel ({len(clients)} client(s))",
-                "details": {
-                    "api": True,
-                    "clients": len(clients),
-                    "config_file": self.snapserver_conf.exists()
-                }
-            }
-            
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": f"Erreur: {str(e)}",
-                "details": {"error": str(e)}
-            }

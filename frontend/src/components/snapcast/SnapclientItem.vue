@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version corrigée interpolation -->
+<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version OPTIM avec drag temps réel -->
 <template>
   <div class="snapclient-item">
     <!-- Informations du client -->
@@ -8,16 +8,16 @@
 
     <!-- Contrôles du client -->
     <div class="client-controls">
-      <!-- Contrôle du volume avec RangeSlider (affichage 0-100%) -->
+      <!-- Contrôle du volume avec drag temps réel -->
       <div class="volume-control">
         <RangeSlider 
           :model-value="displayVolume" 
-          :min="0" 
-          :max="100" 
+          :min="minVolumeDisplay" 
+          :max="maxVolumeDisplay" 
           :step="1" 
           orientation="horizontal"
-          :disabled="client.muted || updating" 
-          @input="handleVolumeInput" 
+          :disabled="client.muted" 
+          @input="handleVolumeInput"
           @change="handleVolumeChange" 
         />
         <span class="volume-label">{{ displayVolume }}%</span>
@@ -30,14 +30,14 @@
 
       <!-- Toggle Mute -->
       <div class="mute-control">
-        <Toggle :model-value="!client.muted" :disabled="updating" @change="handleMuteToggle" />
+        <Toggle :model-value="!client.muted" @change="handleMuteToggle" />
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed } from 'vue';
 import { useVolumeStore } from '@/stores/volumeStore';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -53,125 +53,112 @@ const props = defineProps({
 // Émissions
 const emit = defineEmits(['volume-change', 'mute-toggle', 'show-details']);
 
-// LIMITES DE VOLUME (récupérées automatiquement du backend via store)
+// Store volume pour les limites
 const volumeStore = useVolumeStore();
 
-// Limites dynamiques depuis le backend (avec fallback CORRIGÉ)
-const MIN_VOLUME = computed(() => volumeStore.volumeLimits?.min ?? 5);  // ✅ Corrigé : 5 au lieu de 40
-const MAX_VOLUME = computed(() => volumeStore.volumeLimits?.max ?? 60); // ✅ Corrigé : 60 au lieu de 75
+// === ÉTAT LOCAL POUR DRAG ===
 
-// État local optimisé
-const localDisplayVolume = ref(null);
-const updating = ref(false);
+const localDisplayVolume = ref(null); // Feedback visuel immédiat pendant drag
+let throttleTimeout = null;
+let finalTimeout = null;
 
-// === FONCTIONS D'INTERPOLATION CORRIGÉES ===
+// === LIMITES DE VOLUME ===
+
+// Limites réelles depuis le backend (avec fallback)
+const MIN_VOLUME = computed(() => volumeStore.volumeLimits?.min ?? 0);
+const MAX_VOLUME = computed(() => volumeStore.volumeLimits?.max ?? 55);
+
+// Conversion pour affichage (0-100%)
+const minVolumeDisplay = computed(() => 0);
+const maxVolumeDisplay = computed(() => 100);
+
+// === FONCTIONS D'INTERPOLATION ===
 
 function interpolateToDisplay(actualVolume) {
-  /**
-   * Convertit le volume réel (MIN-MAX) en volume d'affichage (0-100%)
-   * ✅ AJOUT : Clamp pour gérer les valeurs hors bornes existantes
-   */
-  // Clamp dans les limites avant interpolation
+  // Convertit le volume réel (MIN-MAX) en volume d'affichage (0-100%)
   const clampedVolume = Math.max(MIN_VOLUME.value, Math.min(MAX_VOLUME.value, actualVolume));
-  
   const actualRange = MAX_VOLUME.value - MIN_VOLUME.value;
   const normalized = clampedVolume - MIN_VOLUME.value;
   return Math.round((normalized / actualRange) * 100);
 }
 
 function interpolateFromDisplay(displayVolume) {
-  /**
-   * Convertit le volume d'affichage (0-100%) en volume réel (MIN-MAX)
-   */
+  // Convertit le volume d'affichage (0-100%) en volume réel (MIN-MAX)
   const actualRange = MAX_VOLUME.value - MIN_VOLUME.value;
   return Math.round((displayVolume / 100) * actualRange) + MIN_VOLUME.value;
 }
 
 // === VOLUME AFFICHÉ ===
 
-// Volume affiché avec feedback immédiat (conversion avec clamp)
 const displayVolume = computed(() => {
-  if (localDisplayVolume.value !== null) {
-    return localDisplayVolume.value;
-  }
-  
-  // Convertir le volume client vers affichage (avec clamp automatique)
-  return interpolateToDisplay(props.client.volume);
+  // Utiliser volume local pendant le drag, sinon volume du client
+  return localDisplayVolume.value !== null 
+    ? localDisplayVolume.value 
+    : interpolateToDisplay(props.client.volume);
 });
 
-// === WATCHERS ===
-
-// Watcher pour nettoyer localDisplayVolume quand client.volume change (mise à jour WebSocket)
-watch(() => props.client.volume, (newVolume, oldVolume) => {
-  // Si le volume client change et qu'on n'a pas de modification locale en cours
-  if (newVolume !== oldVolume && localDisplayVolume.value === null) {
-    console.log(`Client ${props.client.name} volume updated externally: ${oldVolume}% → ${newVolume}%`);
-  }
-  
-  // Si le volume change ET qu'on a une valeur locale différente, nettoyer
-  if (localDisplayVolume.value !== null) {
-    const expectedDisplay = interpolateToDisplay(newVolume);
-    if (Math.abs(localDisplayVolume.value - expectedDisplay) > 2) {
-      console.log(`Clearing local volume for ${props.client.name} due to external update`);
-      localDisplayVolume.value = null;
-    }
-  }
-});
-
-// === GESTIONNAIRES D'ÉVÉNEMENTS ===
-
-async function handleMuteToggle(enabled) {
-  if (updating.value) return;
-
-  updating.value = true;
-  const newMuted = !enabled; // Toggle inversé (enabled = pas muted)
-
-  // Feedback immédiat
-  props.client.muted = newMuted;
-
-  try {
-    emit('mute-toggle', props.client.id, newMuted);
-  } catch (error) {
-    // Restaurer en cas d'erreur
-    props.client.muted = !newMuted;
-    console.error('Error toggling mute:', error);
-  } finally {
-    updating.value = false;
-  }
-}
+// === GESTIONNAIRES D'ÉVÉNEMENTS AVEC THROTTLING OPTIM ===
 
 function handleVolumeInput(newDisplayVolume) {
-  // Feedback visuel immédiat (garde la valeur d'affichage)
+  // Feedback visuel immédiat
   localDisplayVolume.value = newDisplayVolume;
-
-  // Convertir vers volume réel pour l'envoi
-  const realVolume = interpolateFromDisplay(newDisplayVolume);
   
-  console.log(`Volume input: display=${newDisplayVolume}% → real=${realVolume}%`);
+  // Nettoyer les timeouts existants
+  if (throttleTimeout) clearTimeout(throttleTimeout);
+  if (finalTimeout) clearTimeout(finalTimeout);
   
-  // Émettre pour throttling dans le parent (avec la valeur réelle)
-  emit('volume-change', props.client.id, realVolume, 'input');
+  // Throttling pendant le drag (150ms)
+  throttleTimeout = setTimeout(() => {
+    sendVolumeUpdate(newDisplayVolume);
+  }, 150);
+  
+  // Timeout de sécurité pour garantir l'envoi final (500ms)
+  finalTimeout = setTimeout(() => {
+    sendVolumeUpdate(newDisplayVolume);
+  }, 500);
 }
 
 function handleVolumeChange(newDisplayVolume) {
-  // Nettoyer le volume local
+  // Fin du drag - nettoyer et envoyer la valeur finale
+  if (throttleTimeout) clearTimeout(throttleTimeout);
+  if (finalTimeout) clearTimeout(finalTimeout);
+  
+  // Reset du volume local
   localDisplayVolume.value = null;
   
-  // Convertir vers volume réel
-  const realVolume = interpolateFromDisplay(newDisplayVolume);
+  // Envoyer la valeur finale
+  sendVolumeUpdate(newDisplayVolume);
+}
+
+function sendVolumeUpdate(displayVolume) {
+  // Convertir vers volume réel avec limites
+  const realVolume = interpolateFromDisplay(displayVolume);
   
-  // Mise à jour immédiate du client avec la valeur réelle
-  props.client.volume = realVolume;
+  console.log(`Volume update: display=${displayVolume}% → real=${realVolume}% (limits: ${MIN_VOLUME.value}-${MAX_VOLUME.value}%)`);
   
-  console.log(`Volume change: display=${newDisplayVolume}% → real=${realVolume}%`);
-  
-  // Émettre la valeur finale (avec la valeur réelle)
-  emit('volume-change', props.client.id, realVolume, 'change');
+  // Le WebSocket Snapcast se chargera de la mise à jour
+  emit('volume-change', props.client.id, realVolume);
+}
+
+function handleMuteToggle(enabled) {
+  // Toggle inversé (enabled = pas muted)
+  const newMuted = !enabled;
+  emit('mute-toggle', props.client.id, newMuted);
 }
 
 function handleShowDetails() {
   emit('show-details', props.client);
 }
+
+// === NETTOYAGE ===
+
+import { onUnmounted } from 'vue';
+
+onUnmounted(() => {
+  // Nettoyer les timeouts
+  if (throttleTimeout) clearTimeout(throttleTimeout);
+  if (finalTimeout) clearTimeout(finalTimeout);
+});
 </script>
 
 <style scoped>

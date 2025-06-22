@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version nettoyée -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version OPTIM simplifiée -->
 <template>
   <div class="snapcast-control">
     <h3>Snapcast Clients</h3>
@@ -10,7 +10,7 @@
     
     <div v-else-if="clients.length === 0" class="status-message">
       <span class="status-dot loading"></span>
-      {{ loading ? 'Chargement...' : 'Aucun client connecté' }}
+      Aucun client connecté
     </div>
     
     <div v-else class="clients-list">
@@ -29,13 +29,13 @@
       v-if="selectedClient"
       :client="selectedClient"
       @close="selectedClient = null"
-      @client-updated="fetchClients"
+      @client-updated="loadClients"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
@@ -45,15 +45,9 @@ import SnapclientDetails from './SnapclientDetails.vue';
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
-// État local optimisé
+// État local ultra-simple
 const clients = ref([]);
-const loading = ref(false);
 const selectedClient = ref(null);
-
-// Gestion du throttling optimisée avec Map
-const volumeThrottleMap = new Map();
-const THROTTLE_DELAY = 200;
-const FINAL_DELAY = 500;
 
 // Références pour nettoyage
 let unsubscribeFunctions = [];
@@ -62,99 +56,36 @@ const isMultiroomActive = computed(() =>
   unifiedStore.multiroomEnabled
 );
 
-// === MÉTHODES PRINCIPALES ===
+// === FONCTIONS PRINCIPALES ===
 
-async function fetchClients() {
+async function loadClients() {
   if (!isMultiroomActive.value) {
     clients.value = [];
     return;
   }
   
-  loading.value = true;
   try {
     const response = await axios.get('/api/routing/snapcast/clients');
     clients.value = response.data.clients || [];
   } catch (error) {
-    console.error('Error fetching clients:', error);
+    console.error('Error loading clients:', error);
     clients.value = [];
-  } finally {
-    loading.value = false;
   }
 }
 
-// === GESTIONNAIRES D'ÉVÉNEMENTS OPTIMISÉS ===
+// === GESTIONNAIRES D'ÉVÉNEMENTS ULTRA-SIMPLES ===
 
-function handleVolumeChange(clientId, volume, type = 'input') {
-  if (type === 'input') {
-    handleVolumeThrottled(clientId, volume);
-  } else {
-    // type === 'change' - valeur finale
-    sendVolumeRequest(clientId, volume);
-    clearThrottleForClient(clientId);
-  }
-}
-
-function handleVolumeThrottled(clientId, volume) {
-  const now = Date.now();
-  let state = volumeThrottleMap.get(clientId) || {};
-  
-  // Nettoyer les timeouts existants
-  if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
-  if (state.finalTimeout) clearTimeout(state.finalTimeout);
-  
-  // Envoyer immédiatement si pas de requête récente
-  if (!state.lastRequestTime || (now - state.lastRequestTime) >= THROTTLE_DELAY) {
-    sendVolumeRequest(clientId, volume);
-    state.lastRequestTime = now;
-  } else {
-    // Programmer une requête throttlée
-    state.throttleTimeout = setTimeout(() => {
-      sendVolumeRequest(clientId, volume);
-      state.lastRequestTime = Date.now();
-    }, THROTTLE_DELAY - (now - state.lastRequestTime));
-  }
-  
-  // Toujours programmer une requête finale
-  state.finalTimeout = setTimeout(() => {
-    sendVolumeRequest(clientId, volume);
-    state.lastRequestTime = Date.now();
-  }, FINAL_DELAY);
-  
-  volumeThrottleMap.set(clientId, state);
-}
-
-async function sendVolumeRequest(clientId, volume) {
+async function handleVolumeChange(clientId, volume) {
   try {
-    const response = await axios.post(`/api/routing/snapcast/client/${clientId}/volume`, { 
-      volume 
-    });
-    
-    if (response.data.status !== 'success') {
-      console.error('Failed to update volume:', response.data.message);
-    }
+    await axios.post(`/api/routing/snapcast/client/${clientId}/volume`, { volume });
   } catch (error) {
     console.error('Error updating volume:', error);
   }
 }
 
-function clearThrottleForClient(clientId) {
-  const state = volumeThrottleMap.get(clientId);
-  if (state) {
-    if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
-    if (state.finalTimeout) clearTimeout(state.finalTimeout);
-    volumeThrottleMap.delete(clientId);
-  }
-}
-
 async function handleMuteToggle(clientId, muted) {
   try {
-    const response = await axios.post(`/api/routing/snapcast/client/${clientId}/mute`, { 
-      muted 
-    });
-    
-    if (response.data.status !== 'success') {
-      console.error('Failed to toggle mute:', response.data.message);
-    }
+    await axios.post(`/api/routing/snapcast/client/${clientId}/mute`, { muted });
   } catch (error) {
     console.error('Error toggling mute:', error);
   }
@@ -164,64 +95,121 @@ function handleShowDetails(client) {
   selectedClient.value = client;
 }
 
-// === GESTION WEBSOCKET (SNAPCAST UNIQUEMENT) ===
+// === GESTIONNAIRES WEBSOCKET SNAPCAST TEMPS RÉEL ===
 
-function handleSnapcastUpdate(event) {
-  if (event.data.snapcast_update && isMultiroomActive.value) {
-    console.log('Received Snapcast update via WebSocket, refreshing clients');
+function handleClientConnected(event) {
+  console.log('Client connected event:', event);
+  const clientData = event.data.client;
+  if (clientData && !clients.value.find(c => c.id === clientData.id)) {
+    // Extraire les données essentielles pour éviter la pollution
+    const newClient = {
+      id: clientData.id,
+      name: clientData.config?.name || clientData.host?.name || 'Unknown',
+      volume: clientData.config?.volume?.percent || 0,
+      muted: clientData.config?.volume?.muted || false,
+      host: clientData.host?.name || 'Unknown',
+      ip: clientData.host?.ip?.replace('::ffff:', '') || 'Unknown'
+    };
     
-    // Éviter le refresh si des modifications locales sont en cours
-    if (volumeThrottleMap.size === 0) {
-      fetchClients();
-    } else {
-      console.log('Skipping refresh due to local volume changes in progress');
+    clients.value.push(newClient);
+    console.log('Client connected and added:', newClient.name);
+  }
+}
+
+function handleClientDisconnected(event) {
+  const clientId = event.data.client_id;
+  const clientIndex = clients.value.findIndex(c => c.id === clientId);
+  
+  if (clientIndex !== -1) {
+    const clientName = clients.value[clientIndex].name;
+    clients.value.splice(clientIndex, 1);
+    console.log('Client disconnected:', clientName);
+    
+    // Fermer les détails si c'est le client sélectionné
+    if (selectedClient.value?.id === clientId) {
+      selectedClient.value = null;
     }
+  }
+}
+
+function handleClientVolumeChanged(event) {
+  const { client_id, volume, muted } = event.data;
+  const client = clients.value.find(c => c.id === client_id);
+  
+  if (client) {
+    // Le volume reçu est le volume réel (limites appliquées côté backend)
+    client.volume = volume;
+    if (muted !== undefined) {
+      client.muted = muted;
+    }
+    console.log(`Client ${client.name} volume updated: ${volume}% (real volume)`);
+  }
+}
+
+function handleClientNameChanged(event) {
+  const { client_id, name } = event.data;
+  const client = clients.value.find(c => c.id === client_id);
+  
+  if (client) {
+    client.name = name;
+    console.log(`Client ${client_id} name updated: ${name}`);
+  }
+}
+
+function handleClientMuteChanged(event) {
+  const { client_id, muted, volume } = event.data;
+  const client = clients.value.find(c => c.id === client_id);
+  
+  if (client) {
+    client.muted = muted;
+    if (volume !== undefined) {
+      client.volume = volume;
+    }
+    console.log(`Client ${client.name} mute updated: ${muted}`);
   }
 }
 
 // === LIFECYCLE ===
 
 onMounted(async () => {
+  // S'abonner aux événements Snapcast WebSocket temps réel AVANT de charger
+  const subscriptions = [
+    on('snapcast', 'client_connected', handleClientConnected),
+    on('snapcast', 'client_disconnected', handleClientDisconnected),
+    on('snapcast', 'client_volume_changed', handleClientVolumeChanged),
+    on('snapcast', 'client_name_changed', handleClientNameChanged),
+    on('snapcast', 'client_mute_changed', handleClientMuteChanged),
+    // AJOUT : Écouter les changements d'état système pour le multiroom
+    on('system', 'state_changed', (event) => {
+      unifiedStore.updateState(event);
+      // Si le multiroom vient d'être activé, charger les clients
+      if (event.data.multiroom_changed && unifiedStore.multiroomEnabled) {
+        loadClients();
+      }
+    })
+  ];
+  
+  unsubscribeFunctions.push(...subscriptions);
+  
+  // Charger les clients initiaux APRÈS avoir configuré les abonnements
   if (isMultiroomActive.value) {
-    await fetchClients();
+    await loadClients();
   }
-  
-  // S'abonner uniquement aux événements Snapcast (pas volume)
-  const unsubscribe = on('system', 'state_changed', (event) => {
-    if (event.source === 'snapcast') {
-      handleSnapcastUpdate(event);
-    }
-  });
-  
-  unsubscribeFunctions.push(unsubscribe);
 });
 
 onUnmounted(() => {
-  // Nettoyer les abonnements WebSocket
+  // Nettoyer tous les abonnements WebSocket
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
-  
-  // Nettoyer tous les timeouts en cours
-  volumeThrottleMap.forEach(state => {
-    if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
-    if (state.finalTimeout) clearTimeout(state.finalTimeout);
-  });
-  volumeThrottleMap.clear();
 });
 
-// Watcher pour le mode multiroom
+// Watcher pour le mode multiroom (si besoin)
+import { watch } from 'vue';
 watch(isMultiroomActive, async (newValue) => {
   if (newValue) {
-    await fetchClients();
+    await loadClients();
   } else {
     clients.value = [];
     selectedClient.value = null;
-    
-    // Nettoyer les états des requêtes
-    volumeThrottleMap.forEach(state => {
-      if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
-      if (state.finalTimeout) clearTimeout(state.finalTimeout);
-    });
-    volumeThrottleMap.clear();
   }
 });
 </script>

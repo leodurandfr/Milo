@@ -1,6 +1,6 @@
-# backend/main.py - Mise à jour avec routes volume
+# backend/main.py - Mise à jour avec SnapcastWebSocketService
 """
-Point d'entrée principal de l'application oakOS - Version avec VolumeService
+Point d'entrée principal de l'application oakOS - Version avec SnapcastWebSocketService
 """
 import sys
 import os
@@ -16,7 +16,7 @@ from backend.presentation.api.routes import audio
 from backend.presentation.api.routes.routing import create_routing_router
 from backend.presentation.api.routes.snapcast import create_snapcast_router
 from backend.presentation.api.routes.equalizer import create_equalizer_router
-from backend.presentation.api.routes.volume import create_volume_router  # AJOUT
+from backend.presentation.api.routes.volume import create_volume_router
 from backend.presentation.api.routes.librespot import setup_librespot_routes
 from backend.presentation.api.routes.roc import setup_roc_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
@@ -31,15 +31,16 @@ logger = logging.getLogger(__name__)
 state_machine = container.audio_state_machine()
 routing_service = container.audio_routing_service()
 snapcast_service = container.snapcast_service()
+snapcast_websocket_service = container.snapcast_websocket_service()  # AJOUT
 equalizer_service = container.equalizer_service()
-volume_service = container.volume_service()  # AJOUT
-rotary_controller = container.rotary_controller()  # AJOUT
+volume_service = container.volume_service()
+rotary_controller = container.rotary_controller()
 ws_manager = container.websocket_manager()
 websocket_server = WebSocketServer(ws_manager, state_machine)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Gestion du cycle de vie avec services volume et hardware"""
+    """Gestion du cycle de vie avec SnapcastWebSocketService"""
     try:
         # Initialiser les services
         container.initialize_services()
@@ -54,7 +55,7 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     logger.error(f"Plugin {source.value} initialization failed: {e}")
         
-        logger.info("oakOS backend startup completed with volume control")
+        logger.info("oakOS backend startup completed with Snapcast WebSocket service")
         
     except Exception as e:
         logger.error(f"Application startup failed: {e}")
@@ -62,14 +63,18 @@ async def lifespan(app: FastAPI):
     
     yield  # L'application tourne
     
-    # Cleanup avec hardware
+    # Cleanup avec SnapcastWebSocketService
     logger.info("oakOS backend shutting down...")
     try:
+        # AJOUT : Nettoyer le service WebSocket Snapcast
+        await snapcast_websocket_service.cleanup()
+        logger.info("Snapcast WebSocket service cleanup completed")
+        
         # Nettoyer le contrôleur rotary
         rotary_controller.cleanup()
         logger.info("Hardware cleanup completed")
     except Exception as e:
-        logger.error(f"Hardware cleanup error: {e}")
+        logger.error(f"Cleanup error: {e}")
 
 # Création de l'application FastAPI
 app = FastAPI(title="oakOS API", lifespan=lifespan)
@@ -83,7 +88,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routes
+# Routes (inchangées)
 audio_router = audio.create_router(state_machine)
 app.include_router(audio_router)
 
@@ -96,7 +101,7 @@ app.include_router(snapcast_router)
 equalizer_router = create_equalizer_router(equalizer_service, state_machine)
 app.include_router(equalizer_router)
 
-volume_router = create_volume_router(volume_service)  # AJOUT
+volume_router = create_volume_router(volume_service)
 app.include_router(volume_router)
 
 librespot_router = setup_librespot_routes(

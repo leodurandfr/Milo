@@ -1,6 +1,6 @@
-# backend/infrastructure/services/audio_routing_service.py
+# backend/infrastructure/services/audio_routing_service.py - AJOUT pour SnapcastWebSocketService
 """
-Service de routage audio pour oakOS - Version refactorisée avec persistance automatique
+Service de routage audio pour oakOS - Version avec notification SnapcastWebSocketService
 """
 import os
 import json
@@ -14,7 +14,7 @@ from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class AudioRoutingService:
-    """Service de routage audio - Version refactorisée avec persistance automatique"""
+    """Service de routage audio - Version avec notification SnapcastWebSocketService"""
     
     # Constantes pour la persistance
     STATE_DIR = Path("/var/lib/oakos")
@@ -27,12 +27,19 @@ class AudioRoutingService:
         self.get_plugin = get_plugin_callback  # Callback pour accéder aux plugins
         self._initial_detection_done = False
         
+        # AJOUT : Référence vers SnapcastWebSocketService (sera injectée)
+        self.snapcast_websocket_service = None
+        
         # Services snapcast
         self.snapserver_service = "oakos-snapserver-multiroom.service"
         self.snapclient_service = "oakos-snapclient-multiroom.service"
         
         # Créer le répertoire d'état si nécessaire
         self._ensure_state_directory()
+    
+    def set_snapcast_websocket_service(self, service) -> None:
+        """Définit la référence vers SnapcastWebSocketService"""
+        self.snapcast_websocket_service = service
     
     def set_plugin_callback(self, callback: Callable) -> None:
         """Définit le callback pour accéder aux plugins (fallback si pas dans constructeur)"""
@@ -139,7 +146,7 @@ class AudioRoutingService:
             self._initial_detection_done = True
     
     async def set_multiroom_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
-        """Active/désactive le mode multiroom avec sauvegarde automatique"""
+        """Active/désactive le mode multiroom avec notification SnapcastWebSocketService"""
         if not self._initial_detection_done:
             await self._detect_initial_state()
         
@@ -165,6 +172,13 @@ class AudioRoutingService:
                 await self._update_systemd_environment()
                 self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
                 return False
+            
+            # AJOUT : Notifier SnapcastWebSocketService du changement d'état
+            if self.snapcast_websocket_service:
+                if enabled:
+                    await self.snapcast_websocket_service.start_connection()
+                else:
+                    await self.snapcast_websocket_service.stop_connection()
             
             # Sauvegarde automatique après changement réussi
             await self.save_current_state()
