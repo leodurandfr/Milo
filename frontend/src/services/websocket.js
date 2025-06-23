@@ -19,6 +19,9 @@ class WebSocketSingleton {
     // Premier subscriber = créer la connexion
     if (this.subscribers.size === 1) {
       this.createConnection();
+    } else {
+      // Connexion existante = récupérer l'état frais du serveur
+      this.fetchFreshInitialState();
     }
   }
 
@@ -77,6 +80,31 @@ class WebSocketSingleton {
     this.lastSystemState = null;
   }
 
+  async fetchFreshInitialState() {
+    try {
+      const response = await fetch('/api/audio/state');
+      if (response.ok) {
+        const currentState = await response.json();
+        
+        // Mettre à jour le cache
+        this.lastSystemState = currentState;
+        
+        // Diffuser l'état frais à tous les handlers system.state_changed
+        const freshEvent = {
+          category: "system",
+          type: "state_changed",
+          data: { full_state: currentState },
+          source: "api_refresh",
+          timestamp: Date.now()
+        };
+        
+        this.handleMessage(freshEvent);
+      }
+    } catch (error) {
+      console.error('Error fetching fresh initial state:', error);
+    }
+  }
+
   handleMessage(message) {
     // Mettre en cache l'état système pour les nouveaux composants
     if (message.category === 'system' && message.type === 'state_changed' && message.data?.full_state) {
@@ -106,18 +134,8 @@ class WebSocketSingleton {
     
     this.eventHandlers.get(eventKey).add(callback);
     
-    // Envoyer l'état initial si disponible pour les événements système
-    if (category === 'system' && type === 'state_changed' && this.lastSystemState && this.isConnected.value) {
-      setTimeout(() => {
-        const initialEvent = {
-          category: "system",
-          type: "state_changed",
-          data: { full_state: this.lastSystemState },
-          timestamp: Date.now()
-        };
-        callback(initialEvent);
-      }, 10);
-    }
+    // Plus besoin d'envoyer l'état mis en cache ici - 
+    // fetchFreshInitialState() s'en charge pour les nouveaux subscribers
     
     // Retourner fonction de cleanup
     return () => {
@@ -161,5 +179,18 @@ export default function useWebSocket() {
   return {
     isConnected: computed(() => wsInstance.isConnected.value),
     on
+  };
+}
+
+// Debug simple (optionnel)
+if (import.meta.env.DEV) {
+  window.wsDebug = () => {
+    console.log('WebSocket Debug:', {
+      subscribers: wsInstance.subscribers.size,
+      connected: wsInstance.isConnected.value,
+      eventTypes: Array.from(wsInstance.eventHandlers.keys()),
+      hasCachedState: !!wsInstance.lastSystemState,
+      cachedState: wsInstance.lastSystemState
+    });
   };
 }
