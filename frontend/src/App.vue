@@ -1,4 +1,4 @@
-<!-- frontend/src/App.vue - Version corrigée avec récupération statut complet -->
+<!-- frontend/src/App.vue - Version corrigée avec cleanup WebSocket -->
 <template>
   <div class="app-container">
     <router-view />
@@ -7,7 +7,7 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue';
+import { onMounted, onUnmounted } from 'vue';
 import VolumeBar from '@/components/ui/VolumeBar.vue';
 import { useVolumeStore } from '@/stores/volumeStore';
 import useWebSocket from '@/services/websocket';
@@ -15,14 +15,24 @@ import useWebSocket from '@/services/websocket';
 const volumeStore = useVolumeStore();
 const { on } = useWebSocket();
 
+// Stocker les fonctions de cleanup
+const cleanupFunctions = [];
+
 onMounted(() => {
-  // Écouter les événements volume via WebSocket
-  on('volume', 'volume_changed', (event) => {
+  // Écouter les événements volume via WebSocket avec cleanup
+  const volumeCleanup = on('volume', 'volume_changed', (event) => {
     volumeStore.handleVolumeEvent(event);
   });
   
-  // ✅ MODIFIÉ : Récupérer le statut complet (volume + limites) au démarrage
+  cleanupFunctions.push(volumeCleanup);
+  
+  // Récupérer le statut complet (volume + limites) au démarrage
   volumeStore.getVolumeStatus();
+});
+
+onUnmounted(() => {
+  // Nettoyer tous les event listeners WebSocket
+  cleanupFunctions.forEach(cleanup => cleanup());
 });
 </script>
 
