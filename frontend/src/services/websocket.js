@@ -1,31 +1,20 @@
-// frontend/src/services/websocket.js - Version Singleton Intelligent
+// frontend/src/services/websocket.js - Version Simplifiée (Singleton Essentiel)
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 
 /**
- * Singleton WebSocket intelligent avec reference counting
- * Une seule connexion partagée entre tous les composants
+ * Singleton WebSocket simplifié - Résout juste le problème d'accumulation + état initial
  */
 class WebSocketSingleton {
   constructor() {
     this.socket = null;
     this.isConnected = ref(false);
-    this.eventHandlers = new Map(); // eventKey -> Map(subscriberId -> Set(callbacks))
+    this.eventHandlers = new Map(); // eventKey -> Set(callbacks)
     this.subscribers = new Set(); // Set des IDs de composants actifs
-    this.reconnectTimer = null;
-    this.reconnectDelay = 3000;
-    this.maxReconnectAttempts = 10;
-    this.reconnectAttempts = 0;
-    
-    console.log('🔌 WebSocket Singleton created');
+    this.lastSystemState = null; // État initial mis en cache
   }
 
-  /**
-   * Ajoute un subscriber (composant) et démarre la connexion si nécessaire
-   */
   addSubscriber(subscriberId) {
     this.subscribers.add(subscriberId);
-    
-    console.log(`📱 Subscriber added: ${subscriberId.toString().slice(7, 15)}... (total: ${this.subscribers.size})`);
     
     // Premier subscriber = créer la connexion
     if (this.subscribers.size === 1) {
@@ -33,16 +22,8 @@ class WebSocketSingleton {
     }
   }
 
-  /**
-   * Supprime un subscriber et ferme la connexion si plus personne n'en a besoin
-   */
   removeSubscriber(subscriberId) {
-    // Nettoyer tous les event listeners de ce subscriber
-    this.cleanupSubscriberEvents(subscriberId);
-    
     this.subscribers.delete(subscriberId);
-    
-    console.log(`📱 Subscriber removed: ${subscriberId.toString().slice(7, 15)}... (total: ${this.subscribers.size})`);
     
     // Plus de subscribers = fermer la connexion
     if (this.subscribers.size === 0) {
@@ -50,12 +31,8 @@ class WebSocketSingleton {
     }
   }
 
-  /**
-   * Crée la connexion WebSocket
-   */
   createConnection() {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      console.log('🔌 WebSocket already connected');
       return;
     }
 
@@ -64,221 +41,93 @@ class WebSocketSingleton {
     const port = import.meta.env.DEV ? 8000 : window.location.port;
     const wsUrl = `${protocol}//${host}:${port}/ws`;
     
-    console.log(`🔌 Creating WebSocket connection to: ${wsUrl}`);
+    this.socket = new WebSocket(wsUrl);
     
-    try {
-      this.socket = new WebSocket(wsUrl);
+    this.socket.onopen = () => {
+      this.isConnected.value = true;
+    };
+    
+    this.socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        this.handleMessage(message);
+      } catch (error) {
+        console.error('WebSocket message error:', error);
+      }
+    };
+    
+    this.socket.onclose = () => {
+      this.isConnected.value = false;
+      this.socket = null;
       
-      this.socket.onopen = () => {
-        console.log('✅ WebSocket connected successfully');
-        this.isConnected.value = true;
-        this.reconnectAttempts = 0;
-        
-        // Nettoyer le timer de reconnexion
-        if (this.reconnectTimer) {
-          clearTimeout(this.reconnectTimer);
-          this.reconnectTimer = null;
-        }
-      };
-      
-      this.socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          this.handleMessage(message);
-        } catch (error) {
-          console.error('❌ WebSocket message parse error:', error);
-        }
-      };
-      
-      this.socket.onclose = (event) => {
-        console.log(`🔌 WebSocket disconnected (code: ${event.code})`);
-        this.isConnected.value = false;
-        this.socket = null;
-        
-        // Reconnexion automatique si on a encore des subscribers
-        if (this.subscribers.size > 0) {
-          this.scheduleReconnect();
-        }
-      };
-      
-      this.socket.onerror = (error) => {
-        console.error('❌ WebSocket error:', error);
-      };
-      
-    } catch (error) {
-      console.error('❌ WebSocket creation error:', error);
-      this.scheduleReconnect();
-    }
+      // Reconnexion automatique si on a encore des subscribers
+      if (this.subscribers.size > 0) {
+        setTimeout(() => this.createConnection(), 3000);
+      }
+    };
   }
 
-  /**
-   * Ferme la connexion WebSocket
-   */
   closeConnection() {
-    console.log('🔌 Closing WebSocket connection (no more subscribers)');
-    
-    // Nettoyer le timer de reconnexion
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    
-    // Fermer la socket
     if (this.socket) {
       this.socket.close();
       this.socket = null;
     }
-    
     this.isConnected.value = false;
-    this.reconnectAttempts = 0;
-    
-    // Nettoyer tous les event handlers
     this.eventHandlers.clear();
+    this.lastSystemState = null;
   }
 
-  /**
-   * Programme une reconnexion avec backoff exponentiel
-   */
-  scheduleReconnect() {
-    if (this.subscribers.size === 0) {
-      console.log('🔌 No subscribers, skipping reconnect');
-      return;
-    }
-
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error(`❌ Max reconnect attempts reached (${this.maxReconnectAttempts})`);
-      return;
-    }
-
-    this.reconnectAttempts++;
-    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
-    
-    console.log(`🔄 Scheduling reconnect #${this.reconnectAttempts} in ${delay}ms`);
-    
-    this.reconnectTimer = setTimeout(() => {
-      this.createConnection();
-    }, delay);
-  }
-
-  /**
-   * Traite un message WebSocket reçu
-   */
   handleMessage(message) {
-    const eventKey = `${message.category}.${message.type}`;
-    
-    console.log(`📨 WebSocket received: ${eventKey}`, message);
-    
-    const handlersForEvent = this.eventHandlers.get(eventKey);
-    if (!handlersForEvent) {
-      console.warn(`⚠️ No handlers for event: ${eventKey}`);
-      return;
+    // Mettre en cache l'état système pour les nouveaux composants
+    if (message.category === 'system' && message.type === 'state_changed' && message.data?.full_state) {
+      this.lastSystemState = message.data.full_state;
     }
-
-    // Appeler tous les callbacks de tous les subscribers pour cet événement
-    let totalCallbacks = 0;
-    for (const [subscriberId, callbacks] of handlersForEvent) {
-      callbacks.forEach(callback => {
+    
+    const eventKey = `${message.category}.${message.type}`;
+    const handlers = this.eventHandlers.get(eventKey);
+    
+    if (handlers) {
+      handlers.forEach(callback => {
         try {
           callback(message);
-          totalCallbacks++;
         } catch (error) {
-          console.error(`❌ Error in event callback (${eventKey}):`, error);
+          console.error(`WebSocket callback error (${eventKey}):`, error);
         }
       });
     }
-    
-    console.log(`📨 Event ${eventKey} handled by ${totalCallbacks} callbacks`);
   }
 
-  /**
-   * Enregistre un event listener pour un subscriber
-   */
-  on(category, type, callback, subscriberId) {
+  on(category, type, callback) {
     const eventKey = `${category}.${type}`;
     
-    // Créer la structure si elle n'existe pas
     if (!this.eventHandlers.has(eventKey)) {
-      this.eventHandlers.set(eventKey, new Map());
+      this.eventHandlers.set(eventKey, new Set());
     }
     
-    const handlersForEvent = this.eventHandlers.get(eventKey);
-    if (!handlersForEvent.has(subscriberId)) {
-      handlersForEvent.set(subscriberId, new Set());
+    this.eventHandlers.get(eventKey).add(callback);
+    
+    // Envoyer l'état initial si disponible pour les événements système
+    if (category === 'system' && type === 'state_changed' && this.lastSystemState && this.isConnected.value) {
+      setTimeout(() => {
+        const initialEvent = {
+          category: "system",
+          type: "state_changed",
+          data: { full_state: this.lastSystemState },
+          timestamp: Date.now()
+        };
+        callback(initialEvent);
+      }, 10);
     }
     
-    handlersForEvent.get(subscriberId).add(callback);
-    
-    console.log(`🎯 Handler registered: ${eventKey} for subscriber ${subscriberId.toString().slice(7, 15)}...`);
-    
-    // Retourner une fonction de cleanup pour ce callback spécifique
+    // Retourner fonction de cleanup
     return () => {
-      this.removeEventCallback(eventKey, subscriberId, callback);
-    };
-  }
-
-  /**
-   * Supprime un callback spécifique
-   */
-  removeEventCallback(eventKey, subscriberId, callback) {
-    const handlersForEvent = this.eventHandlers.get(eventKey);
-    if (!handlersForEvent) return;
-    
-    const subscriberCallbacks = handlersForEvent.get(subscriberId);
-    if (!subscriberCallbacks) return;
-    
-    subscriberCallbacks.delete(callback);
-    
-    // Nettoyer les structures vides
-    if (subscriberCallbacks.size === 0) {
-      handlersForEvent.delete(subscriberId);
-    }
-    
-    if (handlersForEvent.size === 0) {
-      this.eventHandlers.delete(eventKey);
-    }
-    
-    console.log(`🗑️ Handler removed: ${eventKey} for subscriber ${subscriberId.toString().slice(7, 15)}...`);
-  }
-
-  /**
-   * Nettoie tous les event listeners d'un subscriber
-   */
-  cleanupSubscriberEvents(subscriberId) {
-    let cleanedEvents = 0;
-    
-    for (const [eventKey, handlersForEvent] of this.eventHandlers) {
-      if (handlersForEvent.has(subscriberId)) {
-        const callbackCount = handlersForEvent.get(subscriberId).size;
-        handlersForEvent.delete(subscriberId);
-        cleanedEvents += callbackCount;
-        
-        // Supprimer l'event si plus de handlers
-        if (handlersForEvent.size === 0) {
+      const handlers = this.eventHandlers.get(eventKey);
+      if (handlers) {
+        handlers.delete(callback);
+        if (handlers.size === 0) {
           this.eventHandlers.delete(eventKey);
         }
       }
-    }
-    
-    if (cleanedEvents > 0) {
-      console.log(`🧹 Cleaned ${cleanedEvents} event handlers for subscriber ${subscriberId.toString().slice(7, 15)}...`);
-    }
-  }
-
-  /**
-   * Debug: affiche l'état actuel du singleton
-   */
-  getDebugInfo() {
-    const eventStats = {};
-    for (const [eventKey, handlersForEvent] of this.eventHandlers) {
-      eventStats[eventKey] = handlersForEvent.size;
-    }
-    
-    return {
-      subscribers: this.subscribers.size,
-      connected: this.isConnected.value,
-      events: Object.keys(eventStats).length,
-      eventStats,
-      reconnectAttempts: this.reconnectAttempts
     };
   }
 }
@@ -286,21 +135,11 @@ class WebSocketSingleton {
 // Instance singleton globale
 const wsInstance = new WebSocketSingleton();
 
-// Debug global pour le développement
-if (import.meta.env.DEV) {
-  window.wsDebug = () => {
-    console.log('🔍 WebSocket Debug Info:', wsInstance.getDebugInfo());
-  };
-}
-
 /**
  * Composable WebSocket avec interface identique mais implémentation singleton
  */
 export default function useWebSocket() {
-  // ID unique pour ce composant/instance
   const subscriberId = Symbol('WebSocketSubscriber');
-  
-  // Stocker les fonctions de cleanup pour les nettoyer
   const cleanupFunctions = [];
 
   onMounted(() => {
@@ -308,22 +147,14 @@ export default function useWebSocket() {
   });
 
   onUnmounted(() => {
-    // Nettoyer tous les event listeners enregistrés
     cleanupFunctions.forEach(cleanup => cleanup());
     cleanupFunctions.length = 0;
-    
-    // Supprimer ce subscriber
     wsInstance.removeSubscriber(subscriberId);
   });
 
-  /**
-   * Enregistre un event listener (interface identique à l'ancienne version)
-   */
   function on(category, type, callback) {
-    const cleanup = wsInstance.on(category, type, callback, subscriberId);
+    const cleanup = wsInstance.on(category, type, callback);
     cleanupFunctions.push(cleanup);
-    
-    // Retourner la fonction de cleanup pour compatibilité
     return cleanup;
   }
 

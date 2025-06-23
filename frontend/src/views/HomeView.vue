@@ -1,13 +1,7 @@
 <!-- frontend/src/views/HomeView.vue - Handler WebSocket corrigé -->
 <template>
   <div class="home-view">
-    <div class="status-panel">
-      <h1>oakOS</h1>
-      <h2>Source: {{ sourceLabel }}</h2>
-      <div v-if="unifiedStore.error" class="error-message">
-        {{ unifiedStore.error }}
-      </div>
-    </div>
+
 
     <div v-if="unifiedStore.isTransitioning" class="transition-state">
       <h2>Chargement...</h2>
@@ -100,26 +94,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-}
-
-.status-panel {
-  background: white;
-  border: 1px solid #ddd;
-  padding: 20px;
-  margin-bottom: 20px;
-  text-align: center;
-}
-
-.status-panel h1 {
-  margin: 0 0 10px 0;
-  font-size: 28px;
-}
-
-.status-panel h2 {
-  margin: 0;
-  color: #666;
-  font-size: 18px;
-  font-weight: normal;
 }
 
 .error-message {
