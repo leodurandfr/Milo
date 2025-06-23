@@ -40,13 +40,11 @@
   .now-playing-info {
     width: 100%;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
   }
   
   .album-art {
-    width: 200px;
-    height: 200px;
     margin-bottom: 1.5rem;
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
     border-radius: 5px;
@@ -57,6 +55,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display:block;
   }
   
   .placeholder-art {

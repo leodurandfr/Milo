@@ -102,7 +102,7 @@ onMounted(async () => {
 
 <style scoped>
 .librespot-player {
-  padding: 20px;
+  width: 100%;
 }
 
 .now-playing {
@@ -110,7 +110,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 20px;
   align-items: center;
-  width: 100%;
+  padding-top: 64px;
 }
 
 .waiting-connection {

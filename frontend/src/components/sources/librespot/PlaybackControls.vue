@@ -44,14 +44,14 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 1.5rem;
+    gap: 3.5rem;
   }
   
   .control-button {
     background: none;
     border: none;
     cursor: pointer;
-    color: white;
+    color: #4E4E4E;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -59,7 +59,7 @@
     height: 50px;
     border-radius: 50%;
     transition: background-color 0.2s;
-    font-size: 1.5rem;
+    font-size: 2.5rem;
   }
   
   .control-button:hover {
@@ -69,6 +69,6 @@
   .control-button.play-pause {
     width: 60px;
     height: 60px;
-    font-size: 2rem;
+    font-size: 4rem;
   }
   </style>

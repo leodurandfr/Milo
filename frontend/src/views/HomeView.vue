@@ -88,7 +88,7 @@ onUnmounted(() => {
 <style scoped>
 .home-view {
   padding: 20px;
-  width: 462px;
+  width: 64%;
   margin: 0 auto;
   min-height: 100vh;
   display: flex;
