@@ -1,6 +1,6 @@
-<!-- frontend/src/components/equalizer/RangeSliderEqualizer.vue - Version ULTRA simplifiée -->
+<!-- frontend/src/components/equalizer/RangeSliderEqualizer.vue - Version avec orientation responsive -->
 <template>
-  <div class="equalizer-slider">
+  <div class="equalizer-slider" :class="{ 'horizontal': orientation === 'horizontal' }">
     <div v-if="label" class="label">{{ label }}</div>
     
     <RangeSlider
@@ -8,7 +8,7 @@
       :min="min"
       :max="max"
       :step="step"
-      orientation="vertical"
+      :orientation="orientation"
       :disabled="disabled"
       @update:modelValue="$emit('update:modelValue', $event)"
       @input="$emit('input', $event)"
@@ -30,7 +30,8 @@ defineProps({
   label: { type: String, default: '' },
   showValue: { type: Boolean, default: true },
   unit: { type: String, default: '%' },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  orientation: { type: String, default: 'vertical' } // AJOUT : prop orientation
 });
 
 defineEmits(['update:modelValue', 'input', 'change']);
@@ -66,8 +67,40 @@ defineEmits(['update:modelValue', 'input', 'change']);
   line-height: 1.2;
 }
 
+/* Responsive */
+@media (max-width: 768px) {
+  /* Sur mobile, tous les sliders passent en mode horizontal via JavaScript */
+  .equalizer-slider {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    height: auto;
+    gap: 12px;
+  }
+  
+  .label {
+    min-width: 60px;
+    text-align: left;
+  }
+  
+  .value {
+    min-width: 40px;
+    text-align: right;
+  }
+}
+
 @media (max-width: 600px) {
-  .label, .value {
+  .equalizer-slider {
+    gap: 10px;
+  }
+  
+  .label {
+    min-width: 50px;
+    font-size: 11px;
+  }
+  
+  .value {
+    min-width: 35px;
     font-size: 11px;
   }
 }

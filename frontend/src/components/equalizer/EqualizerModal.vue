@@ -6,7 +6,7 @@
       <!-- Toggle Equalizer avec IconButton intégré -->
       <div class="toggle-wrapper">
         <div class="toggle-header">
-          <h3>Configuration Audio</h3>
+          <h3>Égaliseur</h3>
           <div class="controls-wrapper">
             <IconButton
               v-if="isEqualizerEnabled"
@@ -54,6 +54,7 @@
               :key="band.id"
               v-model="band.value"
               :label="band.display_name"
+              :orientation="sliderOrientation"
               :min="0"
               :max="100"
               :step="1"
@@ -90,6 +91,9 @@ const resetting = ref(false);
 const bands = ref([]);
 const equalizerStatus = ref({ available: false });
 
+// Détection mobile pour orientation responsive
+const isMobile = ref(false);
+
 // Gestion du throttling pour les bandes
 const bandThrottleMap = new Map();
 const THROTTLE_DELAY = 100;
@@ -102,6 +106,16 @@ let unsubscribeFunctions = [];
 const isEqualizerEnabled = computed(() => 
   unifiedStore.equalizerEnabled
 );
+
+// Orientation responsive
+const sliderOrientation = computed(() => 
+  isMobile.value ? 'horizontal' : 'vertical'
+);
+
+// Fonction pour détecter le mobile
+function updateMobileStatus() {
+  isMobile.value = window.innerWidth <= 768;
+}
 
 // === MÉTHODES PRINCIPALES ===
 
@@ -265,6 +279,10 @@ function handleEqualizerUpdate(event) {
 // === LIFECYCLE ===
 
 onMounted(async () => {
+  // Détection mobile initiale
+  updateMobileStatus();
+  window.addEventListener('resize', updateMobileStatus);
+  
   if (isEqualizerEnabled.value) {
     await loadEqualizerData();
   }
@@ -277,6 +295,9 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  // Nettoyer l'event listener resize
+  window.removeEventListener('resize', updateMobileStatus);
+  
   // Nettoyer les abonnements WebSocket
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
   
@@ -444,11 +465,16 @@ setInterval(() => {
 
 /* Suppression des anciens styles bands-container car maintenant c'est equalizer-controls */
 
-/* Responsive pour equalizer-controls */
-@media (max-width: 600px) {
+/* Responsive pour equalizer-controls - MOBILE HORIZONTAL */
+@media (max-width: 768px) {
   .equalizer-controls {
-    gap: 6px;
-    padding: 12px 8px;
+    /* Mobile : sliders horizontaux empilés verticalement */
+    flex-direction: column;
+    align-items: stretch; /* Chaque slider prend toute la largeur */
+    gap: 12px;
+    padding: 16px;
+    overflow-y: auto; /* Scroll vertical au lieu d'horizontal */
+    overflow-x: hidden;
   }
   
   .controls-wrapper {
@@ -456,10 +482,17 @@ setInterval(() => {
   }
 }
 
+@media (max-width: 600px) {
+  .equalizer-controls {
+    gap: 10px;
+    padding: 12px;
+  }
+}
+
 @media (max-width: 400px) {
   .equalizer-controls {
-    gap: 4px;
-    padding: 8px 4px;
+    gap: 8px;
+    padding: 8px;
   }
 }
 </style>
