@@ -397,6 +397,7 @@ setInterval(() => {
   background: #f8f9fa;
   border: 1px solid #dee2e6;
   border-radius: 16px;
+  /* Container s'adapte automatiquement à la taille des sliders */
 }
 
 /* États de chargement */
@@ -426,7 +427,7 @@ setInterval(() => {
   color: #666;
 }
 
-/* Conteneur des bandes */
+/* Conteneur des bandes - AJUSTÉ pour hauteur fixe */
 .bands-container {
   display: flex;
   justify-content: space-between;
@@ -437,6 +438,8 @@ setInterval(() => {
   border: 1px solid #dee2e6;
   border-radius: 16px;
   overflow-x: auto;
+  /* Pas de contrainte de hauteur - s'adapte aux sliders (240px + gaps + labels) */
+  min-height: fit-content;
 }
 
 /* Responsive */

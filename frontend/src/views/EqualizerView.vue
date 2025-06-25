@@ -428,11 +428,13 @@ setInterval(() => {
   justify-content: space-between;
   align-items: end;
   gap: 8px;
-  padding: 16px;
-  background: #f8f9fa;
+  padding: 24px;
+  background: white;
   border: 1px solid #dee2e6;
   border-radius: 16px;
   overflow-x: auto;
+  flex: 1;        /* 👈 AJOUTER : Prend l'espace disponible */
+  min-height: 0;  /* 👈 AJOUTER : Force la contrainte de hauteur */
 }
 
 /* Responsive */

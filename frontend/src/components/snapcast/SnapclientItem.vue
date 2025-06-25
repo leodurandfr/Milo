@@ -199,7 +199,7 @@ onUnmounted(() => {
 
 /* Contrôle du volume */
 .volume-control {
-  min-width: 140px;
+  min-width: 380px;
   flex-shrink: 0;
 }
 
