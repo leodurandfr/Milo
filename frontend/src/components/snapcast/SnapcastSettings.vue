@@ -16,15 +16,10 @@
       <section class="config-section">
         <h3>Presets Audio</h3>
         <p class="section-description">Configurations prédéfinies pour différents usages</p>
-        
+
         <div class="presets-grid">
-          <button 
-            v-for="preset in audioPresets" 
-            :key="preset.id"
-            @click="applyPreset(preset)"
-            :class="['preset-btn', { active: isPresetActive(preset) }]"
-            :disabled="applying"
-          >
+          <button v-for="preset in audioPresets" :key="preset.id" @click="applyPreset(preset)"
+            :class="['preset-btn', { active: isPresetActive(preset) }]" :disabled="applying">
             <div class="preset-title">{{ preset.name }}</div>
           </button>
         </div>
@@ -33,25 +28,18 @@
       <!-- Configuration serveur -->
       <section class="config-section">
         <h3>Paramètres Audio</h3>
-        
+
         <!-- Buffer global -->
         <div class="form-group">
           <label for="buffer">Buffer Global (ms)</label>
           <div class="input-with-value">
-            <input
-              id="buffer"
-              type="range"
-              min="100"
-              max="2000"
-              step="50"
-              v-model.number="config.buffer"
-              class="range-input"
-            >
+            <input id="buffer" type="range" min="100" max="2000" step="50" v-model.number="config.buffer"
+              class="range-input">
             <span class="value-display">{{ config.buffer }}ms</span>
           </div>
           <p class="help-text">Latence end-to-end totale du système (100-2000ms)</p>
         </div>
-        
+
         <!-- Codec -->
         <div class="form-group">
           <label for="codec">Codec Audio</label>
@@ -68,15 +56,8 @@
         <div class="form-group">
           <label for="chunk">Taille des Chunks (ms)</label>
           <div class="input-with-value">
-            <input
-              id="chunk"
-              type="range"
-              min="10"
-              max="100"
-              step="5"
-              v-model.number="config.chunk_ms"
-              class="range-input"
-            >
+            <input id="chunk" type="range" min="10" max="100" step="5" v-model.number="config.chunk_ms"
+              class="range-input">
             <span class="value-display">{{ config.chunk_ms }}ms</span>
           </div>
           <p class="help-text">Taille de lecture du buffer source (10-100ms)</p>
@@ -86,7 +67,7 @@
       <!-- Informations actuelles -->
       <section class="config-section">
         <h3>État du Serveur</h3>
-        
+
         <div class="info-grid">
           <div class="info-item">
             <span class="info-label">Version Snapserver:</span>
@@ -94,7 +75,7 @@
               {{ serverInfo.server_info?.server?.snapserver?.version || 'Inconnu' }}
             </span>
           </div>
-          
+
           <div class="info-item">
             <span class="info-label">Host:</span>
             <span class="info-value">{{ serverInfo.server_info?.server?.host?.name || 'Inconnu' }}</span>
@@ -104,11 +85,7 @@
 
       <!-- Actions -->
       <div class="modal-actions">
-        <button 
-          @click="applyConfig" 
-          :disabled="loading || applying || !hasChanges"
-          class="apply-btn"
-        >
+        <button @click="applyConfig" :disabled="loading || applying || !hasChanges" class="apply-btn">
           {{ applying ? 'Application...' : 'Appliquer & Redémarrer' }}
         </button>
       </div>
@@ -180,17 +157,17 @@ const hasChanges = computed(() => {
 function isPresetActive(preset) {
   const current = config.value;
   const presetConfig = preset.config;
-  
+
   return current.buffer === presetConfig.buffer &&
-         current.codec === presetConfig.codec &&
-         current.chunk_ms === presetConfig.chunk_ms;
+    current.codec === presetConfig.codec &&
+    current.chunk_ms === presetConfig.chunk_ms;
 }
 
 function applyPreset(preset) {
   config.value.buffer = preset.config.buffer;
   config.value.codec = preset.config.codec;
   config.value.chunk_ms = preset.config.chunk_ms;
-  
+
   console.log(`Applied preset: ${preset.name}`, config.value);
 }
 
@@ -199,27 +176,27 @@ function applyPreset(preset) {
 async function loadServerConfig() {
   loading.value = true;
   error.value = null;
-  
+
   try {
     const response = await axios.get('/api/routing/snapcast/server-config');
     serverInfo.value = response.data.config;
-    
+
     // Lire DEPUIS LE FICHIER /etc/snapserver.conf
     const fileConfig = serverInfo.value.file_config?.parsed_config?.stream || {};
     const streamConfig = serverInfo.value.stream_config || {}; // Fallback API
-    
+
     config.value = {
       buffer: parseInt(fileConfig.buffer || streamConfig.buffer_ms || '1000'),
       codec: fileConfig.codec || streamConfig.codec || 'flac',
       chunk_ms: parseInt(fileConfig.chunk_ms || streamConfig.chunk_ms) || 20,
       sampleformat: '48000:16:2'
     };
-    
+
     // Sauvegarder la config originale - FIX : Clonage profond
     originalConfig.value = JSON.parse(JSON.stringify(config.value));
-    
+
     console.log('Server config loaded from file:', config.value);
-    
+
   } catch (err) {
     console.error('Error loading server config:', err);
     error.value = 'Impossible de charger la configuration du serveur';
@@ -230,28 +207,28 @@ async function loadServerConfig() {
 
 async function applyConfig() {
   if (!hasChanges.value) return;
-  
+
   applying.value = true;
   error.value = null;
-  
+
   try {
     console.log('Applying config:', config.value);
-    
+
     const response = await axios.post('/api/routing/snapcast/server/config', {
       config: config.value
     });
-    
+
     if (response.data.status === 'success') {
       // FIX : Mise à jour immédiate de originalConfig pour éviter le bug de bascule
       originalConfig.value = JSON.parse(JSON.stringify(config.value));
       emit('config-updated');
-      
+
       // Pas de rechargement automatique - laisser l'utilisateur rafraîchir manuellement si besoin
-      
+
     } else {
       error.value = response.data.message || 'Erreur lors de la mise à jour';
     }
-    
+
   } catch (err) {
     console.error('Error applying config:', err);
     error.value = 'Erreur lors de l\'application de la configuration';
@@ -272,7 +249,14 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* Styles de base */
+.settings-content {
+  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+
 .settings-overlay {
   position: fixed;
   top: 0;
@@ -303,7 +287,8 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px;
+  padding: 16px;
+  border-radius: 16px;
   border-bottom: 1px solid #eee;
   background: #f8f9fa;
 }
@@ -338,6 +323,7 @@ onMounted(async () => {
 .config-section {
   background: #f8f9fa;
   padding: 16px;
+  border-radius:16px
 }
 
 .config-section h3 {
@@ -477,7 +463,8 @@ onMounted(async () => {
 }
 
 /* États communs */
-.loading-state, .error-state {
+.loading-state,
+.error-state {
   text-align: center;
   padding: 40px 20px;
 }
@@ -493,8 +480,13 @@ onMounted(async () => {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .error-message {
@@ -520,7 +512,8 @@ onMounted(async () => {
   background: #f8f9fa;
 }
 
-.cancel-btn, .apply-btn {
+.cancel-btn,
+.apply-btn {
   padding: 10px 20px;
   border: none;
   cursor: pointer;
@@ -556,7 +549,7 @@ onMounted(async () => {
   .presets-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .preset-btn {
     padding: 12px;
   }

@@ -327,14 +327,14 @@ setInterval(() => {
 .screen-main {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
 /* Toggle wrapper */
 .toggle-wrapper {
   background: #f8f9fa;
   border: 1px solid #dee2e6;
-  border-radius: 8px;
+  border-radius: 16px;
   padding: 16px;
 }
 
@@ -367,7 +367,7 @@ setInterval(() => {
   padding: 20px;
   text-align: center;
   color: #666;
-  border-radius: 8px;
+  border-radius: 16px;
 }
 
 .equalizer-disabled h4, .equalizer-unavailable h4 {
@@ -396,8 +396,7 @@ setInterval(() => {
 .equalizer-active {
   background: #f8f9fa;
   border: 1px solid #dee2e6;
-  padding: 20px;
-  border-radius: 8px;
+  border-radius: 16px;
 }
 
 /* États de chargement */
@@ -433,10 +432,10 @@ setInterval(() => {
   justify-content: space-between;
   align-items: end;
   gap: 8px;
-  padding: 16px;
+  padding: 24px;
   background: white;
   border: 1px solid #dee2e6;
-  border-radius: 8px;
+  border-radius: 16px;
   overflow-x: auto;
 }
 

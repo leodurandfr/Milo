@@ -5,11 +5,10 @@
     <VolumeBar ref="volumeBar" />
     <BottomNavigation />
     
-    <!-- Modales avec système de navigation -->
+    <!-- Modales avec header conditionnel -->
     <Modal 
       :is-open="modalStore.isSnapcastOpen" 
-      :title="modalStore.currentTitle" 
-      size="large"
+      :title="modalStore.currentTitle"
       :show-back-button="modalStore.canGoBack"
       @close="modalStore.closeAll"
       @back="modalStore.goBack"
@@ -19,8 +18,7 @@
     
     <Modal 
       :is-open="modalStore.isEqualizerOpen" 
-      :title="modalStore.currentTitle" 
-      size="medium"
+      :title="modalStore.currentTitle"
       :show-back-button="modalStore.canGoBack"
       @close="modalStore.closeAll"
       @back="modalStore.goBack"

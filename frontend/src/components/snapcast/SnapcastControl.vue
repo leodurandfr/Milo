@@ -1,58 +1,42 @@
 <!-- frontend/src/components/snapcast/SnapcastControl.vue - Version 100% événementielle OPTIM -->
 <template>
-  <div class="snapcast-control">
-    <h3>Snapcast Clients</h3>
-    
-    <div v-if="!isMultiroomActive" class="status-message">
-      <span class="status-dot inactive"></span>
-      Multiroom non actif
-    </div>
-    
-    <div v-else-if="clients.length === 0" class="status-message">
-      <span class="status-dot loading"></span>
-      Aucun client connecté
-    </div>
-    
-    <div v-else class="clients-list">
-      <SnapclientItem
-        v-for="client in clients"
-        :key="client.id"
-        :client="client"
-        @volume-change="handleVolumeChange"
-        @mute-toggle="handleMuteToggle"
-        @show-details="handleShowDetails"
-      />
-    </div>
 
-    <!-- Modal détails client -->
-    <SnapclientDetails
-      v-if="selectedClient"
-      :client="selectedClient"
-      @close="selectedClient = null"
-      @client-updated="handleClientUpdated"
-    />
+
+  <div v-if="!isMultiroomActive" class="status-message">
+    <span class="status-dot inactive"></span>
+    Multiroom non actif
+  </div>
+
+  <div v-else-if="clients.length === 0" class="status-message">
+    <span class="status-dot loading"></span>
+    Aucun client connecté
+  </div>
+
+  <div v-else class="clients-list">
+    <SnapclientItem v-for="client in clients" :key="client.id" :client="client" @volume-change="handleVolumeChange"
+      @mute-toggle="handleMuteToggle" @show-details="handleShowDetails" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useModalStore } from '@/stores/modalStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 import SnapclientItem from './SnapclientItem.vue';
-import SnapclientDetails from './SnapclientDetails.vue';
 
 const unifiedStore = useUnifiedAudioStore();
+const modalStore = useModalStore();
 const { on } = useWebSocket();
 
 // État local ultra-simple
 const clients = ref([]);
-const selectedClient = ref(null);
 
 // Références pour nettoyage
 let unsubscribeFunctions = [];
 
-const isMultiroomActive = computed(() => 
+const isMultiroomActive = computed(() =>
   unifiedStore.multiroomEnabled
 );
 
@@ -75,12 +59,10 @@ async function handleMuteToggle(clientId, muted) {
 }
 
 function handleShowDetails(client) {
-  selectedClient.value = client;
-}
-
-function handleClientUpdated() {
-  // Plus besoin de loadClients() - les événements WebSocket gèrent tout
-  console.log('Client updated via events');
+  console.log('🔍 Opening client details for:', client.name);
+  modalStore.openClientDetails(client);
+  console.log('📝 Current screen after:', modalStore.currentScreen);
+  console.log('📝 Selected client:', modalStore.selectedClient);
 }
 
 // === GESTIONNAIRES WEBSOCKET 100% ÉVÉNEMENTIELS ===
@@ -88,7 +70,7 @@ function handleClientUpdated() {
 function handleClientConnected(event) {
   console.log('Client connected event:', event);
   const clientData = event.data.client;
-  
+
   if (clientData && !clients.value.find(c => c.id === clientData.id)) {
     // Extraire les données essentielles pour éviter la pollution
     const newClient = {
@@ -99,7 +81,7 @@ function handleClientConnected(event) {
       host: clientData.host?.name || 'Unknown',
       ip: clientData.host?.ip?.replace('::ffff:', '') || 'Unknown'
     };
-    
+
     clients.value.push(newClient);
     console.log('✅ Client connected and added:', newClient.name);
   }
@@ -108,15 +90,16 @@ function handleClientConnected(event) {
 function handleClientDisconnected(event) {
   const clientId = event.data.client_id;
   const clientIndex = clients.value.findIndex(c => c.id === clientId);
-  
+
   if (clientIndex !== -1) {
     const clientName = clients.value[clientIndex].name;
     clients.value.splice(clientIndex, 1);
     console.log('❌ Client disconnected and removed:', clientName);
-    
-    // Fermer les détails si c'est le client sélectionné
-    if (selectedClient.value?.id === clientId) {
-      selectedClient.value = null;
+
+    // Si le client déconnecté était celui en détails, revenir au main
+    if (modalStore.selectedClient?.id === clientId && modalStore.currentScreen === 'client-details') {
+      console.log('🔙 Client was in details view, going back to main');
+      modalStore.goBack();
     }
   }
 }
@@ -124,7 +107,7 @@ function handleClientDisconnected(event) {
 function handleClientVolumeChanged(event) {
   const { client_id, volume, muted } = event.data;
   const client = clients.value.find(c => c.id === client_id);
-  
+
   if (client) {
     // Le volume reçu est le volume réel (limites appliquées côté backend)
     client.volume = volume;
@@ -138,7 +121,7 @@ function handleClientVolumeChanged(event) {
 function handleClientNameChanged(event) {
   const { client_id, name } = event.data;
   const client = clients.value.find(c => c.id === client_id);
-  
+
   if (client) {
     client.name = name;
     console.log(`📝 Client ${client_id} name updated: ${name}`);
@@ -148,7 +131,7 @@ function handleClientNameChanged(event) {
 function handleClientMuteChanged(event) {
   const { client_id, muted, volume } = event.data;
   const client = clients.value.find(c => c.id === client_id);
-  
+
   if (client) {
     client.muted = muted;
     if (volume !== undefined) {
@@ -161,7 +144,7 @@ function handleClientMuteChanged(event) {
 function handleSystemStateChanged(event) {
   // OPTIM : Mise à jour du store + gestion multiroom activation
   unifiedStore.updateState(event);
-  
+
   // Si le multiroom vient d'être activé, charger les clients initiaux + attendre événements
   if (event.data.multiroom_changed && unifiedStore.multiroomEnabled) {
     console.log('🏠 Multiroom activated - loading initial clients + waiting for real-time events');
@@ -171,7 +154,12 @@ function handleSystemStateChanged(event) {
   else if (event.data.multiroom_changed && !unifiedStore.multiroomEnabled) {
     console.log('🏠 Multiroom deactivated - clearing clients list');
     clients.value = [];
-    selectedClient.value = null;
+
+    // Revenir au main si on était dans les détails d'un client
+    if (modalStore.currentScreen === 'client-details') {
+      console.log('🔙 Multiroom deactivated, going back to main');
+      modalStore.goToScreen('main');
+    }
   }
 }
 
@@ -179,7 +167,7 @@ function handleSystemStateChanged(event) {
 
 onMounted(async () => {
   console.log('🚀 SnapcastControl mounted - OPTIM corrected mode');
-  
+
   // S'abonner aux événements WebSocket temps réel AVANT de charger
   const subscriptions = [
     // Événements Snapcast clients (temps réel)
@@ -188,13 +176,13 @@ onMounted(async () => {
     on('snapcast', 'client_volume_changed', handleClientVolumeChanged),
     on('snapcast', 'client_name_changed', handleClientNameChanged),
     on('snapcast', 'client_mute_changed', handleClientMuteChanged),
-    
+
     // Événements système (multiroom toggle)
     on('system', 'state_changed', handleSystemStateChanged)
   ];
-  
+
   unsubscribeFunctions.push(...subscriptions);
-  
+
   // OPTIM CORRIGÉ : Charger les clients initiaux SI multiroom actif
   if (isMultiroomActive.value) {
     await loadClients();
@@ -209,7 +197,7 @@ async function loadClients() {
     clients.value = [];
     return;
   }
-  
+
   try {
     const response = await axios.get('/api/routing/snapcast/clients');
     clients.value = response.data.clients || [];
@@ -233,25 +221,17 @@ watch(isMultiroomActive, async (newValue) => {
     await loadClients();
   } else {
     clients.value = [];
-    selectedClient.value = null;
+
+    // Revenir au main si on était dans les détails
+    if (modalStore.currentScreen === 'client-details') {
+      modalStore.goToScreen('main');
+    }
   }
 });
 </script>
 
 <style scoped>
-.snapcast-control {
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 16px;
-  margin: 16px 0;
-}
 
-.snapcast-control h3 {
-  margin: 0 0 16px 0;
-  color: #333;
-  font-size: 16px;
-}
 
 .status-message {
   display: flex;
@@ -271,18 +251,25 @@ watch(isMultiroomActive, async (newValue) => {
   background: #ccc;
 }
 
-.status-dot.inactive { 
-  background: #999; 
+.status-dot.inactive {
+  background: #999;
 }
 
-.status-dot.loading { 
+.status-dot.loading {
   background: #17a2b8;
   animation: pulse 1.5s infinite;
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .clients-list {

@@ -145,7 +145,7 @@ onMounted(async () => {
   align-items: center;
   padding: 20px;
   background-color: #f5f5f5;
-  border-radius: 8px;
+  border-radius: 16px;
   margin-bottom: 20px;
 }
 

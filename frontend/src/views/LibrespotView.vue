@@ -108,7 +108,7 @@ onMounted(async () => {
 .now-playing {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   align-items: center;
   padding-top: 64px;
 }

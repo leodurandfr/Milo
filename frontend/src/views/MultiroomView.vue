@@ -77,7 +77,7 @@ async function handleMultiroomToggle(enabled) {
 .toggle-wrapper {
   background: white;
   border: 1px solid #ddd;
-  border-radius: 8px;
+  border-radius: 16px;
   padding: 16px;
   margin: 16px 0;
 }

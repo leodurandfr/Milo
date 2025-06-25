@@ -1,31 +1,26 @@
-<!-- frontend/src/components/ui/Modal.vue -->
+<!-- frontend/src/components/ui/Modal.vue - Version avec header conditionnel -->
 <template>
   <div v-if="isOpen" class="modal-overlay" @click.self="handleOverlayClick">
-    <div class="modal-container" :class="sizeClass">
-      <!-- En-tête -->
-      <div class="modal-header">
-        <div class="header-left">
-          <button v-if="showBackButton" @click="goBack" class="back-btn" aria-label="Retour">←</button>
-          <h2 v-if="title">{{ title }}</h2>
-        </div>
-        <button @click="close" class="close-btn" aria-label="Fermer">✕</button>
+    <div class="modal-container">
+      <!-- Bouton close flottant à l'extérieur -->
+      <button @click="close" class="close-btn-floating" aria-label="Fermer">✕</button>
+
+      <!-- Header seulement pour les sous-écrans (avec back) -->
+      <div v-if="showBackButton" class="modal-header">
+        <button @click="goBack" class="back-btn" aria-label="Retour">←</button>
+        <h2 v-if="title" class="modal-title">{{ title }}</h2>
       </div>
 
       <!-- Contenu -->
       <div class="modal-content">
         <slot></slot>
       </div>
-
-      <!-- Actions optionnelles -->
-      <div v-if="$slots.actions" class="modal-actions">
-        <slot name="actions"></slot>
-      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted } from 'vue';
 
 const props = defineProps({
   isOpen: {
@@ -35,11 +30,6 @@ const props = defineProps({
   title: {
     type: String,
     default: ''
-  },
-  size: {
-    type: String,
-    default: 'medium', // 'small', 'medium', 'large', 'fullscreen'
-    validator: (value) => ['small', 'medium', 'large', 'fullscreen'].includes(value)
   },
   closeOnOverlay: {
     type: Boolean,
@@ -52,8 +42,6 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'back']);
-
-const sizeClass = computed(() => `modal-${props.size}`);
 
 function close() {
   emit('close');
@@ -91,7 +79,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown);
-  document.body.style.overflow = ''; // Restaurer le scroll
+  document.body.style.overflow = '';
 });
 
 // Watcher pour le scroll
@@ -109,6 +97,7 @@ watch(() => props.isOpen, (newValue) => {
   right: 0;
   bottom: 0;
   background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -117,76 +106,70 @@ watch(() => props.isOpen, (newValue) => {
 }
 
 .modal-container {
-  background: white;
-  border-radius: 8px;
-  border: 1px solid #ddd;
+  position: relative;
+  background: rgba(255, 255, 255, 0.241);
+  border-radius: 32px;
+  width: 100%;
+  max-width: 700px;
   max-height: 90vh;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
 }
 
-/* Tailles de modales */
-.modal-small {
-  width: 100%;
-  max-width: 400px;
-}
-
-.modal-medium {
-  width: 100%;
-  max-width: 600px;
-}
-
-.modal-large {
-  width: 100%;
-  max-width: 800px;
-}
-
-.modal-fullscreen {
-  width: 95vw;
-  height: 95vh;
-  max-width: none;
-  max-height: none;
-}
-
-/* En-tête */
-.modal-header {
+/* Bouton close flottant à l'extérieur */
+.close-btn-floating {
+  position: absolute;
+  right: calc(-16px - 48px);
+  background: white;
+  border: 2px solid #ddd;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+  cursor: pointer;
+  color: #666;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #eee;
-  background: #f8f9fa;
+  justify-content: center;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 1001;
 }
 
-.header-left {
+.close-btn-floating:hover {
+  background: #f5f5f5;
+  color: #333;
+  border-color: #999;
+  transform: scale(1.05);
+}
+
+/* Header conditionnel pour sous-écrans */
+.modal-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex: 1;
-}
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 20px;
-  color: #333;
+  border-radius: 16px;
+  padding: 16px;
+  margin: 16px 16px 0 16px;
+  background: #f8f9fa;
 }
 
 .back-btn {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: 20px;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 8px;
   color: #666;
   border-radius: 4px;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
+  transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .back-btn:hover {
@@ -194,63 +177,44 @@ watch(() => props.isOpen, (newValue) => {
   color: #333;
 }
 
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  padding: 4px;
-  color: #666;
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.close-btn:hover {
-  background: #e9ecef;
+.modal-title {
+  margin: 0;
+  font-size: 18px;
   color: #333;
+  flex: 1;
 }
 
 /* Contenu */
 .modal-content {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
-}
-
-/* Actions */
-.modal-actions {
-  padding: 20px;
-  border-top: 1px solid #eee;
-  background: #f8f9fa;
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
+  padding: 16px;
 }
 
 /* Responsive */
 @media (max-width: 600px) {
   .modal-overlay {
-    padding: 10px;
+    padding: 15px;
   }
-  
-  .modal-container {
-    border-radius: 4px;
-  }
-  
-  .modal-header {
-    padding: 16px;
-  }
-  
+
   .modal-content {
     padding: 16px;
   }
-  
-  .modal-actions {
-    padding: 16px;
+
+  .modal-header {
+    padding: 12px 16px;
+  }
+
+  .modal-title {
+    font-size: 16px;
+  }
+
+  .close-btn-floating {
+    top: -15px;
+    right: -15px;
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
   }
 }
 </style>

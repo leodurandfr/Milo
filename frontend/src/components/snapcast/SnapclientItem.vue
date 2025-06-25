@@ -147,6 +147,7 @@ function handleMuteToggle(enabled) {
 }
 
 function handleShowDetails() {
+  console.log('🔍 Showing details for client:', props.client.name);
   emit('show-details', props.client);
 }
 
@@ -166,6 +167,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  border-radius:16px;
   padding: 16px;
   background: #fff;
 }
@@ -219,6 +221,7 @@ onUnmounted(() => {
   justify-content: center;
   transition: all 0.2s;
   flex-shrink: 0;
+  border-radius: 4px;
 }
 
 .details-btn:hover {

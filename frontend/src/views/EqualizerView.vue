@@ -330,7 +330,7 @@ setInterval(() => {
 .toggle-wrapper {
   background: white;
   border: 1px solid #ddd;
-  border-radius: 8px;
+  border-radius: 16px;
   padding: 16px;
   margin: 16px 0;
 }
@@ -431,7 +431,7 @@ setInterval(() => {
   padding: 16px;
   background: #f8f9fa;
   border: 1px solid #dee2e6;
-  border-radius: 8px;
+  border-radius: 16px;
   overflow-x: auto;
 }
 

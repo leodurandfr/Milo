@@ -42,7 +42,7 @@ defineEmits(['update:modelValue', 'input', 'change']);
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  height: 200px;
+  height: 280px;
 }
 
 .label {

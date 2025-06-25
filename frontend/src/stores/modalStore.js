@@ -1,6 +1,8 @@
 // frontend/src/stores/modalStore.js
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { watch } from 'vue';
+
 
 export const useModalStore = defineStore('modal', () => {
   // État des modales avec système de stack d'écrans
@@ -23,22 +25,17 @@ export const useModalStore = defineStore('modal', () => {
   // Savoir s'il y a un écran précédent (pour afficher le bouton Back)
   const canGoBack = computed(() => screenStack.value.length > 1);
   
-  // Titre dynamique selon l'écran actuel
+  // Titre dynamique selon l'écran actuel (seulement pour les sous-écrans)
   const currentTitle = computed(() => {
-    if (!hasOpenModal.value) return '';
+    if (!hasOpenModal.value || !canGoBack.value) return '';
     
     const modal = activeModal.value;
     const screen = currentScreen.value;
     
     const titles = {
       snapcast: {
-        main: 'Multiroom Control',
-        settings: 'Configuration Snapcast', 
+        settings: 'Configuration Multiroom', 
         'client-details': 'Détails du Client'
-      },
-      equalizer: {
-        main: 'Equalizer',
-        settings: 'Configuration Audio' // Si besoin plus tard
       }
     };
     
@@ -48,6 +45,7 @@ export const useModalStore = defineStore('modal', () => {
   // === ACTIONS PRINCIPALES ===
   
   function openSnapcast() {
+    console.log('📂 Opening Snapcast modal');
     closeAll();
     activeModal.value = 'snapcast';
     screenStack.value = ['main'];
@@ -55,6 +53,7 @@ export const useModalStore = defineStore('modal', () => {
   }
   
   function openEqualizer() {
+    console.log('📂 Opening Equalizer modal');
     closeAll();
     activeModal.value = 'equalizer';
     screenStack.value = ['main'];
@@ -62,6 +61,7 @@ export const useModalStore = defineStore('modal', () => {
   }
   
   function closeAll() {
+    console.log('❌ Closing all modals');
     activeModal.value = null;
     screenStack.value = [];
     modalData.value = {};
@@ -70,25 +70,47 @@ export const useModalStore = defineStore('modal', () => {
   // === NAVIGATION ENTRE ÉCRANS ===
   
   function pushScreen(screenName, data = {}) {
-    if (!hasOpenModal.value) return;
+    if (!hasOpenModal.value) {
+      console.warn('⚠️ Cannot push screen: no modal open');
+      return;
+    }
     
+    console.log(`📱 Pushing screen: ${screenName}`);
     screenStack.value.push(screenName);
     modalData.value = { ...modalData.value, ...data };
+    
+    console.log(`📱 Screen stack: [${screenStack.value.join(', ')}]`);
   }
   
   function goBack() {
-    if (screenStack.value.length <= 1) return;
+    if (screenStack.value.length <= 1) {
+      console.warn('⚠️ Cannot go back: already at root screen');
+      return;
+    }
     
+    const currentScreenName = currentScreen.value;
     screenStack.value.pop();
+    const newScreenName = currentScreen.value;
+    
+    console.log(`⬅️ Going back: ${currentScreenName} → ${newScreenName}`);
     
     // Nettoyer les données spécifiques à l'écran quitté
-    if (currentScreen.value === 'main') {
-      modalData.value = {};
+    if (currentScreenName === 'client-details') {
+      // Garder les autres données mais supprimer selectedClient
+      const { selectedClient, ...otherData } = modalData.value;
+      modalData.value = otherData;
     }
+    
+    console.log(`📱 Screen stack: [${screenStack.value.join(', ')}]`);
   }
   
   function goToScreen(screenName, data = {}) {
-    if (!hasOpenModal.value) return;
+    if (!hasOpenModal.value) {
+      console.warn('⚠️ Cannot go to screen: no modal open');
+      return;
+    }
+    
+    console.log(`🎯 Going to screen: ${screenName}`);
     
     // Reset au main puis push vers l'écran demandé
     screenStack.value = ['main'];
@@ -96,21 +118,44 @@ export const useModalStore = defineStore('modal', () => {
       screenStack.value.push(screenName);
     }
     modalData.value = { ...modalData.value, ...data };
+    
+    console.log(`📱 Screen stack: [${screenStack.value.join(', ')}]`);
   }
   
   // === ACTIONS SPÉCIFIQUES SNAPCAST ===
   
   function openSnapcastSettings() {
+    console.log('⚙️ Opening Snapcast settings');
     pushScreen('settings');
   }
   
   function openClientDetails(client) {
+    if (!client) {
+      console.error('❌ Cannot open client details: no client provided');
+      return;
+    }
+    
+    console.log('👤 Opening client details for:', client.name || client.id);
     pushScreen('client-details', { selectedClient: client });
   }
   
   // === GETTERS DONNÉES ===
   
   const selectedClient = computed(() => modalData.value.selectedClient || null);
+  
+  // Debug computed pour surveiller les changements
+  const debugInfo = computed(() => ({
+    activeModal: activeModal.value,
+    currentScreen: currentScreen.value,
+    screenStack: [...screenStack.value],
+    canGoBack: canGoBack.value,
+    selectedClient: selectedClient.value?.name || null
+  }));
+  
+  // Watcher pour debug
+  watch(debugInfo, (newInfo) => {
+    console.log('🔍 Modal Store Debug:', newInfo);
+  }, { deep: true });
   
   return {
     // État
@@ -141,6 +186,9 @@ export const useModalStore = defineStore('modal', () => {
     
     // Actions spécifiques
     openSnapcastSettings,
-    openClientDetails
+    openClientDetails,
+    
+    // Debug
+    debugInfo
   };
 });

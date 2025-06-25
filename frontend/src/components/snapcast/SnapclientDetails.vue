@@ -115,9 +115,6 @@ const props = defineProps({
   }
 });
 
-// Émissions
-const emit = defineEmits(['close', 'client-updated']);
-
 // État local
 const loading = ref(false);
 const error = ref(null);
@@ -149,6 +146,7 @@ async function loadClientDetails() {
   error.value = null;
   
   try {
+    console.log('📋 Loading details for client:', props.client.id);
     const response = await axios.get(`/api/routing/snapcast/client/${props.client.id}/details`);
     clientDetails.value = response.data.client;
     
@@ -160,6 +158,8 @@ async function loadClientDetails() {
     
     editableConfig.value = { ...configData };
     originalConfig.value = { ...configData };
+    
+    console.log('✅ Client details loaded:', clientDetails.value);
     
   } catch (err) {
     console.error('Error loading client details:', err);
@@ -177,15 +177,18 @@ async function validateChanges() {
   error.value = null;
   
   try {
+    console.log('💾 Validating changes for client:', props.client.id);
     const updates = [];
     
     // Mettre à jour le nom si changé
     if (editableConfig.value.name.trim() !== originalConfig.value.name) {
+      console.log('📝 Updating name:', editableConfig.value.name.trim());
       updates.push(updateClientName());
     }
     
     // Mettre à jour la latence si changée
     if (editableConfig.value.latency !== originalConfig.value.latency) {
+      console.log('⏱️ Updating latency:', editableConfig.value.latency);
       updates.push(updateClientLatency());
     }
     
@@ -195,7 +198,7 @@ async function validateChanges() {
     // Mettre à jour la config originale
     originalConfig.value = { ...editableConfig.value };
     
-    emit('client-updated');
+    console.log('✅ Client configuration updated successfully');
     
   } catch (err) {
     console.error('Error validating changes:', err);
@@ -229,10 +232,6 @@ async function updateClientLatency() {
   }
 }
 
-function closeDetails() {
-  emit('close');
-}
-
 // === FONCTIONS UTILITAIRES ===
 
 function getQualityClass(quality) {
@@ -259,68 +258,17 @@ onMounted(() => {
 
 // Watcher pour mettre à jour si le client change
 watch(() => props.client.id, () => {
+  console.log('🔄 Client changed, reloading details');
   loadClientDetails();
-});
+}, { immediate: false });
 </script>
 
 <style scoped>
-.details-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.details-modal {
-  background: white;
-  border: 1px solid #ddd;
-  width: 100%;
-  max-width: 600px;
-  max-height: 90vh;
-  overflow: hidden;
+/* Styles adaptés pour intégration dans le système modal */
+.snapclient-details {
   display: flex;
   flex-direction: column;
-}
-
-/* En-tête */
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #eee;
-  background: #f8f9fa;
-}
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 20px;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  padding: 4px;
-}
-
-.close-btn:hover {
-  background: #e9ecef;
-}
-
-/* Contenu */
-.modal-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
+  gap: 16px;
 }
 
 .loading-state, .error-state {
@@ -354,6 +302,7 @@ watch(() => props.client.id, () => {
   color: white;
   border: none;
   cursor: pointer;
+  border-radius: 4px;
 }
 
 /* Contenu des détails */
@@ -366,6 +315,7 @@ watch(() => props.client.id, () => {
 .details-section {
   background: #f8f9fa;
   padding: 16px;
+  border-radius: 16px;
 }
 
 .details-section h3 {
@@ -386,6 +336,7 @@ watch(() => props.client.id, () => {
   align-items: center;
   padding: 8px 12px;
   background: white;
+  border-radius: 4px;
 }
 
 .info-label {
@@ -451,6 +402,7 @@ watch(() => props.client.id, () => {
   padding: 8px 12px;
   border: 1px solid #ddd;
   font-size: 14px;
+  border-radius: 4px;
 }
 
 .text-input:focus {
@@ -506,33 +458,21 @@ watch(() => props.client.id, () => {
   font-weight: bold;
 }
 
-/* Actions - NOUVEAU STYLE */
+/* Actions */
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  padding: 20px;
+  padding-top: 20px;
   border-top: 1px solid #eee;
-  background: #f8f9fa;
 }
 
-.close-action-btn, .validate-btn {
+.validate-btn {
   padding: 10px 20px;
   border: none;
   cursor: pointer;
   font-weight: bold;
-}
-
-.close-action-btn {
-  background: #6c757d;
-  color: white;
-}
-
-.close-action-btn:hover {
-  background: #545b62;
-}
-
-.validate-btn {
+  border-radius: 4px;
   background: #28a745;
   color: white;
 }
