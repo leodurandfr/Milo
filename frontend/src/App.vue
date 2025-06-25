@@ -1,25 +1,28 @@
-<!-- frontend/src/App.vue -->
+<!-- frontend/src/App.vue - Avec modes de hauteur différenciés -->
 <template>
   <div class="app-container">
     <router-view />
     <VolumeBar ref="volumeBar" />
     <BottomNavigation />
     
-    <!-- Modales avec header conditionnel -->
+    <!-- Modal Snapcast (multiroom) - Mode AUTO (hug content) -->
     <Modal 
       :is-open="modalStore.isSnapcastOpen" 
       :title="modalStore.currentTitle"
       :show-back-button="modalStore.canGoBack"
+      height-mode="auto"
       @close="modalStore.closeAll"
       @back="modalStore.goBack"
     >
       <SnapcastModal />
     </Modal>
     
+    <!-- Modal Equalizer - Mode FIXED (hauteur fixe) -->
     <Modal 
       :is-open="modalStore.isEqualizerOpen" 
       :title="modalStore.currentTitle"
       :show-back-button="modalStore.canGoBack"
+      height-mode="fixed"
       @close="modalStore.closeAll"
       @back="modalStore.goBack"
     >

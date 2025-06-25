@@ -1,4 +1,4 @@
-<!-- frontend/src/components/ui/RangeSlider.vue - Version OPTIM complète -->
+<!-- frontend/src/components/ui/RangeSlider.vue - Version complète avec height: 100% -->
 <template>
   <div :class="['slider-container', orientation]" :style="cssVars">
     <input 
@@ -35,15 +35,9 @@ const percentage = computed(() => {
   
   // Ajustement selon l'orientation
   if (props.orientation === 'horizontal') {
-    // Thumb horizontal : 62px de large
-    // Container typique : ~200px+ de large
-    // Ajustement : ±15% aux extrémités
     const thumbAdjustment = 15;
     return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
   } else {
-    // Thumb vertical : 62px de haut  
-    // Container typique : ~280px+ de haut
-    // Ajustement : ±11% aux extrémités
     const thumbAdjustment = 11;
     return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
   }
@@ -68,7 +62,7 @@ function handleChange(event) {
 </script>
 
 <style scoped>
-/* Container responsive - simple et propre */
+/* Container 100% de l'espace disponible */
 .slider-container {
   display: flex;
   align-items: center;
@@ -82,7 +76,7 @@ function handleChange(event) {
 
 .slider-container.vertical {
   width: 40px;
-  height: 100%;
+  flex: 1; /* FINAL : flex pour prendre l'espace dans equalizer-slider */
   flex-direction: column;
 }
 
@@ -96,7 +90,7 @@ function handleChange(event) {
   border-radius: 20px;
 }
 
-/* Slider horizontal */
+/* Slider horizontal - 100% largeur */
 .range-slider.horizontal {
   width: 100%;
   height: 40px;
@@ -107,10 +101,10 @@ function handleChange(event) {
     #F2F2F2 100%);
 }
 
-/* Slider vertical - hérite de la hauteur du container */
+/* Slider vertical - flex: 1 pour prendre l'espace entre label et value */
 .range-slider.vertical {
   width: 40px;
-  height: inherit; /* Au lieu de 100% */
+  flex: 1; /* FINAL : flex pour prendre l'espace disponible entre label/value */
   writing-mode: vertical-lr;
   direction: rtl;
   background: linear-gradient(to top, 
@@ -133,20 +127,20 @@ function handleChange(event) {
 }
 
 .range-slider.horizontal::-moz-range-thumb {
-  width: 58px; /* -4px pour border */
-  height: 36px; /* -4px pour border */
+  width: 58px;
+  height: 36px;
   border-radius: 20px;
   background: #FFFFFF;
   border: 2px solid #767C76;
   cursor: pointer;
 }
 
-/* Thumb vertical - dimensions inversées */
+/* Thumb vertical */
 .range-slider.vertical::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 40px;  /* Inversé */
-  height: 62px; /* Inversé */
+  width: 40px;
+  height: 62px;
   border-radius: 20px;
   background: #FFFFFF;
   border: 2px solid #767C76;
@@ -154,15 +148,15 @@ function handleChange(event) {
 }
 
 .range-slider.vertical::-moz-range-thumb {
-  width: 36px;  /* Inversé -4px pour border */
-  height: 58px; /* Inversé -4px pour border */
+  width: 36px;
+  height: 58px;
   border-radius: 20px;
   background: #FFFFFF;
   border: 2px solid #767C76;
   cursor: pointer;
 }
 
-/* Track Firefox (pour cohérence) */
+/* Track Firefox */
 .range-slider::-moz-range-track {
   background: transparent;
   border: none;

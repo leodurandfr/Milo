@@ -1,7 +1,7 @@
-<!-- frontend/src/components/ui/Modal.vue - Version avec header conditionnel -->
+<!-- frontend/src/components/ui/Modal.vue - Version avec modes hauteur différenciés -->
 <template>
-  <div v-if="isOpen" class="modal-overlay" @click.self="handleOverlayClick">
-    <div class="modal-container">
+  <div v-if="isOpen" class="modal-overlay" :class="{ 'fixed-height': heightMode === 'fixed' }" @click.self="handleOverlayClick">
+    <div class="modal-container" :class="{ 'fixed-height': heightMode === 'fixed' }">
       <!-- Bouton close flottant à l'extérieur -->
       <button @click="close" class="close-btn-floating" aria-label="Fermer">✕</button>
 
@@ -38,6 +38,11 @@ const props = defineProps({
   showBackButton: {
     type: Boolean,
     default: false
+  },
+  heightMode: {
+    type: String,
+    default: 'auto', // 'auto' pour multiroom, 'fixed' pour equalizer
+    validator: (value) => ['auto', 'fixed'].includes(value)
   }
 });
 
@@ -90,6 +95,7 @@ watch(() => props.isOpen, (newValue) => {
 </script>
 
 <style scoped>
+/* Overlay - comportement par défaut (auto) */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -99,22 +105,34 @@ watch(() => props.isOpen, (newValue) => {
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(10px);
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* Alignement en haut pour auto */
   justify-content: center;
   z-index: 1000;
-  padding: 20px;
+  padding: 48px 20px 20px 20px; /* margin-top: 48px pour tous */
 }
 
+/* Overlay mode fixed (equalizer) */
+.modal-overlay.fixed-height {
+  align-items: center; /* Centré pour fixed */
+  padding: 48px 20px; /* 48px en haut/bas pour fixed */
+}
+
+/* Container - comportement par défaut (auto) */
 .modal-container {
   position: relative;
   background: rgba(255, 255, 255, 0.241);
   border-radius: 32px;
   width: 100%;
   max-width: 700px;
-  max-height: 90vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  /* Auto height - s'adapte au contenu */
+}
+
+/* Container mode fixed (equalizer) */
+.modal-container.fixed-height {
+  height: 100%; /* Prend 100% de l'espace disponible (100vh - 96px) */
 }
 
 /* Bouton close flottant à l'extérieur */
@@ -153,6 +171,7 @@ watch(() => props.isOpen, (newValue) => {
   padding: 16px;
   margin: 16px 16px 0 16px;
   background: #f8f9fa;
+  flex-shrink: 0; /* Ne se réduit jamais */
 }
 
 .back-btn {
@@ -184,17 +203,30 @@ watch(() => props.isOpen, (newValue) => {
   flex: 1;
 }
 
-/* Contenu */
+/* Contenu - comportement par défaut (auto) */
 .modal-content {
-  flex: 1;
   overflow-y: auto;
   padding: 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Auto height - s'adapte au contenu */
+}
+
+/* Contenu mode fixed (equalizer) */
+.modal-container.fixed-height .modal-content {
+  flex: 1; /* Prend toute la hauteur restante en mode fixed */
+  height: 100%; /* Hauteur explicite pour les enfants */
 }
 
 /* Responsive */
 @media (max-width: 600px) {
   .modal-overlay {
-    padding: 15px;
+    padding: 24px 15px 15px 15px; /* margin-top réduit sur mobile */
+  }
+  
+  .modal-overlay.fixed-height {
+    padding: 24px 15px; /* Marges réduites sur mobile pour mode fixed */
   }
 
   .modal-content {

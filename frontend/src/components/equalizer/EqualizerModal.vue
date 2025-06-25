@@ -1,4 +1,4 @@
-<!-- frontend/src/components/equalizer/EqualizerModal.vue -->
+<!-- frontend/src/components/equalizer/EqualizerModal.vue - Version complète corrigée -->
 <template>
   <div class="equalizer-modal">
     <!-- Écran principal -->
@@ -30,41 +30,39 @@
           <p>Activez l'equalizer pour accéder aux réglages audio.</p>
         </div>
 
-        <div v-else class="equalizer-active">
-          <div v-if="equalizerStatus.available" class="equalizer-controls">
-            <div v-if="loading" class="loading-state">
-              <div class="loading-spinner"></div>
-              <p>Chargement des bandes...</p>
-            </div>
-            
-            <div v-else-if="bands.length === 0" class="no-bands">
-              <p>Aucune bande disponible</p>
-            </div>
-            
-            <div v-else class="bands-container">
-              <RangeSliderEqualizer
-                v-for="band in bands" 
-                :key="band.id"
-                v-model="band.value"
-                :label="band.display_name"
-                :min="0"
-                :max="100"
-                :step="1"
-                unit="%"
-                :disabled="updating"
-                @input="handleBandInput(band.id, $event)"
-                @change="handleBandChange(band.id, $event)"
-              />
-            </div>
-          </div>
+        <div v-else-if="!equalizerStatus.available" class="equalizer-disabled">
+          <h4>Equalizer indisponible</h4>
+          <p>L'equalizer alsaequal n'est pas accessible.</p>
+          <button @click="checkEqualizerStatus" class="retry-btn">
+            Réessayer
+          </button>
+        </div>
 
-          <div v-else class="equalizer-unavailable">
-            <h4>Equalizer indisponible</h4>
-            <p>L'equalizer alsaequal n'est pas accessible.</p>
-            <button @click="checkEqualizerStatus" class="retry-btn">
-              Réessayer
-            </button>
+        <div v-else class="equalizer-controls">
+          <div v-if="loading" class="loading-state">
+            <div class="loading-spinner"></div>
+            <p>Chargement des bandes...</p>
           </div>
+          
+          <div v-else-if="bands.length === 0" class="no-bands">
+            <p>Aucune bande disponible</p>
+          </div>
+          
+          <template v-else>
+            <RangeSliderEqualizer
+              v-for="band in bands" 
+              :key="band.id"
+              v-model="band.value"
+              :label="band.display_name"
+              :min="0"
+              :max="100"
+              :step="1"
+              unit="%"
+              :disabled="updating"
+              @input="handleBandInput(band.id, $event)"
+              @change="handleBandChange(band.id, $event)"
+            />
+          </template>
         </div>
       </div>
     </div>
@@ -318,9 +316,12 @@ setInterval(() => {
 </script>
 
 <style scoped>
+/* EqualizerModal - Remplit toute la hauteur disponible */
 .equalizer-modal {
   display: flex;
   flex-direction: column;
+  height: 100%; /* Prend toute la hauteur du modal-content */
+  min-height: 0;
 }
 
 /* Écrans */
@@ -328,6 +329,8 @@ setInterval(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  height: 100%; /* Prend toute la hauteur de equalizer-modal */
+  min-height: 0;
 }
 
 /* Toggle wrapper */
@@ -336,6 +339,7 @@ setInterval(() => {
   border: 1px solid #dee2e6;
   border-radius: 16px;
   padding: 16px;
+  flex-shrink: 0; /* Ne se réduit jamais */
 }
 
 .toggle-header {
@@ -356,12 +360,16 @@ setInterval(() => {
   gap: 12px;
 }
 
-/* Contenu principal */
+/* Contenu principal - prend l'espace restant */
 .main-content {
-  flex: 1;
+  flex: 1; /* REMIS : flex pour prendre l'espace après toggle-wrapper */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
-.equalizer-disabled, .equalizer-unavailable {
+/* États simple et contrôles - même style */
+.equalizer-disabled {
   background: #f8f9fa;
   border: 1px solid #dee2e6;
   padding: 20px;
@@ -370,12 +378,12 @@ setInterval(() => {
   border-radius: 16px;
 }
 
-.equalizer-disabled h4, .equalizer-unavailable h4 {
+.equalizer-disabled h4 {
   margin: 0 0 12px 0;
   color: #333;
 }
 
-.equalizer-disabled p, .equalizer-unavailable p {
+.equalizer-disabled p {
   margin: 0 0 12px 0;
   font-size: 14px;
 }
@@ -393,17 +401,28 @@ setInterval(() => {
   background: #1976D2;
 }
 
-.equalizer-active {
-  background: #f8f9fa;
+/* Equalizer contrôles - HAUTEUR FIXE pour cascade cohérente */
+.equalizer-controls {
+  background: white;
   border: 1px solid #dee2e6;
   border-radius: 16px;
-  /* Container s'adapte automatiquement à la taille des sliders */
+  height: 100%; /* CORRIGÉ : Hauteur fixe au lieu de flex */
+  display: flex;
+  min-height: 0;
+  /* Styles pour les sliders */
+  justify-content: space-between;
+  align-items: end;
+  gap: 8px;
+  padding: 24px;
+  overflow-x: auto;
 }
 
-/* États de chargement */
-.loading-state {
+/* États de chargement et no-bands - adaptés au container flex */
+.loading-state, .no-bands {
+  width: 100%; /* Prend toute la largeur */
   text-align: center;
   padding: 20px;
+  align-self: center; /* Centre verticalement dans le flex container */
 }
 
 .loading-spinner {
@@ -421,30 +440,13 @@ setInterval(() => {
   100% { transform: rotate(360deg); }
 }
 
-.no-bands {
-  text-align: center;
-  padding: 20px;
-  color: #666;
-}
+/* Suppression de l'ancien style no-bands car maintenant dans loading-state */
 
-/* Conteneur des bandes - AJUSTÉ pour hauteur fixe */
-.bands-container {
-  display: flex;
-  justify-content: space-between;
-  align-items: end;
-  gap: 8px;
-  padding: 24px;
-  background: white;
-  border: 1px solid #dee2e6;
-  border-radius: 16px;
-  overflow-x: auto;
-  /* Pas de contrainte de hauteur - s'adapte aux sliders (240px + gaps + labels) */
-  min-height: fit-content;
-}
+/* Suppression des anciens styles bands-container car maintenant c'est equalizer-controls */
 
-/* Responsive */
+/* Responsive pour equalizer-controls */
 @media (max-width: 600px) {
-  .bands-container {
+  .equalizer-controls {
     gap: 6px;
     padding: 12px 8px;
   }
@@ -455,7 +457,7 @@ setInterval(() => {
 }
 
 @media (max-width: 400px) {
-  .bands-container {
+  .equalizer-controls {
     gap: 4px;
     padding: 8px 4px;
   }

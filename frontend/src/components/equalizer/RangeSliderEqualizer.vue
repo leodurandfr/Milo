@@ -1,21 +1,19 @@
-<!-- frontend/src/components/equalizer/RangeSliderEqualizer.vue - Version OPTIM corrigée -->
+<!-- frontend/src/components/equalizer/RangeSliderEqualizer.vue - Version ULTRA simplifiée -->
 <template>
   <div class="equalizer-slider">
     <div v-if="label" class="label">{{ label }}</div>
     
-    <div class="slider-wrapper">
-      <RangeSlider
-        :model-value="modelValue"
-        :min="min"
-        :max="max"
-        :step="step"
-        orientation="vertical"
-        :disabled="disabled"
-        @update:modelValue="$emit('update:modelValue', $event)"
-        @input="$emit('input', $event)"
-        @change="$emit('change', $event)"
-      />
-    </div>
+    <RangeSlider
+      :model-value="modelValue"
+      :min="min"
+      :max="max"
+      :step="step"
+      orientation="vertical"
+      :disabled="disabled"
+      @update:modelValue="$emit('update:modelValue', $event)"
+      @input="$emit('input', $event)"
+      @change="$emit('change', $event)"
+    />
     
     <div v-if="showValue" class="value">{{ modelValue }}{{ unit }}</div>
   </div>
@@ -44,7 +42,8 @@ defineEmits(['update:modelValue', 'input', 'change']);
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  height: 100%; /* S'adapte au parent au lieu de 280px fixe */
+  height: 100%; /* CORRIGÉ : Revenir à height pour cohérence totale */
+  min-height: 0;
 }
 
 .label {
@@ -52,23 +51,19 @@ defineEmits(['update:modelValue', 'input', 'change']);
   font-weight: 500;
   color: #333;
   text-align: center;
-  flex-shrink: 0; /* Ne se réduit jamais */
+  flex-shrink: 0;
+  line-height: 1.2;
 }
 
-.slider-wrapper {
-  flex: 1; /* Prend tout l'espace restant */
-  width: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+/* Le RangeSlider prend maintenant directement l'espace disponible */
 
 .value {
   font-size: 12px;
   font-weight: bold;
   color: #767C76;
   text-align: center;
-  flex-shrink: 0; /* Ne se réduit jamais */
+  flex-shrink: 0;
+  line-height: 1.2;
 }
 
 @media (max-width: 600px) {
