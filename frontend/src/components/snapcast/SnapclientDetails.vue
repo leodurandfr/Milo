@@ -1,109 +1,96 @@
 <!-- frontend/src/components/snapcast/SnapclientDetails.vue -->
 <template>
-  <div class="details-overlay" @click.self="closeDetails">
-    <div class="details-modal">
-      <!-- En-tête -->
-      <div class="modal-header">
-        <h2>Détails du Client</h2>
-        <button @click="closeDetails" class="close-btn">✕</button>
-      </div>
+  <div class="snapclient-details">
+    <div v-if="loading" class="loading-state">
+      <div class="loading-spinner"></div>
+      <p>Chargement des détails...</p>
+    </div>
 
-      <!-- Contenu -->
-      <div class="modal-content">
-        <div v-if="loading" class="loading-state">
-          <div class="loading-spinner"></div>
-          <p>Chargement des détails...</p>
-        </div>
+    <div v-else-if="error" class="error-state">
+      <p class="error-message">{{ error }}</p>
+      <button @click="loadClientDetails" class="retry-btn">Réessayer</button>
+    </div>
 
-        <div v-else-if="error" class="error-state">
-          <p class="error-message">{{ error }}</p>
-          <button @click="loadClientDetails" class="retry-btn">Réessayer</button>
-        </div>
-
-        <div v-else class="details-content">
-          <!-- Configuration éditable - MAINTENANT EN PREMIER -->
-          <section class="details-section">
-            <h3>Configuration</h3>
-            
-            <!-- Nom du client -->
-            <div class="form-group">
-              <label for="client-name">Nom Affiché</label>
-              <div class="input-group">
-                <input
-                  id="client-name"
-                  type="text"
-                  v-model="editableConfig.name"
-                  :placeholder="clientDetails.host"
-                  class="text-input"
-                  maxlength="50"
-                >
-              </div>
-              <p class="help-text">Nom personnalisé pour identifier ce client</p>
-            </div>
-
-            <!-- Latence -->
-            <div class="form-group">
-              <label for="client-latency">Latence (ms)</label>
-              <div class="latency-control">
-                <input
-                  id="client-latency"
-                  type="range"
-                  min="0"
-                  max="500"
-                  step="5"
-                  v-model.number="editableConfig.latency"
-                  class="range-input"
-                >
-                <div class="latency-display">
-                  <span class="latency-value">{{ editableConfig.latency }}ms</span>
-                </div>
-              </div>
-              <p class="help-text">
-                Compensation de latence pour synchroniser l'audio
-                <span v-if="clientDetails.latency !== editableConfig.latency" class="change-indicator">
-                  (actuellement: {{ clientDetails.latency }}ms)
-                </span>
-              </p>
-            </div>
-          </section>
-
-          <!-- Informations générales - MAINTENANT EN SECOND -->
-          <section class="details-section">
-            <h3>Informations Générales</h3>
-            
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="info-label">Adresse IP:</span>
-                <span class="info-value">{{ clientDetails.ip }}</span>
-              </div>
-              
-              <div class="info-item">
-                <span class="info-label">Hostname:</span>
-                <span class="info-value">{{ clientDetails.host }}</span>
-              </div>
-              
-              <!-- AJOUT : Version Snapclient -->
-              <div class="info-item">
-                <span class="info-label">Version Snapclient:</span>
-                <span class="info-value">{{ clientDetails.snapclient_info?.version || 'Inconnu' }}</span>
-              </div>
-              
-              <div class="info-item">
-                <span class="info-label">Connexion:</span>
-                <div class="connection-status">
-                  <span :class="['status-dot', getQualityClass(clientDetails.connection_quality)]"></span>
-                  <span>{{ getQualityText(clientDetails.connection_quality) }}</span>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
-
-      <!-- Actions - AJOUT bouton Valider -->
-      <div class="modal-actions">
-        <button @click="closeDetails" class="close-action-btn">Fermer</button>
+    <div v-else class="details-content">
+      <!-- Configuration éditable - MAINTENANT EN PREMIER -->
+      <section class="details-section">
+        <h3>Configuration</h3>
         
+        <!-- Nom du client -->
+        <div class="form-group">
+          <label for="client-name">Nom Affiché</label>
+          <div class="input-group">
+            <input
+              id="client-name"
+              type="text"
+              v-model="editableConfig.name"
+              :placeholder="clientDetails.host"
+              class="text-input"
+              maxlength="50"
+            >
+          </div>
+          <p class="help-text">Nom personnalisé pour identifier ce client</p>
+        </div>
+
+        <!-- Latence -->
+        <div class="form-group">
+          <label for="client-latency">Latence (ms)</label>
+          <div class="latency-control">
+            <input
+              id="client-latency"
+              type="range"
+              min="0"
+              max="500"
+              step="5"
+              v-model.number="editableConfig.latency"
+              class="range-input"
+            >
+            <div class="latency-display">
+              <span class="latency-value">{{ editableConfig.latency }}ms</span>
+            </div>
+          </div>
+          <p class="help-text">
+            Compensation de latence pour synchroniser l'audio
+            <span v-if="clientDetails.latency !== editableConfig.latency" class="change-indicator">
+              (actuellement: {{ clientDetails.latency }}ms)
+            </span>
+          </p>
+        </div>
+      </section>
+
+      <!-- Informations générales - MAINTENANT EN SECOND -->
+      <section class="details-section">
+        <h3>Informations Générales</h3>
+        
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label">Adresse IP:</span>
+            <span class="info-value">{{ clientDetails.ip }}</span>
+          </div>
+          
+          <div class="info-item">
+            <span class="info-label">Hostname:</span>
+            <span class="info-value">{{ clientDetails.host }}</span>
+          </div>
+          
+          <!-- AJOUT : Version Snapclient -->
+          <div class="info-item">
+            <span class="info-label">Version Snapclient:</span>
+            <span class="info-value">{{ clientDetails.snapclient_info?.version || 'Inconnu' }}</span>
+          </div>
+          
+          <div class="info-item">
+            <span class="info-label">Connexion:</span>
+            <div class="connection-status">
+              <span :class="['status-dot', getQualityClass(clientDetails.connection_quality)]"></span>
+              <span>{{ getQualityText(clientDetails.connection_quality) }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Actions -->
+      <div class="modal-actions">
         <button 
           @click="validateChanges"
           :disabled="!hasChanges || isUpdating"

@@ -110,9 +110,11 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         try:
             commands = "\n".join([
                 "power on",
+                "system-alias oakOS·Bluetooth",
+                "discoverable-timeout 0",
                 "discoverable on",
                 "pairable on",
-                "class 0x240404",  # Audio/Video Device
+                "class 0x200404",
                 "quit"
             ])
             

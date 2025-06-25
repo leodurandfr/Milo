@@ -1,122 +1,109 @@
 <!-- frontend/src/components/snapcast/SnapcastSettings.vue -->
 <template>
-  <div class="settings-overlay" @click.self="closeSettings">
-    <div class="settings-modal">
-      <!-- En-tête simple -->
-      <div class="modal-header">
-        <h2>Configuration Snapcast</h2>
-        <button @click="closeSettings" class="close-btn">✕</button>
-      </div>
+  <div class="snapcast-settings">
+    <div v-if="loading" class="loading-state">
+      <div class="loading-spinner"></div>
+      <p>Chargement de la configuration...</p>
+    </div>
 
-      <!-- Contenu -->
-      <div class="modal-content">
-        <div v-if="loading" class="loading-state">
-          <div class="loading-spinner"></div>
-          <p>Chargement de la configuration...</p>
+    <div v-else-if="error" class="error-state">
+      <p class="error-message">{{ error }}</p>
+      <button @click="loadServerConfig" class="retry-btn">Réessayer</button>
+    </div>
+
+    <div v-else class="settings-content">
+      <!-- Presets Audio -->
+      <section class="config-section">
+        <h3>Presets Audio</h3>
+        <p class="section-description">Configurations prédéfinies pour différents usages</p>
+        
+        <div class="presets-grid">
+          <button 
+            v-for="preset in audioPresets" 
+            :key="preset.id"
+            @click="applyPreset(preset)"
+            :class="['preset-btn', { active: isPresetActive(preset) }]"
+            :disabled="applying"
+          >
+            <div class="preset-title">{{ preset.name }}</div>
+          </button>
+        </div>
+      </section>
+
+      <!-- Configuration serveur -->
+      <section class="config-section">
+        <h3>Paramètres Audio</h3>
+        
+        <!-- Buffer global -->
+        <div class="form-group">
+          <label for="buffer">Buffer Global (ms)</label>
+          <div class="input-with-value">
+            <input
+              id="buffer"
+              type="range"
+              min="100"
+              max="2000"
+              step="50"
+              v-model.number="config.buffer"
+              class="range-input"
+            >
+            <span class="value-display">{{ config.buffer }}ms</span>
+          </div>
+          <p class="help-text">Latence end-to-end totale du système (100-2000ms)</p>
+        </div>
+        
+        <!-- Codec -->
+        <div class="form-group">
+          <label for="codec">Codec Audio</label>
+          <select id="codec" v-model="config.codec" class="select-input">
+            <option value="flac">FLAC (Sans perte, ~26ms latence)</option>
+            <option value="pcm">PCM (Sans perte, aucune latence)</option>
+            <option value="opus">Opus (Avec perte, faible latence)</option>
+            <option value="ogg">OGG (Avec perte)</option>
+          </select>
+          <p class="help-text">Codec utilisé pour compresser l'audio</p>
         </div>
 
-        <div v-else-if="error" class="error-state">
-          <p class="error-message">{{ error }}</p>
-          <button @click="loadServerConfig" class="retry-btn">Réessayer</button>
+        <!-- Chunk size -->
+        <div class="form-group">
+          <label for="chunk">Taille des Chunks (ms)</label>
+          <div class="input-with-value">
+            <input
+              id="chunk"
+              type="range"
+              min="10"
+              max="100"
+              step="5"
+              v-model.number="config.chunk_ms"
+              class="range-input"
+            >
+            <span class="value-display">{{ config.chunk_ms }}ms</span>
+          </div>
+          <p class="help-text">Taille de lecture du buffer source (10-100ms)</p>
         </div>
+      </section>
 
-        <div v-else class="settings-form">
-          <!-- Presets Audio -->
-          <section class="config-section">
-            <h3>Presets Audio</h3>
-            <p class="section-description">Configurations prédéfinies pour différents usages</p>
-            
-            <div class="presets-grid">
-              <button 
-                v-for="preset in audioPresets" 
-                :key="preset.id"
-                @click="applyPreset(preset)"
-                :class="['preset-btn', { active: isPresetActive(preset) }]"
-                :disabled="applying"
-              >
-                <div class="preset-title">{{ preset.name }}</div>
-              </button>
-            </div>
-          </section>
-
-          <!-- Configuration serveur -->
-          <section class="config-section">
-            <h3>Paramètres Audio</h3>
-            
-            <!-- Buffer global -->
-            <div class="form-group">
-              <label for="buffer">Buffer Global (ms)</label>
-              <div class="input-with-value">
-                <input
-                  id="buffer"
-                  type="range"
-                  min="100"
-                  max="2000"
-                  step="50"
-                  v-model.number="config.buffer"
-                  class="range-input"
-                >
-                <span class="value-display">{{ config.buffer }}ms</span>
-              </div>
-              <p class="help-text">Latence end-to-end totale du système (100-2000ms)</p>
-            </div>
-            
-            <!-- Codec -->
-            <div class="form-group">
-              <label for="codec">Codec Audio</label>
-              <select id="codec" v-model="config.codec" class="select-input">
-                <option value="flac">FLAC (Sans perte, ~26ms latence)</option>
-                <option value="pcm">PCM (Sans perte, aucune latence)</option>
-                <option value="opus">Opus (Avec perte, faible latence)</option>
-                <option value="ogg">OGG (Avec perte)</option>
-              </select>
-              <p class="help-text">Codec utilisé pour compresser l'audio</p>
-            </div>
-
-            <!-- Chunk size -->
-            <div class="form-group">
-              <label for="chunk">Taille des Chunks (ms)</label>
-              <div class="input-with-value">
-                <input
-                  id="chunk"
-                  type="range"
-                  min="10"
-                  max="100"
-                  step="5"
-                  v-model.number="config.chunk_ms"
-                  class="range-input"
-                >
-                <span class="value-display">{{ config.chunk_ms }}ms</span>
-              </div>
-              <p class="help-text">Taille de lecture du buffer source (10-100ms)</p>
-            </div>
-          </section>
-
-          <!-- Informations actuelles -->
-          <section class="config-section">
-            <h3>État du Serveur</h3>
-            
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="info-label">Version Snapserver:</span>
-                <span class="info-value">
-                  {{ serverInfo.server_info?.server?.snapserver?.version || 'Inconnu' }}
-                </span>
-              </div>
-              
-              <div class="info-item">
-                <span class="info-label">Host:</span>
-                <span class="info-value">{{ serverInfo.server_info?.server?.host?.name || 'Inconnu' }}</span>
-              </div>
-            </div>
-          </section>
+      <!-- Informations actuelles -->
+      <section class="config-section">
+        <h3>État du Serveur</h3>
+        
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label">Version Snapserver:</span>
+            <span class="info-value">
+              {{ serverInfo.server_info?.server?.snapserver?.version || 'Inconnu' }}
+            </span>
+          </div>
+          
+          <div class="info-item">
+            <span class="info-label">Host:</span>
+            <span class="info-value">{{ serverInfo.server_info?.server?.host?.name || 'Inconnu' }}</span>
+          </div>
         </div>
-      </div>
+      </section>
 
       <!-- Actions -->
       <div class="modal-actions">
-        <button @click="closeSettings" class="cancel-btn">Fermer</button>
-        
         <button 
           @click="applyConfig" 
           :disabled="loading || applying || !hasChanges"

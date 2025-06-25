@@ -1,14 +1,14 @@
 <!-- frontend/src/components/navigation/BottomNavigation.vue -->
 <template>
   <nav class="bottom-nav">
-    <router-link to="/multiroom" class="nav-item" :class="{ active: $route.name === 'multiroom' }">
+    <button @click="modalStore.openSnapcast()" :class="['nav-item', { active: modalStore.isSnapcastOpen }]">
       Multiroom
-    </router-link>
-    <router-link to="/equalizer" class="nav-item" :class="{ active: $route.name === 'equalizer' }">
+    </button>
+    <button @click="modalStore.openEqualizer()" :class="['nav-item', { active: modalStore.isEqualizerOpen }]">
       Equalizer
-    </router-link>
-    <button @click="activateAndNavigate('librespot', '/spotify')" :disabled="unifiedStore.isTransitioning"
-      :class="['nav-item', { active: unifiedStore.currentSource === 'librespot' || $route.name === 'spotify' }]">
+    </button>
+    <button @click="activateAndNavigate('librespot', '/librespot')" :disabled="unifiedStore.isTransitioning"
+      :class="['nav-item', { active: unifiedStore.currentSource === 'librespot' || $route.name === 'librespot' }]">
       Spotify
     </button>
     <button @click="activateAndNavigate('bluetooth', '/bluetooth')" :disabled="unifiedStore.isTransitioning"
@@ -32,16 +32,21 @@
 import { useRouter } from 'vue-router';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useVolumeStore } from '@/stores/volumeStore';
+import { useModalStore } from '@/stores/modalStore';
 
 const router = useRouter();
 const unifiedStore = useUnifiedAudioStore();
 const volumeStore = useVolumeStore();
+const modalStore = useModalStore();
 
 async function activateAndNavigate(source, route) {
-  // 1. Activer le plugin audio
+  // 1. Fermer toutes les modales
+  modalStore.closeAll();
+  
+  // 2. Activer le plugin audio
   await unifiedStore.changeSource(source);
   
-  // 2. Naviguer vers la vue correspondante
+  // 3. Naviguer vers la vue correspondante
   if (router.currentRoute.value.path !== route) {
     router.push(route);
   }

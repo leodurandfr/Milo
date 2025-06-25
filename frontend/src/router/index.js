@@ -3,17 +3,15 @@ import { createRouter, createWebHistory } from 'vue-router';
 import LibrespotView from '@/views/LibrespotView.vue';
 import BluetoothView from '@/views/BluetoothView.vue';
 import RocView from '@/views/RocView.vue';
-import MultiroomView from '@/views/MultiroomView.vue';
-import EqualizerView from '@/views/EqualizerView.vue';
 
 const routes = [
   {
     path: '/',
-    redirect: '/spotify' // Redirection par défaut vers Spotify
+    redirect: '/librespot' // Redirection par défaut vers Librespot
   },
   {
-    path: '/spotify',
-    name: 'spotify',
+    path: '/librespot',
+    name: 'librespot',
     component: LibrespotView,
     meta: {
       title: 'oakOS - Spotify'
@@ -34,23 +32,8 @@ const routes = [
     meta: {
       title: 'oakOS - ROC for Mac'
     }
-  },
-  {
-    path: '/multiroom',
-    name: 'multiroom',
-    component: MultiroomView,
-    meta: {
-      title: 'oakOS - Multiroom Control'
-    }
-  },
-  {
-    path: '/equalizer',
-    name: 'equalizer',
-    component: EqualizerView,
-    meta: {
-      title: 'oakOS - Equalizer'
-    }
   }
+  // Plus de routes multiroom/equalizer - maintenant des modales
 ];
 
 const router = createRouter({
