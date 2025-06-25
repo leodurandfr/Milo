@@ -1,0 +1,154 @@
+:root {
+    /* === COULEURS PRINCIPALES === */
+    --color-brand: #EF642E;
+
+    --color-text: #171917;
+    --color-text-secondary: #767C76;
+    --color-text-light: #A6ACA6;
+    --color-text-contrast: #FFF;
+    --color-text-contrast-50: #FFFFFF80;
+
+    /* === COULEURS DE FONDS === */
+
+    --color-background: #F7F7F7;
+    --color-background-strong: #F2F2F2;
+    --color-background-neutral-50: #FFFFFF80;
+    --color-background-neutral-12: #FFFFFF1F;
+    --color-background-contrast: #1C2524;
+
+
+
+    /* === COULEURS SYSTÈME === */
+    --color-success: #4CAF50;
+    --color-warning: #FF9800;
+    --color-error: #F44336;
+    --color-info: #2196F3;
+
+
+
+    /* === ESPACEMENT === */
+    --space-01: 4px;
+    --space-02: 8px;
+    --space-03: 12px;
+    --space-04: 16px;
+    --space-05: 24px;
+    --space-06: 32px;
+    --space-07: 48px;
+
+
+    /* === STYLES DE TEXTE === */
+
+    --font-size-h1: 32px;
+    --font-size-h2: 22px;
+    --font-size-body: 20px;
+    --font-size-mono: 16px;
+
+    --letter-spacing-sans-serif: 1%;
+    --letter-spacing-mono: -2%;
+
+    --line-height-h1: 38px;
+    --line-height-h2: 30px;
+    --line-height-body: 26px;
+    --line-height-mono: 22px;
+
+    /* === ICÔNES === */
+
+    --icon-size-16: 16px;
+    --icon-size-24: 24px;
+    --icon-size-28: 28px;
+    --icon-size-32: 32px;
+    --icon-size-48: 48px;
+
+
+    /* === BORDER RADIUS === */
+    --radius-01: 4px;
+    --radius-02: 8px;
+    --radius-03: 12px;
+    --radius-04: 16px;
+    --radius-05: 24px;
+    --radius-06: 32px;
+    --radius-full: 9999px;
+
+
+    /* === TRANSITIONS === */
+    --transition-fast: 150ms ease;
+    --transition-normal: 250ms ease;
+    --transition-slow: 350ms ease;
+}
+
+
+
+
+/* === FONT FACES === */
+
+@font-face {
+    font-family: 'Neue Montreal Medium';
+    src: url('../fonts/NeueMontreal-Medium.otf') format('opentype'),
+        url('../fonts/NeueMontreal-Medium.woff2') format('woff2');
+    font-weight: 500;
+}
+
+@font-face {
+    font-family: 'Space Mono Regular';
+    src: url('./fonts/SpaceMono-Regular.ttf') format('truetype'),
+        url('../fonts/SpaceMono-Regular.woff2') format('woff2');
+    font-weight: 400;
+}
+
+/* === CLASSES UTILITAIRES === */
+
+.heading-1 {
+    font-family: 'Neue Montreal Medium';
+    font-size: var(--font-size-h1);
+    line-height: var(--line-height-h1);
+    letter-spacing: var(--letter-spacing-sans-serif);
+    font-weight: 500;
+
+}
+
+.heading-2 {
+    font-family: 'Neue Montreal Medium';
+    font-size: var(--font-size-h2);
+    line-height: var(--line-height-h2);
+    letter-spacing: var(--letter-spacing-sans-serif);
+    font-weight: 500;
+}
+
+.text-body {
+    font-family: 'Neue Montreal Medium';
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-body);
+    letter-spacing: var(--letter-spacing-sans-serif);
+    font-weight: 500;
+}
+
+.text-mono {
+    font-family: 'Space Mono Regular';
+    font-size: var(--font-size-mono);
+    line-height: var(--line-height-mono);
+    letter-spacing: var(--letter-spacing-mono);
+    font-weight: 300;
+}
+
+
+
+
+.rounded-01 {
+    border-radius: var(--radius-01);
+}
+
+.rounded-02 {
+    border-radius: var(--radius-02);
+}
+
+.rounded-02 {
+    border-radius: var(--radius-02);
+}
+
+.rounded-03 {
+    border-radius: var(--radius-03);
+}
+
+.rounded-full {
+    border-radius: var(--radius-full);
+}

@@ -1,10 +1,10 @@
 <template>
   <div class="progress-bar" v-if="duration > 0">
-    <span class="time current">{{ formatTime(currentPosition) }}</span>
+    <span class="text-mono time">{{ formatTime(currentPosition) }}</span>
     <div class="progress-container" @click="onProgressClick">
       <div class="progress" :style="{ width: progressPercent + '%' }"></div>
     </div>
-    <span class="time total">{{ formatTime(duration) }}</span>
+    <span class="text-mono time">{{ formatTime(duration) }}</span>
   </div>
 </template>
 
@@ -52,7 +52,7 @@ function onProgressClick(event) {
 
   // Calculer la nouvelle position en ms
   const newPosition = Math.floor(props.duration * percentage);
-  
+
   // Émettre l'événement vers le parent
   emit('seek', newPosition);
 }
@@ -63,30 +63,25 @@ function onProgressClick(event) {
   display: flex;
   align-items: center;
   width: 100%;
-  margin-bottom: 1.5rem;
+  gap: var(--space-03)
 }
 
 .progress-container {
   flex-grow: 1;
   height: 8px;
-  background-color: #4D4D4D;
+  background-color: var(--color-background-strong);
   border-radius: 4px;
-  margin: 0 10px;
   cursor: pointer;
   position: relative;
 }
 
 .progress {
   height: 100%;
-  background-color: #1DB954;
+  background-color: var(--color-background-contrast);
   border-radius: 4px;
 }
 
 .time {
-  font-size: 0.8rem;
-  opacity: 0.8;
-  font-variant-numeric: tabular-nums;
-  min-width: 40px;
-  text-align: center;
+  color: var(--color-text-secondary)
 }
 </style>

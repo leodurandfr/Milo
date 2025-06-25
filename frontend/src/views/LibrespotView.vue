@@ -15,8 +15,8 @@
       <div class="content-section">
         <!-- Bloc 1 : Informations (prend l'espace restant) -->
         <div class="track-info">
-          <h3 class="track-title">{{ unifiedStore.metadata.title || 'Titre inconnu' }}</h3>
-          <p class="track-artist">{{ unifiedStore.metadata.artist || 'Artiste inconnu' }}</p>
+          <h1 class="track-title heading-1">{{ unifiedStore.metadata.title || 'Titre inconnu' }}</h1>
+          <p class="track-artist heading-2">{{ unifiedStore.metadata.artist || 'Artiste inconnu' }}</p>
         </div>
 
         <!-- Bloc 2 : Contrôles (aligné en bas) -->
@@ -111,8 +111,8 @@ onMounted(async () => {
 .now-playing {
   display: flex;
   height: 100%;
-  padding: 24px;
-  gap: 24px;
+  padding: var(--space-06);
+  gap: var(--space-06);
 }
 
 /* Partie gauche : Image de couverture */
@@ -125,9 +125,8 @@ onMounted(async () => {
 .album-art {
   width: 100%;
   height: 100%;
-  border-radius: 8px;
+  border-radius: var(--radius-06);
   overflow: hidden;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
 }
 
 .album-art img {
@@ -166,26 +165,21 @@ onMounted(async () => {
   flex-direction: column;
   justify-content: center;
   text-align: center;
+  gap: var(--space-04);
 }
 
 .track-title {
-  font-size: 2rem;
-  font-weight: bold;
-  margin-bottom: 8px;
-  line-height: 1.2;
+  color: var(--color-text);
 }
-
 .track-artist {
-  font-size: 1.4rem;
-  opacity: 0.8;
-  line-height: 1.2;
+  color: var(--color-text-secondary);
 }
 
 /* Bloc 2 : Contrôles (aligné en bas) */
 .controls-section {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-05);
 }
 
 /* État d'attente (layout actuel conservé) */
