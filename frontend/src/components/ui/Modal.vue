@@ -124,8 +124,10 @@ watch(() => props.isOpen, (newValue) => {
   border-radius: 32px;
   width: 100%;
   max-width: 700px;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
+  
 }
 
 /* Container mode fixed (equalizer) */

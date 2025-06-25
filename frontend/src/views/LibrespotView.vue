@@ -4,15 +4,13 @@
       <!-- Partie gauche : Image de couverture -->
       <div class="album-art-section">
         <div class="album-art">
-          <img v-if="unifiedStore.metadata.album_art_url" 
-               :src="unifiedStore.metadata.album_art_url" 
-               alt="Album Art" />
+          <img v-if="unifiedStore.metadata.album_art_url" :src="unifiedStore.metadata.album_art_url" alt="Album Art" />
           <div v-else class="placeholder-art">
             <span class="music-icon">🎵</span>
           </div>
         </div>
       </div>
-      
+
       <!-- Partie droite : Informations et contrôles -->
       <div class="content-section">
         <!-- Bloc 1 : Informations (prend l'espace restant) -->
@@ -20,31 +18,23 @@
           <h3 class="track-title">{{ unifiedStore.metadata.title || 'Titre inconnu' }}</h3>
           <p class="track-artist">{{ unifiedStore.metadata.artist || 'Artiste inconnu' }}</p>
         </div>
-        
+
         <!-- Bloc 2 : Contrôles (aligné en bas) -->
         <div class="controls-section">
-          <ProgressBar 
-            :currentPosition="currentPosition" 
-            :duration="duration"
-            :progressPercentage="progressPercentage" 
-            @seek="seekToPosition" 
-          />
-          <PlaybackControls 
-            :isPlaying="unifiedStore.metadata.is_playing" 
-            @play-pause="togglePlayPause" 
-            @previous="previousTrack"
-            @next="nextTrack" 
-          />
+          <ProgressBar :currentPosition="currentPosition" :duration="duration" :progressPercentage="progressPercentage"
+            @seek="seekToPosition" />
+          <PlaybackControls :isPlaying="unifiedStore.metadata.is_playing" @play-pause="togglePlayPause"
+            @previous="previousTrack" @next="nextTrack" />
         </div>
       </div>
     </div>
-    
+
     <div v-else class="waiting-connection">
       <div class="waiting-icon">🎵</div>
       <h3>En attente de connexion</h3>
       <p>Connectez un appareil via Spotify Connect</p>
     </div>
-    
+
     <div v-if="unifiedStore.error && unifiedStore.currentSource === 'librespot'" class="error-message">
       {{ unifiedStore.error }}
     </div>
@@ -58,8 +48,8 @@ import { useLibrespotControl } from '@/composables/useLibrespotControl';
 import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
 import axios from 'axios';
 
-import PlaybackControls from '../components/sources/librespot/PlaybackControls.vue';
-import ProgressBar from '../components/sources/librespot/ProgressBar.vue';
+import PlaybackControls from '../components/librespot/PlaybackControls.vue';
+import ProgressBar from '../components/librespot/ProgressBar.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
@@ -68,8 +58,8 @@ const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackPro
 const hasTrackInfo = computed(() => {
   return !!(
     unifiedStore.currentSource === 'librespot' &&
-    unifiedStore.pluginState === 'connected' && 
-    unifiedStore.metadata?.title && 
+    unifiedStore.pluginState === 'connected' &&
+    unifiedStore.metadata?.title &&
     unifiedStore.metadata?.artist
   );
 });
@@ -90,7 +80,7 @@ onMounted(async () => {
       const response = await axios.get('/librespot/status');
       if (response.data.status === 'ok') {
         const metadata = response.data.metadata || {};
-        
+
         unifiedStore.updateState({
           data: {
             full_state: {
@@ -102,7 +92,7 @@ onMounted(async () => {
             }
           }
         });
-        
+
         console.log("Position initiale chargée:", metadata.position);
       }
     } catch (error) {
@@ -175,6 +165,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  text-align: center;
 }
 
 .track-title {
