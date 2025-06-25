@@ -1,24 +1,42 @@
 <template>
   <div class="librespot-player">
     <div v-if="hasTrackInfo" class="now-playing">
-      <NowPlayingInfo 
-        :title="unifiedStore.metadata.title" 
-        :artist="unifiedStore.metadata.artist" 
-        :album="unifiedStore.metadata.album"
-        :albumArtUrl="unifiedStore.metadata.album_art_url" 
-      />
-      <ProgressBar 
-        :currentPosition="currentPosition" 
-        :duration="duration"
-        :progressPercentage="progressPercentage" 
-        @seek="seekToPosition" 
-      />
-      <PlaybackControls 
-        :isPlaying="unifiedStore.metadata.is_playing" 
-        @play-pause="togglePlayPause" 
-        @previous="previousTrack"
-        @next="nextTrack" 
-      />
+      <!-- Partie gauche : Image de couverture -->
+      <div class="album-art-section">
+        <div class="album-art">
+          <img v-if="unifiedStore.metadata.album_art_url" 
+               :src="unifiedStore.metadata.album_art_url" 
+               alt="Album Art" />
+          <div v-else class="placeholder-art">
+            <span class="music-icon">🎵</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Partie droite : Informations et contrôles -->
+      <div class="content-section">
+        <!-- Bloc 1 : Informations (prend l'espace restant) -->
+        <div class="track-info">
+          <h3 class="track-title">{{ unifiedStore.metadata.title || 'Titre inconnu' }}</h3>
+          <p class="track-artist">{{ unifiedStore.metadata.artist || 'Artiste inconnu' }}</p>
+        </div>
+        
+        <!-- Bloc 2 : Contrôles (aligné en bas) -->
+        <div class="controls-section">
+          <ProgressBar 
+            :currentPosition="currentPosition" 
+            :duration="duration"
+            :progressPercentage="progressPercentage" 
+            @seek="seekToPosition" 
+          />
+          <PlaybackControls 
+            :isPlaying="unifiedStore.metadata.is_playing" 
+            @play-pause="togglePlayPause" 
+            @previous="previousTrack"
+            @next="nextTrack" 
+          />
+        </div>
+      </div>
     </div>
     
     <div v-else class="waiting-connection">
@@ -40,7 +58,6 @@ import { useLibrespotControl } from '@/composables/useLibrespotControl';
 import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
 import axios from 'axios';
 
-import NowPlayingInfo from '../components/sources/librespot/NowPlayingInfo.vue';
 import PlaybackControls from '../components/sources/librespot/PlaybackControls.vue';
 import ProgressBar from '../components/sources/librespot/ProgressBar.vue';
 
@@ -61,36 +78,31 @@ function seekToPosition(position) {
   seekTo(position);
 }
 
-// Observer les changements de métadonnées pour synchroniser la position
 watch(() => unifiedStore.metadata, (newMetadata) => {
   if (newMetadata?.position !== undefined) {
     // La synchronisation est gérée dans usePlaybackProgress
   }
 }, { immediate: true });
 
-// AJOUT: Rafraîchir l'état complet au chargement de la page
 onMounted(async () => {
   if (unifiedStore.currentSource === 'librespot') {
     try {
       const response = await axios.get('/librespot/status');
       if (response.data.status === 'ok') {
-        // S'assurer que les métadonnées complètes sont utilisées
         const metadata = response.data.metadata || {};
         
-        // Simuler un événement STATE_CHANGED complet
         unifiedStore.updateState({
           data: {
             full_state: {
               active_source: 'librespot',
               plugin_state: response.data.plugin_state,
               transitioning: false,
-              metadata: metadata,  // Utiliser les métadonnées telles quelles
+              metadata: metadata,
               error: null
             }
           }
         });
         
-        // Log pour le débogage
         console.log("Position initiale chargée:", metadata.position);
       }
     } catch (error) {
@@ -103,16 +115,89 @@ onMounted(async () => {
 <style scoped>
 .librespot-player {
   width: 100%;
+  height: 100%;
 }
 
 .now-playing {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
-  align-items: center;
-  padding-top: 64px;
+  height: 100%;
+  padding: 24px;
+  gap: 24px;
 }
 
+/* Partie gauche : Image de couverture */
+.album-art-section {
+  flex-shrink: 0;
+  height: 100%;
+  aspect-ratio: 1;
+}
+
+.album-art {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+.album-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.placeholder-art {
+  width: 100%;
+  height: 100%;
+  background-color: #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.music-icon {
+  font-size: 80px;
+  opacity: 0.5;
+}
+
+/* Partie droite : Contenu */
+.content-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+/* Bloc 1 : Informations (prend l'espace restant) */
+.track-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.track-title {
+  font-size: 2rem;
+  font-weight: bold;
+  margin-bottom: 8px;
+  line-height: 1.2;
+}
+
+.track-artist {
+  font-size: 1.4rem;
+  opacity: 0.8;
+  line-height: 1.2;
+}
+
+/* Bloc 2 : Contrôles (aligné en bas) */
+.controls-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* État d'attente (layout actuel conservé) */
 .waiting-connection {
   display: flex;
   flex-direction: column;

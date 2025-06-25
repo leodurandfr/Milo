@@ -36,13 +36,7 @@ const currentComponent = computed(() => {
 
 <style scoped>
 .main-view {
-  padding: 20px;
-  width: 64%;
-  margin: 0 auto;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+     height: 100%;
 }
 
 .transition-state, .no-source {
