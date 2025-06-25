@@ -57,7 +57,7 @@ function handleChange(event) {
 .slider-container.vertical {
   height: 220px;
   width: 30px;
-  display: flex;
+  display: grid;
   justify-content: center;
   align-items: center;
 }

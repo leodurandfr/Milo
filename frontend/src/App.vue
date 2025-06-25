@@ -29,8 +29,7 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { onMounted, onUnmounted } from 'vue';
 import VolumeBar from '@/components/ui/VolumeBar.vue';
 import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 import Modal from '@/components/ui/Modal.vue';
@@ -41,7 +40,6 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useModalStore } from '@/stores/modalStore';
 import useWebSocket from '@/services/websocket';
 
-const router = useRouter();
 const volumeStore = useVolumeStore();
 const unifiedStore = useUnifiedAudioStore();
 const modalStore = useModalStore();
@@ -87,28 +85,6 @@ onMounted(() => {
   // Récupérer le statut complet (volume + limites) au démarrage
   volumeStore.getVolumeStatus();
 });
-
-// === SYNCHRONISATION AUTOMATIQUE DES ROUTES ===
-// Quand le plugin actif change via WebSocket, synchroniser la route sur tous les devices
-watch(() => unifiedStore.currentSource, (newSource, oldSource) => {
-  // Mapping des sources vers les routes
-  const routeMap = {
-    'librespot': '/librespot',
-    'bluetooth': '/bluetooth', 
-    'roc': '/roc'
-  };
-  
-  const targetRoute = routeMap[newSource];
-  
-  // Naviguer automatiquement si :
-  // 1. La nouvelle source a une route définie
-  // 2. On n'est pas déjà sur cette route
-  // 3. Le changement vient d'un autre device (éviter double navigation)
-  if (targetRoute && router.currentRoute.value.path !== targetRoute) {
-    console.log(`🔄 Auto-navigation: ${oldSource} → ${newSource} (route: ${targetRoute})`);
-    router.push(targetRoute);
-  }
-}, { immediate: false }); // immediate: false pour éviter la navigation au premier chargement
 
 onUnmounted(() => {
   // Nettoyer tous les event listeners WebSocket

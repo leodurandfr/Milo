@@ -1,39 +1,16 @@
-// frontend/src/router/index.js
+// frontend/src/router/index.js - Version OPTIM route unique
 import { createRouter, createWebHistory } from 'vue-router';
-import LibrespotView from '@/views/LibrespotView.vue';
-import BluetoothView from '@/views/BluetoothView.vue';
-import RocView from '@/views/RocView.vue';
+import MainView from '@/views/MainView.vue';
 
 const routes = [
   {
     path: '/',
-    redirect: '/librespot' // Redirection par défaut vers Librespot
-  },
-  {
-    path: '/librespot',
-    name: 'librespot',
-    component: LibrespotView,
+    name: 'main',
+    component: MainView,
     meta: {
-      title: 'oakOS - Spotify'
-    }
-  },
-  {
-    path: '/bluetooth',
-    name: 'bluetooth',
-    component: BluetoothView,
-    meta: {
-      title: 'oakOS - Bluetooth'
-    }
-  },
-  {
-    path: '/roc',
-    name: 'roc',
-    component: RocView,
-    meta: {
-      title: 'oakOS - ROC for Mac'
+      title: 'oakOS'
     }
   }
-  // Plus de routes multiroom/equalizer - maintenant des modales
 ];
 
 const router = createRouter({
