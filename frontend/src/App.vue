@@ -1,30 +1,60 @@
-<!-- frontend/src/App.vue - Version corrigée avec cleanup WebSocket -->
+<!-- frontend/src/App.vue -->
 <template>
   <div class="app-container">
     <router-view />
     <VolumeBar ref="volumeBar" />
+    <BottomNavigation />
   </div>
 </template>
 
 <script setup>
 import { onMounted, onUnmounted } from 'vue';
 import VolumeBar from '@/components/ui/VolumeBar.vue';
+import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 import { useVolumeStore } from '@/stores/volumeStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 
 const volumeStore = useVolumeStore();
+const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
 // Stocker les fonctions de cleanup
 const cleanupFunctions = [];
 
 onMounted(() => {
-  // Écouter les événements volume via WebSocket avec cleanup
+  // === ÉVÉNEMENTS VOLUME ===
   const volumeCleanup = on('volume', 'volume_changed', (event) => {
     volumeStore.handleVolumeEvent(event);
   });
   
-  cleanupFunctions.push(volumeCleanup);
+  // === ÉVÉNEMENTS SYSTÈME (pour tous les plugins) ===
+  const systemSubscriptions = [
+    on('system', 'state_changed', (event) => {
+      unifiedStore.updateState(event);
+    }),
+    on('system', 'transition_start', (event) => {
+      unifiedStore.updateState(event);
+    }),
+    on('system', 'transition_complete', (event) => {
+      unifiedStore.updateState(event);
+    }),
+    on('system', 'error', (event) => {
+      unifiedStore.updateState(event);
+    })
+  ];
+
+  // === ÉVÉNEMENTS PLUGINS (pour tous les plugins) ===
+  const pluginSubscriptions = [
+    on('plugin', 'state_changed', (event) => {
+      unifiedStore.updateState(event);
+    }),
+    on('plugin', 'metadata', (event) => {
+      unifiedStore.updateState(event);
+    })
+  ];
+  
+  cleanupFunctions.push(volumeCleanup, ...systemSubscriptions, ...pluginSubscriptions);
   
   // Récupérer le statut complet (volume + limites) au démarrage
   volumeStore.getVolumeStatus();

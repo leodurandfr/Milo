@@ -1,25 +1,22 @@
 <!-- frontend/src/components/navigation/BottomNavigation.vue -->
 <template>
   <nav class="bottom-nav">
-    <router-link to="/" class="nav-item" :class="{ active: $route.name === 'home' }">
-      Home
-    </router-link>
     <router-link to="/multiroom" class="nav-item" :class="{ active: $route.name === 'multiroom' }">
       Multiroom
     </router-link>
     <router-link to="/equalizer" class="nav-item" :class="{ active: $route.name === 'equalizer' }">
       Equalizer
     </router-link>
-    <button @click="changeSource('librespot')" :disabled="unifiedStore.isTransitioning"
-      :class="['nav-item', { active: unifiedStore.currentSource === 'librespot' }]">
+    <button @click="activateAndNavigate('librespot', '/spotify')" :disabled="unifiedStore.isTransitioning"
+      :class="['nav-item', { active: unifiedStore.currentSource === 'librespot' || $route.name === 'spotify' }]">
       Spotify
     </button>
-    <button @click="changeSource('bluetooth')" :disabled="unifiedStore.isTransitioning"
-      :class="['nav-item', { active: unifiedStore.currentSource === 'bluetooth' }]">
+    <button @click="activateAndNavigate('bluetooth', '/bluetooth')" :disabled="unifiedStore.isTransitioning"
+      :class="['nav-item', { active: unifiedStore.currentSource === 'bluetooth' || $route.name === 'bluetooth' }]">
       Bluetooth
     </button>
-    <button @click="changeSource('roc')" :disabled="unifiedStore.isTransitioning"
-      :class="['nav-item', { active: unifiedStore.currentSource === 'roc' }]">
+    <button @click="activateAndNavigate('roc', '/roc')" :disabled="unifiedStore.isTransitioning"
+      :class="['nav-item', { active: unifiedStore.currentSource === 'roc' || $route.name === 'roc' }]">
       ROC for Mac
     </button>
     <button @click="decreaseVolume" class="nav-item volume-btn" :disabled="volumeStore.isAdjusting">
@@ -32,14 +29,22 @@
 </template>
 
 <script setup>
+import { useRouter } from 'vue-router';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useVolumeStore } from '@/stores/volumeStore';
 
+const router = useRouter();
 const unifiedStore = useUnifiedAudioStore();
 const volumeStore = useVolumeStore();
 
-function changeSource(source) {
-  unifiedStore.changeSource(source);
+async function activateAndNavigate(source, route) {
+  // 1. Activer le plugin audio
+  await unifiedStore.changeSource(source);
+  
+  // 2. Naviguer vers la vue correspondante
+  if (router.currentRoute.value.path !== route) {
+    router.push(route);
+  }
 }
 
 async function increaseVolume() {

@@ -25,8 +25,6 @@
       <SnapcastControl />
     </div>
 
-    <!-- Navigation en bas -->
-    <BottomNavigation />
 
     <!-- Modals -->
     <SnapcastSettings
@@ -44,7 +42,6 @@ import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SnapcastControl from '@/components/snapcast/SnapcastControl.vue';
 import SnapcastSettings from '@/components/snapcast/SnapcastSettings.vue';
-import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();

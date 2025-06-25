@@ -66,8 +66,6 @@
       </div>
     </div>
 
-    <!-- Navigation en bas -->
-    <BottomNavigation />
   </div>
 </template>
 
@@ -79,7 +77,6 @@ import axios from 'axios';
 import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import RangeSliderEqualizer from '@/components/equalizer/RangeSliderEqualizer.vue';
-import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();

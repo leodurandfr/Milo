@@ -40,9 +40,9 @@ import { useLibrespotControl } from '@/composables/useLibrespotControl';
 import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
 import axios from 'axios';
 
-import NowPlayingInfo from './NowPlayingInfo.vue';
-import PlaybackControls from './PlaybackControls.vue';
-import ProgressBar from './ProgressBar.vue';
+import NowPlayingInfo from '../components/sources/librespot/NowPlayingInfo.vue';
+import PlaybackControls from '../components/sources/librespot/PlaybackControls.vue';
+import ProgressBar from '../components/sources/librespot/ProgressBar.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
