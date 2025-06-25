@@ -2,36 +2,24 @@
 <template>
   <div class="snapclient-item">
     <!-- Informations du client -->
-    <div class="client-info">
-      <div class="client-name">{{ client.name }}</div>
-    </div>
+    <div class="client-name">{{ client.name }}</div>
 
     <!-- Contrôles du client -->
-    <div class="client-controls">
-      <!-- Contrôle du volume avec drag temps réel -->
-      <div class="volume-control">
-        <RangeSlider 
-          :model-value="displayVolume" 
-          :min="minVolumeDisplay" 
-          :max="maxVolumeDisplay" 
-          :step="1" 
-          orientation="horizontal"
-          :disabled="client.muted" 
-          @input="handleVolumeInput"
-          @change="handleVolumeChange" 
-        />
-        <span class="volume-label">{{ displayVolume }}%</span>
-      </div>
+    <!-- Contrôle du volume avec drag temps réel -->
+    <div class="volume-control">
+      <RangeSlider :model-value="displayVolume" :min="minVolumeDisplay" :max="maxVolumeDisplay" :step="1"
+        orientation="horizontal" :disabled="client.muted" @input="handleVolumeInput" @change="handleVolumeChange" />
+      <span class="volume-label">{{ displayVolume }}%</span>
+    </div>
 
-      <!-- Bouton Détails -->
-      <button @click="handleShowDetails" class="details-btn" title="Voir les détails du client">
-        ℹ️
-      </button>
+    <!-- Bouton Détails -->
+    <button @click="handleShowDetails" class="details-btn" title="Voir les détails du client">
+      ℹ️
+    </button>
 
-      <!-- Toggle Mute -->
-      <div class="mute-control">
-        <Toggle :model-value="!client.muted" @change="handleMuteToggle" />
-      </div>
+    <!-- Toggle Mute -->
+    <div class="mute-control">
+      <Toggle :model-value="!client.muted" @change="handleMuteToggle" />
     </div>
   </div>
 </template>
@@ -92,8 +80,8 @@ function interpolateFromDisplay(displayVolume) {
 
 const displayVolume = computed(() => {
   // Utiliser volume local pendant le drag, sinon volume du client
-  return localDisplayVolume.value !== null 
-    ? localDisplayVolume.value 
+  return localDisplayVolume.value !== null
+    ? localDisplayVolume.value
     : interpolateToDisplay(props.client.volume);
 });
 
@@ -102,16 +90,16 @@ const displayVolume = computed(() => {
 function handleVolumeInput(newDisplayVolume) {
   // Feedback visuel immédiat
   localDisplayVolume.value = newDisplayVolume;
-  
+
   // Nettoyer les timeouts existants
   if (throttleTimeout) clearTimeout(throttleTimeout);
   if (finalTimeout) clearTimeout(finalTimeout);
-  
+
   // Throttling pendant le drag (25ms)
   throttleTimeout = setTimeout(() => {
     sendVolumeUpdate(newDisplayVolume);
   }, 25);
-  
+
   // Timeout de sécurité pour garantir l'envoi final (500ms)
   finalTimeout = setTimeout(() => {
     sendVolumeUpdate(newDisplayVolume);
@@ -122,10 +110,10 @@ function handleVolumeChange(newDisplayVolume) {
   // Fin du drag - nettoyer et envoyer la valeur finale
   if (throttleTimeout) clearTimeout(throttleTimeout);
   if (finalTimeout) clearTimeout(finalTimeout);
-  
+
   // Reset du volume local
   localDisplayVolume.value = null;
-  
+
   // Envoyer la valeur finale
   sendVolumeUpdate(newDisplayVolume);
 }
@@ -133,9 +121,9 @@ function handleVolumeChange(newDisplayVolume) {
 function sendVolumeUpdate(displayVolume) {
   // Convertir vers volume réel avec limites
   const realVolume = interpolateFromDisplay(displayVolume);
-  
+
   console.log(`Volume update: display=${displayVolume}% → real=${realVolume}% (limits: ${MIN_VOLUME.value}-${MAX_VOLUME.value}%)`);
-  
+
   // Le WebSocket Snapcast se chargera de la mise à jour
   emit('volume-change', props.client.id, realVolume);
 }
@@ -167,17 +155,13 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-radius:16px;
+  border-radius: 16px;
+  gap:16px;
   padding: 16px;
   background: #fff;
 }
 
-/* Informations du client */
-.client-info {
-  flex: 1;
-  min-width: 0;
-  margin-right: 16px;
-}
+
 
 .client-name {
   font-weight: bold;
@@ -186,7 +170,7 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   display: inline-block;
-  width: 96px;
+  min-width: 96px;
 }
 
 /* Contrôles du client */
@@ -199,13 +183,15 @@ onUnmounted(() => {
 
 /* Contrôle du volume */
 .volume-control {
-  min-width: 380px;
-  flex-shrink: 0;
+  display: flex;
+  width: 100%;
+  gap: 16px;
+  align-items: center;
 }
 
 .volume-label {
-  display: inline-block;
-  width: 48px;
+  position: absolute;
+  margin-left: 16px;
 }
 
 /* Bouton détails */
@@ -241,10 +227,7 @@ onUnmounted(() => {
     gap: 12px;
   }
 
-  .client-info {
-    margin-right: 0;
-    text-align: center;
-  }
+
 
   .client-controls {
     justify-content: space-between;

@@ -102,7 +102,7 @@ watch(() => props.isOpen, (newValue) => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: #f2f2f2cc;
   backdrop-filter: blur(10px);
   display: flex;
   align-items: flex-start; /* Alignement en haut pour auto */
@@ -120,14 +120,12 @@ watch(() => props.isOpen, (newValue) => {
 /* Container - comportement par défaut (auto) */
 .modal-container {
   position: relative;
-  background: rgba(255, 255, 255, 0.241);
+  background: #75757529;
   border-radius: 32px;
   width: 100%;
   max-width: 700px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-  /* Auto height - s'adapte au contenu */
 }
 
 /* Container mode fixed (equalizer) */
@@ -151,7 +149,6 @@ watch(() => props.isOpen, (newValue) => {
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   z-index: 1001;
 }
 
