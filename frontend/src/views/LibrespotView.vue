@@ -29,10 +29,11 @@
       </div>
     </div>
 
-    <div v-else class="waiting-connection">
-      <div class="waiting-icon">🎵</div>
-      <h3>En attente de connexion</h3>
-      <p>Connectez un appareil via Spotify Connect</p>
+    <div v-else-if="unifiedStore.pluginState === 'ready'" class="plugin-status-wrapper">
+      <PluginStatus
+        plugin-type="librespot"
+        :plugin-state="unifiedStore.pluginState"
+      />
     </div>
 
     <div v-if="unifiedStore.error && unifiedStore.currentSource === 'librespot'" class="error-message">
@@ -50,6 +51,7 @@ import axios from 'axios';
 
 import PlaybackControls from '../components/librespot/PlaybackControls.vue';
 import ProgressBar from '../components/librespot/ProgressBar.vue';
+import PluginStatus from '@/components/ui/PluginStatus.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
@@ -103,6 +105,15 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.plugin-status-wrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-05);
+}
+
 .librespot-player {
   width: 100%;
   height: 100%;
@@ -182,20 +193,7 @@ onMounted(async () => {
   gap: var(--space-05);
 }
 
-/* État d'attente (layout actuel conservé) */
-.waiting-connection {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
-  color: #666;
-}
 
-.waiting-icon {
-  font-size: 48px;
-  margin-bottom: 20px;
-}
 
 .error-message {
   color: #ff4444;

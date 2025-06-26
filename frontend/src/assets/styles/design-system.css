@@ -12,6 +12,7 @@
 
     --color-background: #F7F7F7;
     --color-background-strong: #F2F2F2;
+    --color-background-neutral: #FFFFFF;
     --color-background-neutral-50: #FFFFFF80;
     --color-background-neutral-12: #FFFFFF1F;
     --color-background-contrast: #1C2524;
@@ -69,6 +70,9 @@
     --radius-06: 32px;
     --radius-full: 9999px;
 
+
+    /* === SHADOWS === */
+    --shadow-02: 0 8px 32px rgba(0, 0, 0, 0.04);
 
     /* === TRANSITIONS === */
     --transition-fast: 150ms ease;
