@@ -30,13 +30,13 @@
       <!-- Multiroom -->
       <button ref="dockItem3" @click="() => { resetHideTimer(); moveIndicatorTo(3); modalStore.openSnapcast(); }"
         class="dock-item">
-         <AppIcon name="multiroom" size="large" class="dock-item-icon" />
+        <AppIcon name="multiroom" size="large" class="dock-item-icon" />
       </button>
 
       <!-- Equalizer -->
       <button ref="dockItem4" @click="() => { resetHideTimer(); moveIndicatorTo(4); modalStore.openEqualizer(); }"
         class="dock-item">
-         <AppIcon name="equalizer" size="large" class="dock-item-icon" />
+        <AppIcon name="equalizer" size="large" class="dock-item-icon" />
       </button>
 
       <!-- Volume - (Mobile uniquement) -->
@@ -134,7 +134,7 @@ function moveIndicatorTo(index) {
 function updateActiveIndicator() {
   if (!isVisible.value) return;
 
-  // Déterminer quel élément est actif (nouveaux indices)
+  // Déterminer quel élément est actif
   let activeIndex = -1;
 
   if (unifiedStore.currentSource === 'librespot') activeIndex = 0;
@@ -148,9 +148,6 @@ function updateActiveIndicator() {
     return;
   }
 
-  // Positionner directement sans transition au premier affichage
-  const isFirstDisplay = indicatorStyle.value.opacity === '0';
-  
   nextTick(() => {
     const dockItems = [
       dockItem0.value, dockItem1.value, dockItem2.value,
@@ -166,26 +163,21 @@ function updateActiveIndicator() {
     const itemCenterX = itemRect.left - dockRect.left + (itemRect.width / 2);
     const offsetX = itemCenterX - 2;
 
-    if (isFirstDisplay) {
-      // Premier affichage : pas de transition
+    // Positionner immédiatement sans transition pour le transform
+    indicatorStyle.value = {
+      opacity: '0', // Commencer invisible
+      transform: `translateX(${offsetX}px)`,
+      transition: 'none'
+    };
+
+    // Animer l'apparition après un court délai
+    setTimeout(() => {
       indicatorStyle.value = {
         opacity: '1',
         transform: `translateX(${offsetX}px)`,
-        transition: 'none'
+        transition: 'opacity var(--transition-normal), transform var(--transition-normal)'
       };
-      
-      // Réactiver la transition après
-      setTimeout(() => {
-        indicatorStyle.value.transition = 'all var(--transition-normal)';
-      }, 50);
-    } else {
-      // Affichage normal avec transition
-      indicatorStyle.value = {
-        opacity: '1',
-        transform: `translateX(${offsetX}px)`,
-        transition: 'all var(--transition-normal)'
-      };
-    }
+    }, 50);
   });
 }
 
@@ -268,7 +260,7 @@ function showDock() {
 
   setTimeout(() => {
     updateActiveIndicator();
-  }, 800);
+  }, 500);
 }
 
 function hideDock() {
@@ -337,11 +329,12 @@ onUnmounted(() => {
 /* Zone de drag invisible */
 .drag-zone {
   position: fixed;
+  width: 280px;
   bottom: 0;
-  left: 0;
-  right: 0;
-  height: 100px;
-  background: transparent;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 32%;
+  opacity: 0.2;
   z-index: 999;
   cursor: grab;
   user-select: none;
@@ -376,15 +369,34 @@ onUnmounted(() => {
 
 /* Dock avec design-system */
 .dock {
+  position: relative;
+  border-radius: var(--radius-06);
+  padding: var(--space-04);
   background: var(--color-background-glass);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--color-background-neutral-12);
-  border-radius: var(--radius-06);
-  padding: var(--space-04);
   display: flex;
   align-items: center;
   gap: var(--space-03);
+  z-index: 0;
+  overflow: hidden;
+}
+
+.dock::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  /* Épaisseur de la "bordure" */
+  background: var(--stroke-glass);
+  border-radius: var(--radius-06);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+  pointer-events: none;
 }
 
 /* Séparateur */
@@ -409,15 +421,7 @@ onUnmounted(() => {
 
 /* Items du dock avec stagger animation */
 .dock-item {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-04);
-  background: var(--color-background-neutral-12);
-  border: 1px solid var(--color-background-neutral-12);
   cursor: pointer;
-  position: relative;
-  overflow: hidden;
   opacity: 0;
   transform: translateY(20px) scale(0.8);
   transition: all 0.725s linear(0.000, 0.106 2.0%, 0.219 4.0%, 0.335 6.0%, 0.451 8.0%, 0.561 10.0%,
@@ -508,6 +512,7 @@ onUnmounted(() => {
   border-radius: var(--radius-full);
   opacity: 0;
   pointer-events: none;
+  transition: opacity var(--transition-normal), transform var(--transition-normal);
 }
 
 /* États */
@@ -525,6 +530,7 @@ onUnmounted(() => {
 @media (max-aspect-ratio: 4/3) {
   .drag-zone {
     height: 80px;
+
   }
 
   .dock {

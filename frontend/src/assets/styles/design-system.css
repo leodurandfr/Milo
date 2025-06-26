@@ -19,6 +19,9 @@
     --color-background-glass: #75757529;
 
 
+    /* === TRACÉS === */
+
+    --stroke-glass: linear-gradient(277deg, rgba(255, 255, 255, 0.32) 0.43%, rgba(255, 255, 255, 0.06) 32.15%, rgba(255, 255, 255, 0.32) 67.85%, rgba(255, 255, 255, 0.06) 99.57%);
 
 
     /* === COULEURS SYSTÈME === */
