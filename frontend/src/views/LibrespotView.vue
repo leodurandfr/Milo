@@ -30,10 +30,7 @@
     </div>
 
     <div v-else-if="unifiedStore.pluginState === 'ready'" class="plugin-status-wrapper">
-      <PluginStatus
-        plugin-type="librespot"
-        :plugin-state="unifiedStore.pluginState"
-      />
+      <PluginStatus plugin-type="librespot" :plugin-state="unifiedStore.pluginState" />
     </div>
 
     <div v-if="unifiedStore.error && unifiedStore.currentSource === 'librespot'" class="error-message">
@@ -105,15 +102,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.plugin-status-wrapper {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-05);
-}
-
 .librespot-player {
   width: 100%;
   height: 100%;
@@ -124,7 +112,19 @@ onMounted(async () => {
   height: 100%;
   padding: var(--space-06);
   gap: var(--space-06);
+  background: var(--color-background-neutral);
 }
+
+.plugin-status-wrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-05);
+}
+
+
 
 /* Partie gauche : Image de couverture */
 .album-art-section {
@@ -182,6 +182,7 @@ onMounted(async () => {
 .track-title {
   color: var(--color-text);
 }
+
 .track-artist {
   color: var(--color-text-light);
 }
@@ -206,10 +207,9 @@ onMounted(async () => {
 
 @media (max-width: 400px) {
 
-.now-playing {
+  .now-playing {
 
-  flex-direction: column;
+    flex-direction: column;
+  }
 }
-}
-
 </style>

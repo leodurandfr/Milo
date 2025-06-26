@@ -88,26 +88,24 @@ const statusLines = computed(() => {
             case 'roc':
                 return ['oakOS est prêt à recevoir l\'audio d\'un ordinateur Mac'];
             case 'librespot':
-                return ['oakOS est visible dans vos appareils Spotify'];
+                return ['oakOS est visible dans vos appareils Spotify'];
             default:
                 return ['En attente de connexion'];
         }
     }
 
     if (props.pluginState === 'connected' && props.deviceName) {
-        return ['Connecté à', props.deviceName];
-    }
-
-    if (props.pluginState === 'connected') {
-        return ['Connecté'];
+        switch (props.pluginType) {
+            case 'bluetooth':
+                return ['Connecté à', props.deviceName];
+            case 'roc':
+                return ['Connecté au', props.deviceName];
+            default:
+                return ['Connecté à', props.deviceName];
+        }
     }
 
     return ['État inconnu'];
-});
-
-// Affichage du bouton déconnecter
-const showDisconnectButton = computed(() => {
-    return props.pluginType === 'bluetooth' && props.pluginState === 'connected';
 });
 
 // Gestionnaire de déconnexion
@@ -117,15 +115,13 @@ function handleDisconnect() {
 </script>
 
 <style scoped>
-
 .plugin-status {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
-  box-shadow: var(--shadow-02);
-  position: relative;
-  margin: auto;
-  width: fit-content;
-  height: fit-content;
+    background: var(--color-background-neutral);
+    border-radius: var(--radius-06);
+    box-shadow: var(--shadow-02);
+    width: 368px;
+    position: relative;
+    margin: auto;
 }
 
 .plugin-status-content {
@@ -133,7 +129,6 @@ function handleDisconnect() {
     flex-direction: column;
     align-items: center;
     position: relative;
-    width: 368px;
     height: 100%;
 }
 
@@ -279,18 +274,9 @@ function handleDisconnect() {
 /* Responsive */
 @media (max-width: 400px) {
 
-    .status-single,
-    .status-line-1,
-    .status-line-2 {
-        width: 280px;
+    .plugin-status {
+        width: 100%;
     }
 
-    .disconnect-button {
-        width: 300px;
-    }
-
-    .disconnect-button-inner {
-        width: 300px;
-    }
 }
 </style>
