@@ -58,12 +58,3 @@ img {
   padding: 0;
   border: none;
 }
-
-
-@media (max-aspect-ratio: 4/3) {
-
-  body {
-    height: auto;
-
-  }
-}
