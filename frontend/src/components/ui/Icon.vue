@@ -13,6 +13,11 @@ import pauseIcon from '@/assets/icons/pause.svg?raw';
 import nextIcon from '@/assets/icons/next.svg?raw';
 import previousIcon from '@/assets/icons/previous.svg?raw';
 import volumeIcon from '@/assets/icons/volume.svg?raw';
+import plusIcon from '@/assets/icons/plus.svg?raw';
+import minusIcon from '@/assets/icons/minus.svg?raw';
+import threeDotsIcon from '@/assets/icons/three-dots.svg?raw';
+import closeDotsIcon from '@/assets/icons/close-dots.svg?raw';
+
 // Ajoutez vos autres icônes ici
 
 const icons = {
@@ -20,7 +25,11 @@ const icons = {
   pause: pauseIcon,
   next: nextIcon,
   previous: previousIcon,
-  volume: volumeIcon
+  volume: volumeIcon,
+  plus: plusIcon,
+  minus: minusIcon,
+  threeDots: threeDotsIcon,
+  closeDots: closeDotsIcon,
   // Ajoutez vos autres icônes ici
 };
 

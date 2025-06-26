@@ -3,53 +3,82 @@
   <!-- Zone de drag invisible -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }"></div>
 
+
+
   <!-- Dock de navigation -->
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible }">
-    <div ref="dock" class="dock">
-      <!-- Spotify -->
-      <button ref="dockItem0" @click="() => { resetHideTimer(); moveIndicatorTo(0); changeSource('librespot'); }"
-        :disabled="unifiedStore.isTransitioning" class="dock-item">
-        <AppIcon name="spotify" size="large" class="dock-item-icon" />
-      </button>
-
-      <!-- Bluetooth -->
-      <button ref="dockItem1" @click="() => { resetHideTimer(); moveIndicatorTo(1); changeSource('bluetooth'); }"
-        :disabled="unifiedStore.isTransitioning" class="dock-item">
-        <AppIcon name="bluetooth" size="large" class="dock-item-icon" />
-      </button>
-
-      <!-- ROC for Mac -->
-      <button ref="dockItem2" @click="() => { resetHideTimer(); moveIndicatorTo(2); changeSource('roc'); }"
-        :disabled="unifiedStore.isTransitioning" class="dock-item">
-        <AppIcon name="roc" size="large" class="dock-item-icon" />
-      </button>
-
-      <!-- Séparateur -->
-      <div ref="separator" class="dock-separator"></div>
-
+    <!-- Additional Apps - Mobile uniquement -->
+    <div v-if="showAdditionalApps" class="additional-apps-container mobile-only"
+      :class="{ visible: showAdditionalApps }">
       <!-- Multiroom -->
-      <button ref="dockItem3" @click="() => { resetHideTimer(); moveIndicatorTo(3); modalStore.openSnapcast(); }"
-        class="dock-item">
-        <AppIcon name="multiroom" size="large" class="dock-item-icon" />
+      <button @click="() => { resetHideTimer(); moveIndicatorTo(3); modalStore.openSnapcast(); }"
+        class="additional-app-content">
+        <AppIcon name="multiroom" :size="32" />
+        <div class="app-title heading-2">Multiroom</div>
       </button>
 
       <!-- Equalizer -->
-      <button ref="dockItem4" @click="() => { resetHideTimer(); moveIndicatorTo(4); modalStore.openEqualizer(); }"
-        class="dock-item">
-        <AppIcon name="equalizer" size="large" class="dock-item-icon" />
+      <button @click="() => { resetHideTimer(); moveIndicatorTo(4); modalStore.openEqualizer(); }"
+        class="additional-app-content">
+        <AppIcon name="equalizer" :size="32" />
+        <div class="app-title heading-2">Égaliseur</div>
       </button>
+    </div>
+    <div ref="dock" class="dock">
 
-      <!-- Volume - (Mobile uniquement) -->
-      <button ref="dockItem5" @click="() => { resetHideTimer(); decreaseVolume(); }"
-        class="dock-item volume-btn mobile-only" :disabled="volumeStore.isAdjusting">
-        <div class="dock-item-icon text-icon">-</div>
-      </button>
+      <!-- Volume Controls - Mobile uniquement -->
+      <div class="volume-controls mobile-only">
+        <button @click="() => { resetHideTimer(); decreaseVolume(); }" class="volume-btn"
+          :disabled="volumeStore.isAdjusting">
+          <Icon name="minus" :size="32" />
+        </button>
+        <button @click="() => { resetHideTimer(); increaseVolume(); }" class="volume-btn"
+          :disabled="volumeStore.isAdjusting">
+          <Icon name="plus" :size="32" />
+        </button>
+      </div>
 
-      <!-- Volume + (Mobile uniquement) -->
-      <button ref="dockItem6" @click="() => { resetHideTimer(); increaseVolume(); }"
-        class="dock-item volume-btn mobile-only" :disabled="volumeStore.isAdjusting">
-        <div class="dock-item-icon text-icon">+</div>
-      </button>
+      <!-- App Container -->
+      <div class="app-container">
+        <!-- Spotify -->
+        <button ref="dockItem0" @click="() => { resetHideTimer(); moveIndicatorTo(0); changeSource('librespot'); }"
+          :disabled="unifiedStore.isTransitioning" class="dock-item">
+          <AppIcon name="spotify" size="large" class="dock-item-icon" />
+        </button>
+
+        <!-- Bluetooth -->
+        <button ref="dockItem1" @click="() => { resetHideTimer(); moveIndicatorTo(1); changeSource('bluetooth'); }"
+          :disabled="unifiedStore.isTransitioning" class="dock-item">
+          <AppIcon name="bluetooth" size="large" class="dock-item-icon" />
+        </button>
+
+        <!-- ROC for Mac -->
+        <button ref="dockItem2" @click="() => { resetHideTimer(); moveIndicatorTo(2); changeSource('roc'); }"
+          :disabled="unifiedStore.isTransitioning" class="dock-item">
+          <AppIcon name="roc" size="large" class="dock-item-icon" />
+        </button>
+
+        <!-- Séparateur -->
+        <div ref="separator" class="dock-separator"></div>
+
+        <!-- Toggle Additional Apps - Mobile uniquement -->
+        <button ref="dockToggle" @click="() => { resetHideTimer(); toggleAdditionalApps(); }"
+          class="dock-item toggle-btn mobile-only">
+          <Icon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
+        </button>
+
+        <!-- Multiroom - Desktop uniquement -->
+        <button ref="dockItem3" @click="() => { resetHideTimer(); moveIndicatorTo(3); modalStore.openSnapcast(); }"
+          class="dock-item desktop-only">
+          <AppIcon name="multiroom" size="large" class="dock-item-icon" />
+        </button>
+
+        <!-- Equalizer - Desktop uniquement -->
+        <button ref="dockItem4" @click="() => { resetHideTimer(); moveIndicatorTo(4); modalStore.openEqualizer(); }"
+          class="dock-item desktop-only">
+          <AppIcon name="equalizer" size="large" class="dock-item-icon" />
+        </button>
+      </div>
 
       <!-- Indicateur d'élément actif -->
       <div ref="activeIndicator" class="active-indicator" :style="indicatorStyle"></div>
@@ -63,6 +92,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useVolumeStore } from '@/stores/volumeStore';
 import { useModalStore } from '@/stores/modalStore';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import Icon from '@/components/ui/Icon.vue';
 
 // Stores
 const unifiedStore = useUnifiedAudioStore();
@@ -75,6 +105,7 @@ const dockContainer = ref(null);
 const dock = ref(null);
 const activeIndicator = ref(null);
 const separator = ref(null);
+const dockToggle = ref(null);
 
 // Refs pour les dock-items (pour calculer la position de l'indicateur)
 const dockItem0 = ref(null);
@@ -82,12 +113,11 @@ const dockItem1 = ref(null);
 const dockItem2 = ref(null);
 const dockItem3 = ref(null);
 const dockItem4 = ref(null);
-const dockItem5 = ref(null);
-const dockItem6 = ref(null);
 
 // État du dock
 const isVisible = ref(false);
 const isDragging = ref(false);
+const showAdditionalApps = ref(false);
 
 // Variables de drag
 let dragStartY = 0;
@@ -95,6 +125,11 @@ let dragCurrentY = 0;
 const dragThreshold = 30;
 let clickTimeout = null;
 let hideTimeout = null;
+
+// === ADDITIONAL APPS ===
+function toggleAdditionalApps() {
+  showAdditionalApps.value = !showAdditionalApps.value;
+}
 
 // === INDICATEUR ACTIF ===
 const indicatorStyle = ref({
@@ -110,7 +145,7 @@ function moveIndicatorTo(index) {
   nextTick(() => {
     const dockItems = [
       dockItem0.value, dockItem1.value, dockItem2.value,
-      dockItem3.value, dockItem4.value, dockItem5.value, dockItem6.value
+      dockItem3.value, dockItem4.value
     ];
 
     const targetItem = dockItems[index];
@@ -151,7 +186,7 @@ function updateActiveIndicator() {
   nextTick(() => {
     const dockItems = [
       dockItem0.value, dockItem1.value, dockItem2.value,
-      dockItem3.value, dockItem4.value, dockItem5.value, dockItem6.value
+      dockItem3.value, dockItem4.value
     ];
 
     const targetItem = dockItems[activeIndex];
@@ -266,6 +301,7 @@ function showDock() {
 function hideDock() {
   if (!isVisible.value) return;
   isVisible.value = false;
+  showAdditionalApps.value = false; // Fermer aussi les apps additionnelles
   clearHideTimer();
   indicatorStyle.value.opacity = '0';
 }
@@ -344,12 +380,88 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
+/* Additional Apps Container - Mobile uniquement */
+.additional-apps-container {
+  position: relative;
+  margin-bottom: var(--space-03);
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  z-index: 998;
+  border-radius: var(--radius-06);
+  padding: var(--space-04);
+  background: var(--color-background-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.additional-apps-container.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.additional-apps-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  background: var(--stroke-glass);
+  border-radius: var(--radius-06);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.additional-app-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+  padding: var(--space-02);
+  width: 100%;
+  background: var(--color-background-neutral-64);
+  border: none;
+  cursor: pointer;
+  border-radius: var(--radius-04);
+  transition: all var(--transition-fast);
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.additional-apps-container.visible .additional-app-content {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.additional-apps-container.visible .additional-app-content:first-child {
+  transition-delay: 0.1s;
+}
+
+.additional-apps-container.visible .additional-app-content:nth-child(2) {
+  transition-delay: 0.2s;
+}
+
+.additional-app-content:hover {
+  background: var(--color-background-neutral-12);
+}
+
+
+.app-title {
+  color: var(--color-text);
+
+}
+
 /* Dock container avec animation spring */
 .dock-container {
   position: fixed;
   bottom: 0;
   left: 50%;
-  transform: translateX(-50%) translateY(120px) scale(0.85);
+  transform: translateX(-50%) translateY(148px) scale(0.85);
   z-index: 1000;
   transition: transform 0.725s linear(0.000, 0.106 2.0%, 0.219 4.0%, 0.335 6.0%, 0.451 8.0%, 0.561 10.0%,
       0.665 12.0%, 0.760 14.0%, 0.845 16.0%, 0.919 18.0%, 0.982 20.0%,
@@ -376,6 +488,7 @@ onUnmounted(() => {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: var(--space-03);
   z-index: 0;
@@ -387,7 +500,6 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   padding: 2px;
-  /* Épaisseur de la "bordure" */
   background: var(--stroke-glass);
   border-radius: var(--radius-06);
   -webkit-mask:
@@ -397,6 +509,41 @@ onUnmounted(() => {
   mask-composite: exclude;
   z-index: -1;
   pointer-events: none;
+}
+
+/* Volume Controls - Mobile uniquement */
+.volume-controls {
+  display: flex;
+  gap: var(--space-02);
+  width: 100%;
+}
+
+.volume-btn {
+  flex: 1;
+  background: var(--color-background-neutral-64);
+  border-radius: var(--radius-04);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  padding: var(--space-02);
+  transition: all var(--transition-normal);
+
+}
+
+.volume-btn:hover {
+  background: var(--color-background-neutral);
+  color: var(--color-text);
+}
+
+.volume-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* App Container */
+.app-container {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
 }
 
 /* Séparateur */
@@ -434,53 +581,36 @@ onUnmounted(() => {
       0.981 72.0%, 0.981 74.0%, 0.981 76.0%, 0.981 78.0%, 0.982 80.0%,
       0.984 82.0%, 0.985 84.0%, 0.987 86.0%, 0.989 88.0%, 0.991 90.0%,
       0.992 92.0%, 0.994 94.0%, 0.996 96.0%, 0.997 98.0%, 0.998 100.0%);
+  background: none;
+  border: none;
 }
 
-/* Animation staggerée - quand visible (incluant le séparateur) */
+.toggle-btn {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-background-neutral-64);
+  border-radius: var(--radius-03);
+  padding: 0 var(--space-01);
+  color: var(--color-text-secondary);
+
+}
+
+
+
+/* Animation staggerée - quand visible */
 .dock-container.visible .dock-item,
-.dock-container.visible .dock-separator {
+.dock-container.visible .dock-separator,
+.dock-container.visible .volume-controls {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
 
 .dock-container.visible .dock-item:nth-child(1),
-.dock-container.visible .dock-separator:nth-child(1) {
+.dock-container.visible .dock-separator:nth-child(1),
+.dock-container.visible .volume-controls:nth-child(1) {
   transition-delay: 0.1s;
-}
-
-.dock-container.visible .dock-item:nth-child(2),
-.dock-container.visible .dock-separator:nth-child(2) {
-  transition-delay: 0.15s;
-}
-
-.dock-container.visible .dock-item:nth-child(3),
-.dock-container.visible .dock-separator:nth-child(3) {
-  transition-delay: 0.2s;
-}
-
-.dock-container.visible .dock-item:nth-child(4),
-.dock-container.visible .dock-separator:nth-child(4) {
-  transition-delay: 0.25s;
-}
-
-.dock-container.visible .dock-item:nth-child(5),
-.dock-container.visible .dock-separator:nth-child(5) {
-  transition-delay: 0.3s;
-}
-
-.dock-container.visible .dock-item:nth-child(6),
-.dock-container.visible .dock-separator:nth-child(6) {
-  transition-delay: 0.35s;
-}
-
-.dock-container.visible .dock-item:nth-child(7),
-.dock-container.visible .dock-separator:nth-child(7) {
-  transition-delay: 0.4s;
-}
-
-.dock-container.visible .dock-item:nth-child(8),
-.dock-container.visible .dock-separator:nth-child(8) {
-  transition-delay: 0.45s;
 }
 
 /* Contenu des items */
@@ -490,15 +620,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.text-icon {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-02);
-  font-family: 'Space Mono Regular';
-  font-size: var(--font-size-h2);
-  font-weight: 600;
-  color: var(--color-text);
 }
 
 /* Indicateur d'élément actif */
@@ -521,74 +642,36 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
-/* Boutons volume - masqués en desktop */
+/* Responsive */
 .mobile-only {
+  display: flex;
+}
+
+.desktop-only {
   display: flex;
 }
 
 /* Mobile responsive */
 @media (max-aspect-ratio: 4/3) {
   .drag-zone {
-    height: 80px;
-
+    height: 12%;
   }
 
-  .dock {
-    gap: var(--space-01);
-    flex-wrap: nowrap;
-    overflow-x: auto;
-  }
-
-
-
-
-
-  /* Stagger plus rapide sur mobile */
-  .dock-container.visible .dock-item:nth-child(1),
-  .dock-container.visible .dock-separator:nth-child(1) {
-    transition-delay: 0.05s;
-  }
-
-  .dock-container.visible .dock-item:nth-child(2),
-  .dock-container.visible .dock-separator:nth-child(2) {
-    transition-delay: 0.1s;
-  }
-
-  .dock-container.visible .dock-item:nth-child(3),
-  .dock-container.visible .dock-separator:nth-child(3) {
-    transition-delay: 0.15s;
-  }
-
-  .dock-container.visible .dock-item:nth-child(4),
-  .dock-container.visible .dock-separator:nth-child(4) {
-    transition-delay: 0.2s;
-  }
-
-  .dock-container.visible .dock-item:nth-child(5),
-  .dock-container.visible .dock-separator:nth-child(5) {
-    transition-delay: 0.25s;
-  }
-
-  .dock-container.visible .dock-item:nth-child(6),
-  .dock-container.visible .dock-separator:nth-child(6) {
-    transition-delay: 0.3s;
-  }
-
-  .dock-container.visible .dock-item:nth-child(7),
-  .dock-container.visible .dock-separator:nth-child(7) {
-    transition-delay: 0.35s;
-  }
-
-  .dock-container.visible .dock-item:nth-child(8),
-  .dock-container.visible .dock-separator:nth-child(8) {
-    transition-delay: 0.4s;
+  .desktop-only {
+    display: none;
   }
 }
 
-/* Desktop - masquer les boutons volume */
+/* Desktop - masquer les éléments mobile */
 @media not (max-aspect-ratio: 4/3) {
   .mobile-only {
     display: none;
   }
+
+  .dock {
+    flex-direction: row;
+  }
+
+
 }
 </style>
