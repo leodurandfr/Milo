@@ -403,7 +403,7 @@ onUnmounted(() => {
 .dock-separator {
   width: 2px;
   height: var(--space-07);
-  background: var(--color-background-glass);
+  background: var(--color-background-neutral-32);
   border-radius: var(--radius-full);
   opacity: 0;
   transform: translateY(20px) scale(0.8);
@@ -504,15 +504,15 @@ onUnmounted(() => {
 /* Indicateur d'élément actif */
 .active-indicator {
   position: absolute;
-  bottom: 6px;
+  bottom: 8px;
   left: 0;
   width: 6px;
   height: 4px;
-  background: var(--color-text-secondary);
+  background: var(--color-background-contrast);
   border-radius: var(--radius-full);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--transition-normal), transform var(--transition-normal);
+  transition: opacity var(--transition-slow), transform var(--transition-slow);
 }
 
 /* États */
