@@ -82,6 +82,6 @@ function onProgressClick(event) {
 }
 
 .time {
-  color: var(--color-text-secondary)
+  color: var(--color-text-light)
 }
 </style>

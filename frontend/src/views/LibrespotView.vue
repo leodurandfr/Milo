@@ -118,7 +118,7 @@ onMounted(async () => {
 /* Partie gauche : Image de couverture */
 .album-art-section {
   flex-shrink: 0;
-  height: 100%;
+  /* height: 100%; */
   aspect-ratio: 1;
 }
 
@@ -172,7 +172,7 @@ onMounted(async () => {
   color: var(--color-text);
 }
 .track-artist {
-  color: var(--color-text-secondary);
+  color: var(--color-text-light);
 }
 
 /* Bloc 2 : Contrôles (aligné en bas) */
@@ -205,4 +205,13 @@ onMounted(async () => {
   background-color: #fff0f0;
   border-radius: 4px;
 }
+
+@media (max-width: 400px) {
+
+.now-playing {
+
+  flex-direction: column;
+}
+}
+
 </style>
