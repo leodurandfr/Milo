@@ -108,6 +108,11 @@ const statusLines = computed(() => {
     return ['État inconnu'];
 });
 
+// Affichage du bouton déconnecter
+const showDisconnectButton = computed(() => {
+    return props.pluginType === 'bluetooth' && props.pluginState === 'connected';
+});
+
 // Gestionnaire de déconnexion
 function handleDisconnect() {
     emit('disconnect');
