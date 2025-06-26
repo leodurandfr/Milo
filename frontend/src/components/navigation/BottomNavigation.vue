@@ -450,10 +450,8 @@ onUnmounted(() => {
   background: var(--color-background-neutral-12);
 }
 
-
 .app-title {
   color: var(--color-text);
-
 }
 
 /* Dock container avec animation spring */
@@ -463,16 +461,7 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%) translateY(148px) scale(0.85);
   z-index: 1000;
-  transition: transform 0.725s linear(0.000, 0.106 2.0%, 0.219 4.0%, 0.335 6.0%, 0.451 8.0%, 0.561 10.0%,
-      0.665 12.0%, 0.760 14.0%, 0.845 16.0%, 0.919 18.0%, 0.982 20.0%,
-      1.034 22.0%, 1.076 24.0%, 1.108 26.0%, 1.131 28.0%, 1.145 30.0%,
-      1.153 32.0%, 1.155 34.0%, 1.152 36.0%, 1.144 38.0%, 1.134 40.0%,
-      1.122 42.0%, 1.108 44.0%, 1.093 46.0%, 1.079 48.0%, 1.064 50.0%,
-      1.051 52.0%, 1.038 54.0%, 1.026 56.0%, 1.016 58.0%, 1.007 60.0%,
-      1.000 62.0%, 0.994 64.0%, 0.989 66.0%, 0.985 68.0%, 0.983 70.0%,
-      0.981 72.0%, 0.981 74.0%, 0.981 76.0%, 0.981 78.0%, 0.982 80.0%,
-      0.984 82.0%, 0.985 84.0%, 0.987 86.0%, 0.989 88.0%, 0.991 90.0%,
-      0.992 92.0%, 0.994 94.0%, 0.996 96.0%, 0.997 98.0%, 0.998 100.0%);
+  transition: transform var(--spring-transition);
 }
 
 .dock-container.visible {
@@ -516,6 +505,9 @@ onUnmounted(() => {
   display: flex;
   gap: var(--space-02);
   width: 100%;
+  opacity: 0;
+  transform: translateY(20px) scale(0.8);
+  transition: all var(--spring-transition);
 }
 
 .volume-btn {
@@ -526,7 +518,6 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
   padding: var(--space-02);
   transition: all var(--transition-normal);
-
 }
 
 .volume-btn:hover {
@@ -554,16 +545,7 @@ onUnmounted(() => {
   border-radius: var(--radius-full);
   opacity: 0;
   transform: translateY(20px) scale(0.8);
-  transition: all 0.725s linear(0.000, 0.106 2.0%, 0.219 4.0%, 0.335 6.0%, 0.451 8.0%, 0.561 10.0%,
-      0.665 12.0%, 0.760 14.0%, 0.845 16.0%, 0.919 18.0%, 0.982 20.0%,
-      1.034 22.0%, 1.076 24.0%, 1.108 26.0%, 1.131 28.0%, 1.145 30.0%,
-      1.153 32.0%, 1.155 34.0%, 1.152 36.0%, 1.144 38.0%, 1.134 40.0%,
-      1.122 42.0%, 1.108 44.0%, 1.093 46.0%, 1.079 48.0%, 1.064 50.0%,
-      1.051 52.0%, 1.038 54.0%, 1.026 56.0%, 1.016 58.0%, 1.007 60.0%,
-      1.000 62.0%, 0.994 64.0%, 0.989 66.0%, 0.985 68.0%, 0.983 70.0%,
-      0.981 72.0%, 0.981 74.0%, 0.981 76.0%, 0.981 78.0%, 0.982 80.0%,
-      0.984 82.0%, 0.985 84.0%, 0.987 86.0%, 0.989 88.0%, 0.991 90.0%,
-      0.992 92.0%, 0.994 94.0%, 0.996 96.0%, 0.997 98.0%, 0.998 100.0%);
+  transition: all var(--spring-transition);
 }
 
 /* Items du dock avec stagger animation */
@@ -571,16 +553,7 @@ onUnmounted(() => {
   cursor: pointer;
   opacity: 0;
   transform: translateY(20px) scale(0.8);
-  transition: all 0.725s linear(0.000, 0.106 2.0%, 0.219 4.0%, 0.335 6.0%, 0.451 8.0%, 0.561 10.0%,
-      0.665 12.0%, 0.760 14.0%, 0.845 16.0%, 0.919 18.0%, 0.982 20.0%,
-      1.034 22.0%, 1.076 24.0%, 1.108 26.0%, 1.131 28.0%, 1.145 30.0%,
-      1.153 32.0%, 1.155 34.0%, 1.152 36.0%, 1.144 38.0%, 1.134 40.0%,
-      1.122 42.0%, 1.108 44.0%, 1.093 46.0%, 1.079 48.0%, 1.064 50.0%,
-      1.051 52.0%, 1.038 54.0%, 1.026 56.0%, 1.016 58.0%, 1.007 60.0%,
-      1.000 62.0%, 0.994 64.0%, 0.989 66.0%, 0.985 68.0%, 0.983 70.0%,
-      0.981 72.0%, 0.981 74.0%, 0.981 76.0%, 0.981 78.0%, 0.982 80.0%,
-      0.984 82.0%, 0.985 84.0%, 0.987 86.0%, 0.989 88.0%, 0.991 90.0%,
-      0.992 92.0%, 0.994 94.0%, 0.996 96.0%, 0.997 98.0%, 0.998 100.0%);
+  transition: all var(--spring-transition);
   background: none;
   border: none;
 }
@@ -594,12 +567,9 @@ onUnmounted(() => {
   border-radius: var(--radius-03);
   padding: 0 var(--space-01);
   color: var(--color-text-secondary);
-
 }
 
-
-
-/* Animation staggerée - quand visible */
+/* Animation staggerée - dans l'ordre demandé */
 .dock-container.visible .dock-item,
 .dock-container.visible .dock-separator,
 .dock-container.visible .volume-controls {
@@ -607,10 +577,45 @@ onUnmounted(() => {
   transform: translateY(0) scale(1);
 }
 
-.dock-container.visible .dock-item:nth-child(1),
-.dock-container.visible .dock-separator:nth-child(1),
-.dock-container.visible .volume-controls:nth-child(1) {
+/* Volume Controls - apparaissent en même temps que les premiers */
+.dock-container.visible .volume-controls {
   transition-delay: 0.1s;
+}
+
+/* Ciblage par position globale dans .app-container */
+/* Spotify - 1er enfant global */
+.dock-container.visible .app-container > :nth-child(1) {
+  transition-delay: 0.1s;
+}
+
+/* Bluetooth - 2ème enfant global */
+.dock-container.visible .app-container > :nth-child(2) {
+  transition-delay: 0.15s;
+}
+
+/* ROC - 3ème enfant global */
+.dock-container.visible .app-container > :nth-child(3) {
+  transition-delay: 0.2s;
+}
+
+/* Séparateur - 4ème enfant global */
+.dock-container.visible .app-container > :nth-child(4) {
+  transition-delay: 0.25s;
+}
+
+/* Toggle mobile (5ème) - masqué en desktop */
+.dock-container.visible .app-container > :nth-child(5) {
+  transition-delay: 0.3s;
+}
+
+/* Multiroom desktop - 6ème enfant global */
+.dock-container.visible .app-container > :nth-child(6) {
+  transition-delay: 0.3s;
+}
+
+/* Equalizer desktop - 7ème enfant global */
+.dock-container.visible .app-container > :nth-child(7) {
+  transition-delay: 0.35s;
 }
 
 /* Contenu des items */
@@ -671,7 +676,5 @@ onUnmounted(() => {
   .dock {
     flex-direction: row;
   }
-
-
 }
 </style>
