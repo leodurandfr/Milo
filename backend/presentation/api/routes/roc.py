@@ -7,7 +7,7 @@ from backend.domain.audio_state import PluginState
 
 # Créer un router dédié pour ROC
 router = APIRouter(
-    prefix="/roc",
+    prefix="/api/roc", 
     tags=["roc"],
     responses={404: {"description": "Not found"}},
 )
@@ -46,12 +46,14 @@ async def get_roc_status(plugin = Depends(get_roc_plugin)):
             "is_active": plugin.current_state != PluginState.INACTIVE,
             "plugin_state": plugin.current_state.value,
             "service_active": status.get("service_active", False),
-            "service_running": status.get("service_running", False),
             "listening": status.get("listening", False),
             "rtp_port": status.get("rtp_port", 10001),
             "rs8m_port": status.get("rs8m_port", 10002),
             "rtcp_port": status.get("rtcp_port", 10003),
-            "audio_output": status.get("audio_output", "hw:1,0")
+            "audio_output": status.get("audio_output", "hw:1,0"),
+            "is_connected": status.get("connected", False),
+            "client_name": status.get("client_name"),
+            "connection_status": "connected" if status.get("connected", False) else "ready"
         }
     except Exception as e:
         return {
