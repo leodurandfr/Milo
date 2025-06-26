@@ -35,6 +35,7 @@
     --space-05: 24px;
     --space-06: 32px;
     --space-07: 48px;
+    --space-08: 64px;
 
 
     /* === STYLES DE TEXTE === */
@@ -52,13 +53,6 @@
     --line-height-body: 26px;
     --line-height-mono: 22px;
 
-    /* === ICÔNES === */
-
-    --icon-size-16: 16px;
-    --icon-size-24: 24px;
-    --icon-size-28: 28px;
-    --icon-size-32: 32px;
-    --icon-size-48: 48px;
 
 
     /* === BORDER RADIUS === */
@@ -80,6 +74,31 @@
     --transition-slow: 350ms ease;
 }
 
+
+/* === RESPONSIVE - MOBILE === */
+@media (max-aspect-ratio: 4/3) {
+    :root {
+        /* === ESPACEMENT (Mobile) === */
+        --space-05: 16px;
+        --space-06: 24px;
+        --space-07: 32px;
+        --space-08: 48px;
+
+
+        /* === STYLES DE TEXTE (Mobile) === */
+        --font-size-h1: 24px;
+        --font-size-h2: 20px;
+        --font-size-body: 16px;
+        --font-size-mono: 14px;
+
+        --line-height-h1: 28px;
+        --line-height-h2: 26px;
+        --line-height-body: 24px;
+        --line-height-mono: 20px;
+
+
+    }
+}
 
 
 

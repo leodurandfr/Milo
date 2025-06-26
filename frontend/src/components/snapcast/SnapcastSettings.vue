@@ -545,7 +545,7 @@ onMounted(async () => {
 }
 
 /* Responsive pour presets */
-@media (max-width: 600px) {
+@media (max-aspect-ratio: 4/3) {
   .presets-grid {
     grid-template-columns: 1fr;
   }

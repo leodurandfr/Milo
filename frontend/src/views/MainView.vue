@@ -37,7 +37,7 @@ const currentComponent = computed(() => {
 <style scoped>
 .main-view {
     background: var(--color-background);
-     height: 100vh;
+     height: 100%;
 }
 
 .transition-state, .no-source {

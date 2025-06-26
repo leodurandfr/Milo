@@ -4,28 +4,18 @@
     <router-view />
     <VolumeBar ref="volumeBar" />
     <BottomNavigation />
-    
+
     <!-- Modal Snapcast (multiroom) - Mode AUTO (hug content) -->
-    <Modal 
-      :is-open="modalStore.isSnapcastOpen" 
-      :title="modalStore.currentTitle"
-      :show-back-button="modalStore.canGoBack"
-      height-mode="auto"
-      @close="modalStore.closeAll"
-      @back="modalStore.goBack"
-    >
+    <Modal :is-open="modalStore.isSnapcastOpen" :title="modalStore.currentTitle"
+      :show-back-button="modalStore.canGoBack" height-mode="auto" @close="modalStore.closeAll"
+      @back="modalStore.goBack">
       <SnapcastModal />
     </Modal>
-    
+
     <!-- Modal Equalizer - Mode FIXED (hauteur fixe) -->
-    <Modal 
-      :is-open="modalStore.isEqualizerOpen" 
-      :title="modalStore.currentTitle"
-      :show-back-button="modalStore.canGoBack"
-      height-mode="fixed"
-      @close="modalStore.closeAll"
-      @back="modalStore.goBack"
-    >
+    <Modal :is-open="modalStore.isEqualizerOpen" :title="modalStore.currentTitle"
+      :show-back-button="modalStore.canGoBack" height-mode="fixed" @close="modalStore.closeAll"
+      @back="modalStore.goBack">
       <EqualizerModal />
     </Modal>
   </div>
@@ -57,7 +47,7 @@ onMounted(() => {
   const volumeCleanup = on('volume', 'volume_changed', (event) => {
     volumeStore.handleVolumeEvent(event);
   });
-  
+
   // === ÉVÉNEMENTS SYSTÈME (pour tous les plugins) ===
   const systemSubscriptions = [
     on('system', 'state_changed', (event) => {
@@ -83,9 +73,9 @@ onMounted(() => {
       unifiedStore.updateState(event);
     })
   ];
-  
+
   cleanupFunctions.push(volumeCleanup, ...systemSubscriptions, ...pluginSubscriptions);
-  
+
   // Récupérer le statut complet (volume + limites) au démarrage
   volumeStore.getVolumeStatus();
 });
@@ -97,5 +87,7 @@ onUnmounted(() => {
 </script>
 
 <style>
-
+.app-container {
+  height: 100%;
+}
 </style>

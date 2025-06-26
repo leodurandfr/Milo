@@ -161,10 +161,5 @@ watch(() => modalStore.currentScreen, (newScreen, oldScreen) => {
   background: #545b62;
 }
 
-/* Responsive */
-@media (max-width: 600px) {
-  .controls-wrapper {
-    gap: 8px;
-  }
-}
+
 </style>

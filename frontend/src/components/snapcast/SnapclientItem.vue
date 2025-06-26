@@ -220,7 +220,7 @@ onUnmounted(() => {
 }
 
 /* Responsive */
-@media (max-width: 600px) {
+@media (max-aspect-ratio: 4/3) {
   .snapclient-item {
     flex-direction: column;
     align-items: stretch;

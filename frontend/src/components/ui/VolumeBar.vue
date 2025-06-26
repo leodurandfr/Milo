@@ -101,7 +101,7 @@ onMounted(() => {
   transition: width 0.2s ease;
 }
 
-@media (max-aspect-ratio: 3/2) {
+@media (max-aspect-ratio: 4/3) {
   .volume-bar {
     width: 256px;
   }

@@ -68,8 +68,7 @@ defineEmits(['update:modelValue', 'input', 'change']);
 }
 
 /* Responsive */
-@media (max-width: 768px) {
-  /* Sur mobile, tous les sliders passent en mode horizontal via JavaScript */
+@media (max-aspect-ratio: 4/3) { 
   .equalizer-slider {
     flex-direction: row;
     align-items: center;
@@ -87,21 +86,7 @@ defineEmits(['update:modelValue', 'input', 'change']);
     min-width: 40px;
     text-align: right;
   }
-}
 
-@media (max-width: 600px) {
-  .equalizer-slider {
-    gap: 10px;
-  }
-  
-  .label {
-    min-width: 50px;
-    font-size: 11px;
-  }
-  
-  .value {
-    min-width: 35px;
-    font-size: 11px;
-  }
+
 }
 </style>

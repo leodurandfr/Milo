@@ -277,7 +277,7 @@ function handleDisconnect() {
 }
 
 /* Responsive */
-@media (max-width: 400px) {
+@media (max-aspect-ratio: 4/3) {
 
     .plugin-status {
         width: 100%;

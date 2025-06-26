@@ -110,7 +110,7 @@ onMounted(async () => {
 .now-playing {
   display: flex;
   height: 100%;
-  padding: var(--space-06);
+  padding: var(--space-05);
   gap: var(--space-06);
   background: var(--color-background-neutral);
 }
@@ -191,7 +191,7 @@ onMounted(async () => {
 .controls-section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-05);
+  gap: var(--space-06);
 }
 
 
@@ -205,11 +205,15 @@ onMounted(async () => {
   border-radius: 4px;
 }
 
-@media (max-width: 400px) {
+@media (max-aspect-ratio: 4/3) {
 
   .now-playing {
-
     flex-direction: column;
+    gap: 0;
+  }
+
+  .track-info {
+    padding: var(--space-08);
   }
 }
 </style>

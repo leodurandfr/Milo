@@ -466,7 +466,7 @@ setInterval(() => {
 /* Suppression des anciens styles bands-container car maintenant c'est equalizer-controls */
 
 /* Responsive pour equalizer-controls - MOBILE HORIZONTAL */
-@media (max-width: 768px) {
+@media (max-aspect-ratio: 4/3) {
   .equalizer-controls {
     /* Mobile : sliders horizontaux empilés verticalement */
     flex-direction: column;
@@ -480,19 +480,7 @@ setInterval(() => {
   .controls-wrapper {
     gap: 8px;
   }
-}
 
-@media (max-width: 600px) {
-  .equalizer-controls {
-    gap: 10px;
-    padding: 12px;
-  }
-}
 
-@media (max-width: 400px) {
-  .equalizer-controls {
-    gap: 8px;
-    padding: 8px;
-  }
 }
 </style>
