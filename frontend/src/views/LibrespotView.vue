@@ -177,6 +177,7 @@ onMounted(async () => {
   justify-content: center;
   text-align: center;
   gap: var(--space-04);
+padding: var(--space-06);
 }
 
 .track-title {
@@ -212,8 +213,5 @@ onMounted(async () => {
     gap: 0;
   }
 
-  .track-info {
-    padding: var(--space-08);
-  }
 }
 </style>

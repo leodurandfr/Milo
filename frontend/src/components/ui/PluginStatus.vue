@@ -215,7 +215,7 @@ function handleDisconnect() {
     position: relative;
     border-radius: var(--radius-04);
     flex-shrink: 0;
-    width: 336px;
+    width: 100%;
 }
 
 .disconnect-button-content {
@@ -239,7 +239,7 @@ function handleDisconnect() {
     justify-content: center;
     padding: var(--space-02) var(--space-05);
     position: relative;
-    width: 336px;
+    width: 100%;
 }
 
 .disconnect-text {
