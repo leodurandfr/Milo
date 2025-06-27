@@ -3,23 +3,25 @@
   <!-- Zone de drag invisible -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }"></div>
 
-
-
   <!-- Dock de navigation -->
-  <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible }">
-    <!-- Additional Apps - Présent dans le DOM dès que le dock est visible -->
+  <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }">
+    <!-- Additional Apps - Mobile uniquement -->
     <div v-if="showAdditionalContainer" class="additional-apps-container mobile-only"
       :class="{ visible: showAdditionalApps }">
       <!-- Multiroom -->
       <button @click="() => { resetHideTimer(); moveIndicatorTo(3); modalStore.openSnapcast(); }"
-        class="additional-app-content">
+              @touchstart="addPressEffect"
+              @mousedown="addPressEffect"
+              class="additional-app-content button-interactive-subtle">
         <AppIcon name="multiroom" :size="32" />
         <div class="app-title heading-2">Multiroom</div>
       </button>
 
       <!-- Equalizer -->
       <button @click="() => { resetHideTimer(); moveIndicatorTo(4); modalStore.openEqualizer(); }"
-        class="additional-app-content">
+              @touchstart="addPressEffect"
+              @mousedown="addPressEffect"
+              class="additional-app-content button-interactive-subtle">
         <AppIcon name="equalizer" :size="32" />
         <div class="app-title heading-2">Égaliseur</div>
       </button>
@@ -28,12 +30,18 @@
 
       <!-- Volume Controls - Mobile uniquement -->
       <div class="volume-controls mobile-only">
-        <button @click="() => { resetHideTimer(); decreaseVolume(); }" class="volume-btn"
-          :disabled="volumeStore.isAdjusting">
+        <button @click="handleVolumeDown" 
+                @touchstart="addPressEffect"
+                @mousedown="addPressEffect"
+                class="volume-btn button-interactive-subtle"
+                :disabled="volumeStore.isAdjusting">
           <Icon name="minus" :size="32" />
         </button>
-        <button @click="() => { resetHideTimer(); increaseVolume(); }" class="volume-btn"
-          :disabled="volumeStore.isAdjusting">
+        <button @click="handleVolumeUp" 
+                @touchstart="addPressEffect"
+                @mousedown="addPressEffect"
+                class="volume-btn button-interactive-subtle"
+                :disabled="volumeStore.isAdjusting">
           <Icon name="plus" :size="32" />
         </button>
       </div>
@@ -42,19 +50,25 @@
       <div class="app-container">
         <!-- Spotify -->
         <button ref="dockItem0" @click="() => { resetHideTimer(); moveIndicatorTo(0); changeSource('librespot'); }"
-          :disabled="unifiedStore.isTransitioning" class="dock-item">
+          @touchstart="addPressEffect"
+          @mousedown="addPressEffect"
+          :disabled="unifiedStore.isTransitioning" class="dock-item button-interactive-subtle">
           <AppIcon name="spotify" size="large" class="dock-item-icon" />
         </button>
 
         <!-- Bluetooth -->
         <button ref="dockItem1" @click="() => { resetHideTimer(); moveIndicatorTo(1); changeSource('bluetooth'); }"
-          :disabled="unifiedStore.isTransitioning" class="dock-item">
+          @touchstart="addPressEffect"
+          @mousedown="addPressEffect"
+          :disabled="unifiedStore.isTransitioning" class="dock-item button-interactive-subtle">
           <AppIcon name="bluetooth" size="large" class="dock-item-icon" />
         </button>
 
         <!-- ROC for Mac -->
         <button ref="dockItem2" @click="() => { resetHideTimer(); moveIndicatorTo(2); changeSource('roc'); }"
-          :disabled="unifiedStore.isTransitioning" class="dock-item">
+          @touchstart="addPressEffect"
+          @mousedown="addPressEffect"
+          :disabled="unifiedStore.isTransitioning" class="dock-item button-interactive-subtle">
           <AppIcon name="roc" size="large" class="dock-item-icon" />
         </button>
 
@@ -62,20 +76,27 @@
         <div ref="separator" class="dock-separator"></div>
 
         <!-- Toggle Additional Apps - Mobile uniquement -->
-        <button ref="dockToggle" @click="() => { resetHideTimer(); toggleAdditionalApps(); }"
-          class="dock-item toggle-btn mobile-only">
+        <button ref="dockToggle" 
+                @click="() => { resetHideTimer(); toggleAdditionalApps(); }"
+                @touchstart="addPressEffect"
+                @mousedown="addPressEffect"
+                class="dock-item toggle-btn mobile-only button-interactive">
           <Icon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
         <!-- Multiroom - Desktop uniquement -->
         <button ref="dockItem3" @click="() => { resetHideTimer(); moveIndicatorTo(3); modalStore.openSnapcast(); }"
-          class="dock-item desktop-only">
+          @touchstart="addPressEffect"
+          @mousedown="addPressEffect"
+          class="dock-item desktop-only button-interactive-subtle">
           <AppIcon name="multiroom" size="large" class="dock-item-icon" />
         </button>
 
         <!-- Equalizer - Desktop uniquement -->
         <button ref="dockItem4" @click="() => { resetHideTimer(); moveIndicatorTo(4); modalStore.openEqualizer(); }"
-          class="dock-item desktop-only">
+          @touchstart="addPressEffect"
+          @mousedown="addPressEffect"
+          class="dock-item desktop-only button-interactive-subtle">
           <AppIcon name="equalizer" size="large" class="dock-item-icon" />
         </button>
       </div>
@@ -116,6 +137,7 @@ const dockItem4 = ref(null);
 
 // État du dock
 const isVisible = ref(false);
+const isFullyVisible = ref(false); // Nouvel état pour gérer les transition-delay
 const isDragging = ref(false);
 const showAdditionalApps = ref(false);
 const showAdditionalContainer = ref(false);
@@ -141,7 +163,7 @@ function toggleAdditionalApps() {
 const indicatorStyle = ref({
   opacity: '0',
   transform: 'translateX(0px)',
-  transition: 'all var(--transition-normal)'
+  transition: 'all var(--transition-spring)'
 });
 
 // Bouger l'indicateur immédiatement vers un index donné
@@ -167,7 +189,7 @@ function moveIndicatorTo(index) {
     indicatorStyle.value = {
       opacity: '1',
       transform: `translateX(${offsetX}px)`,
-      transition: 'all var(--transition-normal)'
+      transition: 'all var(--transition-spring)'
     };
   });
 }
@@ -216,7 +238,7 @@ function updateActiveIndicator() {
       indicatorStyle.value = {
         opacity: '1',
         transform: `translateX(${offsetX}px)`,
-        transition: 'opacity var(--transition-normal), transform var(--transition-normal)'
+        transition: 'opacity var(--transition-normal), transform var(--transition-spring)'
       };
     }, 50);
   });
@@ -251,6 +273,30 @@ async function increaseVolume() {
 
 async function decreaseVolume() {
   await volumeStore.decreaseVolume();
+}
+
+// === GESTION DES CLICS AVEC EFFET PRESS TEMPORAIRE ===
+function addPressEffect(e) {
+  const button = e.target.closest('button');
+  if (!button || button.disabled) return;
+  
+  // Ajouter la classe d'effet press
+  button.classList.add('is-pressed');
+  
+  // Retirer automatiquement après 150ms
+  setTimeout(() => {
+    button.classList.remove('is-pressed');
+  }, 150);
+}
+
+function handleVolumeUp(e) {
+  resetHideTimer();
+  increaseVolume();
+}
+
+function handleVolumeDown(e) {
+  resetHideTimer();
+  decreaseVolume();
 }
 
 // === LOGIQUE DRAG ===
@@ -297,8 +343,14 @@ function showDock() {
   if (isVisible.value) return;
   showAdditionalContainer.value = true; // Ajouter au DOM d'abord
   isVisible.value = true;
+  isFullyVisible.value = false; // Reset pour permettre l'animation stagger
   clearHideTimer();
   startHideTimer();
+
+  // Marquer comme fully-visible après la fin de l'animation stagger (0.3s + marge)
+  setTimeout(() => {
+    isFullyVisible.value = true;
+  }, 400);
 
   setTimeout(() => {
     updateActiveIndicator();
@@ -307,6 +359,9 @@ function showDock() {
 
 function hideDock() {
   if (!isVisible.value) return;
+  
+  // Retirer fully-visible pour réactiver les délais pour l'animation de sortie
+  isFullyVisible.value = false;
   
   // Déclencher l'animation de disparition
   showAdditionalApps.value = false;
@@ -317,7 +372,7 @@ function hideDock() {
   // Retirer du DOM après l'animation
   setTimeout(() => {
     showAdditionalContainer.value = false;
-  }, 300); // Durée de --spring-transition
+  }, 300); // Durée de --transition-spring
 }
 
 function setupDragEvents() {
@@ -399,7 +454,7 @@ onUnmounted(() => {
   position: relative;
   margin-bottom: var(--space-03);
   left: 50%;
-  transform: translateX(-50%) translateY(16px);
+  transform: translateX(-50%) translateY(20px);
   z-index: 998;
   border-radius: var(--radius-06);
   padding: var(--space-04);
@@ -410,14 +465,14 @@ onUnmounted(() => {
   flex-direction: column;
   gap: var(--space-02);
   opacity: 0;
-  pointer-events: none; /* Pas d'interaction par défaut */
-  transition: all var(--spring-transition);
+  pointer-events: none;
+  transition: all var(--transition-spring);
 }
 
 .additional-apps-container.visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
-  pointer-events: auto; /* Réactive les interactions quand visible */
+  pointer-events: auto; 
 }
 
 .additional-apps-container::before {
@@ -446,14 +501,14 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   border-radius: var(--radius-04);
-  transition: all var(--transition-fast);
+  transition: all var(--transition-spring);
   opacity: 0;
-  transform: translateY(20px);
+  transform: translateY(20px) scale(0.95);
 }
 
 .additional-apps-container.visible .additional-app-content {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
 }
 
 .additional-apps-container.visible .additional-app-content:first-child {
@@ -462,10 +517,6 @@ onUnmounted(() => {
 
 .additional-apps-container.visible .additional-app-content:nth-child(2) {
   transition-delay: 0.2s;
-}
-
-.additional-app-content:hover {
-  background: var(--color-background-neutral-12);
 }
 
 .app-title {
@@ -479,7 +530,7 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%) translateY(148px) scale(0.85);
   z-index: 1000;
-  transition: transform var(--spring-transition);
+  transition: transform var(--transition-spring);
 }
 
 .dock-container.visible {
@@ -525,7 +576,7 @@ onUnmounted(() => {
   width: 100%;
   opacity: 0;
   transform: translateY(20px) scale(0.8);
-  transition: all var(--spring-transition);
+  transition: all var(--transition-spring);
 }
 
 .volume-btn {
@@ -535,18 +586,8 @@ onUnmounted(() => {
   cursor: pointer;
   color: var(--color-text-secondary);
   padding: var(--space-02);
-  transition: all var(--transition-normal);
+  transition: all var(--transition-spring);
 }
-
-.volume-btn:hover {
-  background: var(--color-background-neutral);
-  color: var(--color-text);
-}
-
-/* .volume-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-} */
 
 /* App Container */
 .app-container {
@@ -563,7 +604,7 @@ onUnmounted(() => {
   border-radius: var(--radius-full);
   opacity: 0;
   transform: translateY(20px) scale(0.8);
-  transition: all var(--spring-transition);
+  transition: all var(--transition-spring);
 }
 
 /* Items du dock avec stagger animation */
@@ -571,7 +612,7 @@ onUnmounted(() => {
   cursor: pointer;
   opacity: 0;
   transform: translateY(20px) scale(0.8);
-  transition: all var(--spring-transition);
+  transition: all var(--transition-spring);
   background: none;
   border: none;
 }
@@ -587,7 +628,7 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
 }
 
-/* Animation staggerée - dans l'ordre demandé */
+/* Animation staggerée - avec délais par défaut */
 .dock-container.visible .dock-item,
 .dock-container.visible .dock-separator,
 .dock-container.visible .volume-controls {
@@ -618,22 +659,31 @@ onUnmounted(() => {
 
 /* Séparateur - 4ème enfant global */
 .dock-container.visible .app-container > :nth-child(4) {
-  transition-delay: 0.25s;
+  transition-delay: 0.225s;
 }
 
 /* Toggle mobile (5ème) - masqué en desktop */
 .dock-container.visible .app-container > :nth-child(5) {
-  transition-delay: 0.3s;
+  transition-delay: 0.25s;
 }
 
 /* Multiroom desktop - 6ème enfant global */
 .dock-container.visible .app-container > :nth-child(6) {
-  transition-delay: 0.3s;
+  transition-delay: 0.25s;
 }
 
 /* Equalizer desktop - 7ème enfant global */
 .dock-container.visible .app-container > :nth-child(7) {
-  transition-delay: 0.35s;
+  transition-delay: 0.3s;
+}
+
+/* === SUPPRESSION DES DÉLAIS QUAND FULLY-VISIBLE === */
+/* Une fois l'animation terminée, supprimer tous les délais pour des interactions réactives */
+.dock-container.visible.fully-visible .dock-item,
+.dock-container.visible.fully-visible .dock-separator,
+.dock-container.visible.fully-visible .volume-controls,
+.dock-container.visible.fully-visible .app-container > * {
+  transition-delay: 0s !important;
 }
 
 /* Contenu des items */
@@ -656,7 +706,7 @@ onUnmounted(() => {
   border-radius: var(--radius-full);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--transition-slow), transform var(--transition-slow);
+  transition: opacity var(--transition-slow), transform var(--transition-spring);
 }
 
 /* États */
@@ -677,7 +727,7 @@ onUnmounted(() => {
 /* Mobile responsive */
 @media (max-aspect-ratio: 4/3) {
   .drag-zone {
-    height: 12%;
+    height: 5%;
   }
 
   .desktop-only {
@@ -691,8 +741,40 @@ onUnmounted(() => {
     display: none;
   }
 
+  .additional-apps-container {
+    display: none !important;
+  }
+
   .dock {
     flex-direction: row;
   }
+}
+
+/* === ANIMATIONS DE PRESS GÉNÉRIQUES === */
+/* Animation pour les volume buttons - spécifique et isolée */
+.volume-btn.is-pressed {
+  transform: scale(0.92) !important;
+  opacity: 0.8 !important;
+  transition-delay: 0s !important; 
+}
+
+/* Animation pour les dock-items (app icons) */
+.dock-item.is-pressed {
+  transform: scale(0.92) !important;
+  opacity: 0.8 !important;
+  transition-delay: 0s !important; 
+}
+
+/* Animation pour les additional-app-content */
+.additional-app-content.is-pressed {
+  transform: scale(0.97) !important;
+  opacity: 0.8 !important;
+  transition-delay: 0s !important; /* Override du stagger delay */
+}
+
+/* Pas d'animation sur les boutons disabled */
+button:disabled.is-pressed {
+  transform: none !important;
+  opacity: 0.5 !important;
 }
 </style>
