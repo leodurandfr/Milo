@@ -399,6 +399,7 @@ onUnmounted(() => {
   position: relative;
   margin-bottom: var(--space-03);
   left: 50%;
+  transform: translateX(-50%) translateY(16px);
   z-index: 998;
   border-radius: var(--radius-06);
   padding: var(--space-04);
@@ -409,13 +410,14 @@ onUnmounted(() => {
   flex-direction: column;
   gap: var(--space-02);
   opacity: 0;
-  transform: translateX(-50%) translateY(16px);
+  pointer-events: none; /* Pas d'interaction par défaut */
   transition: all var(--spring-transition);
 }
 
 .additional-apps-container.visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+  pointer-events: auto; /* Réactive les interactions quand visible */
 }
 
 .additional-apps-container::before {
@@ -541,10 +543,10 @@ onUnmounted(() => {
   color: var(--color-text);
 }
 
-.volume-btn:disabled {
+/* .volume-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
+} */
 
 /* App Container */
 .app-container {
