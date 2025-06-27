@@ -7,8 +7,8 @@
 
   <!-- Dock de navigation -->
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible }">
-    <!-- Additional Apps - Mobile uniquement -->
-    <div v-if="showAdditionalApps" class="additional-apps-container mobile-only"
+    <!-- Additional Apps - Présent dans le DOM dès que le dock est visible -->
+    <div v-if="showAdditionalContainer" class="additional-apps-container mobile-only"
       :class="{ visible: showAdditionalApps }">
       <!-- Multiroom -->
       <button @click="() => { resetHideTimer(); moveIndicatorTo(3); modalStore.openSnapcast(); }"
@@ -118,6 +118,7 @@ const dockItem4 = ref(null);
 const isVisible = ref(false);
 const isDragging = ref(false);
 const showAdditionalApps = ref(false);
+const showAdditionalContainer = ref(false);
 
 // Variables de drag
 let dragStartY = 0;
@@ -125,6 +126,11 @@ let dragCurrentY = 0;
 const dragThreshold = 30;
 let clickTimeout = null;
 let hideTimeout = null;
+
+// Computed pour gérer la présence dans le DOM
+const shouldShowAdditionalContainer = computed(() => {
+  return isVisible.value || showAdditionalApps.value;
+});
 
 // === ADDITIONAL APPS ===
 function toggleAdditionalApps() {
@@ -289,6 +295,7 @@ function onDragEnd() {
 
 function showDock() {
   if (isVisible.value) return;
+  showAdditionalContainer.value = true; // Ajouter au DOM d'abord
   isVisible.value = true;
   clearHideTimer();
   startHideTimer();
@@ -300,10 +307,17 @@ function showDock() {
 
 function hideDock() {
   if (!isVisible.value) return;
+  
+  // Déclencher l'animation de disparition
+  showAdditionalApps.value = false;
   isVisible.value = false;
-  showAdditionalApps.value = false; // Fermer aussi les apps additionnelles
   clearHideTimer();
   indicatorStyle.value.opacity = '0';
+  
+  // Retirer du DOM après l'animation
+  setTimeout(() => {
+    showAdditionalContainer.value = false;
+  }, 300); // Durée de --spring-transition
 }
 
 function setupDragEvents() {
@@ -385,7 +399,6 @@ onUnmounted(() => {
   position: relative;
   margin-bottom: var(--space-03);
   left: 50%;
-  transform: translateX(-50%) translateY(20px);
   z-index: 998;
   border-radius: var(--radius-06);
   padding: var(--space-04);
@@ -395,6 +408,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
+  opacity: 0;
+  transform: translateX(-50%) translateY(16px);
+  transition: all var(--spring-transition);
 }
 
 .additional-apps-container.visible {
@@ -541,7 +557,7 @@ onUnmounted(() => {
 .dock-separator {
   width: 2px;
   height: var(--space-07);
-  background: var(--color-background-neutral-32);
+  background: var(--color-background-glass);
   border-radius: var(--radius-full);
   opacity: 0;
   transform: translateY(20px) scale(0.8);
