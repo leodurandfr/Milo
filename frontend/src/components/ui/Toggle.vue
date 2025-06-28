@@ -3,7 +3,7 @@
   <div class="toggle-container">
     <h3 v-if="title">{{ title }}</h3>
     
-    <label class="toggle">
+    <label :class="['toggle', `toggle--${variant}`]">
       <input 
         type="checkbox" 
         :checked="modelValue"
@@ -28,6 +28,11 @@ const props = defineProps({
   disabled: {
     type: Boolean,
     default: false
+  },
+  variant: {
+    type: String,
+    default: 'primary',
+    validator: (value) => ['primary', 'secondary'].includes(value)
   }
 });
 
@@ -49,15 +54,13 @@ function handleToggle(event) {
 
 .toggle-container h3 {
   margin: 0;
-  color: #333;
-  font-size: 16px;
 }
 
 .toggle {
   position: relative;
   display: inline-block;
-  width: 50px;
-  height: 24px;
+  width: 70px;
+  height: 40px;
 }
 
 .toggle input {
@@ -73,34 +76,64 @@ function handleToggle(event) {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color:rgb(252, 155, 0);
-  transition: 0.3s;
-  border-radius: 24px;
+  border-radius: var(--radius-full);
+  transition: background-color 0.2s ease;
 }
 
 .slider:before {
   position: absolute;
   content: "";
-  height: 18px;
-  width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background-color: white;
-  transition: 0.3s;
-  border-radius: 50%;
+  height: 36px;
+  width: 36px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--color-background-neutral);
+  border-radius: var(--radius-full);
+  transition: transform 0.2s ease;
 }
 
-input:checked + .slider {
-  background-color:rgb(252, 155, 0);
-
+/* Variantes de couleurs */
+.toggle--primary .slider {
+  background-color: var(--color-text-light);
 }
 
+.toggle--primary input:checked + .slider {
+  background-color: var(--color-brand);
+}
+
+.toggle--secondary .slider {
+  background-color: var(--color-background-strong);
+}
+
+.toggle--secondary input:checked + .slider {
+  background-color: var(--color-background-contrast);
+}
+
+/* État activé */
 input:checked + .slider:before {
-  transform: translateX(26px);
+  transform: translateX(30px);
 }
 
+/* État désactivé */
 input:disabled + .slider {
   background-color: #999;
   cursor: not-allowed;
+}
+
+/* Responsive - Mobile (aspect ratio < 4/3) */
+@media (max-aspect-ratio: 4/3) {
+  .toggle {
+    width: 56px;
+    height: 32px;
+  }
+  
+  .slider:before {
+    height: 28px;
+    width: 28px;
+  }
+  
+  input:checked + .slider:before {
+    transform: translateX(24px);
+  }
 }
 </style>

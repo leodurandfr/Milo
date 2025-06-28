@@ -1,24 +1,26 @@
-<!-- frontend/src/components/equalizer/EqualizerModal.vue - Version complète corrigée -->
+<!-- frontend/src/components/equalizer/EqualizerModal.vue - Version sans modalStore -->
 <template>
   <div class="equalizer-modal">
-    <!-- Écran principal -->
-    <div v-if="modalStore.currentScreen === 'main'" class="screen-main">
+    <!-- Écran principal (unique) -->
+    <div class="screen-main">
       <!-- Toggle Equalizer avec IconButton intégré -->
       <div class="toggle-wrapper">
         <div class="toggle-header">
           <h3>Égaliseur</h3>
           <div class="controls-wrapper">
-            <IconButton
-              v-if="isEqualizerEnabled"
-              icon="🔄"
-              :disabled="resetting"
-              @click="resetAllBands"
-            />
-            <Toggle
-              v-model="isEqualizerEnabled"
-              :disabled="unifiedStore.isTransitioning"
-              @change="handleEqualizerToggle"
-            />
+          <IconButton
+            v-if="isEqualizerEnabled"
+            icon="reset"
+            variant="dark"
+            :disabled="resetting"
+            @click="resetAllBands"
+          />
+          <Toggle
+            v-model="isEqualizerEnabled"
+            variant="primary"
+            :disabled="unifiedStore.isTransitioning"
+            @change="handleEqualizerToggle"
+          />
           </div>
         </div>
       </div>
@@ -73,7 +75,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useModalStore } from '@/stores/modalStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -81,7 +82,6 @@ import Toggle from '@/components/ui/Toggle.vue';
 import RangeSliderEqualizer from './RangeSliderEqualizer.vue';
 
 const unifiedStore = useUnifiedAudioStore();
-const modalStore = useModalStore();
 const { on } = useWebSocket();
 
 // État local
@@ -114,7 +114,8 @@ const sliderOrientation = computed(() =>
 
 // Fonction pour détecter le mobile
 function updateMobileStatus() {
-  isMobile.value = window.innerWidth <= 768;
+  const aspectRatio = window.innerWidth / window.innerHeight;
+  isMobile.value = aspectRatio <= 4 / 3;
 }
 
 // === MÉTHODES PRINCIPALES ===
@@ -342,25 +343,22 @@ setInterval(() => {
   display: flex;
   flex-direction: column;
   height: 100%; /* Prend toute la hauteur du modal-content */
-  min-height: 0;
 }
 
 /* Écrans */
 .screen-main {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-02);
   height: 100%; /* Prend toute la hauteur de equalizer-modal */
   min-height: 0;
 }
 
 /* Toggle wrapper */
 .toggle-wrapper {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 16px;
-  padding: 16px;
-  flex-shrink: 0; /* Ne se réduit jamais */
+  background: var(--color-background-contrast);
+  border-radius: var(--radius-04);
+  padding: var(--space-04);
 }
 
 .toggle-header {
@@ -371,7 +369,7 @@ setInterval(() => {
 
 .toggle-header h3 {
   margin: 0;
-  color: #333;
+  color: var(--color-text-contrast);
   font-size: 16px;
 }
 
@@ -383,10 +381,10 @@ setInterval(() => {
 
 /* Contenu principal - prend l'espace restant */
 .main-content {
-  flex: 1; /* REMIS : flex pour prendre l'espace après toggle-wrapper */
-  display: flex;
+  flex: 1;
+  /* display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: 0; */
 }
 
 /* États simple et contrôles - même style */
@@ -461,26 +459,25 @@ setInterval(() => {
   100% { transform: rotate(360deg); }
 }
 
-/* Suppression de l'ancien style no-bands car maintenant dans loading-state */
-
-/* Suppression des anciens styles bands-container car maintenant c'est equalizer-controls */
-
 /* Responsive pour equalizer-controls - MOBILE HORIZONTAL */
 @media (max-aspect-ratio: 4/3) {
+  .main-content {
+      flex: none;
+  }
   .equalizer-controls {
     /* Mobile : sliders horizontaux empilés verticalement */
     flex-direction: column;
-    align-items: stretch; /* Chaque slider prend toute la largeur */
     gap: 12px;
     padding: 16px;
-    overflow-y: auto; /* Scroll vertical au lieu d'horizontal */
-    overflow-x: hidden;
   }
   
   .controls-wrapper {
     gap: 8px;
   }
 
-
+  .modal-overlay.fixed-height {
+    height: auto;
+    align-items: none; 
+  }
 }
 </style>

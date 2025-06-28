@@ -49,11 +49,7 @@ defineEmits(['update:modelValue', 'input', 'change']);
 
 .label {
   font-size: 12px;
-  font-weight: 500;
-  color: #333;
-  text-align: center;
   flex-shrink: 0;
-  line-height: 1.2;
 }
 
 /* Le RangeSlider prend maintenant directement l'espace disponible */
@@ -77,15 +73,7 @@ defineEmits(['update:modelValue', 'input', 'change']);
     gap: 12px;
   }
   
-  .label {
-    min-width: 60px;
-    text-align: left;
-  }
-  
-  .value {
-    min-width: 40px;
-    text-align: right;
-  }
+
 
 
 }

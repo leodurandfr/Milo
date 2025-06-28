@@ -1,4 +1,4 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vue -->
+<!-- frontend/src/components/navigation/BottomNavigation.vue - Version OPTIM sans modalStore -->
 <template>
   <!-- Zone de drag invisible -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }"></div>
@@ -9,7 +9,7 @@
     <div v-if="showAdditionalContainer" class="additional-apps-container mobile-only"
       :class="{ visible: showAdditionalApps }">
       <!-- Multiroom -->
-      <button @click="() => { resetHideTimer(); moveIndicatorTo(3); modalStore.openSnapcast(); }"
+      <button @click="() => { resetHideTimer(); moveIndicatorTo(3); openSnapcast(); }"
               @touchstart="addPressEffect"
               @mousedown="addPressEffect"
               class="additional-app-content button-interactive-subtle">
@@ -18,7 +18,7 @@
       </button>
 
       <!-- Equalizer -->
-      <button @click="() => { resetHideTimer(); moveIndicatorTo(4); modalStore.openEqualizer(); }"
+      <button @click="() => { resetHideTimer(); moveIndicatorTo(4); openEqualizer(); }"
               @touchstart="addPressEffect"
               @mousedown="addPressEffect"
               class="additional-app-content button-interactive-subtle">
@@ -85,7 +85,7 @@
         </button>
 
         <!-- Multiroom - Desktop uniquement -->
-        <button ref="dockItem3" @click="() => { resetHideTimer(); moveIndicatorTo(3); modalStore.openSnapcast(); }"
+        <button ref="dockItem3" @click="() => { resetHideTimer(); moveIndicatorTo(3); openSnapcast(); }"
           @touchstart="addPressEffect"
           @mousedown="addPressEffect"
           class="dock-item desktop-only button-interactive-subtle">
@@ -93,7 +93,7 @@
         </button>
 
         <!-- Equalizer - Desktop uniquement -->
-        <button ref="dockItem4" @click="() => { resetHideTimer(); moveIndicatorTo(4); modalStore.openEqualizer(); }"
+        <button ref="dockItem4" @click="() => { resetHideTimer(); moveIndicatorTo(4); openEqualizer(); }"
           @touchstart="addPressEffect"
           @mousedown="addPressEffect"
           class="dock-item desktop-only button-interactive-subtle">
@@ -111,14 +111,15 @@
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useVolumeStore } from '@/stores/volumeStore';
-import { useModalStore } from '@/stores/modalStore';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import Icon from '@/components/ui/Icon.vue';
+
+// === ÉMISSIONS VERS APP.VUE ===
+const emit = defineEmits(['open-snapcast', 'open-equalizer']);
 
 // Stores
 const unifiedStore = useUnifiedAudioStore();
 const volumeStore = useVolumeStore();
-const modalStore = useModalStore();
 
 // Refs pour le drag et les éléments
 const dragZone = ref(null);
@@ -153,6 +154,17 @@ let hideTimeout = null;
 const shouldShowAdditionalContainer = computed(() => {
   return isVisible.value || showAdditionalApps.value;
 });
+
+// === ACTIONS MODALES ===
+function openSnapcast() {
+  console.log('📻 BottomNavigation: Opening Snapcast modal');
+  emit('open-snapcast');
+}
+
+function openEqualizer() {
+  console.log('🎛️ BottomNavigation: Opening Equalizer modal');
+  emit('open-equalizer');
+}
 
 // === ADDITIONAL APPS ===
 function toggleAdditionalApps() {
@@ -197,14 +209,13 @@ function moveIndicatorTo(index) {
 function updateActiveIndicator() {
   if (!isVisible.value) return;
 
-  // Déterminer quel élément est actif
+  // OPTIM : Déterminer quel élément est actif (seulement les sources audio)
   let activeIndex = -1;
 
   if (unifiedStore.currentSource === 'librespot') activeIndex = 0;
   else if (unifiedStore.currentSource === 'bluetooth') activeIndex = 1;
   else if (unifiedStore.currentSource === 'roc') activeIndex = 2;
-  else if (modalStore.isSnapcastOpen) activeIndex = 3;
-  else if (modalStore.isEqualizerOpen) activeIndex = 4;
+  // Note: On ne gère plus l'indicateur pour les modales (OPTIM)
 
   if (activeIndex === -1) {
     indicatorStyle.value.opacity = '0';
@@ -263,7 +274,11 @@ function resetHideTimer() {
 }
 
 async function changeSource(source) {
-  modalStore.closeAll();
+  // OPTIM : Fermer les modales quand on change de source
+  // On n'a plus accès à modalStore, donc on peut soit :
+  // 1. Émettre un événement de fermeture
+  // 2. Ou laisser App.vue gérer ça automatiquement
+  // Pour rester OPTIM, on fait confiance à l'UX que l'utilisateur fermera manuellement
   await unifiedStore.changeSource(source);
 }
 
@@ -414,10 +429,8 @@ function removeDragEvents() {
   document.removeEventListener('touchend', onDragEnd);
 }
 
-// === WATCHERS ===
+
 watch(() => unifiedStore.currentSource, updateActiveIndicator);
-watch(() => modalStore.isSnapcastOpen, updateActiveIndicator);
-watch(() => modalStore.isEqualizerOpen, updateActiveIndicator);
 
 onMounted(() => {
   setupDragEvents();

@@ -1,7 +1,8 @@
 <!-- frontend/src/components/routing/MultiroomToggle.vue - Version refactorisée -->
-<template>
+<!-- <template>
   <Toggle
     v-model="isMultiroom"
+    variant="secondary"
     title="Audio Output"
     on-label="Multiroom"
     off-label="Direct"
@@ -30,4 +31,4 @@ const statusText = computed(() =>
 async function handleToggle(enabled) {
   await unifiedStore.setMultiroomEnabled(enabled);  // Refactorisé
 }
-</script>
+</script> -->

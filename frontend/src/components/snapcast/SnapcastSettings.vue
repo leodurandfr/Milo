@@ -250,7 +250,7 @@ onMounted(async () => {
 
 <style scoped>
 .settings-content {
-  gap: 16px;
+  gap: var(--space-02);
   display: flex;
   flex-direction: column;
   align-items: stretch;

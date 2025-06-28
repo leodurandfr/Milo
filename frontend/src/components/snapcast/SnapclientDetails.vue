@@ -268,7 +268,7 @@ watch(() => props.client.id, () => {
 .snapclient-details {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-02);
 }
 
 .loading-state, .error-state {

@@ -177,7 +177,7 @@ onMounted(async () => {
   justify-content: center;
   text-align: center;
   gap: var(--space-04);
-padding: var(--space-06);
+  padding: var(--space-06);
 }
 
 .track-title {
@@ -209,8 +209,13 @@ padding: var(--space-06);
 @media (max-aspect-ratio: 4/3) {
 
   .now-playing {
+    padding: var(--space-05) var(--space-05) 0 var(--space-05);
     flex-direction: column;
     gap: 0;
+  }
+
+  .controls-section {
+    margin-bottom: var(--space-05);
   }
 
 }

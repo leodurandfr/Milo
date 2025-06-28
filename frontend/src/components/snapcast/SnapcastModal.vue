@@ -1,63 +1,60 @@
-<!-- frontend/src/components/snapcast/SnapcastModal.vue -->
+<!-- frontend/src/components/snapcast/SnapcastModal.vue - Navigation locale complète -->
 <template>
   <div class="snapcast-modal">
-    <!-- Écran principal -->
-    <div v-if="modalStore.currentScreen === 'main'" class="screen-main">
-      <!-- Toggle Multiroom avec IconButton intégré -->
+    <!-- Vue principale -->
+    <div v-if="currentView === 'main'" class="view-main">
       <div class="toggle-wrapper">
         <div class="toggle-header">
           <h3>Multiroom</h3>
           <div class="controls-wrapper">
-            <IconButton
-              v-if="isMultiroomActive"
-              icon="⚙️"
-              @click="modalStore.openSnapcastSettings()"
-              title="Paramètres Snapcast"
-            />
-            <Toggle
-              v-model="isMultiroomActive"
-              :disabled="unifiedStore.isTransitioning"
-              @change="handleMultiroomToggle"
-            />
+          <IconButton
+            v-if="isMultiroomActive"
+            icon="settings"
+            variant="dark"  
+            @click="showSettings"
+            title="Configuration Multiroom"
+          />
+          <Toggle
+            v-model="isMultiroomActive"
+            variant="primary"
+            :disabled="unifiedStore.isTransitioning"
+            @change="handleMultiroomToggle"
+          />
           </div>
         </div>
       </div>
 
-      <!-- Contenu principal -->
       <div class="main-content">
-        <SnapcastControl />
+        <SnapcastControl @show-client-details="showClientDetails" />
       </div>
     </div>
 
-    <!-- Écran Settings -->
-    <div v-else-if="modalStore.currentScreen === 'settings'" class="screen-settings">
+    <!-- Vue Configuration -->
+    <div v-else-if="currentView === 'settings'" class="view-settings">
+      <div class="view-header">
+        <button @click="goToMain" class="back-btn">←</button>
+        <h3>Configuration Multiroom</h3>
+      </div>
       <SnapcastSettings />
     </div>
 
-    <!-- Écran Client Details -->
-    <div v-else-if="modalStore.currentScreen === 'client-details'" class="screen-client-details">
-      <SnapclientDetails 
-        v-if="modalStore.selectedClient" 
-        :client="modalStore.selectedClient" 
-      />
-      <div v-else class="error-state">
-        <p>Aucun client sélectionné</p>
-        <button @click="modalStore.goBack()" class="back-btn">Retour</button>
+    <!-- Vue Détails Client -->
+    <div v-else-if="currentView === 'client-details'" class="view-client-details">
+      <div class="view-header">
+        <button @click="goToMain" class="back-btn">←</button>
+        <h3>{{ selectedClient?.name || 'Client' }}</h3>
       </div>
-    </div>
-
-    <!-- Écran de fallback -->
-    <div v-else class="screen-fallback">
-      <p>Écran inconnu: {{ modalStore.currentScreen }}</p>
-      <button @click="modalStore.goToScreen('main')" class="back-btn">Retour à l'accueil</button>
+      <SnapclientDetails 
+        v-if="selectedClient" 
+        :client="selectedClient" 
+      />
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useModalStore } from '@/stores/modalStore';
 import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SnapcastControl from './SnapcastControl.vue';
@@ -65,24 +62,50 @@ import SnapcastSettings from './SnapcastSettings.vue';
 import SnapclientDetails from './SnapclientDetails.vue';
 
 const unifiedStore = useUnifiedAudioStore();
-const modalStore = useModalStore();
 
-// État computed
-const isMultiroomActive = computed(() => 
-  unifiedStore.multiroomEnabled
-);
+// === NAVIGATION LOCALE ULTRA-SIMPLE ===
+const currentView = ref('main'); // 'main', 'settings', 'client-details'
+const selectedClient = ref(null);
 
-// === GESTION TOGGLE ===
+// === GETTERS ===
+const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
+
+// === NAVIGATION ACTIONS ===
+function goToMain() {
+  currentView.value = 'main';
+  selectedClient.value = null;
+}
+
+function showSettings() {
+  currentView.value = 'settings';
+  selectedClient.value = null;
+}
+
+function showClientDetails(client) {
+  console.log('🔍 Showing client details for:', client.name);
+  selectedClient.value = client;
+  currentView.value = 'client-details';
+}
+
+// === HANDLERS ===
 async function handleMultiroomToggle(enabled) {
   await unifiedStore.setMultiroomEnabled(enabled);
 }
 
-// Debug pour vérifier les changements d'écran
-import { watch } from 'vue';
-watch(() => modalStore.currentScreen, (newScreen, oldScreen) => {
-  console.log(`🖥️ Modal screen changed: ${oldScreen} → ${newScreen}`);
-  if (newScreen === 'client-details') {
-    console.log('👤 Selected client:', modalStore.selectedClient?.name);
+// === RESET AUTOMATIQUE ===
+// Retourner au main quand le multiroom est désactivé
+watch(isMultiroomActive, (enabled) => {
+  if (!enabled && currentView.value !== 'main') {
+    console.log('🔙 Multiroom deactivated, going back to main');
+    goToMain();
+  }
+});
+
+// Debug pour suivre les changements de vue
+watch(currentView, (newView, oldView) => {
+  console.log(`🖥️ Snapcast view changed: ${oldView} → ${newView}`);
+  if (newView === 'client-details') {
+    console.log('👤 Selected client:', selectedClient.value?.name);
   }
 });
 </script>
@@ -93,22 +116,18 @@ watch(() => modalStore.currentScreen, (newScreen, oldScreen) => {
   flex-direction: column;
 }
 
-/* Écrans */
-.screen-main,
-.screen-settings,
-.screen-client-details,
-.screen-fallback {
+.view-main,
+.view-settings,
+.view-client-details {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-03);
 }
 
-/* Toggle wrapper */
 .toggle-wrapper {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 16px;
-  padding: 16px;
+  background: var(--color-background-contrast);
+  border-radius: var(--radius-04);
+  padding: var(--space-04);
 }
 
 .toggle-header {
@@ -118,9 +137,7 @@ watch(() => modalStore.currentScreen, (newScreen, oldScreen) => {
 }
 
 .toggle-header h3 {
-  margin: 0;
-  color: #333;
-  font-size: 16px;
+  color: var(--color-text-contrast);
 }
 
 .controls-wrapper {
@@ -129,37 +146,45 @@ watch(() => modalStore.currentScreen, (newScreen, oldScreen) => {
   gap: 12px;
 }
 
-/* Contenu principal */
 .main-content {
   flex: 1;
 }
 
-/* États d'erreur */
-.error-state {
-  text-align: center;
-  padding: 40px 20px;
+.view-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
   background: #f8f9fa;
   border: 1px solid #dee2e6;
   border-radius: 16px;
 }
 
-.error-state p {
-  margin: 0 0 16px 0;
-  color: #666;
-}
-
 .back-btn {
-  padding: 8px 16px;
-  background: #6c757d;
-  color: white;
+  background: none;
   border: none;
+  font-size: 16px;
   cursor: pointer;
+  padding: 8px;
   border-radius: 4px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  transition: all 0.2s;
 }
 
 .back-btn:hover {
-  background: #545b62;
+  background: #e9ecef;
+  color: #333;
 }
 
-
+.view-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 16px;
+  flex: 1;
+}
 </style>

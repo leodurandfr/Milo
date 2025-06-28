@@ -17,8 +17,9 @@ import plusIcon from '@/assets/icons/plus.svg?raw';
 import minusIcon from '@/assets/icons/minus.svg?raw';
 import threeDotsIcon from '@/assets/icons/three-dots.svg?raw';
 import closeDotsIcon from '@/assets/icons/close-dots.svg?raw';
-
-// Ajoutez vos autres icônes ici
+// Nouvelles icônes à ajouter
+import resetIcon from '@/assets/icons/reset.svg?raw';
+import settingsIcon from '@/assets/icons/settings.svg?raw';
 
 const icons = {
   play: playIcon,
@@ -30,7 +31,8 @@ const icons = {
   minus: minusIcon,
   threeDots: threeDotsIcon,
   closeDots: closeDotsIcon,
-  // Ajoutez vos autres icônes ici
+  reset: resetIcon,
+  settings: settingsIcon,
 };
 
 export default {

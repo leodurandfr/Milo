@@ -1,28 +1,35 @@
-<!-- frontend/src/App.vue - Avec modes de hauteur différenciés -->
+<!-- frontend/src/App.vue - Version complète OPTIM avec refs directes -->
 <template>
   <div class="app-container">
     <router-view />
     <VolumeBar ref="volumeBar" />
-    <BottomNavigation />
+    <BottomNavigation 
+      @open-snapcast="isSnapcastOpen = true"
+      @open-equalizer="isEqualizerOpen = true"
+    />
 
-    <!-- Modal Snapcast (multiroom) - Mode AUTO (hug content) -->
-    <Modal :is-open="modalStore.isSnapcastOpen" :title="modalStore.currentTitle"
-      :show-back-button="modalStore.canGoBack" height-mode="auto" @close="modalStore.closeAll"
-      @back="modalStore.goBack">
+    <!-- Modal Multiroom (avec navigation interne) -->
+    <Modal 
+      :is-open="isSnapcastOpen" 
+      height-mode="auto" 
+      @close="isSnapcastOpen = false"
+    >
       <SnapcastModal />
     </Modal>
 
-    <!-- Modal Equalizer - Mode FIXED (hauteur fixe) -->
-    <Modal :is-open="modalStore.isEqualizerOpen" :title="modalStore.currentTitle"
-      :show-back-button="modalStore.canGoBack" height-mode="fixed" @close="modalStore.closeAll"
-      @back="modalStore.goBack">
+    <!-- Modal Égaliseur (simple, 1 vue) -->
+    <Modal 
+      :is-open="isEqualizerOpen" 
+      height-mode="fixed" 
+      @close="isEqualizerOpen = false"
+    >
       <EqualizerModal />
     </Modal>
   </div>
 </template>
 
 <script setup>
-import { onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, provide } from 'vue';
 import VolumeBar from '@/components/ui/VolumeBar.vue';
 import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 import Modal from '@/components/ui/Modal.vue';
@@ -30,14 +37,23 @@ import SnapcastModal from '@/components/snapcast/SnapcastModal.vue';
 import EqualizerModal from '@/components/equalizer/EqualizerModal.vue';
 import { useVolumeStore } from '@/stores/volumeStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useModalStore } from '@/stores/modalStore';
 import useWebSocket from '@/services/websocket';
-
 
 const volumeStore = useVolumeStore();
 const unifiedStore = useUnifiedAudioStore();
-const modalStore = useModalStore();
 const { on } = useWebSocket();
+
+// === MODALES PRINCIPALES : 2 REFS SIMPLES ===
+const isSnapcastOpen = ref(false);
+const isEqualizerOpen = ref(false);
+
+// === PROVIDE POUR LES COMPOSANTS ENFANTS ===
+provide('openSnapcast', () => isSnapcastOpen.value = true);
+provide('openEqualizer', () => isEqualizerOpen.value = true);
+provide('closeModals', () => {
+  isSnapcastOpen.value = false;
+  isEqualizerOpen.value = false;
+});
 
 // Stocker les fonctions de cleanup
 const cleanupFunctions = [];

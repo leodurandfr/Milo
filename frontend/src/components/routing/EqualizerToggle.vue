@@ -1,7 +1,8 @@
 <!-- frontend/src/components/routing/EqualizerToggle.vue -->
-<template>
+<!-- <template>
   <Toggle
     v-model="isEqualizerEnabled"
+    variant="primary"
     title="Audio Processing"
     on-label="Equalizer ON"
     off-label="Equalizer OFF"
@@ -30,4 +31,4 @@ const statusText = computed(() =>
 async function handleToggle(enabled) {
   await unifiedStore.setEqualizerEnabled(enabled);
 }
-</script>
+</script> -->

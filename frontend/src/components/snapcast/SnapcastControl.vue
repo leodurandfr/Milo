@@ -1,34 +1,39 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version 100% événementielle OPTIM -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version sans modalStore -->
 <template>
-
-
   <div v-if="!isMultiroomActive" class="status-message">
-    <span class="status-dot inactive"></span>
+    <span class="inactive"></span>
     Multiroom non actif
   </div>
 
   <div v-else-if="clients.length === 0" class="status-message">
-    <span class="status-dot loading"></span>
+    <span class="loading"></span>
     Aucun client connecté
   </div>
 
   <div v-else class="clients-list">
-    <SnapclientItem v-for="client in clients" :key="client.id" :client="client" @volume-change="handleVolumeChange"
-      @mute-toggle="handleMuteToggle" @show-details="handleShowDetails" />
+    <SnapclientItem 
+      v-for="client in clients" 
+      :key="client.id" 
+      :client="client" 
+      @volume-change="handleVolumeChange"
+      @mute-toggle="handleMuteToggle" 
+      @show-details="handleShowDetails" 
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useModalStore } from '@/stores/modalStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 import SnapclientItem from './SnapclientItem.vue';
 
 const unifiedStore = useUnifiedAudioStore();
-const modalStore = useModalStore();
 const { on } = useWebSocket();
+
+// === ÉMISSIONS ===
+const emit = defineEmits(['show-client-details']);
 
 // État local ultra-simple
 const clients = ref([]);
@@ -59,10 +64,9 @@ async function handleMuteToggle(clientId, muted) {
 }
 
 function handleShowDetails(client) {
-  console.log('🔍 Opening client details for:', client.name);
-  modalStore.openClientDetails(client);
-  console.log('📝 Current screen after:', modalStore.currentScreen);
-  console.log('📝 Selected client:', modalStore.selectedClient);
+  console.log('🔍 SnapcastControl: Emitting show-client-details for:', client.name);
+  // CHANGEMENT : Émission vers le parent SnapcastModal au lieu d'utiliser modalStore
+  emit('show-client-details', client);
 }
 
 // === GESTIONNAIRES WEBSOCKET 100% ÉVÉNEMENTIELS ===
@@ -95,12 +99,6 @@ function handleClientDisconnected(event) {
     const clientName = clients.value[clientIndex].name;
     clients.value.splice(clientIndex, 1);
     console.log('❌ Client disconnected and removed:', clientName);
-
-    // Si le client déconnecté était celui en détails, revenir au main
-    if (modalStore.selectedClient?.id === clientId && modalStore.currentScreen === 'client-details') {
-      console.log('🔙 Client was in details view, going back to main');
-      modalStore.goBack();
-    }
   }
 }
 
@@ -154,19 +152,13 @@ function handleSystemStateChanged(event) {
   else if (event.data.multiroom_changed && !unifiedStore.multiroomEnabled) {
     console.log('🏠 Multiroom deactivated - clearing clients list');
     clients.value = [];
-
-    // Revenir au main si on était dans les détails d'un client
-    if (modalStore.currentScreen === 'client-details') {
-      console.log('🔙 Multiroom deactivated, going back to main');
-      modalStore.goToScreen('main');
-    }
   }
 }
 
-// === LIFECYCLE OPTIM CORRIGÉ ===
+// === LIFECYCLE OPTIM ===
 
 onMounted(async () => {
-  console.log('🚀 SnapcastControl mounted - OPTIM corrected mode');
+  console.log('🚀 SnapcastControl mounted - OPTIM mode');
 
   // S'abonner aux événements WebSocket temps réel AVANT de charger
   const subscriptions = [
@@ -183,7 +175,7 @@ onMounted(async () => {
 
   unsubscribeFunctions.push(...subscriptions);
 
-  // OPTIM CORRIGÉ : Charger les clients initiaux SI multiroom actif
+  // OPTIM : Charger les clients initiaux SI multiroom actif
   if (isMultiroomActive.value) {
     await loadClients();
     console.log('📡 Initial clients loaded + subscribed to real-time events');
@@ -214,18 +206,12 @@ onUnmounted(() => {
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
 });
 
-// OPTIM CORRIGÉ : Garder le watcher pour sécurité + cleanup
-import { watch } from 'vue';
+// Watcher pour sécurité + cleanup
 watch(isMultiroomActive, async (newValue) => {
   if (newValue) {
     await loadClients();
   } else {
     clients.value = [];
-
-    // Revenir au main si on était dans les détails
-    if (modalStore.currentScreen === 'client-details') {
-      modalStore.goToScreen('main');
-    }
   }
 });
 </script>
@@ -233,48 +219,11 @@ watch(isMultiroomActive, async (newValue) => {
 <style scoped>
 
 
-.status-message {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 4px;
-  font-size: 14px;
-  background: #f5f5f5;
-  color: #666;
-}
 
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ccc;
-}
-
-.status-dot.inactive {
-  background: #999;
-}
-
-.status-dot.loading {
-  background: #17a2b8;
-  animation: pulse 1.5s infinite;
-}
-
-@keyframes pulse {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.5;
-  }
-}
 
 .clients-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-02);
 }
 </style>

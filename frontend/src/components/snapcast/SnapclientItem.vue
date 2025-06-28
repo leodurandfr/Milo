@@ -11,15 +11,16 @@
         orientation="horizontal" :disabled="client.muted" @input="handleVolumeInput" @change="handleVolumeChange" />
       <span class="volume-label">{{ displayVolume }}%</span>
     </div>
-
-    <!-- Bouton Détails -->
-    <button @click="handleShowDetails" class="details-btn" title="Voir les détails du client">
-      ℹ️
-    </button>
-
-    <!-- Toggle Mute -->
-    <div class="mute-control">
-      <Toggle :model-value="!client.muted" @change="handleMuteToggle" />
+    <div class="controls-wrapper">
+<IconButton
+  icon="threeDots"
+  @click="handleShowDetails"
+  title="Voir les détails du client"
+/>
+      
+      <div class="mute-control">
+        <Toggle :model-value="!client.muted" variant="secondary" @change="handleMuteToggle" />
+      </div>
     </div>
   </div>
 </template>
@@ -29,6 +30,7 @@ import { ref, computed } from 'vue';
 import { useVolumeStore } from '@/stores/volumeStore';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 
 // Props
 const props = defineProps({
@@ -156,16 +158,14 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   border-radius: 16px;
-  gap:16px;
-  padding: 16px;
+  gap: var(--space-04);
+  padding: var(--space-04);
   background: #fff;
 }
 
 
 
 .client-name {
-  font-weight: bold;
-  font-size: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -177,21 +177,28 @@ onUnmounted(() => {
 .client-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-03);
   flex-shrink: 0;
+}
+
+.controls-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
 }
 
 /* Contrôle du volume */
 .volume-control {
   display: flex;
   width: 100%;
-  gap: 16px;
+  gap: var(--space-04);
   align-items: center;
+  position: relative;
 }
 
 .volume-label {
   position: absolute;
-  margin-left: 16px;
+  margin-left: var(--space-04);
 }
 
 /* Bouton détails */
@@ -201,13 +208,11 @@ onUnmounted(() => {
   border: 1px solid #ced4da;
   background: #e9ecef;
   cursor: pointer;
-  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
   flex-shrink: 0;
-  border-radius: 4px;
 }
 
 .details-btn:hover {
@@ -222,31 +227,25 @@ onUnmounted(() => {
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .snapclient-item {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-03);
   }
 
+  .client-name {
+    flex: 1;
+    order: 1;
+  }
 
-
-  .client-controls {
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px;
+  .controls-wrapper {
+    order: 2;
+    margin-left: auto;
   }
 
   .volume-control {
-    order: 1;
-    flex: 1;
-    min-width: 120px;
-  }
-
-  .details-btn {
-    order: 2;
-  }
-
-  .mute-control {
     order: 3;
   }
+
 }
 </style>
