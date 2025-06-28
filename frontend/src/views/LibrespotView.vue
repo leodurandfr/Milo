@@ -192,7 +192,7 @@ padding: var(--space-06);
 .controls-section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-06);
+  gap: var(--space-05);
 }
 
 

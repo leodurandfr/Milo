@@ -600,7 +600,7 @@ onUnmounted(() => {
 .dock-separator {
   width: 2px;
   height: var(--space-07);
-  background: var(--color-background-glass);
+  background: var(--color-background-neutral-64);
   border-radius: var(--radius-full);
   opacity: 0;
   transform: translateY(20px) scale(0.8);

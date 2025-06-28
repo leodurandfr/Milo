@@ -103,15 +103,13 @@ watch(() => props.isOpen, (newValue) => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: #f2f2f2cc;
-  backdrop-filter: blur(10px);
+  background: var(--color-background-neutral-64);
+  backdrop-filter: blur(32px);
   display: flex;
   align-items: flex-start;
-  /* Alignement en haut pour auto */
   justify-content: center;
   z-index: 1000;
   padding: 48px 20px 20px 20px;
-  /* margin-top: 48px pour tous */
 }
 
 /* Overlay mode fixed (equalizer) */
@@ -125,15 +123,32 @@ watch(() => props.isOpen, (newValue) => {
 /* Container - comportement par défaut (auto) */
 .modal-container {
   position: relative;
-  background: #75757529;
+  background: var(--color-background-glass);
   border-radius: 32px;
   width: 100%;
   max-width: 700px;
   max-height: 100%;
   display: flex;
   flex-direction: column;
+    overflow: hidden;
 
 }
+.modal-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  background: var(--stroke-glass);
+  border-radius: var(--radius-06);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+  pointer-events: none;
+}
+
 
 /* Container mode fixed (equalizer) */
 .modal-container.fixed-height {
