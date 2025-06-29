@@ -9,7 +9,7 @@
     <div v-if="showAdditionalContainer" class="additional-apps-container mobile-only"
       :class="{ visible: showAdditionalApps }">
       <!-- Multiroom -->
-      <button @click="() => { resetHideTimer(); moveIndicatorTo(3); openSnapcast(); }"
+      <button @click="() => { resetHideTimer(); openSnapcast(); }"
               @touchstart="addPressEffect"
               @mousedown="addPressEffect"
               class="additional-app-content button-interactive-subtle">
@@ -18,7 +18,7 @@
       </button>
 
       <!-- Equalizer -->
-      <button @click="() => { resetHideTimer(); moveIndicatorTo(4); openEqualizer(); }"
+      <button @click="() => { resetHideTimer(); openEqualizer(); }"
               @touchstart="addPressEffect"
               @mousedown="addPressEffect"
               class="additional-app-content button-interactive-subtle">
@@ -85,7 +85,7 @@
         </button>
 
         <!-- Multiroom - Desktop uniquement -->
-        <button ref="dockItem3" @click="() => { resetHideTimer(); moveIndicatorTo(3); openSnapcast(); }"
+        <button ref="dockItem3" @click="() => { resetHideTimer(); openSnapcast(); }"
           @touchstart="addPressEffect"
           @mousedown="addPressEffect"
           class="dock-item desktop-only button-interactive-subtle">
@@ -93,7 +93,7 @@
         </button>
 
         <!-- Equalizer - Desktop uniquement -->
-        <button ref="dockItem4" @click="() => { resetHideTimer(); moveIndicatorTo(4); openEqualizer(); }"
+        <button ref="dockItem4" @click="() => { resetHideTimer(); openEqualizer(); }"
           @touchstart="addPressEffect"
           @mousedown="addPressEffect"
           class="dock-item desktop-only button-interactive-subtle">

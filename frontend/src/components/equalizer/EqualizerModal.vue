@@ -6,7 +6,7 @@
       <!-- Toggle Equalizer avec IconButton intégré -->
       <div class="toggle-wrapper">
         <div class="toggle-header">
-          <h3>Égaliseur</h3>
+          <h2 class="heading-2">Égaliseur</h2>
           <div class="controls-wrapper">
           <IconButton
             v-if="isEqualizerEnabled"
@@ -367,10 +367,8 @@ setInterval(() => {
   align-items: center;
 }
 
-.toggle-header h3 {
-  margin: 0;
+.toggle-header h2 {
   color: var(--color-text-contrast);
-  font-size: 16px;
 }
 
 .controls-wrapper {

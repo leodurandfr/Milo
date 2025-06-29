@@ -27,6 +27,22 @@ class EqualizerService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
     
+    def _format_frequency_display(self, freq: str) -> str:
+        """Formate les fréquences pour un affichage simplifié"""
+        freq = freq.strip()
+        
+        if "kHz" in freq:
+            # Extraire le nombre avant "kHz"
+            number = freq.replace("kHz", "").strip()
+            return f"{number}K"
+        elif "Hz" in freq:
+            # Extraire le nombre avant "Hz"
+            number = freq.replace("Hz", "").strip()
+            return number
+        
+        # Fallback : retourner tel quel
+        return freq
+    
     async def get_all_bands(self) -> List[Dict[str, Any]]:
         """Récupère les valeurs de toutes les bandes"""
         try:
@@ -65,7 +81,7 @@ class EqualizerService:
                     current_band = {
                         "id": band_id,
                         "freq": freq,
-                        "display_name": f"{freq}",
+                        "display_name": self._format_frequency_display(freq),
                         "value": 60  # Valeur par défaut
                     }
             

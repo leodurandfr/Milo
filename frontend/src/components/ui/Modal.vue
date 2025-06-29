@@ -1,10 +1,15 @@
-<!-- frontend/src/components/ui/Modal.vue - Version simplifiée (plus de navigation) -->
+<!-- frontend/src/components/ui/Modal.vue -->
 <template>
   <div v-if="isOpen" class="modal-overlay" :class="{ 'fixed-height': heightMode === 'fixed' }"
     @click.self="handleOverlayClick">
     <div class="modal-container" :class="{ 'fixed-height': heightMode === 'fixed' }">
-      <!-- Bouton close flottant -->
-      <button @click="close" class="close-btn-floating" aria-label="Fermer">✕</button>
+      <!-- Bouton close avec nouveau composant -->
+      <IconButtonFloating 
+        class="close-btn-position"
+        icon-name="close" 
+        aria-label="Fermer"
+        @click="close" 
+      />
 
       <!-- Contenu -->
       <div class="modal-content">
@@ -16,6 +21,7 @@
 
 <script setup>
 import { onMounted, onUnmounted, watch } from 'vue';
+import IconButtonFloating from './IconButtonFloating.vue';
 
 const props = defineProps({
   isOpen: {
@@ -90,7 +96,7 @@ watch(() => props.isOpen, (newValue) => {
   align-items: flex-start;
   justify-content: center;
   z-index: 1000;
-  padding: 48px var(--space-02) var(--space-02) var(--space-02);
+  padding: 48px var(--space-04) var(--space-07) var(--space-04);
 }
 
 /* Overlay mode fixed (equalizer) */
@@ -131,26 +137,12 @@ watch(() => props.isOpen, (newValue) => {
   height: 100%;
 }
 
-/* Bouton close flottant - TEMPORAIRE */
-.close-btn-floating {
+/* Positionnement du bouton close */
+.close-btn-position {
   position: absolute;
-  right: calc(-16px - 48px);
-  background: white;
-  border: 2px solid #ddd;
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  font-size: 20px;
-  cursor: pointer;
-  color: #666;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-  z-index: 1001;
+  right: calc(-32px - 48px);
+  top: 0;
 }
-
-
 
 /* Contenu - comportement par défaut (auto) */
 .modal-content {
@@ -160,7 +152,6 @@ watch(() => props.isOpen, (newValue) => {
   flex-direction: column;
   min-height: 0;
   border-radius: var(--radius-06);
-
 }
 
 /* Contenu mode fixed (equalizer) */
@@ -171,15 +162,18 @@ watch(() => props.isOpen, (newValue) => {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
-  .close-btn-floating {
+  .close-btn-position {
     position: fixed;
     top: var(--space-05);
     left: 50%;
     transform: translateX(-50%);
+    right: auto;
   }
 
-  .modal-overlay {
-    padding-top: 80px;
+  .modal-overlay,
+  .modal-overlay.fixed-height {
+    align-items: flex-start;
+    padding: 80px var(--space-02) var(--space-02) var(--space-02);
   }
 
   .modal-container.fixed-height {

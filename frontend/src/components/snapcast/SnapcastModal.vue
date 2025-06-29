@@ -5,7 +5,7 @@
     <div v-if="currentView === 'main'" class="view-main">
       <div class="toggle-wrapper">
         <div class="toggle-header">
-          <h2 h2 class="heading-2">Multiroom</h2>
+          <h2 class="heading-2">Multiroom</h2>
           <div class="controls-wrapper">
           <IconButton
             v-if="isMultiroomActive"
@@ -33,7 +33,7 @@
     <div v-else-if="currentView === 'settings'" class="view-settings">
       <div class="view-header">
         <button @click="goToMain" class="back-btn">←</button>
-        <h2>Configuration Multiroom</h2>
+        <h2 class="heading-2">Configuration Multiroom</h2>
       </div>
       <SnapcastSettings />
     </div>
@@ -42,7 +42,7 @@
     <div v-else-if="currentView === 'client-details'" class="view-client-details">
       <div class="view-header">
         <button @click="goToMain" class="back-btn">←</button>
-        <h2>{{ selectedClient?.name || 'Client' }}</h2>
+        <h2 class="heading-2">{{ selectedClient?.name || 'Client' }}</h2>
       </div>
       <SnapclientDetails 
         v-if="selectedClient" 
@@ -153,38 +153,14 @@ watch(currentView, (newView, oldView) => {
 .view-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px;
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 16px;
+  gap: var(--space-03);
+  padding: var(--space-04);
+  background: var(--color-background-contrast);
+  border-radius: var(--radius-04);
 }
 
-/* .back-btn {
-  background: none;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  padding: 8px;
-  border-radius: 4px;
-  color: #666;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  transition: all 0.2s;
-} */
-
-.back-btn:hover {
-  background: #e9ecef;
-  color: #333;
-}
 
 .view-header h2 {
-  margin: 0;
-  color: #333;
-  font-size: 16px;
-  flex: 1;
+  color: var(--color-text-contrast);
 }
 </style>

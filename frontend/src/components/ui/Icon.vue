@@ -1,7 +1,8 @@
+<!-- frontend/src/components/ui/Icon.vue -->
 <template>
   <div 
     class="icon" 
-    :style="iconStyle"
+    :class="{ 'icon--responsive': responsive }"
     v-html="svgContent"
   />
 </template>
@@ -17,9 +18,10 @@ import plusIcon from '@/assets/icons/plus.svg?raw';
 import minusIcon from '@/assets/icons/minus.svg?raw';
 import threeDotsIcon from '@/assets/icons/three-dots.svg?raw';
 import closeDotsIcon from '@/assets/icons/close-dots.svg?raw';
-// Nouvelles icônes à ajouter
 import resetIcon from '@/assets/icons/reset.svg?raw';
 import settingsIcon from '@/assets/icons/settings.svg?raw';
+import closeIcon from '@/assets/icons/close.svg?raw';
+
 
 const icons = {
   play: playIcon,
@@ -33,23 +35,18 @@ const icons = {
   closeDots: closeDotsIcon,
   reset: resetIcon,
   settings: settingsIcon,
+  close: closeIcon,
+
 };
 
 export default {
   name: 'Icon',
   props: {
     name: { type: String, required: true },
-    size: { type: [String, Number], default: 24 }
+    size: { type: [String, Number], default: 24 },
+    responsive: { type: Boolean, default: false }
   },
   computed: {
-    iconStyle() {
-      const scale = this.size / 24;
-      return {
-        width: `${this.size}px`,
-        height: `${this.size}px`,
-        '--icon-scale': scale
-      };
-    },
     svgContent() {
       const icon = icons[this.name];
       if (!icon) {
@@ -57,10 +54,22 @@ export default {
         return '';
       }
       
-      // Nettoyer les attributs fill pour permettre currentColor
-      return icon
+      let cleanedIcon = icon
         .replace(/fill="#[^"]*"/g, 'fill="currentColor"')
         .replace(/fill='#[^']*'/g, 'fill="currentColor"');
+      
+      if (this.responsive) {
+        // Injection des classes CSS pour le responsive
+        cleanedIcon = cleanedIcon.replace('<svg', '<svg class="svg-responsive"');
+      } else {
+        // Injection de la taille directement dans le SVG
+        cleanedIcon = cleanedIcon
+          .replace(/width="[^"]*"/g, `width="${this.size}"`)
+          .replace(/height="[^"]*"/g, `height="${this.size}"`)
+          .replace('<svg', `<svg width="${this.size}" height="${this.size}"`);
+      }
+      
+      return cleanedIcon;
     }
   }
 };
@@ -75,6 +84,19 @@ export default {
 
 .icon :deep(svg) {
   fill: currentColor;
-  transform: scale(var(--icon-scale, 1));
+  display: block;
+}
+
+/* Mode responsive : application directe sur le SVG */
+.icon :deep(.svg-responsive) {
+  width: 28px;
+  height: 28px;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .icon :deep(.svg-responsive) {
+    width: 24px;
+    height: 24px;
+  }
 }
 </style>

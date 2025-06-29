@@ -1,21 +1,13 @@
 <!-- frontend/src/components/equalizer/RangeSliderEqualizer.vue - Version avec orientation responsive -->
 <template>
   <div class="equalizer-slider" :class="{ 'horizontal': orientation === 'horizontal' }">
-    <div v-if="label" class="label">{{ label }}</div>
-    
-    <RangeSlider
-      :model-value="modelValue"
-      :min="min"
-      :max="max"
-      :step="step"
-      :orientation="orientation"
-      :disabled="disabled"
-      @update:modelValue="$emit('update:modelValue', $event)"
-      @input="$emit('input', $event)"
-      @change="$emit('change', $event)"
-    />
-    
-    <div v-if="showValue" class="value">{{ modelValue }}{{ unit }}</div>
+    <div v-if="label" class="label text-mono">{{ label }}</div>
+
+    <RangeSlider :model-value="modelValue" :min="min" :max="max" :step="step" :orientation="orientation"
+      :disabled="disabled" @update:modelValue="$emit('update:modelValue', $event)" @input="$emit('input', $event)"
+      @change="$emit('change', $event)" />
+
+    <div v-if="showValue" class="value text-mono">{{ modelValue }}{{ unit }}</div>
   </div>
 </template>
 
@@ -31,7 +23,7 @@ defineProps({
   showValue: { type: Boolean, default: true },
   unit: { type: String, default: '%' },
   disabled: { type: Boolean, default: false },
-  orientation: { type: String, default: 'vertical' } // AJOUT : prop orientation
+  orientation: { type: String, default: 'vertical' }
 });
 
 defineEmits(['update:modelValue', 'input', 'change']);
@@ -43,36 +35,33 @@ defineEmits(['update:modelValue', 'input', 'change']);
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  height: 100%; /* CORRIGÉ : Revenir à height pour cohérence totale */
+  height: 100%;
+  /* CORRIGÉ : Revenir à height pour cohérence totale */
   min-height: 0;
 }
 
 .label {
-  font-size: 12px;
-  flex-shrink: 0;
+  text-align: center;
+  color: var(--color-text-secondary);
+  width: 40px;
 }
 
-/* Le RangeSlider prend maintenant directement l'espace disponible */
-
 .value {
-  font-size: 12px;
-  font-weight: bold;
-  color: #767C76;
-  text-align: center;
-  flex-shrink: 0;
-  line-height: 1.2;
+  color: var(--color-text-secondary);
+  width: 40px;
+
 }
 
 /* Responsive */
-@media (max-aspect-ratio: 4/3) { 
+@media (max-aspect-ratio: 4/3) {
   .equalizer-slider {
     flex-direction: row;
     align-items: center;
     width: 100%;
     height: auto;
-    gap: 12px;
+    gap: var(--space-03);
   }
-  
+
 
 
 

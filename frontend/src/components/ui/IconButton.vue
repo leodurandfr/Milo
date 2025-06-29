@@ -8,6 +8,7 @@
   >
     <Icon 
       :name="icon" 
+      responsive
       class="icon-button__icon"
     />
   </button>
@@ -53,39 +54,26 @@ function handleClick() {
 }
 
 .icon-button__icon {
-  width: 28px;
-  height: 28px;
   color: var(--color-text-light);
 }
 
-/* Variante light */
 .icon-button--light {
   background: var(--color-background-strong);
 }
 
-
-/* Variante dark */
 .icon-button--dark {
   background: var(--color-background-neutral-12);
 }
 
-
-/* État disabled */
 .icon-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* Responsive mobile */
 @media (max-aspect-ratio: 4/3) {
   .icon-button {
     width: 32px;
     height: 32px;
-  }
-  
-  .icon-button__icon {
-    width: 24px;
-    height: 24px;
   }
 }
 </style>
