@@ -33,7 +33,7 @@
           <label for="buffer" class="text-mono">Buffer global (ms)</label>
           <div class="input-with-value">
             <RangeSlider v-model="config.buffer" :min="100" :max="2000" :step="50" class="range-input" />
-            <span class="value-display">{{ config.buffer }}ms</span>
+            <span class="text-mono">{{ config.buffer }}ms</span>
           </div>
         </div>
 
@@ -41,18 +41,17 @@
         <div class="form-group">
           <label class="text-mono">Codec Audio</label>
           <div class="codec-buttons">
+            <Button variant="toggle" :active="config.codec === 'opus'" @click="selectCodec('opus')">
+              Opus
+            </Button>
             <Button variant="toggle" :active="config.codec === 'flac'" @click="selectCodec('flac')">
               FLAC
             </Button>
             <Button variant="toggle" :active="config.codec === 'pcm'" @click="selectCodec('pcm')">
               PCM
             </Button>
-            <Button variant="toggle" :active="config.codec === 'opus'" @click="selectCodec('opus')">
-              Opus
-            </Button>
-            <Button variant="toggle" :active="config.codec === 'ogg'" @click="selectCodec('ogg')">
-              OGG
-            </Button>
+
+
           </div>
         </div>
 
@@ -61,7 +60,7 @@
           <label for="chunk" class="text-mono">Taille des chunks (ms)</label>
           <div class="input-with-value">
             <RangeSlider v-model="config.chunk_ms" :min="10" :max="100" :step="5" class="range-input" />
-            <span class="value-display">{{ config.chunk_ms }}ms</span>
+            <span class="text-mono">{{ config.chunk_ms }}ms</span>
           </div>
         </div>
       </section>
@@ -72,25 +71,23 @@
 
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label">Version Snapserver:</span>
-            <span class="info-value">
+            <span class="info-label text-mono">Version Snapserver :</span>
+            <span class="info-value text-mono">
               {{ serverInfo.server_info?.server?.snapserver?.version || 'Inconnu' }}
             </span>
           </div>
 
           <div class="info-item">
-            <span class="info-label">Nom du serveur :</span>
-            <span class="info-value">{{ serverInfo.server_info?.server?.host?.name || 'Inconnu' }}</span>
+            <span class="info-label text-mono">Nom du serveur :</span>
+            <span class="info-value text-mono">{{ serverInfo.server_info?.server?.host?.name || 'Inconnu' }}</span>
           </div>
         </div>
       </section>
 
       <!-- Actions -->
-      <div class="modal-actions">
-        <Button variant="primary" :disabled="loading || applying || !hasChanges" @click="applyConfig">
-          {{ applying ? 'Application...' : 'Appliquer & Redémarrer' }}
-        </Button>
-      </div>
+      <Button variant="primary" :disabled="loading || applying || !hasChanges" @click="applyConfig">
+        {{ applying ? 'Redémarrage du multiroom en cours...' : 'Appliquer' }}
+      </Button>
     </div>
   </div>
 </template>
@@ -118,7 +115,7 @@ const audioPresets = [
     name: 'Réactivité',
     config: {
       buffer: 150,
-      codec: 'pcm',
+      codec: 'opus',
       chunk_ms: 10
     }
   },
@@ -127,7 +124,7 @@ const audioPresets = [
     name: 'Équilibré',
     config: {
       buffer: 1000,
-      codec: 'pcm',
+      codec: 'flac',
       chunk_ms: 20
     }
   },
@@ -340,8 +337,9 @@ onMounted(async () => {
   display: flex;
   gap: var(--space-02);
 }
+
 .presets-buttons .btn {
-  flex: 1; 
+  flex: 1;
 }
 
 
@@ -364,11 +362,8 @@ onMounted(async () => {
   flex: 1;
 }
 
-.value-display {
-  font-weight: bold;
-  color: var(--color-brand);
-  min-width: 70px;
-  text-align: right;
+.input-with-value .text-mono {
+  color: var(--color-text-secondary);
 }
 
 .select-input {
@@ -384,25 +379,23 @@ onMounted(async () => {
 .info-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: var(--space-02);
 }
 
 .info-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px;
-  background: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-03) var(--space-04);
+    border-radius: var(--radius-04);
+    background: var(--color-background-strong);
 }
 
-.info-label {
-  font-size: 12px;
-  color: #666;
+.info-label.text-mono {
+  color: var(--color-text-secondary);
 }
-
-.info-value {
-  font-weight: bold;
-  font-size: 12px;
+.info-value.text-mono {
+  color: var(--color-text);
 }
 
 
@@ -418,24 +411,21 @@ onMounted(async () => {
 }
 
 .codec-buttons .btn {
-  flex: 1; 
+  flex: 1;
 }
 
 
-/* Actions */
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 20px;
-  border-top: 1px solid #eee;
-  background: #f8f9fa;
-}
+
 
 /* Responsive pour presets */
 @media (max-aspect-ratio: 4/3) {
-  .codec-buttons, .presets-buttons {
+
+  .codec-buttons,
+  .presets-buttons {
     flex-direction: column;
   }
+  .info-grid {
+  grid-template-columns: 1fr;
+}
 }
 </style>

@@ -60,13 +60,6 @@ defineEmits(['click']);
   pointer-events: none;
 }
 
-.icon-button-floating:hover {
-  transform: scale(1.05);
-}
-
-.icon-button-floating:active {
-  transform: scale(0.95);
-}
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {

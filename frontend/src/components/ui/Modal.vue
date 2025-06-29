@@ -12,7 +12,14 @@
       />
 
       <!-- Contenu -->
-      <div class="modal-content">
+      <div 
+        ref="modalContent"
+        class="modal-content"
+        @pointerdown="handlePointerDown"
+        @pointermove="handlePointerMove"
+        @pointerup="handlePointerUp"
+        @pointercancel="handlePointerUp"
+      >
         <slot></slot>
       </div>
     </div>
@@ -20,7 +27,7 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import IconButtonFloating from './IconButtonFloating.vue';
 
 const props = defineProps({
@@ -41,6 +48,16 @@ const props = defineProps({
 
 const emit = defineEmits(['close']);
 
+// Référence au contenu de la modal
+const modalContent = ref(null);
+
+// Variables pour le pointer scroll
+let isDragging = false;
+let startY = 0;
+let startScrollTop = 0;
+let pointerId = null;
+let hasMoved = false;
+
 function close() {
   emit('close');
 }
@@ -48,6 +65,59 @@ function close() {
 function handleOverlayClick() {
   if (props.closeOnOverlay) {
     close();
+  }
+}
+
+// Gestion du pointer scroll
+function handlePointerDown(event) {
+  if (!modalContent.value) return;
+  
+  // Exclure les sliders et autres contrôles interactifs
+  const isSlider = event.target.closest('input[type="range"]');
+  const isButton = event.target.closest('button');
+  const isInput = event.target.closest('input, select, textarea');
+  
+  if (isSlider || isButton || isInput) {
+    return; // Laisser ces éléments gérer leurs propres événements
+  }
+  
+  isDragging = true;
+  hasMoved = false;
+  pointerId = event.pointerId;
+  startY = event.clientY;
+  startScrollTop = modalContent.value.scrollTop;
+}
+
+function handlePointerMove(event) {
+  if (!isDragging || event.pointerId !== pointerId || !modalContent.value) return;
+  
+  const deltaY = Math.abs(startY - event.clientY);
+  
+  // Seuil de mouvement pour distinguer clic vs drag
+  if (deltaY > 5) {
+    hasMoved = true;
+    
+    // Capturer seulement quand on commence vraiment à dragger
+    if (!modalContent.value.hasPointerCapture(event.pointerId)) {
+      modalContent.value.setPointerCapture(event.pointerId);
+    }
+    
+    event.preventDefault();
+    
+    const scrollDelta = startY - event.clientY;
+    modalContent.value.scrollTop = startScrollTop + scrollDelta;
+  }
+}
+
+function handlePointerUp(event) {
+  if (event.pointerId === pointerId) {
+    isDragging = false;
+    pointerId = null;
+    hasMoved = false;
+    
+    if (modalContent.value && modalContent.value.hasPointerCapture(event.pointerId)) {
+      modalContent.value.releasePointerCapture(event.pointerId);
+    }
   }
 }
 
@@ -152,6 +222,8 @@ watch(() => props.isOpen, (newValue) => {
   flex-direction: column;
   min-height: 0;
   border-radius: var(--radius-06);
+  /* Configuration pour PointerEvents - permet le scroll vertical seulement */
+  touch-action: pan-y;
 }
 
 /* Contenu mode fixed (equalizer) */
