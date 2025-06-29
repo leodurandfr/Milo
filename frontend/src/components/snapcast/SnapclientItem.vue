@@ -9,7 +9,7 @@
     <div class="volume-control">
       <RangeSlider :model-value="displayVolume" :min="minVolumeDisplay" :max="maxVolumeDisplay" :step="1"
         orientation="horizontal" :disabled="client.muted" @input="handleVolumeInput" @change="handleVolumeChange" />
-      <span class="volume-label text-mono">{{ displayVolume }}%</span>
+      <span class="volume-label text-mono">{{ displayVolume }} %</span>
     </div>
     <div class="controls-wrapper">
       <IconButton icon="threeDots" @click="handleShowDetails" title="Voir les détails du client" />

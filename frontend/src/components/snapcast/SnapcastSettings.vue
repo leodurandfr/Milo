@@ -259,9 +259,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-::-webkit-scrollbar {
-    display: none;
-}
+
 .settings-content {
   gap: var(--space-02);
   display: flex;

@@ -1,10 +1,9 @@
 <!-- frontend/src/components/ui/VolumeBar.vue -->
 <template>
-  <div class="volume-overlay" :class="{ visible: isVisible }">
-    <div class="volume-bar">
-      <div class="volume-slider">
-        <div class="volume-fill" :style="{ width: `${currentVolume}%` }"></div>
-      </div>
+  <div class="volume-bar" :class="{ visible: isVisible }">
+    <div class="volume-slider">
+      <div class="volume-fill" :style="{ width: `${currentVolume}%` }"></div>
+      <div class="text-mono">{{ currentVolume }} %</div>
     </div>
   </div>
 </template>
@@ -24,12 +23,12 @@ function showVolume() {
   if (hideTimer) {
     clearTimeout(hideTimer);
   }
-  
+
   isVisible.value = true;
-  
+
   hideTimer = setTimeout(() => {
     isVisible.value = false;
-  }, 2500);
+  }, 3000);
 }
 
 function hideVolume() {
@@ -52,50 +51,64 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.volume-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 1000;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: 24px;
-  opacity: 0;
-  transform: translateY(-20px);
-  transition: opacity 0.3s ease, transform 0.3s ease;
-}
-
-.volume-overlay.visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
 .volume-bar {
-  width: 280px;
-  padding: 16px;
-  border-radius: 16px;
-  background: rgba(195, 195, 195, 0.24);
+  top: var(--space-05);
+  position: fixed;
+  left: 50%;
+  transform: translate(-50%, -80px);
+  opacity: 0;
+  width: 472px;
+  padding: var(--space-04);
+  border-radius: var(--radius-full);
+  background: var(--color-background-glass);
   backdrop-filter: blur(12px);
+  transition: all var(--transition-spring);
+}
+
+.volume-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  background: var(--stroke-glass);
+  border-radius: var(--radius-06);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.volume-bar.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  left: 50%;
 }
 
 .volume-slider {
   position: relative;
   width: 100%;
-  height: 12px;
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 6px;
+  height: 32px;
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-full);
   overflow: hidden;
+}
+
+.volume-slider .text-mono {
+  height: 100%;
+  align-content: center;
+  color: var(--color-text-secondary);
+  margin-left: var(--space-04);
+  position: absolute;
 }
 
 .volume-fill {
   position: absolute;
   height: 100%;
-  background: #333;
-  border-radius: 6px;
+  background: var(--color-background-contrast);
+  border-radius: var(--radius-full);
   left: 0;
   top: 0;
   transition: width 0.2s ease;
@@ -103,7 +116,7 @@ onMounted(() => {
 
 @media (max-aspect-ratio: 4/3) {
   .volume-bar {
-    width: 256px;
+    width: calc(100% - 2*(var(--space-04)));
   }
 }
 </style>

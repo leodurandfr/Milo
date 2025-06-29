@@ -62,9 +62,7 @@ function handleChange(event) {
 </script>
 
 <style scoped>
-::-webkit-scrollbar {
-    display: none;
-}
+
 /* Container 100% de l'espace disponible */
 .slider-container {
   display: flex;
