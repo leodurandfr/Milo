@@ -14,59 +14,61 @@
     <div v-else class="settings-content">
       <!-- Presets Audio -->
       <section class="config-section">
-        <h3>Presets Audio</h3>
-        <p class="section-description">Configurations prédéfinies pour différents usages</p>
+        <h2 class="heading-2">Presets audio</h2>
 
-        <div class="presets-grid">
-          <button v-for="preset in audioPresets" :key="preset.id" @click="applyPreset(preset)"
-            :class="['preset-btn', { active: isPresetActive(preset) }]" :disabled="applying">
-            <div class="preset-title">{{ preset.name }}</div>
-          </button>
+        <div class="presets-buttons">
+          <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle" :active="isPresetActive(preset)"
+            :disabled="applying" @click="applyPreset(preset)">
+            {{ preset.name }}
+          </Button>
         </div>
       </section>
 
       <!-- Configuration serveur -->
       <section class="config-section">
-        <h3>Paramètres Audio</h3>
+        <h2 class="heading-2">Paramètres audio</h2>
 
         <!-- Buffer global -->
         <div class="form-group">
-          <label for="buffer">Buffer Global (ms)</label>
+          <label for="buffer" class="text-mono">Buffer global (ms)</label>
           <div class="input-with-value">
-            <input id="buffer" type="range" min="100" max="2000" step="50" v-model.number="config.buffer"
-              class="range-input">
+            <RangeSlider v-model="config.buffer" :min="100" :max="2000" :step="50" class="range-input" />
             <span class="value-display">{{ config.buffer }}ms</span>
           </div>
-          <p class="help-text">Latence end-to-end totale du système (100-2000ms)</p>
         </div>
 
         <!-- Codec -->
         <div class="form-group">
-          <label for="codec">Codec Audio</label>
-          <select id="codec" v-model="config.codec" class="select-input">
-            <option value="flac">FLAC (Sans perte, ~26ms latence)</option>
-            <option value="pcm">PCM (Sans perte, aucune latence)</option>
-            <option value="opus">Opus (Avec perte, faible latence)</option>
-            <option value="ogg">OGG (Avec perte)</option>
-          </select>
-          <p class="help-text">Codec utilisé pour compresser l'audio</p>
+          <label class="text-mono">Codec Audio</label>
+          <div class="codec-buttons">
+            <Button variant="toggle" :active="config.codec === 'flac'" @click="selectCodec('flac')">
+              FLAC
+            </Button>
+            <Button variant="toggle" :active="config.codec === 'pcm'" @click="selectCodec('pcm')">
+              PCM
+            </Button>
+            <Button variant="toggle" :active="config.codec === 'opus'" @click="selectCodec('opus')">
+              Opus
+            </Button>
+            <Button variant="toggle" :active="config.codec === 'ogg'" @click="selectCodec('ogg')">
+              OGG
+            </Button>
+          </div>
         </div>
 
         <!-- Chunk size -->
         <div class="form-group">
-          <label for="chunk">Taille des Chunks (ms)</label>
+          <label for="chunk" class="text-mono">Taille des chunks (ms)</label>
           <div class="input-with-value">
-            <input id="chunk" type="range" min="10" max="100" step="5" v-model.number="config.chunk_ms"
-              class="range-input">
+            <RangeSlider v-model="config.chunk_ms" :min="10" :max="100" :step="5" class="range-input" />
             <span class="value-display">{{ config.chunk_ms }}ms</span>
           </div>
-          <p class="help-text">Taille de lecture du buffer source (10-100ms)</p>
         </div>
       </section>
 
       <!-- Informations actuelles -->
       <section class="config-section">
-        <h3>État du Serveur</h3>
+        <h2 class="heading-2">État du Serveur</h2>
 
         <div class="info-grid">
           <div class="info-item">
@@ -77,7 +79,7 @@
           </div>
 
           <div class="info-item">
-            <span class="info-label">Host:</span>
+            <span class="info-label">Nom du serveur :</span>
             <span class="info-value">{{ serverInfo.server_info?.server?.host?.name || 'Inconnu' }}</span>
           </div>
         </div>
@@ -85,9 +87,9 @@
 
       <!-- Actions -->
       <div class="modal-actions">
-        <button @click="applyConfig" :disabled="loading || applying || !hasChanges" class="apply-btn">
+        <Button variant="primary" :disabled="loading || applying || !hasChanges" @click="applyConfig">
           {{ applying ? 'Application...' : 'Appliquer & Redémarrer' }}
-        </button>
+        </Button>
       </div>
     </div>
   </div>
@@ -96,6 +98,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
+import Button from '@/components/ui/Button.vue';
+import RangeSlider from '@/components/ui/RangeSlider.vue';
 
 // Émissions
 const emit = defineEmits(['close', 'config-updated']);
@@ -105,8 +109,9 @@ const loading = ref(false);
 const applying = ref(false);
 const error = ref(null);
 const serverInfo = ref({});
+const lastActionTime = ref(0); // Protection contre double-clic
 
-// Presets audio prédéfinis - SIMPLIFIÉ
+// Presets audio prédéfinis
 const audioPresets = [
   {
     id: 'reactivity',
@@ -122,7 +127,7 @@ const audioPresets = [
     name: 'Équilibré',
     config: {
       buffer: 1000,
-      codec: 'flac',
+      codec: 'pcm',
       chunk_ms: 20
     }
   },
@@ -171,6 +176,11 @@ function applyPreset(preset) {
   console.log(`Applied preset: ${preset.name}`, config.value);
 }
 
+function selectCodec(codecName) {
+  config.value.codec = codecName;
+  console.log(`Selected codec: ${codecName}`);
+}
+
 // === MÉTHODES PRINCIPALES ===
 
 async function loadServerConfig() {
@@ -206,7 +216,7 @@ async function loadServerConfig() {
 }
 
 async function applyConfig() {
-  if (!hasChanges.value) return;
+  if (!hasChanges.value || applying.value) return;
 
   applying.value = true;
   error.value = null;
@@ -217,6 +227,9 @@ async function applyConfig() {
     const response = await axios.post('/api/routing/snapcast/server/config', {
       config: config.value
     });
+
+    // 👈 DEBUG : Voir la réponse complète
+    console.log('Full response:', response.data);
 
     if (response.data.status === 'success') {
       // FIX : Mise à jour immédiate de originalConfig pour éviter le bug de bascule
@@ -256,7 +269,6 @@ onMounted(async () => {
   align-items: stretch;
 }
 
-
 .settings-overlay {
   position: fixed;
   top: 0;
@@ -282,7 +294,6 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-/* En-tête simple */
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -293,27 +304,13 @@ onMounted(async () => {
   background: #f8f9fa;
 }
 
-.modal-header h2 {
-  margin: 0;
-  font-size: 20px;
-}
 
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  padding: 4px;
-}
-
-/* Contenu */
 .modal-content {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
 }
 
-/* Formulaire de configuration */
 .settings-form {
   display: flex;
   flex-direction: column;
@@ -321,14 +318,12 @@ onMounted(async () => {
 }
 
 .config-section {
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius:16px
-}
-
-.config-section h3 {
-  margin: 0 0 8px 0;
-  font-size: 16px;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-background-neutral);
+  padding: var(--space-05);
+  border-radius: var(--radius-04);
+  gap: var(--space-05);
 }
 
 .section-description {
@@ -338,59 +333,25 @@ onMounted(async () => {
   font-style: italic;
 }
 
-/* Presets grid - SIMPLIFIÉ */
-.presets-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 12px;
-}
 
-.preset-btn {
+
+/* Presets grid - Adapté pour Button */
+.presets-buttons {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 12px;
-  border: 2px solid #ddd;
-  background: white;
-  cursor: pointer;
-  text-align: center;
-  transition: all 0.2s;
+  gap: var(--space-02);
+}
+.presets-buttons .btn {
+  flex: 1; 
 }
 
-.preset-btn:hover:not(:disabled) {
-  border-color: #2196F3;
-  background: #f0f8ff;
-}
-
-.preset-btn.active {
-  border-color: #2196F3;
-  background: #e3f2fd;
-}
-
-.preset-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.preset-title {
-  font-weight: bold;
-  font-size: 14px;
-}
 
 /* Formulaire */
-.form-group {
-  margin-bottom: 16px;
-}
-
-.form-group:last-child {
-  margin-bottom: 0;
-}
 
 .form-group label {
   display: block;
-  font-weight: bold;
-  margin-bottom: 8px;
-  font-size: 14px;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-02);
+
 }
 
 .input-with-value {
@@ -401,24 +362,11 @@ onMounted(async () => {
 
 .range-input {
   flex: 1;
-  height: 6px;
-  background: #ddd;
-  outline: none;
-  appearance: none;
-}
-
-.range-input::-webkit-slider-thumb {
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  background: #2196F3;
-  border-radius: 50%;
-  cursor: pointer;
 }
 
 .value-display {
   font-weight: bold;
-  color: #2196F3;
+  color: var(--color-brand);
   min-width: 70px;
   text-align: right;
 }
@@ -431,12 +379,7 @@ onMounted(async () => {
   font-size: 14px;
 }
 
-.help-text {
-  font-size: 12px;
-  color: #666;
-  margin: 4px 0 0 0;
-  line-height: 1.4;
-}
+
 
 .info-grid {
   display: grid;
@@ -462,45 +405,22 @@ onMounted(async () => {
   font-size: 12px;
 }
 
-/* États communs */
-.loading-state,
-.error-state {
-  text-align: center;
-  padding: 40px 20px;
-}
 
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid #f3f3f3;
-  border-top: 3px solid #2196F3;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 16px;
-}
 
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-
-  100% {
-    transform: rotate(360deg);
-  }
-}
 
 .error-message {
-  color: #dc3545;
-  margin-bottom: 16px;
+  color: var(--color-error);
 }
 
-.retry-btn {
-  padding: 8px 16px;
-  background: #dc3545;
-  color: white;
-  border: none;
-  cursor: pointer;
+.codec-buttons {
+  display: flex;
+  gap: var(--space-02);
 }
+
+.codec-buttons .btn {
+  flex: 1; 
+}
+
 
 /* Actions */
 .modal-actions {
@@ -512,46 +432,10 @@ onMounted(async () => {
   background: #f8f9fa;
 }
 
-.cancel-btn,
-.apply-btn {
-  padding: 10px 20px;
-  border: none;
-  cursor: pointer;
-  font-weight: bold;
-}
-
-.cancel-btn {
-  background: #6c757d;
-  color: white;
-}
-
-.cancel-btn:hover {
-  background: #545b62;
-}
-
-.apply-btn {
-  background: #28a745;
-  color: white;
-}
-
-.apply-btn:hover:not(:disabled) {
-  background: #218838;
-}
-
-.apply-btn:disabled {
-  background: #6c757d;
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
 /* Responsive pour presets */
 @media (max-aspect-ratio: 4/3) {
-  .presets-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .preset-btn {
-    padding: 12px;
+  .codec-buttons, .presets-buttons {
+    flex-direction: column;
   }
 }
 </style>

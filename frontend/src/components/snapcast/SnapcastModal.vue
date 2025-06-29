@@ -3,24 +3,13 @@
   <div class="snapcast-modal">
     <!-- Vue principale -->
     <div v-if="currentView === 'main'" class="view-main">
-      <div class="toggle-wrapper">
-        <div class="toggle-header">
-          <h2 class="heading-2">Multiroom</h2>
-          <div class="controls-wrapper">
-          <IconButton
-            v-if="isMultiroomActive"
-            icon="settings"
-            variant="dark"  
-            @click="showSettings"
-            title="Configuration Multiroom"
-          />
-          <Toggle
-            v-model="isMultiroomActive"
-            variant="primary"
-            :disabled="unifiedStore.isTransitioning"
-            @change="handleMultiroomToggle"
-          />
-          </div>
+      <div class="modal-header">
+        <h2 class="heading-2">Multiroom</h2>
+        <div class="controls-wrapper">
+          <IconButton v-if="isMultiroomActive" icon="settings" variant="dark" @click="showSettings"
+            title="Configuration Multiroom" />
+          <Toggle v-model="isMultiroomActive" variant="primary" :disabled="unifiedStore.isTransitioning"
+            @change="handleMultiroomToggle" />
         </div>
       </div>
 
@@ -31,23 +20,24 @@
 
     <!-- Vue Configuration -->
     <div v-else-if="currentView === 'settings'" class="view-settings">
-      <div class="view-header">
-        <button @click="goToMain" class="back-btn">←</button>
-        <h2 class="heading-2">Configuration Multiroom</h2>
+      <div class="modal-header">
+        <div class="back-modal-header">
+          <IconButton icon="caretLeft" variant="dark" @click="goToMain" />
+          <h2 class="heading-2">Configuration Multiroom</h2>
+        </div>
       </div>
       <SnapcastSettings />
     </div>
 
     <!-- Vue Détails Client -->
     <div v-else-if="currentView === 'client-details'" class="view-client-details">
-      <div class="view-header">
-        <button @click="goToMain" class="back-btn">←</button>
-        <h2 class="heading-2">{{ selectedClient?.name || 'Client' }}</h2>
+      <div class="modal-header">
+        <div class="back-modal-header">
+          <IconButton icon="caretLeft" variant="dark" @click="goToMain" />
+          <h2 class="heading-2">{{ selectedClient?.name || 'Client' }}</h2>
+        </div>
       </div>
-      <SnapclientDetails 
-        v-if="selectedClient" 
-        :client="selectedClient" 
-      />
+      <SnapclientDetails v-if="selectedClient" :client="selectedClient" />
     </div>
   </div>
 </template>
@@ -124,19 +114,21 @@ watch(currentView, (newView, oldView) => {
   gap: var(--space-03);
 }
 
-.toggle-wrapper {
-  background: var(--color-background-contrast);
-  border-radius: var(--radius-04);
-  padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05); 
+.view-client-details .modal-header,
+.view-settings .modal-header {
+  padding: var(--space-04) var(--space-04) var(--space-04) var(--space-04);
 }
 
-.toggle-header {
+.modal-header {
+  background: var(--color-background-contrast);
+  border-radius: var(--radius-04);
+  padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05);
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.toggle-header h2 {
+.modal-header h2 {
   color: var(--color-text-contrast);
 }
 
@@ -150,17 +142,10 @@ watch(currentView, (newView, oldView) => {
   flex: 1;
 }
 
-.view-header {
+
+.back-modal-header {
+  gap: var(--space-03);
   display: flex;
   align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-04);
-  background: var(--color-background-contrast);
-  border-radius: var(--radius-04);
-}
-
-
-.view-header h2 {
-  color: var(--color-text-contrast);
 }
 </style>

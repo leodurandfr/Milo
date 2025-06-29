@@ -4,8 +4,7 @@
     <!-- Écran principal (unique) -->
     <div class="screen-main">
       <!-- Toggle Equalizer avec IconButton intégré -->
-      <div class="toggle-wrapper">
-        <div class="toggle-header">
+      <div class="modal-header">
           <h2 class="heading-2">Égaliseur</h2>
           <div class="controls-wrapper">
           <IconButton
@@ -22,7 +21,6 @@
             @change="handleEqualizerToggle"
           />
           </div>
-        </div>
       </div>
 
       <!-- Contenu principal -->
@@ -350,24 +348,21 @@ setInterval(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
-  height: 100%; /* Prend toute la hauteur de equalizer-modal */
+  height: 100%; 
   min-height: 0;
 }
 
-/* Toggle wrapper */
-.toggle-wrapper {
+
+.modal-header {
   background: var(--color-background-contrast);
   border-radius: var(--radius-04);
   padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05); 
-}
-
-.toggle-header {
-  display: flex;
+    display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.toggle-header h2 {
+.modal-header h2 {
   color: var(--color-text-contrast);
 }
 
@@ -380,9 +375,6 @@ setInterval(() => {
 /* Contenu principal - prend l'espace restant */
 .main-content {
   flex: 1;
-  /* display: flex;
-  flex-direction: column;
-  min-height: 0; */
 }
 
 /* États simple et contrôles - même style */
@@ -420,17 +412,13 @@ setInterval(() => {
 
 /* Equalizer contrôles - HAUTEUR FIXE pour cascade cohérente */
 .equalizer-controls {
-  background: white;
-  border: 1px solid #dee2e6;
-  border-radius: 16px;
-  height: 100%; /* CORRIGÉ : Hauteur fixe au lieu de flex */
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
+  height: 100%; 
   display: flex;
-  min-height: 0;
-  /* Styles pour les sliders */
   justify-content: space-between;
-  align-items: end;
-  gap: 8px;
-  padding: 24px;
+  gap: var(--space-02);
+  padding: var(--space-05);
   overflow-x: auto;
 }
 
@@ -463,15 +451,9 @@ setInterval(() => {
       flex: none;
   }
   .equalizer-controls {
-    /* Mobile : sliders horizontaux empilés verticalement */
     flex-direction: column;
-    gap: 12px;
-    padding: 16px;
   }
   
-  .controls-wrapper {
-    gap: 8px;
-  }
 
   .modal-overlay.fixed-height {
     height: auto;

@@ -125,15 +125,13 @@
 
 @font-face {
     font-family: 'Neue Montreal Medium';
-    src: url('../fonts/NeueMontreal-Medium.otf') format('opentype'),
-        url('../fonts/NeueMontreal-Medium.woff2') format('woff2');
+    src: url('../fonts/NeueMontreal-Medium.woff2') format('woff2');
     font-weight: 500;
 }
 
 @font-face {
     font-family: 'Space Mono Regular';
-    src: url('./fonts/SpaceMono-Regular.ttf') format('truetype'),
-        url('../fonts/SpaceMono-Regular.woff2') format('woff2');
+    src: url('../fonts/SpaceMono-Regular.woff2') format('woff2');
     font-weight: 400;
 }
 
