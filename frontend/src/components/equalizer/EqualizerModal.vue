@@ -358,7 +358,7 @@ setInterval(() => {
 .toggle-wrapper {
   background: var(--color-background-contrast);
   border-radius: var(--radius-04);
-  padding: var(--space-04);
+  padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05); 
 }
 
 .toggle-header {

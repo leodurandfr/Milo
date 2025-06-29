@@ -63,18 +63,12 @@ function handleClick() {
   background: var(--color-background-strong);
 }
 
-.icon-button--light:hover:not(:disabled) {
-  background: var(--color-background-neutral);
-}
 
 /* Variante dark */
 .icon-button--dark {
   background: var(--color-background-neutral-12);
 }
 
-.icon-button--dark:hover:not(:disabled) {
-  background: var(--color-background-neutral-32);
-}
 
 /* État disabled */
 .icon-button:disabled {
@@ -85,8 +79,8 @@ function handleClick() {
 /* Responsive mobile */
 @media (max-aspect-ratio: 4/3) {
   .icon-button {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
   }
   
   .icon-button__icon {

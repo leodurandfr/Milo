@@ -2,22 +2,18 @@
 <template>
   <div class="snapclient-item">
     <!-- Informations du client -->
-    <div class="client-name">{{ client.name }}</div>
+    <div class="client-name heading-2">{{ client.name }}</div>
 
     <!-- Contrôles du client -->
     <!-- Contrôle du volume avec drag temps réel -->
     <div class="volume-control">
       <RangeSlider :model-value="displayVolume" :min="minVolumeDisplay" :max="maxVolumeDisplay" :step="1"
         orientation="horizontal" :disabled="client.muted" @input="handleVolumeInput" @change="handleVolumeChange" />
-      <span class="volume-label">{{ displayVolume }}%</span>
+      <span class="volume-label text-mono">{{ displayVolume }}%</span>
     </div>
     <div class="controls-wrapper">
-<IconButton
-  icon="threeDots"
-  @click="handleShowDetails"
-  title="Voir les détails du client"
-/>
-      
+      <IconButton icon="threeDots" @click="handleShowDetails" title="Voir les détails du client" />
+
       <div class="mute-control">
         <Toggle :model-value="!client.muted" variant="secondary" @change="handleMuteToggle" />
       </div>
@@ -159,18 +155,20 @@ onUnmounted(() => {
   justify-content: space-between;
   border-radius: 16px;
   gap: var(--space-04);
-  padding: var(--space-04);
-  background: #fff;
+  padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05);
+  background: var(--color-background-neutral);
 }
 
 
 
 .client-name {
+  color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   display: inline-block;
-  min-width: 96px;
+  max-width: 112px;
+  min-width: 112px;
 }
 
 /* Contrôles du client */
@@ -197,12 +195,13 @@ onUnmounted(() => {
 }
 
 .volume-label {
+  color: var(--color-text-contrast-50);
   position: absolute;
   margin-left: var(--space-04);
 }
 
 /* Bouton détails */
-.details-btn {
+/* .details-btn {
   width: 36px;
   height: 36px;
   border: 1px solid #ced4da;
@@ -213,7 +212,7 @@ onUnmounted(() => {
   justify-content: center;
   transition: all 0.2s;
   flex-shrink: 0;
-}
+} */
 
 .details-btn:hover {
   background: #dee2e6;

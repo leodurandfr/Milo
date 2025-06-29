@@ -90,7 +90,8 @@ watch(() => props.isOpen, (newValue) => {
   align-items: flex-start;
   justify-content: center;
   z-index: 1000;
-  padding: 48px var(--space-02) var(--space-02) var(--space-02);}
+  padding: 48px var(--space-02) var(--space-02) var(--space-02);
+}
 
 /* Overlay mode fixed (equalizer) */
 .modal-overlay.fixed-height {
@@ -107,7 +108,6 @@ watch(() => props.isOpen, (newValue) => {
   max-height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .modal-container::before {
@@ -159,6 +159,8 @@ watch(() => props.isOpen, (newValue) => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  border-radius: var(--radius-06);
+
 }
 
 /* Contenu mode fixed (equalizer) */
@@ -176,10 +178,8 @@ watch(() => props.isOpen, (newValue) => {
     transform: translateX(-50%);
   }
 
-  .modal-overlay,
-  .modal-overlay.fixed-height {
-    align-items: flex-start;
-    padding: 80px var(--space-05) var(--space-05) var(--space-05);
+  .modal-overlay {
+    padding-top: 80px;
   }
 
   .modal-container.fixed-height {

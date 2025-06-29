@@ -5,7 +5,7 @@
     <div v-if="currentView === 'main'" class="view-main">
       <div class="toggle-wrapper">
         <div class="toggle-header">
-          <h3>Multiroom</h3>
+          <h2 h2 class="heading-2">Multiroom</h2>
           <div class="controls-wrapper">
           <IconButton
             v-if="isMultiroomActive"
@@ -33,7 +33,7 @@
     <div v-else-if="currentView === 'settings'" class="view-settings">
       <div class="view-header">
         <button @click="goToMain" class="back-btn">←</button>
-        <h3>Configuration Multiroom</h3>
+        <h2>Configuration Multiroom</h2>
       </div>
       <SnapcastSettings />
     </div>
@@ -42,7 +42,7 @@
     <div v-else-if="currentView === 'client-details'" class="view-client-details">
       <div class="view-header">
         <button @click="goToMain" class="back-btn">←</button>
-        <h3>{{ selectedClient?.name || 'Client' }}</h3>
+        <h2>{{ selectedClient?.name || 'Client' }}</h2>
       </div>
       <SnapclientDetails 
         v-if="selectedClient" 
@@ -127,7 +127,7 @@ watch(currentView, (newView, oldView) => {
 .toggle-wrapper {
   background: var(--color-background-contrast);
   border-radius: var(--radius-04);
-  padding: var(--space-04);
+  padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05); 
 }
 
 .toggle-header {
@@ -136,7 +136,7 @@ watch(currentView, (newView, oldView) => {
   align-items: center;
 }
 
-.toggle-header h3 {
+.toggle-header h2 {
   color: var(--color-text-contrast);
 }
 
@@ -160,7 +160,7 @@ watch(currentView, (newView, oldView) => {
   border-radius: 16px;
 }
 
-.back-btn {
+/* .back-btn {
   background: none;
   border: none;
   font-size: 16px;
@@ -174,14 +174,14 @@ watch(currentView, (newView, oldView) => {
   width: 36px;
   height: 36px;
   transition: all 0.2s;
-}
+} */
 
 .back-btn:hover {
   background: #e9ecef;
   color: #333;
 }
 
-.view-header h3 {
+.view-header h2 {
   margin: 0;
   color: #333;
   font-size: 16px;
