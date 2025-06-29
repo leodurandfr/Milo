@@ -8,6 +8,7 @@
   >
     <Icon 
       :name="icon" 
+      :color="color"
       responsive
       class="icon-button__icon"
     />
@@ -30,6 +31,10 @@ const props = defineProps({
   disabled: {
     type: Boolean,
     default: false
+  },
+  color: {
+    type: String,
+    default: null
   }
 });
 

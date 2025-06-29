@@ -153,6 +153,9 @@ watch(() => props.isOpen, (newValue) => {
 </script>
 
 <style scoped>
+::-webkit-scrollbar {
+    display: none;
+}
 /* Overlay - comportement par défaut (auto) */
 .modal-overlay {
   position: fixed;
@@ -160,7 +163,7 @@ watch(() => props.isOpen, (newValue) => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--color-background-neutral-64);
+  background: var(--color-background-neutral-50);
   backdrop-filter: blur(32px);
   display: flex;
   align-items: flex-start;
@@ -234,6 +237,9 @@ watch(() => props.isOpen, (newValue) => {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
+  ::-webkit-scrollbar {
+    display: none;
+}
   .close-btn-position {
     position: fixed;
     top: var(--space-05);

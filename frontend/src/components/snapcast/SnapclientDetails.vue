@@ -41,7 +41,7 @@
 
       <!-- Informations générales -->
       <section class="config-section">
-        <h2 class="heading-2">Informations générales</h2>
+        <h2 class="heading-2">Informations</h2>
 
         <div class="info-grid">
           <div class="info-item">
@@ -50,7 +50,7 @@
           </div>
 
           <div class="info-item">
-            <span class="info-label text-mono">Nom</span>
+            <span class="info-label text-mono">Nom du client</span>
             <span class="info-value text-mono">{{ clientDetails.host }}</span>
           </div>
 
@@ -335,11 +335,6 @@ watch(() => props.client.id, () => {
   flex: 1;
 }
 
-
-
-.help-text {
-  color: var(--color-text-light);
-}
 
 .change-indicator {
   color: var(--color-brand);

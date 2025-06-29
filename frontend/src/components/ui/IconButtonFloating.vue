@@ -5,7 +5,7 @@
     @click="$emit('click')"
     :aria-label="ariaLabel"
   >
-    <Icon :name="iconName" responsive />
+    <Icon :name="iconName" :color="color" responsive />
   </button>
 </template>
 
@@ -20,6 +20,10 @@ defineProps({
   ariaLabel: {
     type: String,
     required: true
+  },
+  color: {
+    type: String,
+    default: null
   }
 });
 
@@ -35,7 +39,7 @@ defineEmits(['click']);
   width: 64px;
   height: 64px;
   cursor: pointer;
-  color: var(--color-text-secondary);
+  color: var(--color-text-contrast);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -59,7 +63,6 @@ defineEmits(['click']);
   z-index: -1;
   pointer-events: none;
 }
-
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {

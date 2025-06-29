@@ -5,64 +5,35 @@
     <div class="screen-main">
       <!-- Toggle Equalizer avec IconButton intégré -->
       <div class="modal-header">
-          <h2 class="heading-2">Égaliseur</h2>
-          <div class="controls-wrapper">
-          <IconButton
-            v-if="isEqualizerEnabled"
-            icon="reset"
-            variant="dark"
-            :disabled="resetting"
-            @click="resetAllBands"
-          />
-          <Toggle
-            v-model="isEqualizerEnabled"
-            variant="primary"
-            :disabled="unifiedStore.isTransitioning"
-            @change="handleEqualizerToggle"
-          />
-          </div>
+        <h2 class="heading-2">Égaliseur</h2>
+        <div class="controls-wrapper">
+          <IconButton v-if="isEqualizerEnabled" icon="reset" variant="dark" :disabled="resetting"
+            @click="resetAllBands" />
+          <Toggle v-model="isEqualizerEnabled" variant="primary" :disabled="unifiedStore.isTransitioning"
+            @change="handleEqualizerToggle" />
+        </div>
       </div>
 
       <!-- Contenu principal -->
       <div class="main-content">
-        <div v-if="!isEqualizerEnabled" class="equalizer-disabled">
-          <h4>Equalizer désactivé</h4>
-          <p>Activez l'equalizer pour accéder aux réglages audio.</p>
+        <div v-if="!isEqualizerEnabled" class="not-active">
+          <Icon name="equalizer" :size="148" color="var(--color-background-glass)" />
+
+          <p class="text-mono">Égaliseur désactivé</p>
         </div>
 
-        <div v-else-if="!equalizerStatus.available" class="equalizer-disabled">
-          <h4>Equalizer indisponible</h4>
-          <p>L'equalizer alsaequal n'est pas accessible.</p>
-          <button @click="checkEqualizerStatus" class="retry-btn">
-            Réessayer
-          </button>
-        </div>
 
         <div v-else class="equalizer-controls">
           <div v-if="loading" class="loading-state">
-            <div class="loading-spinner"></div>
-            <p>Chargement des bandes...</p>
+            <p class="text-mono">Chargement de l'égaliseur</p>
+
           </div>
-          
-          <div v-else-if="bands.length === 0" class="no-bands">
-            <p>Aucune bande disponible</p>
-          </div>
-          
+
+
           <template v-else>
-            <RangeSliderEqualizer
-              v-for="band in bands" 
-              :key="band.id"
-              v-model="band.value"
-              :label="band.display_name"
-              :orientation="sliderOrientation"
-              :min="0"
-              :max="100"
-              :step="1"
-              unit="%"
-              :disabled="updating"
-              @input="handleBandInput(band.id, $event)"
-              @change="handleBandChange(band.id, $event)"
-            />
+            <RangeSliderEqualizer v-for="band in bands" :key="band.id" v-model="band.value" :label="band.display_name"
+              :orientation="sliderOrientation" :min="0" :max="100" :step="1" unit="%" :disabled="updating"
+              @input="handleBandInput(band.id, $event)" @change="handleBandChange(band.id, $event)" />
           </template>
         </div>
       </div>
@@ -78,6 +49,8 @@ import axios from 'axios';
 import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import RangeSliderEqualizer from './RangeSliderEqualizer.vue';
+import Icon from '@/components/ui/Icon.vue';
+
 
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
@@ -101,12 +74,12 @@ const FINAL_DELAY = 300;
 let unsubscribeFunctions = [];
 
 // État computed
-const isEqualizerEnabled = computed(() => 
+const isEqualizerEnabled = computed(() =>
   unifiedStore.equalizerEnabled
 );
 
 // Orientation responsive
-const sliderOrientation = computed(() => 
+const sliderOrientation = computed(() =>
   isMobile.value ? 'horizontal' : 'vertical'
 );
 
@@ -120,22 +93,22 @@ function updateMobileStatus() {
 
 async function loadEqualizerData() {
   if (!isEqualizerEnabled.value) return;
-  
+
   loading.value = true;
   try {
     const [statusResponse, bandsResponse] = await Promise.all([
       axios.get('/api/equalizer/status'),
       axios.get('/api/equalizer/bands')
     ]);
-    
+
     equalizerStatus.value = statusResponse.data;
-    
+
     if (equalizerStatus.value.available) {
       bands.value = bandsResponse.data.bands || [];
     } else {
       bands.value = [];
     }
-    
+
   } catch (error) {
     console.error('Error loading equalizer data:', error);
     equalizerStatus.value = { available: false };
@@ -149,7 +122,7 @@ async function checkEqualizerStatus() {
   try {
     const response = await axios.get('/api/equalizer/available');
     equalizerStatus.value.available = response.data.available;
-    
+
     if (response.data.available) {
       await loadEqualizerData();
     }
@@ -166,7 +139,7 @@ function handleBandInput(bandId, value) {
   if (band) {
     band.value = value;
   }
-  
+
   // Throttling des requêtes
   handleBandThrottled(bandId, value);
 }
@@ -180,11 +153,11 @@ function handleBandChange(bandId, value) {
 function handleBandThrottled(bandId, value) {
   const now = Date.now();
   let state = bandThrottleMap.get(bandId) || {};
-  
+
   // Nettoyer les timeouts existants
   if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
   if (state.finalTimeout) clearTimeout(state.finalTimeout);
-  
+
   // Envoyer immédiatement si pas de requête récente
   if (!state.lastRequestTime || (now - state.lastRequestTime) >= THROTTLE_DELAY) {
     sendBandRequest(bandId, value);
@@ -196,22 +169,22 @@ function handleBandThrottled(bandId, value) {
       state.lastRequestTime = Date.now();
     }, THROTTLE_DELAY - (now - state.lastRequestTime));
   }
-  
+
   // Programmer une requête finale
   state.finalTimeout = setTimeout(() => {
     sendBandRequest(bandId, value);
     state.lastRequestTime = Date.now();
   }, FINAL_DELAY);
-  
+
   bandThrottleMap.set(bandId, state);
 }
 
 async function sendBandRequest(bandId, value) {
   try {
-    const response = await axios.post(`/api/equalizer/band/${bandId}`, { 
-      value 
+    const response = await axios.post(`/api/equalizer/band/${bandId}`, {
+      value
     });
-    
+
     if (response.data.status !== 'success') {
       console.error('Failed to update band:', response.data.message);
     }
@@ -231,11 +204,11 @@ function clearThrottleForBand(bandId) {
 
 async function resetAllBands() {
   if (resetting.value) return;
-  
+
   resetting.value = true;
   try {
     const response = await axios.post('/api/equalizer/reset', { value: 60 });
-    
+
     if (response.data.status === 'success') {
       // Mettre à jour l'affichage local
       bands.value.forEach(band => {
@@ -281,25 +254,25 @@ onMounted(async () => {
   // Détection mobile initiale
   updateMobileStatus();
   window.addEventListener('resize', updateMobileStatus);
-  
+
   if (isEqualizerEnabled.value) {
     await loadEqualizerData();
   }
-  
+
   // S'abonner aux événements equalizer
   const unsubscribe1 = on('equalizer', 'band_changed', handleEqualizerUpdate);
   const unsubscribe2 = on('equalizer', 'reset', handleEqualizerUpdate);
-  
+
   unsubscribeFunctions.push(unsubscribe1, unsubscribe2);
 });
 
 onUnmounted(() => {
   // Nettoyer l'event listener resize
   window.removeEventListener('resize', updateMobileStatus);
-  
+
   // Nettoyer les abonnements WebSocket
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
-  
+
   // Nettoyer tous les timeouts en cours
   bandThrottleMap.forEach(state => {
     if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
@@ -315,7 +288,7 @@ async function watchEqualizerState() {
   } else {
     bands.value = [];
     equalizerStatus.value = { available: false };
-    
+
     // Nettoyer les états des requêtes
     bandThrottleMap.forEach(state => {
       if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
@@ -336,19 +309,39 @@ setInterval(() => {
 </script>
 
 <style scoped>
+/* Not active */
+
+.not-active {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  padding: var(--space-09) var(--space-05);
+  border-radius: var(--radius-04);
+  background: var(--color-background-neutral);
+  gap: var(--space-04)
+}
+
+.not-active .text-mono {
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+
+
 /* EqualizerModal - Remplit toute la hauteur disponible */
 .equalizer-modal {
   display: flex;
   flex-direction: column;
-  height: 100%; /* Prend toute la hauteur du modal-content */
+  height: 100%;
+  /* Prend toute la hauteur du modal-content */
 }
 
 /* Écrans */
 .screen-main {
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
-  height: 100%; 
+  gap: var(--space-03);
+  height: 100%;
   min-height: 0;
 }
 
@@ -356,8 +349,8 @@ setInterval(() => {
 .modal-header {
   background: var(--color-background-contrast);
   border-radius: var(--radius-04);
-  padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05); 
-    display: flex;
+  padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05);
+  display: flex;
   justify-content: space-between;
   align-items: center;
 }
@@ -414,7 +407,7 @@ setInterval(() => {
 .equalizer-controls {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
-  height: 100%; 
+  height: 100%;
   display: flex;
   justify-content: space-between;
   gap: var(--space-02);
@@ -423,11 +416,14 @@ setInterval(() => {
 }
 
 /* États de chargement et no-bands - adaptés au container flex */
-.loading-state, .no-bands {
-  width: 100%; /* Prend toute la largeur */
+.loading-state,
+.no-bands {
+  width: 100%;
+  /* Prend toute la largeur */
   text-align: center;
   padding: 20px;
-  align-self: center; /* Centre verticalement dans le flex container */
+  align-self: center;
+  /* Centre verticalement dans le flex container */
 }
 
 .loading-spinner {
@@ -441,23 +437,29 @@ setInterval(() => {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 /* Responsive pour equalizer-controls - MOBILE HORIZONTAL */
 @media (max-aspect-ratio: 4/3) {
   .main-content {
-      flex: none;
+    flex: none;
   }
+
   .equalizer-controls {
     flex-direction: column;
   }
-  
+
 
   .modal-overlay.fixed-height {
     height: auto;
-    align-items: none; 
+    align-items: none;
   }
 }
 </style>

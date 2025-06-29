@@ -3,6 +3,7 @@
   <div 
     class="icon" 
     :class="{ 'icon--responsive': responsive }"
+    :style="colorStyle"
     v-html="svgContent"
   />
 </template>
@@ -22,7 +23,8 @@ import resetIcon from '@/assets/icons/reset.svg?raw';
 import settingsIcon from '@/assets/icons/settings.svg?raw';
 import closeIcon from '@/assets/icons/close.svg?raw';
 import caretLeftIcon from '@/assets/icons/caret-left.svg?raw';
-
+import multiroomIcon from '@/assets/icons/multiroom.svg?raw';
+import equalizerIcon from '@/assets/icons/equalizer.svg?raw';
 
 const icons = {
   play: playIcon,
@@ -38,6 +40,9 @@ const icons = {
   settings: settingsIcon,
   close: closeIcon,
   caretLeft : caretLeftIcon,
+  multiroom : multiroomIcon,
+  equalizer : equalizerIcon,
+
 };
 
 export default {
@@ -45,9 +50,13 @@ export default {
   props: {
     name: { type: String, required: true },
     size: { type: [String, Number], default: 24 },
-    responsive: { type: Boolean, default: false }
+    responsive: { type: Boolean, default: false },
+    color: { type: String, default: null }
   },
   computed: {
+    colorStyle() {
+      return this.color ? { color: this.color } : {};
+    },
     svgContent() {
       const icon = icons[this.name];
       if (!icon) {
@@ -60,10 +69,8 @@ export default {
         .replace(/fill='#[^']*'/g, 'fill="currentColor"');
       
       if (this.responsive) {
-        // Injection des classes CSS pour le responsive
         cleanedIcon = cleanedIcon.replace('<svg', '<svg class="svg-responsive"');
       } else {
-        // Injection de la taille directement dans le SVG
         cleanedIcon = cleanedIcon
           .replace(/width="[^"]*"/g, `width="${this.size}"`)
           .replace(/height="[^"]*"/g, `height="${this.size}"`)

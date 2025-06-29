@@ -26,7 +26,7 @@
 
       <!-- Configuration serveur -->
       <section class="config-section">
-        <h2 class="heading-2">Paramètres audio</h2>
+        <h2 class="heading-2">Paramètres avancés</h2>
 
         <!-- Buffer global -->
         <div class="form-group">
@@ -39,7 +39,7 @@
 
         <!-- Codec -->
         <div class="form-group">
-          <label class="text-mono">Codec Audio</label>
+          <label class="text-mono">Codec audio</label>
           <div class="codec-buttons">
             <Button variant="toggle" :active="config.codec === 'opus'" @click="selectCodec('opus')">
               Opus
@@ -67,18 +67,18 @@
 
       <!-- Informations actuelles -->
       <section class="config-section">
-        <h2 class="heading-2">État du Serveur</h2>
+        <h2 class="heading-2">Informations</h2>
 
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label text-mono">Version Snapserver :</span>
+            <span class="info-label text-mono">Version Snapserver</span>
             <span class="info-value text-mono">
               {{ serverInfo.server_info?.server?.snapserver?.version || 'Inconnu' }}
             </span>
           </div>
 
           <div class="info-item">
-            <span class="info-label text-mono">Nom du serveur :</span>
+            <span class="info-label text-mono">Nom du serveur</span>
             <span class="info-value text-mono">{{ serverInfo.server_info?.server?.host?.name || 'Inconnu' }}</span>
           </div>
         </div>
@@ -130,7 +130,7 @@ const audioPresets = [
   },
   {
     id: 'quality',
-    name: 'Qualité Optimale',
+    name: 'Qualité optimale',
     config: {
       buffer: 1500,
       codec: 'flac',
@@ -259,6 +259,9 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+::-webkit-scrollbar {
+    display: none;
+}
 .settings-content {
   gap: var(--space-02);
   display: flex;

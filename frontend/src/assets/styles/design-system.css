@@ -14,6 +14,7 @@
     --color-background-strong: #F2F2F2;
     --color-background-neutral: #FFFFFF;
     --color-background-neutral-64: #FFFFFFA3;
+    --color-background-neutral-50: #FFFFFF80;
     --color-background-neutral-32: #FFFFFF52;
     --color-background-neutral-12: #FFFFFF1F;
     --color-background-contrast: #1C2524;
@@ -42,6 +43,8 @@
     --space-06: 32px;
     --space-07: 48px;
     --space-08: 64px;
+    --space-09: 96px;
+
 
 
     /* === STYLES DE TEXTE === */
@@ -102,6 +105,8 @@
         --space-06: 24px;
         --space-07: 32px;
         --space-08: 48px;
+        --space-08: 64px;
+
 
 
         /* === STYLES DE TEXTE (Mobile) === */

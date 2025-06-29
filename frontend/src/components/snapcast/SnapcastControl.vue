@@ -1,24 +1,18 @@
 <!-- frontend/src/components/snapcast/SnapcastControl.vue - Version sans modalStore -->
 <template>
-  <div v-if="!isMultiroomActive" class="status-message">
-    <span class="inactive"></span>
-    Multiroom non actif
+  <div v-if="!isMultiroomActive" class="not-active">
+    <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
+    <p class="text-mono">Le multiroom n’est pas activé</p>
   </div>
 
-  <div v-else-if="clients.length === 0" class="status-message">
+  <div v-else-if="clients.length === 0" class="not-active">
     <span class="loading"></span>
-    Aucun client connecté
+    Aucun client n'est connecté
   </div>
 
   <div v-else class="clients-list">
-    <SnapclientItem 
-      v-for="client in clients" 
-      :key="client.id" 
-      :client="client" 
-      @volume-change="handleVolumeChange"
-      @mute-toggle="handleMuteToggle" 
-      @show-details="handleShowDetails" 
-    />
+    <SnapclientItem v-for="client in clients" :key="client.id" :client="client" @volume-change="handleVolumeChange"
+      @mute-toggle="handleMuteToggle" @show-details="handleShowDetails" />
   </div>
 </template>
 
@@ -28,6 +22,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 import SnapclientItem from './SnapclientItem.vue';
+import Icon from '@/components/ui/Icon.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
@@ -217,7 +212,20 @@ watch(isMultiroomActive, async (newValue) => {
 </script>
 
 <style scoped>
+.not-active {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  padding: var(--space-09) var(--space-05);
+  border-radius: var(--radius-04);
+  background: var(--color-background-neutral);
+  gap: var(--space-04)
+}
 
+.not-active .text-mono {
+  text-align: center;
+  color: var(--color-text-secondary);
+}
 
 
 
