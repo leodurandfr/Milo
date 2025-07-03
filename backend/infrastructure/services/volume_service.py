@@ -13,7 +13,7 @@ class VolumeService:
     
     # LIMITES DE VOLUME (utilisées pour direct ET multiroom)
     MIN_VOLUME = 0  # Volume minimum
-    MAX_VOLUME = 55  # Volume maximum
+    MAX_VOLUME = 65  # Volume maximum
     
     def __init__(self, state_machine, snapcast_service):
         self.state_machine = state_machine

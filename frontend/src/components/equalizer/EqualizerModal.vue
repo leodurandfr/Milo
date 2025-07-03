@@ -207,12 +207,12 @@ async function resetAllBands() {
 
   resetting.value = true;
   try {
-    const response = await axios.post('/api/equalizer/reset', { value: 60 });
+    const response = await axios.post('/api/equalizer/reset', { value: 66 });
 
     if (response.data.status === 'success') {
       // Mettre à jour l'affichage local
       bands.value.forEach(band => {
-        band.value = 60;
+        band.value = 66;
       });
     } else {
       console.error('Failed to reset bands:', response.data.message);
