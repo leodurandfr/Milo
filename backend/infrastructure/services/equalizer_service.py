@@ -82,7 +82,7 @@ class EqualizerService:
                         "id": band_id,
                         "freq": freq,
                         "display_name": self._format_frequency_display(freq),
-                        "value": 60  # Valeur par défaut
+                        "value": 66  # Valeur par défaut
                     }
             
             # Extraire la valeur (prendre Left comme référence)

@@ -93,7 +93,6 @@ onMounted(() => {
   height: 32px;
   background: var(--color-background-neutral);
   border-radius: var(--radius-full);
-  overflow: hidden;
 }
 
 .volume-slider .text-mono {
