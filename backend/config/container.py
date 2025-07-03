@@ -129,7 +129,10 @@ class Container(containers.DeclarativeContainer):
         # Configuration cross-référence routing_service ↔ snapcast_websocket_service
         routing_service.set_snapcast_websocket_service(snapcast_websocket_service)
         
-        # OPTIM : Résoudre la référence circulaire state_machine ↔ routing_service
+        # Configuration snapcast_service pour auto-configuration sur "Multiroom"
+        routing_service.set_snapcast_service(container.snapcast_service())
+
+        # Résoudre la référence circulaire state_machine ↔ routing_service
         state_machine.routing_service = routing_service
         
         # Enregistrement des plugins dans la machine à états
@@ -137,7 +140,7 @@ class Container(containers.DeclarativeContainer):
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
         state_machine.register_plugin(AudioSource.ROC, container.roc_plugin())
         
-        # OPTIM : Initialisation asynchrone simplifiée avec gestion d'erreurs
+        # Initialisation asynchrone simplifiée avec gestion d'erreurs
         import asyncio
         
         async def init_async():

@@ -30,6 +30,9 @@ class AudioRoutingService:
         # OPTIM : Référence vers SnapcastWebSocketService (sera injectée mais simple)
         self.snapcast_websocket_service = None
         
+        # AJOUT : Référence vers SnapcastService
+        self.snapcast_service = None
+        
         # Services snapcast
         self.snapserver_service = "oakos-snapserver-multiroom.service"
         self.snapclient_service = "oakos-snapclient-multiroom.service"
@@ -40,6 +43,10 @@ class AudioRoutingService:
     def set_snapcast_websocket_service(self, service) -> None:
         """Définit la référence vers SnapcastWebSocketService"""
         self.snapcast_websocket_service = service
+    
+    def set_snapcast_service(self, service) -> None:
+        """Définit la référence vers SnapcastService"""
+        self.snapcast_service = service
     
     def set_plugin_callback(self, callback: Callable) -> None:
         """Définit le callback pour accéder aux plugins (fallback si pas dans constructeur)"""
@@ -175,6 +182,10 @@ class AudioRoutingService:
                 self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
                 return False
             
+            # Auto-configuration des groupes si activation réussie
+            if enabled and success:
+                asyncio.create_task(self._auto_configure_multiroom())
+            
             # OPTIM CORRIGÉ : Appel direct qui fonctionnait au lieu d'événements complexes
             if self.snapcast_websocket_service:
                 if enabled:
@@ -194,6 +205,22 @@ class AudioRoutingService:
             await self._update_systemd_environment()
             self.logger.error(f"Error changing multiroom state: {e}")
             return False
+    
+    async def _auto_configure_multiroom(self):
+        """Configure automatiquement tous les groupes sur Multiroom"""
+        try:
+            # Attendre que snapserver soit disponible (max 10 secondes)
+            for _ in range(10):
+                if await self.snapcast_service.is_available():
+                    await self.snapcast_service.set_all_groups_to_multiroom()
+                    self.logger.info("✅ Groups automatically configured to Multiroom")
+                    return
+                await asyncio.sleep(1)
+            
+            self.logger.warning("⚠️ Snapserver not available after 10 seconds")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Auto-configure multiroom failed: {e}")
 
     async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """Active/désactive l'equalizer avec sauvegarde automatique"""

@@ -38,6 +38,32 @@ class SnapcastService:
             self.logger.error(f"Snapcast request failed: {e}")
             return {}
     
+    async def set_all_groups_to_multiroom(self) -> bool:
+        """Bascule tous les groupes sur le stream Multiroom"""
+        try:
+            # Récupérer le statut du serveur
+            status = await self._request("Server.GetStatus")
+            if not status:
+                return False
+                
+            # Extraire les groupes
+            groups = status.get("server", {}).get("groups", [])
+            
+            # Basculer chaque groupe sur "Multiroom"
+            for group in groups:
+                group_id = group.get("id")
+                if group_id:
+                    await self._request("Group.SetStream", {
+                        "id": group_id,
+                        "stream_id": "Multiroom"
+                    })
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error setting groups to multiroom: {e}")
+            return False
+    
     # === COMMANDES CLIENT (REST uniquement) ===
     
     async def set_volume(self, client_id: str, volume: int) -> bool:
