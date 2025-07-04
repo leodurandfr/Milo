@@ -1,4 +1,4 @@
-<!-- frontend/src/components/ui/PluginStatus.vue -->
+<!-- frontend/src/components/ui/PluginStatus.vue - Version avec état starting -->
 <template>
     <div class="plugin-status">
         <div class="plugin-status-content">
@@ -46,7 +46,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import AppIcon from './AppIcon.vue';
 
 // Props
@@ -81,6 +81,21 @@ const iconName = computed(() => {
 
 // Lignes de statut selon l'état
 const statusLines = computed(() => {
+    // État de démarrage (nouveau)
+    if (props.pluginState === 'starting') {
+        switch (props.pluginType) {
+            case 'bluetooth':
+                return ['Démarrage du', 'Bluetooth'];
+            case 'roc':
+                return ['Démarrage de la', 'Réception audio Mac'];
+            case 'librespot':
+                return ['Démarrage de', 'Spotify'];
+            default:
+                return ['Démarrage...'];
+        }
+    }
+    
+    // État ready : messages d'attente
     if (props.pluginState === 'ready') {
         switch (props.pluginType) {
             case 'bluetooth':
@@ -94,6 +109,7 @@ const statusLines = computed(() => {
         }
     }
 
+    // État connected : messages avec nom d'appareil
     if (props.pluginState === 'connected' && props.deviceName) {
         switch (props.pluginType) {
             case 'bluetooth':
@@ -110,6 +126,11 @@ const statusLines = computed(() => {
 
 // Affichage du bouton déconnecter
 const showDisconnectButton = computed(() => {
+    // Pas de bouton pendant le démarrage
+    if (props.pluginState === 'starting') {
+        return false;
+    }
+    
     return props.pluginType === 'bluetooth' && props.pluginState === 'connected';
 });
 
@@ -206,8 +227,6 @@ function handleDisconnect() {
     color: var(--color-text);
 }
 
-
-
 /* Bouton déconnecter */
 .disconnect-button {
     background: var(--color-background-strong);
@@ -257,7 +276,6 @@ function handleDisconnect() {
     text-align: center;
     white-space: nowrap;
     letter-spacing: var(--letter-spacing-sans-serif);
-    transition: var(--transition-fast);
 }
 
 .disconnect-text:hover:not(:disabled) {
@@ -278,11 +296,9 @@ function handleDisconnect() {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
-
     .plugin-status {
         width: 100%;
         max-width: 348px;
     }
-
 }
 </style>

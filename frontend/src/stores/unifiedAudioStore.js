@@ -1,36 +1,47 @@
-// frontend/src/stores/unifiedAudioStore.js - Version refactorisée multiroom_enabled
+// frontend/src/stores/unifiedAudioStore.js - Version avec transitionTargetSource
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
-  // État miroir du backend - Refactorisé avec multiroom_enabled
+  // État miroir du backend
   const systemState = ref({
     active_source: 'none',
     plugin_state: 'inactive',
     transitioning: false,
     metadata: {},
     error: null,
-    multiroom_enabled: false,   // Par défaut multiroom désactivé
+    multiroom_enabled: false,
     equalizer_enabled: false
   });
   
-  // Getters unifiés - Refactorisés
+  // AJOUT : Source cible pendant la transition
+  const transitionTarget = ref('none');
+  
+  // Getters unifiés
   const currentSource = computed(() => systemState.value.active_source);
   const pluginState = computed(() => systemState.value.plugin_state);
   const isTransitioning = computed(() => systemState.value.transitioning);
   const metadata = computed(() => systemState.value.metadata || {});
   const error = computed(() => systemState.value.error);
-  const multiroomEnabled = computed(() => systemState.value.multiroom_enabled);  // Refactorisé
+  const multiroomEnabled = computed(() => systemState.value.multiroom_enabled);
   const equalizerEnabled = computed(() => systemState.value.equalizer_enabled);
+  
+  // AJOUT : Getter pour la source cible
+  const transitionTargetSource = computed(() => transitionTarget.value);
   
   // Actions unifiées
   async function changeSource(source) {
     try {
+      // AJOUT : Stocker la source cible
+      transitionTarget.value = source;
+      
       const response = await axios.post(`/api/audio/source/${source}`);
       return response.data.status === 'success';
     } catch (err) {
       console.error('Change source error:', err);
+      // AJOUT : Reset en cas d'erreur
+      transitionTarget.value = systemState.value.active_source;
       return false;
     }
   }
@@ -70,7 +81,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   
   function updateState(event) {
     if (event.data.full_state) {
-      // Mise à jour complète de l'état - Version refactorisée
       const newState = event.data.full_state;
       
       systemState.value = {
@@ -79,9 +89,14 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         transitioning: newState.transitioning || false,
         metadata: newState.metadata || {},
         error: newState.error || null,
-        multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : false,  // Par défaut False
+        multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : false,
         equalizer_enabled: newState.equalizer_enabled || false
       };
+      
+      // AJOUT : Réinitialiser transitionTarget quand la transition est terminée
+      if (!newState.transitioning) {
+        transitionTarget.value = newState.active_source || 'none';
+      }
       
       // Log pour debug
       if (event.data.initial_connection) {
@@ -100,13 +115,14 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     isTransitioning,
     metadata,
     error,
-    multiroomEnabled,     // Refactorisé : plus de routingMode
-    equalizerEnabled, 
+    multiroomEnabled,
+    equalizerEnabled,
+    transitionTargetSource, // AJOUT
     
     // Actions
     changeSource,
     sendCommand,
-    setMultiroomEnabled,  // Refactorisé : plus de setRoutingMode
+    setMultiroomEnabled,
     setEqualizerEnabled,
     updateState
   };
