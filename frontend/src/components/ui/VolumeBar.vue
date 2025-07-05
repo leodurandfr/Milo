@@ -108,8 +108,7 @@ onMounted(() => {
   height: 100%;
   background: var(--color-background-contrast);
   border-radius: var(--radius-full);
-  left: 0;
-  top: 0;
+  left: -0.3px; /* trick to hide bad supperposition */
   transition: width 0.2s ease;
 }
 

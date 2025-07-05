@@ -9,7 +9,8 @@
                         <div class="device-info-inner">
                             <!-- Icône du plugin -->
                             <div class="plugin-icon">
-                                <AppIcon :name="iconName" :size="32" />
+                                <AppIcon :name="iconName" :size="32"
+                                    :state="pluginState === 'starting' ? 'loading' : 'normal'" />
                             </div>
 
                             <!-- Statut textuel -->
@@ -94,7 +95,7 @@ const statusLines = computed(() => {
                 return ['Démarrage...'];
         }
     }
-    
+
     // État ready : messages d'attente
     if (props.pluginState === 'ready') {
         switch (props.pluginType) {
@@ -130,7 +131,7 @@ const showDisconnectButton = computed(() => {
     if (props.pluginState === 'starting') {
         return false;
     }
-    
+
     return props.pluginType === 'bluetooth' && props.pluginState === 'connected';
 });
 

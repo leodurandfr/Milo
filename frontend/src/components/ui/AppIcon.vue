@@ -19,16 +19,67 @@ const props = defineProps({
   name: { 
     type: String, 
     required: true,
-    validator: (value) => ['bluetooth', 'spotify', 'roc', 'multiroom', 'equalizer' ].includes(value)
+    validator: (value) => ['bluetooth', 'spotify', 'roc', 'multiroom', 'equalizer'].includes(value)
   },
   size: { 
     type: [String, Number], 
     default: 32
+  },
+  state: {
+    type: String,
+    default: 'normal',
+    validator: (value) => ['normal', 'loading'].includes(value)
   }
 });
 
 // Générer un ID unique pour éviter les conflits de gradients SVG
 const uniqueId = computed(() => `${props.name}-${Math.random().toString(36).substr(2, 9)}`);
+
+// Icône de chargement animée
+const loadingIcon = `<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="32" height="32" rx="8" fill="#F7F7F7"/>
+
+<!-- Tracé 1: Top vertical (12h) -->
+<path fill="#767C76" d="M15.25 10V7a.75.75 0 0 1 1.5 0v3a.75.75 0 0 1-1.5 0" opacity="0.16">
+  <animate attributeName="opacity" values="1;0.64;0.6;0.16;0.16;0.16;0.16;0.16;1" dur="1.4s" repeatCount="indefinite"/>
+</path>
+
+<!-- Tracé 2: Top-right diagonal (1h30) -->
+<path fill="#767C76" d="M21.833 9.106a.751.751 0 0 1 1.062 1.06l-2.123 2.123a.75.75 0 0 1-1.06-1.062l2.121-2.121Z" opacity="0.16">
+  <animate attributeName="opacity" values="0.16;1;0.64;0.6;0.16;0.16;0.16;0.16;0.16" dur="1.4s" repeatCount="indefinite"/>
+</path>
+
+<!-- Tracé 3: Right horizontal (3h) -->
+<path fill="#767C76" d="M25 15.25a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 1 0-1.5h3Z" opacity="0.16">
+  <animate attributeName="opacity" values="0.16;0.16;1;0.64;0.6;0.16;0.16;0.16;0.16" dur="1.4s" repeatCount="indefinite"/>
+</path>
+
+<!-- Tracé 4: Bottom-right diagonal (4h30) -->
+<path fill="#767C76" d="M22.895 21.833a.751.751 0 0 1-1.061 1.062l-2.122-2.123a.75.75 0 0 1 1.061-1.06l2.122 2.121Z" opacity="0.16">
+  <animate attributeName="opacity" values="0.16;0.16;0.16;1;0.64;0.6;0.16;0.16;0.16" dur="1.4s" repeatCount="indefinite"/>
+</path>
+
+<!-- Tracé 5: Bottom vertical (6h) -->
+<path fill="#767C76" d="M15.25 25v-3a.75.75 0 0 1 1.5 0v3a.75.75 0 0 1-1.5 0Z" opacity="0.16">
+  <animate attributeName="opacity" values="0.16;0.16;0.16;0.16;1;0.64;0.6;0.16;0.16" dur="1.4s" repeatCount="indefinite"/>
+</path>
+
+<!-- Tracé 6: Bottom-left diagonal (7h30) -->
+<path fill="#767C76" d="M11.227 19.712a.751.751 0 0 1 1.062 1.06l-2.123 2.123a.75.75 0 0 1-1.06-1.062l2.121-2.121Z" opacity="0.16">
+  <animate attributeName="opacity" values="0.16;0.16;0.16;0.16;0.16;1;0.64;0.6;0.16" dur="1.4s" repeatCount="indefinite"/>
+</path>
+
+<!-- Tracé 7: Left horizontal (9h) -->
+<path fill="#767C76" d="M10 15.25a.75.75 0 0 1 0 1.5H7a.75.75 0 0 1 0-1.5h3Z" opacity="0.16">
+  <animate attributeName="opacity" values="0.6;0.16;0.16;0.16;0.16;0.16;1;0.64;0.6" dur="1.4s" repeatCount="indefinite"/>
+</path>
+
+<!-- Tracé 8: Top-left diagonal (10h30) -->
+<path fill="#767C76" d="M9.106 10.167a.751.751 0 0 1 1.06-1.061l2.123 2.122a.75.75 0 0 1-1.062 1.06l-2.121-2.121Z" opacity="0.16">
+  <animate attributeName="opacity" values="0.64;0.6;0.16;0.16;0.16;0.16;0.16;1;0.64" dur="1.4s" repeatCount="indefinite"/>
+</path>
+
+</svg>`;
 
 // Icônes SVG intégrées - SANS width/height pour être scalables
 const appIcons = {
@@ -85,6 +136,12 @@ const iconStyle = computed(() => {
 
 // Contenu SVG avec gradients uniques
 const svgContent = computed(() => {
+  // Si on est en état loading, retourner l'icône de chargement
+  if (props.state === 'loading') {
+    return loadingIcon;
+  }
+  
+  // Sinon, retourner l'icône normale
   const icon = appIcons[props.name];
   if (!icon) {
     console.warn(`AppIcon "${props.name}" not found`);
