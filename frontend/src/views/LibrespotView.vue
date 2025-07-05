@@ -1,8 +1,8 @@
 <template>
   <div class="librespot-player">
-    <div v-if="hasTrackInfo" class="now-playing">
+    <div v-if="hasTrackInfo" class="now-playing" :class="{ 'animate-in': showPlayer }">
       <!-- Partie gauche : Image de couverture -->
-      <div class="album-art-section">
+      <div class="album-art-section" :class="{ 'slide-in': showAlbumArt }">
         <div class="album-art">
           <img v-if="unifiedStore.metadata.album_art_url" :src="unifiedStore.metadata.album_art_url" alt="Album Art" />
           <div v-else class="placeholder-art">
@@ -14,17 +14,21 @@
       <!-- Partie droite : Informations et contrôles -->
       <div class="content-section">
         <!-- Bloc 1 : Informations (prend l'espace restant) -->
-        <div class="track-info">
+        <div class="track-info" :class="{ 'slide-up': showTrackInfo }">
           <h1 class="track-title heading-1">{{ unifiedStore.metadata.title || 'Titre inconnu' }}</h1>
           <p class="track-artist heading-2">{{ unifiedStore.metadata.artist || 'Artiste inconnu' }}</p>
         </div>
 
         <!-- Bloc 2 : Contrôles (aligné en bas) -->
         <div class="controls-section">
-          <ProgressBar :currentPosition="currentPosition" :duration="duration" :progressPercentage="progressPercentage"
-            @seek="seekToPosition" />
-          <PlaybackControls :isPlaying="unifiedStore.metadata.is_playing" @play-pause="togglePlayPause"
-            @previous="previousTrack" @next="nextTrack" />
+          <div class="progress-wrapper" :class="{ 'slide-up': showProgressBar }">
+            <ProgressBar :currentPosition="currentPosition" :duration="duration" :progressPercentage="progressPercentage"
+              @seek="seekToPosition" />
+          </div>
+          <div class="controls-wrapper" :class="{ 'slide-up': showControls }">
+            <PlaybackControls :isPlaying="unifiedStore.metadata.is_playing" @play-pause="togglePlayPause"
+              @previous="previousTrack" @next="nextTrack" />
+          </div>
         </div>
       </div>
     </div>
@@ -40,7 +44,7 @@
 </template>
 
 <script setup>
-import { computed, watch, onMounted } from 'vue';
+import { computed, watch, onMounted, ref, nextTick } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLibrespotControl } from '@/composables/useLibrespotControl';
 import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
@@ -54,6 +58,13 @@ const unifiedStore = useUnifiedAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
 const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackProgress();
 
+// États d'animation
+const showPlayer = ref(false);
+const showAlbumArt = ref(false);
+const showTrackInfo = ref(false);
+const showProgressBar = ref(false);
+const showControls = ref(false);
+
 const hasTrackInfo = computed(() => {
   return !!(
     unifiedStore.currentSource === 'librespot' &&
@@ -62,6 +73,55 @@ const hasTrackInfo = computed(() => {
     unifiedStore.metadata?.artist
   );
 });
+
+// Animation d'apparition du player
+async function animatePlayerIn() {
+  showPlayer.value = true;
+  await nextTick();
+  
+  // Album art apparaît en premier
+  showAlbumArt.value = true;
+  
+  // Track info après 200ms
+  setTimeout(() => {
+    showTrackInfo.value = true;
+  }, 100);
+  
+  // Progress bar après 400ms
+  setTimeout(() => {
+    showProgressBar.value = true;
+  }, 200);
+  
+  // Controls après 600ms
+  setTimeout(() => {
+    showControls.value = true;
+  }, 300);
+}
+
+// Reset des animations
+function resetAnimations() {
+  showPlayer.value = false;
+  showAlbumArt.value = false;
+  showTrackInfo.value = false;
+  showProgressBar.value = false;
+  showControls.value = false;
+}
+
+// Watch pour déclencher l'animation
+watch(() => hasTrackInfo.value, async (newValue, oldValue) => {
+  if (newValue && !oldValue) {
+    // Reset d'abord les animations
+    resetAnimations();
+    // Attendre le prochain tick pour que le DOM soit mis à jour
+    await nextTick();
+    // Petit délai pour s'assurer que PluginStatus a disparu
+    setTimeout(() => {
+      animatePlayerIn();
+    }, 50);
+  } else if (!newValue) {
+    resetAnimations();
+  }
+}, { immediate: false });
 
 function seekToPosition(position) {
   seekTo(position);
@@ -93,6 +153,14 @@ onMounted(async () => {
         });
 
         console.log("Position initiale chargée:", metadata.position);
+        
+        // Déclencher l'animation si on a déjà les infos
+        if (hasTrackInfo.value) {
+          await nextTick();
+          setTimeout(() => {
+            animatePlayerIn();
+          }, 100);
+        }
       }
     } catch (error) {
       console.error('Error fetching librespot status:', error);
@@ -124,13 +192,71 @@ onMounted(async () => {
   padding: var(--space-05);
 }
 
-
-
-/* Partie gauche : Image de couverture */
+/* Animations */
 .album-art-section {
   flex-shrink: 0;
-  /* height: 100%; */
   aspect-ratio: 1;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.album-art-section.slide-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.content-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.track-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  gap: var(--space-04);
+  padding: var(--space-06) 0;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.track-info.slide-up {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.progress-wrapper {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.progress-wrapper.slide-up {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.controls-wrapper {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.controls-wrapper.slide-up {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.controls-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05);
 }
 
 .album-art {
@@ -161,25 +287,6 @@ onMounted(async () => {
   opacity: 0.5;
 }
 
-/* Partie droite : Contenu */
-.content-section {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-
-/* Bloc 1 : Informations (prend l'espace restant) */
-.track-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-  gap: var(--space-04);
-  padding: var(--space-06) 0;
-}
-
 .track-title {
   color: var(--color-text);
 }
@@ -187,15 +294,6 @@ onMounted(async () => {
 .track-artist {
   color: var(--color-text-light);
 }
-
-/* Bloc 2 : Contrôles (aligné en bas) */
-.controls-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05);
-}
-
-
 
 .error-message {
   color: #ff4444;
@@ -207,7 +305,6 @@ onMounted(async () => {
 }
 
 @media (max-aspect-ratio: 4/3) {
-
   .now-playing {
     padding: var(--space-05) var(--space-05) 0 var(--space-05);
     flex-direction: column;
@@ -217,6 +314,5 @@ onMounted(async () => {
   .controls-section {
     margin-bottom: var(--space-05);
   }
-
 }
 </style>
