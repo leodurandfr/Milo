@@ -1,10 +1,11 @@
 <!-- frontend/src/components/ui/Modal.vue -->
 <template>
-  <div v-if="isOpen" class="modal-overlay" :class="{ 'fixed-height': heightMode === 'fixed' }"
+
+  <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" :class="{ 'fixed-height': heightMode === 'fixed' }"
     @click.self="handleOverlayClick">
-    <div class="modal-container" :class="{ 'fixed-height': heightMode === 'fixed' }">
-      <!-- Bouton close avec nouveau composant -->
-      <IconButtonFloating class="close-btn-position" icon-name="close" aria-label="Fermer" @click="close" />
+      <IconButtonFloating ref="closeButton" class="close-btn-position" icon-name="close" aria-label="Fermer" @click="close" />
+
+    <div ref="modalContainer" class="modal-container" :class="{ 'fixed-height': heightMode === 'fixed' }">
 
       <!-- Contenu -->
       <div ref="modalContent" class="modal-content" @pointerdown="handlePointerDown" @pointermove="handlePointerMove"
@@ -16,7 +17,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import IconButtonFloating from './IconButtonFloating.vue';
 
 const props = defineProps({
@@ -37,8 +38,46 @@ const props = defineProps({
 
 const emit = defineEmits(['close']);
 
-// Référence au contenu de la modal
+// Références aux éléments de la modal
 const modalContent = ref(null);
+const modalContainer = ref(null);
+const modalOverlay = ref(null);
+const closeButton = ref(null);
+
+// État d'animation
+const isVisible = ref(false);
+const isAnimating = ref(false);
+
+// Variables pour annuler les timeouts en cours
+let animationTimeouts = [];
+
+// Fonction utilitaire pour nettoyer tous les timeouts
+function clearAllTimeouts() {
+  animationTimeouts.forEach(timeout => clearTimeout(timeout));
+  animationTimeouts = [];
+}
+
+const ANIMATION_TIMINGS = {
+  // Délais d'ouverture
+  overlayDelay: 0,
+  containerDelay: 100,
+  closeButtonDelay: 400,
+  
+  // Durées individuelles d'ouverture
+  overlayDuration: 400,        // Durée fade-in overlay
+  containerDuration: 400,      // Durée opacity container (transform utilise --transition-spring)
+  closeButtonDuration: 400,    // Durée opacity close button (transform utilise --transition-spring)
+  
+  // Délais de fermeture
+  closeOverlayDelay: 0,
+  closeContainerDelay: 0,
+  closeButtonDelayOut: 0,
+  
+  // Durées individuelles de fermeture
+  closeOverlayDuration: 400,      // Durée fade-out overlay
+  closeContainerDuration: 300,    // Durée opacity container (transform utilise ease-out aussi)
+  closeButtonDurationOut: 300     // Durée opacity close button (transform utilise ease-out aussi)
+};
 
 // Variables pour le pointer scroll
 let isDragging = false;
@@ -55,6 +94,120 @@ function handleOverlayClick() {
   if (props.closeOnOverlay) {
     close();
   }
+}
+
+// === ANIMATIONS ===
+async function openModal() {
+  // Annuler toute animation en cours
+  clearAllTimeouts();
+  
+  isAnimating.value = true;
+  isVisible.value = true;
+
+  await nextTick();
+
+  if (!modalContainer.value || !modalOverlay.value || !closeButton.value) return;
+
+  // État initial overlay (invisible)
+  modalOverlay.value.style.transition = 'none';
+  modalOverlay.value.style.opacity = '0';
+
+  // État initial container (invisible)
+  modalContainer.value.style.transition = 'none';
+  modalContainer.value.style.opacity = '0';
+  modalContainer.value.style.transform = 'translateY(var(--space-06)) scale(0.95)';
+
+  // État initial close button (invisible)
+  closeButton.value.$el.style.transition = 'none';
+  closeButton.value.$el.style.opacity = '0';
+  closeButton.value.$el.style.transform = 'translateX(-50%) translateY(calc(-1 * var(--space-03)))';
+
+  // Forcer le reflow
+  modalContainer.value.offsetHeight;
+
+  // Animation d'entrée overlay (immédiate)
+  const overlayTimeout = setTimeout(() => {
+    if (!modalOverlay.value) return;
+    modalOverlay.value.style.transition = `opacity ${ANIMATION_TIMINGS.overlayDuration}ms ease-out`;
+    modalOverlay.value.style.opacity = '1';
+  }, ANIMATION_TIMINGS.overlayDelay);
+  animationTimeouts.push(overlayTimeout);
+
+  // Animation d'entrée container (avec délai)
+  const containerTimeout = setTimeout(() => {
+    if (!modalContainer.value) return;
+    modalContainer.value.style.transition = `transform var(--transition-spring), opacity ${ANIMATION_TIMINGS.containerDuration}ms ease-out`;
+    modalContainer.value.style.opacity = '1';
+    modalContainer.value.style.transform = 'translateY(0) scale(1)';
+  }, ANIMATION_TIMINGS.containerDelay);
+  animationTimeouts.push(containerTimeout);
+
+  // Animation retardée du close button
+  const closeButtonTimeout = setTimeout(() => {
+    if (!closeButton.value || !closeButton.value.$el) return;
+    closeButton.value.$el.style.transition = `transform var(--transition-spring), opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms ease-out`;
+    closeButton.value.$el.style.opacity = '1';
+    closeButton.value.$el.style.transform = 'translateX(-50%) translateY(0)';
+  }, ANIMATION_TIMINGS.closeButtonDelay);
+  animationTimeouts.push(closeButtonTimeout);
+
+  // Attendre la fin de l'animation
+  const totalDuration = Math.max(
+    ANIMATION_TIMINGS.closeButtonDelay + ANIMATION_TIMINGS.closeButtonDuration,
+    ANIMATION_TIMINGS.containerDelay + ANIMATION_TIMINGS.containerDuration,
+    ANIMATION_TIMINGS.overlayDelay + ANIMATION_TIMINGS.overlayDuration
+  );
+  
+  const finalTimeout = setTimeout(() => {
+    isAnimating.value = false;
+  }, totalDuration);
+  animationTimeouts.push(finalTimeout);
+}
+
+async function closeModal() {
+  // Annuler toute animation en cours
+  clearAllTimeouts();
+
+  isAnimating.value = true;
+
+  if (!modalContainer.value || !modalOverlay.value || !closeButton.value) return;
+
+  // Animation de sortie avec délais configurables et ease-out pour fermeture
+  const overlayCloseTimeout = setTimeout(() => {
+    if (!modalOverlay.value) return;
+    modalOverlay.value.style.transition = `opacity ${ANIMATION_TIMINGS.closeOverlayDuration}ms ease-out`;
+    modalOverlay.value.style.opacity = '0';
+  }, ANIMATION_TIMINGS.closeOverlayDelay);
+  animationTimeouts.push(overlayCloseTimeout);
+
+  const containerCloseTimeout = setTimeout(() => {
+    if (!modalContainer.value) return;
+    modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out`;
+    modalContainer.value.style.opacity = '0';
+    modalContainer.value.style.transform = 'translateY(var(--space-06)) scale(0.95)';
+  }, ANIMATION_TIMINGS.closeContainerDelay);
+  animationTimeouts.push(containerCloseTimeout);
+
+  const closeButtonCloseTimeout = setTimeout(() => {
+    if (!closeButton.value || !closeButton.value.$el) return;
+    closeButton.value.$el.style.transition = `transform ${ANIMATION_TIMINGS.closeButtonDurationOut}ms ease-out, opacity ${ANIMATION_TIMINGS.closeButtonDurationOut}ms ease-out`;
+    closeButton.value.$el.style.opacity = '0';
+    closeButton.value.$el.style.transform = 'translateX(-50%) translateY(calc(-1 * var(--space-03)))';
+  }, ANIMATION_TIMINGS.closeButtonDelayOut);
+  animationTimeouts.push(closeButtonCloseTimeout);
+
+  // Attendre la fin de l'animation (calculer la durée totale)
+  const totalCloseDuration = Math.max(
+    ANIMATION_TIMINGS.closeOverlayDelay + ANIMATION_TIMINGS.closeOverlayDuration,
+    ANIMATION_TIMINGS.closeContainerDelay + ANIMATION_TIMINGS.closeContainerDuration,
+    ANIMATION_TIMINGS.closeButtonDelayOut + ANIMATION_TIMINGS.closeButtonDurationOut
+  );
+  
+  const finalCloseTimeout = setTimeout(() => {
+    isVisible.value = false;
+    isAnimating.value = false;
+  }, totalCloseDuration);
+  animationTimeouts.push(finalCloseTimeout);
 }
 
 // Gestion du pointer scroll
@@ -126,6 +279,17 @@ function toggleBodyScroll(isOpen) {
   }
 }
 
+// Watcher pour les animations
+watch(() => props.isOpen, async (newValue) => {
+  if (newValue) {
+    toggleBodyScroll(true);
+    await openModal();
+  } else {
+    await closeModal();
+    toggleBodyScroll(false);
+  }
+});
+
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown);
 });
@@ -133,11 +297,8 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown);
   document.body.style.overflow = '';
-});
-
-// Watcher pour le scroll
-watch(() => props.isOpen, (newValue) => {
-  toggleBodyScroll(newValue);
+  // Nettoyer tous les timeouts en cours
+  clearAllTimeouts();
 });
 </script>
 
@@ -160,6 +321,8 @@ watch(() => props.isOpen, (newValue) => {
   justify-content: center;
   z-index: 1000;
   padding: 48px var(--space-04) var(--space-07) var(--space-04);
+  /* État initial pour l'animation */
+  opacity: 0;
 }
 
 /* Overlay mode fixed (equalizer) */
@@ -177,6 +340,9 @@ watch(() => props.isOpen, (newValue) => {
   max-height: 100%;
   display: flex;
   flex-direction: column;
+  /* État initial pour l'animation */
+  opacity: 0;
+  transform: translateY(var(--space-06)) scale(0.95);
 }
 
 .modal-container::before {
@@ -203,9 +369,12 @@ watch(() => props.isOpen, (newValue) => {
 
 /* Positionnement du bouton close */
 .close-btn-position {
-  position: absolute;
-  right: calc(-32px - 48px);
-  top: 0;
+  position: fixed;
+  top: var(--space-05);
+  left: 50%;
+  transform: translateX(-50%);
+  /* État initial pour l'animation */
+  opacity: 0;
 }
 
 /* Contenu - comportement par défaut (auto) */
@@ -237,7 +406,6 @@ watch(() => props.isOpen, (newValue) => {
     top: var(--space-05);
     left: 50%;
     transform: translateX(-50%);
-    right: auto;
   }
 
   .modal-overlay,
