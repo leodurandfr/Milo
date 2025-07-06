@@ -1,6 +1,5 @@
 <!-- frontend/src/components/ui/Modal.vue -->
 <template>
-
   <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" :class="{ 'fixed-height': heightMode === 'fixed' }"
     @click.self="handleOverlayClick">
       <IconButtonFloating ref="closeButton" class="close-btn-position" icon-name="close" aria-label="Fermer" @click="close" />
@@ -61,12 +60,11 @@ const ANIMATION_TIMINGS = {
   // Délais d'ouverture
   overlayDelay: 0,
   containerDelay: 100,
-  closeButtonDelay: 400,
+  closeButtonDelay: 600,
   
   // Durées individuelles d'ouverture
-  overlayDuration: 400,        // Durée fade-in overlay
-  containerDuration: 400,      // Durée opacity container (transform utilise --transition-spring)
-  closeButtonDuration: 400,    // Durée opacity close button (transform utilise --transition-spring)
+  overlayDuration: 400,
+  closeButtonDuration: 400,
   
   // Délais de fermeture
   closeOverlayDelay: 0,
@@ -74,9 +72,9 @@ const ANIMATION_TIMINGS = {
   closeButtonDelayOut: 0,
   
   // Durées individuelles de fermeture
-  closeOverlayDuration: 400,      // Durée fade-out overlay
-  closeContainerDuration: 300,    // Durée opacity container (transform utilise ease-out aussi)
-  closeButtonDurationOut: 300     // Durée opacity close button (transform utilise ease-out aussi)
+  closeOverlayDuration: 300,
+  closeContainerDuration: 200,
+  closeButtonDurationOut: 200
 };
 
 // Variables pour le pointer scroll
@@ -98,7 +96,6 @@ function handleOverlayClick() {
 
 // === ANIMATIONS ===
 async function openModal() {
-  // Annuler toute animation en cours
   clearAllTimeouts();
   
   isAnimating.value = true;
@@ -112,15 +109,15 @@ async function openModal() {
   modalOverlay.value.style.transition = 'none';
   modalOverlay.value.style.opacity = '0';
 
-  // État initial container (invisible)
+  // État initial container (invisible et position plus basse comme le dock)
   modalContainer.value.style.transition = 'none';
   modalContainer.value.style.opacity = '0';
-  modalContainer.value.style.transform = 'translateY(var(--space-06)) scale(0.95)';
+  modalContainer.value.style.transform = 'translateY(80px) scale(0.85)';
 
-  // État initial close button (invisible)
+  // État initial close button (invisible et position haute)
   closeButton.value.$el.style.transition = 'none';
   closeButton.value.$el.style.opacity = '0';
-  closeButton.value.$el.style.transform = 'translateX(-50%) translateY(calc(-1 * var(--space-03)))';
+  closeButton.value.$el.style.transform = 'translateX(-50%) translateY(-24px)';
 
   // Forcer le reflow
   modalContainer.value.offsetHeight;
@@ -133,16 +130,16 @@ async function openModal() {
   }, ANIMATION_TIMINGS.overlayDelay);
   animationTimeouts.push(overlayTimeout);
 
-  // Animation d'entrée container (avec délai)
+  // Animation d'entrée container (utilise --transition-spring comme le dock)
   const containerTimeout = setTimeout(() => {
     if (!modalContainer.value) return;
-    modalContainer.value.style.transition = `transform var(--transition-spring), opacity ${ANIMATION_TIMINGS.containerDuration}ms ease-out`;
+    modalContainer.value.style.transition = 'transform var(--transition-spring), opacity 400ms ease-out';
     modalContainer.value.style.opacity = '1';
     modalContainer.value.style.transform = 'translateY(0) scale(1)';
   }, ANIMATION_TIMINGS.containerDelay);
   animationTimeouts.push(containerTimeout);
 
-  // Animation retardée du close button
+  // Animation retardée du close button (utilise --transition-spring)
   const closeButtonTimeout = setTimeout(() => {
     if (!closeButton.value || !closeButton.value.$el) return;
     closeButton.value.$el.style.transition = `transform var(--transition-spring), opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms ease-out`;
@@ -154,7 +151,7 @@ async function openModal() {
   // Attendre la fin de l'animation
   const totalDuration = Math.max(
     ANIMATION_TIMINGS.closeButtonDelay + ANIMATION_TIMINGS.closeButtonDuration,
-    ANIMATION_TIMINGS.containerDelay + ANIMATION_TIMINGS.containerDuration,
+    ANIMATION_TIMINGS.containerDelay + 600, // Durée approximative de --transition-spring
     ANIMATION_TIMINGS.overlayDelay + ANIMATION_TIMINGS.overlayDuration
   );
   
@@ -165,14 +162,13 @@ async function openModal() {
 }
 
 async function closeModal() {
-  // Annuler toute animation en cours
   clearAllTimeouts();
 
   isAnimating.value = true;
 
   if (!modalContainer.value || !modalOverlay.value || !closeButton.value) return;
 
-  // Animation de sortie avec délais configurables et ease-out pour fermeture
+  // Animation de sortie avec ease-out pour fermeture
   const overlayCloseTimeout = setTimeout(() => {
     if (!modalOverlay.value) return;
     modalOverlay.value.style.transition = `opacity ${ANIMATION_TIMINGS.closeOverlayDuration}ms ease-out`;
@@ -184,19 +180,20 @@ async function closeModal() {
     if (!modalContainer.value) return;
     modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out`;
     modalContainer.value.style.opacity = '0';
-    modalContainer.value.style.transform = 'translateY(var(--space-06)) scale(0.95)';
+    modalContainer.value.style.transform = 'translateY(40px) scale(0.92)';
   }, ANIMATION_TIMINGS.closeContainerDelay);
   animationTimeouts.push(containerCloseTimeout);
 
   const closeButtonCloseTimeout = setTimeout(() => {
     if (!closeButton.value || !closeButton.value.$el) return;
-    closeButton.value.$el.style.transition = `transform ${ANIMATION_TIMINGS.closeButtonDurationOut}ms ease-out, opacity ${ANIMATION_TIMINGS.closeButtonDurationOut}ms ease-out`;
+    closeButton.value.$el.style.transition = `opacity ${ANIMATION_TIMINGS.closeButtonDurationOut}ms ease-out`;
     closeButton.value.$el.style.opacity = '0';
-    closeButton.value.$el.style.transform = 'translateX(-50%) translateY(calc(-1 * var(--space-03)))';
+    // Pas de translateY - garde juste la position horizontale
+    closeButton.value.$el.style.transform = 'translateX(-50%)';
   }, ANIMATION_TIMINGS.closeButtonDelayOut);
   animationTimeouts.push(closeButtonCloseTimeout);
 
-  // Attendre la fin de l'animation (calculer la durée totale)
+  // Attendre la fin de l'animation
   const totalCloseDuration = Math.max(
     ANIMATION_TIMINGS.closeOverlayDelay + ANIMATION_TIMINGS.closeOverlayDuration,
     ANIMATION_TIMINGS.closeContainerDelay + ANIMATION_TIMINGS.closeContainerDuration,
@@ -220,7 +217,7 @@ function handlePointerDown(event) {
   const isInput = event.target.closest('input, select, textarea');
 
   if (isSlider || isButton || isInput) {
-    return; // Laisser ces éléments gérer leurs propres événements
+    return;
   }
 
   isDragging = true;
@@ -235,11 +232,9 @@ function handlePointerMove(event) {
 
   const deltaY = Math.abs(startY - event.clientY);
 
-  // Seuil de mouvement pour distinguer clic vs drag
   if (deltaY > 5) {
     hasMoved = true;
 
-    // Capturer seulement quand on commence vraiment à dragger
     if (!modalContent.value.hasPointerCapture(event.pointerId)) {
       modalContent.value.setPointerCapture(event.pointerId);
     }
@@ -297,7 +292,6 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown);
   document.body.style.overflow = '';
-  // Nettoyer tous les timeouts en cours
   clearAllTimeouts();
 });
 </script>
@@ -340,9 +334,9 @@ onUnmounted(() => {
   max-height: 100%;
   display: flex;
   flex-direction: column;
-  /* État initial pour l'animation */
+  /* État initial pour l'animation - OPTIM : valeurs similaires au dock */
   opacity: 0;
-  transform: translateY(var(--space-06)) scale(0.95);
+  transform: translateY(80px) scale(0.85);
 }
 
 .modal-container::before {
@@ -373,7 +367,7 @@ onUnmounted(() => {
   top: var(--space-05);
   left: 50%;
   transform: translateX(-50%);
-  /* État initial pour l'animation */
+  /* État initial pour l'animation - OPTIM : position plus haute */
   opacity: 0;
 }
 

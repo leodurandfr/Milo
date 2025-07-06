@@ -1,7 +1,10 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vue - Version OPTIM sans modalStore -->
+<!-- frontend/src/components/navigation/BottomNavigation.vue - Version OPTIM avec indicateur de drag -->
 <template>
   <!-- Zone de drag invisible -->
-  <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }"></div>
+  <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click="onDragZoneClick"></div>
+
+  <!-- Indicateur de drag -->
+  <div class="drag-indicator" :class="{ hidden: isVisible, visible: showDragIndicator }"></div>
 
   <!-- Dock de navigation -->
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }">
@@ -123,6 +126,7 @@ const isFullyVisible = ref(false); // Nouvel état pour gérer les transition-de
 const isDragging = ref(false);
 const showAdditionalApps = ref(false);
 const showAdditionalContainer = ref(false);
+const showDragIndicator = ref(false); // État pour l'apparition différée de l'indicateur
 
 // Variables de drag
 let dragStartY = 0;
@@ -150,6 +154,13 @@ function openEqualizer() {
 // === ADDITIONAL APPS ===
 function toggleAdditionalApps() {
   showAdditionalApps.value = !showAdditionalApps.value;
+}
+
+// === GESTION DU CLIC SUR LA DRAG ZONE ===
+function onDragZoneClick() {
+  if (!isDragging.value && !isVisible.value) {
+    showDock();
+  }
 }
 
 // === INDICATEUR ACTIF ===
@@ -415,6 +426,11 @@ watch(() => unifiedStore.currentSource, updateActiveIndicator);
 
 onMounted(() => {
   setupDragEvents();
+  
+  // Afficher l'indicateur de drag après 600ms
+  setTimeout(() => {
+    showDragIndicator.value = true;
+  }, 800);
 });
 
 onUnmounted(() => {
@@ -443,12 +459,38 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
+/* Indicateur de drag */
+.drag-indicator {
+  position: fixed;
+  bottom: var(--space-08);
+  left: 50%;
+  transform: translateX(-50%);
+  width: var(--space-05);
+  height: var(--space-01);
+  background: var(--color-background-glass);
+  border-radius: var(--radius-full);
+  z-index: 998;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 600ms ease-in-out;
+}
+
+
+.drag-indicator.visible {
+  opacity: 1;
+}
+
+.drag-indicator.hidden {
+  opacity: 0 !important;
+  transition: opacity var(--transition-normal) !important;
+}
+
 /* Additional Apps Container - Mobile uniquement */
 .additional-apps-container {
   position: relative;
   margin-bottom: var(--space-03);
   left: 50%;
-  transform: translateX(-50%) translateY(20px);
+  transform: translateX(-50%) translateY(var(--space-07));
   z-index: 998;
   border-radius: var(--radius-06);
   padding: var(--space-04);
@@ -727,6 +769,8 @@ onUnmounted(() => {
   .desktop-only {
     display: none;
   }
+
+
 }
 
 /* iOS */
@@ -750,6 +794,11 @@ onUnmounted(() => {
 
   .dock {
     flex-direction: row;
+  }
+
+  /* Masquer l'indicateur de drag en desktop */
+  .drag-indicator {
+    display: none;
   }
 }
 
