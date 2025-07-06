@@ -180,7 +180,7 @@ async function closeModal() {
     if (!modalContainer.value) return;
     modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out`;
     modalContainer.value.style.opacity = '0';
-    modalContainer.value.style.transform = 'translateY(40px) scale(0.92)';
+    modalContainer.value.style.transform = 'translateY(var(--space-08)) scale(0.95)';
   }, ANIMATION_TIMINGS.closeContainerDelay);
   animationTimeouts.push(containerCloseTimeout);
 
@@ -336,7 +336,7 @@ onUnmounted(() => {
   flex-direction: column;
   /* État initial pour l'animation - OPTIM : valeurs similaires au dock */
   opacity: 0;
-  transform: translateY(80px) scale(0.85);
+  /* transform: translateY(80px) scale(0.85); */
 }
 
 .modal-container::before {

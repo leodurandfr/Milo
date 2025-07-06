@@ -1,16 +1,18 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vue - Version OPTIM avec indicateur de drag -->
+<!-- frontend/src/components/navigation/BottomNavigation.vue - Version OPTIM avec drag sur additional-apps -->
 <template>
   <!-- Zone de drag invisible -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click="onDragZoneClick"></div>
 
   <!-- Indicateur de drag -->
-  <div class="drag-indicator" :class="{ hidden: isVisible, visible: showDragIndicator }"></div>
+  <div class="dock-indicator" :class="{ hidden: isVisible, visible: showDragIndicator }"></div>
 
   <!-- Dock de navigation -->
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }">
     <!-- Additional Apps - Mobile uniquement -->
-    <div v-if="showAdditionalContainer" class="additional-apps-container mobile-only"
-      :class="{ visible: showAdditionalApps }">
+    <div v-if="showAdditionalContainer" 
+         ref="additionalAppsContainer"
+         class="additional-apps-container mobile-only"
+         :class="{ visible: showAdditionalApps }">
       <!-- Multiroom -->
       <button @click="() => { resetHideTimer(); openSnapcast(); }" @touchstart="addPressEffect"
         @mousedown="addPressEffect" class="additional-app-content button-interactive-subtle">
@@ -112,6 +114,7 @@ const dock = ref(null);
 const activeIndicator = ref(null);
 const separator = ref(null);
 const dockToggle = ref(null);
+const additionalAppsContainer = ref(null);
 
 // Refs pour les dock-items (pour calculer la position de l'indicateur)
 const dockItem0 = ref(null);
@@ -122,11 +125,11 @@ const dockItem4 = ref(null);
 
 // État du dock
 const isVisible = ref(false);
-const isFullyVisible = ref(false); // Nouvel état pour gérer les transition-delay
+const isFullyVisible = ref(false);
 const isDragging = ref(false);
 const showAdditionalApps = ref(false);
 const showAdditionalContainer = ref(false);
-const showDragIndicator = ref(false); // État pour l'apparition différée de l'indicateur
+const showDragIndicator = ref(false);
 
 // Variables de drag
 let dragStartY = 0;
@@ -134,6 +137,10 @@ let dragCurrentY = 0;
 const dragThreshold = 30;
 let clickTimeout = null;
 let hideTimeout = null;
+
+// Variables pour le drag sur additional-apps
+let isDraggingAdditional = false;
+let additionalDragStartY = 0;
 
 // Computed pour gérer la présence dans le DOM
 const shouldShowAdditionalContainer = computed(() => {
@@ -154,6 +161,17 @@ function openEqualizer() {
 // === ADDITIONAL APPS ===
 function toggleAdditionalApps() {
   showAdditionalApps.value = !showAdditionalApps.value;
+  
+  // Réattacher les événements quand le container devient visible
+  if (showAdditionalApps.value) {
+    nextTick(() => {
+      setupAdditionalDragEvents();
+    });
+  }
+}
+
+function closeAdditionalApps() {
+  showAdditionalApps.value = false;
 }
 
 // === GESTION DU CLIC SUR LA DRAG ZONE ===
@@ -207,7 +225,6 @@ function updateActiveIndicator() {
   if (unifiedStore.currentSource === 'librespot') activeIndex = 0;
   else if (unifiedStore.currentSource === 'bluetooth') activeIndex = 1;
   else if (unifiedStore.currentSource === 'roc') activeIndex = 2;
-  // Note: On ne gère plus l'indicateur pour les modales (OPTIM)
 
   if (activeIndex === -1) {
     indicatorStyle.value.opacity = '0';
@@ -231,7 +248,7 @@ function updateActiveIndicator() {
 
     // Positionner immédiatement sans transition pour le transform
     indicatorStyle.value = {
-      opacity: '0', // Commencer invisible
+      opacity: '0',
       transform: `translateX(${offsetX}px)`,
       transition: 'none'
     };
@@ -266,11 +283,6 @@ function resetHideTimer() {
 }
 
 async function changeSource(source) {
-  // OPTIM : Fermer les modales quand on change de source
-  // On n'a plus accès à modalStore, donc on peut soit :
-  // 1. Émettre un événement de fermeture
-  // 2. Ou laisser App.vue gérer ça automatiquement
-  // Pour rester OPTIM, on fait confiance à l'UX que l'utilisateur fermera manuellement
   await unifiedStore.changeSource(source);
 }
 
@@ -287,10 +299,7 @@ function addPressEffect(e) {
   const button = e.target.closest('button');
   if (!button || button.disabled) return;
 
-  // Ajouter la classe d'effet press
   button.classList.add('is-pressed');
-
-  // Retirer automatiquement après 150ms
   setTimeout(() => {
     button.classList.remove('is-pressed');
   }, 150);
@@ -320,6 +329,19 @@ function onDragStart(e) {
 }
 
 function onDragMove(e) {
+  // Si on drag les additional apps
+  if (isDraggingAdditional) {
+    const currentY = getEventY(e);
+    const deltaY = currentY - additionalDragStartY;
+
+    if (Math.abs(deltaY) >= dragThreshold && deltaY > 0) {
+      closeAdditionalApps();
+      isDraggingAdditional = false;
+    }
+    return;
+  }
+
+  // Logique normale du dock
   if (!isDragging.value) return;
 
   dragCurrentY = getEventY(e);
@@ -339,6 +361,12 @@ function onDragMove(e) {
 
 function onDragEnd() {
   clearTimeout(clickTimeout);
+  
+  if (isDraggingAdditional) {
+    isDraggingAdditional = false;
+    return;
+  }
+  
   isDragging.value = false;
 
   if (!isDragging.value) {
@@ -346,15 +374,41 @@ function onDragEnd() {
   }
 }
 
+// === LOGIQUE DRAG POUR ADDITIONAL APPS ===
+function onAdditionalDragStart(e) {
+  if (!showAdditionalApps.value) return;
+  
+  isDraggingAdditional = true;
+  additionalDragStartY = getEventY(e);
+  dragCurrentY = additionalDragStartY;
+}
+
+function onAdditionalDragMove(e) {
+  if (!isDraggingAdditional) return;
+
+  const currentY = getEventY(e);
+  const deltaY = currentY - additionalDragStartY;
+  const absDelta = Math.abs(deltaY);
+
+  // Drag vers le bas pour fermer
+  if (absDelta >= dragThreshold && deltaY > 0) {
+    closeAdditionalApps();
+    isDraggingAdditional = false;
+  }
+}
+
+function onAdditionalDragEnd() {
+  isDraggingAdditional = false;
+}
+
 function showDock() {
   if (isVisible.value) return;
-  showAdditionalContainer.value = true; // Ajouter au DOM d'abord
+  showAdditionalContainer.value = true;
   isVisible.value = true;
-  isFullyVisible.value = false; // Reset pour permettre l'animation stagger
+  isFullyVisible.value = false;
   clearHideTimer();
   startHideTimer();
 
-  // Marquer comme fully-visible après la fin de l'animation stagger (0.3s + marge)
   setTimeout(() => {
     isFullyVisible.value = true;
   }, 400);
@@ -367,26 +421,24 @@ function showDock() {
 function hideDock() {
   if (!isVisible.value) return;
 
-  // Retirer fully-visible pour réactiver les délais pour l'animation de sortie
   isFullyVisible.value = false;
-
-  // Déclencher l'animation de disparition
   showAdditionalApps.value = false;
   isVisible.value = false;
   clearHideTimer();
   indicatorStyle.value.opacity = '0';
 
-  // Retirer du DOM après l'animation
   setTimeout(() => {
     showAdditionalContainer.value = false;
-  }, 300); // Durée de --transition-spring
+  }, 300);
 }
 
 function setupDragEvents() {
   const zone = dragZone.value;
   const dockEl = dock.value;
+  
   if (!zone) return;
 
+  // Événements pour le drag principal
   zone.addEventListener('mousedown', onDragStart);
   zone.addEventListener('touchstart', onDragStart, { passive: false });
   zone.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
@@ -396,15 +448,35 @@ function setupDragEvents() {
     dockEl.addEventListener('touchstart', onDragStart, { passive: false });
   }
 
+  // Événements globaux
   document.addEventListener('mousemove', onDragMove);
   document.addEventListener('mouseup', onDragEnd);
   document.addEventListener('touchmove', onDragMove, { passive: false });
   document.addEventListener('touchend', onDragEnd);
 }
 
+function setupAdditionalDragEvents() {
+  const additionalEl = additionalAppsContainer.value;
+  
+  if (additionalEl) {
+    additionalEl.addEventListener('mousedown', onAdditionalDragStart);
+    additionalEl.addEventListener('touchstart', onAdditionalDragStart, { passive: false });
+  }
+}
+
+function removeAdditionalDragEvents() {
+  const additionalEl = additionalAppsContainer.value;
+  
+  if (additionalEl) {
+    additionalEl.removeEventListener('mousedown', onAdditionalDragStart);
+    additionalEl.removeEventListener('touchstart', onAdditionalDragStart);
+  }
+}
+
 function removeDragEvents() {
   const zone = dragZone.value;
   const dockEl = dock.value;
+  
   if (!zone) return;
 
   zone.removeEventListener('mousedown', onDragStart);
@@ -415,19 +487,19 @@ function removeDragEvents() {
     dockEl.removeEventListener('touchstart', onDragStart);
   }
 
+  removeAdditionalDragEvents();
+
   document.removeEventListener('mousemove', onDragMove);
   document.removeEventListener('mouseup', onDragEnd);
   document.removeEventListener('touchmove', onDragMove);
   document.removeEventListener('touchend', onDragEnd);
 }
 
-
 watch(() => unifiedStore.currentSource, updateActiveIndicator);
 
 onMounted(() => {
   setupDragEvents();
-  
-  // Afficher l'indicateur de drag après 600ms
+
   setTimeout(() => {
     showDragIndicator.value = true;
   }, 800);
@@ -459,38 +531,12 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
-/* Indicateur de drag */
-.drag-indicator {
-  position: fixed;
-  bottom: var(--space-08);
-  left: 50%;
-  transform: translateX(-50%);
-  width: var(--space-05);
-  height: var(--space-01);
-  background: var(--color-background-glass);
-  border-radius: var(--radius-full);
-  z-index: 998;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 600ms ease-in-out;
-}
-
-
-.drag-indicator.visible {
-  opacity: 1;
-}
-
-.drag-indicator.hidden {
-  opacity: 0 !important;
-  transition: opacity var(--transition-normal) !important;
-}
-
 /* Additional Apps Container - Mobile uniquement */
 .additional-apps-container {
   position: relative;
   margin-bottom: var(--space-03);
   left: 50%;
-  transform: translateX(-50%) translateY(var(--space-07));
+  transform: translateX(-50%) translateY(var(--space-06));
   z-index: 998;
   border-radius: var(--radius-06);
   padding: var(--space-04);
@@ -503,6 +549,7 @@ onUnmounted(() => {
   opacity: 0;
   pointer-events: none;
   transition: all var(--transition-spring);
+  cursor: grab; /* Indiquer que c'est draggable */
 }
 
 .additional-apps-container.visible {
@@ -678,43 +725,35 @@ onUnmounted(() => {
 }
 
 /* Ciblage par position globale dans .app-container */
-/* Spotify - 1er enfant global */
 .dock-container.visible .app-container> :nth-child(1) {
   transition-delay: 0.1s;
 }
 
-/* Bluetooth - 2ème enfant global */
 .dock-container.visible .app-container> :nth-child(2) {
   transition-delay: 0.15s;
 }
 
-/* ROC - 3ème enfant global */
 .dock-container.visible .app-container> :nth-child(3) {
   transition-delay: 0.2s;
 }
 
-/* Séparateur - 4ème enfant global */
 .dock-container.visible .app-container> :nth-child(4) {
   transition-delay: 0.225s;
 }
 
-/* Toggle mobile (5ème) - masqué en desktop */
 .dock-container.visible .app-container> :nth-child(5) {
   transition-delay: 0.25s;
 }
 
-/* Multiroom desktop - 6ème enfant global */
 .dock-container.visible .app-container> :nth-child(6) {
   transition-delay: 0.25s;
 }
 
-/* Equalizer desktop - 7ème enfant global */
 .dock-container.visible .app-container> :nth-child(7) {
   transition-delay: 0.3s;
 }
 
 /* === SUPPRESSION DES DÉLAIS QUAND FULLY-VISIBLE === */
-/* Une fois l'animation terminée, supprimer tous les délais pour des interactions réactives */
 .dock-container.visible.fully-visible .dock-item,
 .dock-container.visible.fully-visible .dock-separator,
 .dock-container.visible.fully-visible .volume-controls,
@@ -770,16 +809,43 @@ onUnmounted(() => {
     display: none;
   }
 
+  /* Indicateur de drag */
+  .dock-indicator {
+    position: fixed;
+    bottom: var(--space-03);
+    left: 50%;
+    transform: translateX(-50%);
+    width: var(--space-05);
+    height: var(--space-01);
+    background: var(--color-background-glass);
+    border-radius: var(--radius-full);
+    z-index: 998;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 600ms ease-in-out;
+  }
 
+  .dock-indicator.visible {
+    opacity: 1;
+  }
+
+  .dock-indicator.hidden {
+    opacity: 0 !important;
+    transition: opacity var(--transition-normal) !important;
+  }
 }
 
 /* iOS */
 .ios-app .drag-zone {
   height: var(--space-09);
-
 }
-.ios-app  .dock-container.visible {
-    transform: translate(-50%) translateY(-48px) scale(1);
+
+.ios-app .dock-indicator {
+  bottom: var(--space-08);
+}
+
+.ios-app .dock-container.visible {
+  transform: translate(-50%) translateY(-48px) scale(1);
 }
 
 /* Desktop - masquer les éléments mobile */
@@ -796,36 +862,30 @@ onUnmounted(() => {
     flex-direction: row;
   }
 
-  /* Masquer l'indicateur de drag en desktop */
-  .drag-indicator {
+  .dock-indicator {
     display: none;
   }
 }
 
 /* === ANIMATIONS DE PRESS GÉNÉRIQUES === */
-/* Animation pour les volume buttons - spécifique et isolée */
 .volume-btn.is-pressed {
   transform: scale(0.92) !important;
   opacity: 0.8 !important;
   transition-delay: 0s !important;
 }
 
-/* Animation pour les dock-items (app icons) */
 .dock-item.is-pressed {
   transform: scale(0.92) !important;
   opacity: 0.8 !important;
   transition-delay: 0s !important;
 }
 
-/* Animation pour les additional-app-content */
 .additional-app-content.is-pressed {
   transform: scale(0.97) !important;
   opacity: 0.8 !important;
   transition-delay: 0s !important;
-  /* Override du stagger delay */
 }
 
-/* Pas d'animation sur les boutons disabled */
 button:disabled.is-pressed {
   transform: none !important;
   opacity: 0.5 !important;

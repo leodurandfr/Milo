@@ -312,7 +312,7 @@ onMounted(async () => {
   }
 
   .controls-section {
-    margin-bottom: var(--space-05);
+    margin-bottom: var(--space-06);
   }
 }
 
