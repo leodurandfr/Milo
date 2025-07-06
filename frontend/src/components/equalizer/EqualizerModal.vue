@@ -22,9 +22,9 @@
           <p class="text-mono">Égaliseur désactivé</p>
         </div>
 
-
         <div v-else class="equalizer-controls">
           <div v-if="loading" class="loading-state">
+            <Icon name="equalizer" :size="148" color="var(--color-background-glass)" />
             <p class="text-mono">Chargement de l'égaliseur</p>
 
           </div>
@@ -426,15 +426,7 @@ setInterval(() => {
   /* Centre verticalement dans le flex container */
 }
 
-.loading-spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid #f3f3f3;
-  border-top: 2px solid #2196F3;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 12px;
-}
+
 
 @keyframes spin {
   0% {

@@ -9,19 +9,15 @@
     <div v-if="showAdditionalContainer" class="additional-apps-container mobile-only"
       :class="{ visible: showAdditionalApps }">
       <!-- Multiroom -->
-      <button @click="() => { resetHideTimer(); openSnapcast(); }"
-              @touchstart="addPressEffect"
-              @mousedown="addPressEffect"
-              class="additional-app-content button-interactive-subtle">
+      <button @click="() => { resetHideTimer(); openSnapcast(); }" @touchstart="addPressEffect"
+        @mousedown="addPressEffect" class="additional-app-content button-interactive-subtle">
         <AppIcon name="multiroom" :size="32" />
         <div class="app-title heading-2">Multiroom</div>
       </button>
 
       <!-- Equalizer -->
-      <button @click="() => { resetHideTimer(); openEqualizer(); }"
-              @touchstart="addPressEffect"
-              @mousedown="addPressEffect"
-              class="additional-app-content button-interactive-subtle">
+      <button @click="() => { resetHideTimer(); openEqualizer(); }" @touchstart="addPressEffect"
+        @mousedown="addPressEffect" class="additional-app-content button-interactive-subtle">
         <AppIcon name="equalizer" :size="32" />
         <div class="app-title heading-2">Égaliseur</div>
       </button>
@@ -30,18 +26,12 @@
 
       <!-- Volume Controls - Mobile uniquement -->
       <div class="volume-controls mobile-only">
-        <button @click="handleVolumeDown" 
-                @touchstart="addPressEffect"
-                @mousedown="addPressEffect"
-                class="volume-btn button-interactive-subtle"
-                :disabled="volumeStore.isAdjusting">
+        <button @click="handleVolumeDown" @touchstart="addPressEffect" @mousedown="addPressEffect"
+          class="volume-btn button-interactive-subtle" :disabled="volumeStore.isAdjusting">
           <Icon name="minus" :size="32" />
         </button>
-        <button @click="handleVolumeUp" 
-                @touchstart="addPressEffect"
-                @mousedown="addPressEffect"
-                class="volume-btn button-interactive-subtle"
-                :disabled="volumeStore.isAdjusting">
+        <button @click="handleVolumeUp" @touchstart="addPressEffect" @mousedown="addPressEffect"
+          class="volume-btn button-interactive-subtle" :disabled="volumeStore.isAdjusting">
           <Icon name="plus" :size="32" />
         </button>
       </div>
@@ -50,25 +40,22 @@
       <div class="app-container">
         <!-- Spotify -->
         <button ref="dockItem0" @click="() => { resetHideTimer(); moveIndicatorTo(0); changeSource('librespot'); }"
-          @touchstart="addPressEffect"
-          @mousedown="addPressEffect"
-          :disabled="unifiedStore.isTransitioning" class="dock-item button-interactive-subtle">
+          @touchstart="addPressEffect" @mousedown="addPressEffect" :disabled="unifiedStore.isTransitioning"
+          class="dock-item button-interactive-subtle">
           <AppIcon name="spotify" size="large" class="dock-item-icon" />
         </button>
 
         <!-- Bluetooth -->
         <button ref="dockItem1" @click="() => { resetHideTimer(); moveIndicatorTo(1); changeSource('bluetooth'); }"
-          @touchstart="addPressEffect"
-          @mousedown="addPressEffect"
-          :disabled="unifiedStore.isTransitioning" class="dock-item button-interactive-subtle">
+          @touchstart="addPressEffect" @mousedown="addPressEffect" :disabled="unifiedStore.isTransitioning"
+          class="dock-item button-interactive-subtle">
           <AppIcon name="bluetooth" size="large" class="dock-item-icon" />
         </button>
 
         <!-- ROC for Mac -->
         <button ref="dockItem2" @click="() => { resetHideTimer(); moveIndicatorTo(2); changeSource('roc'); }"
-          @touchstart="addPressEffect"
-          @mousedown="addPressEffect"
-          :disabled="unifiedStore.isTransitioning" class="dock-item button-interactive-subtle">
+          @touchstart="addPressEffect" @mousedown="addPressEffect" :disabled="unifiedStore.isTransitioning"
+          class="dock-item button-interactive-subtle">
           <AppIcon name="roc" size="large" class="dock-item-icon" />
         </button>
 
@@ -76,27 +63,21 @@
         <div ref="separator" class="dock-separator"></div>
 
         <!-- Toggle Additional Apps - Mobile uniquement -->
-        <button ref="dockToggle" 
-                @click="() => { resetHideTimer(); toggleAdditionalApps(); }"
-                @touchstart="addPressEffect"
-                @mousedown="addPressEffect"
-                class="dock-item toggle-btn mobile-only button-interactive">
+        <button ref="dockToggle" @click="() => { resetHideTimer(); toggleAdditionalApps(); }"
+          @touchstart="addPressEffect" @mousedown="addPressEffect"
+          class="dock-item toggle-btn mobile-only button-interactive">
           <Icon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
         <!-- Multiroom - Desktop uniquement -->
-        <button ref="dockItem3" @click="() => { resetHideTimer(); openSnapcast(); }"
-          @touchstart="addPressEffect"
-          @mousedown="addPressEffect"
-          class="dock-item desktop-only button-interactive-subtle">
+        <button ref="dockItem3" @click="() => { resetHideTimer(); openSnapcast(); }" @touchstart="addPressEffect"
+          @mousedown="addPressEffect" class="dock-item desktop-only button-interactive-subtle">
           <AppIcon name="multiroom" size="large" class="dock-item-icon" />
         </button>
 
         <!-- Equalizer - Desktop uniquement -->
-        <button ref="dockItem4" @click="() => { resetHideTimer(); openEqualizer(); }"
-          @touchstart="addPressEffect"
-          @mousedown="addPressEffect"
-          class="dock-item desktop-only button-interactive-subtle">
+        <button ref="dockItem4" @click="() => { resetHideTimer(); openEqualizer(); }" @touchstart="addPressEffect"
+          @mousedown="addPressEffect" class="dock-item desktop-only button-interactive-subtle">
           <AppIcon name="equalizer" size="large" class="dock-item-icon" />
         </button>
       </div>
@@ -294,10 +275,10 @@ async function decreaseVolume() {
 function addPressEffect(e) {
   const button = e.target.closest('button');
   if (!button || button.disabled) return;
-  
+
   // Ajouter la classe d'effet press
   button.classList.add('is-pressed');
-  
+
   // Retirer automatiquement après 150ms
   setTimeout(() => {
     button.classList.remove('is-pressed');
@@ -374,16 +355,16 @@ function showDock() {
 
 function hideDock() {
   if (!isVisible.value) return;
-  
+
   // Retirer fully-visible pour réactiver les délais pour l'animation de sortie
   isFullyVisible.value = false;
-  
+
   // Déclencher l'animation de disparition
   showAdditionalApps.value = false;
   isVisible.value = false;
   clearHideTimer();
   indicatorStyle.value.opacity = '0';
-  
+
   // Retirer du DOM après l'animation
   setTimeout(() => {
     showAdditionalContainer.value = false;
@@ -485,7 +466,7 @@ onUnmounted(() => {
 .additional-apps-container.visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
-  pointer-events: auto; 
+  pointer-events: auto;
 }
 
 .additional-apps-container::before {
@@ -656,37 +637,37 @@ onUnmounted(() => {
 
 /* Ciblage par position globale dans .app-container */
 /* Spotify - 1er enfant global */
-.dock-container.visible .app-container > :nth-child(1) {
+.dock-container.visible .app-container> :nth-child(1) {
   transition-delay: 0.1s;
 }
 
 /* Bluetooth - 2ème enfant global */
-.dock-container.visible .app-container > :nth-child(2) {
+.dock-container.visible .app-container> :nth-child(2) {
   transition-delay: 0.15s;
 }
 
 /* ROC - 3ème enfant global */
-.dock-container.visible .app-container > :nth-child(3) {
+.dock-container.visible .app-container> :nth-child(3) {
   transition-delay: 0.2s;
 }
 
 /* Séparateur - 4ème enfant global */
-.dock-container.visible .app-container > :nth-child(4) {
+.dock-container.visible .app-container> :nth-child(4) {
   transition-delay: 0.225s;
 }
 
 /* Toggle mobile (5ème) - masqué en desktop */
-.dock-container.visible .app-container > :nth-child(5) {
+.dock-container.visible .app-container> :nth-child(5) {
   transition-delay: 0.25s;
 }
 
 /* Multiroom desktop - 6ème enfant global */
-.dock-container.visible .app-container > :nth-child(6) {
+.dock-container.visible .app-container> :nth-child(6) {
   transition-delay: 0.25s;
 }
 
 /* Equalizer desktop - 7ème enfant global */
-.dock-container.visible .app-container > :nth-child(7) {
+.dock-container.visible .app-container> :nth-child(7) {
   transition-delay: 0.3s;
 }
 
@@ -695,7 +676,7 @@ onUnmounted(() => {
 .dock-container.visible.fully-visible .dock-item,
 .dock-container.visible.fully-visible .dock-separator,
 .dock-container.visible.fully-visible .volume-controls,
-.dock-container.visible.fully-visible .app-container > * {
+.dock-container.visible.fully-visible .app-container>* {
   transition-delay: 0s !important;
 }
 
@@ -748,6 +729,15 @@ onUnmounted(() => {
   }
 }
 
+/* iOS */
+.ios-app .drag-zone {
+  height: var(--space-09);
+
+}
+.ios-app  .dock-container.visible {
+    transform: translate(-50%) translateY(-48px) scale(1);
+}
+
 /* Desktop - masquer les éléments mobile */
 @media not (max-aspect-ratio: 4/3) {
   .mobile-only {
@@ -768,21 +758,22 @@ onUnmounted(() => {
 .volume-btn.is-pressed {
   transform: scale(0.92) !important;
   opacity: 0.8 !important;
-  transition-delay: 0s !important; 
+  transition-delay: 0s !important;
 }
 
 /* Animation pour les dock-items (app icons) */
 .dock-item.is-pressed {
   transform: scale(0.92) !important;
   opacity: 0.8 !important;
-  transition-delay: 0s !important; 
+  transition-delay: 0s !important;
 }
 
 /* Animation pour les additional-app-content */
 .additional-app-content.is-pressed {
   transform: scale(0.97) !important;
   opacity: 0.8 !important;
-  transition-delay: 0s !important; /* Override du stagger delay */
+  transition-delay: 0s !important;
+  /* Override du stagger delay */
 }
 
 /* Pas d'animation sur les boutons disabled */

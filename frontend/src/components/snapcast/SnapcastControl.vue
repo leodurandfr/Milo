@@ -6,8 +6,9 @@
   </div>
 
   <div v-else-if="clients.length === 0" class="not-active">
-    <span class="loading"></span>
-    Aucun client n'est connecté
+    <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
+    <p class="text-mono">Aucun client n'est connecté</p>
+    
   </div>
 
   <div v-else class="clients-list">

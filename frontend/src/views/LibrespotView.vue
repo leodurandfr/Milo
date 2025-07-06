@@ -22,8 +22,8 @@
         <!-- Bloc 2 : Contrôles (aligné en bas) -->
         <div class="controls-section">
           <div class="progress-wrapper" :class="{ 'slide-up': showProgressBar }">
-            <ProgressBar :currentPosition="currentPosition" :duration="duration" :progressPercentage="progressPercentage"
-              @seek="seekToPosition" />
+            <ProgressBar :currentPosition="currentPosition" :duration="duration"
+              :progressPercentage="progressPercentage" @seek="seekToPosition" />
           </div>
           <div class="controls-wrapper" :class="{ 'slide-up': showControls }">
             <PlaybackControls :isPlaying="unifiedStore.metadata.is_playing" @play-pause="togglePlayPause"
@@ -78,20 +78,20 @@ const hasTrackInfo = computed(() => {
 async function animatePlayerIn() {
   showPlayer.value = true;
   await nextTick();
-  
+
   // Album art apparaît en premier
   showAlbumArt.value = true;
-  
+
   // Track info après 200ms
   setTimeout(() => {
     showTrackInfo.value = true;
   }, 100);
-  
+
   // Progress bar après 400ms
   setTimeout(() => {
     showProgressBar.value = true;
   }, 200);
-  
+
   // Controls après 600ms
   setTimeout(() => {
     showControls.value = true;
@@ -153,7 +153,7 @@ onMounted(async () => {
         });
 
         console.log("Position initiale chargée:", metadata.position);
-        
+
         // Déclencher l'animation si on a déjà les infos
         if (hasTrackInfo.value) {
           await nextTick();
@@ -256,7 +256,7 @@ onMounted(async () => {
 .controls-section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-05);
+  gap: var(--space-07);
 }
 
 .album-art {
@@ -315,4 +315,12 @@ onMounted(async () => {
     margin-bottom: var(--space-05);
   }
 }
+
+.ios-app .now-playing {
+  padding: var(--space-08) var(--space-05) 0 var(--space-05);
+}
+.ios-app .controls-section {
+    margin-bottom: var(--space-09);
+
+  }
 </style>

@@ -108,7 +108,8 @@ onMounted(() => {
   height: 100%;
   background: var(--color-background-contrast);
   border-radius: var(--radius-full);
-  left: -0.3px; /* trick to hide bad supperposition */
+  left: -0.3px;
+  /* trick to hide bad supperposition */
   transition: width 0.2s ease;
 }
 
@@ -116,5 +117,9 @@ onMounted(() => {
   .volume-bar {
     width: calc(100% - 2*(var(--space-04)));
   }
+}
+
+.ios-app .volume-bar {
+  top: var(--space-08);
 }
 </style>

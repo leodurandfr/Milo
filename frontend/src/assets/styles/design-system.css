@@ -17,8 +17,9 @@
     --color-background-neutral-50: #FFFFFF80;
     --color-background-neutral-32: #FFFFFF52;
     --color-background-neutral-12: #FFFFFF1F;
-    --color-background-contrast: #1C2524;
-    --color-background-glass: #5151513D;
+    --color-background-contrast: #222825;
+    --color-background-contrast-64: #222825A3;
+    --color-background-glass: #7878783D;
 
 
     /* === TRACÉS === */
@@ -105,7 +106,7 @@
         --space-06: 24px;
         --space-07: 32px;
         --space-08: 48px;
-        --space-08: 64px;
+        --space-09: 64px;
 
 
 

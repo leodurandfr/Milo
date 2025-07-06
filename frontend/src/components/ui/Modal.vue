@@ -4,22 +4,11 @@
     @click.self="handleOverlayClick">
     <div class="modal-container" :class="{ 'fixed-height': heightMode === 'fixed' }">
       <!-- Bouton close avec nouveau composant -->
-      <IconButtonFloating 
-        class="close-btn-position"
-        icon-name="close" 
-        aria-label="Fermer"
-        @click="close" 
-      />
+      <IconButtonFloating class="close-btn-position" icon-name="close" aria-label="Fermer" @click="close" />
 
       <!-- Contenu -->
-      <div 
-        ref="modalContent"
-        class="modal-content"
-        @pointerdown="handlePointerDown"
-        @pointermove="handlePointerMove"
-        @pointerup="handlePointerUp"
-        @pointercancel="handlePointerUp"
-      >
+      <div ref="modalContent" class="modal-content" @pointerdown="handlePointerDown" @pointermove="handlePointerMove"
+        @pointerup="handlePointerUp" @pointercancel="handlePointerUp">
         <slot></slot>
       </div>
     </div>
@@ -71,16 +60,16 @@ function handleOverlayClick() {
 // Gestion du pointer scroll
 function handlePointerDown(event) {
   if (!modalContent.value) return;
-  
+
   // Exclure les sliders et autres contrôles interactifs
   const isSlider = event.target.closest('input[type="range"]');
   const isButton = event.target.closest('button');
   const isInput = event.target.closest('input, select, textarea');
-  
+
   if (isSlider || isButton || isInput) {
     return; // Laisser ces éléments gérer leurs propres événements
   }
-  
+
   isDragging = true;
   hasMoved = false;
   pointerId = event.pointerId;
@@ -90,20 +79,20 @@ function handlePointerDown(event) {
 
 function handlePointerMove(event) {
   if (!isDragging || event.pointerId !== pointerId || !modalContent.value) return;
-  
+
   const deltaY = Math.abs(startY - event.clientY);
-  
+
   // Seuil de mouvement pour distinguer clic vs drag
   if (deltaY > 5) {
     hasMoved = true;
-    
+
     // Capturer seulement quand on commence vraiment à dragger
     if (!modalContent.value.hasPointerCapture(event.pointerId)) {
       modalContent.value.setPointerCapture(event.pointerId);
     }
-    
+
     event.preventDefault();
-    
+
     const scrollDelta = startY - event.clientY;
     modalContent.value.scrollTop = startScrollTop + scrollDelta;
   }
@@ -114,7 +103,7 @@ function handlePointerUp(event) {
     isDragging = false;
     pointerId = null;
     hasMoved = false;
-    
+
     if (modalContent.value && modalContent.value.hasPointerCapture(event.pointerId)) {
       modalContent.value.releasePointerCapture(event.pointerId);
     }
@@ -154,8 +143,9 @@ watch(() => props.isOpen, (newValue) => {
 
 <style scoped>
 ::-webkit-scrollbar {
-    display: none;
+  display: none;
 }
+
 /* Overlay - comportement par défaut (auto) */
 .modal-overlay {
   position: fixed;
@@ -163,7 +153,7 @@ watch(() => props.isOpen, (newValue) => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--color-background-neutral-50);
+  background: var(--color-background-contrast-64);
   backdrop-filter: blur(32px);
   display: flex;
   align-items: flex-start;
@@ -180,7 +170,7 @@ watch(() => props.isOpen, (newValue) => {
 /* Container - comportement par défaut (auto) */
 .modal-container {
   position: relative;
-  background: var(--color-background-glass);
+  background: var(--color-background-neutral-50);
   border-radius: var(--radius-06);
   width: 100%;
   max-width: 700px;
@@ -194,6 +184,7 @@ watch(() => props.isOpen, (newValue) => {
   position: absolute;
   inset: 0;
   padding: 2px;
+  opacity: 0.8;
   background: var(--stroke-glass);
   border-radius: var(--radius-06);
   -webkit-mask:
@@ -239,7 +230,8 @@ watch(() => props.isOpen, (newValue) => {
 @media (max-aspect-ratio: 4/3) {
   ::-webkit-scrollbar {
     display: none;
-}
+  }
+
   .close-btn-position {
     position: fixed;
     top: var(--space-05);
@@ -257,5 +249,14 @@ watch(() => props.isOpen, (newValue) => {
   .modal-container.fixed-height {
     height: min-content;
   }
+}
+
+.ios-app .modal-overlay,
+.ios-app .modal-overlay.fixed-height {
+  padding: 112px var(--space-02) var(--space-02) var(--space-02);
+}
+
+.ios-app .close-btn-position {
+  top: var(--space-08);
 }
 </style>

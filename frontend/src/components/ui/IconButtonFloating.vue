@@ -33,13 +33,13 @@ defineEmits(['click']);
 <style scoped>
 .icon-button-floating {
   position: absolute;
-  background: var(--color-background-glass);
+  background: var(--color-background-neutral-50);
   border: none;
   border-radius: 50%;
   width: 64px;
   height: 64px;
   cursor: pointer;
-  color: var(--color-text-contrast);
+  color: var(--color-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -53,6 +53,7 @@ defineEmits(['click']);
   position: absolute;
   inset: 0;
   padding: 2px;
+  opacity: 0.66;
   background: var(--stroke-glass);
   border-radius: 50%;
   -webkit-mask:
