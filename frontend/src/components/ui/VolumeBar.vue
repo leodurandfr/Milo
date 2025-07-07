@@ -2,8 +2,11 @@
 <template>
   <div class="volume-bar" :class="{ visible: isVisible }">
     <div class="volume-slider">
-      <div class="volume-fill" :style="{ width: `${currentVolume}%` }"></div>
-      <div class="text-mono">{{ currentVolume }} %</div>
+      <div class="volume-fill" :style="{ 
+        width: currentVolume >= 10 ? `${currentVolume}%` : '32px',
+        left: currentVolume >= 10 ? '-0.3px' : `${(currentVolume * 3.2) - 32}px`
+      }"></div>
+      <div class="text-mono">{{ currentVolume }} %</div>
     </div>
   </div>
 </template>
@@ -93,6 +96,7 @@ onMounted(() => {
   height: 32px;
   background: var(--color-background-neutral);
   border-radius: var(--radius-full);
+  overflow: hidden; /* Cache les parties qui sortent */
 }
 
 .volume-slider .text-mono {
@@ -108,9 +112,7 @@ onMounted(() => {
   height: 100%;
   background: var(--color-background-contrast);
   border-radius: var(--radius-full);
-  left: -0.3px;
-  /* trick to hide bad supperposition */
-  transition: width 0.2s ease;
+  transition: width 0.2s ease, left 0.2s ease;
 }
 
 @media (max-aspect-ratio: 4/3) {
