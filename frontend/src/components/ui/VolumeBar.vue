@@ -2,10 +2,7 @@
 <template>
   <div class="volume-bar" :class="{ visible: isVisible }">
     <div class="volume-slider">
-      <div class="volume-fill" :style="{ 
-        width: currentVolume >= 10 ? `${currentVolume}%` : '32px',
-        left: currentVolume >= 10 ? '-0.3px' : `${(currentVolume * 3.2) - 32}px`
-      }"></div>
+      <div class="volume-fill" :style="volumeFillStyle"></div>
       <div class="text-mono">{{ currentVolume }} %</div>
     </div>
   </div>
@@ -22,32 +19,30 @@ const { currentVolume } = storeToRefs(volumeStore);
 const isVisible = ref(false);
 let hideTimer = null;
 
+// Computed pour les styles du volume-fill
+const volumeFillStyle = computed(() => {
+  const volume = currentVolume.value;
+  const isCircleMode = volume < 10;
+  
+  return {
+    width: isCircleMode ? '32px' : `${volume}%`,
+    left: isCircleMode ? `${(volume * 3.2) - 32}px` : '-0.3px'
+  };
+});
+
 function showVolume() {
-  if (hideTimer) {
-    clearTimeout(hideTimer);
-  }
-
+  if (hideTimer) clearTimeout(hideTimer);
   isVisible.value = true;
-
-  hideTimer = setTimeout(() => {
-    isVisible.value = false;
-  }, 3000);
+  hideTimer = setTimeout(() => isVisible.value = false, 3000);
 }
 
 function hideVolume() {
-  if (hideTimer) {
-    clearTimeout(hideTimer);
-  }
+  if (hideTimer) clearTimeout(hideTimer);
   isVisible.value = false;
 }
 
-// Exposer les méthodes pour le parent
-defineExpose({
-  showVolume,
-  hideVolume
-});
+defineExpose({ showVolume, hideVolume });
 
-// Enregistrer la référence dans le store
 onMounted(() => {
   volumeStore.setVolumeBarRef({ showVolume, hideVolume });
 });

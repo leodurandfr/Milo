@@ -1,15 +1,15 @@
 <template>
   <div class="progress-bar" v-if="duration > 0">
     <span class="text-mono time">{{ formatTime(currentPosition) }}</span>
-    <div class="progress-container" @click="onProgressClick">
-      <div class="progress" :style="{ width: progressPercent + '%' }"></div>
+    <div ref="progressContainer" class="progress-container" @click="onProgressClick">
+      <div class="progress" :style="progressStyle"></div>
     </div>
     <span class="text-mono time">{{ formatTime(duration) }}</span>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 
 const props = defineProps({
   currentPosition: {
@@ -28,10 +28,42 @@ const props = defineProps({
 
 const emit = defineEmits(['seek']);
 
+const progressContainer = ref(null);
+const containerWidth = ref(400); // Valeur par défaut
+
 // Computed pour garantir une valeur numérique valide
 const progressPercent = computed(() => {
   const val = parseFloat(props.progressPercentage);
   return isNaN(val) ? 0 : Math.min(100, Math.max(0, val));
+});
+
+// Computed pour les styles de la barre de progression
+const progressStyle = computed(() => {
+  const percent = progressPercent.value;
+  const height = 8;
+  
+  // Calculer le pourcentage exact où 8px = X% de la largeur totale
+  const widthAt8px = (height / containerWidth.value) * 100;
+  
+  if (percent <= widthAt8px) {
+    // Mode cercle : tant que le % ne donne pas plus de 8px
+    return {
+      width: `${height}px`,
+      left: `${(percent / widthAt8px) * height - height}px`
+    };
+  } else {
+    // Mode barre : dès que le % donnerait plus de 8px
+    return {
+      width: `${percent}%`,
+      left: '0px'
+    };
+  }
+});
+
+onMounted(() => {
+  if (progressContainer.value) {
+    containerWidth.value = progressContainer.value.offsetWidth;
+  }
 });
 
 function formatTime(ms) {
@@ -50,10 +82,7 @@ function onProgressClick(event) {
   const offsetX = event.clientX - rect.left;
   const percentage = offsetX / rect.width;
 
-  // Calculer la nouvelle position en ms
   const newPosition = Math.floor(props.duration * percentage);
-
-  // Émettre l'événement vers le parent
   emit('seek', newPosition);
 }
 </script>
@@ -73,12 +102,15 @@ function onProgressClick(event) {
   border-radius: 4px;
   cursor: pointer;
   position: relative;
+  overflow: hidden;
 }
 
 .progress {
   height: 100%;
   background-color: var(--color-background-contrast);
   border-radius: 4px;
+  position: absolute;
+  transition: width 0.2s ease, left 0.2s ease;
 }
 
 .time {
