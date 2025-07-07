@@ -249,9 +249,16 @@ const hideDock = () => {
 
 // === GESTION DES CLICS ===
 const onClickOutside = (event) => {
-  if (isVisible.value && dockContainer.value && !dockContainer.value.contains(event.target)) {
-    hideDock();
-  }
+  if (!isVisible.value) return;
+  
+  // Vérifier si le clic est sur le dock
+  if (dockContainer.value && dockContainer.value.contains(event.target)) return;
+  
+  // Vérifier si le clic est sur une modal (overlay ou contenu)
+  const isModalClick = event.target.closest('.modal-overlay, .modal-container, .modal-content');
+  if (isModalClick) return;
+  
+  hideDock();
 };
 
 const onDragZoneClick = () => !isDragging.value && !isVisible.value && showDock();
