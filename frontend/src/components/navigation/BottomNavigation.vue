@@ -1,4 +1,4 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vue - Version OPTIM avec drag sur additional-apps -->
+<!-- frontend/src/components/navigation/BottomNavigation.vue - Version optimisée finale -->
 <template>
   <!-- Zone de drag invisible -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click="onDragZoneClick"></div>
@@ -9,81 +9,65 @@
   <!-- Dock de navigation -->
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }">
     <!-- Additional Apps - Mobile uniquement -->
-    <div v-if="showAdditionalContainer" 
+    <div v-if="additionalAppsInDOM" 
          ref="additionalAppsContainer"
          class="additional-apps-container mobile-only"
          :class="{ visible: showAdditionalApps }">
       <!-- Multiroom -->
-      <button @click="() => { resetHideTimer(); openSnapcast(); }" @touchstart="addPressEffect"
-        @mousedown="addPressEffect" class="additional-app-content button-interactive-subtle">
+      <button @click="openSnapcast" @touchstart="addPressEffect" @mousedown="addPressEffect" 
+              class="additional-app-content button-interactive-subtle">
         <AppIcon name="multiroom" :size="32" />
         <div class="app-title heading-2">Multiroom</div>
       </button>
 
       <!-- Equalizer -->
-      <button @click="() => { resetHideTimer(); openEqualizer(); }" @touchstart="addPressEffect"
-        @mousedown="addPressEffect" class="additional-app-content button-interactive-subtle">
+      <button @click="openEqualizer" @touchstart="addPressEffect" @mousedown="addPressEffect" 
+              class="additional-app-content button-interactive-subtle">
         <AppIcon name="equalizer" :size="32" />
         <div class="app-title heading-2">Égaliseur</div>
       </button>
     </div>
+    
     <div ref="dock" class="dock">
-
       <!-- Volume Controls - Mobile uniquement -->
       <div class="volume-controls mobile-only">
         <button @click="handleVolumeDown" @touchstart="addPressEffect" @mousedown="addPressEffect"
-          class="volume-btn button-interactive-subtle" :disabled="volumeStore.isAdjusting">
+                class="volume-btn button-interactive-subtle" :disabled="volumeStore.isAdjusting">
           <Icon name="minus" :size="32" />
         </button>
         <button @click="handleVolumeUp" @touchstart="addPressEffect" @mousedown="addPressEffect"
-          class="volume-btn button-interactive-subtle" :disabled="volumeStore.isAdjusting">
+                class="volume-btn button-interactive-subtle" :disabled="volumeStore.isAdjusting">
           <Icon name="plus" :size="32" />
         </button>
       </div>
 
       <!-- App Container -->
       <div class="app-container">
-        <!-- Spotify -->
-        <button ref="dockItem0" @click="() => { resetHideTimer(); moveIndicatorTo(0); changeSource('librespot'); }"
-          @touchstart="addPressEffect" @mousedown="addPressEffect" :disabled="unifiedStore.isTransitioning"
-          class="dock-item button-interactive-subtle">
-          <AppIcon name="spotify" size="large" class="dock-item-icon" />
-        </button>
-
-        <!-- Bluetooth -->
-        <button ref="dockItem1" @click="() => { resetHideTimer(); moveIndicatorTo(1); changeSource('bluetooth'); }"
-          @touchstart="addPressEffect" @mousedown="addPressEffect" :disabled="unifiedStore.isTransitioning"
-          class="dock-item button-interactive-subtle">
-          <AppIcon name="bluetooth" size="large" class="dock-item-icon" />
-        </button>
-
-        <!-- ROC for Mac -->
-        <button ref="dockItem2" @click="() => { resetHideTimer(); moveIndicatorTo(2); changeSource('roc'); }"
-          @touchstart="addPressEffect" @mousedown="addPressEffect" :disabled="unifiedStore.isTransitioning"
-          class="dock-item button-interactive-subtle">
-          <AppIcon name="roc" size="large" class="dock-item-icon" />
+        <!-- Sources Audio -->
+        <button v-for="(source, index) in audioSources" :key="source.id"
+                :ref="el => dockItems[index] = el"
+                @click="() => handleSourceClick(source.id, index)"
+                @touchstart="addPressEffect" @mousedown="addPressEffect" 
+                :disabled="unifiedStore.isTransitioning"
+                class="dock-item button-interactive-subtle">
+          <AppIcon :name="source.icon" size="large" class="dock-item-icon" />
         </button>
 
         <!-- Séparateur -->
         <div ref="separator" class="dock-separator"></div>
 
         <!-- Toggle Additional Apps - Mobile uniquement -->
-        <button ref="dockToggle" @click="() => { resetHideTimer(); toggleAdditionalApps(); }"
-          @touchstart="addPressEffect" @mousedown="addPressEffect"
-          class="dock-item toggle-btn mobile-only button-interactive">
+        <button ref="dockToggle" @click="handleToggleClick"
+                @touchstart="addPressEffect" @mousedown="addPressEffect"
+                class="dock-item toggle-btn mobile-only button-interactive">
           <Icon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
-        <!-- Multiroom - Desktop uniquement -->
-        <button ref="dockItem3" @click="() => { resetHideTimer(); openSnapcast(); }" @touchstart="addPressEffect"
-          @mousedown="addPressEffect" class="dock-item desktop-only button-interactive-subtle">
-          <AppIcon name="multiroom" size="large" class="dock-item-icon" />
-        </button>
-
-        <!-- Equalizer - Desktop uniquement -->
-        <button ref="dockItem4" @click="() => { resetHideTimer(); openEqualizer(); }" @touchstart="addPressEffect"
-          @mousedown="addPressEffect" class="dock-item desktop-only button-interactive-subtle">
-          <AppIcon name="equalizer" size="large" class="dock-item-icon" />
+        <!-- Actions Desktop -->
+        <button v-for="action in desktopActions" :key="action.id"
+                @click="action.handler" @touchstart="addPressEffect" @mousedown="addPressEffect"
+                class="dock-item desktop-only button-interactive-subtle">
+          <AppIcon :name="action.icon" size="large" class="dock-item-icon" />
         </button>
       </div>
 
@@ -100,86 +84,51 @@ import { useVolumeStore } from '@/stores/volumeStore';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import Icon from '@/components/ui/Icon.vue';
 
-// === ÉMISSIONS VERS APP.VUE ===
+// === CONFIGURATION ===
+const ANIMATION_DURATION = 400; // Durée des animations en ms
+const AUTO_HIDE_DELAY = 10000; // Délai auto-masquage en ms
+const DRAG_THRESHOLD = 30; // Seuil de drag en pixels
+
+const audioSources = [
+  { id: 'librespot', icon: 'spotify' },
+  { id: 'bluetooth', icon: 'bluetooth' },
+  { id: 'roc', icon: 'roc' }
+];
+
+const desktopActions = [
+  { id: 'multiroom', icon: 'multiroom', handler: () => openSnapcast() },
+  { id: 'equalizer', icon: 'equalizer', handler: () => openEqualizer() }
+];
+
+// === ÉMISSIONS ===
 const emit = defineEmits(['open-snapcast', 'open-equalizer']);
 
-// Stores
+// === STORES ===
 const unifiedStore = useUnifiedAudioStore();
 const volumeStore = useVolumeStore();
 
-// Refs pour le drag et les éléments
+// === REFS ===
 const dragZone = ref(null);
 const dockContainer = ref(null);
 const dock = ref(null);
 const activeIndicator = ref(null);
-const separator = ref(null);
-const dockToggle = ref(null);
 const additionalAppsContainer = ref(null);
+const dockItems = ref([]);
 
-// Refs pour les dock-items (pour calculer la position de l'indicateur)
-const dockItem0 = ref(null);
-const dockItem1 = ref(null);
-const dockItem2 = ref(null);
-const dockItem3 = ref(null);
-const dockItem4 = ref(null);
-
-// État du dock
+// === ÉTAT ===
 const isVisible = ref(false);
 const isFullyVisible = ref(false);
 const isDragging = ref(false);
 const showAdditionalApps = ref(false);
-const showAdditionalContainer = ref(false);
 const showDragIndicator = ref(false);
+const additionalAppsInDOM = ref(false);
 
-// Variables de drag
+// === VARIABLES INTERNES ===
 let dragStartY = 0;
-let dragCurrentY = 0;
-const dragThreshold = 30;
-let clickTimeout = null;
 let hideTimeout = null;
-
-// Variables pour le drag sur additional-apps
+let additionalHideTimeout = null;
 let isDraggingAdditional = false;
 let additionalDragStartY = 0;
-
-// Computed pour gérer la présence dans le DOM
-const shouldShowAdditionalContainer = computed(() => {
-  return isVisible.value || showAdditionalApps.value;
-});
-
-// === ACTIONS MODALES ===
-function openSnapcast() {
-  console.log('📻 BottomNavigation: Opening Snapcast modal');
-  emit('open-snapcast');
-}
-
-function openEqualizer() {
-  console.log('🎛️ BottomNavigation: Opening Equalizer modal');
-  emit('open-equalizer');
-}
-
-// === ADDITIONAL APPS ===
-function toggleAdditionalApps() {
-  showAdditionalApps.value = !showAdditionalApps.value;
-  
-  // Réattacher les événements quand le container devient visible
-  if (showAdditionalApps.value) {
-    nextTick(() => {
-      setupAdditionalDragEvents();
-    });
-  }
-}
-
-function closeAdditionalApps() {
-  showAdditionalApps.value = false;
-}
-
-// === GESTION DU CLIC SUR LA DRAG ZONE ===
-function onDragZoneClick() {
-  if (!isDragging.value && !isVisible.value) {
-    showDock();
-  }
-}
 
 // === INDICATEUR ACTIF ===
 const indicatorStyle = ref({
@@ -188,72 +137,30 @@ const indicatorStyle = ref({
   transition: 'all var(--transition-spring)'
 });
 
-// Bouger l'indicateur immédiatement vers un index donné
-function moveIndicatorTo(index) {
-  if (!isVisible.value) return;
-
-  nextTick(() => {
-    const dockItems = [
-      dockItem0.value, dockItem1.value, dockItem2.value,
-      dockItem3.value, dockItem4.value
-    ];
-
-    const targetItem = dockItems[index];
-    if (!targetItem || !dock.value) return;
-
-    const dockRect = dock.value.getBoundingClientRect();
-    const itemRect = targetItem.getBoundingClientRect();
-
-    // Centrer parfaitement l'indicateur 4x4px sous l'item
-    const itemCenterX = itemRect.left - dockRect.left + (itemRect.width / 2);
-    const offsetX = itemCenterX - 2; // -2 pour centrer le bloc de 4px
-
-    indicatorStyle.value = {
-      opacity: '1',
-      transform: `translateX(${offsetX}px)`,
-      transition: 'all var(--transition-spring)'
-    };
-  });
-}
+const activeSourceIndex = computed(() => {
+  return audioSources.findIndex(source => source.id === unifiedStore.currentSource);
+});
 
 function updateActiveIndicator() {
-  if (!isVisible.value) return;
-
-  // OPTIM : Déterminer quel élément est actif (seulement les sources audio)
-  let activeIndex = -1;
-
-  if (unifiedStore.currentSource === 'librespot') activeIndex = 0;
-  else if (unifiedStore.currentSource === 'bluetooth') activeIndex = 1;
-  else if (unifiedStore.currentSource === 'roc') activeIndex = 2;
-
-  if (activeIndex === -1) {
+  if (!isVisible.value || activeSourceIndex.value === -1) {
     indicatorStyle.value.opacity = '0';
     return;
   }
 
   nextTick(() => {
-    const dockItems = [
-      dockItem0.value, dockItem1.value, dockItem2.value,
-      dockItem3.value, dockItem4.value
-    ];
-
-    const targetItem = dockItems[activeIndex];
+    const targetItem = dockItems.value[activeSourceIndex.value];
     if (!targetItem || !dock.value) return;
 
     const dockRect = dock.value.getBoundingClientRect();
     const itemRect = targetItem.getBoundingClientRect();
+    const offsetX = itemRect.left - dockRect.left + (itemRect.width / 2) - 2;
 
-    const itemCenterX = itemRect.left - dockRect.left + (itemRect.width / 2);
-    const offsetX = itemCenterX - 2;
-
-    // Positionner immédiatement sans transition pour le transform
     indicatorStyle.value = {
       opacity: '0',
       transform: `translateX(${offsetX}px)`,
       transition: 'none'
     };
 
-    // Animer l'apparition après un court délai
     setTimeout(() => {
       indicatorStyle.value = {
         opacity: '1',
@@ -264,37 +171,215 @@ function updateActiveIndicator() {
   });
 }
 
-// === TIMER AUTO-MASQUAGE ===
-function startHideTimer() {
-  clearTimeout(hideTimeout);
-  hideTimeout = setTimeout(() => {
-    hideDock();
-  }, 10000);
+function moveIndicatorTo(index) {
+  if (!isVisible.value) return;
+
+  nextTick(() => {
+    const targetItem = dockItems.value[index];
+    if (!targetItem || !dock.value) return;
+
+    const dockRect = dock.value.getBoundingClientRect();
+    const itemRect = targetItem.getBoundingClientRect();
+    const offsetX = itemRect.left - dockRect.left + (itemRect.width / 2) - 2;
+
+    indicatorStyle.value = {
+      opacity: '1',
+      transform: `translateX(${offsetX}px)`,
+      transition: 'all var(--transition-spring)'
+    };
+  });
 }
 
-function clearHideTimer() {
+// === GESTION DES TIMERS ===
+function startHideTimer() {
   clearTimeout(hideTimeout);
+  hideTimeout = setTimeout(hideDock, AUTO_HIDE_DELAY);
 }
 
 function resetHideTimer() {
-  if (isVisible.value) {
-    startHideTimer();
+  if (isVisible.value) startHideTimer();
+}
+
+// === ACTIONS ===
+function openSnapcast() {
+  resetHideTimer();
+  emit('open-snapcast');
+}
+
+function openEqualizer() {
+  resetHideTimer();
+  emit('open-equalizer');
+}
+
+function handleSourceClick(sourceId, index) {
+  resetHideTimer();
+  moveIndicatorTo(index);
+  unifiedStore.changeSource(sourceId);
+}
+
+function handleVolumeUp() {
+  resetHideTimer();
+  volumeStore.increaseVolume();
+}
+
+function handleVolumeDown() {
+  resetHideTimer();
+  volumeStore.decreaseVolume();
+}
+
+// === GESTION DES ADDITIONAL APPS ===
+function toggleAdditionalApps() {
+  if (!showAdditionalApps.value) {
+    additionalAppsInDOM.value = true;
+    clearTimeout(additionalHideTimeout);
+    
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        showAdditionalApps.value = true;
+        setupAdditionalDragEvents();
+      });
+    });
+  } else {
+    showAdditionalApps.value = false;
+    clearTimeout(additionalHideTimeout);
+    additionalHideTimeout = setTimeout(() => {
+      additionalAppsInDOM.value = false;
+    }, ANIMATION_DURATION);
   }
 }
 
-async function changeSource(source) {
-  await unifiedStore.changeSource(source);
+function closeAdditionalApps() {
+  if (!showAdditionalApps.value) return;
+  
+  showAdditionalApps.value = false;
+  clearTimeout(additionalHideTimeout);
+  additionalHideTimeout = setTimeout(() => {
+    additionalAppsInDOM.value = false;
+  }, ANIMATION_DURATION);
 }
 
-async function increaseVolume() {
-  await volumeStore.increaseVolume();
+function handleToggleClick(event) {
+  if (event.target.closest('.toggle-icon')) {
+    event.stopPropagation();
+  }
+  resetHideTimer();
+  toggleAdditionalApps();
 }
 
-async function decreaseVolume() {
-  await volumeStore.decreaseVolume();
+// === GESTION DU DOCK ===
+function showDock() {
+  if (isVisible.value) return;
+  
+  isVisible.value = true;
+  isFullyVisible.value = false;
+  startHideTimer();
+
+  setTimeout(() => {
+    isFullyVisible.value = true;
+  }, ANIMATION_DURATION);
+
+  setTimeout(() => {
+    updateActiveIndicator();
+  }, ANIMATION_DURATION + 100);
 }
 
-// === GESTION DES CLICS AVEC EFFET PRESS TEMPORAIRE ===
+function hideDock() {
+  if (!isVisible.value) return;
+
+  isFullyVisible.value = false;
+  showAdditionalApps.value = false;
+  isVisible.value = false;
+  clearTimeout(hideTimeout);
+  clearTimeout(additionalHideTimeout);
+  indicatorStyle.value.opacity = '0';
+  additionalAppsInDOM.value = false;
+}
+
+// === GESTION DES CLICS EXTÉRIEURS ===
+function onClickOutside(event) {
+  if (!isVisible.value) return;
+  
+  const dock = dockContainer.value;
+  if (dock && !dock.contains(event.target)) {
+    hideDock();
+  }
+}
+
+function onDragZoneClick() {
+  if (!isDragging.value && !isVisible.value) {
+    showDock();
+  }
+}
+
+// === GESTION DU DRAG ===
+function getEventY(e) {
+  return e.type.includes('touch') 
+    ? (e.touches[0]?.clientY || e.changedTouches[0]?.clientY)
+    : e.clientY;
+}
+
+function onDragStart(e) {
+  isDragging.value = true;
+  dragStartY = getEventY(e);
+}
+
+function onDragMove(e) {
+  if (isDraggingAdditional) {
+    const deltaY = getEventY(e) - additionalDragStartY;
+    if (Math.abs(deltaY) >= DRAG_THRESHOLD && deltaY > 0) {
+      closeAdditionalApps();
+      isDraggingAdditional = false;
+    }
+    return;
+  }
+
+  if (!isDragging.value) return;
+
+  const deltaY = dragStartY - getEventY(e);
+  if (Math.abs(deltaY) >= DRAG_THRESHOLD) {
+    if (deltaY > 0 && !isVisible.value) {
+      showDock();
+    } else if (deltaY < 0 && isVisible.value) {
+      hideDock();
+    }
+    isDragging.value = false;
+  }
+}
+
+function onDragEnd() {
+  if (isDraggingAdditional) {
+    isDraggingAdditional = false;
+    return;
+  }
+  
+  isDragging.value = false;
+  resetHideTimer();
+}
+
+// === GESTION DU DRAG ADDITIONAL APPS ===
+function onAdditionalDragStart(e) {
+  if (!showAdditionalApps.value) return;
+  isDraggingAdditional = true;
+  additionalDragStartY = getEventY(e);
+}
+
+function setupAdditionalDragEvents() {
+  const additionalEl = additionalAppsContainer.value;
+  if (additionalEl) {
+    additionalEl.addEventListener('mousedown', onAdditionalDragStart);
+    additionalEl.addEventListener('touchstart', onAdditionalDragStart, { passive: false });
+  }
+}
+
+function removeAdditionalDragEvents() {
+  const additionalEl = additionalAppsContainer.value;
+  if (additionalEl) {
+    additionalEl.removeEventListener('mousedown', onAdditionalDragStart);
+    additionalEl.removeEventListener('touchstart', onAdditionalDragStart);
+  }
+}
+
+// === EFFETS VISUELS ===
 function addPressEffect(e) {
   const button = e.target.closest('button');
   if (!button || button.disabled) return;
@@ -305,140 +390,13 @@ function addPressEffect(e) {
   }, 150);
 }
 
-function handleVolumeUp(e) {
-  resetHideTimer();
-  increaseVolume();
-}
-
-function handleVolumeDown(e) {
-  resetHideTimer();
-  decreaseVolume();
-}
-
-// === LOGIQUE DRAG ===
-function getEventY(e) {
-  return e.type.includes('touch')
-    ? (e.touches[0]?.clientY || e.changedTouches[0]?.clientY)
-    : e.clientY;
-}
-
-function onDragStart(e) {
-  isDragging.value = true;
-  dragStartY = getEventY(e);
-  dragCurrentY = dragStartY;
-}
-
-function onDragMove(e) {
-  // Si on drag les additional apps
-  if (isDraggingAdditional) {
-    const currentY = getEventY(e);
-    const deltaY = currentY - additionalDragStartY;
-
-    if (Math.abs(deltaY) >= dragThreshold && deltaY > 0) {
-      closeAdditionalApps();
-      isDraggingAdditional = false;
-    }
-    return;
-  }
-
-  // Logique normale du dock
-  if (!isDragging.value) return;
-
-  dragCurrentY = getEventY(e);
-  const deltaY = dragStartY - dragCurrentY;
-  const absDelta = Math.abs(deltaY);
-
-  if (absDelta >= dragThreshold) {
-    if (deltaY > 0 && !isVisible.value) {
-      showDock();
-      isDragging.value = false;
-    } else if (deltaY < 0 && isVisible.value) {
-      hideDock();
-      isDragging.value = false;
-    }
-  }
-}
-
-function onDragEnd() {
-  clearTimeout(clickTimeout);
-  
-  if (isDraggingAdditional) {
-    isDraggingAdditional = false;
-    return;
-  }
-  
-  isDragging.value = false;
-
-  if (!isDragging.value) {
-    resetHideTimer();
-  }
-}
-
-// === LOGIQUE DRAG POUR ADDITIONAL APPS ===
-function onAdditionalDragStart(e) {
-  if (!showAdditionalApps.value) return;
-  
-  isDraggingAdditional = true;
-  additionalDragStartY = getEventY(e);
-  dragCurrentY = additionalDragStartY;
-}
-
-function onAdditionalDragMove(e) {
-  if (!isDraggingAdditional) return;
-
-  const currentY = getEventY(e);
-  const deltaY = currentY - additionalDragStartY;
-  const absDelta = Math.abs(deltaY);
-
-  // Drag vers le bas pour fermer
-  if (absDelta >= dragThreshold && deltaY > 0) {
-    closeAdditionalApps();
-    isDraggingAdditional = false;
-  }
-}
-
-function onAdditionalDragEnd() {
-  isDraggingAdditional = false;
-}
-
-function showDock() {
-  if (isVisible.value) return;
-  showAdditionalContainer.value = true;
-  isVisible.value = true;
-  isFullyVisible.value = false;
-  clearHideTimer();
-  startHideTimer();
-
-  setTimeout(() => {
-    isFullyVisible.value = true;
-  }, 400);
-
-  setTimeout(() => {
-    updateActiveIndicator();
-  }, 500);
-}
-
-function hideDock() {
-  if (!isVisible.value) return;
-
-  isFullyVisible.value = false;
-  showAdditionalApps.value = false;
-  isVisible.value = false;
-  clearHideTimer();
-  indicatorStyle.value.opacity = '0';
-
-  setTimeout(() => {
-    showAdditionalContainer.value = false;
-  }, 300);
-}
-
+// === ÉVÉNEMENTS GLOBAUX ===
 function setupDragEvents() {
   const zone = dragZone.value;
   const dockEl = dock.value;
   
   if (!zone) return;
 
-  // Événements pour le drag principal
   zone.addEventListener('mousedown', onDragStart);
   zone.addEventListener('touchstart', onDragStart, { passive: false });
   zone.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
@@ -448,39 +406,21 @@ function setupDragEvents() {
     dockEl.addEventListener('touchstart', onDragStart, { passive: false });
   }
 
-  // Événements globaux
   document.addEventListener('mousemove', onDragMove);
   document.addEventListener('mouseup', onDragEnd);
   document.addEventListener('touchmove', onDragMove, { passive: false });
   document.addEventListener('touchend', onDragEnd);
-}
-
-function setupAdditionalDragEvents() {
-  const additionalEl = additionalAppsContainer.value;
-  
-  if (additionalEl) {
-    additionalEl.addEventListener('mousedown', onAdditionalDragStart);
-    additionalEl.addEventListener('touchstart', onAdditionalDragStart, { passive: false });
-  }
-}
-
-function removeAdditionalDragEvents() {
-  const additionalEl = additionalAppsContainer.value;
-  
-  if (additionalEl) {
-    additionalEl.removeEventListener('mousedown', onAdditionalDragStart);
-    additionalEl.removeEventListener('touchstart', onAdditionalDragStart);
-  }
+  document.addEventListener('click', onClickOutside);
 }
 
 function removeDragEvents() {
   const zone = dragZone.value;
   const dockEl = dock.value;
   
-  if (!zone) return;
-
-  zone.removeEventListener('mousedown', onDragStart);
-  zone.removeEventListener('touchstart', onDragStart);
+  if (zone) {
+    zone.removeEventListener('mousedown', onDragStart);
+    zone.removeEventListener('touchstart', onDragStart);
+  }
 
   if (dockEl) {
     dockEl.removeEventListener('mousedown', onDragStart);
@@ -493,13 +433,14 @@ function removeDragEvents() {
   document.removeEventListener('mouseup', onDragEnd);
   document.removeEventListener('touchmove', onDragMove);
   document.removeEventListener('touchend', onDragEnd);
+  document.removeEventListener('click', onClickOutside);
 }
 
+// === WATCHERS ET LIFECYCLE ===
 watch(() => unifiedStore.currentSource, updateActiveIndicator);
 
 onMounted(() => {
   setupDragEvents();
-
   setTimeout(() => {
     showDragIndicator.value = true;
   }, 800);
@@ -507,8 +448,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   removeDragEvents();
-  clearHideTimer();
-  clearTimeout(clickTimeout);
+  clearTimeout(hideTimeout);
+  clearTimeout(additionalHideTimeout);
 });
 </script>
 
@@ -549,7 +490,7 @@ onUnmounted(() => {
   opacity: 0;
   pointer-events: none;
   transition: all var(--transition-spring);
-  cursor: grab; /* Indiquer que c'est draggable */
+  cursor: grab;
 }
 
 .additional-apps-container.visible {
@@ -690,7 +631,7 @@ onUnmounted(() => {
   transition: all var(--transition-spring);
 }
 
-/* Items du dock avec stagger animation */
+/* Items du dock */
 .dock-item {
   cursor: pointer;
   opacity: 0;
@@ -711,7 +652,7 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
 }
 
-/* Animation staggerée - avec délais par défaut */
+/* Animation staggerée */
 .dock-container.visible .dock-item,
 .dock-container.visible .dock-separator,
 .dock-container.visible .volume-controls {
@@ -719,41 +660,19 @@ onUnmounted(() => {
   transform: translateY(0) scale(1);
 }
 
-/* Volume Controls - apparaissent en même temps que les premiers */
 .dock-container.visible .volume-controls {
   transition-delay: 0.1s;
 }
 
-/* Ciblage par position globale dans .app-container */
-.dock-container.visible .app-container> :nth-child(1) {
-  transition-delay: 0.1s;
-}
+.dock-container.visible .app-container> :nth-child(1) { transition-delay: 0.1s; }
+.dock-container.visible .app-container> :nth-child(2) { transition-delay: 0.15s; }
+.dock-container.visible .app-container> :nth-child(3) { transition-delay: 0.2s; }
+.dock-container.visible .app-container> :nth-child(4) { transition-delay: 0.225s; }
+.dock-container.visible .app-container> :nth-child(5) { transition-delay: 0.25s; }
+.dock-container.visible .app-container> :nth-child(6) { transition-delay: 0.25s; }
+.dock-container.visible .app-container> :nth-child(7) { transition-delay: 0.3s; }
 
-.dock-container.visible .app-container> :nth-child(2) {
-  transition-delay: 0.15s;
-}
-
-.dock-container.visible .app-container> :nth-child(3) {
-  transition-delay: 0.2s;
-}
-
-.dock-container.visible .app-container> :nth-child(4) {
-  transition-delay: 0.225s;
-}
-
-.dock-container.visible .app-container> :nth-child(5) {
-  transition-delay: 0.25s;
-}
-
-.dock-container.visible .app-container> :nth-child(6) {
-  transition-delay: 0.25s;
-}
-
-.dock-container.visible .app-container> :nth-child(7) {
-  transition-delay: 0.3s;
-}
-
-/* === SUPPRESSION DES DÉLAIS QUAND FULLY-VISIBLE === */
+/* Suppression des délais quand fully-visible */
 .dock-container.visible.fully-visible .dock-item,
 .dock-container.visible.fully-visible .dock-separator,
 .dock-container.visible.fully-visible .volume-controls,
@@ -809,7 +728,6 @@ onUnmounted(() => {
     display: none;
   }
 
-  /* Indicateur de drag */
   .dock-indicator {
     position: fixed;
     bottom: var(--space-03);
@@ -848,7 +766,7 @@ onUnmounted(() => {
   transform: translate(-50%) translateY(-48px) scale(1);
 }
 
-/* Desktop - masquer les éléments mobile */
+/* Desktop */
 @media not (max-aspect-ratio: 4/3) {
   .mobile-only {
     display: none;
@@ -867,13 +785,8 @@ onUnmounted(() => {
   }
 }
 
-/* === ANIMATIONS DE PRESS GÉNÉRIQUES === */
-.volume-btn.is-pressed {
-  transform: scale(0.92) !important;
-  opacity: 0.8 !important;
-  transition-delay: 0s !important;
-}
-
+/* Animations de press */
+.volume-btn.is-pressed,
 .dock-item.is-pressed {
   transform: scale(0.92) !important;
   opacity: 0.8 !important;
