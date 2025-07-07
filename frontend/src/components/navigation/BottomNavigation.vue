@@ -1,10 +1,12 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vue - Version optimisée finale -->
+<!-- frontend/src/components/navigation/BottomNavigation.vue - Version réellement optimisée -->
 <template>
   <!-- Zone de drag invisible -->
-  <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click="onDragZoneClick"></div>
+  <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" 
+       @click.stop="onDragZoneClick"></div>
 
   <!-- Indicateur de drag -->
-  <div class="dock-indicator" :class="{ hidden: isVisible, visible: showDragIndicator }"></div>
+  <div class="dock-indicator" :class="{ hidden: isVisible, visible: showDragIndicator }" 
+       @click.stop="onIndicatorClick"></div>
 
   <!-- Dock de navigation -->
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }">
@@ -13,61 +15,51 @@
          ref="additionalAppsContainer"
          class="additional-apps-container mobile-only"
          :class="{ visible: showAdditionalApps }">
-      <!-- Multiroom -->
-      <button @click="openSnapcast" @touchstart="addPressEffect" @mousedown="addPressEffect" 
+      
+      <button v-for="{ id, icon, title, handler } in ADDITIONAL_ACTIONS" :key="id"
+              @click="handler" @touchstart="addPressEffect" @mousedown="addPressEffect" 
               class="additional-app-content button-interactive-subtle">
-        <AppIcon name="multiroom" :size="32" />
-        <div class="app-title heading-2">Multiroom</div>
-      </button>
-
-      <!-- Equalizer -->
-      <button @click="openEqualizer" @touchstart="addPressEffect" @mousedown="addPressEffect" 
-              class="additional-app-content button-interactive-subtle">
-        <AppIcon name="equalizer" :size="32" />
-        <div class="app-title heading-2">Égaliseur</div>
+        <AppIcon :name="icon" :size="32" />
+        <div class="app-title heading-2">{{ title }}</div>
       </button>
     </div>
     
     <div ref="dock" class="dock">
       <!-- Volume Controls - Mobile uniquement -->
       <div class="volume-controls mobile-only">
-        <button @click="handleVolumeDown" @touchstart="addPressEffect" @mousedown="addPressEffect"
+        <button v-for="{ icon, handler } in VOLUME_CONTROLS" :key="icon"
+                @click="handler" @touchstart="addPressEffect" @mousedown="addPressEffect"
                 class="volume-btn button-interactive-subtle" :disabled="volumeStore.isAdjusting">
-          <Icon name="minus" :size="32" />
-        </button>
-        <button @click="handleVolumeUp" @touchstart="addPressEffect" @mousedown="addPressEffect"
-                class="volume-btn button-interactive-subtle" :disabled="volumeStore.isAdjusting">
-          <Icon name="plus" :size="32" />
+          <Icon :name="icon" :size="32" />
         </button>
       </div>
 
       <!-- App Container -->
       <div class="app-container">
         <!-- Sources Audio -->
-        <button v-for="(source, index) in audioSources" :key="source.id"
+        <button v-for="({ id, icon }, index) in AUDIO_SOURCES" :key="id"
                 :ref="el => dockItems[index] = el"
-                @click="() => handleSourceClick(source.id, index)"
+                @click="() => handleSourceClick(id, index)"
                 @touchstart="addPressEffect" @mousedown="addPressEffect" 
                 :disabled="unifiedStore.isTransitioning"
                 class="dock-item button-interactive-subtle">
-          <AppIcon :name="source.icon" size="large" class="dock-item-icon" />
+          <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
         <!-- Séparateur -->
-        <div ref="separator" class="dock-separator"></div>
+        <div class="dock-separator"></div>
 
         <!-- Toggle Additional Apps - Mobile uniquement -->
-        <button ref="dockToggle" @click="handleToggleClick"
-                @touchstart="addPressEffect" @mousedown="addPressEffect"
+        <button @click="handleToggleClick" @touchstart="addPressEffect" @mousedown="addPressEffect"
                 class="dock-item toggle-btn mobile-only button-interactive">
           <Icon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
         <!-- Actions Desktop -->
-        <button v-for="action in desktopActions" :key="action.id"
-                @click="action.handler" @touchstart="addPressEffect" @mousedown="addPressEffect"
+        <button v-for="{ id, icon, handler } in ADDITIONAL_ACTIONS" :key="`desktop-${id}`"
+                @click="handler" @touchstart="addPressEffect" @mousedown="addPressEffect"
                 class="dock-item desktop-only button-interactive-subtle">
-          <AppIcon :name="action.icon" size="large" class="dock-item-icon" />
+          <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
       </div>
 
@@ -85,19 +77,20 @@ import AppIcon from '@/components/ui/AppIcon.vue';
 import Icon from '@/components/ui/Icon.vue';
 
 // === CONFIGURATION ===
-const ANIMATION_DURATION = 400; // Durée des animations en ms
-const AUTO_HIDE_DELAY = 10000; // Délai auto-masquage en ms
-const DRAG_THRESHOLD = 30; // Seuil de drag en pixels
-
-const audioSources = [
+const AUDIO_SOURCES = [
   { id: 'librespot', icon: 'spotify' },
   { id: 'bluetooth', icon: 'bluetooth' },
   { id: 'roc', icon: 'roc' }
 ];
 
-const desktopActions = [
-  { id: 'multiroom', icon: 'multiroom', handler: () => openSnapcast() },
-  { id: 'equalizer', icon: 'equalizer', handler: () => openEqualizer() }
+const ADDITIONAL_ACTIONS = [
+  { id: 'multiroom', icon: 'multiroom', title: 'Multiroom', handler: () => emit('open-snapcast') },
+  { id: 'equalizer', icon: 'equalizer', title: 'Égaliseur', handler: () => emit('open-equalizer') }
+];
+
+const VOLUME_CONTROLS = [
+  { icon: 'minus', handler: () => volumeStore.decreaseVolume() },
+  { icon: 'plus', handler: () => volumeStore.increaseVolume() }
 ];
 
 // === ÉMISSIONS ===
@@ -124,24 +117,44 @@ const showDragIndicator = ref(false);
 const additionalAppsInDOM = ref(false);
 
 // === VARIABLES INTERNES ===
-let dragStartY = 0;
-let hideTimeout = null;
-let additionalHideTimeout = null;
-let isDraggingAdditional = false;
-let additionalDragStartY = 0;
+let dragStartY = 0, dragCurrentY = 0, hideTimeout = null, additionalHideTimeout = null;
+let isDraggingAdditional = false, additionalDragStartY = 0, clickTimeout = null;
 
-// === INDICATEUR ACTIF ===
+// === COMPUTED ===
+const activeSourceIndex = computed(() => 
+  AUDIO_SOURCES.findIndex(source => source.id === unifiedStore.currentSource)
+);
+
 const indicatorStyle = ref({
   opacity: '0',
   transform: 'translateX(0px)',
   transition: 'all var(--transition-spring)'
 });
 
-const activeSourceIndex = computed(() => {
-  return audioSources.findIndex(source => source.id === unifiedStore.currentSource);
-});
+// === UTILITAIRES ===
+const getEventY = (e) => e.type.includes('touch') 
+  ? (e.touches[0]?.clientY || e.changedTouches[0]?.clientY) : e.clientY;
 
-function updateActiveIndicator() {
+const clearAllTimers = () => {
+  [hideTimeout, additionalHideTimeout, clickTimeout].forEach(clearTimeout);
+};
+
+const startHideTimer = () => {
+  clearTimeout(hideTimeout);
+  hideTimeout = setTimeout(hideDock, 10000);
+};
+
+const resetHideTimer = () => isVisible.value && startHideTimer();
+
+// === ACTIONS ===
+const handleSourceClick = (sourceId, index) => {
+  resetHideTimer();
+  moveIndicatorTo(index);
+  unifiedStore.changeSource(sourceId);
+};
+
+// === INDICATEUR ACTIF ===
+const updateActiveIndicator = () => {
   if (!isVisible.value || activeSourceIndex.value === -1) {
     indicatorStyle.value.opacity = '0';
     return;
@@ -155,12 +168,8 @@ function updateActiveIndicator() {
     const itemRect = targetItem.getBoundingClientRect();
     const offsetX = itemRect.left - dockRect.left + (itemRect.width / 2) - 2;
 
-    indicatorStyle.value = {
-      opacity: '0',
-      transform: `translateX(${offsetX}px)`,
-      transition: 'none'
-    };
-
+    indicatorStyle.value = { opacity: '0', transform: `translateX(${offsetX}px)`, transition: 'none' };
+    
     setTimeout(() => {
       indicatorStyle.value = {
         opacity: '1',
@@ -169,164 +178,96 @@ function updateActiveIndicator() {
       };
     }, 50);
   });
-}
+};
 
-function moveIndicatorTo(index) {
+const moveIndicatorTo = (index) => {
   if (!isVisible.value) return;
-
   nextTick(() => {
     const targetItem = dockItems.value[index];
     if (!targetItem || !dock.value) return;
-
     const dockRect = dock.value.getBoundingClientRect();
     const itemRect = targetItem.getBoundingClientRect();
     const offsetX = itemRect.left - dockRect.left + (itemRect.width / 2) - 2;
-
     indicatorStyle.value = {
       opacity: '1',
       transform: `translateX(${offsetX}px)`,
       transition: 'all var(--transition-spring)'
     };
   });
-}
-
-// === GESTION DES TIMERS ===
-function startHideTimer() {
-  clearTimeout(hideTimeout);
-  hideTimeout = setTimeout(hideDock, AUTO_HIDE_DELAY);
-}
-
-function resetHideTimer() {
-  if (isVisible.value) startHideTimer();
-}
-
-// === ACTIONS ===
-function openSnapcast() {
-  resetHideTimer();
-  emit('open-snapcast');
-}
-
-function openEqualizer() {
-  resetHideTimer();
-  emit('open-equalizer');
-}
-
-function handleSourceClick(sourceId, index) {
-  resetHideTimer();
-  moveIndicatorTo(index);
-  unifiedStore.changeSource(sourceId);
-}
-
-function handleVolumeUp() {
-  resetHideTimer();
-  volumeStore.increaseVolume();
-}
-
-function handleVolumeDown() {
-  resetHideTimer();
-  volumeStore.decreaseVolume();
-}
+};
 
 // === GESTION DES ADDITIONAL APPS ===
-function toggleAdditionalApps() {
+const toggleAdditionalApps = () => {
   if (!showAdditionalApps.value) {
     additionalAppsInDOM.value = true;
     clearTimeout(additionalHideTimeout);
-    
-    nextTick(() => {
-      requestAnimationFrame(() => {
-        showAdditionalApps.value = true;
-        setupAdditionalDragEvents();
-      });
-    });
+    nextTick(() => requestAnimationFrame(() => {
+      showAdditionalApps.value = true;
+      setupAdditionalDragEvents();
+    }));
   } else {
     showAdditionalApps.value = false;
     clearTimeout(additionalHideTimeout);
-    additionalHideTimeout = setTimeout(() => {
-      additionalAppsInDOM.value = false;
-    }, ANIMATION_DURATION);
+    additionalHideTimeout = setTimeout(() => additionalAppsInDOM.value = false, 400);
   }
-}
+};
 
-function closeAdditionalApps() {
+const closeAdditionalApps = () => {
   if (!showAdditionalApps.value) return;
-  
   showAdditionalApps.value = false;
   clearTimeout(additionalHideTimeout);
-  additionalHideTimeout = setTimeout(() => {
-    additionalAppsInDOM.value = false;
-  }, ANIMATION_DURATION);
-}
+  additionalHideTimeout = setTimeout(() => additionalAppsInDOM.value = false, 400);
+};
 
-function handleToggleClick(event) {
-  if (event.target.closest('.toggle-icon')) {
-    event.stopPropagation();
-  }
+const handleToggleClick = (event) => {
+  if (event.target.closest('.toggle-icon')) event.stopPropagation();
   resetHideTimer();
   toggleAdditionalApps();
-}
+};
 
 // === GESTION DU DOCK ===
-function showDock() {
+const showDock = () => {
   if (isVisible.value) return;
-  
   isVisible.value = true;
   isFullyVisible.value = false;
   startHideTimer();
+  setTimeout(() => isFullyVisible.value = true, 400);
+  setTimeout(updateActiveIndicator, 500);
+};
 
-  setTimeout(() => {
-    isFullyVisible.value = true;
-  }, ANIMATION_DURATION);
-
-  setTimeout(() => {
-    updateActiveIndicator();
-  }, ANIMATION_DURATION + 100);
-}
-
-function hideDock() {
+const hideDock = () => {
   if (!isVisible.value) return;
-
   isFullyVisible.value = false;
   showAdditionalApps.value = false;
   isVisible.value = false;
-  clearTimeout(hideTimeout);
-  clearTimeout(additionalHideTimeout);
+  clearAllTimers();
   indicatorStyle.value.opacity = '0';
-  additionalAppsInDOM.value = false;
-}
-
-// === GESTION DES CLICS EXTÉRIEURS ===
-function onClickOutside(event) {
-  if (!isVisible.value) return;
   
-  const dock = dockContainer.value;
-  if (dock && !dock.contains(event.target)) {
+  // Laisser l'animation des additional-apps se terminer avant de les retirer du DOM
+  setTimeout(() => additionalAppsInDOM.value = false, 400);
+};
+
+// === GESTION DES CLICS ===
+const onClickOutside = (event) => {
+  if (isVisible.value && dockContainer.value && !dockContainer.value.contains(event.target)) {
     hideDock();
   }
-}
+};
 
-function onDragZoneClick() {
-  if (!isDragging.value && !isVisible.value) {
-    showDock();
-  }
-}
+const onDragZoneClick = () => !isDragging.value && !isVisible.value && showDock();
+const onIndicatorClick = () => !isDragging.value && !isVisible.value && showDock();
 
 // === GESTION DU DRAG ===
-function getEventY(e) {
-  return e.type.includes('touch') 
-    ? (e.touches[0]?.clientY || e.changedTouches[0]?.clientY)
-    : e.clientY;
-}
-
-function onDragStart(e) {
+const onDragStart = (e) => {
   isDragging.value = true;
   dragStartY = getEventY(e);
-}
+  dragCurrentY = dragStartY;
+};
 
-function onDragMove(e) {
+const onDragMove = (e) => {
   if (isDraggingAdditional) {
     const deltaY = getEventY(e) - additionalDragStartY;
-    if (Math.abs(deltaY) >= DRAG_THRESHOLD && deltaY > 0) {
+    if (Math.abs(deltaY) >= 30 && deltaY > 0) {
       closeAdditionalApps();
       isDraggingAdditional = false;
     }
@@ -334,73 +275,67 @@ function onDragMove(e) {
   }
 
   if (!isDragging.value) return;
-
-  const deltaY = dragStartY - getEventY(e);
-  if (Math.abs(deltaY) >= DRAG_THRESHOLD) {
-    if (deltaY > 0 && !isVisible.value) {
-      showDock();
-    } else if (deltaY < 0 && isVisible.value) {
-      hideDock();
-    }
+  dragCurrentY = getEventY(e);
+  const deltaY = dragStartY - dragCurrentY;
+  
+  if (Math.abs(deltaY) >= 30) {
+    if (deltaY > 0 && !isVisible.value) showDock();
+    else if (deltaY < 0 && isVisible.value) hideDock();
     isDragging.value = false;
   }
-}
+};
 
-function onDragEnd() {
+const onDragEnd = () => {
+  clearTimeout(clickTimeout);
   if (isDraggingAdditional) {
     isDraggingAdditional = false;
     return;
   }
-  
   isDragging.value = false;
   resetHideTimer();
-}
+};
 
 // === GESTION DU DRAG ADDITIONAL APPS ===
-function onAdditionalDragStart(e) {
+const onAdditionalDragStart = (e) => {
   if (!showAdditionalApps.value) return;
   isDraggingAdditional = true;
   additionalDragStartY = getEventY(e);
-}
+};
 
-function setupAdditionalDragEvents() {
-  const additionalEl = additionalAppsContainer.value;
-  if (additionalEl) {
-    additionalEl.addEventListener('mousedown', onAdditionalDragStart);
-    additionalEl.addEventListener('touchstart', onAdditionalDragStart, { passive: false });
+const setupAdditionalDragEvents = () => {
+  const el = additionalAppsContainer.value;
+  if (el) {
+    el.addEventListener('mousedown', onAdditionalDragStart);
+    el.addEventListener('touchstart', onAdditionalDragStart, { passive: false });
   }
-}
+};
 
-function removeAdditionalDragEvents() {
-  const additionalEl = additionalAppsContainer.value;
-  if (additionalEl) {
-    additionalEl.removeEventListener('mousedown', onAdditionalDragStart);
-    additionalEl.removeEventListener('touchstart', onAdditionalDragStart);
+const removeAdditionalDragEvents = () => {
+  const el = additionalAppsContainer.value;
+  if (el) {
+    el.removeEventListener('mousedown', onAdditionalDragStart);
+    el.removeEventListener('touchstart', onAdditionalDragStart);
   }
-}
+};
 
 // === EFFETS VISUELS ===
-function addPressEffect(e) {
+const addPressEffect = (e) => {
   const button = e.target.closest('button');
   if (!button || button.disabled) return;
-
   button.classList.add('is-pressed');
-  setTimeout(() => {
-    button.classList.remove('is-pressed');
-  }, 150);
-}
+  setTimeout(() => button.classList.remove('is-pressed'), 150);
+};
 
 // === ÉVÉNEMENTS GLOBAUX ===
-function setupDragEvents() {
+const setupDragEvents = () => {
   const zone = dragZone.value;
   const dockEl = dock.value;
-  
   if (!zone) return;
 
   zone.addEventListener('mousedown', onDragStart);
   zone.addEventListener('touchstart', onDragStart, { passive: false });
   zone.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
-
+  
   if (dockEl) {
     dockEl.addEventListener('mousedown', onDragStart);
     dockEl.addEventListener('touchstart', onDragStart, { passive: false });
@@ -411,9 +346,9 @@ function setupDragEvents() {
   document.addEventListener('touchmove', onDragMove, { passive: false });
   document.addEventListener('touchend', onDragEnd);
   document.addEventListener('click', onClickOutside);
-}
+};
 
-function removeDragEvents() {
+const removeDragEvents = () => {
   const zone = dragZone.value;
   const dockEl = dock.value;
   
@@ -421,35 +356,30 @@ function removeDragEvents() {
     zone.removeEventListener('mousedown', onDragStart);
     zone.removeEventListener('touchstart', onDragStart);
   }
-
   if (dockEl) {
     dockEl.removeEventListener('mousedown', onDragStart);
     dockEl.removeEventListener('touchstart', onDragStart);
   }
 
   removeAdditionalDragEvents();
-
   document.removeEventListener('mousemove', onDragMove);
   document.removeEventListener('mouseup', onDragEnd);
   document.removeEventListener('touchmove', onDragMove);
   document.removeEventListener('touchend', onDragEnd);
   document.removeEventListener('click', onClickOutside);
-}
+};
 
-// === WATCHERS ET LIFECYCLE ===
+// === LIFECYCLE ===
 watch(() => unifiedStore.currentSource, updateActiveIndicator);
 
 onMounted(() => {
   setupDragEvents();
-  setTimeout(() => {
-    showDragIndicator.value = true;
-  }, 800);
+  setTimeout(() => showDragIndicator.value = true, 800);
 });
 
 onUnmounted(() => {
   removeDragEvents();
-  clearTimeout(hideTimeout);
-  clearTimeout(additionalHideTimeout);
+  clearAllTimers();
 });
 </script>
 
@@ -741,10 +671,12 @@ onUnmounted(() => {
     opacity: 0;
     pointer-events: none;
     transition: opacity 600ms ease-in-out;
+    cursor: pointer;
   }
 
   .dock-indicator.visible {
     opacity: 1;
+    pointer-events: auto;
   }
 
   .dock-indicator.hidden {
