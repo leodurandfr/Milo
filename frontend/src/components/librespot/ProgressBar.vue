@@ -110,7 +110,6 @@ function onProgressClick(event) {
   background-color: var(--color-background-contrast);
   border-radius: 4px;
   position: absolute;
-  transition: width 0.2s ease, left 0.2s ease;
 }
 
 .time {
