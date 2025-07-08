@@ -2,9 +2,10 @@
 <template>
   <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" :class="{ 'fixed-height': heightMode === 'fixed' }"
     @click.self="handleOverlayClick">
-      <IconButtonFloating ref="closeButton" class="close-btn-position" icon-name="close" aria-label="Fermer" @click="close" />
 
     <div ref="modalContainer" class="modal-container" :class="{ 'fixed-height': heightMode === 'fixed' }">
+      <IconButtonFloating ref="closeButton" class="close-btn-position" icon-name="close" aria-label="Fermer"
+        @click="close" />
 
       <!-- Contenu -->
       <div ref="modalContent" class="modal-content" @pointerdown="handlePointerDown" @pointermove="handlePointerMove"
@@ -61,16 +62,16 @@ const ANIMATION_TIMINGS = {
   overlayDelay: 0,
   containerDelay: 100,
   closeButtonDelay: 600,
-  
+
   // Durées individuelles d'ouverture
   overlayDuration: 400,
   closeButtonDuration: 400,
-  
+
   // Délais de fermeture
   closeOverlayDelay: 0,
   closeContainerDelay: 0,
   closeButtonDelayOut: 0,
-  
+
   // Durées individuelles de fermeture
   closeOverlayDuration: 300,
   closeContainerDuration: 200,
@@ -97,7 +98,7 @@ function handleOverlayClick() {
 // === ANIMATIONS ===
 async function openModal() {
   clearAllTimeouts();
-  
+
   isAnimating.value = true;
   isVisible.value = true;
 
@@ -154,7 +155,7 @@ async function openModal() {
     ANIMATION_TIMINGS.containerDelay + 600, // Durée approximative de --transition-spring
     ANIMATION_TIMINGS.overlayDelay + ANIMATION_TIMINGS.overlayDuration
   );
-  
+
   const finalTimeout = setTimeout(() => {
     isAnimating.value = false;
   }, totalDuration);
@@ -199,7 +200,7 @@ async function closeModal() {
     ANIMATION_TIMINGS.closeContainerDelay + ANIMATION_TIMINGS.closeContainerDuration,
     ANIMATION_TIMINGS.closeButtonDelayOut + ANIMATION_TIMINGS.closeButtonDurationOut
   );
-  
+
   const finalCloseTimeout = setTimeout(() => {
     isVisible.value = false;
     isAnimating.value = false;
@@ -324,13 +325,22 @@ onUnmounted(() => {
   align-items: center;
 }
 
+/* Wrapper pour contenir modal-container et close button */
+.modal-wrapper {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  max-width: 700px;
+}
+
 /* Container - comportement par défaut (auto) */
 .modal-container {
   position: relative;
   background: var(--color-background-neutral-50);
   border-radius: var(--radius-06);
   width: 100%;
-  max-width: 700px;
+  max-width: 72%;
   max-height: 100%;
   display: flex;
   flex-direction: column;
@@ -361,14 +371,13 @@ onUnmounted(() => {
   height: 100%;
 }
 
-/* Positionnement du bouton close */
+/* Positionnement du bouton close - DESKTOP : en haut à droite à l'extérieur du modal-container */
 .close-btn-position {
-  position: fixed;
-  top: var(--space-05);
-  left: 50%;
-  transform: translateX(-50%);
-  /* État initial pour l'animation - OPTIM : position plus haute */
+  position: absolute;
+  top: 0;
+  right: calc(-96px - var(--space-04));
   opacity: 0;
+  transform: translateY(-24px);
 }
 
 /* Contenu - comportement par défaut (auto) */
@@ -389,23 +398,32 @@ onUnmounted(() => {
   height: 100%;
 }
 
-/* Responsive */
+/* Responsive - MOBILE : bouton centré en haut */
 @media (max-aspect-ratio: 4/3) {
   ::-webkit-scrollbar {
     display: none;
   }
 
+  .modal-wrapper {
+    width: 100%;
+    max-width: none;
+  }
+
   .close-btn-position {
     position: fixed;
-    top: var(--space-05);
+    top: calc(-48px - var(--space-04));
     left: 50%;
-    transform: translateX(-50%);
+    transform: translateX(-50%) translateY(-24px);
   }
 
   .modal-overlay,
   .modal-overlay.fixed-height {
     align-items: flex-start;
     padding: 80px var(--space-02) var(--space-02) var(--space-02);
+  }
+
+  .modal-container {
+    max-width: none;
   }
 
   .modal-container.fixed-height {

@@ -705,6 +705,14 @@ onUnmounted(() => {
   transform: translate(-50%) translateY(-48px) scale(1);
 }
 
+/* Android */
+.android-app .dock-indicator {
+  bottom: var(--space-07);
+}
+.android-app .dock-container.visible {
+  transform: translate(-50%) translateY(-48px) scale(1);
+}
+
 /* Desktop */
 @media not (max-aspect-ratio: 4/3) {
   .mobile-only {

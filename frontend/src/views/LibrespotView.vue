@@ -316,11 +316,19 @@ onMounted(async () => {
   }
 }
 
+/* iOS */
 .ios-app .now-playing {
   padding: var(--space-08) var(--space-05) 0 var(--space-05);
 }
-.ios-app .controls-section {
-    margin-bottom: var(--space-09);
 
-  }
+.ios-app .controls-section {
+  margin-bottom: var(--space-09);
+
+}
+
+/* Android */
+.android-app .controls-section {
+  margin-bottom: var(--space-08);
+
+}
 </style>
