@@ -436,7 +436,4 @@ onUnmounted(() => {
   padding: 112px var(--space-02) var(--space-02) var(--space-02);
 }
 
-.ios-app .close-btn-position {
-  top: var(--space-08);
-}
 </style>
