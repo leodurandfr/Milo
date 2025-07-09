@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/librespot/plugin.py
 """
-Plugin librespot optimisé pour oakOS - Version nettoyée sans EventBus
+Plugin librespot optimisé pour oakOS - Version finale avec enrichissement WebSocket
 """
 import os
 import yaml
@@ -14,7 +14,7 @@ from backend.domain.audio_state import PluginState
 from backend.infrastructure.plugins.plugin_utils import WebSocketManager
 
 class LibrespotPlugin(UnifiedAudioPlugin):
-    """Plugin Spotify via go-librespot - Version nettoyée"""
+    """Plugin Spotify via go-librespot - Version finale"""
     
     def __init__(self, config: Dict[str, Any], state_machine=None):
         super().__init__("librespot", state_machine)
@@ -148,20 +148,14 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return False
     
     async def change_audio_device(self, new_device: str) -> bool:
-        """Change le device audio de go-librespot - Version simplifiée pour ALSA dynamique"""
+        """Change le device audio de go-librespot"""
         if self._current_device == new_device:
             self.logger.info(f"Librespot device already set to {new_device}")
             return True
         
         try:
             self.logger.info(f"Changing librespot device from {self._current_device} to {new_device}")
-            
-            # Mettre à jour juste le device (ALSA se charge du routage dynamique)
             self._current_device = new_device
-            
-            # Le service go-librespot utilise toujours "oakos_spotify" 
-            # ALSA se charge de router selon OAKOS_MODE
-            
             return True
         except Exception as e:
             self.logger.error(f"Error changing device: {e}")
@@ -169,7 +163,6 @@ class LibrespotPlugin(UnifiedAudioPlugin):
     
     async def _start_websocket(self) -> None:
         """Démarre la connexion WebSocket"""
-        # Définir les fonctions de callback
         async def connect_func():
             try:
                 await self._refresh_metadata()
@@ -194,7 +187,6 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             finally:
                 self._ws_connected = False
         
-        # Démarrer le gestionnaire WebSocket
         await self.ws_manager.start(connect_func, process_func)
     
     async def _handle_event(self, event: Dict[str, Any]) -> None:
@@ -218,7 +210,9 @@ class LibrespotPlugin(UnifiedAudioPlugin):
     async def _handle_active_state(self):
         """Traite l'événement 'device active'"""
         self._device_connected = True
-        await self.notify_state_change(PluginState.CONNECTED, {"device_connected": True})
+        # Enrichir avec la position actuelle
+        await self._refresh_metadata()
+        await self.notify_state_change(PluginState.CONNECTED, self._metadata)
     
     async def _handle_inactive_state(self):
         """Traite l'événement 'device inactive'"""
@@ -228,17 +222,15 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         await self.notify_state_change(PluginState.READY, {"device_connected": False})
     
     async def _handle_playback_state(self, is_playing):
-        """Traite les événements de lecture/pause"""
+        """Traite les événements de lecture/pause avec enrichissement"""
         self._is_playing = is_playing
         self._device_connected = True
         
-        if self._metadata:
-            self._metadata["is_playing"] = is_playing
-            
-        await self.notify_state_change(PluginState.CONNECTED, {
-            **self._metadata,
-            "is_playing": is_playing
-        })
+        # ✅ SOLUTION CLÉS : Enrichir avec position actuelle
+        await self._refresh_metadata()
+        self._metadata["is_playing"] = is_playing
+        
+        await self.notify_state_change(PluginState.CONNECTED, self._metadata)
     
     async def _handle_metadata_update(self):
         """Traite l'événement de mise à jour des métadonnées"""
@@ -294,7 +286,6 @@ class LibrespotPlugin(UnifiedAudioPlugin):
     
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Traite les commandes"""
-        # Commandes simples
         if command == "restart_service":
             return await self._restart_service()
             
@@ -309,16 +300,13 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         elif command == "seek" and "position_ms" in data:
             return await self._send_command("seek", {"position": data["position_ms"]})
             
-        # Commandes de lecture simples
         elif command in ["play", "pause", "resume", "playpause"]:
             return await self._send_command(command)
             
-        # Commandes next/prev avec URI optionnel
         elif command in ["next", "prev"]:
             payload = {"uri": data.get("uri")} if data.get("uri") else {}
             return await self._send_command(command, payload)
             
-        # Commande inconnue
         return self.format_response(False, error=f"Commande non supportée: {command}")
     
     async def _restart_service(self) -> Dict[str, Any]:

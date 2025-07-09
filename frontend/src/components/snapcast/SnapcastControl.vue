@@ -31,7 +31,7 @@ const { on } = useWebSocket();
 // === ÉMISSIONS ===
 const emit = defineEmits(['show-client-details']);
 
-// État local ultra-simple
+// État local
 const clients = ref([]);
 
 // Références pour nettoyage
@@ -41,7 +41,7 @@ const isMultiroomActive = computed(() =>
   unifiedStore.multiroomEnabled
 );
 
-// === GESTIONNAIRES D'ÉVÉNEMENTS ULTRA-SIMPLES ===
+// === GESTIONNAIRES D'ÉVÉNEMENTS ===
 
 async function handleVolumeChange(clientId, volume) {
   try {
@@ -60,19 +60,15 @@ async function handleMuteToggle(clientId, muted) {
 }
 
 function handleShowDetails(client) {
-  console.log('🔍 SnapcastControl: Emitting show-client-details for:', client.name);
-  // CHANGEMENT : Émission vers le parent SnapcastModal au lieu d'utiliser modalStore
   emit('show-client-details', client);
 }
 
-// === GESTIONNAIRES WEBSOCKET 100% ÉVÉNEMENTIELS ===
+// === GESTIONNAIRES WEBSOCKET ===
 
 function handleClientConnected(event) {
-  console.log('Client connected event:', event);
   const clientData = event.data.client;
 
   if (clientData && !clients.value.find(c => c.id === clientData.id)) {
-    // Extraire les données essentielles pour éviter la pollution
     const newClient = {
       id: clientData.id,
       name: clientData.config?.name || clientData.host?.name || 'Unknown',
@@ -83,7 +79,6 @@ function handleClientConnected(event) {
     };
 
     clients.value.push(newClient);
-    console.log('✅ Client connected and added:', newClient.name);
   }
 }
 
@@ -92,9 +87,7 @@ function handleClientDisconnected(event) {
   const clientIndex = clients.value.findIndex(c => c.id === clientId);
 
   if (clientIndex !== -1) {
-    const clientName = clients.value[clientIndex].name;
     clients.value.splice(clientIndex, 1);
-    console.log('❌ Client disconnected and removed:', clientName);
   }
 }
 
@@ -103,12 +96,10 @@ function handleClientVolumeChanged(event) {
   const client = clients.value.find(c => c.id === client_id);
 
   if (client) {
-    // Le volume reçu est le volume réel (limites appliquées côté backend)
     client.volume = volume;
     if (muted !== undefined) {
       client.muted = muted;
     }
-    console.log(`🔊 Client ${client.name} volume updated: ${volume}% (real volume)`);
   }
 }
 
@@ -118,7 +109,6 @@ function handleClientNameChanged(event) {
 
   if (client) {
     client.name = name;
-    console.log(`📝 Client ${client_id} name updated: ${name}`);
   }
 }
 
@@ -131,84 +121,43 @@ function handleClientMuteChanged(event) {
     if (volume !== undefined) {
       client.volume = volume;
     }
-    console.log(`🔇 Client ${client.name} mute updated: ${muted}`);
   }
 }
 
 function handleSystemStateChanged(event) {
-  // OPTIM : Mise à jour du store + gestion multiroom activation
   unifiedStore.updateState(event);
-
-  // Si le multiroom vient d'être activé, charger les clients initiaux + attendre événements
-  if (event.data.multiroom_changed && unifiedStore.multiroomEnabled) {
-    console.log('🏠 Multiroom activated - loading initial clients + waiting for real-time events');
-    loadClients();
-  }
-  // Si le multiroom vient d'être désactivé, vider la liste immédiatement
-  else if (event.data.multiroom_changed && !unifiedStore.multiroomEnabled) {
-    console.log('🏠 Multiroom deactivated - clearing clients list');
-    clients.value = [];
-  }
 }
 
-// === LIFECYCLE OPTIM ===
+// === LIFECYCLE SIMPLIFIÉ ===
 
 onMounted(async () => {
-  console.log('🚀 SnapcastControl mounted - OPTIM mode');
-
-  // S'abonner aux événements WebSocket temps réel AVANT de charger
+  // ✅ SOLUTION SIMPLE : Seulement WebSocket, pas d'appel API initial
   const subscriptions = [
-    // Événements Snapcast clients (temps réel)
     on('snapcast', 'client_connected', handleClientConnected),
     on('snapcast', 'client_disconnected', handleClientDisconnected),
     on('snapcast', 'client_volume_changed', handleClientVolumeChanged),
     on('snapcast', 'client_name_changed', handleClientNameChanged),
     on('snapcast', 'client_mute_changed', handleClientMuteChanged),
-
-    // Événements système (multiroom toggle)
     on('system', 'state_changed', handleSystemStateChanged)
   ];
 
   unsubscribeFunctions.push(...subscriptions);
-
-  // OPTIM : Charger les clients initiaux SI multiroom actif
-  if (isMultiroomActive.value) {
-    await loadClients();
-    console.log('📡 Initial clients loaded + subscribed to real-time events');
-  } else {
-    console.log('📡 Subscribed to events, waiting for multiroom activation');
-  }
+  
+  // Les clients apparaîtront automatiquement via WebSocket
+  // Pas besoin d'appel API initial !
 });
 
-async function loadClients() {
-  if (!isMultiroomActive.value) {
-    clients.value = [];
-    return;
-  }
-
-  try {
-    const response = await axios.get('/api/routing/snapcast/clients');
-    clients.value = response.data.clients || [];
-    console.log(`📻 Loaded ${clients.value.length} initial clients`);
-  } catch (error) {
-    console.error('Error loading clients:', error);
-    clients.value = [];
-  }
-}
-
 onUnmounted(() => {
-  console.log('🛑 SnapcastControl unmounted - cleaning up subscriptions');
   // Nettoyer tous les abonnements WebSocket
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
 });
 
-// Watcher pour sécurité + cleanup
-watch(isMultiroomActive, async (newValue) => {
-  if (newValue) {
-    await loadClients();
-  } else {
-    clients.value = [];
+// Watcher simplifié
+watch(isMultiroomActive, (newValue) => {
+  if (!newValue) {
+    clients.value = []; // Juste vider si désactivé
   }
+  // Si activé, les clients arrivent via WebSocket automatiquement
 });
 </script>
 
