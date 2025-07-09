@@ -1,6 +1,6 @@
-<!-- frontend/src/components/ui/PluginStatus.vue - Version avec état starting -->
+<!-- frontend/src/components/ui/PluginStatus.vue - Version avec animation d'entrée -->
 <template>
-    <div class="plugin-status">
+    <div class="plugin-status" :class="{ 'animate-in': shouldAnimate }">
         <div class="plugin-status-content">
             <div class="plugin-status-inner">
                 <!-- Section info appareil -->
@@ -68,11 +68,18 @@ const props = defineProps({
     isDisconnecting: {
         type: Boolean,
         default: false
+    },
+    shouldAnimate: {
+        type: Boolean,
+        default: false
     }
 });
 
 // Émissions
 const emit = defineEmits(['disconnect']);
+
+// L'animation est contrôlée par la prop shouldAnimate
+// Plus besoin de state local ni de onMounted
 
 // Nom de l'icône selon le plugin
 const iconName = computed(() => {
@@ -149,6 +156,16 @@ function handleDisconnect() {
     width: 364px;
     position: relative;
     margin: auto;
+    
+    /* Animation d'entrée */
+    opacity: 0;
+    transform: translateY(var(--space-06)) scale(0.95);
+    transition: all var(--transition-spring);
+}
+
+.plugin-status.animate-in {
+    opacity: 1;
+    transform: translateY(0) scale(1);
 }
 
 .plugin-status-content {

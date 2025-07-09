@@ -1,40 +1,36 @@
-<!-- frontend/src/views/MainView.vue - Version avec logo SVG -->
+<!-- frontend/src/views/MainView.vue - Version avec logo animé -->
 <template>
   <div class="main-view">
-    <!-- Conteneur stable qui reste toujours monté -->
-    <div ref="containerRef" class="stable-container">
+    <!-- Logo animé selon l'état -->
+    <Logo 
+      :position="logoPosition"
+      :size="logoSize"
+      :visible="logoVisible"
+    />
 
-      <!-- État de transition -->
-      <div v-if="displayedIsTransitioning" class="transition-state">
+    <!-- Conteneur stable qui reste toujours monté -->
+    <div ref="containerRef" class="stable-container" :class="{ 'content-visible': !isInitialLogoDisplay }">
+
+      <!-- PluginStatus (transitions + états ready/connected) -->
+      <div v-if="shouldShowPluginStatus" class="transition-state">
         <PluginStatus
-          :plugin-type="displayedTargetPluginType"
-          plugin-state="starting"
-          device-name=""
+          :plugin-type="displayedCurrentSource === 'librespot' ? 'librespot' : displayedTargetPluginType"
+          :plugin-state="pluginStateToShow"
+          :device-name="cleanDeviceName"
+          :should-animate="shouldAnimateContent"
         />
       </div>
 
-      <!-- Contenu normal AVEC refresh key pour forcer recréation -->
+      <!-- Contenu normal (par exemple LibrespotView avec player) -->
       <component 
         v-else-if="currentComponent" 
         :is="currentComponent" 
         :key="unifiedStore.componentRefreshKey"
       />
 
-      <!-- Aucune source -->
+      <!-- Aucune source - pas de contenu, juste le logo centré -->
       <div v-else class="no-source">
-        <svg xmlns="http://www.w3.org/2000/svg" width="197" height="48" fill="none" class="logo">
-          <g fill="#A6ACA6" clip-path="url(#a)">
-            <path d="M24.298 35.676c2.198-3.798 7.43-5.325 13.958-4.665l6.74 11.7H23.59c-.64-2.618-.448-5.036.708-7.035Z"/>
-            <path d="M17.526 29.165c2.226 3.847 1.973 8.684-.247 13.544l-14.28.003 10.313-17.76c1.766 1.063 3.206 2.466 4.216 4.212h-.002Z" opacity=".7"/>
-            <path d="M28.18 27.427c2.408 0 4.691-.797 6.73-2.223L24.087 6.405l-7.68 13.218c2.884 4.788 7.09 7.803 11.77 7.803l.003.002Z" opacity=".34"/>
-            <path fill-rule="evenodd" d="M83.904 30.727c0-6.583-4.773-7.94-11.067-9.546l-.407-.102c-3.889-.967-6.465-1.61-6.465-4.711 0-2.181 2.099-3.497 5.596-3.497 4.073 0 6.212 1.81 6.665 5.225h4.897c-.412-6.048-5.102-9.422-11.563-9.422-6.416 0-10.449 2.92-10.449 8.145 0 5.597 4.977 7.365 9.586 8.517 5.802 1.44 8.311 2.1 8.311 5.595 0 2.265-1.688 4.197-6.048 4.197-5.265 0-7.816-2.467-8.064-6.211H60c.288 6.664 5.76 10.41 12.96 10.41 7.406 0 10.944-3.91 10.944-8.6Zm97.645-21.435h-4.32v29.415h4.32v-7.61l2.923-2.756 6.624 10.368h5.183l-8.845-13.21 7.981-7.816h-5.308l-8.558 8.435V9.29v.001Zm-16.967 11.23c2.88 0 3.784 1.153 3.784 2.675 0 2.016-1.974 2.427-5.224 3.045-5.267 1.03-8.681 2.47-8.681 7.077 0 3.537 2.633 6.006 6.912 6.006 3.249 0 5.636-1.275 6.953-3.126h.082c.411 2.057 1.48 2.88 3.784 2.88a6.493 6.493 0 0 0 2.51-.453v-2.058c-1.686.165-2.016-.616-2.016-2.097v-9.999c0-5.595-3.456-7.365-8.104-7.365-6.336 0-8.928 3.17-9.134 7.2h4.197c.206-2.715 1.481-3.784 4.937-3.784Zm3.784 10.205c0 3.414-2.468 5.184-6.048 5.184-2.345 0-3.497-1.07-3.497-3.004 0-2.14 1.563-3.168 5.144-3.95 2.016-.41 3.702-.904 4.401-1.398v3.168Zm-26.271 8.598c-6.583 0-10.575-4.566-10.575-11.109 0-6.54 3.992-11.107 10.575-11.107 6.582 0 10.573 4.566 10.573 11.107 0 6.543-3.99 11.11-10.575 11.11h.002Zm0-3.538c4.115 0 6.254-3.25 6.254-7.57 0-4.361-2.14-7.57-6.256-7.57-4.113 0-6.252 3.209-6.252 7.57 0 4.32 2.14 7.57 6.254 7.57Zm-13.413-11.603c0-4.813-3.086-7.075-6.994-7.075-3.622 0-5.803 1.645-6.913 3.29h-.082v-2.714h-4.32v21.024h4.32V25.914c0-3.128 2.139-5.145 5.472-5.145 2.963 0 4.155 1.812 4.155 4.65v13.29h4.362V24.184ZM96.813 39.325c-6.582 0-10.573-4.566-10.573-11.109 0-6.54 3.99-11.107 10.575-11.107 6.581 0 10.572 4.566 10.572 11.107 0 6.543-3.991 11.11-10.574 11.11Zm0-3.538c4.114 0 6.255-3.25 6.255-7.57 0-4.361-2.141-7.57-6.255-7.57-4.115 0-6.254 3.209-6.254 7.57 0 4.32 2.138 7.57 6.254 7.57Z" clip-rule="evenodd"/>
-          </g>
-          <defs>
-            <clipPath id="a">
-              <path fill="#fff" d="M0 0h196.5v48H0z"/>
-            </clipPath>
-          </defs>
-        </svg>
+        <!-- Le logo est géré par le composant Logo ci-dessus -->
       </div>
 
     </div>
@@ -42,12 +38,13 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, nextTick } from 'vue';
+import { computed, ref, watch, nextTick, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import LibrespotView from './LibrespotView.vue';
 import BluetoothView from './BluetoothView.vue';
 import RocView from './RocView.vue';
 import PluginStatus from '@/components/ui/PluginStatus.vue';
+import Logo from '@/components/ui/Logo.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const containerRef = ref(null);
@@ -57,14 +54,115 @@ const displayedIsTransitioning = ref(unifiedStore.isTransitioning);
 const displayedCurrentSource = ref(unifiedStore.currentSource);
 const displayedTargetPluginType = ref(unifiedStore.transitionTargetSource || unifiedStore.currentSource);
 
+// État pour le logo initial (3 secondes)
+const isInitialLogoDisplay = ref(true);
+// État pour contrôler l'animation du contenu
+const shouldAnimateContent = ref(false);
+
 // Composant dynamique selon la source affichée (retardée)
 const currentComponent = computed(() => {
   switch (displayedCurrentSource.value) {
-    case 'librespot': return LibrespotView;
-    case 'bluetooth': return BluetoothView;
-    case 'roc': return RocView;
-    default: return null;
+    case 'librespot': 
+      // Pour Librespot, on affiche le player seulement si connecté avec des métadonnées
+      if (unifiedStore.pluginState === 'connected' && hasLibrespotTrackInfo.value) {
+        return LibrespotView;
+      }
+      // Sinon, on retourne null pour afficher PluginStatus
+      return null;
+    case 'bluetooth': 
+      // Pour Bluetooth, on affiche toujours PluginStatus
+      return null;
+    case 'roc': 
+      // Pour ROC, on affiche toujours PluginStatus
+      return null;
+    default: 
+      return null;
   }
+});
+
+// Déterminer si on doit afficher PluginStatus
+const shouldShowPluginStatus = computed(() => {
+  // Pendant une transition
+  if (displayedIsTransitioning.value) {
+    return true;
+  }
+  
+  // Quand on a une source active mais pas de composant spécifique à afficher
+  if (displayedCurrentSource.value !== 'none' && !currentComponent.value) {
+    return true;
+  }
+  
+  return false;
+});
+
+// Déterminer l'état du plugin à afficher
+const pluginStateToShow = computed(() => {
+  if (displayedIsTransitioning.value) {
+    return 'starting';
+  }
+  return unifiedStore.pluginState;
+});
+
+// === LOGIQUE DU LOGO ===
+
+// Position du logo
+const logoPosition = computed(() => {
+  // Pendant les 3 premières secondes : toujours centré
+  if (isInitialLogoDisplay.value) {
+    return 'center';
+  }
+  
+  // Centré uniquement quand aucune source n'est active
+  if (displayedCurrentSource.value === 'none' && !displayedIsTransitioning.value) {
+    return 'center';
+  }
+  // Sinon en haut
+  return 'top';
+});
+
+// Taille du logo
+const logoSize = computed(() => {
+  // Grand quand centré, petit quand en haut
+  return logoPosition.value === 'center' ? 'large' : 'small';
+});
+
+// Visibilité du logo
+const logoVisible = computed(() => {
+  // Pendant les 3 premières secondes : toujours visible
+  if (isInitialLogoDisplay.value) {
+    return true;
+  }
+  
+  // Cas spécial : Librespot connecté avec des infos de track
+  if (displayedCurrentSource.value === 'librespot' && 
+      unifiedStore.pluginState === 'connected' && 
+      hasLibrespotTrackInfo.value) {
+    return false;
+  }
+  
+  // Visible dans tous les autres cas
+  return true;
+});
+
+// Helper pour détecter si Librespot a des infos de track
+const hasLibrespotTrackInfo = computed(() => {
+  return !!(
+    unifiedStore.currentSource === 'librespot' &&
+    unifiedStore.pluginState === 'connected' &&
+    unifiedStore.metadata?.title &&
+    unifiedStore.metadata?.artist
+  );
+});
+
+// Helper pour nettoyer le nom du device
+const cleanDeviceName = computed(() => {
+  const deviceName = unifiedStore.metadata?.device_name || unifiedStore.metadata?.client_name || '';
+  if (!deviceName) return '';
+  
+  // Nettoyer le nom : enlever .local et remplacer - par espaces
+  return deviceName
+    .replace('.local', '')           // Enlever .local
+    .replace(/-/g, ' ');            // Remplacer - par espaces
 });
 
 // Watcher pour animer les changements
@@ -109,17 +207,40 @@ async function animateContentChange() {
   containerRef.value.style.opacity = '1';
   containerRef.value.style.transform = 'translateY(0)';
 }
+
+// Gestion de l'affichage initial du logo (3 secondes)
+onMounted(() => {
+  setTimeout(async () => {
+    // 1. Démarrer la transition du logo vers le haut
+    isInitialLogoDisplay.value = false;
+    
+    // 2. Attendre que le logo termine son animation vers le haut (500ms au lieu de 700ms)
+    await new Promise(resolve => setTimeout(resolve, 150));
+    
+    // 3. Maintenant déclencher l'animation des composants
+    shouldAnimateContent.value = true;
+  }, 1350);
+});
 </script>
 
 <style scoped>
 .main-view {
-    background: var(--color-background);
-     height: 100%;
+  background: var(--color-background);
+  height: 100%;
+  position: relative;
 }
 
 .stable-container {
   width: 100%;
   height: 100%;
+  opacity: 1;
+  transition: opacity var(--transition-spring);
+}
+
+/* Masquer le contenu pendant l'affichage initial du logo */
+.stable-container:not(.content-visible) {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .transition-state {
@@ -134,12 +255,6 @@ async function animateContentChange() {
 .no-source {
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.logo {
-  opacity: 0.6;
+  /* Pas besoin de flex/center car le logo est positionné de manière absolue */
 }
 </style>
