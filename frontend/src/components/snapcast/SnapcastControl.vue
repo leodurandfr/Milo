@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version avec fetch sélectif -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version OPTIM nettoyée -->
 <template>
   <div v-if="!isMultiroomActive" class="not-active">
     <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
@@ -8,12 +8,11 @@
   <div v-else-if="clients.length === 0" class="not-active">
     <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
     <p class="text-mono">Aucun client n'est connecté</p>
-    
   </div>
 
   <div v-else class="clients-list">
-    <SnapclientItem v-for="client in clients" :key="client.id" :client="client" @volume-change="handleVolumeChange"
-      @mute-toggle="handleMuteToggle" @show-details="handleShowDetails" />
+    <SnapclientItem v-for="client in clients" :key="client.id" :client="client" 
+      @volume-change="handleVolumeChange" @mute-toggle="handleMuteToggle" @show-details="handleShowDetails" />
   </div>
 </template>
 
@@ -28,38 +27,27 @@ import Icon from '@/components/ui/Icon.vue';
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
-// === ÉMISSIONS ===
 const emit = defineEmits(['show-client-details']);
 
 // État local
 const clients = ref([]);
-
-// Références pour nettoyage
 let unsubscribeFunctions = [];
 
-const isMultiroomActive = computed(() =>
-  unifiedStore.multiroomEnabled
-);
+const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
 
-// === FETCH SÉLECTIF AU MONTAGE ===
-
+// === FETCH INITIAL ===
 async function fetchSnapcastState() {
   try {
-    // Récupérer l'état du routing pour savoir si multiroom est activé
     const routingResponse = await axios.get('/api/routing/status');
     const routingData = routingResponse.data;
     
-    // Mettre à jour l'état dans le store si nécessaire
     if (routingData.routing?.multiroom_enabled !== undefined) {
-      // Forcer la mise à jour de l'état multiroom dans le store
       unifiedStore.systemState.multiroom_enabled = routingData.routing.multiroom_enabled;
     }
     
-    // Charger les clients snapcast si multiroom activé
     if (routingData.routing?.multiroom_enabled) {
       await loadSnapcastClients();
     }
-    
   } catch (error) {
     console.error('Error fetching snapcast state:', error);
   }
@@ -68,12 +56,9 @@ async function fetchSnapcastState() {
 async function loadSnapcastClients() {
   try {
     const clientsResponse = await axios.get('/api/routing/snapcast/clients');
-    const clientsData = clientsResponse.data;
-    
-    if (clientsData.clients) {
-      clients.value = clientsData.clients;
+    if (clientsResponse.data.clients) {
+      clients.value = clientsResponse.data.clients;
     }
-    
   } catch (error) {
     console.error('Error loading snapcast clients:', error);
     clients.value = [];
@@ -81,7 +66,6 @@ async function loadSnapcastClients() {
 }
 
 // === GESTIONNAIRES D'ÉVÉNEMENTS ===
-
 async function handleVolumeChange(clientId, volume) {
   try {
     await axios.post(`/api/routing/snapcast/client/${clientId}/volume`, { volume });
@@ -102,11 +86,9 @@ function handleShowDetails(client) {
   emit('show-client-details', client);
 }
 
-// === GESTIONNAIRES WEBSOCKET ===
-
+// === WEBSOCKET HANDLERS ===
 function handleClientConnected(event) {
   const clientData = event.data.client;
-
   if (clientData && !clients.value.find(c => c.id === clientData.id)) {
     const newClient = {
       id: clientData.id,
@@ -116,7 +98,6 @@ function handleClientConnected(event) {
       host: clientData.host?.name || 'Unknown',
       ip: clientData.host?.ip?.replace('::ffff:', '') || 'Unknown'
     };
-
     clients.value.push(newClient);
   }
 }
@@ -124,7 +105,6 @@ function handleClientConnected(event) {
 function handleClientDisconnected(event) {
   const clientId = event.data.client_id;
   const clientIndex = clients.value.findIndex(c => c.id === clientId);
-
   if (clientIndex !== -1) {
     clients.value.splice(clientIndex, 1);
   }
@@ -133,33 +113,24 @@ function handleClientDisconnected(event) {
 function handleClientVolumeChanged(event) {
   const { client_id, volume, muted } = event.data;
   const client = clients.value.find(c => c.id === client_id);
-
   if (client) {
     client.volume = volume;
-    if (muted !== undefined) {
-      client.muted = muted;
-    }
+    if (muted !== undefined) client.muted = muted;
   }
 }
 
 function handleClientNameChanged(event) {
   const { client_id, name } = event.data;
   const client = clients.value.find(c => c.id === client_id);
-
-  if (client) {
-    client.name = name;
-  }
+  if (client) client.name = name;
 }
 
 function handleClientMuteChanged(event) {
   const { client_id, muted, volume } = event.data;
   const client = clients.value.find(c => c.id === client_id);
-
   if (client) {
     client.muted = muted;
-    if (volume !== undefined) {
-      client.volume = volume;
-    }
+    if (volume !== undefined) client.volume = volume;
   }
 }
 
@@ -168,36 +139,28 @@ function handleSystemStateChanged(event) {
 }
 
 // === LIFECYCLE ===
-
 onMounted(async () => {
-  // FETCH SÉLECTIF : Récupérer l'état snapcast spécifique
   await fetchSnapcastState();
 
-  // S'abonner aux événements snapcast
-  const subscriptions = [
+  unsubscribeFunctions.push(
     on('snapcast', 'client_connected', handleClientConnected),
     on('snapcast', 'client_disconnected', handleClientDisconnected),
     on('snapcast', 'client_volume_changed', handleClientVolumeChanged),
     on('snapcast', 'client_name_changed', handleClientNameChanged),
     on('snapcast', 'client_mute_changed', handleClientMuteChanged),
     on('system', 'state_changed', handleSystemStateChanged)
-  ];
-
-  unsubscribeFunctions.push(...subscriptions);
+  );
 });
 
 onUnmounted(() => {
-  // Nettoyer tous les abonnements WebSocket
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
 });
 
 // Watcher pour le mode multiroom
 watch(isMultiroomActive, async (newValue) => {
   if (newValue) {
-    // Multiroom activé - charger les clients
     await loadSnapcastClients();
   } else {
-    // Multiroom désactivé - vider la liste
     clients.value = [];
   }
 });
@@ -211,15 +174,13 @@ watch(isMultiroomActive, async (newValue) => {
   padding: var(--space-09) var(--space-05);
   border-radius: var(--radius-04);
   background: var(--color-background-neutral);
-  gap: var(--space-04)
+  gap: var(--space-04);
 }
 
 .not-active .text-mono {
   text-align: center;
   color: var(--color-text-secondary);
 }
-
-
 
 .clients-list {
   display: flex;

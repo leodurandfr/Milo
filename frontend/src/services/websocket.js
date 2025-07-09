@@ -11,6 +11,7 @@ class WebSocketSingleton {
     this.eventHandlers = new Map(); // eventKey -> Set(callbacks)
     this.subscribers = new Set(); // Set des IDs de composants actifs
     this.lastSystemState = null; // État initial mis en cache
+    this.visibilityHandler = null; // Handler pour visibility change
   }
 
   addSubscriber(subscriberId) {
@@ -47,6 +48,7 @@ class WebSocketSingleton {
     
     this.socket.onopen = () => {
       this.isConnected.value = true;
+      this.setupVisibilityListener();
     };
     
     this.socket.onmessage = (event) => {
@@ -61,6 +63,7 @@ class WebSocketSingleton {
     this.socket.onclose = () => {
       this.isConnected.value = false;
       this.socket = null;
+      this.removeVisibilityListener();
       
       // Reconnexion automatique si on a encore des subscribers
       if (this.subscribers.size > 0) {
@@ -77,6 +80,50 @@ class WebSocketSingleton {
     this.isConnected.value = false;
     this.eventHandlers.clear();
     this.lastSystemState = null;
+    this.removeVisibilityListener();
+  }
+
+  // Gestion du retour sur l'onglet - Version OPTIM ciblée
+  setupVisibilityListener() {
+    if (this.visibilityHandler) return; // Éviter les doublons
+    
+    this.visibilityHandler = async () => {
+      if (!document.hidden && this.isConnected.value) {
+        // Onglet redevient actif - rafraîchir seulement l'état audio principal
+        await this.fetchAudioStateOnly();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', this.visibilityHandler);
+  }
+  
+  removeVisibilityListener() {
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
+  }
+  
+  async fetchAudioStateOnly() {
+    try {
+      const response = await fetch('/api/audio/state');
+      if (response.ok) {
+        const currentState = await response.json();
+        
+        // Diffuser seulement l'état audio principal (pas les données modals)
+        const audioEvent = {
+          category: "system",
+          type: "state_changed",
+          data: { full_state: currentState },
+          source: "visibility_refresh",
+          timestamp: Date.now()
+        };
+        
+        this.handleMessage(audioEvent);
+      }
+    } catch (error) {
+      console.error('Error fetching audio state on visibility change:', error);
+    }
   }
 
   // SUPPRIMÉ : fetchFreshInitialState() n'est plus nécessaire

@@ -1,9 +1,8 @@
-<!-- frontend/src/components/equalizer/EqualizerModal.vue - Version avec fetch sélectif -->
+<!-- frontend/src/components/equalizer/EqualizerModal.vue - Version OPTIM nettoyée -->
 <template>
   <div class="equalizer-modal">
-    <!-- Écran principal (unique) -->
     <div class="screen-main">
-      <!-- Toggle Equalizer avec IconButton intégré -->
+      <!-- Header avec toggle -->
       <div class="modal-header">
         <h2 class="heading-2">Égaliseur</h2>
         <div class="controls-wrapper">
@@ -18,7 +17,6 @@
       <div class="main-content">
         <div v-if="!isEqualizerEnabled" class="not-active">
           <Icon name="equalizer" :size="148" color="var(--color-background-glass)" />
-
           <p class="text-mono">Égaliseur désactivé</p>
         </div>
 
@@ -26,9 +24,7 @@
           <div v-if="loading" class="loading-state">
             <Icon name="equalizer" :size="148" color="var(--color-background-glass)" />
             <p class="text-mono">Chargement de l'égaliseur</p>
-
           </div>
-
 
           <template v-else>
             <RangeSliderEqualizer v-for="band in bands" :key="band.id" v-model="band.value" :label="band.display_name"
@@ -51,7 +47,6 @@ import Toggle from '@/components/ui/Toggle.vue';
 import RangeSliderEqualizer from './RangeSliderEqualizer.vue';
 import Icon from '@/components/ui/Icon.vue';
 
-
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
@@ -60,9 +55,6 @@ const loading = ref(false);
 const updating = ref(false);
 const resetting = ref(false);
 const bands = ref([]);
-const equalizerStatus = ref({ available: false });
-
-// Détection mobile pour orientation responsive
 const isMobile = ref(false);
 
 // Gestion du throttling pour les bandes
@@ -73,23 +65,33 @@ const FINAL_DELAY = 300;
 // Références pour nettoyage
 let unsubscribeFunctions = [];
 
-// État computed
-const isEqualizerEnabled = computed(() =>
-  unifiedStore.equalizerEnabled
-);
+// Computed
+const isEqualizerEnabled = computed(() => unifiedStore.equalizerEnabled);
+const sliderOrientation = computed(() => isMobile.value ? 'horizontal' : 'vertical');
 
-// Orientation responsive
-const sliderOrientation = computed(() =>
-  isMobile.value ? 'horizontal' : 'vertical'
-);
-
-// Fonction pour détecter le mobile
+// Détection mobile
 function updateMobileStatus() {
   const aspectRatio = window.innerWidth / window.innerHeight;
   isMobile.value = aspectRatio <= 4 / 3;
 }
 
-// === MÉTHODES PRINCIPALES ===
+// === FETCH INITIAL ===
+async function fetchEqualizerState() {
+  try {
+    const routingResponse = await axios.get('/api/routing/status');
+    const routingData = routingResponse.data;
+    
+    if (routingData.routing?.equalizer_enabled !== undefined) {
+      unifiedStore.systemState.equalizer_enabled = routingData.routing.equalizer_enabled;
+    }
+    
+    if (routingData.routing?.equalizer_enabled) {
+      await loadEqualizerData();
+    }
+  } catch (error) {
+    console.error('Error fetching equalizer state:', error);
+  }
+}
 
 async function loadEqualizerData() {
   if (!isEqualizerEnabled.value) return;
@@ -101,75 +103,27 @@ async function loadEqualizerData() {
       axios.get('/api/equalizer/bands')
     ]);
 
-    equalizerStatus.value = statusResponse.data;
-
-    if (equalizerStatus.value.available) {
+    if (statusResponse.data.available) {
       bands.value = bandsResponse.data.bands || [];
     } else {
       bands.value = [];
     }
-
   } catch (error) {
     console.error('Error loading equalizer data:', error);
-    equalizerStatus.value = { available: false };
     bands.value = [];
   } finally {
     loading.value = false;
   }
 }
 
-async function checkEqualizerStatus() {
-  try {
-    const response = await axios.get('/api/equalizer/available');
-    equalizerStatus.value.available = response.data.available;
-
-    if (response.data.available) {
-      await loadEqualizerData();
-    }
-  } catch (error) {
-    console.error('Error checking equalizer status:', error);
-  }
-}
-
-// === FETCH SÉLECTIF AU MONTAGE ===
-
-async function fetchEqualizerState() {
-  try {
-    // Récupérer l'état du routing pour savoir si equalizer est activé
-    const routingResponse = await axios.get('/api/routing/status');
-    const routingData = routingResponse.data;
-    
-    // Mettre à jour l'état dans le store si nécessaire
-    if (routingData.routing?.equalizer_enabled !== undefined) {
-      // Forcer la mise à jour de l'état equalizer dans le store
-      unifiedStore.systemState.equalizer_enabled = routingData.routing.equalizer_enabled;
-    }
-    
-    // Charger les données equalizer si activé
-    if (routingData.routing?.equalizer_enabled) {
-      await loadEqualizerData();
-    }
-    
-  } catch (error) {
-    console.error('Error fetching equalizer state:', error);
-  }
-}
-
-// === GESTION DES BANDES AVEC THROTTLING ===
-
+// === GESTION DES BANDES ===
 function handleBandInput(bandId, value) {
-  // Mise à jour visuelle immédiate
   const band = bands.value.find(b => b.id === bandId);
-  if (band) {
-    band.value = value;
-  }
-
-  // Throttling des requêtes
+  if (band) band.value = value;
   handleBandThrottled(bandId, value);
 }
 
 function handleBandChange(bandId, value) {
-  // Requête finale
   sendBandRequest(bandId, value);
   clearThrottleForBand(bandId);
 }
@@ -178,23 +132,19 @@ function handleBandThrottled(bandId, value) {
   const now = Date.now();
   let state = bandThrottleMap.get(bandId) || {};
 
-  // Nettoyer les timeouts existants
   if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
   if (state.finalTimeout) clearTimeout(state.finalTimeout);
 
-  // Envoyer immédiatement si pas de requête récente
   if (!state.lastRequestTime || (now - state.lastRequestTime) >= THROTTLE_DELAY) {
     sendBandRequest(bandId, value);
     state.lastRequestTime = now;
   } else {
-    // Programmer une requête throttlée
     state.throttleTimeout = setTimeout(() => {
       sendBandRequest(bandId, value);
       state.lastRequestTime = Date.now();
     }, THROTTLE_DELAY - (now - state.lastRequestTime));
   }
 
-  // Programmer une requête finale
   state.finalTimeout = setTimeout(() => {
     sendBandRequest(bandId, value);
     state.lastRequestTime = Date.now();
@@ -205,10 +155,7 @@ function handleBandThrottled(bandId, value) {
 
 async function sendBandRequest(bandId, value) {
   try {
-    const response = await axios.post(`/api/equalizer/band/${bandId}`, {
-      value
-    });
-
+    const response = await axios.post(`/api/equalizer/band/${bandId}`, { value });
     if (response.data.status !== 'success') {
       console.error('Failed to update band:', response.data.message);
     }
@@ -232,14 +179,8 @@ async function resetAllBands() {
   resetting.value = true;
   try {
     const response = await axios.post('/api/equalizer/reset', { value: 66 });
-
     if (response.data.status === 'success') {
-      // Mettre à jour l'affichage local
-      bands.value.forEach(band => {
-        band.value = 66;
-      });
-    } else {
-      console.error('Failed to reset bands:', response.data.message);
+      bands.value.forEach(band => { band.value = 66; });
     }
   } catch (error) {
     console.error('Error resetting bands:', error);
@@ -248,14 +189,11 @@ async function resetAllBands() {
   }
 }
 
-// === GESTION TOGGLE ===
-
 async function handleEqualizerToggle(enabled) {
   await unifiedStore.setEqualizerEnabled(enabled);
 }
 
-// === GESTION WEBSOCKET ===
-
+// === WEBSOCKET ===
 function handleEqualizerUpdate(event) {
   if (event.data.band_changed) {
     const { band_id, value } = event.data;
@@ -265,101 +203,62 @@ function handleEqualizerUpdate(event) {
     }
   } else if (event.data.reset) {
     if (bandThrottleMap.size === 0) {
-      bands.value.forEach(band => {
-        band.value = event.data.reset_value;
-      });
+      bands.value.forEach(band => { band.value = event.data.reset_value; });
     }
   }
 }
 
-// === LIFECYCLE ===
+// Watcher equalizer state
+let lastEqualizerState = isEqualizerEnabled.value;
+const watcherInterval = setInterval(() => {
+  if (lastEqualizerState !== isEqualizerEnabled.value) {
+    lastEqualizerState = isEqualizerEnabled.value;
+    if (isEqualizerEnabled.value) {
+      loadEqualizerData();
+    } else {
+      bands.value = [];
+      bandThrottleMap.forEach(state => {
+        if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
+        if (state.finalTimeout) clearTimeout(state.finalTimeout);
+      });
+      bandThrottleMap.clear();
+    }
+  }
+}, 100);
 
+// === LIFECYCLE ===
 onMounted(async () => {
-  // Détection mobile initiale
   updateMobileStatus();
   window.addEventListener('resize', updateMobileStatus);
-
-  // FETCH SÉLECTIF : Récupérer l'état equalizer spécifique
+  
   await fetchEqualizerState();
-
-  // S'abonner aux événements equalizer
-  const unsubscribe1 = on('equalizer', 'band_changed', handleEqualizerUpdate);
-  const unsubscribe2 = on('equalizer', 'reset', handleEqualizerUpdate);
-
-  unsubscribeFunctions.push(unsubscribe1, unsubscribe2);
+  
+  unsubscribeFunctions.push(
+    on('equalizer', 'band_changed', handleEqualizerUpdate),
+    on('equalizer', 'reset', handleEqualizerUpdate)
+  );
 });
 
 onUnmounted(() => {
-  // Nettoyer l'event listener resize
   window.removeEventListener('resize', updateMobileStatus);
-
-  // Nettoyer les abonnements WebSocket
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
-
-  // Nettoyer tous les timeouts en cours
+  clearInterval(watcherInterval);
+  
   bandThrottleMap.forEach(state => {
     if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
     if (state.finalTimeout) clearTimeout(state.finalTimeout);
   });
   bandThrottleMap.clear();
 });
-
-// Watcher pour le mode equalizer
-async function watchEqualizerState() {
-  if (isEqualizerEnabled.value) {
-    await loadEqualizerData();
-  } else {
-    bands.value = [];
-    equalizerStatus.value = { available: false };
-
-    // Nettoyer les états des requêtes
-    bandThrottleMap.forEach(state => {
-      if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
-      if (state.finalTimeout) clearTimeout(state.finalTimeout);
-    });
-    bandThrottleMap.clear();
-  }
-}
-
-// Watcher manuel via computed
-let lastEqualizerState = isEqualizerEnabled.value;
-setInterval(() => {
-  if (lastEqualizerState !== isEqualizerEnabled.value) {
-    lastEqualizerState = isEqualizerEnabled.value;
-    watchEqualizerState();
-  }
-}, 100);
 </script>
 
 <style scoped>
-/* Not active */
-
-.not-active {
-  display: flex;
-  height: 100%;
-  flex-direction: column;
-  padding: var(--space-09) var(--space-05);
-  border-radius: var(--radius-04);
-  background: var(--color-background-neutral);
-  gap: var(--space-04)
-}
-
-.not-active .text-mono {
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
-
-
-/* EqualizerModal - Remplit toute la hauteur disponible */
 .equalizer-modal {
   display: flex;
   flex-direction: column;
   height: 100%;
-  /* Prend toute la hauteur du modal-content */
 }
 
-/* Écrans */
 .screen-main {
   display: flex;
   flex-direction: column;
@@ -367,7 +266,6 @@ setInterval(() => {
   height: 100%;
   min-height: 0;
 }
-
 
 .modal-header {
   background: var(--color-background-contrast);
@@ -388,45 +286,25 @@ setInterval(() => {
   gap: 12px;
 }
 
-/* Contenu principal - prend l'espace restant */
 .main-content {
   flex: 1;
 }
 
-/* États simple et contrôles - même style */
-.equalizer-disabled {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 20px;
+.not-active {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  padding: var(--space-09) var(--space-05);
+  border-radius: var(--radius-04);
+  background: var(--color-background-neutral);
+  gap: var(--space-04);
+}
+
+.not-active .text-mono {
   text-align: center;
-  color: #666;
-  border-radius: 16px;
+  color: var(--color-text-secondary);
 }
 
-.equalizer-disabled h4 {
-  margin: 0 0 12px 0;
-  color: #333;
-}
-
-.equalizer-disabled p {
-  margin: 0 0 12px 0;
-  font-size: 14px;
-}
-
-.retry-btn {
-  padding: 8px 16px;
-  background: #2196F3;
-  color: white;
-  border: none;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.retry-btn:hover {
-  background: #1976D2;
-}
-
-/* Equalizer contrôles - HAUTEUR FIXE pour cascade cohérente */
 .equalizer-controls {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
@@ -438,30 +316,13 @@ setInterval(() => {
   overflow-x: auto;
 }
 
-/* États de chargement et no-bands - adaptés au container flex */
-.loading-state,
-.no-bands {
+.loading-state {
   width: 100%;
-  /* Prend toute la largeur */
   text-align: center;
   padding: 20px;
   align-self: center;
-  /* Centre verticalement dans le flex container */
 }
 
-
-
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-/* Responsive pour equalizer-controls - MOBILE HORIZONTAL */
 @media (max-aspect-ratio: 4/3) {
   .main-content {
     flex: none;
@@ -469,12 +330,6 @@ setInterval(() => {
 
   .equalizer-controls {
     flex-direction: column;
-  }
-
-
-  .modal-overlay.fixed-height {
-    height: auto;
-    align-items: none;
   }
 }
 </style>

@@ -1,4 +1,4 @@
-<!-- frontend/src/App.vue - Version complète OPTIM avec refs directes -->
+<!-- frontend/src/App.vue - Version OPTIM nettoyée -->
 <template>
   <div class="app-container">
     <router-view />
@@ -8,21 +8,11 @@
       @open-equalizer="isEqualizerOpen = true"
     />
 
-    <!-- Modal Multiroom (avec navigation interne) -->
-    <Modal 
-      :is-open="isSnapcastOpen" 
-      height-mode="auto" 
-      @close="isSnapcastOpen = false"
-    >
+    <Modal :is-open="isSnapcastOpen" height-mode="auto" @close="isSnapcastOpen = false">
       <SnapcastModal />
     </Modal>
 
-    <!-- Modal Égaliseur (simple, 1 vue) -->
-    <Modal 
-      :is-open="isEqualizerOpen" 
-      height-mode="fixed" 
-      @close="isEqualizerOpen = false"
-    >
+    <Modal :is-open="isEqualizerOpen" height-mode="fixed" @close="isEqualizerOpen = false">
       <EqualizerModal />
     </Modal>
   </div>
@@ -43,11 +33,11 @@ const volumeStore = useVolumeStore();
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
-// === MODALES PRINCIPALES : 2 REFS SIMPLES ===
+// Modales
 const isSnapcastOpen = ref(false);
 const isEqualizerOpen = ref(false);
 
-// === PROVIDE POUR LES COMPOSANTS ENFANTS ===
+// Provide pour les composants enfants
 provide('openSnapcast', () => isSnapcastOpen.value = true);
 provide('openEqualizer', () => isEqualizerOpen.value = true);
 provide('closeModals', () => {
@@ -55,49 +45,34 @@ provide('closeModals', () => {
   isEqualizerOpen.value = false;
 });
 
-// Stocker les fonctions de cleanup
 const cleanupFunctions = [];
 
 onMounted(() => {
-  // === ÉVÉNEMENTS VOLUME ===
-  const volumeCleanup = on('volume', 'volume_changed', (event) => {
-    volumeStore.handleVolumeEvent(event);
-  });
+  // Setup refresh global
+  unifiedStore.setupVisibilityListener();
+  
+  // Événements WebSocket
+  cleanupFunctions.push(
+    // Volume
+    on('volume', 'volume_changed', (event) => volumeStore.handleVolumeEvent(event)),
+    
+    // Système
+    on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
+    on('system', 'transition_start', (event) => unifiedStore.updateState(event)),
+    on('system', 'transition_complete', (event) => unifiedStore.updateState(event)),
+    on('system', 'error', (event) => unifiedStore.updateState(event)),
+    
+    // Plugins
+    on('plugin', 'state_changed', (event) => unifiedStore.updateState(event)),
+    on('plugin', 'metadata', (event) => unifiedStore.updateState(event))
+  );
 
-  // === ÉVÉNEMENTS SYSTÈME (pour tous les plugins) ===
-  const systemSubscriptions = [
-    on('system', 'state_changed', (event) => {
-      unifiedStore.updateState(event);
-    }),
-    on('system', 'transition_start', (event) => {
-      unifiedStore.updateState(event);
-    }),
-    on('system', 'transition_complete', (event) => {
-      unifiedStore.updateState(event);
-    }),
-    on('system', 'error', (event) => {
-      unifiedStore.updateState(event);
-    })
-  ];
-
-  // === ÉVÉNEMENTS PLUGINS (pour tous les plugins) ===
-  const pluginSubscriptions = [
-    on('plugin', 'state_changed', (event) => {
-      unifiedStore.updateState(event);
-    }),
-    on('plugin', 'metadata', (event) => {
-      unifiedStore.updateState(event);
-    })
-  ];
-
-  cleanupFunctions.push(volumeCleanup, ...systemSubscriptions, ...pluginSubscriptions);
-
-  // Récupérer le statut complet (volume + limites) au démarrage
+  // État initial
   volumeStore.getVolumeStatus();
 });
 
 onUnmounted(() => {
-  // Nettoyer tous les event listeners WebSocket
+  unifiedStore.removeVisibilityListener();
   cleanupFunctions.forEach(cleanup => cleanup());
 });
 </script>

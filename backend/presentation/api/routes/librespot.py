@@ -1,12 +1,13 @@
 """
-Routes API spécifiques pour le plugin librespot.
+Routes API spécifiques pour le plugin librespot - Version avec fresh-status.
 À placer dans backend/presentation/api/routes/librespot.py
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
 import subprocess
 import asyncio
+import aiohttp
 from typing import Dict, Any, Optional
-from backend.domain.audio_state import PluginState  # Ajout de l'import manquant
+from backend.domain.audio_state import PluginState
 
 # Créer un router dédié pour librespot
 router = APIRouter(
@@ -38,6 +39,75 @@ def get_librespot_plugin():
         )
     return librespot_plugin_dependency()
 
+@router.get("/fresh-status")
+async def get_fresh_librespot_status():
+    """
+    Récupère le statut frais directement depuis l'API go-librespot.
+    Cet endpoint appelle l'API go-librespot côté serveur pour éviter les problèmes CORS.
+    """
+    try:
+        # URL de l'API go-librespot (configurable via le plugin)
+        api_url = "http://localhost:3678/status"
+        
+        # Timeout court pour éviter les blocages
+        timeout = aiohttp.ClientTimeout(total=3)
+        
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(api_url) as response:
+                if response.status == 200:
+                    fresh_data = await response.json()
+                    
+                    # Transformer les données au format oakOS
+                    transformed_metadata = {}
+                    
+                    if fresh_data.get("track"):
+                        track = fresh_data["track"]
+                        transformed_metadata = {
+                            "title": track.get("name"),
+                            "artist": ", ".join(track.get("artist_names", [])) if track.get("artist_names") else None,
+                            "album": track.get("album_name"),
+                            "album_art_url": track.get("album_cover_url"),
+                            "duration": track.get("duration", 0),
+                            "position": track.get("position", 0),
+                            "uri": track.get("uri"),
+                        }
+                    
+                    # Ajouter l'état de lecture
+                    transformed_metadata["is_playing"] = not fresh_data.get("paused", True) and not fresh_data.get("stopped", True)
+                    
+                    return {
+                        "status": "success",
+                        "fresh_metadata": transformed_metadata,
+                        "device_connected": bool(fresh_data.get("track")),
+                        "raw_data": fresh_data,  # Pour debug si nécessaire
+                        "source": "go-librespot-api"
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "message": f"go-librespot API returned status {response.status}",
+                        "source": "go-librespot-api"
+                    }
+                    
+    except aiohttp.ClientConnectorError:
+        return {
+            "status": "error", 
+            "message": "Cannot connect to go-librespot API - server may not be running",
+            "source": "connection_error"
+        }
+    except asyncio.TimeoutError:
+        return {
+            "status": "error",
+            "message": "Timeout connecting to go-librespot API",
+            "source": "timeout_error"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Unexpected error: {str(e)}",
+            "source": "unexpected_error"
+        }
+
 @router.get("/status")
 async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
     """Récupère le statut actuel de go-librespot avec toutes les métadonnées"""
@@ -45,7 +115,7 @@ async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
         # Force toujours une mise à jour depuis l'API pour avoir l'état le plus récent
         if plugin.session:
             # Utiliser la méthode correcte pour rafraîchir les métadonnées
-            await plugin._refresh_metadata()  # Remplacer _get_api_data() par _refresh_metadata()
+            await plugin._refresh_metadata()
         
         # Récupérer les informations de statut complètes
         status = await plugin.get_status()
@@ -114,7 +184,6 @@ async def restart_go_librespot(plugin = Depends(get_librespot_plugin)):
             "message": f"Erreur inattendue: {str(e)}"
         }
 
-
 @router.post("/force-disconnect")
 async def force_librespot_disconnect(plugin = Depends(get_librespot_plugin)):
     """Force l'envoi d'un événement de déconnexion pour librespot"""
@@ -132,7 +201,6 @@ async def force_librespot_disconnect(plugin = Depends(get_librespot_plugin)):
             "status": "error",
             "message": f"Erreur lors de l'envoi de l'événement de déconnexion: {str(e)}"
         }
-        
         
 @router.get("/logs")
 async def get_librespot_logs(
