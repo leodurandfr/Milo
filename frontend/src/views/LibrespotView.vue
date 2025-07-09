@@ -34,7 +34,11 @@
     </div>
 
     <div v-else-if="unifiedStore.pluginState === 'ready'" class="plugin-status-wrapper">
-      <PluginStatus plugin-type="librespot" :plugin-state="unifiedStore.pluginState" />
+      <PluginStatus 
+        plugin-type="librespot" 
+        :plugin-state="unifiedStore.pluginState" 
+        :should-animate="shouldAnimate"
+      />
     </div>
 
     <div v-if="unifiedStore.error && unifiedStore.currentSource === 'librespot'" class="error-message">
@@ -53,6 +57,14 @@ import axios from 'axios';
 import PlaybackControls from '../components/librespot/PlaybackControls.vue';
 import ProgressBar from '../components/librespot/ProgressBar.vue';
 import PluginStatus from '@/components/ui/PluginStatus.vue';
+
+// Props - AJOUT de shouldAnimate
+const props = defineProps({
+  shouldAnimate: {
+    type: Boolean,
+    default: false
+  }
+});
 
 const unifiedStore = useUnifiedAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
@@ -82,17 +94,17 @@ async function animatePlayerIn() {
   // Album art apparaît en premier
   showAlbumArt.value = true;
 
-  // Track info après 200ms
+  // Track info après 100ms
   setTimeout(() => {
     showTrackInfo.value = true;
   }, 100);
 
-  // Progress bar après 400ms
+  // Progress bar après 200ms
   setTimeout(() => {
     showProgressBar.value = true;
   }, 200);
 
-  // Controls après 600ms
+  // Controls après 300ms
   setTimeout(() => {
     showControls.value = true;
   }, 300);
@@ -107,18 +119,18 @@ function resetAnimations() {
   showControls.value = false;
 }
 
-// Watch pour déclencher l'animation
-watch(() => hasTrackInfo.value, async (newValue, oldValue) => {
-  if (newValue && !oldValue) {
+// Watch pour déclencher l'animation SEULEMENT quand shouldAnimate est true
+watch(() => [hasTrackInfo.value, props.shouldAnimate], async ([hasTrack, shouldAnim], [prevHasTrack, prevShouldAnim]) => {
+  if (hasTrack && shouldAnim && (!prevHasTrack || !prevShouldAnim)) {
     // Reset d'abord les animations
     resetAnimations();
     // Attendre le prochain tick pour que le DOM soit mis à jour
     await nextTick();
-    // Petit délai pour s'assurer que PluginStatus a disparu
+    // Petit délai pour s'assurer que tout est prêt
     setTimeout(() => {
       animatePlayerIn();
     }, 50);
-  } else if (!newValue) {
+  } else if (!hasTrack) {
     resetAnimations();
   }
 }, { immediate: false });
@@ -154,13 +166,8 @@ onMounted(async () => {
 
         console.log("Position initiale chargée:", metadata.position);
 
-        // Déclencher l'animation si on a déjà les infos
-        if (hasTrackInfo.value) {
-          await nextTick();
-          setTimeout(() => {
-            animatePlayerIn();
-          }, 100);
-        }
+        // NE PAS déclencher l'animation automatiquement au montage
+        // Attendre que shouldAnimate soit true
       }
     } catch (error) {
       console.error('Error fetching librespot status:', error);
@@ -323,12 +330,10 @@ onMounted(async () => {
 
 .ios-app .controls-section {
   margin-bottom: var(--space-09);
-
 }
 
 /* Android */
 .android-app .controls-section {
   margin-bottom: var(--space-08);
-
 }
 </style>

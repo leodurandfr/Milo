@@ -26,6 +26,7 @@
         v-else-if="currentComponent" 
         :is="currentComponent" 
         :key="unifiedStore.componentRefreshKey"
+        :should-animate="shouldAnimateContent"
       />
 
       <!-- Aucune source - pas de contenu, juste le logo centré -->
