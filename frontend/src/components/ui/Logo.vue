@@ -103,4 +103,9 @@ const sizeClass = computed(() => ({
     height: 40px; /* 40px au lieu de 48px sur mobile */
   }
 }
+
+/* iOS */
+.ios-app .logo-top {
+  top: var(--space-09); 
+}
 </style>
