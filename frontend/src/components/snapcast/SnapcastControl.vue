@@ -1,8 +1,8 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version sans modalStore -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version avec fetch sélectif -->
 <template>
   <div v-if="!isMultiroomActive" class="not-active">
     <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
-    <p class="text-mono">Le multiroom n’est pas activé</p>
+    <p class="text-mono">Le multiroom n'est pas activé</p>
   </div>
 
   <div v-else-if="clients.length === 0" class="not-active">
@@ -40,6 +40,45 @@ let unsubscribeFunctions = [];
 const isMultiroomActive = computed(() =>
   unifiedStore.multiroomEnabled
 );
+
+// === FETCH SÉLECTIF AU MONTAGE ===
+
+async function fetchSnapcastState() {
+  try {
+    // Récupérer l'état du routing pour savoir si multiroom est activé
+    const routingResponse = await axios.get('/api/routing/status');
+    const routingData = routingResponse.data;
+    
+    // Mettre à jour l'état dans le store si nécessaire
+    if (routingData.routing?.multiroom_enabled !== undefined) {
+      // Forcer la mise à jour de l'état multiroom dans le store
+      unifiedStore.systemState.multiroom_enabled = routingData.routing.multiroom_enabled;
+    }
+    
+    // Charger les clients snapcast si multiroom activé
+    if (routingData.routing?.multiroom_enabled) {
+      await loadSnapcastClients();
+    }
+    
+  } catch (error) {
+    console.error('Error fetching snapcast state:', error);
+  }
+}
+
+async function loadSnapcastClients() {
+  try {
+    const clientsResponse = await axios.get('/api/routing/snapcast/clients');
+    const clientsData = clientsResponse.data;
+    
+    if (clientsData.clients) {
+      clients.value = clientsData.clients;
+    }
+    
+  } catch (error) {
+    console.error('Error loading snapcast clients:', error);
+    clients.value = [];
+  }
+}
 
 // === GESTIONNAIRES D'ÉVÉNEMENTS ===
 
@@ -128,10 +167,13 @@ function handleSystemStateChanged(event) {
   unifiedStore.updateState(event);
 }
 
-// === LIFECYCLE SIMPLIFIÉ ===
+// === LIFECYCLE ===
 
 onMounted(async () => {
-  // ✅ SOLUTION SIMPLE : Seulement WebSocket, pas d'appel API initial
+  // FETCH SÉLECTIF : Récupérer l'état snapcast spécifique
+  await fetchSnapcastState();
+
+  // S'abonner aux événements snapcast
   const subscriptions = [
     on('snapcast', 'client_connected', handleClientConnected),
     on('snapcast', 'client_disconnected', handleClientDisconnected),
@@ -142,9 +184,6 @@ onMounted(async () => {
   ];
 
   unsubscribeFunctions.push(...subscriptions);
-  
-  // Les clients apparaîtront automatiquement via WebSocket
-  // Pas besoin d'appel API initial !
 });
 
 onUnmounted(() => {
@@ -152,12 +191,15 @@ onUnmounted(() => {
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
 });
 
-// Watcher simplifié
-watch(isMultiroomActive, (newValue) => {
-  if (!newValue) {
-    clients.value = []; // Juste vider si désactivé
+// Watcher pour le mode multiroom
+watch(isMultiroomActive, async (newValue) => {
+  if (newValue) {
+    // Multiroom activé - charger les clients
+    await loadSnapcastClients();
+  } else {
+    // Multiroom désactivé - vider la liste
+    clients.value = [];
   }
-  // Si activé, les clients arrivent via WebSocket automatiquement
 });
 </script>
 

@@ -1,4 +1,4 @@
-<!-- frontend/src/components/equalizer/EqualizerModal.vue - Version sans modalStore -->
+<!-- frontend/src/components/equalizer/EqualizerModal.vue - Version avec fetch sélectif -->
 <template>
   <div class="equalizer-modal">
     <!-- Écran principal (unique) -->
@@ -131,6 +131,30 @@ async function checkEqualizerStatus() {
   }
 }
 
+// === FETCH SÉLECTIF AU MONTAGE ===
+
+async function fetchEqualizerState() {
+  try {
+    // Récupérer l'état du routing pour savoir si equalizer est activé
+    const routingResponse = await axios.get('/api/routing/status');
+    const routingData = routingResponse.data;
+    
+    // Mettre à jour l'état dans le store si nécessaire
+    if (routingData.routing?.equalizer_enabled !== undefined) {
+      // Forcer la mise à jour de l'état equalizer dans le store
+      unifiedStore.systemState.equalizer_enabled = routingData.routing.equalizer_enabled;
+    }
+    
+    // Charger les données equalizer si activé
+    if (routingData.routing?.equalizer_enabled) {
+      await loadEqualizerData();
+    }
+    
+  } catch (error) {
+    console.error('Error fetching equalizer state:', error);
+  }
+}
+
 // === GESTION DES BANDES AVEC THROTTLING ===
 
 function handleBandInput(bandId, value) {
@@ -255,9 +279,8 @@ onMounted(async () => {
   updateMobileStatus();
   window.addEventListener('resize', updateMobileStatus);
 
-  if (isEqualizerEnabled.value) {
-    await loadEqualizerData();
-  }
+  // FETCH SÉLECTIF : Récupérer l'état equalizer spécifique
+  await fetchEqualizerState();
 
   // S'abonner aux événements equalizer
   const unsubscribe1 = on('equalizer', 'band_changed', handleEqualizerUpdate);

@@ -1,8 +1,8 @@
-// frontend/src/services/websocket.js - Version Simplifiée (Singleton Essentiel)
+// frontend/src/services/websocket.js - Version corrigée sans fetchFreshInitialState
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 
 /**
- * Singleton WebSocket simplifié - Résout juste le problème d'accumulation + état initial
+ * Singleton WebSocket simplifié - Version corrigée sans fetch automatique
  */
 class WebSocketSingleton {
   constructor() {
@@ -19,10 +19,9 @@ class WebSocketSingleton {
     // Premier subscriber = créer la connexion
     if (this.subscribers.size === 1) {
       this.createConnection();
-    } else {
-      // Connexion existante = récupérer l'état frais du serveur
-      this.fetchFreshInitialState();
     }
+    // SUPPRIMÉ : Plus de fetchFreshInitialState() pour les nouveaux subscribers
+    // Les modals n'ont pas besoin d'un état "frais", l'état est déjà synchronisé via WebSocket
   }
 
   removeSubscriber(subscriberId) {
@@ -80,30 +79,8 @@ class WebSocketSingleton {
     this.lastSystemState = null;
   }
 
-  async fetchFreshInitialState() {
-    try {
-      const response = await fetch('/api/audio/state');
-      if (response.ok) {
-        const currentState = await response.json();
-        
-        // Mettre à jour le cache
-        this.lastSystemState = currentState;
-        
-        // Diffuser l'état frais à tous les handlers system.state_changed
-        const freshEvent = {
-          category: "system",
-          type: "state_changed",
-          data: { full_state: currentState },
-          source: "api_refresh",
-          timestamp: Date.now()
-        };
-        
-        this.handleMessage(freshEvent);
-      }
-    } catch (error) {
-      console.error('Error fetching fresh initial state:', error);
-    }
-  }
+  // SUPPRIMÉ : fetchFreshInitialState() n'est plus nécessaire
+  // L'état est déjà synchronisé via WebSocket pour tous les composants
 
   handleMessage(message) {
     // Mettre en cache l'état système pour les nouveaux composants
@@ -134,8 +111,8 @@ class WebSocketSingleton {
     
     this.eventHandlers.get(eventKey).add(callback);
     
-    // Plus besoin d'envoyer l'état mis en cache ici - 
-    // fetchFreshInitialState() s'en charge pour les nouveaux subscribers
+    // Les nouveaux composants utilisent simplement l'état déjà disponible via WebSocket
+    // Plus besoin de fetch API automatique
     
     // Retourner fonction de cleanup
     return () => {
@@ -154,7 +131,7 @@ class WebSocketSingleton {
 const wsInstance = new WebSocketSingleton();
 
 /**
- * Composable WebSocket avec interface identique mais implémentation singleton
+ * Composable WebSocket avec interface identique mais sans fetch automatique
  */
 export default function useWebSocket() {
   const subscriberId = Symbol('WebSocketSubscriber');
