@@ -398,7 +398,7 @@ onUnmounted(() => {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  height: 32%;
+  height: 24%;
   opacity: 0.2;
   z-index: 999;
   cursor: grab;
@@ -419,8 +419,8 @@ onUnmounted(() => {
   border-radius: var(--radius-06);
   padding: var(--space-04);
   background: var(--color-background-glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
@@ -504,8 +504,8 @@ onUnmounted(() => {
   border-radius: var(--radius-06);
   padding: var(--space-04);
   background: var(--color-background-glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   display: flex;
   flex-direction: column;
   align-items: center;

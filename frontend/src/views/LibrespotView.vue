@@ -3,10 +3,16 @@
     <div v-if="hasTrackInfo" class="now-playing" :class="{ 'animate-in': showPlayer }">
       <!-- Partie gauche : Image de couverture -->
       <div class="album-art-section" :class="{ 'slide-in': showAlbumArt }">
-        <div class="album-art">
-          <img v-if="unifiedStore.metadata.album_art_url" :src="unifiedStore.metadata.album_art_url" alt="Album Art" />
-          <div v-else class="placeholder-art">
-            <span class="music-icon">🎵</span>
+        <div class="album-art-container">
+          <!-- Blur en arrière-plan -->
+          <div class="album-art-blur"
+            :style="{ backgroundImage: unifiedStore.metadata.album_art_url ? `url(${unifiedStore.metadata.album_art_url})` : 'none' }">
+          </div>
+
+          <!-- Art cover principale -->
+          <div class="album-art">
+            <img v-if="unifiedStore.metadata.album_art_url" :src="unifiedStore.metadata.album_art_url"
+              alt="Album Art" />
           </div>
         </div>
       </div>
@@ -34,11 +40,7 @@
     </div>
 
     <div v-else-if="unifiedStore.pluginState === 'ready'" class="plugin-status-wrapper">
-      <PluginStatus 
-        plugin-type="librespot" 
-        :plugin-state="unifiedStore.pluginState" 
-        :should-animate="shouldAnimate"
-      />
+      <PluginStatus plugin-type="librespot" :plugin-state="unifiedStore.pluginState" :should-animate="shouldAnimate" />
     </div>
 
     <div v-if="unifiedStore.error && unifiedStore.currentSource === 'librespot'" class="error-message">
@@ -185,7 +187,7 @@ onMounted(async () => {
   } catch (error) {
     console.error('Error fetching librespot status:', error);
   }
-  
+
   // PLUS de déclenchement automatique au montage - on attend shouldAnimate
 });
 </script>
@@ -220,6 +222,8 @@ onMounted(async () => {
   opacity: 0;
   transform: translateY(20px);
   transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+  order: 1;
+  z-index: 2;
 }
 
 .album-art-section.slide-in {
@@ -227,11 +231,67 @@ onMounted(async () => {
   transform: translateY(0);
 }
 
+/* Container pour les deux art covers superposées */
+.album-art-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Art cover en arrière-plan avec blur */
+.album-art-blur {
+  position: absolute;
+  top: -20px;
+  left: -20px;
+  right: -20px;
+  bottom: -20px;
+  z-index: 2;
+  background-size: cover;
+  background-position: center;
+  filter: blur(var(--space-07)) saturate(1.5);
+  transform: scale(1.1) translateZ(0);
+  opacity: .25;
+  will-change: transform, filter;
+  backface-visibility: hidden;
+}
+
+/* .album-art-blur img {
+  width: 100%;
+  height: 100%;
+  filter: blur(var(--space-07)) saturate(1.5);
+  transform: scale(1.1) translateZ(0);
+  opacity: .25;
+  -webkit-transform: scale(1.1) translateZ(0);
+  -webkit-backface-visibility: hidden;
+  perspective: 1000px;
+
+} */
+
+/* Art cover principale avec border radius */
+.album-art {
+  position: relative;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-06);
+  overflow: hidden;
+  box-shadow: 0px 0px 96px 0px #0000000d;
+}
+
+.album-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+
 .content-section {
   flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  order: 2;
+  z-index: 1;
 }
 
 .track-info {
@@ -240,7 +300,7 @@ onMounted(async () => {
   flex-direction: column;
   justify-content: center;
   text-align: center;
-  gap: var(--space-04);
+  gap: var(--space-03);
   padding: var(--space-06) 0;
   opacity: 0;
   transform: translateY(20px);
@@ -280,34 +340,6 @@ onMounted(async () => {
   gap: var(--space-05);
 }
 
-.album-art {
-  width: 100%;
-  height: 100%;
-  border-radius: var(--radius-06);
-  overflow: hidden;
-}
-
-.album-art img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.placeholder-art {
-  width: 100%;
-  height: 100%;
-  background-color: #333;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.music-icon {
-  font-size: 80px;
-  opacity: 0.5;
-}
-
 .track-title {
   color: var(--color-text);
 }
@@ -335,6 +367,15 @@ onMounted(async () => {
   .controls-section {
     margin-bottom: var(--space-06);
   }
+
+  .album-art-blur {
+    transform: scale(1) translateZ(0);
+  }
+
+  .track-info {
+    padding: var(--space-06) 0 var(--space-03) 0;
+  }
+
 }
 
 /* iOS */
