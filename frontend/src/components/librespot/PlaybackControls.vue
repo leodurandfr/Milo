@@ -1,12 +1,21 @@
 <template>
   <div class="controls">
-    <div @mousedown="onPrevious" @touchstart="onPrevious" class="control-button previous">
+    <div 
+      @click="onPrevious" 
+      class="control-button previous"
+    >
       <Icon name="previous" :size="48" class="icon-secondary" />
     </div>
-    <div @mousedown="onPlayPause" @touchstart="onPlayPause" class="control-button play-pause">
+    <div 
+      @click="onPlayPause" 
+      class="control-button play-pause"
+    >
       <Icon :name="isPlaying ? 'pause' : 'play'" :size="48" class="icon-primary" />
     </div>
-    <div @mousedown="onNext" @touchstart="onNext" class="control-button next">
+    <div 
+      @click="onNext" 
+      class="control-button next"
+    >
       <Icon name="next" :size="48" class="icon-secondary" />
     </div>
   </div>
@@ -71,8 +80,9 @@ function onNext(e) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 96px;
-  height: 96px;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
   transition: background-color 0.2s, transform var(--transition-spring), opacity 0.2s;
 }
 
@@ -80,31 +90,28 @@ function onNext(e) {
   background-color: rgba(255, 255, 255, 0.1);
 }
 
-/* Animation de press pour les boutons de contrôle */
-.control-button.is-pressed {
-  transform: scale(0.8) !important;
-  opacity: 0.5 !important;
-  transition-delay: 0s !important;
+.control-button.play-pause {
+  width: 90px;
+  height: 90px;
 }
 
-.control-button:disabled.is-pressed {
-  transform: none !important;
-  opacity: 0.5 !important;
+/* Animation de press pour les boutons de contrôle */
+.control-button:active {
+  transform: scale(0.8);
+  opacity: 0.5;
+  transition: transform 0.1s ease, opacity 0.1s ease;
 }
 
 /* Couleurs des icônes */
 .icon-primary {
   color: var(--color-text);
-  pointer-events: none;
-  /* L'icône ne capture pas les clics */
+  pointer-events: none; /* L'icône ne capture pas les clics */
 }
 
 .icon-secondary {
   color: var(--color-text-light);
-  pointer-events: none;
-  /* L'icône ne capture pas les clics */
+  pointer-events: none; /* L'icône ne capture pas les clics */
 }
-
 @media (max-aspect-ratio: 4/3) {
   .controls {
     padding: var(--space-01) var(--space-04);
