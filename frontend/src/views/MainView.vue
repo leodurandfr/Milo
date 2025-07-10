@@ -1,4 +1,4 @@
-<!-- frontend/src/views/MainView.vue - Version avec logo animé -->
+<!-- frontend/src/views/MainView.vue - Version avec logo animé CORRIGÉE -->
 <template>
   <div class="main-view">
     <!-- Logo animé selon l'état -->
@@ -14,7 +14,7 @@
       <!-- PluginStatus (transitions + états ready/connected) -->
       <div v-if="shouldShowPluginStatus" class="transition-state">
         <PluginStatus
-          :plugin-type="displayedCurrentSource === 'librespot' ? 'librespot' : displayedTargetPluginType"
+          :plugin-type="pluginTypeToShow"
           :plugin-state="pluginStateToShow"
           :device-name="cleanDeviceName"
           :should-animate="shouldAnimateContent"
@@ -94,6 +94,16 @@ const shouldShowPluginStatus = computed(() => {
   }
   
   return false;
+});
+
+const pluginTypeToShow = computed(() => {
+  // Si on est en transition, on affiche toujours le plugin cible
+  if (displayedIsTransitioning.value) {
+    return displayedTargetPluginType.value === 'librespot' ? 'librespot' : displayedTargetPluginType.value;
+  }
+  
+  // Sinon, on affiche le plugin actuel
+  return displayedCurrentSource.value === 'librespot' ? 'librespot' : displayedCurrentSource.value;
 });
 
 // Déterminer l'état du plugin à afficher
@@ -256,6 +266,5 @@ onMounted(() => {
 .no-source {
   width: 100%;
   height: 100%;
-  /* Pas besoin de flex/center car le logo est positionné de manière absolue */
 }
 </style>

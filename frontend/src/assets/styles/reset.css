@@ -10,7 +10,7 @@
 
 html,
 body {
-  overscroll-behavior:none;
+  overscroll-behavior: none;
   margin: 0;
   padding: 0;
   width: 100%;
@@ -46,7 +46,7 @@ button {
   background: none;
 }
 
-button, 
+button,
 [role="button"],
 .clickable {
   touch-action: manipulation;
@@ -67,6 +67,25 @@ img {
   border: none;
 }
 
+/* Style pour reset l'affichage de l'écran du raspberry 7" */
+@media screen and (width: 1024px) and (height: 600px) {
 
+  body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(255, 119, 0, 0.3);
+    pointer-events: none;
+    mix-blend-mode: multiply;
+    z-index: 9999;
+  }
 
-
+  .app-container {
+    /* fix screen position in the case */
+    transform: translateX(-3px);
+    height: calc(100% - 8px);
+  }
+}
