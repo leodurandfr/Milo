@@ -135,6 +135,9 @@ const indicatorStyle = ref({
 const getEventY = (e) => e.type.includes('touch') 
   ? (e.touches[0]?.clientY || e.changedTouches[0]?.clientY) : e.clientY;
 
+// Nouvelle fonction pour détecter si on est en desktop
+const isDesktop = () => window.matchMedia('not (max-aspect-ratio: 4/3)').matches;
+
 const clearAllTimers = () => {
   [hideTimeout, additionalHideTimeout, clickTimeout].forEach(clearTimeout);
 };
@@ -247,7 +250,7 @@ const hideDock = () => {
   setTimeout(() => additionalAppsInDOM.value = false, 400);
 };
 
-// === GESTION DES CLICS ===
+// === GESTION DES CLICS - Modifiée ===
 const onClickOutside = (event) => {
   if (!isVisible.value) return;
   
@@ -261,8 +264,23 @@ const onClickOutside = (event) => {
   hideDock();
 };
 
-const onDragZoneClick = () => !isDragging.value && !isVisible.value && showDock();
-const onIndicatorClick = () => !isDragging.value && !isVisible.value && showDock();
+const onDragZoneClick = () => {
+  // En desktop, pas de clic pour afficher le dock
+  if (isDesktop()) return;
+  
+  if (!isDragging.value && !isVisible.value) {
+    showDock();
+  }
+};
+
+const onIndicatorClick = () => {
+  // En desktop, pas de clic pour afficher le dock
+  if (isDesktop()) return;
+  
+  if (!isDragging.value && !isVisible.value) {
+    showDock();
+  }
+};
 
 // === GESTION DU DRAG ===
 const onDragStart = (e) => {
