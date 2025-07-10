@@ -21,10 +21,10 @@ export function usePlaybackProgress() {
   watch(() => unifiedStore.metadata?.position, (newPosition) => {
     if (newPosition !== undefined && !isApiSyncing) {
       // Protection contre les resets intempestifs
-      if (newPosition === 0 && localPosition.value > 5000) {
-        console.warn("Position 0 ignorée (probable reset)");
-        return;
-      }
+      // if (newPosition === 0 && localPosition.value > 5000) {
+      //   console.warn("Position 0 ignorée (probable reset)");
+      //   return;
+      // }
       localPosition.value = newPosition;
     }
   }, { immediate: true });
