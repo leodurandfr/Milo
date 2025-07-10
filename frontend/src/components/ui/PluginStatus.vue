@@ -19,10 +19,10 @@
                                     <h2 class="heading-2">{{ statusLines[0] }}</h2>
                                 </div>
                                 <template v-else>
-                                    <div class="status-line-1">
+                                    <div class="status-line-1" :class="{ 'starting-state': pluginState === 'starting' }">
                                         <h2 class="heading-2">{{ statusLines[0] }}</h2>
                                     </div>
-                                    <div class="status-line-2">
+                                    <div class="status-line-2" :class="{ 'starting-state': pluginState === 'starting' }">
                                         <h2 class="heading-2">{{ statusLines[1] }}</h2>
                                     </div>
                                 </template>
@@ -95,7 +95,7 @@ const statusLines = computed(() => {
             case 'bluetooth':
                 return ['Démarrage du', 'Bluetooth'];
             case 'roc':
-                return ['Démarrage de la', 'Réception audio Mac'];
+                return ['Démarrage de', 'MacOS'];
             case 'librespot':
                 return ['Démarrage de', 'Spotify'];
             default:
@@ -107,11 +107,11 @@ const statusLines = computed(() => {
     if (props.pluginState === 'ready') {
         switch (props.pluginType) {
             case 'bluetooth':
-                return ['oakOS est visible dans vos accessoires Bluetooth'];
+                return ['Bluetooth', 'Prêt à diffuser'];
             case 'roc':
-                return ['oakOS est prêt à recevoir l\'audio d\'un ordinateur Mac'];
+                return ['MacOS', 'Prêt à diffuser'];
             case 'librespot':
-                return ['oakOS est visible dans vos appareils Spotify'];
+                return ['Spotify', 'Prêt à diffuser'];
             default:
                 return ['En attente de connexion'];
         }
@@ -238,10 +238,18 @@ function handleDisconnect() {
 }
 
 .status-line-1 h2 {
+    color: var(--color-text);
+}
+
+.status-line-1.starting-state h2 {
     color: var(--color-text-secondary);
 }
 
 .status-line-2 h2 {
+    color: var(--color-text-secondary);
+}
+
+.status-line-2.starting-state h2 {
     color: var(--color-text);
 }
 

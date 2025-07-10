@@ -1,21 +1,12 @@
 <template>
   <div class="controls">
-    <div 
-      @click="onPrevious" 
-      class="control-button previous"
-    >
+    <div @click="onPrevious" class="control-button previous">
       <Icon name="previous" :size="48" class="icon-secondary" />
     </div>
-    <div 
-      @click="onPlayPause" 
-      class="control-button play-pause"
-    >
+    <div @click="onPlayPause" class="control-button play-pause">
       <Icon :name="isPlaying ? 'pause' : 'play'" :size="48" class="icon-primary" />
     </div>
-    <div 
-      @click="onNext" 
-      class="control-button next"
-    >
+    <div @click="onNext" class="control-button next">
       <Icon name="next" :size="48" class="icon-secondary" />
     </div>
   </div>
@@ -70,7 +61,7 @@ function onNext(e) {
   display: flex;
   justify-content: space-evenly;
   align-items: center;
-  padding: var(--space-04);
+  padding: var(--space-01) var(--space-04);
 }
 
 .control-button {
@@ -105,16 +96,15 @@ function onNext(e) {
 /* Couleurs des icônes */
 .icon-primary {
   color: var(--color-text);
-  pointer-events: none; /* L'icône ne capture pas les clics */
+  pointer-events: none;
+  /* L'icône ne capture pas les clics */
 }
 
 .icon-secondary {
   color: var(--color-text-light);
-  pointer-events: none; /* L'icône ne capture pas les clics */
+  pointer-events: none;
+  /* L'icône ne capture pas les clics */
 }
-@media (max-aspect-ratio: 4/3) {
-  .controls {
-    padding: var(--space-01) var(--space-04);
-  }
-}
+
+@media (max-aspect-ratio: 4/3) {}
 </style>

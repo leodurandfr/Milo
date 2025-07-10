@@ -702,7 +702,7 @@ onUnmounted(() => {
 }
 
 .ios-app .dock-container.visible {
-  transform: translate(-50%) translateY(-48px) scale(1);
+  transform: translate(-50%) translateY(-64px) scale(1);
 }
 
 /* Android */

@@ -277,7 +277,7 @@ onMounted(async () => {
 .controls-section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-07);
+  gap: var(--space-05);
 }
 
 .album-art {
