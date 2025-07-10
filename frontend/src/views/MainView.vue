@@ -1,4 +1,4 @@
-<!-- frontend/src/views/MainView.vue - Version avec logo animé CORRIGÉE -->
+<!-- frontend/src/views/MainView.vue - Version finale simplifiée -->
 <template>
   <div class="main-view">
     <!-- Logo animé selon l'état -->
@@ -21,11 +21,9 @@
         />
       </div>
 
-      <!-- Contenu normal (par exemple LibrespotView avec player) -->
-      <component 
-        v-else-if="currentComponent" 
-        :is="currentComponent" 
-        :key="unifiedStore.componentRefreshKey"
+      <!-- LibrespotView (player quand connecté avec métadonnées) -->
+      <LibrespotView 
+        v-else-if="shouldShowLibrespotView"
         :should-animate="shouldAnimateContent"
       />
 
@@ -42,15 +40,14 @@
 import { computed, ref, watch, nextTick, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import LibrespotView from './LibrespotView.vue';
-import BluetoothView from './BluetoothView.vue';
-import RocView from './RocView.vue';
 import PluginStatus from '@/components/ui/PluginStatus.vue';
 import Logo from '@/components/ui/Logo.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const containerRef = ref(null);
 
-// États locaux qui retardent l'affichage
+// États locaux qui retardent l'affichage pour figer le contenu pendant les animations
+// Cela évite que le texte de PluginStatus change pendant la transition
 const displayedIsTransitioning = ref(unifiedStore.isTransitioning);
 const displayedCurrentSource = ref(unifiedStore.currentSource);
 const displayedTargetPluginType = ref(unifiedStore.transitionTargetSource || unifiedStore.currentSource);
@@ -60,42 +57,34 @@ const isInitialLogoDisplay = ref(true);
 // État pour contrôler l'animation du contenu
 const shouldAnimateContent = ref(false);
 
-// Composant dynamique selon la source affichée (retardée)
-const currentComponent = computed(() => {
-  switch (displayedCurrentSource.value) {
-    case 'librespot': 
-      // Pour Librespot, on affiche le player seulement si connecté avec des métadonnées
-      if (unifiedStore.pluginState === 'connected' && hasLibrespotTrackInfo.value) {
-        return LibrespotView;
-      }
-      // Sinon, on retourne null pour afficher PluginStatus
-      return null;
-    case 'bluetooth': 
-      // Pour Bluetooth, on affiche toujours PluginStatus
-      return null;
-    case 'roc': 
-      // Pour ROC, on affiche toujours PluginStatus
-      return null;
-    default: 
-      return null;
-  }
+// === LOGIQUE D'AFFICHAGE ===
+
+// LibrespotView s'affiche dès qu'on est sur librespot (il gère son affichage interne)
+const shouldShowLibrespotView = computed(() => {
+  return !displayedIsTransitioning.value && displayedCurrentSource.value === 'librespot';
 });
 
-// Déterminer si on doit afficher PluginStatus
+// PluginStatus s'affiche pour les transitions et les sources bluetooth/roc
 const shouldShowPluginStatus = computed(() => {
   // Pendant une transition
   if (displayedIsTransitioning.value) {
     return true;
   }
   
-  // Quand on a une source active mais pas de composant spécifique à afficher
-  if (displayedCurrentSource.value !== 'none' && !currentComponent.value) {
+  // Pour bluetooth et roc (toujours PluginStatus)
+  if (displayedCurrentSource.value === 'bluetooth' || displayedCurrentSource.value === 'roc') {
+    return true;
+  }
+  
+  // Pour librespot en mode ready (pas encore connecté)
+  if (displayedCurrentSource.value === 'librespot' && unifiedStore.pluginState === 'ready') {
     return true;
   }
   
   return false;
 });
 
+// Déterminer le bon type de plugin à afficher (AVEC VARIABLES RETARDÉES)
 const pluginTypeToShow = computed(() => {
   // Si on est en transition, on affiche toujours le plugin cible
   if (displayedIsTransitioning.value) {
@@ -124,7 +113,7 @@ const logoPosition = computed(() => {
   }
   
   // Centré uniquement quand aucune source n'est active
-  if (displayedCurrentSource.value === 'none' && !displayedIsTransitioning.value) {
+  if (unifiedStore.currentSource === 'none' && !unifiedStore.isTransitioning) {
     return 'center';
   }
   // Sinon en haut
@@ -145,7 +134,7 @@ const logoVisible = computed(() => {
   }
   
   // Cas spécial : Librespot connecté avec des infos de track
-  if (displayedCurrentSource.value === 'librespot' && 
+  if (unifiedStore.currentSource === 'librespot' && 
       unifiedStore.pluginState === 'connected' && 
       hasLibrespotTrackInfo.value) {
     return false;
@@ -155,7 +144,7 @@ const logoVisible = computed(() => {
   return true;
 });
 
-// Helper pour détecter si Librespot a des infos de track
+// Helper pour détecter si Librespot a des infos de track (pour le logo)
 const hasLibrespotTrackInfo = computed(() => {
   return !!(
     unifiedStore.currentSource === 'librespot' &&
@@ -176,11 +165,13 @@ const cleanDeviceName = computed(() => {
     .replace(/-/g, ' ');            // Remplacer - par espaces
 });
 
-// Watcher pour animer les changements
+// === ANIMATIONS SIMPLES ===
+
+// Watcher pour animer les changements (AVEC MISE À JOUR RETARDÉE)
 watch(() => [unifiedStore.isTransitioning, unifiedStore.currentSource], async ([isTransitioning, currentSource], [wasTransitioning, previousSource]) => {
   if (!containerRef.value) return;
   
-  // Si on commence une transition ou si la source change
+  // Si il y a un changement significatif
   if ((isTransitioning !== wasTransitioning) || (currentSource !== previousSource)) {
     await animateContentChange();
   }
@@ -189,7 +180,7 @@ watch(() => [unifiedStore.isTransitioning, unifiedStore.currentSource], async ([
 async function animateContentChange() {
   if (!containerRef.value) return;
   
-  // 1. Animation de sortie
+  // 1. Animation de sortie (avec anciennes valeurs figées)
   containerRef.value.style.transition = 'all var(--transition-spring)';
   containerRef.value.style.opacity = '0';
   containerRef.value.style.transform = 'translateY(calc(-1 * var(--space-06)))';
@@ -197,7 +188,7 @@ async function animateContentChange() {
   // 2. Attendre que l'élément soit invisible
   await new Promise(resolve => setTimeout(resolve, 300));
   
-  // 3. MAINTENANT changer le contenu affiché (retardé)
+  // 3. Changer le contenu affiché APRÈS la disparition (évite le changement de texte pendant l'animation)
   displayedIsTransitioning.value = unifiedStore.isTransitioning;
   displayedCurrentSource.value = unifiedStore.currentSource;
   displayedTargetPluginType.value = unifiedStore.transitionTargetSource || unifiedStore.currentSource;
@@ -217,6 +208,14 @@ async function animateContentChange() {
   containerRef.value.style.transition = 'all var(--transition-spring)';
   containerRef.value.style.opacity = '1';
   containerRef.value.style.transform = 'translateY(0)';
+  
+  // 8. Nettoyer les styles après l'animation
+  setTimeout(() => {
+    if (containerRef.value) {
+      containerRef.value.style.transition = '';
+      containerRef.value.style.transform = '';
+    }
+  }, 700);
 }
 
 // Gestion de l'affichage initial du logo (3 secondes)
@@ -225,7 +224,7 @@ onMounted(() => {
     // 1. Démarrer la transition du logo vers le haut
     isInitialLogoDisplay.value = false;
     
-    // 2. Attendre que le logo termine son animation vers le haut (500ms au lieu de 700ms)
+    // 2. Attendre que le logo termine son animation vers le haut
     await new Promise(resolve => setTimeout(resolve, 150));
     
     // 3. Maintenant déclencher l'animation des composants

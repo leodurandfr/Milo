@@ -58,7 +58,7 @@ import PlaybackControls from '../components/librespot/PlaybackControls.vue';
 import ProgressBar from '../components/librespot/ProgressBar.vue';
 import PluginStatus from '@/components/ui/PluginStatus.vue';
 
-// Props - AJOUT de shouldAnimate
+// Props
 const props = defineProps({
   shouldAnimate: {
     type: Boolean,
@@ -77,9 +77,9 @@ const showTrackInfo = ref(false);
 const showProgressBar = ref(false);
 const showControls = ref(false);
 
+// CORRECTION : Ne plus vérifier currentSource car LibrespotView n'est affiché que sur librespot
 const hasTrackInfo = computed(() => {
   return !!(
-    unifiedStore.currentSource === 'librespot' &&
     unifiedStore.pluginState === 'connected' &&
     unifiedStore.metadata?.title &&
     unifiedStore.metadata?.artist
@@ -119,9 +119,9 @@ function resetAnimations() {
   showControls.value = false;
 }
 
-// Watch pour déclencher l'animation SEULEMENT quand shouldAnimate est true
-watch(() => [hasTrackInfo.value, props.shouldAnimate], async ([hasTrack, shouldAnim], [prevHasTrack, prevShouldAnim]) => {
-  if (hasTrack && shouldAnim && (!prevHasTrack || !prevShouldAnim)) {
+// Watcher robuste pour hasTrackInfo
+watch(() => hasTrackInfo.value, async (hasTrack) => {
+  if (hasTrack && props.shouldAnimate) {
     // Reset d'abord les animations
     resetAnimations();
     // Attendre le prochain tick pour que le DOM soit mis à jour
@@ -133,7 +133,23 @@ watch(() => [hasTrackInfo.value, props.shouldAnimate], async ([hasTrack, shouldA
   } else if (!hasTrack) {
     resetAnimations();
   }
-}, { immediate: false });
+}, { immediate: true });
+
+// Watcher robuste pour shouldAnimate
+watch(() => props.shouldAnimate, async (shouldAnim) => {
+  if (shouldAnim && hasTrackInfo.value) {
+    // Reset d'abord les animations
+    resetAnimations();
+    // Attendre le prochain tick pour que le DOM soit mis à jour
+    await nextTick();
+    // Petit délai pour s'assurer que tout est prêt
+    setTimeout(() => {
+      animatePlayerIn();
+    }, 100);
+  } else if (!shouldAnim) {
+    resetAnimations();
+  }
+});
 
 function seekToPosition(position) {
   seekTo(position);
@@ -146,33 +162,31 @@ watch(() => unifiedStore.metadata, (newMetadata) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  if (unifiedStore.currentSource === 'librespot') {
-    try {
-      const response = await axios.get('/librespot/status');
-      if (response.data.status === 'ok') {
-        const metadata = response.data.metadata || {};
+  // Pas besoin de vérifier currentSource ici car LibrespotView n'est monté que sur librespot
+  try {
+    const response = await axios.get('/librespot/status');
+    if (response.data.status === 'ok') {
+      const metadata = response.data.metadata || {};
 
-        unifiedStore.updateState({
-          data: {
-            full_state: {
-              active_source: 'librespot',
-              plugin_state: response.data.plugin_state,
-              transitioning: false,
-              metadata: metadata,
-              error: null
-            }
+      unifiedStore.updateState({
+        data: {
+          full_state: {
+            active_source: 'librespot',
+            plugin_state: response.data.plugin_state,
+            transitioning: false,
+            metadata: metadata,
+            error: null
           }
-        });
+        }
+      });
 
-        console.log("Position initiale chargée:", metadata.position);
-
-        // NE PAS déclencher l'animation automatiquement au montage
-        // Attendre que shouldAnimate soit true
-      }
-    } catch (error) {
-      console.error('Error fetching librespot status:', error);
+      console.log("Position initiale chargée:", metadata.position);
     }
+  } catch (error) {
+    console.error('Error fetching librespot status:', error);
   }
+  
+  // PLUS de déclenchement automatique au montage - on attend shouldAnimate
 });
 </script>
 
