@@ -110,7 +110,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         try:
             commands = "\n".join([
                 "power on",
-                "system-alias oakOS·Bluetooth",
+                "system-alias Sonoak · Bluetooth",
                 "discoverable-timeout 0",
                 "discoverable on",
                 "pairable on",
