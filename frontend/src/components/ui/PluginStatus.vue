@@ -1,4 +1,4 @@
-<!-- frontend/src/components/ui/PluginStatus.vue - Version avec animation d'entrée -->
+<!-- frontend/src/components/ui/PluginStatus.vue - Correction couleurs états -->
 <template>
     <div class="plugin-status" :class="{ 'animate-in': shouldAnimate }">
         <div class="plugin-status-content">
@@ -19,10 +19,10 @@
                                     <h2 class="heading-2">{{ statusLines[0] }}</h2>
                                 </div>
                                 <template v-else>
-                                    <div class="status-line-1" :class="{ 'starting-state': pluginState === 'starting' }">
+                                    <div class="status-line-1" :class="getStatusLine1Class()">
                                         <h2 class="heading-2">{{ statusLines[0] }}</h2>
                                     </div>
-                                    <div class="status-line-2" :class="{ 'starting-state': pluginState === 'starting' }">
+                                    <div class="status-line-2" :class="getStatusLine2Class()">
                                         <h2 class="heading-2">{{ statusLines[1] }}</h2>
                                     </div>
                                 </template>
@@ -78,18 +78,14 @@ const props = defineProps({
 // Émissions
 const emit = defineEmits(['disconnect']);
 
-// L'animation est contrôlée par la prop shouldAnimate
-// Plus besoin de state local ni de onMounted
-
 // Nom de l'icône selon le plugin
 const iconName = computed(() => {
-    // Mapping librespot -> spotify pour l'icône
     return props.pluginType === 'librespot' ? 'spotify' : props.pluginType;
 });
 
 // Lignes de statut selon l'état
 const statusLines = computed(() => {
-    // État de démarrage (nouveau)
+    // État de démarrage
     if (props.pluginState === 'starting') {
         switch (props.pluginType) {
             case 'bluetooth':
@@ -132,13 +128,33 @@ const statusLines = computed(() => {
     return ['État inconnu'];
 });
 
+// Classes pour la première ligne de statut
+function getStatusLine1Class() {
+    if (props.pluginState === 'starting') {
+        return 'starting-state'; // secondary
+    }
+    if (props.pluginState === 'connected') {
+        return 'connected-state'; // secondary
+    }
+    return ''; // normal (primary)
+}
+
+// Classes pour la deuxième ligne de statut
+function getStatusLine2Class() {
+    if (props.pluginState === 'starting') {
+        return 'starting-state'; // normal (primary)
+    }
+    if (props.pluginState === 'connected') {
+        return 'connected-state'; // normal (primary)
+    }
+    return 'secondary-state'; // secondary
+}
+
 // Affichage du bouton déconnecter
 const showDisconnectButton = computed(() => {
-    // Pas de bouton pendant le démarrage
     if (props.pluginState === 'starting') {
         return false;
     }
-
     return props.pluginType === 'bluetooth' && props.pluginState === 'connected';
 });
 
@@ -233,24 +249,27 @@ function handleDisconnect() {
     text-align: center;
 }
 
-.status-single h2 {
-    color: var(--color-text);
-}
-
-.status-line-1 h2 {
-    color: var(--color-text);
-}
-
-.status-line-1.starting-state h2 {
-    color: var(--color-text-secondary);
-}
-
+/* États par défaut */
+.status-single h2,
+.status-line-1 h2,
 .status-line-2 h2 {
+    color: var(--color-text);
+}
+
+/* États spéciaux ligne 1 */
+.status-line-1.starting-state h2,
+.status-line-1.connected-state h2 {
     color: var(--color-text-secondary);
 }
 
-.status-line-2.starting-state h2 {
+/* États spéciaux ligne 2 */
+.status-line-2.starting-state h2,
+.status-line-2.connected-state h2 {
     color: var(--color-text);
+}
+
+.status-line-2.secondary-state h2 {
+    color: var(--color-text-secondary);
 }
 
 /* Bouton déconnecter */
