@@ -33,13 +33,15 @@ class SystemAudioState:
     - Les métadonnées associées
     - L'état du routage audio (multiroom_enabled au lieu de routing_mode)
     - L'état de l'equalizer
+    - La source cible pendant les transitions
     """
     active_source: AudioSource = AudioSource.NONE
     plugin_state: PluginState = PluginState.INACTIVE
     transitioning: bool = False
+    target_source: Optional[AudioSource] = None  # AJOUT
     metadata: Dict[str, Any] = None
     error: Optional[str] = None
-    multiroom_enabled: bool = False  # Refactorisé : multiroom désactivé par défaut
+    multiroom_enabled: bool = False
     equalizer_enabled: bool = False
     
     def __post_init__(self):
@@ -52,19 +54,24 @@ class SystemAudioState:
             "active_source": self.active_source.value,
             "plugin_state": self.plugin_state.value,
             "transitioning": self.transitioning,
+            "target_source": self.target_source.value if self.target_source else None,
             "metadata": self.metadata,
             "error": self.error,
-            "multiroom_enabled": self.multiroom_enabled,  # Refactorisé
+            "multiroom_enabled": self.multiroom_enabled,
             "equalizer_enabled": self.equalizer_enabled
         }
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'SystemAudioState':
         """Crée un état à partir d'un dictionnaire"""
+        target_source_str = data.get("target_source")
+        target_source = AudioSource(target_source_str) if target_source_str else None
+        
         return cls(
             active_source=AudioSource(data.get("active_source", "none")),
             plugin_state=PluginState(data.get("plugin_state", "inactive")),
             transitioning=data.get("transitioning", False),
+            target_source=target_source,  # AJOUT
             metadata=data.get("metadata", {}),
             error=data.get("error"),
             multiroom_enabled=data.get("multiroom_enabled", False),

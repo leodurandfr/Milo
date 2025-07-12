@@ -57,42 +57,36 @@ const isInitialLogoDisplay = ref(true);
 // État pour contrôler l'animation du contenu
 const shouldAnimateContent = ref(false);
 
-// === LOGIQUE D'AFFICHAGE ===
+// === LOGIQUE D'AFFICHAGE SIMPLIFIÉE ===
 
 // LibrespotView s'affiche dès qu'on est sur librespot (il gère son affichage interne)
 const shouldShowLibrespotView = computed(() => {
-  return !displayedIsTransitioning.value && displayedCurrentSource.value === 'librespot';
+  return !unifiedStore.isTransitioning && unifiedStore.displayedSource === 'librespot';
 });
 
 // PluginStatus s'affiche pour les transitions et les sources bluetooth/roc
 const shouldShowPluginStatus = computed(() => {
   // Pendant une transition
-  if (displayedIsTransitioning.value) {
+  if (unifiedStore.isTransitioning) {
     return true;
   }
   
   // Pour bluetooth et roc (toujours PluginStatus)
-  if (displayedCurrentSource.value === 'bluetooth' || displayedCurrentSource.value === 'roc') {
+  if (unifiedStore.displayedSource === 'bluetooth' || unifiedStore.displayedSource === 'roc') {
     return true;
   }
   
   // Pour librespot en mode ready (pas encore connecté)
-  if (displayedCurrentSource.value === 'librespot' && unifiedStore.pluginState === 'ready') {
+  if (unifiedStore.displayedSource === 'librespot' && unifiedStore.pluginState === 'ready') {
     return true;
   }
   
   return false;
 });
 
-// Déterminer le bon type de plugin à afficher (AVEC VARIABLES RETARDÉES)
+// SIMPLIFIÉ : Utilise directement displayedSource
 const pluginTypeToShow = computed(() => {
-  // Si on est en transition, on affiche toujours le plugin cible
-  if (displayedIsTransitioning.value) {
-    return displayedTargetPluginType.value === 'librespot' ? 'librespot' : displayedTargetPluginType.value;
-  }
-  
-  // Sinon, on affiche le plugin actuel
-  return displayedCurrentSource.value === 'librespot' ? 'librespot' : displayedCurrentSource.value;
+  return unifiedStore.displayedSource === 'librespot' ? 'librespot' : unifiedStore.displayedSource;
 });
 
 // Déterminer l'état du plugin à afficher

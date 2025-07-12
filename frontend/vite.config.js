@@ -9,10 +9,12 @@ export default defineConfig(({ mode }) => ({
       '@': path.resolve(__dirname, './src'),
     },
   },
-  // ✅ Configuration Vue.js dev tools - Version corrigée
   define: {
     __VUE_OPTIONS_API__: true,
-    __VUE_PROD_DEVTOOLS__: true, // Force toujours true pour test
+    __VUE_PROD_DEVTOOLS__: true,
+  },
+  preview: {
+    allowedHosts: ['oakos.local']  // ✅ Autoriser oakos.local
   },
   server: {
     host: '0.0.0.0',

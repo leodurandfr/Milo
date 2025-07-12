@@ -1,22 +1,20 @@
-// frontend/src/stores/unifiedAudioStore.js - Version avec refresh global ciblé
+// frontend/src/stores/unifiedAudioStore.js - Version OPTIM avec target_source
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
-  // État miroir du backend
+  // État miroir du backend avec target_source
   const systemState = ref({
     active_source: 'none',
     plugin_state: 'inactive',
     transitioning: false,
+    target_source: null,  // AJOUT
     metadata: {},
     error: null,
     multiroom_enabled: false,
     equalizer_enabled: false
   });
-  
-  // Source cible pendant la transition
-  const transitionTarget = ref('none');
   
   // Getters unifiés
   const currentSource = computed(() => systemState.value.active_source);
@@ -26,17 +24,27 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   const error = computed(() => systemState.value.error);
   const multiroomEnabled = computed(() => systemState.value.multiroom_enabled);
   const equalizerEnabled = computed(() => systemState.value.equalizer_enabled);
-  const transitionTargetSource = computed(() => transitionTarget.value);
   
-  // Actions unifiées
+  // NOUVEAU : Source affichée (active ou cible pendant transition)
+  const displayedSource = computed(() => {
+    if (systemState.value.transitioning && systemState.value.target_source) {
+      return systemState.value.target_source;
+    }
+    return systemState.value.active_source;
+  });
+  
+  // DEPRECATED : Gardé pour compatibilité mais utilise target_source du backend
+  const transitionTargetSource = computed(() => {
+    return systemState.value.target_source || systemState.value.active_source;
+  });
+  
+  // Actions unifiées - SIMPLIFIÉES
   async function changeSource(source) {
     try {
-      transitionTarget.value = source;
       const response = await axios.post(`/api/audio/source/${source}`);
       return response.data.status === 'success';
     } catch (err) {
       console.error('Change source error:', err);
-      transitionTarget.value = systemState.value.active_source;
       return false;
     }
   }
@@ -85,14 +93,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         console.log('🔄 Calling oakOS fresh-status API for librespot...');
         
         try {
-          // Appeler l'endpoint oakOS qui interroge go-librespot
           const response = await axios.get('/librespot/fresh-status');
           
           if (response.data && response.data.status === 'success') {
             const freshData = response.data;
             console.log('📦 Fresh data from oakOS librespot API:', freshData);
             
-            // Mettre à jour l'état système avec les métadonnées fraîches
             systemState.value.metadata = freshData.fresh_metadata || {};
             systemState.value.plugin_state = freshData.device_connected ? 'connected' : 'ready';
             
@@ -106,7 +112,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         }
       }
       
-      // Fallback : utiliser l'API oakOS pour les autres sources ou en cas d'erreur
+      // Fallback : utiliser l'API oakOS
       console.log('🔄 Using oakOS API for state refresh...');
       const response = await axios.get('/api/audio/state');
       
@@ -117,15 +123,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
           active_source: newState.active_source || 'none',
           plugin_state: newState.plugin_state || 'inactive',
           transitioning: newState.transitioning || false,
+          target_source: newState.target_source || null,  // AJOUT
           metadata: newState.metadata || {},
           error: newState.error || null,
           multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : false,
           equalizer_enabled: newState.equalizer_enabled || false
         };
-        
-        if (!newState.transitioning) {
-          transitionTarget.value = newState.active_source || 'none';
-        }
         
         console.log('✅ oakOS state refreshed');
         return true;
@@ -170,7 +173,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     
     visibilityHandler = async () => {
       if (!document.hidden) {
-        // Onglet redevient actif - refresh global avec délai
         console.log('👁️ Tab became visible, refreshing states...');
         setTimeout(() => {
           refreshAllStates();
@@ -196,6 +198,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
   
+  // SIMPLIFIÉ : Plus de logique manuelle de transitionTarget
   function updateState(event) {
     if (event.data.full_state) {
       const newState = event.data.full_state;
@@ -204,16 +207,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         active_source: newState.active_source || 'none',
         plugin_state: newState.plugin_state || 'inactive',
         transitioning: newState.transitioning || false,
+        target_source: newState.target_source || null,  // AJOUT
         metadata: newState.metadata || {},
         error: newState.error || null,
         multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : false,
         equalizer_enabled: newState.equalizer_enabled || false
       };
-      
-      // Réinitialiser transitionTarget quand la transition est terminée
-      if (!newState.transitioning) {
-        transitionTarget.value = newState.active_source || 'none';
-      }
       
       // Log pour debug
       if (event.data.initial_connection) {
@@ -226,7 +225,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // État
     systemState,
     
-    // Getters
+    // Getters essentiels
     currentSource,
     pluginState,
     isTransitioning,
@@ -234,6 +233,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     error,
     multiroomEnabled,
     equalizerEnabled,
+    
+    // NOUVEAU : Source affichée (utilise target_source du backend)
+    displayedSource,
+    
+    // DEPRECATED : Gardé pour compatibilité
     transitionTargetSource,
     
     // Actions

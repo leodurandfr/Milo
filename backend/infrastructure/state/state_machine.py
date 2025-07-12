@@ -67,7 +67,7 @@ class UnifiedAudioStateMachine:
         """Effectue une transition vers une nouvelle source"""
         async with self._transition_lock:
             if self.system_state.active_source == target_source and \
-               self.system_state.plugin_state != PluginState.ERROR:
+            self.system_state.plugin_state != PluginState.ERROR:
                 self.logger.info(f"Already on source {target_source.value}")
                 return True
             
@@ -77,6 +77,8 @@ class UnifiedAudioStateMachine:
             
             try:
                 self.system_state.transitioning = True
+                self.system_state.target_source = target_source  # AJOUT
+                
                 await self._broadcast_event("system", "transition_start", {
                     "from_source": self.system_state.active_source.value,
                     "to_source": target_source.value,
@@ -95,6 +97,8 @@ class UnifiedAudioStateMachine:
                     self.system_state.metadata = {}
                 
                 self.system_state.transitioning = False
+                self.system_state.target_source = None  # AJOUT : Reset après transition
+                
                 await self._broadcast_event("system", "transition_complete", {
                     "active_source": self.system_state.active_source.value,
                     "plugin_state": self.system_state.plugin_state.value,
@@ -106,6 +110,7 @@ class UnifiedAudioStateMachine:
             except Exception as e:
                 self.logger.error(f"Transition error: {str(e)}")
                 self.system_state.transitioning = False
+                self.system_state.target_source = None  # AJOUT : Reset en cas d'erreur
                 self.system_state.error = str(e)
                 await self._emergency_stop()
                 await self._broadcast_event("system", "error", {

@@ -1,8 +1,8 @@
-// frontend/src/services/websocket.js - Version corrigée sans fetchFreshInitialState
+// frontend/src/services/websocket.js - Version corrigée pour oakos.local
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 
 /**
- * Singleton WebSocket simplifié - Version corrigée sans fetch automatique
+ * Singleton WebSocket simplifié - Version corrigée pour oakos.local
  */
 class WebSocketSingleton {
   constructor() {
@@ -21,8 +21,6 @@ class WebSocketSingleton {
     if (this.subscribers.size === 1) {
       this.createConnection();
     }
-    // SUPPRIMÉ : Plus de fetchFreshInitialState() pour les nouveaux subscribers
-    // Les modals n'ont pas besoin d'un état "frais", l'état est déjà synchronisé via WebSocket
   }
 
   removeSubscriber(subscriberId) {
@@ -39,16 +37,24 @@ class WebSocketSingleton {
       return;
     }
 
+    // ✅ Configuration unifiée pour oakos.local
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
-    const port = import.meta.env.DEV ? 8000 : window.location.port;
-    const wsUrl = `${protocol}//${host}:${port}/ws`;
+    const port = window.location.port || (window.location.protocol === 'https:' ? 443 : 80);
     
+    // En développement via Vite, utiliser le proxy
+    // En production via Nginx, utiliser oakos.local direct
+    const wsUrl = import.meta.env.DEV 
+      ? `${protocol}//${host}:5173/ws`  // Proxy Vite
+      : `${protocol}//${host}:${port}/ws`;  // Nginx direct
+    
+    console.log(`WebSocket connecting to: ${wsUrl}`);
     this.socket = new WebSocket(wsUrl);
     
     this.socket.onopen = () => {
       this.isConnected.value = true;
       this.setupVisibilityListener();
+      console.log('WebSocket connected successfully');
     };
     
     this.socket.onmessage = (event) => {
@@ -64,6 +70,7 @@ class WebSocketSingleton {
       this.isConnected.value = false;
       this.socket = null;
       this.removeVisibilityListener();
+      console.log('WebSocket disconnected');
       
       // Reconnexion automatique si on a encore des subscribers
       if (this.subscribers.size > 0) {
@@ -106,6 +113,7 @@ class WebSocketSingleton {
   
   async fetchAudioStateOnly() {
     try {
+      // ✅ Utiliser des URLs relatives (passent par Nginx)
       const response = await fetch('/api/audio/state');
       if (response.ok) {
         const currentState = await response.json();
@@ -125,9 +133,6 @@ class WebSocketSingleton {
       console.error('Error fetching audio state on visibility change:', error);
     }
   }
-
-  // SUPPRIMÉ : fetchFreshInitialState() n'est plus nécessaire
-  // L'état est déjà synchronisé via WebSocket pour tous les composants
 
   handleMessage(message) {
     // Mettre en cache l'état système pour les nouveaux composants
@@ -158,9 +163,6 @@ class WebSocketSingleton {
     
     this.eventHandlers.get(eventKey).add(callback);
     
-    // Les nouveaux composants utilisent simplement l'état déjà disponible via WebSocket
-    // Plus besoin de fetch API automatique
-    
     // Retourner fonction de cleanup
     return () => {
       const handlers = this.eventHandlers.get(eventKey);
@@ -178,7 +180,7 @@ class WebSocketSingleton {
 const wsInstance = new WebSocketSingleton();
 
 /**
- * Composable WebSocket avec interface identique mais sans fetch automatique
+ * Composable WebSocket avec interface identique
  */
 export default function useWebSocket() {
   const subscriberId = Symbol('WebSocketSubscriber');
