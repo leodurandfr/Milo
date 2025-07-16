@@ -1,4 +1,4 @@
-<!-- frontend/src/components/ui/PluginStatus.vue - Correction couleurs états -->
+<!-- PluginStatus.vue - UI d'origine exacte avec logique centralisée -->
 <template>
     <div class="plugin-status" :class="{ 'animate-in': shouldAnimate }">
         <div class="plugin-status-content">

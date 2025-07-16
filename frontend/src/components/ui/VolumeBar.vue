@@ -3,25 +3,23 @@
   <div class="volume-bar" :class="{ visible: isVisible }">
     <div class="volume-slider">
       <div class="volume-fill" :style="volumeFillStyle"></div>
-      <div class="text-mono">{{ currentVolume }} %</div>
+      <div class="text-mono">{{ unifiedStore.currentVolume }} %</div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { storeToRefs } from 'pinia';
-import { useVolumeStore } from '@/stores/volumeStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
-const volumeStore = useVolumeStore();
-const { currentVolume } = storeToRefs(volumeStore);
+const unifiedStore = useUnifiedAudioStore();
 
 const isVisible = ref(false);
 let hideTimer = null;
 
 // Computed pour les styles du volume-fill
 const volumeFillStyle = computed(() => {
-  const volume = currentVolume.value;
+  const volume = unifiedStore.currentVolume;
   const isCircleMode = volume < 10;
   
   return {
@@ -44,7 +42,7 @@ function hideVolume() {
 defineExpose({ showVolume, hideVolume });
 
 onMounted(() => {
-  volumeStore.setVolumeBarRef({ showVolume, hideVolume });
+  unifiedStore.setVolumeBarRef({ showVolume, hideVolume });
 });
 </script>
 
@@ -92,7 +90,7 @@ onMounted(() => {
   height: 32px;
   background: var(--color-background-neutral);
   border-radius: var(--radius-full);
-  overflow: hidden; /* Cache les parties qui sortent */
+  overflow: hidden;
 }
 
 .volume-slider .text-mono {

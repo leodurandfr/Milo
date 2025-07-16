@@ -1,4 +1,4 @@
-<!-- frontend/src/App.vue - Version OPTIM nettoyée -->
+<!-- App.vue - Phase 2 : Store unifié simplifié -->
 <template>
   <div class="app-container">
     <router-view />
@@ -25,13 +25,14 @@ import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 import Modal from '@/components/ui/Modal.vue';
 import SnapcastModal from '@/components/snapcast/SnapcastModal.vue';
 import EqualizerModal from '@/components/equalizer/EqualizerModal.vue';
-import { useVolumeStore } from '@/stores/volumeStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 
-const volumeStore = useVolumeStore();
+// SIMPLIFIÉ : Un seul store
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
+
+const volumeBar = ref(null);
 
 // Modales
 const isSnapcastOpen = ref(false);
@@ -48,27 +49,30 @@ provide('closeModals', () => {
 const cleanupFunctions = [];
 
 onMounted(() => {
-  // Setup refresh global
+  // Configurer la référence VolumeBar dans le store
+  unifiedStore.setVolumeBarRef(volumeBar);
+  
+  // Setup listeners
   unifiedStore.setupVisibilityListener();
   
-  // Événements WebSocket
+  // Événements WebSocket SIMPLIFIÉS
   cleanupFunctions.push(
-    // Volume
-    on('volume', 'volume_changed', (event) => volumeStore.handleVolumeEvent(event)),
+    // Volume (via store unifié)
+    on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
     
-    // Système
+    // Système (via store unifié)
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_start', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_complete', (event) => unifiedStore.updateState(event)),
     on('system', 'error', (event) => unifiedStore.updateState(event)),
     
-    // Plugins
+    // Plugins (via store unifié)
     on('plugin', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('plugin', 'metadata', (event) => unifiedStore.updateState(event))
   );
 
-  // État initial
-  volumeStore.getVolumeStatus();
+  // État initial SIMPLIFIÉ
+  unifiedStore.refreshState();
 });
 
 onUnmounted(() => {

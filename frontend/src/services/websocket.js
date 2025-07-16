@@ -8,16 +8,15 @@ class WebSocketSingleton {
   constructor() {
     this.socket = null;
     this.isConnected = ref(false);
-    this.eventHandlers = new Map(); // eventKey -> Set(callbacks)
-    this.subscribers = new Set(); // Set des IDs de composants actifs
-    this.lastSystemState = null; // État initial mis en cache
-    this.visibilityHandler = null; // Handler pour visibility change
+    this.eventHandlers = new Map();
+    this.subscribers = new Set();
+    this.lastSystemState = null;
+    this.visibilityHandler = null;
   }
 
   addSubscriber(subscriberId) {
     this.subscribers.add(subscriberId);
     
-    // Premier subscriber = créer la connexion
     if (this.subscribers.size === 1) {
       this.createConnection();
     }
@@ -26,7 +25,6 @@ class WebSocketSingleton {
   removeSubscriber(subscriberId) {
     this.subscribers.delete(subscriberId);
     
-    // Plus de subscribers = fermer la connexion
     if (this.subscribers.size === 0) {
       this.closeConnection();
     }
@@ -37,16 +35,23 @@ class WebSocketSingleton {
       return;
     }
 
-    // ✅ Configuration unifiée pour oakos.local
+    // ✅ CORRECTION : Détection automatique du protocole et configuration oakos.local
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
-    const port = window.location.port || (window.location.protocol === 'https:' ? 443 : 80);
     
-    // En développement via Vite, utiliser le proxy
-    // En production via Nginx, utiliser oakos.local direct
-    const wsUrl = import.meta.env.DEV 
-      ? `${protocol}//${host}:5173/ws`  // Proxy Vite
-      : `${protocol}//${host}:${port}/ws`;  // Nginx direct
+    let wsUrl;
+    
+    if (import.meta.env.DEV && host === 'localhost') {
+      // Développement local avec Vite
+      wsUrl = `${protocol}//localhost:5173/ws`;
+    } else if (host === 'oakos.local' || host.endsWith('.local')) {
+      // ✅ Production avec oakos.local (sans spécifier le port)
+      wsUrl = `${protocol}//${host}/ws`;
+    } else {
+      // Fallback pour IP directe
+      const port = window.location.port || (window.location.protocol === 'https:' ? 443 : 80);
+      wsUrl = `${protocol}//${host}:${port}/ws`;
+    }
     
     console.log(`WebSocket connecting to: ${wsUrl}`);
     this.socket = new WebSocket(wsUrl);
@@ -77,6 +82,10 @@ class WebSocketSingleton {
         setTimeout(() => this.createConnection(), 3000);
       }
     };
+    
+    this.socket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
   }
 
   closeConnection() {
@@ -90,13 +99,11 @@ class WebSocketSingleton {
     this.removeVisibilityListener();
   }
 
-  // Gestion du retour sur l'onglet - Version OPTIM ciblée
   setupVisibilityListener() {
-    if (this.visibilityHandler) return; // Éviter les doublons
+    if (this.visibilityHandler) return;
     
     this.visibilityHandler = async () => {
       if (!document.hidden && this.isConnected.value) {
-        // Onglet redevient actif - rafraîchir seulement l'état audio principal
         await this.fetchAudioStateOnly();
       }
     };
@@ -113,12 +120,11 @@ class WebSocketSingleton {
   
   async fetchAudioStateOnly() {
     try {
-      // ✅ Utiliser des URLs relatives (passent par Nginx)
+      // ✅ URL relative qui passe par Nginx
       const response = await fetch('/api/audio/state');
       if (response.ok) {
         const currentState = await response.json();
         
-        // Diffuser seulement l'état audio principal (pas les données modals)
         const audioEvent = {
           category: "system",
           type: "state_changed",
@@ -135,7 +141,6 @@ class WebSocketSingleton {
   }
 
   handleMessage(message) {
-    // Mettre en cache l'état système pour les nouveaux composants
     if (message.category === 'system' && message.type === 'state_changed' && message.data?.full_state) {
       this.lastSystemState = message.data.full_state;
     }
@@ -163,7 +168,6 @@ class WebSocketSingleton {
     
     this.eventHandlers.get(eventKey).add(callback);
     
-    // Retourner fonction de cleanup
     return () => {
       const handlers = this.eventHandlers.get(eventKey);
       if (handlers) {
@@ -180,7 +184,7 @@ class WebSocketSingleton {
 const wsInstance = new WebSocketSingleton();
 
 /**
- * Composable WebSocket avec interface identique
+ * Composable WebSocket
  */
 export default function useWebSocket() {
   const subscriberId = Symbol('WebSocketSubscriber');
@@ -208,7 +212,7 @@ export default function useWebSocket() {
   };
 }
 
-// Debug simple (optionnel)
+// Debug pour développement
 if (import.meta.env.DEV) {
   window.wsDebug = () => {
     console.log('WebSocket Debug:', {
@@ -216,7 +220,7 @@ if (import.meta.env.DEV) {
       connected: wsInstance.isConnected.value,
       eventTypes: Array.from(wsInstance.eventHandlers.keys()),
       hasCachedState: !!wsInstance.lastSystemState,
-      cachedState: wsInstance.lastSystemState
+      url: wsInstance.socket?.url
     });
   };
 }

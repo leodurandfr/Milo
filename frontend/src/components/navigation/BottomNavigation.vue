@@ -1,4 +1,4 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vue - Version réellement optimisée -->
+<!-- frontend/src/components/navigation/BottomNavigation.vuz -->
 <template>
   <!-- Zone de drag invisible -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" 
@@ -29,7 +29,7 @@
       <div class="volume-controls mobile-only">
         <button v-for="{ icon, handler } in VOLUME_CONTROLS" :key="icon"
                 @click="handler" @touchstart="addPressEffect" @mousedown="addPressEffect"
-                class="volume-btn button-interactive-subtle" :disabled="volumeStore.isAdjusting">
+                class="volume-btn button-interactive-subtle" :disabled="unifiedStore.isAdjustingVolume">
           <Icon :name="icon" :size="32" />
         </button>
       </div>
@@ -72,7 +72,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useVolumeStore } from '@/stores/volumeStore';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import Icon from '@/components/ui/Icon.vue';
 
@@ -88,17 +87,16 @@ const ADDITIONAL_ACTIONS = [
   { id: 'equalizer', icon: 'equalizer', title: 'Égaliseur', handler: () => emit('open-equalizer') }
 ];
 
+// Store unifié pour volume ET audio
+const unifiedStore = useUnifiedAudioStore();
+
 const VOLUME_CONTROLS = [
-  { icon: 'minus', handler: () => volumeStore.decreaseVolume() },
-  { icon: 'plus', handler: () => volumeStore.increaseVolume() }
+  { icon: 'minus', handler: () => unifiedStore.decreaseVolume() },
+  { icon: 'plus', handler: () => unifiedStore.increaseVolume() }
 ];
 
 // === ÉMISSIONS ===
 const emit = defineEmits(['open-snapcast', 'open-equalizer']);
-
-// === STORES ===
-const unifiedStore = useUnifiedAudioStore();
-const volumeStore = useVolumeStore();
 
 // === REFS ===
 const dragZone = ref(null);
@@ -135,7 +133,6 @@ const indicatorStyle = ref({
 const getEventY = (e) => e.type.includes('touch') 
   ? (e.touches[0]?.clientY || e.changedTouches[0]?.clientY) : e.clientY;
 
-// Nouvelle fonction pour détecter si on est en desktop
 const isDesktop = () => window.matchMedia('not (max-aspect-ratio: 4/3)').matches;
 
 const clearAllTimers = () => {
@@ -245,38 +242,27 @@ const hideDock = () => {
   isVisible.value = false;
   clearAllTimers();
   indicatorStyle.value.opacity = '0';
-  
-  // Laisser l'animation des additional-apps se terminer avant de les retirer du DOM
   setTimeout(() => additionalAppsInDOM.value = false, 400);
 };
 
-// === GESTION DES CLICS - Modifiée ===
+// === GESTION DES CLICS ===
 const onClickOutside = (event) => {
   if (!isVisible.value) return;
-  
-  // Vérifier si le clic est sur le dock
   if (dockContainer.value && dockContainer.value.contains(event.target)) return;
-  
-  // Vérifier si le clic est sur une modal (overlay ou contenu)
   const isModalClick = event.target.closest('.modal-overlay, .modal-container, .modal-content');
   if (isModalClick) return;
-  
   hideDock();
 };
 
 const onDragZoneClick = () => {
-  // En desktop, pas de clic pour afficher le dock
   if (isDesktop()) return;
-  
   if (!isDragging.value && !isVisible.value) {
     showDock();
   }
 };
 
 const onIndicatorClick = () => {
-  // En desktop, pas de clic pour afficher le dock
   if (isDesktop()) return;
-  
   if (!isDragging.value && !isVisible.value) {
     showDock();
   }
@@ -408,8 +394,9 @@ onUnmounted(() => {
 });
 </script>
 
+<!-- STYLES IDENTIQUES - pas de changements CSS -->
 <style scoped>
-/* Zone de drag invisible */
+/* [Tous les styles CSS restent identiques] */
 .drag-zone {
   position: fixed;
   width: 280px;
@@ -427,7 +414,6 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
-/* Additional Apps Container - Mobile uniquement */
 .additional-apps-container {
   position: relative;
   margin-bottom: var(--space-03);
@@ -502,7 +488,6 @@ onUnmounted(() => {
   color: var(--color-text);
 }
 
-/* Dock container avec animation spring */
 .dock-container {
   position: fixed;
   bottom: 0;
@@ -516,7 +501,6 @@ onUnmounted(() => {
   transform: translateX(-50%) translateY(-20px) scale(1);
 }
 
-/* Dock avec design-system */
 .dock {
   position: relative;
   border-radius: var(--radius-06);
@@ -548,7 +532,6 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-/* Volume Controls - Mobile uniquement */
 .volume-controls {
   display: flex;
   gap: var(--space-02);
@@ -568,14 +551,12 @@ onUnmounted(() => {
   transition: all var(--transition-spring);
 }
 
-/* App Container */
 .app-container {
   display: flex;
   align-items: center;
   gap: var(--space-03);
 }
 
-/* Séparateur */
 .dock-separator {
   width: 2px;
   height: var(--space-07);
@@ -586,7 +567,6 @@ onUnmounted(() => {
   transition: all var(--transition-spring);
 }
 
-/* Items du dock */
 .dock-item {
   cursor: pointer;
   opacity: 0;
@@ -607,7 +587,6 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
 }
 
-/* Animation staggerée */
 .dock-container.visible .dock-item,
 .dock-container.visible .dock-separator,
 .dock-container.visible .volume-controls {
@@ -627,7 +606,6 @@ onUnmounted(() => {
 .dock-container.visible .app-container> :nth-child(6) { transition-delay: 0.25s; }
 .dock-container.visible .app-container> :nth-child(7) { transition-delay: 0.3s; }
 
-/* Suppression des délais quand fully-visible */
 .dock-container.visible.fully-visible .dock-item,
 .dock-container.visible.fully-visible .dock-separator,
 .dock-container.visible.fully-visible .volume-controls,
@@ -635,7 +613,6 @@ onUnmounted(() => {
   transition-delay: 0s !important;
 }
 
-/* Contenu des items */
 .dock-item-icon {
   width: 48px;
   height: 48px;
@@ -644,7 +621,6 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-/* Indicateur d'élément actif */
 .active-indicator {
   position: absolute;
   bottom: 8px;
@@ -658,13 +634,11 @@ onUnmounted(() => {
   transition: opacity var(--transition-slow), transform var(--transition-spring);
 }
 
-/* États */
 .dock-item:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* Responsive */
 .mobile-only {
   display: flex;
 }
@@ -673,7 +647,6 @@ onUnmounted(() => {
   display: flex;
 }
 
-/* Mobile responsive */
 @media (max-aspect-ratio: 4/3) {
   .drag-zone {
     height: 5%;
@@ -710,7 +683,6 @@ onUnmounted(() => {
   }
 }
 
-/* iOS */
 .ios-app .drag-zone {
   height: var(--space-09);
 }
@@ -723,7 +695,6 @@ onUnmounted(() => {
   transform: translate(-50%) translateY(-64px) scale(1);
 }
 
-/* Android */
 .android-app .dock-indicator {
   bottom: var(--space-07);
 }
@@ -731,7 +702,6 @@ onUnmounted(() => {
   transform: translate(-50%) translateY(-48px) scale(1);
 }
 
-/* Desktop */
 @media not (max-aspect-ratio: 4/3) {
   .mobile-only {
     display: none;
@@ -750,7 +720,6 @@ onUnmounted(() => {
   }
 }
 
-/* Animations de press */
 .volume-btn.is-pressed,
 .dock-item.is-pressed {
   transform: scale(0.92) !important;

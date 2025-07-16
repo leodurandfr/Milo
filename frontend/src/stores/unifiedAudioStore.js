@@ -1,22 +1,29 @@
-// frontend/src/stores/unifiedAudioStore.js - Version OPTIM avec target_source
+// unifiedAudioStore.js - Phase 2 : Store simplifié avec volume intégré
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
-  // État miroir du backend avec target_source
+  // === ÉTAT UNIQUE (source de vérité du backend) ===
   const systemState = ref({
     active_source: 'none',
     plugin_state: 'inactive',
     transitioning: false,
-    target_source: null,  // AJOUT
+    target_source: null,
     metadata: {},
     error: null,
     multiroom_enabled: false,
     equalizer_enabled: false
   });
   
-  // Getters unifiés
+  // === ÉTAT VOLUME INTÉGRÉ ===
+  const volumeState = ref({
+    currentVolume: 0,
+    isAdjusting: false,
+    limits: { min: 0, max: 100 }
+  });
+  
+  // === GETTERS AUDIO SIMPLIFIÉS ===
   const currentSource = computed(() => systemState.value.active_source);
   const pluginState = computed(() => systemState.value.plugin_state);
   const isTransitioning = computed(() => systemState.value.transitioning);
@@ -25,7 +32,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   const multiroomEnabled = computed(() => systemState.value.multiroom_enabled);
   const equalizerEnabled = computed(() => systemState.value.equalizer_enabled);
   
-  // NOUVEAU : Source affichée (active ou cible pendant transition)
+  // SIMPLIFIÉ : Une seule source affichée (utilise target_source du backend)
   const displayedSource = computed(() => {
     if (systemState.value.transitioning && systemState.value.target_source) {
       return systemState.value.target_source;
@@ -33,12 +40,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return systemState.value.active_source;
   });
   
-  // DEPRECATED : Gardé pour compatibilité mais utilise target_source du backend
-  const transitionTargetSource = computed(() => {
-    return systemState.value.target_source || systemState.value.active_source;
-  });
+  // === GETTERS VOLUME ===
+  const currentVolume = computed(() => volumeState.value.currentVolume);
+  const isAdjustingVolume = computed(() => volumeState.value.isAdjusting);
+  const volumeLimits = computed(() => volumeState.value.limits);
   
-  // Actions unifiées - SIMPLIFIÉES
+  // === ACTIONS AUDIO (simplifiées) ===
   async function changeSource(source) {
     try {
       const response = await axios.post(`/api/audio/source/${source}`);
@@ -82,150 +89,187 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
   
-  // === REFRESH D'ÉTAT GLOBAL CIBLÉ ===
-  
-  async function refreshCurrentState() {
+  // === ACTIONS VOLUME ===
+  async function setVolume(volume, showBar = true) {
+    if (volumeState.value.isAdjusting) return false;
+    
     try {
-      console.log('🔄 Refreshing global audio state via fresh API...');
+      volumeState.value.isAdjusting = true;
       
-      // Si un plugin librespot est actif, utiliser l'endpoint fresh-status
+      const response = await axios.post('/api/volume/set', {
+        volume,
+        show_bar: showBar
+      });
+      
+      if (response.data.status === 'success') {
+        volumeState.value.currentVolume = response.data.volume;
+        return true;
+      }
+      return false;
+      
+    } catch (error) {
+      console.error('Error setting volume:', error);
+      return false;
+    } finally {
+      setTimeout(() => {
+        volumeState.value.isAdjusting = false;
+      }, 100);
+    }
+  }
+  
+  async function adjustVolume(delta, showBar = true) {
+    if (volumeState.value.isAdjusting) return false;
+    
+    try {
+      volumeState.value.isAdjusting = true;
+      
+      const response = await axios.post('/api/volume/adjust', {
+        delta,
+        show_bar: showBar
+      });
+      
+      if (response.data.status === 'success') {
+        volumeState.value.currentVolume = response.data.volume;
+        return true;
+      }
+      return false;
+      
+    } catch (error) {
+      console.error('Error adjusting volume:', error);
+      return false;
+    } finally {
+      setTimeout(() => {
+        volumeState.value.isAdjusting = false;
+      }, 100);
+    }
+  }
+  
+  async function increaseVolume() {
+    return await adjustVolume(5);
+  }
+  
+  async function decreaseVolume() {
+    return await adjustVolume(-5);
+  }
+  
+  // === REFRESH SIMPLIFIÉ ===
+  async function refreshState() {
+    try {
+      console.log('🔄 Refreshing unified state...');
+      
+      // 1. État audio principal
       if (systemState.value.active_source === 'librespot') {
-        console.log('🔄 Calling oakOS fresh-status API for librespot...');
-        
         try {
           const response = await axios.get('/librespot/fresh-status');
-          
-          if (response.data && response.data.status === 'success') {
-            const freshData = response.data;
-            console.log('📦 Fresh data from oakOS librespot API:', freshData);
-            
-            systemState.value.metadata = freshData.fresh_metadata || {};
-            systemState.value.plugin_state = freshData.device_connected ? 'connected' : 'ready';
-            
-            console.log('✅ Fresh librespot metadata updated:', freshData.fresh_metadata);
-            return true;
-          } else {
-            console.warn('⚠️ Fresh-status API error:', response.data?.message);
+          if (response.data?.status === 'success') {
+            systemState.value.metadata = response.data.fresh_metadata || {};
+            systemState.value.plugin_state = response.data.device_connected ? 'connected' : 'ready';
+            console.log('✅ Fresh librespot data updated');
           }
         } catch (freshApiError) {
-          console.warn('⚠️ Fresh-status API error, falling back to oakOS API:', freshApiError.message);
+          console.warn('⚠️ Fresh-status fallback to main API');
         }
       }
       
-      // Fallback : utiliser l'API oakOS
-      console.log('🔄 Using oakOS API for state refresh...');
-      const response = await axios.get('/api/audio/state');
-      
-      if (response.data) {
-        const newState = response.data;
-        
-        systemState.value = {
-          active_source: newState.active_source || 'none',
-          plugin_state: newState.plugin_state || 'inactive',
-          transitioning: newState.transitioning || false,
-          target_source: newState.target_source || null,  // AJOUT
-          metadata: newState.metadata || {},
-          error: newState.error || null,
-          multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : false,
-          equalizer_enabled: newState.equalizer_enabled || false
-        };
-        
-        console.log('✅ oakOS state refreshed');
-        return true;
+      // Fallback API audio
+      const audioResponse = await axios.get('/api/audio/state');
+      if (audioResponse.data) {
+        updateSystemState(audioResponse.data);
       }
       
-      return false;
+      // 2. État volume
+      const volumeResponse = await axios.get('/api/volume/status');
+      if (volumeResponse.data?.status === 'success') {
+        const data = volumeResponse.data.data;
+        volumeState.value.currentVolume = data.volume || 0;
+        if (data.limits) {
+          volumeState.value.limits = data.limits;
+        }
+      }
       
-    } catch (error) {
-      console.error('❌ Error refreshing current state:', error);
-      return false;
-    }
-  }
-  
-  async function refreshAllStates() {
-    try {
-      console.log('🔄 Refreshing all global states...');
-      
-      // 1. État audio principal
-      await refreshCurrentState();
-      
-      // 2. Importer et refresh le volume store
-      const { useVolumeStore } = await import('./volumeStore');
-      const volumeStore = useVolumeStore();
-      await volumeStore.getVolumeStatus();
-      
-      console.log('✅ All states refreshed successfully');
+      console.log('✅ Unified state refreshed');
       return true;
       
     } catch (error) {
-      console.error('❌ Error refreshing all states:', error);
+      console.error('❌ Error refreshing state:', error);
       return false;
     }
   }
   
-  // === GESTION VISIBILITÉ DE L'ONGLET ===
-  
+  // === GESTION VISIBILITÉ SIMPLIFIÉE ===
   let visibilityHandler = null;
-  let isVisibilityListenerActive = false;
   
   function setupVisibilityListener() {
-    if (isVisibilityListenerActive) return;
+    if (visibilityHandler) return;
     
     visibilityHandler = async () => {
       if (!document.hidden) {
-        console.log('👁️ Tab became visible, refreshing states...');
-        setTimeout(() => {
-          refreshAllStates();
-        }, 300);
+        console.log('👁️ Tab visible, refreshing...');
+        setTimeout(refreshState, 300);
       }
     };
     
     document.addEventListener('visibilitychange', visibilityHandler);
     window.addEventListener('focus', visibilityHandler);
-    isVisibilityListenerActive = true;
-    
-    console.log('👁️ Global visibility listener setup');
   }
   
   function removeVisibilityListener() {
-    if (visibilityHandler && isVisibilityListenerActive) {
+    if (visibilityHandler) {
       document.removeEventListener('visibilitychange', visibilityHandler);
       window.removeEventListener('focus', visibilityHandler);
-      isVisibilityListenerActive = false;
       visibilityHandler = null;
-      
-      console.log('👁️ Global visibility listener removed');
     }
   }
   
-  // SIMPLIFIÉ : Plus de logique manuelle de transitionTarget
+  // === MISE À JOUR D'ÉTAT SIMPLIFIÉE ===
+  function updateSystemState(newState) {
+    systemState.value = {
+      active_source: newState.active_source || 'none',
+      plugin_state: newState.plugin_state || 'inactive',
+      transitioning: newState.transitioning || false,
+      target_source: newState.target_source || null,
+      metadata: newState.metadata || {},
+      error: newState.error || null,
+      multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : false,
+      equalizer_enabled: newState.equalizer_enabled || false
+    };
+  }
+  
   function updateState(event) {
-    if (event.data.full_state) {
-      const newState = event.data.full_state;
+    if (event.data?.full_state) {
+      updateSystemState(event.data.full_state);
+    }
+  }
+  
+  // === GESTION ÉVÉNEMENTS VOLUME ===
+  function handleVolumeEvent(event) {
+    if (event.data && typeof event.data.volume === 'number') {
+      volumeState.value.currentVolume = event.data.volume;
       
-      systemState.value = {
-        active_source: newState.active_source || 'none',
-        plugin_state: newState.plugin_state || 'inactive',
-        transitioning: newState.transitioning || false,
-        target_source: newState.target_source || null,  // AJOUT
-        metadata: newState.metadata || {},
-        error: newState.error || null,
-        multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : false,
-        equalizer_enabled: newState.equalizer_enabled || false
-      };
+      if (event.data.limits) {
+        volumeState.value.limits = event.data.limits;
+      }
       
-      // Log pour debug
-      if (event.data.initial_connection) {
-        console.log('Initial state received via WebSocket:', systemState.value);
+      // Afficher la VolumeBar si demandé
+      if (event.data.show_bar && volumeBarRef.value) {
+        volumeBarRef.value.showVolume();
       }
     }
   }
   
+  // === RÉFÉRENCE VOLUMEBAR ===
+  const volumeBarRef = ref(null);
+  
+  function setVolumeBarRef(ref) {
+    volumeBarRef.value = ref;
+  }
+  
   return {
-    // État
+    // === ÉTAT ===
     systemState,
+    volumeState,
     
-    // Getters essentiels
+    // === GETTERS AUDIO ===
     currentSource,
     pluginState,
     isTransitioning,
@@ -233,23 +277,30 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     error,
     multiroomEnabled,
     equalizerEnabled,
-    
-    // NOUVEAU : Source affichée (utilise target_source du backend)
     displayedSource,
     
-    // DEPRECATED : Gardé pour compatibilité
-    transitionTargetSource,
+    // === GETTERS VOLUME ===
+    currentVolume,
+    isAdjustingVolume,
+    volumeLimits,
     
-    // Actions
+    // === ACTIONS AUDIO ===
     changeSource,
     sendCommand,
     setMultiroomEnabled,
     setEqualizerEnabled,
     updateState,
     
-    // Refresh global
-    refreshCurrentState,
-    refreshAllStates,
+    // === ACTIONS VOLUME ===
+    setVolume,
+    adjustVolume,
+    increaseVolume,
+    decreaseVolume,
+    handleVolumeEvent,
+    setVolumeBarRef,
+    
+    // === REFRESH ET VISIBILITÉ ===
+    refreshState,
     setupVisibilityListener,
     removeVisibilityListener
   };

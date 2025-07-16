@@ -4,12 +4,11 @@
     <!-- Informations du client -->
     <div class="client-name heading-2">{{ client.name }}</div>
 
-    <!-- Contrôles du client -->
     <!-- Contrôle du volume avec drag temps réel -->
     <div class="volume-control">
       <RangeSlider :model-value="displayVolume" :min="minVolumeDisplay" :max="maxVolumeDisplay" :step="1"
         orientation="horizontal" :disabled="client.muted" @input="handleVolumeInput" @change="handleVolumeChange" />
-      <span class="volume-label text-mono">{{ displayVolume }} %</span>
+      <span class="volume-label text-mono">{{ displayVolume }} %</span>
     </div>
     <div class="controls-wrapper">
       <IconButton icon="threeDots" @click="handleShowDetails" title="Voir les détails du client" />
@@ -23,7 +22,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { useVolumeStore } from '@/stores/volumeStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -39,8 +38,8 @@ const props = defineProps({
 // Émissions
 const emit = defineEmits(['volume-change', 'mute-toggle', 'show-details']);
 
-// Store volume pour les limites
-const volumeStore = useVolumeStore();
+// Store unifié pour les limites de volume
+const unifiedStore = useUnifiedAudioStore();
 
 // === ÉTAT LOCAL POUR DRAG ===
 
@@ -50,9 +49,9 @@ let finalTimeout = null;
 
 // === LIMITES DE VOLUME ===
 
-// Limites réelles depuis le backend (avec fallback)
-const MIN_VOLUME = computed(() => volumeStore.volumeLimits?.min ?? 0);
-const MAX_VOLUME = computed(() => volumeStore.volumeLimits?.max ?? 55);
+// Limites réelles depuis le store unifié (avec fallback)
+const MIN_VOLUME = computed(() => unifiedStore.volumeLimits?.min ?? 0);
+const MAX_VOLUME = computed(() => unifiedStore.volumeLimits?.max ?? 55);
 
 // Conversion pour affichage (0-100%)
 const minVolumeDisplay = computed(() => 0);
@@ -159,8 +158,6 @@ onUnmounted(() => {
   background: var(--color-background-neutral);
 }
 
-
-
 .client-name {
   color: var(--color-text);
   overflow: hidden;
@@ -171,7 +168,6 @@ onUnmounted(() => {
   min-width: 112px;
 }
 
-/* Contrôles du client */
 .client-controls {
   display: flex;
   align-items: center;
@@ -185,7 +181,6 @@ onUnmounted(() => {
   gap: var(--space-03);
 }
 
-/* Contrôle du volume */
 .volume-control {
   display: flex;
   width: 100%;
@@ -200,30 +195,14 @@ onUnmounted(() => {
   margin-left: var(--space-04);
 }
 
-/* Bouton détails */
-/* .details-btn {
-  width: 36px;
-  height: 36px;
-  border: 1px solid #ced4da;
-  background: #e9ecef;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-  flex-shrink: 0;
-} */
-
 .details-btn:hover {
   background: #dee2e6;
 }
 
-/* Contrôle mute */
 .mute-control {
   flex-shrink: 0;
 }
 
-/* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .snapclient-item {
     display: flex;
@@ -245,6 +224,5 @@ onUnmounted(() => {
   .volume-control {
     order: 3;
   }
-
 }
 </style>

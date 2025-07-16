@@ -1,4 +1,4 @@
-// frontend/src/router/index.js - Version OPTIM route unique
+// router/index.js - Phase 3 : Route unique simplifiée
 import { createRouter, createWebHistory } from 'vue-router';
 import MainView from '@/views/MainView.vue';
 
@@ -10,6 +10,19 @@ const routes = [
     meta: {
       title: 'oakOS'
     }
+  },
+  // Redirections pour compatibilité (optionnel, à supprimer plus tard)
+  {
+    path: '/bluetooth',
+    redirect: '/'
+  },
+  {
+    path: '/roc',
+    redirect: '/'
+  },
+  {
+    path: '/librespot',
+    redirect: '/'
   }
 ];
 
