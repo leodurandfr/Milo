@@ -1,4 +1,4 @@
-<!-- MainView.vue - Phase 1 : PluginStatus centralisé -->
+<!-- MainView.vue - Simplifié avec PluginStatus autonome -->
 <template>
   <div class="main-view">
     <!-- Logo animé selon l'état -->
@@ -8,8 +8,8 @@
       :visible="logoVisible"
     />
 
-    <!-- Conteneur stable qui reste toujours monté -->
-    <div ref="containerRef" class="stable-container" :class="{ 'content-visible': !isInitialLogoDisplay }">
+    <!-- Conteneur de contenu simple -->
+    <div class="content-container" :class="{ 'content-visible': !isInitialLogoDisplay }">
 
       <!-- LibrespotView (player quand connecté avec métadonnées) -->
       <LibrespotView 
@@ -17,13 +17,12 @@
         :should-animate="shouldAnimateContent"
       />
 
-      <!-- PluginStatus centralisé (toutes les autres situations) -->
+      <!-- PluginStatus autonome (toutes les autres situations) -->
       <div v-else-if="shouldShowPluginStatus" class="plugin-status-wrapper">
         <PluginStatus
           :plugin-type="currentPluginType"
           :plugin-state="currentPluginState"
           :device-name="currentDeviceName"
-          :should-animate="shouldAnimateContent"
           :is-disconnecting="disconnectingStates[unifiedStore.currentSource]"
           @disconnect="handleDisconnect"
         />
@@ -39,14 +38,13 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, nextTick, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import LibrespotView from './LibrespotView.vue';
 import PluginStatus from '@/components/ui/PluginStatus.vue';
 import Logo from '@/components/ui/Logo.vue';
 
 const unifiedStore = useUnifiedAudioStore();
-const containerRef = ref(null);
 
 // États de déconnexion pour chaque plugin
 const disconnectingStates = ref({
@@ -60,7 +58,7 @@ const isInitialLogoDisplay = ref(true);
 // État pour contrôler l'animation du contenu
 const shouldAnimateContent = ref(false);
 
-// === LOGIQUE D'AFFICHAGE CENTRALISÉE ===
+// === LOGIQUE D'AFFICHAGE CENTRALISÉE (inchangée) ===
 
 // LibrespotView : Seulement quand connecté avec métadonnées complètes
 const shouldShowLibrespotPlayer = computed(() => {
@@ -188,44 +186,7 @@ async function handleDisconnect() {
   }
 }
 
-// === ANIMATIONS (inchangées) ===
-
-watch(() => [unifiedStore.isTransitioning, unifiedStore.currentSource], async ([isTransitioning, currentSource], [wasTransitioning, previousSource]) => {
-  if (!containerRef.value) return;
-  
-  if ((isTransitioning !== wasTransitioning) || (currentSource !== previousSource)) {
-    await animateContentChange();
-  }
-}, { flush: 'post' });
-
-async function animateContentChange() {
-  if (!containerRef.value) return;
-  
-  // Animation de sortie
-  containerRef.value.style.transition = 'all var(--transition-spring)';
-  containerRef.value.style.opacity = '0';
-  containerRef.value.style.transform = 'translateY(calc(-1 * var(--space-06)))';
-  
-  await new Promise(resolve => setTimeout(resolve, 300));
-  await nextTick();
-  
-  // Animation d'entrée
-  containerRef.value.style.transition = 'none';
-  containerRef.value.style.opacity = '0';
-  containerRef.value.style.transform = 'translateY(var(--space-06))';
-  containerRef.value.offsetHeight;
-  
-  containerRef.value.style.transition = 'all var(--transition-spring)';
-  containerRef.value.style.opacity = '1';
-  containerRef.value.style.transform = 'translateY(0)';
-  
-  setTimeout(() => {
-    if (containerRef.value) {
-      containerRef.value.style.transition = '';
-      containerRef.value.style.transform = '';
-    }
-  }, 700);
-}
+// === GESTION DU LOGO INITIAL (inchangée) ===
 
 onMounted(() => {
   setTimeout(async () => {
@@ -243,14 +204,15 @@ onMounted(() => {
   position: relative;
 }
 
-.stable-container {
+.content-container {
   width: 100%;
   height: 100%;
   opacity: 1;
   transition: opacity var(--transition-spring);
 }
 
-.stable-container:not(.content-visible) {
+/* Masquer le contenu pendant l'affichage initial du logo */
+.content-container:not(.content-visible) {
   opacity: 0;
   pointer-events: none;
 }

@@ -1,6 +1,6 @@
-<!-- PluginStatus.vue - UI d'origine exacte avec logique centralisée -->
+<!-- PluginStatus.vue - Animations autonomes avec timing parfait -->
 <template>
-    <div class="plugin-status" :class="{ 'animate-in': shouldAnimate }">
+    <div ref="containerRef" class="plugin-status" :class="[`state-${animationState}`]">
         <div class="plugin-status-content">
             <div class="plugin-status-inner">
                 <!-- Section info appareil -->
@@ -9,21 +9,21 @@
                         <div class="device-info-inner">
                             <!-- Icône du plugin -->
                             <div class="plugin-icon">
-                                <AppIcon :name="iconName" :size="32"
-                                    :state="pluginState === 'starting' ? 'loading' : 'normal'" />
+                                <AppIcon :name="displayedIconName" :size="32"
+                                    :state="displayedPluginState === 'starting' ? 'loading' : 'normal'" />
                             </div>
 
                             <!-- Statut textuel -->
                             <div class="device-status">
-                                <div v-if="statusLines.length === 1" class="status-single">
-                                    <h2 class="heading-2">{{ statusLines[0] }}</h2>
+                                <div v-if="displayedStatusLines.length === 1" class="status-single">
+                                    <h2 class="heading-2">{{ displayedStatusLines[0] }}</h2>
                                 </div>
                                 <template v-else>
-                                    <div class="status-line-1" :class="getStatusLine1Class()">
-                                        <h2 class="heading-2">{{ statusLines[0] }}</h2>
+                                    <div class="status-line-1" :class="getDisplayedStatusLine1Class()">
+                                        <h2 class="heading-2">{{ displayedStatusLines[0] }}</h2>
                                     </div>
-                                    <div class="status-line-2" :class="getStatusLine2Class()">
-                                        <h2 class="heading-2">{{ statusLines[1] }}</h2>
+                                    <div class="status-line-2" :class="getDisplayedStatusLine2Class()">
+                                        <h2 class="heading-2">{{ displayedStatusLines[1] }}</h2>
                                     </div>
                                 </template>
                             </div>
@@ -32,7 +32,7 @@
                 </div>
 
                 <!-- Bouton déconnecter (conditionnel) -->
-                <div v-if="showDisconnectButton" class="disconnect-button">
+                <div v-if="displayedShowDisconnectButton" class="disconnect-button">
                     <div class="disconnect-button-content">
                         <div class="disconnect-button-inner">
                             <button @click="handleDisconnect" :disabled="isDisconnecting" class="disconnect-text">
@@ -47,7 +47,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
 import AppIcon from './AppIcon.vue';
 
 // Props
@@ -68,26 +68,32 @@ const props = defineProps({
     isDisconnecting: {
         type: Boolean,
         default: false
-    },
-    shouldAnimate: {
-        type: Boolean,
-        default: false
     }
 });
 
 // Émissions
 const emit = defineEmits(['disconnect']);
 
-// Nom de l'icône selon le plugin
-const iconName = computed(() => {
-    return props.pluginType === 'librespot' ? 'spotify' : props.pluginType;
+// === ÉTATS INTERNES POUR LE TIMING ===
+const animationState = ref('hidden');
+const isTransitioning = ref(false);
+const containerRef = ref(null);
+
+// États affichés (figés pendant les transitions)
+const displayedPluginType = ref(props.pluginType);
+const displayedPluginState = ref(props.pluginState);
+const displayedDeviceName = ref(props.deviceName);
+
+// === COMPUTED BASÉS SUR LES ÉTATS AFFICHÉS ===
+
+const displayedIconName = computed(() => {
+    return displayedPluginType.value === 'librespot' ? 'spotify' : displayedPluginType.value;
 });
 
-// Lignes de statut selon l'état
-const statusLines = computed(() => {
+const displayedStatusLines = computed(() => {
     // État de démarrage
-    if (props.pluginState === 'starting') {
-        switch (props.pluginType) {
+    if (displayedPluginState.value === 'starting') {
+        switch (displayedPluginType.value) {
             case 'bluetooth':
                 return ['Démarrage du', 'Bluetooth'];
             case 'roc':
@@ -100,8 +106,8 @@ const statusLines = computed(() => {
     }
 
     // État ready : messages d'attente
-    if (props.pluginState === 'ready') {
-        switch (props.pluginType) {
+    if (displayedPluginState.value === 'ready') {
+        switch (displayedPluginType.value) {
             case 'bluetooth':
                 return ['Bluetooth', 'Prêt à diffuser'];
             case 'roc':
@@ -114,51 +120,153 @@ const statusLines = computed(() => {
     }
 
     // État connected : messages avec nom d'appareil
-    if (props.pluginState === 'connected' && props.deviceName) {
-        switch (props.pluginType) {
+    if (displayedPluginState.value === 'connected' && displayedDeviceName.value) {
+        switch (displayedPluginType.value) {
             case 'bluetooth':
-                return ['Connecté à', props.deviceName];
+                return ['Connecté à', displayedDeviceName.value];
             case 'roc':
-                return ['Connecté au', props.deviceName];
+                return ['Connecté au', displayedDeviceName.value];
             default:
-                return ['Connecté à', props.deviceName];
+                return ['Connecté à', displayedDeviceName.value];
         }
     }
 
     return ['État inconnu'];
 });
 
-// Classes pour la première ligne de statut
-function getStatusLine1Class() {
-    if (props.pluginState === 'starting') {
-        return 'starting-state'; // secondary
-    }
-    if (props.pluginState === 'connected') {
-        return 'connected-state'; // secondary
-    }
-    return ''; // normal (primary)
-}
-
-// Classes pour la deuxième ligne de statut
-function getStatusLine2Class() {
-    if (props.pluginState === 'starting') {
-        return 'starting-state'; // normal (primary)
-    }
-    if (props.pluginState === 'connected') {
-        return 'connected-state'; // normal (primary)
-    }
-    return 'secondary-state'; // secondary
-}
-
-// Affichage du bouton déconnecter
-const showDisconnectButton = computed(() => {
-    if (props.pluginState === 'starting') {
+const displayedShowDisconnectButton = computed(() => {
+    if (displayedPluginState.value === 'starting') {
         return false;
     }
-    return props.pluginType === 'bluetooth' && props.pluginState === 'connected';
+    return displayedPluginType.value === 'bluetooth' && displayedPluginState.value === 'connected';
 });
 
-// Gestionnaire de déconnexion
+// Classes pour les lignes de statut
+function getDisplayedStatusLine1Class() {
+    if (displayedPluginState.value === 'starting') {
+        return 'starting-state';
+    }
+    if (displayedPluginState.value === 'connected') {
+        return 'connected-state';
+    }
+    return '';
+}
+
+function getDisplayedStatusLine2Class() {
+    if (displayedPluginState.value === 'starting') {
+        return 'starting-state';
+    }
+    if (displayedPluginState.value === 'connected') {
+        return 'connected-state';
+    }
+    return 'secondary-state';
+}
+
+// === GESTION DES ANIMATIONS AVEC TIMING ===
+
+async function updateDisplayedContent() {
+    displayedPluginType.value = props.pluginType;
+    displayedPluginState.value = props.pluginState;
+    displayedDeviceName.value = props.deviceName;
+}
+
+async function animateContentChange() {
+    // Si déjà en transition, attendre qu'elle se termine puis relancer
+    if (isTransitioning.value) {
+        console.log('⏳ Already transitioning, waiting...');
+        // Attendre la fin de la transition actuelle
+        while (isTransitioning.value) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        console.log('🔄 Retrying animation after wait');
+    }
+    
+    isTransitioning.value = true;
+    console.log('🎬 Starting animation');
+    
+    // 1. Animation de sortie vers le HAUT (300ms)
+    animationState.value = 'exiting';
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    // 2. Changer le contenu pendant qu'invisible
+    await updateDisplayedContent();
+    await nextTick();
+    
+    // 3. RESET COMPLET : retour à hidden d'abord
+    console.log('🔄 Reset to hidden state');
+    animationState.value = 'hidden';
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    
+    // 4. Puis preparing-entry pour forcer la position du bas
+    console.log('📥 Move to preparing-entry (BOTTOM)');
+    animationState.value = 'preparing-entry';
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    
+    // 5. Animation d'entrée depuis le BAS vers le centre
+    console.log('✨ Entry animation should come from BOTTOM');
+    animationState.value = 'visible';
+    
+    setTimeout(() => {
+        isTransitioning.value = false;
+        console.log('✅ Animation complete');
+    }, 700);
+}
+
+// === WATCHERS ===
+
+// Détecter les changements nécessitant une animation
+watch(() => [props.pluginType, props.pluginState, props.deviceName], 
+    ([newType, newState, newDeviceName], [oldType, oldState, oldDeviceName]) => {
+        
+        console.log(`🔍 Change detected: ${oldType}/${oldState} → ${newType}/${newState}`);
+        
+        // Changement de type de plugin : toujours animer
+        if (newType !== oldType) {
+            console.log('🔄 Plugin type changed, animating');
+            animateContentChange();
+            return;
+        }
+        
+        // Changement d'état : toujours animer (même starting → ready)
+        if (newState !== oldState) {
+            console.log('🔄 Plugin state changed, animating');
+            animateContentChange();
+            return;
+        }
+        
+        // Changement de deviceName : animer seulement si on passe de vide à rempli ou vice versa
+        const hadDeviceName = !!oldDeviceName;
+        const hasDeviceName = !!newDeviceName;
+        
+        if (hadDeviceName !== hasDeviceName) {
+            console.log('🔄 Device name presence changed, animating');
+            animateContentChange();
+            return;
+        }
+        
+        // Sinon, mise à jour immédiate sans animation
+        console.log('📝 Direct update without animation');
+        updateDisplayedContent();
+    }, 
+    { immediate: false }
+);
+
+// Animation d'entrée initiale
+watch(() => props.pluginState, (newState) => {
+    if (newState && animationState.value === 'hidden' && !isTransitioning.value) {
+        // Première apparition
+        updateDisplayedContent();
+        nextTick(() => {
+            animationState.value = 'preparing-entry';
+            requestAnimationFrame(() => {
+                animationState.value = 'visible';
+            });
+        });
+    }
+}, { immediate: true });
+
+// === GESTIONNAIRE D'ÉVÉNEMENTS ===
+
 function handleDisconnect() {
     emit('disconnect');
 }
@@ -172,16 +280,32 @@ function handleDisconnect() {
     width: 364px;
     position: relative;
     margin: auto;
-    
-    /* Animation d'entrée */
-    opacity: 0;
-    transform: translateY(var(--space-06)) scale(0.95);
     transition: all var(--transition-spring);
 }
 
-.plugin-status.animate-in {
+/* État caché par défaut */
+.plugin-status.state-hidden {
+    opacity: 0;
+    transform: translateY(var(--space-06)) scale(0.95);
+}
+
+/* État visible normal */
+.plugin-status.state-visible {
     opacity: 1;
     transform: translateY(0) scale(1);
+}
+
+/* État de sortie - VA VERS LE HAUT */
+.plugin-status.state-exiting {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--space-06))) scale(0.95);
+}
+
+/* État de préparation d'entrée - BAS SANS TRANSITION */
+.plugin-status.state-preparing-entry {
+    opacity: 0;
+    transform: translateY(calc(var(--space-06) + 4px)) scale(0.95); /* Légèrement plus bas */
+    transition: none !important; /* PAS de transition pour le placement */
 }
 
 .plugin-status-content {
