@@ -1,4 +1,4 @@
-// unifiedAudioStore.js - Correction pour Volume Bar
+// unifiedAudioStore.js - Version nettoyée sans isAdjusting
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
@@ -16,14 +16,13 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     equalizer_enabled: false
   });
   
-  // === ÉTAT VOLUME INTÉGRÉ ===
+  // === ÉTAT VOLUME SIMPLIFIÉ ===
   const volumeState = ref({
     currentVolume: 0,
-    isAdjusting: false,
     limits: { min: 0, max: 100 }
   });
   
-  // === RÉFÉRENCE VOLUMEBAR (CORRECTION timing) ===
+  // === RÉFÉRENCE VOLUMEBAR ===
   let volumeBarRef = null;
   
   // === GETTERS AUDIO SIMPLIFIÉS ===
@@ -45,7 +44,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   
   // === GETTERS VOLUME ===
   const currentVolume = computed(() => volumeState.value.currentVolume);
-  const isAdjustingVolume = computed(() => volumeState.value.isAdjusting);
   const volumeLimits = computed(() => volumeState.value.limits);
   
   // === ACTIONS AUDIO (simplifiées) ===
@@ -94,11 +92,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   
   // === ACTIONS VOLUME ===
   async function setVolume(volume, showBar = true) {
-    if (volumeState.value.isAdjusting) return false;
-    
     try {
-      volumeState.value.isAdjusting = true;
-      
       const response = await axios.post('/api/volume/set', {
         volume,
         show_bar: showBar
@@ -113,41 +107,19 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     } catch (error) {
       console.error('Error setting volume:', error);
       return false;
-    } finally {
-      setTimeout(() => {
-        volumeState.value.isAdjusting = false;
-      }, 100);
     }
   }
   
+  // VERSION ULTRA-SIMPLE : Fire-and-forget
   async function adjustVolume(delta, showBar = true) {
-    if (volumeState.value.isAdjusting) return false;
-    
-    try {
-      // 1. Feedback immédiat local
-      volumeState.value.currentVolume = Math.max(0, Math.min(100, volumeState.value.currentVolume + delta));
-      
-      // 2. Afficher la barre immédiatement si demandé
-      if (showBar && volumeBarRef?.value?.showVolume) {
-        volumeBarRef.value.showVolume();
-      }
-      
-      // 3. Envoyer la requête (sans attendre la réponse)
-      fetch('/api/volume/adjust', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ delta, show_bar: false }) // Pas de barre via WebSocket
-      }).catch(error => {
-        console.error('Erreur volume:', error);
-        // En cas d'erreur, on pourrait refresh le volume réel
-      });
-      
-      return true;
-      
-    } catch (error) {
-      console.error('Erreur ajustement volume:', error);
-      return false;
-    }
+    // Juste envoyer la requête - pas de modification locale
+    fetch('/api/volume/adjust', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delta, show_bar: showBar })
+    }).catch(error => {
+      console.error('Erreur volume:', error);
+    });
   }
   
   async function increaseVolume() {
@@ -247,7 +219,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
   
-  // === GESTION ÉVÉNEMENTS VOLUME (CORRECTION timing) ===
+  // === GESTION ÉVÉNEMENTS VOLUME ===
   function handleVolumeEvent(event) {
     if (event.data && typeof event.data.volume === 'number') {
       volumeState.value.currentVolume = event.data.volume;
@@ -256,7 +228,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         volumeState.value.limits = event.data.limits;
       }
       
-      // ✅ CORRECTION : Accès à la ref reactive comme dans l'ancien store
+      // Afficher la barre si demandé
       if (event.data.show_bar && volumeBarRef && volumeBarRef.value) {
         try {
           volumeBarRef.value.showVolume();
@@ -267,10 +239,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
   
-  // === GESTION RÉFÉRENCE VOLUMEBAR (CORRECTION timing) ===
+  // === GESTION RÉFÉRENCE VOLUMEBAR ===
   function setVolumeBarRef(reactiveRef) {
     console.log('🎚️ Setting VolumeBar reactive ref:', reactiveRef);
-    volumeBarRef = reactiveRef; // Stocker la ref reactive, pas sa valeur
+    volumeBarRef = reactiveRef;
   }
   
   return {
@@ -290,7 +262,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     
     // === GETTERS VOLUME ===
     currentVolume,
-    isAdjustingVolume,
     volumeLimits,
     
     // === ACTIONS AUDIO ===
