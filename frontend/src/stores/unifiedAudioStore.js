@@ -1,4 +1,4 @@
-// unifiedAudioStore.js - Phase 2 : Store simplifié avec volume intégré
+// unifiedAudioStore.js - Correction pour Volume Bar
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
@@ -22,6 +22,9 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     isAdjusting: false,
     limits: { min: 0, max: 100 }
   });
+  
+  // === RÉFÉRENCE VOLUMEBAR (CORRECTION timing) ===
+  let volumeBarRef = null;
   
   // === GETTERS AUDIO SIMPLIFIÉS ===
   const currentSource = computed(() => systemState.value.active_source);
@@ -241,7 +244,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
   
-  // === GESTION ÉVÉNEMENTS VOLUME ===
+  // === GESTION ÉVÉNEMENTS VOLUME (CORRECTION timing) ===
   function handleVolumeEvent(event) {
     if (event.data && typeof event.data.volume === 'number') {
       volumeState.value.currentVolume = event.data.volume;
@@ -250,18 +253,21 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         volumeState.value.limits = event.data.limits;
       }
       
-      // Afficher la VolumeBar si demandé
-      if (event.data.show_bar && volumeBarRef.value) {
-        volumeBarRef.value.showVolume();
+      // ✅ CORRECTION : Accès à la ref reactive comme dans l'ancien store
+      if (event.data.show_bar && volumeBarRef && volumeBarRef.value) {
+        try {
+          volumeBarRef.value.showVolume();
+        } catch (error) {
+          console.warn('Failed to show volume bar:', error);
+        }
       }
     }
   }
   
-  // === RÉFÉRENCE VOLUMEBAR ===
-  const volumeBarRef = ref(null);
-  
-  function setVolumeBarRef(ref) {
-    volumeBarRef.value = ref;
+  // === GESTION RÉFÉRENCE VOLUMEBAR (CORRECTION timing) ===
+  function setVolumeBarRef(reactiveRef) {
+    console.log('🎚️ Setting VolumeBar reactive ref:', reactiveRef);
+    volumeBarRef = reactiveRef; // Stocker la ref reactive, pas sa valeur
   }
   
   return {
