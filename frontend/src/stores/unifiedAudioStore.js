@@ -124,26 +124,29 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     if (volumeState.value.isAdjusting) return false;
     
     try {
-      volumeState.value.isAdjusting = true;
+      // 1. Feedback immédiat local
+      volumeState.value.currentVolume = Math.max(0, Math.min(100, volumeState.value.currentVolume + delta));
       
-      const response = await axios.post('/api/volume/adjust', {
-        delta,
-        show_bar: showBar
+      // 2. Afficher la barre immédiatement si demandé
+      if (showBar && volumeBarRef?.value?.showVolume) {
+        volumeBarRef.value.showVolume();
+      }
+      
+      // 3. Envoyer la requête (sans attendre la réponse)
+      fetch('/api/volume/adjust', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delta, show_bar: false }) // Pas de barre via WebSocket
+      }).catch(error => {
+        console.error('Erreur volume:', error);
+        // En cas d'erreur, on pourrait refresh le volume réel
       });
       
-      if (response.data.status === 'success') {
-        volumeState.value.currentVolume = response.data.volume;
-        return true;
-      }
-      return false;
+      return true;
       
     } catch (error) {
-      console.error('Error adjusting volume:', error);
+      console.error('Erreur ajustement volume:', error);
       return false;
-    } finally {
-      setTimeout(() => {
-        volumeState.value.isAdjusting = false;
-      }, 100);
     }
   }
   

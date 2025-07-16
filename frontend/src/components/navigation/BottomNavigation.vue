@@ -29,7 +29,7 @@
       <div class="volume-controls mobile-only">
         <button v-for="{ icon, handler } in VOLUME_CONTROLS" :key="icon"
                 @click="handler" @touchstart="addPressEffect" @mousedown="addPressEffect"
-                class="volume-btn button-interactive-subtle" :disabled="unifiedStore.isAdjustingVolume">
+                class="volume-btn button-interactive-subtle">
           <Icon :name="icon" :size="32" />
         </button>
       </div>
