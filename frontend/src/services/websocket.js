@@ -1,8 +1,8 @@
-// frontend/src/services/websocket.js - Version corrigée pour oakos.local
+// frontend/src/services/websocket.js - Version finale OPTIM
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 
 /**
- * Singleton WebSocket simplifié - Version corrigée pour oakos.local
+ * Singleton WebSocket avec déconnexion intelligente sur onglet caché
  */
 class WebSocketSingleton {
   constructor() {
@@ -35,20 +35,16 @@ class WebSocketSingleton {
       return;
     }
 
-    // ✅ CORRECTION : Détection automatique du protocole et configuration oakos.local
+    // Configuration automatique de l'URL WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
     
     let wsUrl;
-    
     if (import.meta.env.DEV && host === 'localhost') {
-      // Développement local avec Vite
       wsUrl = `${protocol}//localhost:5173/ws`;
     } else if (host === 'oakos.local' || host.endsWith('.local')) {
-      // ✅ Production avec oakos.local (sans spécifier le port)
       wsUrl = `${protocol}//${host}/ws`;
     } else {
-      // Fallback pour IP directe
       const port = window.location.port || (window.location.protocol === 'https:' ? 443 : 80);
       wsUrl = `${protocol}//${host}:${port}/ws`;
     }
@@ -74,11 +70,10 @@ class WebSocketSingleton {
     this.socket.onclose = () => {
       this.isConnected.value = false;
       this.socket = null;
-      this.removeVisibilityListener();
       console.log('WebSocket disconnected');
       
-      // Reconnexion automatique si on a encore des subscribers
-      if (this.subscribers.size > 0) {
+      // Reconnexion automatique seulement si l'onglet est visible
+      if (this.subscribers.size > 0 && !document.hidden) {
         setTimeout(() => this.createConnection(), 3000);
       }
     };
@@ -102,9 +97,25 @@ class WebSocketSingleton {
   setupVisibilityListener() {
     if (this.visibilityHandler) return;
     
-    this.visibilityHandler = async () => {
-      if (!document.hidden && this.isConnected.value) {
-        await this.fetchAudioStateOnly();
+    this.visibilityHandler = () => {
+      if (document.hidden) {
+        // Déconnecter quand l'onglet est caché
+        if (this.socket) {
+          this.socket.close();
+        }
+      } else {
+        // Reconnecter quand l'onglet redevient visible
+        if (this.subscribers.size > 0) {
+          // Fermer toute connexion existante
+          if (this.socket) {
+            this.socket.close();
+          }
+          
+          // Reconnecter après un court délai
+          setTimeout(() => {
+            this.createConnection();
+          }, 200);
+        }
       }
     };
     
@@ -115,28 +126,6 @@ class WebSocketSingleton {
     if (this.visibilityHandler) {
       document.removeEventListener('visibilitychange', this.visibilityHandler);
       this.visibilityHandler = null;
-    }
-  }
-  
-  async fetchAudioStateOnly() {
-    try {
-      // ✅ URL relative qui passe par Nginx
-      const response = await fetch('/api/audio/state');
-      if (response.ok) {
-        const currentState = await response.json();
-        
-        const audioEvent = {
-          category: "system",
-          type: "state_changed",
-          data: { full_state: currentState },
-          source: "visibility_refresh",
-          timestamp: Date.now()
-        };
-        
-        this.handleMessage(audioEvent);
-      }
-    } catch (error) {
-      console.error('Error fetching audio state on visibility change:', error);
     }
   }
 
@@ -220,7 +209,8 @@ if (import.meta.env.DEV) {
       connected: wsInstance.isConnected.value,
       eventTypes: Array.from(wsInstance.eventHandlers.keys()),
       hasCachedState: !!wsInstance.lastSystemState,
-      url: wsInstance.socket?.url
+      url: wsInstance.socket?.url,
+      tabHidden: document.hidden
     });
   };
 }

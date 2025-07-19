@@ -1,4 +1,4 @@
-<!-- App.vue - Phase 2 : Store unifié simplifié -->
+<!-- App.vue - Version finale OPTIM -->
 <template>
   <div class="app-container">
     <router-view />
@@ -28,13 +28,10 @@ import EqualizerModal from '@/components/equalizer/EqualizerModal.vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 
-// SIMPLIFIÉ : Un seul store
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
 const volumeBar = ref(null);
-
-// Modales
 const isSnapcastOpen = ref(false);
 const isEqualizerOpen = ref(false);
 
@@ -49,34 +46,29 @@ provide('closeModals', () => {
 const cleanupFunctions = [];
 
 onMounted(() => {
-  // Configurer la référence VolumeBar dans le store
+  // Configuration initiale
   unifiedStore.setVolumeBarRef(volumeBar);
   
-  // Setup listeners
-  unifiedStore.setupVisibilityListener();
+  // Setup des listeners
+  const visibilityCleanup = unifiedStore.setupVisibilityListener();
+  cleanupFunctions.push(visibilityCleanup);
   
-  // Événements WebSocket SIMPLIFIÉS
+  // Événements WebSocket
   cleanupFunctions.push(
-    // Volume (via store unifié)
     on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
-    
-    // Système (via store unifié)
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_start', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_complete', (event) => unifiedStore.updateState(event)),
     on('system', 'error', (event) => unifiedStore.updateState(event)),
-    
-    // Plugins (via store unifié)
     on('plugin', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('plugin', 'metadata', (event) => unifiedStore.updateState(event))
   );
 
-  // État initial SIMPLIFIÉ
+  // État initial
   unifiedStore.refreshState();
 });
 
 onUnmounted(() => {
-  unifiedStore.removeVisibilityListener();
   cleanupFunctions.forEach(cleanup => cleanup());
 });
 </script>

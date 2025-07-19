@@ -1,10 +1,10 @@
-// unifiedAudioStore.js - Version nettoyée sans isAdjusting
+// unifiedAudioStore.js - Version finale OPTIM
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
-  // === ÉTAT UNIQUE (source de vérité du backend) ===
+  // === ÉTAT UNIQUE ===
   const systemState = ref({
     active_source: 'none',
     plugin_state: 'inactive',
@@ -16,16 +16,14 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     equalizer_enabled: false
   });
   
-  // === ÉTAT VOLUME SIMPLIFIÉ ===
   const volumeState = ref({
     currentVolume: 0,
     limits: { min: 0, max: 100 }
   });
   
-  // === RÉFÉRENCE VOLUMEBAR ===
   let volumeBarRef = null;
   
-  // === GETTERS AUDIO SIMPLIFIÉS ===
+  // === GETTERS ===
   const currentSource = computed(() => systemState.value.active_source);
   const pluginState = computed(() => systemState.value.plugin_state);
   const isTransitioning = computed(() => systemState.value.transitioning);
@@ -34,7 +32,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   const multiroomEnabled = computed(() => systemState.value.multiroom_enabled);
   const equalizerEnabled = computed(() => systemState.value.equalizer_enabled);
   
-  // SIMPLIFIÉ : Une seule source affichée (utilise target_source du backend)
   const displayedSource = computed(() => {
     if (systemState.value.transitioning && systemState.value.target_source) {
       return systemState.value.target_source;
@@ -42,11 +39,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return systemState.value.active_source;
   });
   
-  // === GETTERS VOLUME ===
   const currentVolume = computed(() => volumeState.value.currentVolume);
   const volumeLimits = computed(() => volumeState.value.limits);
   
-  // === ACTIONS AUDIO (simplifiées) ===
+  // === ACTIONS AUDIO ===
   async function changeSource(source) {
     try {
       const response = await axios.post(`/api/audio/source/${source}`);
@@ -110,9 +106,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
   
-  // VERSION ULTRA-SIMPLE : Fire-and-forget
   async function adjustVolume(delta, showBar = true) {
-    // Juste envoyer la requête - pas de modification locale
     fetch('/api/volume/adjust', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -130,12 +124,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return await adjustVolume(-5);
   }
   
-  // === REFRESH SIMPLIFIÉ ===
+  // === REFRESH ===
   async function refreshState() {
     try {
       console.log('🔄 Refreshing unified state...');
       
-      // 1. État audio principal
+      // État audio principal
       if (systemState.value.active_source === 'librespot') {
         try {
           const response = await axios.get('/librespot/fresh-status');
@@ -155,7 +149,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         updateSystemState(audioResponse.data);
       }
       
-      // 2. État volume
+      // État volume
       const volumeResponse = await axios.get('/api/volume/status');
       if (volumeResponse.data?.status === 'success') {
         const data = volumeResponse.data.data;
@@ -174,32 +168,25 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
   
-  // === GESTION VISIBILITÉ SIMPLIFIÉE ===
-  let visibilityHandler = null;
-  
+  // === GESTION VISIBILITÉ ===
   function setupVisibilityListener() {
-    if (visibilityHandler) return;
-    
-    visibilityHandler = async () => {
+    const visibilityHandler = () => {
       if (!document.hidden) {
-        console.log('👁️ Tab visible, refreshing...');
-        setTimeout(refreshState, 300);
+        // Délai pour laisser le WebSocket se reconnecter
+        setTimeout(refreshState, 500);
       }
     };
     
     document.addEventListener('visibilitychange', visibilityHandler);
     window.addEventListener('focus', visibilityHandler);
-  }
-  
-  function removeVisibilityListener() {
-    if (visibilityHandler) {
+    
+    return () => {
       document.removeEventListener('visibilitychange', visibilityHandler);
       window.removeEventListener('focus', visibilityHandler);
-      visibilityHandler = null;
-    }
+    };
   }
   
-  // === MISE À JOUR D'ÉTAT SIMPLIFIÉE ===
+  // === MISE À JOUR D'ÉTAT ===
   function updateSystemState(newState) {
     systemState.value = {
       active_source: newState.active_source || 'none',
@@ -219,7 +206,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
   
-  // === GESTION ÉVÉNEMENTS VOLUME ===
   function handleVolumeEvent(event) {
     if (event.data && typeof event.data.volume === 'number') {
       volumeState.value.currentVolume = event.data.volume;
@@ -228,7 +214,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         volumeState.value.limits = event.data.limits;
       }
       
-      // Afficher la barre si demandé
       if (event.data.show_bar && volumeBarRef && volumeBarRef.value) {
         try {
           volumeBarRef.value.showVolume();
@@ -239,18 +224,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
   
-  // === GESTION RÉFÉRENCE VOLUMEBAR ===
   function setVolumeBarRef(reactiveRef) {
-    console.log('🎚️ Setting VolumeBar reactive ref:', reactiveRef);
     volumeBarRef = reactiveRef;
   }
   
   return {
-    // === ÉTAT ===
+    // État
     systemState,
     volumeState,
     
-    // === GETTERS AUDIO ===
+    // Getters
     currentSource,
     pluginState,
     isTransitioning,
@@ -259,29 +242,22 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     multiroomEnabled,
     equalizerEnabled,
     displayedSource,
-    
-    // === GETTERS VOLUME ===
     currentVolume,
     volumeLimits,
     
-    // === ACTIONS AUDIO ===
+    // Actions
     changeSource,
     sendCommand,
     setMultiroomEnabled,
     setEqualizerEnabled,
     updateState,
-    
-    // === ACTIONS VOLUME ===
     setVolume,
     adjustVolume,
     increaseVolume,
     decreaseVolume,
     handleVolumeEvent,
     setVolumeBarRef,
-    
-    // === REFRESH ET VISIBILITÉ ===
     refreshState,
-    setupVisibilityListener,
-    removeVisibilityListener
+    setupVisibilityListener
   };
 });
