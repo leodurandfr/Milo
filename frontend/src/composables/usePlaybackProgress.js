@@ -1,4 +1,4 @@
-// frontend/src/composables/usePlaybackProgress.js - Version OPTIM nettoyée
+// frontend/src/composables/usePlaybackProgress.js - Version simplifiée sans logique complexe
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
@@ -17,14 +17,9 @@ export function usePlaybackProgress() {
     return (currentPosition.value / duration.value) * 100;
   });
   
-  // Synchronisation avec les métadonnées du store
+  // 🎯 SIMPLIFIÉ : Synchronisation directe avec les métadonnées du store
   watch(() => unifiedStore.metadata?.position, (newPosition) => {
     if (newPosition !== undefined && !isApiSyncing) {
-      // Protection contre les resets intempestifs
-      // if (newPosition === 0 && localPosition.value > 5000) {
-      //   console.warn("Position 0 ignorée (probable reset)");
-      //   return;
-      // }
       localPosition.value = newPosition;
     }
   }, { immediate: true });
@@ -32,7 +27,9 @@ export function usePlaybackProgress() {
   // Animation locale pendant la lecture
   watch(() => unifiedStore.metadata?.is_playing, (isPlaying) => {
     stopProgressTimer();
-    if (isPlaying) startProgressTimer();
+    if (isPlaying) {
+      startProgressTimer();
+    }
   }, { immediate: true });
   
   function startProgressTimer() {
@@ -55,8 +52,12 @@ export function usePlaybackProgress() {
   function seekTo(position) {
     isApiSyncing = true;
     localPosition.value = position;
+    
     unifiedStore.sendCommand('librespot', 'seek', { position_ms: position });
-    setTimeout(() => { isApiSyncing = false; }, 200);
+    
+    setTimeout(() => { 
+      isApiSyncing = false; 
+    }, 200);
   }
   
   // Cleanup

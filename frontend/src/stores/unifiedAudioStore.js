@@ -134,19 +134,34 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         try {
           const response = await axios.get('/librespot/fresh-status');
           if (response.data?.status === 'success') {
-            systemState.value.metadata = response.data.fresh_metadata || {};
+            const freshMetadata = response.data.fresh_metadata || {};
+            systemState.value.metadata = freshMetadata;
             systemState.value.plugin_state = response.data.device_connected ? 'connected' : 'ready';
             console.log('✅ Fresh librespot data updated');
+            
+            // 🎯 FIX : Ne pas appeler /api/audio/state pour librespot, on a déjà les fresh data
+            // Directement passer au volume
+          } else {
+            // Fallback si fresh-status échoue
+            const audioResponse = await axios.get('/api/audio/state');
+            if (audioResponse.data) {
+              updateSystemState(audioResponse.data);
+            }
           }
         } catch (freshApiError) {
           console.warn('⚠️ Fresh-status fallback to main API');
+          // Fallback vers l'API principale
+          const audioResponse = await axios.get('/api/audio/state');
+          if (audioResponse.data) {
+            updateSystemState(audioResponse.data);
+          }
         }
-      }
-      
-      // Fallback API audio
-      const audioResponse = await axios.get('/api/audio/state');
-      if (audioResponse.data) {
-        updateSystemState(audioResponse.data);
+      } else {
+        // Pour les autres sources (pas librespot), utiliser l'API normale
+        const audioResponse = await axios.get('/api/audio/state');
+        if (audioResponse.data) {
+          updateSystemState(audioResponse.data);
+        }
       }
       
       // État volume
