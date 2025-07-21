@@ -12,7 +12,7 @@ class BluetoothAgent(ServiceInterface):
     
     def __init__(self):
         self.logger = logging.getLogger("plugin.bluetooth.agent")
-        self.path = f"/org/oakos/agent_{uuid.uuid4().hex[:8]}"
+        self.path = f"/org/milo/agent_{uuid.uuid4().hex[:8]}"
         super().__init__('org.bluez.Agent1')
         self.bus = None
         self.registered = False

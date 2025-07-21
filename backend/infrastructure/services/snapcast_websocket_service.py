@@ -274,7 +274,7 @@ class SnapcastWebSocketService:
         })
     
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Diffuse un événement Snapcast via le système WebSocket oakOS"""
+        """Diffuse un événement Snapcast via le système WebSocket Milo"""
         if self.state_machine:
             await self.state_machine.broadcast_event("snapcast", event_type, {
                 **data,

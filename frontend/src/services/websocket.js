@@ -42,7 +42,7 @@ class WebSocketSingleton {
     let wsUrl;
     if (import.meta.env.DEV && host === 'localhost') {
       wsUrl = `${protocol}//localhost:5173/ws`;
-    } else if (host === 'oakos.local' || host.endsWith('.local')) {
+    } else if (host === 'milo.local' || host.endsWith('.local')) {
       wsUrl = `${protocol}//${host}/ws`;
     } else {
       const port = window.location.port || (window.location.protocol === 'https:' ? 443 : 80);

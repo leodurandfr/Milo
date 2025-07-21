@@ -1,6 +1,6 @@
-# oakOS - Modular Audio System for Raspberry Pi
+# Milo - Modular Audio System for Raspberry Pi
 
-oakOS is an audio application for Raspberry Pi that transforms your device into a versatile audio platform.
+Milo is an audio application for Raspberry Pi that transforms your device into a versatile audio platform.
 
 ## Features
 

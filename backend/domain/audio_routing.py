@@ -1,5 +1,5 @@
 """
-Modèles pour le routage audio dans oakOS - Version refactorisée avec multiroom_enabled.
+Modèles pour le routage audio dans Milo - Version refactorisée avec multiroom_enabled.
 """
 from dataclasses import dataclass
 from typing import Dict, Any

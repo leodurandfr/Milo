@@ -15,8 +15,8 @@ class ScreenController:
         self.logger = logging.getLogger(__name__)
         
         # Commandes écran
-        self.SCREEN_ON_CMD = "sudo /home/oakos/RPi-USB-Brightness/64/lite/Raspi_USB_Backlight_nogui -b 5"
-        self.SCREEN_OFF_CMD = "sudo /home/oakos/RPi-USB-Brightness/64/lite/Raspi_USB_Backlight_nogui -b 0"
+        self.SCREEN_ON_CMD = "sudo /home/milo/RPi-USB-Brightness/64/lite/Raspi_USB_Backlight_nogui -b 5"
+        self.SCREEN_OFF_CMD = "sudo /home/milo/RPi-USB-Brightness/64/lite/Raspi_USB_Backlight_nogui -b 0"
         self.TOUCHSCREEN_DEVICE = "/dev/input/by-id/usb-WaveShare_WS170120_220211-event-if00"
         
         # État du timer

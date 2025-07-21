@@ -8,7 +8,7 @@ const routes = [
     name: 'main',
     component: MainView,
     meta: {
-      title: 'oakOS'
+      title: 'Milo'
     }
   },
   // Redirections pour compatibilité (optionnel, à supprimer plus tard)

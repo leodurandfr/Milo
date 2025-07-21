@@ -1,6 +1,6 @@
 # backend/infrastructure/services/volume_service.py
 """
-Service de gestion du volume pour oakOS - Version ultra-optimisée pour clics rapides
+Service de gestion du volume pour Milo - Version ultra-optimisée pour clics rapides
 """
 import asyncio
 import logging

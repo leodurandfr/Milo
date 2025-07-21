@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/bluetooth/plugin.py
 """
-Plugin Bluetooth optimisé pour oakOS utilisant bluealsa - Version nettoyée sans EventBus
+Plugin Bluetooth optimisé pour Milo utilisant bluealsa - Version nettoyée sans EventBus
 """
 import asyncio
 import subprocess
@@ -16,7 +16,7 @@ from backend.infrastructure.plugins.bluetooth.bluealsa_monitor import BlueAlsaMo
 from backend.infrastructure.plugins.bluetooth.bluealsa_playback import BlueAlsaPlayback
 
 class BluetoothPlugin(UnifiedAudioPlugin):
-    """Plugin Bluetooth pour oakOS - version nettoyée"""
+    """Plugin Bluetooth pour Milo - version nettoyée"""
     
     def __init__(self, config: Dict[str, Any], state_machine=None):
         super().__init__("bluetooth", state_machine)
@@ -24,8 +24,8 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         # Configuration
         self.config = config
         self.bluetooth_service = config.get("bluetooth_service", "bluetooth.service")
-        self.bluealsa_service = config.get("service_name", "oakos-bluealsa.service")
-        self.bluealsa_aplay_service = "oakos-bluealsa-aplay.service"
+        self.bluealsa_service = config.get("service_name", "milo-bluealsa.service")
+        self.bluealsa_aplay_service = "milo-bluealsa-aplay.service"
         self.stop_bluetooth = config.get("stop_bluetooth_on_exit", True)
         self.auto_agent = config.get("auto_agent", True)
         

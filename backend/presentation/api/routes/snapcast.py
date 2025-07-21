@@ -13,7 +13,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
     # === FONCTION UTILITAIRE WEBSOCKET ===
     
     async def _publish_snapcast_update():
-        """Publie une notification de mise à jour Snapcast via WebSocket oakOS"""
+        """Publie une notification de mise à jour Snapcast via WebSocket Milo"""
         try:
             await state_machine.broadcast_event("system", "state_changed", {
                 "snapcast_update": True,

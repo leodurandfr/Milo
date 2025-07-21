@@ -1,4 +1,4 @@
-# Installation file v0.1
+# Installation file v0.2
 
 ————————————————————————————————————————————————
 
@@ -9,6 +9,8 @@ To do:
 
 
 ————————————————————————————————————————————————
+
+
 
 
 # 01 · SETUP
@@ -48,6 +50,8 @@ To do:
 2.  **Installer les dépendances de base**
 
     ```bash
+    sudo apt update
+    sudo apt upgrade -y
     sudo apt install -y git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
     cmake build-essential pkg-config nodejs npm
 
@@ -72,35 +76,34 @@ sudo nano /boot/firmware/config.txt
 ```
 
 Supprimer :
-
 ```bash
 dtparam=audio=on
 ```
-
 Ajouter ",noaudio" ou "audio=off" en fonction de "kms" ou "fkms" :
-
 ```bash
 dtoverlay=vc4-fkms-v3d,audio=off
 dtoverlay=vc4-kms-v3d,noaudio
 ```
-
 Ajouter l'ampli audio Hifiberry pour qu'il soit détécté :
-
 ```bash
 #AMP2
 dtoverlay=hifiberry-dacplus-std
 #AMP4 Pro
 dtoverlay=hifiberry-amp4pro
 ```
+Désactiver la limite de puissance par USB (inutile sur Rpi 4 et 5):
+```bash
+usb_max_current_enable=1
+```
  
-## Étape 3: Cloner et configurer oakOS
+## Étape 3: Cloner et configurer Milo
 
 1.  **Cloner le dépôt**
 
     ```bash
     cd ~
-    git clone https://github.com/Leshauts/oakOS.git
-    cd oakOS
+    git clone https://github.com/Leshauts/Milo.git
+    cd Milo
     ```
     
 2.  **Configurer l'environnement Python**
@@ -125,12 +128,12 @@ dtoverlay=hifiberry-amp4pro
 ### Supprimer PulseAudio/PipeWire
 
 
-Désactivez et supprimez PulseAudio/PipeWire pour avoir utiliser uniquement ALSA :
-
+Désactivez et supprimez PulseAudio/PipeWire pour avoir utiliser uniquement ALSA:
 ```bash
 sudo apt remove pulseaudio pipewire
 sudo apt autoremove
 ```
+
 
 
 
@@ -139,14 +142,12 @@ sudo apt autoremove
 ## Guide d'installation go-librespot
 
 ### 1. Installation des prérequis
-
 ```bash
 # Installation des dépendances nécessaires
 sudo apt-get install -y libogg-dev libvorbis-dev libasound2-dev
 ```
 
 ### 2. Préparation de l'environnement
-
 ```bash
 # Créer un dossier temporaire pour le téléchargement
 mkdir -p ~/temp/go-librespot
@@ -163,26 +164,25 @@ sudo cp go-librespot /usr/local/bin/
 sudo chmod +x /usr/local/bin/go-librespot
 
 # Créer le répertoire de configuration pour le service
-sudo mkdir -p /var/lib/oakos/go-librespot
+sudo mkdir -p /var/lib/milo/go-librespot
 # Nécessaire pour accéder au fichier de configuration
-sudo chown -R oakos:audio /var/lib/oakos/go-librespot
+sudo chown -R milo:audio /var/lib/milo/go-librespot
 ```
 
 ### 3. Configuration de go-librespot
 
 Créer le fichier configuration de go-librespot :
-
 ```bash
 # Créer le fichier de configuration principal
-sudo tee /var/lib/oakos/go-librespot/config.yml > /dev/null << 'EOF'
+sudo tee /var/lib/milo/go-librespot/config.yml > /dev/null << 'EOF'
 # Configuration Spotify Connect
-device_name: "oakOS-v0.2"
+device_name: "Milo"
 device_type: "speaker"
 bitrate: 320
 
-# Configuration Audio
+# Configuration Audio > ALSA
 audio_backend: "alsa"
-audio_device: "default"
+audio_device: "oakos_spotify"
 
 # Désactive le contrôle du volume via les applications Spotify
 external_volume: true
@@ -197,12 +197,14 @@ EOF
 ```
 
 **Nettoyer les fichiers d'installation :**
-
 ```bash
 # Nettoyer les fichiers temporaires
 cd ~
-rm -rf ~/temp/go-librespot
+rm -rf ~/temp
 ```
+
+
+
 
 
 
@@ -216,19 +218,14 @@ rm -rf ~/temp/go-librespot
 # Installation des dépendances nécessaires
 sudo apt install -y g++ pkg-config scons ragel gengetopt libuv1-dev \
   libspeexdsp-dev libunwind-dev libsox-dev libsndfile1-dev libssl-dev libasound2-dev \
-  libtool intltool autoconf automake make cmake avahi-utils
+  libtool intltool autoconf automake make cmake avahi-utils libpulse-dev
 ```
 
 ### 2. Compilation et installation
 
-Dépendance "libpulse-dev" nécessaire pour l'installation de "roc-toolkit"
 
 ```bash
-sudo apt install libpulse-dev
-```
-
-```bash
-cd ~/oakOS
+cd ~/Milo
 git clone https://github.com/roc-streaming/roc-toolkit.git
 cd roc-toolkit
 scons -Q --build-3rdparty=openfec
@@ -236,30 +233,31 @@ sudo scons -Q --build-3rdparty=openfec install
 sudo ldconfig
 ```
 
-### 3. Vérification
+```bash
+# Supprimer les fichiers d'installation
+rm -rf ~/Milo/roc-toolkit
+```
 
+### 3. Vérification
 ```bash
 roc-recv --version
 ```
 
 
 
-## Mac
+## ⚠️ Installation sur Mac 🖥️
 
 ### 1. Création le dispositif virtuel
-
 ```bash
-roc-vad device add sender --name "oakOS · Network"
+roc-vad device add sender --name "Milo · Network"
 ```
 
 ### 2. Récuperer l'ID du dispositif virtuel
-
 ```bash
 roc-vad device list
 ```
 
 ### 3. Associer le dispositif virtuel avec l'ip du raspberry 
-
 ```bash
 #Si "device list" affiche "6" pour le device virtuel et ajouter l'IP du Raspberry PI.
 roc-vad device connect 6 \
@@ -285,14 +283,16 @@ roc-vad device enable 1
 ```
 
 
+
+
 # 04 · Installation "bluez-alsa"
 
-## Plan d'installation et d'intégration optimisée pour oakOS
+## Plan d'installation et d'intégration optimisée pour Milo
 
 ### 1. Installation optimisée de bluez-alsa
 
 ```bash
-# Installation alternatives (à tester en premier maintenant)
+# Installation alternatives
 sudo apt install -y \
   libasound2-dev \
   libbluetooth-dev \
@@ -313,7 +313,7 @@ sudo reboot
 
 ```bash
 # Cloner et installer bluez-alsa
-cd ~/oakOS
+cd ~/Milo
 git clone https://github.com/arkq/bluez-alsa.git
 cd bluez-alsa
 git checkout v4.3.1
@@ -324,7 +324,7 @@ autoreconf --install
 # Créer le répertoire de build
 mkdir build && cd build
 
-# Configuration optimisée pour oakOS (sans AAC)
+# Configuration optimisée pour Milo (sans AAC)
 ../configure --prefix=/usr --enable-systemd \
   --with-alsaplugindir=/usr/lib/aarch64-linux-gnu/alsa-lib \
   --with-bluealsauser=$USER --with-bluealsaaplayuser=$USER \
@@ -337,51 +337,48 @@ make -j$(nproc)
 sudo make install
 sudo ldconfig
 
+# Supprimer les fichiers d'installation
+rm -rf ~/Milo/bluez-alsa
 ```
 
-### 2. Configuration Bluetooth optimisée pour oakOS (
+
+
+### 2. Arrêter et désactiver les .service par defaut liés au bluetooth
 
 ```bash
-# Modifier /etc/bluetooth/main.conf pour un appairage facile mais sécurisé
-sudo tee /etc/bluetooth/main.conf > /dev/null << 'EOF'
-[General]
-Class = 0x240404
-Name = oakOS
-DiscoverableTimeout = 0
-PairableTimeout = 0
-ControllerMode = dual
-Privacy = device
-JustWorksRepairing = always
-
-[Policy]
-AutoEnable=false
-ReconnectAttempts=0
-EOF
-
-```
-
-Une fois ces fichiers créés, exécutez:
-
-```bash
-#Savoir si bluetooth bloqué
-rfkill list
-
-#Débloquer le bluetooth
-sudo rfkill unblock bluetooth
-
-# Vérifier que les services sont reconnus
-#systemctl list-unit-files | grep blue
-
-# Activer les services au démarrage
-#sudo systemctl enable oakos-bluealsa-aplay.service
-#sudo systemctl enable oakos-bluealsa.service
-
-# Supprimer les originaux
 sudo systemctl stop bluealsa-aplay.service
 sudo systemctl stop bluealsa.service
 sudo systemctl disable bluealsa-aplay.service
 sudo systemctl disable bluealsa.service
 ```
+
+
+
+### 2. Si on utilise un dongle usb Bluetooth (normalement pas utile si Raspberry pi 5)
+
+Désactiver le bluetooth intégré au raspberry :
+
+```bash
+sudo nano /boot/firmware/config.txt
+```
+Ajouter sous [all]
+```bash
+dtoverlay=disable-bt
+```
+
+Vérifier si bluetooth est bloqué
+```bash
+sudo hciconfig hci0 up
+# Vérfier quand le plugin "bluetooth" est actif, doit afficher : UP RUNNING SCAN (et non "DOWN")
+hciconfig
+
+# Débloquer le bluetooth USB
+sudo rfkill unblock bluetooth
+# Vérifier que tout doit est sur "no"
+rfkill list
+```
+
+
 
 
 # 05 · Installation de Snapcast
@@ -410,19 +407,17 @@ sudo apt install ./snapserver_0.31.0-1_arm64_bookworm.deb
 # Installer snapclient
 sudo apt install ./snapclient_0.31.0-1_arm64_bookworm.deb
 
+# Supprimer les fichiers téléchargés
+rm -rf ~/snapcast-install
+
 # Vérifier les versions installées
 snapserver --version
 snapclient --version
-
-# Supprimer les fichiers téléchargés
-rm -rf ~/snapcast-install
 ```
 
 
-### 5. Supprimer les .service d'origine de "snapcast"
-
+### 3. Arrêter et désactiver les .service par defaut de "snapcast"
 ```bash
-# Arrêter et désactiver snapserver et snapclient
 sudo systemctl stop snapserver.service
 sudo systemctl disable snapserver.service
 
@@ -431,12 +426,360 @@ sudo systemctl disable snapclient.service
 
 ```
 
+
+# 06 · Create systemd.service files 
+
+
+
+## Backend
+
+**milo-backend.service** :
+
+```bash
+sudo tee /etc/systemd/system/milo-backend.service > /dev/null << 'EOF'
+[Unit]
+Description=Milo Backend Service
+After=network.target
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+WorkingDirectory=/home/milo/Milo
+ExecStart=/home/milo/Milo/venv/bin/python3 backend/main.py
+
+Restart=always
+RestartSec=5
+
+# Timeout normal car systemd gère les plugins automatiquement
+TimeoutStopSec=10
+
+# Répertoire d'état
+StateDirectory=milo
+StateDirectoryMode=0755
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+## Frontend
+
+**milo-frontend.service**
+
+```bash
+sudo tee /etc/systemd/system/milo-frontend.service > /dev/null << 'EOF'
+[Unit]
+Description=Milo Frontend Service
+After=network.target
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+WorkingDirectory=/home/milo/Milo/frontend
+
+# Build et serve en production
+ExecStartPre=/usr/bin/npm run build
+ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 3000
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+
+# Répertoire d'état
+StateDirectory=milo
+StateDirectoryMode=0755
+
+# Variables d'environnement
+Environment=NODE_ENV=production
+Environment=HOME=/home/milo
+
+# Logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-frontend
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+
+## Kiosk mode
+
+```bash
+sudo tee /etc/systemd/system/milo-kiosk.service > /dev/null << 'EOF'
+[Unit]
+Description=Milo Kiosk Mode (Chromium Fullscreen)
+After=graphical.target milo-frontend.service
+Wants=graphical.target
+Requires=milo-frontend.service
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+Environment=DISPLAY=:0
+Environment=HOME=/home/milo
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+
+# Attendre que le frontend soit prêt
+ExecStartPre=/bin/sleep 8
+
+# Lancer Chromium en mode kiosque tactile
+ExecStart=/usr/bin/chromium-browser \
+  --kiosk \
+  --incognito \
+  --no-first-run \
+  --disable-infobars \
+  --disable-notifications \
+  --disable-popup-blocking \
+  --disable-session-crashed-bubble \
+  --disable-restore-session-state \
+  --disable-background-timer-throttling \
+  --disable-backgrounding-occluded-windows \
+  --disable-renderer-backgrounding \
+  --disable-translate \
+  --disable-sync \
+  --hide-scrollbars \
+  --disable-background-networking \
+  --autoplay-policy=no-user-gesture-required \
+  --start-fullscreen \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --hide-cursor \
+  --touch-events=enabled \
+  --enable-features=TouchpadAndWheelScrollLatching \
+  --force-device-scale-factor=1 \
+  --disable-pinch \
+  --disable-features=VizDisplayCompositor \
+  --app=http://milo.local
+
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=5
+
+[Install]
+WantedBy=graphical.target
+EOF
+```
+
+
+
+## ROC
+
+**milo-roc.service** 
+
+```bash
+sudo tee /etc/systemd/system/milo-roc.service > /dev/null << 'EOF'
+[Unit]
+Description=Milo ROC Audio Receiver
+Documentation=https://roc-streaming.org/
+After=network.target sound.service milo-backend.service
+Wants=network.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=exec
+User=milo
+Group=audio
+
+EnvironmentFile=/etc/environment
+Environment=HOME=/home/milo
+
+ExecStart=/usr/bin/roc-recv -vv \
+  -s rtp+rs8m://0.0.0.0:10001 \
+  -r rs8m://0.0.0.0:10002 \
+  -c rtcp://0.0.0.0:10003 \
+  -o alsa://oakos_roc
+
+Restart=always
+RestartSec=5
+
+PrivateNetwork=false
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# Journalisation
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-roc
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+
+## go-librespot
+
+**milo-go-librespot.service** 
+```bash
+sudo tee /etc/systemd/system/milo-go-librespot.service > /dev/null << 'EOF'
+[Unit]
+Description=Milo Spotify Connect via go-librespot
+After=network-online.target sound.service milo-backend.service
+Wants=network-online.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+Group=audio
+
+ExecStart=/usr/local/bin/go-librespot --config_dir /var/lib/milo/go-librespot
+Environment=HOME=/home/milo
+WorkingDirectory=/var/lib/milo
+Restart=always
+RestartSec=5
+
+# Journalisation
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-go-librespot
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+
+## Bluealsa :
+
+**milo-bluealsa-aplay.service**
+```bash
+sudo tee /etc/systemd/system/milo-bluealsa-aplay.service > /dev/null << 'EOF'
+[Unit]
+Description=BlueALSA player for Milo
+Requires=milo-bluealsa.service
+After=milo-bluealsa.service milo-backend.service
+BindsTo=milo-backend.service milo-bluealsa.service
+
+[Service]
+Type=simple
+User=milo
+
+ExecStart=/usr/bin/bluealsa-aplay --pcm=oakos_bluetooth --profile-a2dp 00:00:00:00:00:00
+
+RestartSec=2
+Restart=always
+PrivateTmp=false
+PrivateDevices=false
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+**milo-bluealsa.service**
+```bash
+sudo tee /etc/systemd/system/milo-bluealsa.service > /dev/null << 'EOF'
+[Unit]
+Description=BluezALSA daemon for Milo
+Documentation=man:bluealsa(8)
+After=dbus.service bluetooth.service milo-backend.service
+Requires=dbus.service
+Wants=bluetooth.service
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/bluealsa -S -p a2dp-sink
+User=milo
+Group=audio
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+
+## Snapcast
+
+**milo-snapserver-multiroom.service**
+
+```bash
+sudo tee /etc/systemd/system/milo-snapserver-multiroom.service > /dev/null << 'EOF'
+[Unit]
+Description=Snapcast Server for Milo Multiroom
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/snapserver -c /etc/snapserver.conf
+User=milo
+Group=audio
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+**milo-snapclient-multiroom.service**
+
+```bash
+sudo tee /etc/systemd/system/milo-snapclient-multiroom.service > /dev/null << 'EOF'
+[Unit]
+Description=Snapcast Client for Milo Multiroom
+After=network-online.target milo-snapserver-multiroom.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard default:CARD=sndrpihifiberry --mixer hardware:'Digital'
+User=milo
+Group=audio
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+**Démarrage automatique**
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable milo-backend.service
+sudo systemctl enable milo-frontend.service
+sudo systemctl enable milo-kiosk.service
+sudo systemctl enable milo-snapclient-multiroom.service
+sudo systemctl enable milo-snapserver-multiroom.service
+sudo systemctl enable milo-bluealsa-aplay.service
+sudo systemctl enable milo-bluealsa.service
+sudo systemctl start milo-backend.service
+sudo systemctl start milo-frontend.service
+sudo systemctl start milo-kiosk.service
+sudo systemctl start milo-snapclient-multiroom.service
+sudo systemctl start milo-snapserver-multiroom.service
+sudo systemctl start milo-bluealsa-aplay.service
+sudo systemctl start milo-bluealsa.service
+```
+
+
+**INTÉGRÉ DANS Milo : Commande pour faire passer toutes les sources audio "snapserver" sur "Multiroom".**
+
+```bash
+curl -s http://localhost:1780/jsonrpc -d '{"id":1,"jsonrpc":"2.0","method":"Server.GetStatus"}' | grep -o '"id":"[a-f0-9-]*","muted"' | cut -d'"' -f4 | while read group_id; do curl -s http://localhost:1780/jsonrpc -d "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"Group.SetStream\",\"params\":{\"id\":\"$group_id\",\"stream_id\":\"Multiroom\"}}"; echo "→ $group_id switched"; done
+```
+
+
+
 # 07 · Configuration de Multiroom + Equalizer
 
 #### Configuration Snapserver Raspberry #1 :
 
 **Création de ALSA Loopback**
-
 ```bash
 # Création snd-aloop.cong via modules-load.d 
 echo "snd_aloop" | sudo tee /etc/modules-load.d/snd-aloop.conf
@@ -447,27 +790,26 @@ sudo tee /etc/modprobe.d/snd-aloop.conf << 'EOF'
 # Configuration du module loopback ALSA
 options snd-aloop index=1 enable=1
 EOF
+
+# Redémarrer (important)
+sudo reboot
 ```
 
 ```bash
-# Redémarrer (important)
-sudo reboot
-
 # Vérifier que le loopback est bien chargé
 lsmod | grep snd_aloop
 ```
 
 **Installation de ALSA Equal** 
-
 ```bash
 sudo apt-get install -y libasound2-plugin-equal
 ```
 
-**Modifier le fichier : /etc/asound.conf** 
 
+**Modifier le fichier : /etc/asound.conf** 
 ```bash
 sudo tee /etc/asound.conf > /dev/null << 'EOF'
-# Configuration ALSA oakOS - Version corrigée sans double plug
+# Configuration ALSA Milo - Version corrigée sans double plug
 pcm.!default {
     type plug
     slave.pcm {
@@ -628,6 +970,7 @@ ctl.equal {
 EOF
 ```
 
+
 **Configuration du serveur snapcast**
 
 ```bash
@@ -636,7 +979,7 @@ sudo tee /etc/snapserver.conf > /dev/null << 'EOF'
 [stream]
 default = Multiroom
 
-# Paramètres globaux modifiables via l'interface oakOS hormis "sampleformat"
+# Paramètres globaux modifiables via l'interface Milo hormis "sampleformat"
 buffer = 1000
 codec = pcm
 chunk_ms = 20
@@ -669,240 +1012,300 @@ EOF
 ```
 
 
-# 06 · Create systemd.service files 
 
-## Backend
+# 08 · Configuration et automatisation du ventilateur 
 
-**oakos-backend.service** :
+
+**Ajouter dans /boot/firmware/config.txt :**
 
 ```bash
-sudo tee /etc/systemd/system/oakos-backend.service > /dev/null << 'EOF'
-[Unit]
-Description=oakOS Backend Service
-After=network.target
+# Fan PWM
+dtparam=cooling_fan=on
 
-[Service]
-Type=simple
-User=oakos
-Group=oakos
-WorkingDirectory=/home/oakos/oakOS
-ExecStart=/home/oakos/oakOS/venv/bin/python3 backend/main.py
+# 20% ...
+dtparam=fan_temp0=55000
+dtparam=fan_temp0_hyst=2500
+dtparam=fan_temp0_speed=50
 
-Restart=always
-RestartSec=5
+# 40% ...
+dtparam=fan_temp1=60000
+dtparam=fan_temp1_hyst=2500
+dtparam=fan_temp1_speed=100
 
-# Timeout normal car systemd gère les plugins automatiquement
-TimeoutStopSec=10
+# 60% ...
+dtparam=fan_temp2=65000
+dtparam=fan_temp2_hyst=2500
+dtparam=fan_temp2_speed=150
 
-# Répertoire d'état
-StateDirectory=oakos
-StateDirectoryMode=0755
+# 80% ...
+dtparam=fan_temp3=70000
+dtparam=fan_temp3_hyst=2500
+dtparam=fan_temp3_speed=200
 
-# Logs
-StandardOutput=journal
-StandardError=journal
+# 100% ...
+dtparam=fan_temp4=75000
+dtparam=fan_temp4_hyst=2500
+dtparam=fan_temp4_speed=255
 
-[Install]
-WantedBy=multi-user.target
+```
+
+
+
+# 08 · Configuration et automatisation du ventilateur 
+
+
+**Ajouter dans /boot/firmware/config.txt :**
+
+```bash
+# Fan PWM
+dtparam=cooling_fan=on
+
+# 20% ...
+dtparam=fan_temp0=55000
+dtparam=fan_temp0_hyst=2500
+dtparam=fan_temp0_speed=50
+
+# 40% ...
+dtparam=fan_temp1=60000
+dtparam=fan_temp1_hyst=2500
+dtparam=fan_temp1_speed=100
+
+# 60% ...
+dtparam=fan_temp2=65000
+dtparam=fan_temp2_hyst=2500
+dtparam=fan_temp2_speed=150
+
+# 80% ...
+dtparam=fan_temp3=70000
+dtparam=fan_temp3_hyst=2500
+dtparam=fan_temp3_speed=200
+
+# 100% ...
+dtparam=fan_temp4=75000
+dtparam=fan_temp4_hyst=2500
+dtparam=fan_temp4_speed=255
+
+```
+
+
+# 09 · Configuration Avahi + Nginx
+
+Ce guide permet d'accéder à votre application Milo via `http://milo.local` au lieu de `http://192.168.1.152:3000`.-
+
+## 1. Configuration Avahi (mDNS)
+
+### Installation d'Avahi
+
+```bash
+sudo apt install avahi-daemon avahi-utils
+```
+
+
+### Configuration Avahi
+
+Configuration complète pour la découverte réseau `/etc/avahi/avahi-daemon.conf`  :
+
+```bash
+sudo  tee /etc/avahi/avahi-daemon.conf > /dev/null <<  'EOF'
+[server]
+host-name=milo
+domain-name=local
+use-ipv4=yes
+use-ipv6=no
+allow-interfaces=wlan0
+deny-interfaces=eth0,docker0,lo
+ratelimit-interval-usec=1000000
+ratelimit-burst=1000
+
+[wide-area]
+enable-wide-area=no
+
+[publish]
+publish-hinfo=no
+publish-workstation=yes
+publish-domain=yes
+publish-addresses=yes
+publish-aaaa-on-ipv4=no
+publish-a-on-ipv6=no
 EOF
 ```
 
+### Service Avahi pour Milo (optionnel - à vérifier sur milo v0.3)
 
-
-## ROC
-
-**oakos-roc.service** 
+Créer un service Avahi pour annoncer Milo sur le réseau :
 
 ```bash
-sudo tee /etc/systemd/system/oakos-roc.service > /dev/null << 'EOF'
-[Unit]
-Description=oakOS ROC Audio Receiver
-Documentation=https://roc-streaming.org/
-After=network.target sound.service oakos-backend.service
-Wants=network.target
-BindsTo=oakos-backend.service
+sudo nano /etc/avahi/services/milo.service
+```
 
-[Service]
-Type=exec
-User=oakos
-Group=audio
+Contenu :
 
-EnvironmentFile=/etc/environment
-Environment=HOME=/home/oakos
+```xml
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Milo Audio System on %h</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>80</port>
+    <txt-record>path=/</txt-record>
+    <txt-record>description=Milo Audio Control Interface</txt-record>
+  </service>
+</service-group>
 
-ExecStart=/usr/bin/roc-recv -vv \
-  -s rtp+rs8m://0.0.0.0:10001 \
-  -r rs8m://0.0.0.0:10002 \
-  -c rtcp://0.0.0.0:10003 \
-  -o alsa://oakos_roc
+```
 
-Restart=always
-RestartSec=5
+### Redémarrer Avahi
 
-PrivateNetwork=false
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+```bash
+sudo systemctl enable avahi-daemon
+sudo systemctl restart avahi-daemon
 
-# Journalisation
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=oakos-roc
+```
 
-[Install]
-WantedBy=multi-user.target
-EOF
+## 2. Configuration Nginx
+
+### Installation
+
+```bash
+sudo apt install nginx
+
+```
+
+### Configuration du site Milo
+
+Créer `/etc/nginx/sites-available/milo` :
+
+```bash
+sudo nano /etc/nginx/sites-available/milo
+```
+
+Contenu du fichier :
+```nginx
+server {
+    listen 80;
+    server_name milo.local;
+    
+    # Frontend (port 3000)
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    # API Backend (port 8000)
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+    
+    # WebSocket (port 8000)
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $hostserver {
+    listen 80;
+    server_name milo.local;
+    
+    # Frontend (port 3000)
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    # API Backend (port 8000)
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    # WebSocket
+    location /ws {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+        proxy_buffering off;
+    }
+};
+        proxy_buffering off;
+    }
+}
+
+```
+
+### Activation du site
+
+```bash
+# Activer le site milo
+sudo ln -s /etc/nginx/sites-available/milo /etc/nginx/sites-enabled/
+
+# Supprimer le site par défaut
+sudo rm -f /etc/nginx/sites-enabled/default
+
+# Tester la configuration
+sudo nginx -t
+
+# Démarrer et activer nginx
+sudo systemctl enable nginx
+sudo systemctl start nginx
+```
+
+### Redémarrer le service frontend
+
+```bash
+sudo systemctl restart milo-frontend
 ```
 
 
-## go-librespot
+## Vérification
 
-**oakos-go-librespot.service** 
+1.  **Test résolution DNS** :
+    
+    ```bash
+    ping milo.local
+    
+    ```
+    
+2.  **Test découverte réseau Avahi** :
+    
+    ```bash
+    # Découvrir les services sur le réseau
+    avahi-browse -at
+    
+    # Rechercher spécifiquement Milo
+    avahi-browse -r _http._tcp
+    
+    ```
+    
+3.  **Test accès web** :
+    
+    -   Depuis le Raspberry Pi : `http://milo.local`
+    -   Depuis un autre appareil du réseau : `http://milo.local`
 
-```bash
-sudo tee /etc/systemd/system/oakos-go-librespot.service > /dev/null << 'EOF'
-[Unit]
-Description=oakOS Spotify Connect via go-librespot
-After=network-online.target sound.service oakos-backend.service
-Wants=network-online.target
-BindsTo=oakos-backend.service
-
-[Service]
-Type=simple
-User=oakos
-Group=audio
-
-ExecStart=/usr/local/bin/go-librespot --config_dir /var/lib/oakos/go-librespot
-Environment=HOME=/home/oakos
-WorkingDirectory=/var/lib/oakos
-Restart=always
-RestartSec=5
-
-# Journalisation
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=oakos-go-librespot
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-
-## Bluealsa :
-
-**oakos-bluealsa-aplay.service**
-
-```bash
-sudo tee /etc/systemd/system/oakos-bluealsa-aplay.service > /dev/null << 'EOF'
-[Unit]
-Description=BlueALSA player for oakOS
-Requires=oakos-bluealsa.service
-After=oakos-bluealsa.service oakos-backend.service
-BindsTo=oakos-backend.service oakos-bluealsa.service
-
-[Service]
-Type=simple
-User=oakos
-
-ExecStart=/usr/bin/bluealsa-aplay --pcm=oakos_bluetooth --profile-a2dp 00:00:00:00:00:00
-
-RestartSec=2
-Restart=always
-PrivateTmp=false
-PrivateDevices=false
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-**oakos-bluealsa.service**
-
-```bash
-sudo tee /etc/systemd/system/oakos-bluealsa.service > /dev/null << 'EOF'
-[Unit]
-Description=BluezALSA daemon for oakOS
-Documentation=man:bluealsa(8)
-After=dbus.service bluetooth.service oakos-backend.service
-Requires=dbus.service
-Wants=bluetooth.service
-BindsTo=oakos-backend.service
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/bluealsa -S -p a2dp-sink
-User=oakos
-Group=audio
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-
-## Snapcast
-
-**oakos-snapserver-multiroom.service**
-
-```bash
-sudo tee /etc/systemd/system/oakos-snapserver-multiroom.service > /dev/null << 'EOF'
-[Unit]
-Description=Snapcast Server for oakOS Multiroom
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/snapserver -c /etc/snapserver.conf
-User=oakos
-Group=audio
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-**oakos-snapclient-multiroom.service**
-
-```bash
-sudo tee /etc/systemd/system/oakos-snapclient-multiroom.service > /dev/null << 'EOF'
-[Unit]
-Description=Snapcast Client for oakOS Multiroom
-After=network-online.target oakos-snapserver-multiroom.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system
-User=oakos
-Group=audio
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-**Démarrage automatique**
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable oakos-snapclient-multiroom.service
-sudo systemctl enable oakos-snapserver-multiroom.service
-sudo systemctl enable oakos-bluealsa-aplay.service
-sudo systemctl enable oakos-bluealsa.service
-sudo systemctl start oakos-snapclient-multiroom.service
-sudo systemctl start oakos-snapserver-multiroom.service
-sudo systemctl start oakos-bluealsa-aplay.service
-sudo systemctl start oakos-bluealsa.service
-```
-
-
-**Commande pour faire passer toutes les sources audio "snapserver" sur "Multiroom".**
-
-```bash
-curl -s http://localhost:1780/jsonrpc -d '{"id":1,"jsonrpc":"2.0","method":"Server.GetStatus"}' | grep -o '"id":"[a-f0-9-]*","muted"' | cut -d'"' -f4 | while read group_id; do curl -s http://localhost:1780/jsonrpc -d "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"Group.SetStream\",\"params\":{\"id\":\"$group_id\",\"stream_id\":\"Multiroom\"}}"; echo "→ $group_id switched"; done
-```
+4.  **Vérification des services** :
+    
+    ```bash
+    sudo systemctl status avahi-daemon
+    sudo systemctl status nginx
+    sudo systemctl status milo-frontend
+    
+    ```

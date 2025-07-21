@@ -428,7 +428,7 @@ class SnapcastService:
             self.logger.info("Restarting snapserver...")
             
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "restart", "oakos-snapserver-multiroom.service",
+                "sudo", "systemctl", "restart", "milo-snapserver-multiroom.service",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )

@@ -1,6 +1,6 @@
 # backend/infrastructure/hardware/rotary_volume_controller.py
 """
-Contrôleur rotary encoder KY-040 pour volume - Version OPTIM pour oakOS
+Contrôleur rotary encoder KY-040 pour volume - Version OPTIM pour Milo
 """
 import lgpio
 import asyncio
@@ -9,7 +9,7 @@ from typing import Optional, Callable, Awaitable
 from time import monotonic
 
 class RotaryVolumeController:
-    """Contrôleur rotary encoder KY-040 optimisé pour oakOS"""
+    """Contrôleur rotary encoder KY-040 optimisé pour Milo"""
     
     def __init__(self, volume_service, clk_pin=22, dt_pin=27, sw_pin=23):
         self.volume_service = volume_service

@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => ({
     __VUE_PROD_DEVTOOLS__: true,
   },
   preview: {
-    allowedHosts: ['oakos.local']  // ✅ Autoriser oakos.local
+    allowedHosts: ['milo.local']  // ✅ Autoriser milo.local
   },
   server: {
     host: '0.0.0.0',

@@ -1,6 +1,6 @@
 # backend/main.py - Mise à jour avec SnapcastWebSocketService
 """
-Point d'entrée principal de l'application oakOS - Version avec SnapcastWebSocketService
+Point d'entrée principal de l'application Milo - Version avec SnapcastWebSocketService
 """
 import sys
 import os
@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     logger.error(f"Plugin {source.value} initialization failed: {e}")
         
-        logger.info("oakOS backend startup completed with Snapcast WebSocket service")
+        logger.info("Milo backend startup completed with Snapcast WebSocket service")
         
     except Exception as e:
         logger.error(f"Application startup failed: {e}")
@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
     yield  # L'application tourne
     
     # Cleanup avec SnapcastWebSocketService
-    logger.info("oakOS backend shutting down...")
+    logger.info("Milo backend shutting down...")
     try:
         # AJOUT : Nettoyer le service WebSocket Snapcast
         await snapcast_websocket_service.cleanup()
@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"Cleanup error: {e}")
 
 # Création de l'application FastAPI
-app = FastAPI(title="oakOS API", lifespan=lifespan)
+app = FastAPI(title="Milo API", lifespan=lifespan)
 
 # Configuration CORS
 app.add_middleware(

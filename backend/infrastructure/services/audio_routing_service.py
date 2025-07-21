@@ -1,6 +1,6 @@
 # backend/infrastructure/services/audio_routing_service.py - Version OPTIM sans cross-référence
 """
-Service de routage audio pour oakOS - Version OPTIM via événements uniquement
+Service de routage audio pour Milo - Version OPTIM via événements uniquement
 """
 import os
 import json
@@ -17,7 +17,7 @@ class AudioRoutingService:
     """Service de routage audio - Version OPTIM sans cross-référence manuelle"""
     
     # Constantes pour la persistance
-    STATE_DIR = Path("/var/lib/oakos")
+    STATE_DIR = Path("/var/lib/milo")
     STATE_FILE = STATE_DIR / "last_routing_state.json"
     
     def __init__(self, get_plugin_callback: Optional[Callable] = None):
@@ -34,8 +34,8 @@ class AudioRoutingService:
         self.snapcast_service = None
         
         # Services snapcast
-        self.snapserver_service = "oakos-snapserver-multiroom.service"
-        self.snapclient_service = "oakos-snapclient-multiroom.service"
+        self.snapserver_service = "milo-snapserver-multiroom.service"
+        self.snapclient_service = "milo-snapclient-multiroom.service"
         
         # Créer le répertoire d'état si nécessaire
         self._ensure_state_directory()
@@ -367,8 +367,8 @@ class AudioRoutingService:
         services_status = {}
         
         services_to_check = [
-            "oakos-go-librespot.service", "oakos-roc.service", 
-            "oakos-bluealsa-aplay.service", self.snapserver_service, self.snapclient_service
+            "milo-go-librespot.service", "milo-roc.service", 
+            "milo-bluealsa-aplay.service", self.snapserver_service, self.snapclient_service
         ]
         
         for service in services_to_check:

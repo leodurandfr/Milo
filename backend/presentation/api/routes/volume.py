@@ -1,6 +1,6 @@
 # backend/presentation/api/routes/volume.py
 """
-Routes API pour la gestion du volume - Version OPTIM pour oakOS
+Routes API pour la gestion du volume - Version OPTIM pour Milo
 """
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any

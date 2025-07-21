@@ -57,7 +57,7 @@ async def get_fresh_librespot_status():
                 if response.status == 200:
                     fresh_data = await response.json()
                     
-                    # Transformer les données au format oakOS
+                    # Transformer les données au format Milo
                     transformed_metadata = {}
                     
                     if fresh_data.get("track"):

@@ -1,6 +1,6 @@
 # backend/infrastructure/services/equalizer_service.py
 """
-Service Equalizer OPTIM pour oakOS - Gestion alsaequal via amixer
+Service Equalizer OPTIM pour Milo - Gestion alsaequal via amixer
 """
 import asyncio
 import logging

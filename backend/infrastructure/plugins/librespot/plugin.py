@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/librespot/plugin.py
 """
-Plugin librespot optimisé pour oakOS - Version finale avec enrichissement WebSocket
+Plugin librespot optimisé pour Milo - Version finale avec enrichissement WebSocket
 """
 import os
 import yaml

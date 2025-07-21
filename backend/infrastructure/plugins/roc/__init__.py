@@ -1,5 +1,5 @@
 """
-Plugin ROC pour oakOS
+Plugin ROC pour Milo
 """
 from .plugin import RocPlugin
 

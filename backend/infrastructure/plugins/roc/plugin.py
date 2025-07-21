@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/roc/plugin.py
 """
-Plugin ROC pour oakOS - Version nettoyée sans EventBus
+Plugin ROC pour Milo - Version nettoyée sans EventBus
 """
 import asyncio
 import re
@@ -16,7 +16,7 @@ class RocPlugin(UnifiedAudioPlugin):
     def __init__(self, config: Dict[str, Any], state_machine=None):
         super().__init__("roc", state_machine)
         self.config = config
-        self.service_name = config.get("service_name", "oakos-roc.service")
+        self.service_name = config.get("service_name", "milo-roc.service")
         
         # Paramètres ROC
         self.rtp_port = config.get("rtp_port", 10001)

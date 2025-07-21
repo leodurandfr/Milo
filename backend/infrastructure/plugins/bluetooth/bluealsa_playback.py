@@ -1,15 +1,15 @@
 """
-Gestionnaire de lecture audio via systemd - Version oakOS
+Gestionnaire de lecture audio via systemd - Version Milo
 """
 import asyncio
 import logging
 
 class BlueAlsaPlayback:
-    """Gère la lecture audio avec oakos-bluealsa-aplay.service"""
+    """Gère la lecture audio avec milo-bluealsa-aplay.service"""
     
     def __init__(self):
         self.logger = logging.getLogger("plugin.bluetooth.playback")
-        self.service_name = "oakos-bluealsa-aplay.service"
+        self.service_name = "milo-bluealsa-aplay.service"
     
     async def start_playback(self, address: str) -> bool:
         """Démarre la lecture audio via le service systemd"""

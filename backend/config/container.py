@@ -20,7 +20,7 @@ from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
 
 class Container(containers.DeclarativeContainer):
-    """Conteneur d'injection de dépendances pour oakOS - Version OPTIM avec ScreenController"""
+    """Conteneur d'injection de dépendances pour Milo - Version OPTIM avec ScreenController"""
     
     config = providers.Configuration()
     
@@ -81,8 +81,8 @@ class Container(containers.DeclarativeContainer):
     librespot_plugin = providers.Singleton(
         LibrespotPlugin,
         config=providers.Dict({
-            "config_path": "/var/lib/oakos/go-librespot/config.yml", 
-            "service_name": "oakos-go-librespot.service" 
+            "config_path": "/var/lib/milo/go-librespot/config.yml", 
+            "service_name": "milo-go-librespot.service" 
         }),
         state_machine=audio_state_machine
     )
@@ -90,7 +90,7 @@ class Container(containers.DeclarativeContainer):
     roc_plugin = providers.Singleton(
         RocPlugin,
         config=providers.Dict({
-            "service_name": "oakos-roc.service",
+            "service_name": "milo-roc.service",
             "rtp_port": 10001,
             "rs8m_port": 10002,
             "rtcp_port": 10003,
@@ -103,7 +103,7 @@ class Container(containers.DeclarativeContainer):
         BluetoothPlugin,
         config=providers.Dict({
             "daemon_options": "--keep-alive=5",
-            "service_name": "oakos-bluealsa.service",
+            "service_name": "milo-bluealsa.service",
             "bluetooth_service": "bluetooth.service",
             "stop_bluetooth_on_exit": True,
             "auto_agent": True
