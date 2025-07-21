@@ -1,7 +1,10 @@
 #!/bin/bash
 # Milo Audio System - Installation Script v1.0
-# Usage: curl -sSL https://raw.githubusercontent.com/Leshauts/Milo/main/install.sh | bash
-# Uninstall: curl -sSL https://raw.githubusercontent.com/Leshauts/Milo/main/install.sh | bash -s -- --uninstall
+# Usage: 
+#   wget https://raw.githubusercontent.com/Leshauts/Milo/main/install.sh
+#   chmod +x install.sh
+#   ./install.sh
+# Uninstall: ./install.sh --uninstall
 
 set -e
 
