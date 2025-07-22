@@ -1213,19 +1213,19 @@ main() {
     log_info "Début de l'installation de Milo Audio System"
     echo ""
     
-    # Étapes d'installation
+    # Étapes d'installation dans l'ordre correct selon la documentation
     check_system
     setup_hostname
     choose_hifiberry
     configure_audio_hardware
     install_dependencies
     create_milo_user
+    install_milo_application        # ← Clone de l'app très tôt
     install_go_librespot
     install_roc_toolkit
     install_bluez_alsa
     install_snapcast
-    configure_alsa
-    install_milo_application
+    configure_alsa                  # ← Configuration ALSA avant les services
     create_systemd_services
     configure_snapserver
     configure_nginx_mdns
