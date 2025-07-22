@@ -346,15 +346,18 @@ EOF
 install_roc_toolkit() {
     log_info "Installation de roc-toolkit..."
     
-    cd "$MILO_APP_DIR"
+    # Créer un répertoire temporaire
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+    
     git clone https://github.com/roc-streaming/roc-toolkit.git
     cd roc-toolkit
     scons -Q --build-3rdparty=openfec
     sudo scons -Q --build-3rdparty=openfec install
     sudo ldconfig
     
-    cd "$MILO_APP_DIR"
-    rm -rf roc-toolkit
+    cd ~
+    rm -rf "$temp_dir"
     
     log_success "roc-toolkit installé"
 }
@@ -366,12 +369,10 @@ install_roc_toolkit() {
 install_bluez_alsa() {
     log_info "Installation de bluez-alsa..."
     
-    # Redémarrer d'abord pour s'assurer que Bluetooth est OK
-    if [[ "$REBOOT_REQUIRED" == "true" ]]; then
-        log_info "Redémarrage requis pour le Bluetooth, sera fait à la fin"
-    fi
+    # Créer un répertoire temporaire  
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
     
-    cd "$MILO_APP_DIR"
     git clone https://github.com/arkq/bluez-alsa.git
     cd bluez-alsa
     git checkout v4.3.1
@@ -392,8 +393,8 @@ install_bluez_alsa() {
     sudo systemctl stop bluealsa-aplay.service bluealsa.service || true
     sudo systemctl disable bluealsa-aplay.service bluealsa.service || true
     
-    cd "$MILO_APP_DIR"
-    rm -rf bluez-alsa
+    cd ~
+    rm -rf "$temp_dir"
     
     log_success "bluez-alsa installé"
 }
