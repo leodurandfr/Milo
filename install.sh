@@ -263,7 +263,8 @@ install_dependencies() {
         libbluetooth-dev libdbus-1-dev libglib2.0-dev libsbc-dev \
         bluez bluez-tools autotools-dev \
         libasound2-plugin-equal \
-        avahi-daemon avahi-utils nginx
+        avahi-daemon avahi-utils nginx \
+        libpulse-dev
     
     log_info "Mise à jour de Node.js et npm..."
     sudo npm install -g n
