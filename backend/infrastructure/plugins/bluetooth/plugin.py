@@ -40,7 +40,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         # État - Renommé pour éviter le conflit avec la classe de base
         self.connected_device = None
         self._auto_connecting = False
-        self._current_device = "oakos_bluetooth"
+        self._current_device = "milo_bluetooth"
     
     async def _do_initialize(self) -> bool:
         """Initialisation spécifique au plugin Bluetooth"""
@@ -110,7 +110,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         try:
             commands = "\n".join([
                 "power on",
-                "system-alias Sonoak · Bluetooth",
+                "system-alias Milo · Bluetooth",
                 "discoverable-timeout 0",
                 "discoverable on",
                 "pairable on",
@@ -180,8 +180,8 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             # Mettre à jour juste le device (ALSA se charge du routage dynamique)
             self._current_device = new_device
             
-            # Le service bluealsa-aplay utilise toujours "oakos_bluetooth"
-            # ALSA se charge de router selon OAKOS_MODE
+            # Le service bluealsa-aplay utilise toujours "milo_bluetooth"
+            # ALSA se charge de router selon MILO_MODE
             
             return True
         except Exception as e:

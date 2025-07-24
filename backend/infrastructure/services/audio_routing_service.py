@@ -263,17 +263,17 @@ class AudioRoutingService:
             equalizer_value = "_eq" if self.state.equalizer_enabled else ""
             
             proc1 = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "set-environment", f"OAKOS_MODE={mode_value}"
+                "sudo", "systemctl", "set-environment", f"MILO_MODE={mode_value}"
             )
             await proc1.communicate()
             
             proc2 = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "set-environment", f"OAKOS_EQUALIZER={equalizer_value}"
+                "sudo", "systemctl", "set-environment", f"MILO_EQUALIZER={equalizer_value}"
             )
             await proc2.communicate()
             
-            os.environ["OAKOS_MODE"] = mode_value
-            os.environ["OAKOS_EQUALIZER"] = equalizer_value
+            os.environ["MILO_MODE"] = mode_value
+            os.environ["MILO_EQUALIZER"] = equalizer_value
             
             self.logger.info(f"Updated ALSA environment: MODE={mode_value}, EQUALIZER={equalizer_value}")
             

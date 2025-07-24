@@ -52,7 +52,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             with open(self.config_path, 'r') as f:
                 config = yaml.safe_load(f)
             
-            self._current_device = config.get('audio_device', 'oakos_spotify')
+            self._current_device = config.get('audio_device', 'milo_spotify')
             
             server = config.get('server', {})
             addr = server.get('address', 'localhost')

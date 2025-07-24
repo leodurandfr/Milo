@@ -182,7 +182,7 @@ bitrate: 320
 
 # Configuration Audio > ALSA
 audio_backend: "alsa"
-audio_device: "oakos_spotify"
+audio_device: "milo_spotify"
 
 # Désactive le contrôle du volume via les applications Spotify
 external_volume: true
@@ -597,7 +597,7 @@ ExecStart=/usr/bin/roc-recv -vv \
   -s rtp+rs8m://0.0.0.0:10001 \
   -r rs8m://0.0.0.0:10002 \
   -c rtcp://0.0.0.0:10003 \
-  -o alsa://oakos_roc
+  -o alsa://milo_roc
 
 Restart=always
 RestartSec=5
@@ -664,7 +664,7 @@ BindsTo=milo-backend.service milo-bluealsa.service
 Type=simple
 User=milo
 
-ExecStart=/usr/bin/bluealsa-aplay --pcm=oakos_bluetooth --profile-a2dp 00:00:00:00:00:00
+ExecStart=/usr/bin/bluealsa-aplay --pcm=milo_bluetooth --profile-a2dp 00:00:00:00:00:00
 
 RestartSec=2
 Restart=always
@@ -824,42 +824,42 @@ ctl.!default {
     card sndrpihifiberry
 }
 
-# === DEVICES DYNAMIQUES POUR OAKOS (avec support equalizer) ===
+# === DEVICES DYNAMIQUES POUR MILO (avec support equalizer) ===
 
 # Spotify - Device configurable avec equalizer
-pcm.oakos_spotify {
+pcm.milo_spotify {
     @func concat
     strings [
-        "pcm.oakos_spotify_"
-        { @func getenv vars [ OAKOS_MODE ] default "direct" }
-        { @func getenv vars [ OAKOS_EQUALIZER ] default "" }
+        "pcm.milo_spotify_"
+        { @func getenv vars [ MILO_MODE ] default "direct" }
+        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
 # Bluetooth - Device configurable avec equalizer
-pcm.oakos_bluetooth {
+pcm.milo_bluetooth {
     @func concat
     strings [
-        "pcm.oakos_bluetooth_"
-        { @func getenv vars [ OAKOS_MODE ] default "direct" }
-        { @func getenv vars [ OAKOS_EQUALIZER ] default "" }
+        "pcm.milo_bluetooth_"
+        { @func getenv vars [ MILO_MODE ] default "direct" }
+        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
 # ROC - Device configurable avec equalizer
-pcm.oakos_roc {
+pcm.milo_roc {
     @func concat
     strings [
-        "pcm.oakos_roc_"
-        { @func getenv vars [ OAKOS_MODE ] default "direct" }
-        { @func getenv vars [ OAKOS_EQUALIZER ] default "" }
+        "pcm.milo_roc_"
+        { @func getenv vars [ MILO_MODE ] default "direct" }
+        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
 # === IMPLEMENTATIONS PAR MODE ===
 
 # Mode MULTIROOM (via snapserver loopback) - SANS equalizer
-pcm.oakos_spotify_multiroom {
+pcm.milo_spotify_multiroom {
     type plug
     slave.pcm {
         type hw
@@ -869,7 +869,7 @@ pcm.oakos_spotify_multiroom {
     }
 }
 
-pcm.oakos_bluetooth_multiroom {
+pcm.milo_bluetooth_multiroom {
     type plug
     slave.pcm {
         type hw
@@ -879,7 +879,7 @@ pcm.oakos_bluetooth_multiroom {
     }
 }
 
-pcm.oakos_roc_multiroom {
+pcm.milo_roc_multiroom {
     type plug
     slave.pcm {
         type hw
@@ -890,23 +890,23 @@ pcm.oakos_roc_multiroom {
 }
 
 # Mode MULTIROOM - AVEC equalizer (vers equalizer multiroom)
-pcm.oakos_spotify_multiroom_eq {
+pcm.milo_spotify_multiroom_eq {
     type plug
     slave.pcm "equal_multiroom"
 }
 
-pcm.oakos_bluetooth_multiroom_eq {
+pcm.milo_bluetooth_multiroom_eq {
     type plug
     slave.pcm "equal_multiroom"
 }
 
-pcm.oakos_roc_multiroom_eq {
+pcm.milo_roc_multiroom_eq {
     type plug
     slave.pcm "equal_multiroom"
 }
 
 # Mode DIRECT (vers HiFiBerry) - SANS equalizer
-pcm.oakos_spotify_direct {
+pcm.milo_spotify_direct {
     type plug
     slave.pcm {
         type hw
@@ -915,7 +915,7 @@ pcm.oakos_spotify_direct {
     }
 }
 
-pcm.oakos_bluetooth_direct {
+pcm.milo_bluetooth_direct {
     type plug
     slave.pcm {
         type hw
@@ -924,7 +924,7 @@ pcm.oakos_bluetooth_direct {
     }
 }
 
-pcm.oakos_roc_direct {
+pcm.milo_roc_direct {
     type plug
     slave.pcm {
         type hw
@@ -934,17 +934,17 @@ pcm.oakos_roc_direct {
 }
 
 # Mode DIRECT - AVEC equalizer (sans double plug - CORRIGÉ)
-pcm.oakos_spotify_direct_eq {
+pcm.milo_spotify_direct_eq {
     type plug
     slave.pcm "equal"
 }
 
-pcm.oakos_bluetooth_direct_eq {
+pcm.milo_bluetooth_direct_eq {
     type plug
     slave.pcm "equal"
 }
 
-pcm.oakos_roc_direct_eq {
+pcm.milo_roc_direct_eq {
     type plug
     slave.pcm "equal"
 }

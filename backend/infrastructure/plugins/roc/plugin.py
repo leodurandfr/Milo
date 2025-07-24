@@ -29,7 +29,7 @@ class RocPlugin(UnifiedAudioPlugin):
         self.connected_ip = None
         self.monitor_task = None
         self._stopping = False
-        self._current_device = "oakos_roc"
+        self._current_device = "milo_roc"
 
     async def _do_initialize(self) -> bool:
         """Initialisation du plugin ROC"""
