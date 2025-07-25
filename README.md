@@ -11,8 +11,12 @@ Milo is an audio application for Raspberry Pi that transforms your device into a
 - Centralized volume control
 
 ## Installation
-
-Instructions coming soon...
+```
+wget https://raw.githubusercontent.com/Leshauts/Milo/main/install.sh
+chmod +x install.sh
+./install.sh
+# Uninstall: ./install.sh --uninstall
+````
 
 ## Documentation
 
