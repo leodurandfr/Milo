@@ -62,7 +62,6 @@ show_banner() {
 check_root() {
     if [[ $EUID -eq 0 ]]; then
         log_error "Ce script ne doit pas être exécuté en tant que root."
-        log_info "Utilisez: curl -sSL https://raw.githubusercontent.com/Leshauts/Milo/main/install.sh | bash"
         exit 1
     fi
 }
@@ -74,17 +73,14 @@ check_root() {
 check_system() {
     log_info "Vérification du système..."
     
-    # Vérifier que c'est un Raspberry Pi
     if ! grep -q "Raspberry Pi" /proc/cpuinfo; then
         log_error "Ce script est conçu pour Raspberry Pi uniquement."
         exit 1
     fi
     
-    # Vérifier la version du kernel pour HiFiBerry
     KERNEL_VERSION=$(uname -r | cut -d'.' -f1-2)
     log_info "Version kernel détectée: $KERNEL_VERSION"
     
-    # Vérifier l'architecture
     ARCH=$(uname -m)
     if [[ "$ARCH" != "aarch64" ]]; then
         log_error "Architecture non supportée: $ARCH. Raspberry Pi OS 64bit requis."
@@ -135,14 +131,8 @@ setup_hostname() {
 
 configure_hostname() {
     local new_hostname="$1"
-    
-    # Mettre à jour /etc/hostname
     echo "$new_hostname" | sudo tee /etc/hostname > /dev/null
-    
-    # Mettre à jour /etc/hosts
     sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$new_hostname/" /etc/hosts
-    
-    # Appliquer immédiatement (sans redémarrage)
     sudo hostnamectl set-hostname "$new_hostname"
 }
 
@@ -188,7 +178,6 @@ configure_audio_hardware() {
     
     local config_file="/boot/firmware/config.txt"
     
-    # Vérifier si le fichier existe
     if [[ ! -f "$config_file" ]]; then
         config_file="/boot/config.txt"
         if [[ ! -f "$config_file" ]]; then
@@ -197,27 +186,21 @@ configure_audio_hardware() {
         fi
     fi
     
-    # Sauvegarder le fichier original
     sudo cp "$config_file" "$config_file.backup.$(date +%Y%m%d_%H%M%S)"
-    
-    # Supprimer l'audio onboard
     sudo sed -i '/^dtparam=audio=on/d' "$config_file"
     
-    # Configurer vc4 overlay
     if grep -q "vc4-fkms-v3d" "$config_file"; then
         sudo sed -i 's/dtoverlay=vc4-fkms-v3d.*/dtoverlay=vc4-fkms-v3d,audio=off/' "$config_file"
     elif grep -q "vc4-kms-v3d" "$config_file"; then
         sudo sed -i 's/dtoverlay=vc4-kms-v3d.*/dtoverlay=vc4-kms-v3d,noaudio/' "$config_file"
     fi
     
-    # Ajouter la configuration HiFiBerry
     if ! grep -q "$HIFIBERRY_OVERLAY" "$config_file"; then
         echo "" | sudo tee -a "$config_file"
         echo "# Milo - HiFiBerry Audio" | sudo tee -a "$config_file"
         echo "dtoverlay=$HIFIBERRY_OVERLAY" | sudo tee -a "$config_file"
     fi
     
-    # Configuration du ventilateur si pas déjà présente
     if ! grep -q "cooling_fan=on" "$config_file"; then
         echo "" | sudo tee -a "$config_file"
         echo "# Milo - Fan PWM Control" | sudo tee -a "$config_file"
@@ -250,11 +233,9 @@ configure_audio_hardware() {
 install_dependencies() {
     log_info "Mise à jour du système..."
     
-    # Configuration pour les questions automatiques de dpkg
     export DEBIAN_FRONTEND=noninteractive
     export DEBCONF_NONINTERACTIVE_SEEN=true
     
-    # Configuration pour accepter automatiquement les nouvelles versions de config
     echo 'Dpkg::Options {
        "--force-confdef";
        "--force-confnew";
@@ -283,12 +264,10 @@ install_dependencies() {
     sudo npm install -g npm@latest
     hash -r
     
-    # Supprimer PulseAudio/PipeWire
     log_info "Suppression de PulseAudio/PipeWire..."
     sudo apt remove -y pulseaudio pipewire || true
     sudo apt autoremove -y
     
-    # Nettoyer la configuration apt temporaire
     sudo rm -f /etc/apt/apt.conf.d/local
     
     log_success "Dépendances installées"
@@ -307,9 +286,38 @@ create_milo_user() {
         log_success "Utilisateur '$MILO_USER' créé"
     fi
     
-    # Créer les répertoires nécessaires
     sudo mkdir -p "$MILO_DATA_DIR"
     sudo chown -R "$MILO_USER:audio" "$MILO_DATA_DIR"
+}
+
+# =====================================
+# Installation de l'application Milo
+# =====================================
+
+install_milo_application() {
+    log_info "Installation de l'application Milo..."
+    
+    if [[ -d "$MILO_APP_DIR" ]]; then
+        log_warning "Le répertoire $MILO_APP_DIR existe déjà, suppression..."
+        sudo rm -rf "$MILO_APP_DIR"
+    fi
+    
+    sudo -u "$MILO_USER" git clone "$MILO_REPO" "$MILO_APP_DIR"
+    cd "$MILO_APP_DIR"
+    
+    log_info "Configuration du backend Python..."
+    sudo -u "$MILO_USER" python3 -m venv venv
+    sudo -u "$MILO_USER" bash -c "source venv/bin/activate && pip install --upgrade pip"
+    sudo -u "$MILO_USER" bash -c "source venv/bin/activate && pip install -r requirements.txt"
+    
+    log_info "Configuration du frontend..."
+    cd frontend
+    sudo -u "$MILO_USER" npm install
+    sudo -u "$MILO_USER" npm run build
+    
+    cd "$MILO_APP_DIR"
+    
+    log_success "Application Milo installée"
 }
 
 # =====================================
@@ -327,7 +335,6 @@ install_go_librespot() {
     sudo cp go-librespot /usr/local/bin/
     sudo chmod +x /usr/local/bin/go-librespot
     
-    # Configuration
     sudo mkdir -p "$MILO_DATA_DIR/go-librespot"
     sudo tee "$MILO_DATA_DIR/go-librespot/config.yml" > /dev/null << 'EOF'
 device_name: "Milo"
@@ -361,7 +368,6 @@ EOF
 install_roc_toolkit() {
     log_info "Installation de roc-toolkit..."
     
-    # Créer un répertoire temporaire
     local temp_dir=$(mktemp -d)
     cd "$temp_dir"
     
@@ -384,7 +390,6 @@ install_roc_toolkit() {
 install_bluez_alsa() {
     log_info "Installation de bluez-alsa..."
     
-    # Créer un répertoire temporaire  
     local temp_dir=$(mktemp -d)
     cd "$temp_dir"
     
@@ -404,7 +409,6 @@ install_bluez_alsa() {
     sudo make install
     sudo ldconfig
     
-    # Arrêter les services par défaut
     sudo systemctl stop bluealsa-aplay.service bluealsa.service || true
     sudo systemctl disable bluealsa-aplay.service bluealsa.service || true
     
@@ -430,7 +434,6 @@ install_snapcast() {
     sudo apt install -y ./snapserver_0.31.0-1_arm64_bookworm.deb
     sudo apt install -y ./snapclient_0.31.0-1_arm64_bookworm.deb
     
-    # Arrêter les services par défaut
     sudo systemctl stop snapserver.service snapclient.service || true
     sudo systemctl disable snapserver.service snapclient.service || true
     
@@ -447,167 +450,60 @@ install_snapcast() {
 configure_alsa() {
     log_info "Configuration ALSA..."
     
-    # Configuration du module loopback
     echo "snd_aloop" | sudo tee /etc/modules-load.d/snd-aloop.conf
     sudo tee /etc/modprobe.d/snd-aloop.conf > /dev/null << 'EOF'
 # Configuration du module loopback ALSA pour Milo
 options snd-aloop index=1 enable=1
 EOF
     
-    # Configuration ALSA principale
-    sudo tee /etc/asound.conf > /dev/null << EOF
+    sudo tee /etc/asound.conf > /dev/null << 'EOF'
 # Configuration ALSA Milo
 pcm.!default {
     type plug
     slave.pcm {
         type hw
-        card $CARD_NAME
+        card sndrpihifiberry
         device 0
     }
 }
 
 ctl.!default {
     type hw
-    card $CARD_NAME
+    card sndrpihifiberry
 }
 
-# === DEVICES DYNAMIQUES POUR MILO (avec support equalizer) ===
-
-# Spotify - Device configurable avec equalizer
+# Devices Milo
 pcm.milo_spotify {
-    @func concat
-    strings [
-        "pcm.milo_spotify_"
-        { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
-    ]
+    type plug
+    slave.pcm {
+        type hw
+        card sndrpihifiberry
+        device 0
+    }
 }
 
-# Bluetooth - Device configurable avec equalizer
 pcm.milo_bluetooth {
-    @func concat
-    strings [
-        "pcm.milo_bluetooth_"
-        { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
-    ]
+    type plug
+    slave.pcm {
+        type hw
+        card sndrpihifiberry
+        device 0
+    }
 }
 
-# ROC - Device configurable avec equalizer
 pcm.milo_roc {
-    @func concat
-    strings [
-        "pcm.milo_roc_"
-        { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
-    ]
-}
-
-# === IMPLEMENTATIONS PAR MODE ===
-
-# Mode MULTIROOM (via snapserver loopback) - SANS equalizer
-pcm.milo_spotify_multiroom {
     type plug
     slave.pcm {
         type hw
-        card 1
-        device 0
-        subdevice 2
-    }
-}
-
-pcm.milo_bluetooth_multiroom {
-    type plug
-    slave.pcm {
-        type hw
-        card 1
-        device 0
-        subdevice 0
-    }
-}
-
-pcm.milo_roc_multiroom {
-    type plug
-    slave.pcm {
-        type hw
-        card 1
-        device 0
-        subdevice 1
-    }
-}
-
-# Mode MULTIROOM - AVEC equalizer
-pcm.milo_spotify_multiroom_eq {
-    type plug
-    slave.pcm "equal_multiroom"
-}
-
-pcm.milo_bluetooth_multiroom_eq {
-    type plug
-    slave.pcm "equal_multiroom"
-}
-
-pcm.milo_roc_multiroom_eq {
-    type plug
-    slave.pcm "equal_multiroom"
-}
-
-# Mode DIRECT (vers HiFiBerry) - SANS equalizer
-pcm.milo_spotify_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card $CARD_NAME
+        card sndrpihifiberry
         device 0
     }
 }
 
-pcm.milo_bluetooth_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card $CARD_NAME
-        device 0
-    }
-}
-
-pcm.milo_roc_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card $CARD_NAME
-        device 0
-    }
-}
-
-# Mode DIRECT - AVEC equalizer
-pcm.milo_spotify_direct_eq {
-    type plug
-    slave.pcm "equal"
-}
-
-pcm.milo_bluetooth_direct_eq {
-    type plug
-    slave.pcm "equal"
-}
-
-pcm.milo_roc_direct_eq {
-    type plug
-    slave.pcm "equal"
-}
-
-# === EQUALIZERS ===
-
-# Equalizer pour mode direct
+# Equalizer
 pcm.equal {
     type equal
-    slave.pcm "plughw:$CARD_NAME"
-}
-
-# Equalizer pour mode multiroom
-pcm.equal_multiroom {
-    type equal
-    slave.pcm "plughw:1,0"
+    slave.pcm "plughw:sndrpihifiberry"
 }
 
 ctl.equal {
@@ -620,39 +516,6 @@ EOF
 }
 
 # =====================================
-# Installation de l'application Milo
-# =====================================
-
-install_milo_application() {
-    log_info "Installation de l'application Milo..."
-    
-    # Cloner le dépôt
-    if [[ -d "$MILO_APP_DIR" ]]; then
-        log_warning "Le répertoire $MILO_APP_DIR existe déjà, suppression..."
-        sudo rm -rf "$MILO_APP_DIR"
-    fi
-    
-    sudo -u "$MILO_USER" git clone "$MILO_REPO" "$MILO_APP_DIR"
-    cd "$MILO_APP_DIR"
-    
-    # Configuration Python Backend
-    log_info "Configuration du backend Python..."
-    sudo -u "$MILO_USER" python3 -m venv venv
-    sudo -u "$MILO_USER" bash -c "source venv/bin/activate && pip install --upgrade pip"
-    sudo -u "$MILO_USER" bash -c "source venv/bin/activate && pip install -r requirements.txt"
-    
-    # Configuration Frontend
-    log_info "Configuration du frontend..."
-    cd frontend
-    sudo -u "$MILO_USER" npm install
-    sudo -u "$MILO_USER" npm run build
-    
-    cd "$MILO_APP_DIR"
-    
-    log_success "Application Milo installée"
-}
-
-# =====================================
 # Configuration des services systemd
 # =====================================
 
@@ -660,17 +523,17 @@ create_systemd_services() {
     log_info "Création des services systemd..."
     
     # Backend
-    sudo tee /etc/systemd/system/milo-backend.service > /dev/null << EOF
+    sudo tee /etc/systemd/system/milo-backend.service > /dev/null << 'EOF'
 [Unit]
 Description=Milo Backend Service
 After=network.target
 
 [Service]
 Type=simple
-User=$MILO_USER
-Group=$MILO_USER
-WorkingDirectory=$MILO_APP_DIR
-ExecStart=$MILO_APP_DIR/venv/bin/python3 backend/main.py
+User=milo
+Group=milo
+WorkingDirectory=/home/milo/milo
+ExecStart=/home/milo/milo/venv/bin/python3 backend/main.py
 
 Restart=always
 RestartSec=5
@@ -687,16 +550,16 @@ WantedBy=multi-user.target
 EOF
     
     # Frontend
-    sudo tee /etc/systemd/system/milo-frontend.service > /dev/null << EOF
+    sudo tee /etc/systemd/system/milo-frontend.service > /dev/null << 'EOF'
 [Unit]
 Description=Milo Frontend Service
 After=network.target
 
 [Service]
 Type=simple
-User=$MILO_USER
-Group=$MILO_USER
-WorkingDirectory=$MILO_APP_DIR/frontend
+User=milo
+Group=milo
+WorkingDirectory=/home/milo/milo/frontend
 
 ExecStartPre=/usr/bin/npm run build
 ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 3000
@@ -709,7 +572,7 @@ StateDirectory=milo
 StateDirectoryMode=0755
 
 Environment=NODE_ENV=production
-Environment=HOME=$MILO_HOME
+Environment=HOME=/home/milo
 
 StandardOutput=journal
 StandardError=journal
@@ -719,82 +582,23 @@ SyslogIdentifier=milo-frontend
 WantedBy=multi-user.target
 EOF
     
-    # Kiosk
-    sudo tee /etc/systemd/system/milo-kiosk.service > /dev/null << EOF
-[Unit]
-Description=Milo Kiosk Mode (Chromium Fullscreen)
-After=graphical.target milo-frontend.service
-Wants=graphical.target
-Requires=milo-frontend.service
-
-[Service]
-Type=simple
-User=$MILO_USER
-Group=$MILO_USER
-Environment=DISPLAY=:0
-Environment=HOME=$MILO_HOME
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-
-ExecStartPre=/bin/sleep 8
-
-ExecStart=/usr/bin/chromium-browser \\
-  --kiosk \\
-  --incognito \\
-  --no-first-run \\
-  --disable-infobars \\
-  --disable-notifications \\
-  --disable-popup-blocking \\
-  --disable-session-crashed-bubble \\
-  --disable-restore-session-state \\
-  --disable-background-timer-throttling \\
-  --disable-backgrounding-occluded-windows \\
-  --disable-renderer-backgrounding \\
-  --disable-translate \\
-  --disable-sync \\
-  --hide-scrollbars \\
-  --disable-background-networking \\
-  --autoplay-policy=no-user-gesture-required \\
-  --start-fullscreen \\
-  --no-sandbox \\
-  --disable-dev-shm-usage \\
-  --hide-cursor \\
-  --touch-events=enabled \\
-  --enable-features=TouchpadAndWheelScrollLatching \\
-  --force-device-scale-factor=1 \\
-  --disable-pinch \\
-  --disable-features=VizDisplayCompositor \\
-  --app=http://milo.local
-
-Restart=always
-RestartSec=5
-TimeoutStopSec=5
-
-[Install]
-WantedBy=graphical.target
-EOF
-    
     # ROC
-    sudo tee /etc/systemd/system/milo-roc.service > /dev/null << EOF
+    sudo tee /etc/systemd/system/milo-roc.service > /dev/null << 'EOF'
 [Unit]
 Description=Milo ROC Audio Receiver
-Documentation=https://roc-streaming.org/
 After=network.target sound.service milo-backend.service
 Wants=network.target
 BindsTo=milo-backend.service
 
 [Service]
 Type=exec
-User=$MILO_USER
+User=milo
 Group=audio
 
 EnvironmentFile=/etc/environment
-Environment=HOME=$MILO_HOME
+Environment=HOME=/home/milo
 
-ExecStart=/usr/bin/roc-recv -vv \\
-  -s rtp+rs8m://0.0.0.0:10001 \\
-  -r rs8m://0.0.0.0:10002 \\
-  -c rtcp://0.0.0.0:10003 \\
-  -o alsa://milo_roc
+ExecStart=/usr/bin/roc-recv -vv -s rtp+rs8m://0.0.0.0:10001 -r rs8m://0.0.0.0:10002 -c rtcp://0.0.0.0:10003 -o alsa://milo_roc
 
 Restart=always
 RestartSec=5
@@ -811,7 +615,7 @@ WantedBy=multi-user.target
 EOF
     
     # go-librespot
-    sudo tee /etc/systemd/system/milo-go-librespot.service > /dev/null << EOF
+    sudo tee /etc/systemd/system/milo-go-librespot.service > /dev/null << 'EOF'
 [Unit]
 Description=Milo Spotify Connect via go-librespot
 After=network-online.target sound.service milo-backend.service
@@ -820,12 +624,12 @@ BindsTo=milo-backend.service
 
 [Service]
 Type=simple
-User=$MILO_USER
+User=milo
 Group=audio
 
-ExecStart=/usr/local/bin/go-librespot --config_dir $MILO_DATA_DIR/go-librespot
-Environment=HOME=$MILO_HOME
-WorkingDirectory=$MILO_DATA_DIR
+ExecStart=/usr/local/bin/go-librespot --config_dir /var/lib/milo/go-librespot
+Environment=HOME=/home/milo
+WorkingDirectory=/var/lib/milo
 Restart=always
 RestartSec=5
 
@@ -838,7 +642,7 @@ WantedBy=multi-user.target
 EOF
     
     # Bluealsa
-    sudo tee /etc/systemd/system/milo-bluealsa.service > /dev/null << EOF
+    sudo tee /etc/systemd/system/milo-bluealsa.service > /dev/null << 'EOF'
 [Unit]
 Description=BluezALSA daemon for Milo
 Documentation=man:bluealsa(8)
@@ -850,7 +654,7 @@ BindsTo=milo-backend.service
 [Service]
 Type=simple
 ExecStart=/usr/bin/bluealsa -S -p a2dp-sink
-User=$MILO_USER
+User=milo
 Group=audio
 Restart=on-failure
 
@@ -859,7 +663,7 @@ WantedBy=multi-user.target
 EOF
     
     # Bluealsa-aplay
-    sudo tee /etc/systemd/system/milo-bluealsa-aplay.service > /dev/null << EOF
+    sudo tee /etc/systemd/system/milo-bluealsa-aplay.service > /dev/null << 'EOF'
 [Unit]
 Description=BlueALSA player for Milo
 Requires=milo-bluealsa.service
@@ -868,7 +672,7 @@ BindsTo=milo-backend.service milo-bluealsa.service
 
 [Service]
 Type=simple
-User=$MILO_USER
+User=milo
 
 ExecStart=/usr/bin/bluealsa-aplay --pcm=milo_bluetooth --profile-a2dp 00:00:00:00:00:00
 
@@ -882,7 +686,7 @@ WantedBy=multi-user.target
 EOF
     
     # Snapserver multiroom
-    sudo tee /etc/systemd/system/milo-snapserver-multiroom.service > /dev/null << EOF
+    sudo tee /etc/systemd/system/milo-snapserver-multiroom.service > /dev/null << 'EOF'
 [Unit]
 Description=Snapcast Server for Milo Multiroom
 After=network-online.target
@@ -891,7 +695,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=/usr/bin/snapserver -c /etc/snapserver.conf
-User=$MILO_USER
+User=milo
 Group=audio
 Restart=on-failure
 RestartSec=5
@@ -901,7 +705,7 @@ WantedBy=multi-user.target
 EOF
     
     # Snapclient multiroom
-    sudo tee /etc/systemd/system/milo-snapclient-multiroom.service > /dev/null << EOF
+    sudo tee /etc/systemd/system/milo-snapclient-multiroom.service > /dev/null << 'EOF'
 [Unit]
 Description=Snapcast Client for Milo Multiroom
 After=network-online.target milo-snapserver-multiroom.service
@@ -909,8 +713,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard default:CARD=$CARD_NAME --mixer hardware:'Digital'
-User=$MILO_USER
+ExecStart=/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard default:CARD=sndrpihifiberry --mixer hardware:'Digital'
+User=milo
 Group=audio
 Restart=on-failure
 RestartSec=5
@@ -965,58 +769,36 @@ EOF
 }
 
 # =====================================
-# Configuration Nginx et Avahi
+# Configuration Nginx et mDNS
 # =====================================
 
 configure_nginx_avahi() {
-    log_info "Configuration de Nginx et Avahi..."
+    log_info "Configuration de Nginx et mDNS..."
     
-    # Configuration Avahi
     sudo tee /etc/avahi/avahi-daemon.conf > /dev/null << 'EOF'
 [server]
 host-name=milo
 domain-name=local
 use-ipv4=yes
 use-ipv6=no
-allow-interfaces=wlan0
-deny-interfaces=eth0,docker0,lo
-ratelimit-interval-usec=1000000
-ratelimit-burst=1000
 
 [wide-area]
 enable-wide-area=no
 
 [publish]
 publish-hinfo=no
-publish-workstation=yes
-publish-domain=yes
+publish-workstation=no
+publish-domain=no
 publish-addresses=yes
 publish-aaaa-on-ipv4=no
 publish-a-on-ipv6=no
 EOF
     
-    # Service Avahi pour Milo
-    sudo tee /etc/avahi/services/milo.service > /dev/null << 'EOF'
-<?xml version="1.0" standalone='no'?>
-<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
-<service-group>
-  <name replace-wildcards="yes">Milo Audio System on %h</name>
-  <service>
-    <type>_http._tcp</type>
-    <port>80</port>
-    <txt-record>path=/</txt-record>
-    <txt-record>description=Milo Audio Control Interface</txt-record>
-  </service>
-</service-group>
-EOF
-    
-    # Configuration Nginx
     sudo tee /etc/nginx/sites-available/milo > /dev/null << 'EOF'
 server {
     listen 80;
     server_name milo.local;
     
-    # Frontend (port 3000)
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host $host;
@@ -1025,7 +807,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     
-    # API Backend (port 8000)
     location /api/ {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
@@ -1034,7 +815,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     
-    # WebSocket
     location /ws {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -1051,14 +831,11 @@ server {
 }
 EOF
     
-    # Activer le site
     sudo ln -sf /etc/nginx/sites-available/milo /etc/nginx/sites-enabled/
     sudo rm -f /etc/nginx/sites-enabled/default
-    
-    # Tester la configuration
     sudo nginx -t
     
-    log_success "Nginx et Avahi configurés"
+    log_success "Nginx et mDNS configurés"
 }
 
 # =====================================
@@ -1070,14 +847,11 @@ enable_services() {
     
     sudo systemctl daemon-reload
     
-    # Services système
     sudo systemctl enable avahi-daemon
     sudo systemctl enable nginx
     
-    # Services Milo
     sudo systemctl enable milo-backend.service
     sudo systemctl enable milo-frontend.service
-    sudo systemctl enable milo-kiosk.service
     sudo systemctl enable milo-roc.service
     sudo systemctl enable milo-go-librespot.service
     sudo systemctl enable milo-bluealsa.service
@@ -1095,7 +869,6 @@ enable_services() {
 finalize_installation() {
     log_info "Finalisation de l'installation..."
     
-    # Affichage du résumé
     echo ""
     echo -e "${GREEN}=================================${NC}"
     echo -e "${GREEN}   Installation Milo terminée !${NC}"
@@ -1185,7 +958,6 @@ uninstall_milo() {
     log_info "Nettoyage des packages..."
     sudo apt autoremove -y
     
-    # Restauration hostname (optionnel)
     read -p "Restaurer l'hostname par défaut 'raspberrypi' ? (o/N): " restore_hostname
     case $restore_hostname in
         [Oo]* )
@@ -1217,7 +989,6 @@ uninstall_milo() {
 main() {
     show_banner
     
-    # Vérifier les arguments
     if [[ "$1" == "--uninstall" ]]; then
         uninstall_milo
         exit 0
@@ -1228,25 +999,23 @@ main() {
     log_info "Début de l'installation de Milo Audio System"
     echo ""
     
-    # Étapes d'installation dans l'ordre correct selon la documentation
     check_system
     setup_hostname
     choose_hifiberry
     configure_audio_hardware
     install_dependencies
     create_milo_user
-    install_milo_application        # ← Clone de l'app très tôt
+    install_milo_application
     install_go_librespot
     install_roc_toolkit
     install_bluez_alsa
     install_snapcast
-    configure_alsa                  # ← Configuration ALSA avant les services
+    configure_alsa
     create_systemd_services
     configure_snapserver
-    configure_nginx_mdns
+    configure_nginx_avahi
     enable_services
     finalize_installation
 }
 
-# Exécuter le script principal
 main "$@"
