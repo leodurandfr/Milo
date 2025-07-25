@@ -249,6 +249,17 @@ configure_audio_hardware() {
 
 install_dependencies() {
     log_info "Mise à jour du système..."
+    
+    # Configuration pour les questions automatiques de dpkg
+    export DEBIAN_FRONTEND=noninteractive
+    export DEBCONF_NONINTERACTIVE_SEEN=true
+    
+    # Configuration pour accepter automatiquement les nouvelles versions de config
+    echo 'Dpkg::Options {
+       "--force-confdef";
+       "--force-confnew";
+    }' | sudo tee /etc/apt/apt.conf.d/local >/dev/null
+    
     sudo apt update
     sudo apt upgrade -y
     
@@ -276,6 +287,9 @@ install_dependencies() {
     log_info "Suppression de PulseAudio/PipeWire..."
     sudo apt remove -y pulseaudio pipewire || true
     sudo apt autoremove -y
+    
+    # Nettoyer la configuration apt temporaire
+    sudo rm -f /etc/apt/apt.conf.d/local
     
     log_success "Dépendances installées"
 }
@@ -1099,6 +1113,7 @@ finalize_installation() {
     echo -e "${BLUE}Accès :${NC}"
     echo "  • Interface web: http://milo.local"
     echo "  • Spotify Connect: 'Milo'"
+    echo "  • Bluetooth: 'Milo · Bluetooth'"
     echo "  • Snapserver: http://milo.local:1780"
     echo ""
     
