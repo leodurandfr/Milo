@@ -1,4 +1,4 @@
-# Milo - Modular Audio System for Raspberry Pi
+# Milo - Audio System for Raspberry Pi
 
 Milo is an advanced audio application for Raspberry Pi that transforms your device into a versatile audio platform. The system allows seamless switching between different audio sources (Spotify, Bluetooth, macOS via Snapcast, Web Radio) while offering a sleek and responsive user interface.
 
