@@ -977,6 +977,21 @@ EOF
    log_success "Nginx configuré"
 }
 
+install_brightness_hdmi() {
+    log_info "Installation de Brightness-HDMI..."
+    
+    cd ~/
+    git clone https://github.com/waveshare/RPi-USB-Brightness
+    cd RPi-USB-Brightness
+    cd 64
+    cd lite
+    ./Raspi_USB_Backlight_nogui -b 6
+    
+    cd ~
+    
+    log_success "Brightness-HDMI installé"
+}
+
 enable_services() {
    log_info "Démarrage automatique des services..."
    
@@ -1159,6 +1174,8 @@ main() {
    configure_avahi
    configure_nginx
    
+   install_brightness_hdmi
+
    enable_services
    finalize_installation
 }
