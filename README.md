@@ -15,9 +15,9 @@ Milo is an advanced audio application for Raspberry Pi that transforms your devi
 - Centralized volume control
 
 ## Additional applications 
-- [Milo Mac](https://github.com/Leshauts/Milo-Mac): Native look and feel app in Menu Bar to control Milo from your Mac.
-- Milo iOS: iOS app that displays milo.local in full screen [wip: need to add project in Github]
-- Milo Android: Android app that displays milo.local in full screen [wip: need to add project in Github]
+- [Milo Mac](https://github.com/Leshauts/Milo-Mac) : Native look and feel app in Menu Bar to control Milo from your Mac.
+- [Milo iOS](https://github.com/Leshauts/Milo-iOS) : iOS app that displays milo.local in full screen [wip: need to add project in Github]
+- Milo Android : Android app that displays milo.local in full screen [wip: need to add project in Github]
 
 ## Daemon used for this application
 - go-librespot
