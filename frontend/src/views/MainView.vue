@@ -231,7 +231,7 @@ onMounted(() => {
     isInitialLogoDisplay.value = false;
     await new Promise(resolve => setTimeout(resolve, 150));
     shouldAnimateContent.value = true;
-  }, 350);
+  }, 800);
 });
 </script>
 

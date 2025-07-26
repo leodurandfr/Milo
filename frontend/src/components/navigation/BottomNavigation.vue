@@ -403,7 +403,7 @@ onUnmounted(() => {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  height: 24%;
+  height: 32%;
   opacity: 0.2;
   z-index: 999;
   cursor: grab;
