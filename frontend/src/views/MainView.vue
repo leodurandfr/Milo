@@ -1,4 +1,4 @@
-<!-- MainView.vue - Simplifié avec PluginStatus autonome -->
+<!-- MainView.vue - Version OPTIM simplifiée -->
 <template>
   <div class="main-view">
     <!-- Logo animé selon l'état -->
@@ -11,25 +11,26 @@
     <!-- Conteneur de contenu simple -->
     <div class="content-container" :class="{ 'content-visible': !isInitialLogoDisplay }">
 
-      <!-- LibrespotView (player quand connecté avec métadonnées) -->
+      <!-- LibrespotView avec animation simplifiée -->
       <LibrespotView 
-        v-if="shouldShowLibrespotPlayer"
-        :should-animate="shouldAnimateContent"
+        v-if="shouldShowLibrespotView"
+        :should-animate="shouldAnimateLibrespot"
       />
 
-      <!-- PluginStatus autonome (toutes les autres situations) -->
-      <div v-else-if="shouldShowPluginStatus" class="plugin-status-wrapper">
+      <!-- PluginStatus autonome - TOUJOURS présent pour permettre l'animation -->
+      <div v-if="shouldShowPluginStatus" class="plugin-status-wrapper">
         <PluginStatus
           :plugin-type="currentPluginType"
           :plugin-state="currentPluginState"
           :device-name="currentDeviceName"
           :is-disconnecting="disconnectingStates[unifiedStore.currentSource]"
+          :should-animate="pluginStatusShouldAnimate"
           @disconnect="handleDisconnect"
         />
       </div>
 
       <!-- Aucune source - pas de contenu, juste le logo centré -->
-      <div v-else class="no-source">
+      <div v-else-if="unifiedStore.currentSource === 'none' && !unifiedStore.isTransitioning" class="no-source">
         <!-- Le logo est géré par le composant Logo ci-dessus -->
       </div>
 
@@ -38,7 +39,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import LibrespotView from './LibrespotView.vue';
 import PluginStatus from '@/components/ui/PluginStatus.vue';
@@ -53,38 +54,84 @@ const disconnectingStates = ref({
   librespot: false
 });
 
-// État pour le logo initial (3 secondes)
+// État pour le logo initial
 const isInitialLogoDisplay = ref(true);
-// État pour contrôler l'animation du contenu
 const shouldAnimateContent = ref(false);
 
-// === LOGIQUE D'AFFICHAGE CENTRALISÉE (inchangée) ===
+// OPTIM : Animation simplifiée
+const shouldAnimateLibrespot = ref(false);
 
-// LibrespotView : Seulement quand connecté avec métadonnées complètes
-const shouldShowLibrespotPlayer = computed(() => {
-  return !unifiedStore.isTransitioning && 
-         unifiedStore.displayedSource === 'librespot' &&
-         unifiedStore.pluginState === 'connected' &&
-         unifiedStore.metadata?.title &&
-         unifiedStore.metadata?.artist;
-});
-
-// PluginStatus : Tous les autres cas (transitions, ready, bluetooth, roc)
-const shouldShowPluginStatus = computed(() => {
-  // Pendant une transition
-  if (unifiedStore.isTransitioning) return true;
+// AJOUT : Animation PluginStatus selon le contexte
+const pluginStatusShouldAnimate = computed(() => {
+  // Si PluginStatus ne doit pas être affiché, pas d'animation
+  if (!shouldShowPluginStatus.value) return false;
   
-  // Sources qui utilisent toujours PluginStatus
-  if (['bluetooth', 'roc'].includes(unifiedStore.displayedSource)) return true;
-  
-  // Librespot en mode ready ou sans métadonnées
-  if (unifiedStore.displayedSource === 'librespot' && 
-      (unifiedStore.pluginState === 'ready' || !shouldShowLibrespotPlayer.value)) {
-    return true;
+  // Toujours attendre que le contenu soit visible (après le logo)
+  if (!shouldAnimateContent.value) {
+    console.log('🔌 PluginStatus waiting for content to be visible');
+    return false;
   }
   
+  console.log('🔌 PluginStatus should animate now');
+  return true;
+});
+
+// === LOGIQUE D'AFFICHAGE CENTRALISÉE ===
+
+// Condition pour avoir des métadonnées complètes
+const hasCompleteTrackInfo = computed(() => {
+  return !!(
+    unifiedStore.pluginState === 'connected' &&
+    unifiedStore.metadata?.title &&
+    unifiedStore.metadata?.artist
+  );
+});
+
+// LibrespotView : Afficher si on a les métadonnées
+const shouldShowLibrespotView = computed(() => {
+  return unifiedStore.displayedSource === 'librespot' && hasCompleteTrackInfo.value;
+});
+
+// PluginStatus : Tous les autres cas
+const shouldShowPluginStatus = computed(() => {
+  if (unifiedStore.isTransitioning) return true;
+  if (['bluetooth', 'roc'].includes(unifiedStore.displayedSource)) return true;
+  if (unifiedStore.displayedSource === 'librespot' && 
+      (unifiedStore.pluginState === 'ready' || !hasCompleteTrackInfo.value)) {
+    return true;
+  }
   return false;
 });
+
+// === GESTION ANIMATION LIBRESPOT OPTIM ===
+
+watch([shouldShowLibrespotView, shouldAnimateContent], 
+  ([showView, canAnimate], [prevShowView]) => {
+    
+    console.log('🎵 LibrespotView conditions:', { showView, canAnimate, prevShowView });
+
+    // Disparition : était affiché, ne l'est plus
+    if (prevShowView && !showView) {
+      console.log('🎵 LibrespotView should exit');
+      shouldAnimateLibrespot.value = false;
+      return;
+    }
+
+    // Apparition : doit s'afficher ET peut animer
+    if (showView && canAnimate) {
+      console.log('🎵 LibrespotView should enter');
+      shouldAnimateLibrespot.value = true;
+      return;
+    }
+
+    // Attente : doit s'afficher mais pas encore prêt
+    if (showView && !canAnimate) {
+      console.log('🎵 LibrespotView waiting...');
+      shouldAnimateLibrespot.value = false;
+    }
+    
+  }, { immediate: true }
+);
 
 // === PROPRIÉTÉS CALCULÉES POUR PLUGINSTATUS ===
 
@@ -107,15 +154,15 @@ const currentDeviceName = computed(() => {
     case 'bluetooth':
       return metadata.device_name || '';
     case 'roc':
-      return cleanHostname(metadata.client_name || '');
+      return metadata.client_name || '';
     case 'librespot':
-      return ''; // Pas de device name pour Spotify
+      return '';
     default:
       return '';
   }
 });
 
-// === LOGIQUE DU LOGO (inchangée) ===
+// === LOGIQUE DU LOGO ===
 
 const logoPosition = computed(() => {
   if (isInitialLogoDisplay.value) return 'center';
@@ -129,18 +176,10 @@ const logoSize = computed(() => {
 
 const logoVisible = computed(() => {
   if (isInitialLogoDisplay.value) return true;
-  if (shouldShowLibrespotPlayer.value) return false;
+  // Cacher le logo dès que LibrespotView s'affiche
+  if (shouldShowLibrespotView.value && shouldAnimateLibrespot.value) return false;
   return true;
 });
-
-// === FONCTIONS UTILITAIRES ===
-
-function cleanHostname(hostname) {
-  if (!hostname) return '';
-  return hostname
-    .replace('.local', '')
-    .replace(/-/g, ' ');
-}
 
 // === GESTION DES ACTIONS ===
 
@@ -161,7 +200,6 @@ async function handleDisconnect() {
         });
         break;
       case 'roc':
-        // ROC n'a pas de déconnexion explicite
         console.log('ROC disconnect not implemented');
         return;
       default:
@@ -186,14 +224,14 @@ async function handleDisconnect() {
   }
 }
 
-// === GESTION DU LOGO INITIAL (inchangée) ===
+// === GESTION DU LOGO INITIAL ===
 
 onMounted(() => {
   setTimeout(async () => {
     isInitialLogoDisplay.value = false;
     await new Promise(resolve => setTimeout(resolve, 150));
     shouldAnimateContent.value = true;
-  }, 1350);
+  }, 350);
 });
 </script>
 

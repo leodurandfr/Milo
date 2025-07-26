@@ -1,6 +1,6 @@
 <template>
   <div class="librespot-player">
-    <div v-if="hasTrackInfo" class="now-playing" :class="{ 'animate-in': showPlayer }">
+    <div v-if="hasTrackInfo" class="now-playing">
       <!-- Partie gauche : Image de couverture -->
       <div class="album-art-section" :class="{ 'slide-in': showAlbumArt }">
         <div class="album-art-container">
@@ -18,7 +18,7 @@
       </div>
 
       <!-- Partie droite : Informations et contrôles -->
-      <div class="content-section">
+      <div class="content-section" :class="{ 'slide-in': showContentSection }">
         <!-- Bloc 1 : Informations (prend l'espace restant) -->
         <div class="track-info" :class="{ 'slide-up': showTrackInfo }">
           <h1 class="track-title heading-1">{{ unifiedStore.metadata.title || 'Titre inconnu' }}</h1>
@@ -39,10 +39,6 @@
       </div>
     </div>
 
-    <div v-else-if="unifiedStore.pluginState === 'ready'" class="plugin-status-wrapper">
-      <PluginStatus plugin-type="librespot" :plugin-state="unifiedStore.pluginState" :should-animate="shouldAnimate" />
-    </div>
-
     <div v-if="unifiedStore.error && unifiedStore.currentSource === 'librespot'" class="error-message">
       {{ unifiedStore.error }}
     </div>
@@ -58,9 +54,8 @@ import axios from 'axios';
 
 import PlaybackControls from '../components/librespot/PlaybackControls.vue';
 import ProgressBar from '../components/librespot/ProgressBar.vue';
-import PluginStatus from '@/components/ui/PluginStatus.vue';
 
-// Props
+// Props OPTIM : Juste shouldAnimate
 const props = defineProps({
   shouldAnimate: {
     type: Boolean,
@@ -73,13 +68,13 @@ const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
 const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackProgress();
 
 // États d'animation
-const showPlayer = ref(false);
 const showAlbumArt = ref(false);
+const showContentSection = ref(false);
 const showTrackInfo = ref(false);
 const showProgressBar = ref(false);
 const showControls = ref(false);
+const hasAnimated = ref(false);
 
-// CORRECTION : Ne plus vérifier currentSource car LibrespotView n'est affiché que sur librespot
 const hasTrackInfo = computed(() => {
   return !!(
     unifiedStore.pluginState === 'connected' &&
@@ -88,70 +83,56 @@ const hasTrackInfo = computed(() => {
   );
 });
 
-// Animation d'apparition du player
-async function animatePlayerIn() {
-  showPlayer.value = true;
+// === ANIMATION OPTIM ===
+
+async function animateIn() {
+  console.log('🎬 LibrespotView: Animating in');
+  hasAnimated.value = true;
+  
+  // Forcer le DOM à être prêt
   await nextTick();
+  await new Promise(resolve => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(resolve);
+    });
+  });
 
-  // Album art apparaît en premier
+  // Album art et content section ensemble
   showAlbumArt.value = true;
+  showContentSection.value = true;
 
-  // Track info après 100ms
-  setTimeout(() => {
-    showTrackInfo.value = true;
-  }, 100);
-
-  // Progress bar après 200ms
-  setTimeout(() => {
-    showProgressBar.value = true;
-  }, 200);
-
-  // Controls après 300ms
-  setTimeout(() => {
-    showControls.value = true;
-  }, 300);
+  // Stagger des infos
+  setTimeout(() => showTrackInfo.value = true, 100);
+  setTimeout(() => showProgressBar.value = true, 200);
+  setTimeout(() => showControls.value = true, 300);
 }
 
-// Reset des animations
-function resetAnimations() {
-  showPlayer.value = false;
-  showAlbumArt.value = false;
-  showTrackInfo.value = false;
-  showProgressBar.value = false;
+function animateOut() {
+  console.log('🎬 LibrespotView: Animating out');
   showControls.value = false;
+  showProgressBar.value = false;
+  showTrackInfo.value = false;
+  
+  setTimeout(() => {
+    showAlbumArt.value = false;
+    showContentSection.value = false;
+    hasAnimated.value = false;
+  }, 100);
 }
 
-// Watcher robuste pour hasTrackInfo
-watch(() => hasTrackInfo.value, async (hasTrack) => {
-  if (hasTrack && props.shouldAnimate) {
-    // Reset d'abord les animations
-    resetAnimations();
-    // Attendre le prochain tick pour que le DOM soit mis à jour
-    await nextTick();
-    // Petit délai pour s'assurer que tout est prêt
-    setTimeout(() => {
-      animatePlayerIn();
-    }, 50);
-  } else if (!hasTrack) {
-    resetAnimations();
+// === WATCHER PRINCIPAL OPTIM ===
+
+watch(() => props.shouldAnimate, async (shouldAnim) => {
+  console.log('🎵 LibrespotView shouldAnimate:', shouldAnim);
+  
+  if (shouldAnim && hasTrackInfo.value && !hasAnimated.value) {
+    await animateIn();
+  } else if (!shouldAnim && hasAnimated.value) {
+    animateOut();
   }
 }, { immediate: true });
 
-// Watcher robuste pour shouldAnimate
-watch(() => props.shouldAnimate, async (shouldAnim) => {
-  if (shouldAnim && hasTrackInfo.value) {
-    // Reset d'abord les animations
-    resetAnimations();
-    // Attendre le prochain tick pour que le DOM soit mis à jour
-    await nextTick();
-    // Petit délai pour s'assurer que tout est prêt
-    setTimeout(() => {
-      animatePlayerIn();
-    }, 100);
-  } else if (!shouldAnim) {
-    resetAnimations();
-  }
-});
+// === FONCTIONS UTILITAIRES ===
 
 function seekToPosition(position) {
   seekTo(position);
@@ -164,7 +145,6 @@ watch(() => unifiedStore.metadata, (newMetadata) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  // Pas besoin de vérifier currentSource ici car LibrespotView n'est monté que sur librespot
   try {
     const response = await axios.get('/librespot/status');
     if (response.data.status === 'ok') {
@@ -187,8 +167,6 @@ onMounted(async () => {
   } catch (error) {
     console.error('Error fetching librespot status:', error);
   }
-
-  // PLUS de déclenchement automatique au montage - on attend shouldAnimate
 });
 </script>
 
@@ -207,29 +185,38 @@ onMounted(async () => {
   background: var(--color-background-neutral);
 }
 
-.plugin-status-wrapper {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-05);
-}
-
-/* Animations */
+/* Album Art - FORCER l'état initial */
 .album-art-section {
   flex-shrink: 0;
   aspect-ratio: 1;
-  opacity: 0;
-  transform: translateY(20px);
+  opacity: 0 !important;
+  transform: translateY(20px) !important;
   transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
   order: 1;
   z-index: 2;
 }
 
 .album-art-section.slide-in {
-  opacity: 1;
-  transform: translateY(0);
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
+/* Content Section - FORCER l'état initial */
+.content-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  order: 2;
+  z-index: 1;
+  opacity: 0 !important;
+  transform: translateY(20px) !important;
+  transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.content-section.slide-in {
+  opacity: 1 !important;
+  transform: translateY(0) !important;
 }
 
 /* Container pour les deux art covers superposées */
@@ -256,18 +243,6 @@ onMounted(async () => {
   backface-visibility: hidden;
 }
 
-/* .album-art-blur img {
-  width: 100%;
-  height: 100%;
-  filter: blur(var(--space-07)) saturate(1.5);
-  transform: scale(1.1) translateZ(0);
-  opacity: .25;
-  -webkit-transform: scale(1.1) translateZ(0);
-  -webkit-backface-visibility: hidden;
-  perspective: 1000px;
-
-} */
-
 /* Art cover principale avec border radius */
 .album-art {
   position: relative;
@@ -283,16 +258,6 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-
-.content-section {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  order: 2;
-  z-index: 1;
 }
 
 .track-info {
@@ -376,7 +341,6 @@ onMounted(async () => {
   .track-info {
     padding: var(--space-06) 0 var(--space-03) 0;
   }
-
 }
 
 /* iOS */

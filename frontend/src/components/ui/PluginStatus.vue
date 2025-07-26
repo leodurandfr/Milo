@@ -1,4 +1,4 @@
-<!-- PluginStatus.vue - Animations autonomes avec timing parfait -->
+<!-- PluginStatus.vue - Version corrigée pour animation d'entrée fiable -->
 <template>
     <div ref="containerRef" class="plugin-status" :class="[`state-${animationState}`]">
         <div class="plugin-status-content">
@@ -68,6 +68,10 @@ const props = defineProps({
     isDisconnecting: {
         type: Boolean,
         default: false
+    },
+    shouldAnimate: {
+        type: Boolean,
+        default: false
     }
 });
 
@@ -75,14 +79,23 @@ const props = defineProps({
 const emit = defineEmits(['disconnect']);
 
 // === ÉTATS INTERNES POUR LE TIMING ===
-const animationState = ref('hidden');
+const animationState = ref('hidden'); // FORCER l'état initial hidden
 const isTransitioning = ref(false);
 const containerRef = ref(null);
+const hasAnimatedInitialEntry = ref(false);
 
 // États affichés (figés pendant les transitions)
 const displayedPluginType = ref(props.pluginType);
 const displayedPluginState = ref(props.pluginState);
 const displayedDeviceName = ref(props.deviceName);
+
+// === FONCTION UTILITAIRE REGROUPÉE ===
+function cleanHostname(hostname) {
+    if (!hostname) return '';
+    return hostname
+        .replace('.local', '')
+        .replace(/-/g, ' ');
+}
 
 // === COMPUTED BASÉS SUR LES ÉTATS AFFICHÉS ===
 
@@ -121,11 +134,13 @@ const displayedStatusLines = computed(() => {
 
     // État connected : messages avec nom d'appareil
     if (displayedPluginState.value === 'connected' && displayedDeviceName.value) {
+        const cleanedDeviceName = cleanHostname(displayedDeviceName.value);
+        
         switch (displayedPluginType.value) {
             case 'bluetooth':
-                return ['Connecté à', displayedDeviceName.value];
+                return ['Connecté à', displayedDeviceName.value]; // Bluetooth garde le nom original
             case 'roc':
-                return ['Connecté au', displayedDeviceName.value];
+                return ['Connecté au', cleanedDeviceName]; // ROC utilise le nom nettoyé
             default:
                 return ['Connecté à', displayedDeviceName.value];
         }
@@ -171,10 +186,8 @@ async function updateDisplayedContent() {
 }
 
 async function animateContentChange() {
-    // Si déjà en transition, attendre qu'elle se termine puis relancer
     if (isTransitioning.value) {
         console.log('⏳ Already transitioning, waiting...');
-        // Attendre la fin de la transition actuelle
         while (isTransitioning.value) {
             await new Promise(resolve => setTimeout(resolve, 50));
         }
@@ -182,7 +195,7 @@ async function animateContentChange() {
     }
     
     isTransitioning.value = true;
-    console.log('🎬 Starting animation');
+    console.log('🎬 Starting content change animation');
     
     // 1. Animation de sortie vers le HAUT (300ms)
     animationState.value = 'exiting';
@@ -208,8 +221,31 @@ async function animateContentChange() {
     
     setTimeout(() => {
         isTransitioning.value = false;
-        console.log('✅ Animation complete');
+        console.log('✅ Content change animation complete');
     }, 700);
+}
+
+// Animation d'entrée initiale
+async function animateInitialEntry() {
+    if (hasAnimatedInitialEntry.value) return;
+    
+    console.log('🎬 Starting PluginStatus initial entry animation');
+    hasAnimatedInitialEntry.value = true;
+    
+    // 1. Mettre à jour le contenu
+    await updateDisplayedContent();
+    await nextTick();
+    
+    // 2. Positionner en bas (preparing-entry)
+    console.log('📥 Initial entry: preparing-entry (BOTTOM)');
+    animationState.value = 'preparing-entry';
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    
+    // 3. Animation d'entrée depuis le BAS vers le centre
+    console.log('✨ Initial entry animation from BOTTOM');
+    animationState.value = 'visible';
+    
+    console.log('✅ Initial entry animation complete');
 }
 
 // === WATCHERS ===
@@ -219,6 +255,13 @@ watch(() => [props.pluginType, props.pluginState, props.deviceName],
     ([newType, newState, newDeviceName], [oldType, oldState, oldDeviceName]) => {
         
         console.log(`🔍 Change detected: ${oldType}/${oldState} → ${newType}/${newState}`);
+        
+        // Si on n'a pas encore fait l'animation d'entrée initiale, ignorer les changements
+        if (!hasAnimatedInitialEntry.value) {
+            console.log('📝 Updating content without animation (waiting for initial entry)');
+            updateDisplayedContent();
+            return;
+        }
         
         // Changement de type de plugin : toujours animer
         if (newType !== oldType) {
@@ -251,17 +294,28 @@ watch(() => [props.pluginType, props.pluginState, props.deviceName],
     { immediate: false }
 );
 
-// Animation d'entrée initiale
+// CORRIGÉ : Watcher pour shouldAnimate
+watch(() => props.shouldAnimate, (shouldAnim) => {
+    console.log('🔌 PluginStatus shouldAnimate changed:', shouldAnim, {
+        currentState: animationState.value,
+        hasAnimated: hasAnimatedInitialEntry.value
+    });
+    
+    if (shouldAnim && !hasAnimatedInitialEntry.value) {
+        console.log('✅ PluginStatus - Starting initial entry animation');
+        animateInitialEntry();
+    } else if (!shouldAnim && hasAnimatedInitialEntry.value) {
+        console.log('❌ PluginStatus - Resetting for exit');
+        animationState.value = 'hidden';
+        hasAnimatedInitialEntry.value = false;
+    }
+}, { immediate: true });
+
+// Initialisation du contenu au montage (sans animation)
 watch(() => props.pluginState, (newState) => {
-    if (newState && animationState.value === 'hidden' && !isTransitioning.value) {
-        // Première apparition
+    if (newState && !hasAnimatedInitialEntry.value) {
+        console.log('📝 Initial content setup without animation');
         updateDisplayedContent();
-        nextTick(() => {
-            animationState.value = 'preparing-entry';
-            requestAnimationFrame(() => {
-                animationState.value = 'visible';
-            });
-        });
     }
 }, { immediate: true });
 
@@ -304,7 +358,7 @@ function handleDisconnect() {
 /* État de préparation d'entrée - BAS SANS TRANSITION */
 .plugin-status.state-preparing-entry {
     opacity: 0;
-    transform: translateY(calc(var(--space-06) + 4px)) scale(0.95); /* Légèrement plus bas */
+    transform: translateY(calc(var(--space-06) + 4px)) scale(0.95);
     transition: none !important; /* PAS de transition pour le placement */
 }
 
