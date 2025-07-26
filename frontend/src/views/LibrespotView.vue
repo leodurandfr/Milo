@@ -1,52 +1,56 @@
+<!-- LibrespotView.vue - Version animations centralisées -->
 <template>
-  <div class="librespot-player">
-    <div v-if="hasTrackInfo" class="now-playing">
-      <!-- Partie gauche : Image de couverture -->
-      <div class="album-art-section" :class="{ 'slide-in': showAlbumArt }">
-        <div class="album-art-container">
-          <!-- Blur en arrière-plan -->
-          <div class="album-art-blur"
-            :style="{ backgroundImage: unifiedStore.metadata.album_art_url ? `url(${unifiedStore.metadata.album_art_url})` : 'none' }">
+  <!-- Transition externe : entrée/sortie du composant -->
+  <Transition name="librespot" appear>
+    <div v-if="isReadyToShow" class="librespot-player">
+      <div class="now-playing">
+        <!-- Partie gauche : Image de couverture avec staggering CSS -->
+        <div class="album-art-section stagger-1">
+          <div class="album-art-container">
+            <!-- Blur en arrière-plan -->
+            <div class="album-art-blur"
+              :style="{ backgroundImage: persistentMetadata.album_art_url ? `url(${persistentMetadata.album_art_url})` : 'none' }">
+            </div>
+
+            <!-- Art cover principale -->
+            <div class="album-art">
+              <img v-if="persistentMetadata.album_art_url" :src="persistentMetadata.album_art_url"
+                alt="Album Art" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Partie droite : Informations et contrôles avec staggering CSS -->
+        <div class="content-section stagger-2">
+          <!-- Bloc 1 : Informations (prend l'espace restant) -->
+          <div class="track-info stagger-3">
+            <h1 class="track-title heading-1">{{ persistentMetadata.title || 'Titre inconnu' }}</h1>
+            <p class="track-artist heading-2">{{ persistentMetadata.artist || 'Artiste inconnu' }}</p>
           </div>
 
-          <!-- Art cover principale -->
-          <div class="album-art">
-            <img v-if="unifiedStore.metadata.album_art_url" :src="unifiedStore.metadata.album_art_url"
-              alt="Album Art" />
+          <!-- Bloc 2 : Contrôles (aligné en bas) -->
+          <div class="controls-section">
+            <div class="progress-wrapper stagger-4">
+              <ProgressBar :currentPosition="currentPosition" :duration="duration"
+                :progressPercentage="progressPercentage" @seek="seekToPosition" />
+            </div>
+            <div class="controls-wrapper stagger-5">
+              <PlaybackControls :isPlaying="persistentMetadata.is_playing" @play-pause="togglePlayPause"
+                @previous="previousTrack" @next="nextTrack" />
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Partie droite : Informations et contrôles -->
-      <div class="content-section" :class="{ 'slide-in': showContentSection }">
-        <!-- Bloc 1 : Informations (prend l'espace restant) -->
-        <div class="track-info" :class="{ 'slide-up': showTrackInfo }">
-          <h1 class="track-title heading-1">{{ unifiedStore.metadata.title || 'Titre inconnu' }}</h1>
-          <p class="track-artist heading-2">{{ unifiedStore.metadata.artist || 'Artiste inconnu' }}</p>
-        </div>
-
-        <!-- Bloc 2 : Contrôles (aligné en bas) -->
-        <div class="controls-section">
-          <div class="progress-wrapper" :class="{ 'slide-up': showProgressBar }">
-            <ProgressBar :currentPosition="currentPosition" :duration="duration"
-              :progressPercentage="progressPercentage" @seek="seekToPosition" />
-          </div>
-          <div class="controls-wrapper" :class="{ 'slide-up': showControls }">
-            <PlaybackControls :isPlaying="unifiedStore.metadata.is_playing" @play-pause="togglePlayPause"
-              @previous="previousTrack" @next="nextTrack" />
-          </div>
-        </div>
+      <div v-if="unifiedStore.error && unifiedStore.currentSource === 'librespot'" class="error-message">
+        {{ unifiedStore.error }}
       </div>
     </div>
-
-    <div v-if="unifiedStore.error && unifiedStore.currentSource === 'librespot'" class="error-message">
-      {{ unifiedStore.error }}
-    </div>
-  </div>
+  </Transition>
 </template>
 
 <script setup>
-import { computed, watch, onMounted, ref, nextTick } from 'vue';
+import { computed, watch, onMounted, ref } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useLibrespotControl } from '@/composables/useLibrespotControl';
 import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
@@ -55,95 +59,84 @@ import axios from 'axios';
 import PlaybackControls from '../components/librespot/PlaybackControls.vue';
 import ProgressBar from '../components/librespot/ProgressBar.vue';
 
-// Props OPTIM : Juste shouldAnimate
-const props = defineProps({
-  shouldAnimate: {
-    type: Boolean,
-    default: false
-  }
-});
-
 const unifiedStore = useUnifiedAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
 const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackProgress();
 
-// États d'animation
-const showAlbumArt = ref(false);
-const showContentSection = ref(false);
-const showTrackInfo = ref(false);
-const showProgressBar = ref(false);
-const showControls = ref(false);
-const hasAnimated = ref(false);
+// === PRELOAD IMAGE ===
+const imageLoaded = ref(false);
+const imageError = ref(false);
 
-const hasTrackInfo = computed(() => {
-  return !!(
-    unifiedStore.pluginState === 'connected' &&
-    unifiedStore.metadata?.title &&
-    unifiedStore.metadata?.artist
-  );
+// === PERSISTANCE DES MÉTADONNÉES ===
+// Garde les dernières métadonnées valides pour éviter le flash pendant l'animation de sortie
+const lastValidMetadata = ref({
+  title: '',
+  artist: '',
+  album_art_url: '',
+  is_playing: false
 });
 
-// === ANIMATION OPTIM ===
-
-async function animateIn() {
-  console.log('🎬 LibrespotView: Animating in');
-  hasAnimated.value = true;
+const persistentMetadata = computed(() => {
+  const currentMetadata = unifiedStore.metadata || {};
   
-  // Forcer le DOM à être prêt
-  await nextTick();
-  await new Promise(resolve => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(resolve);
-    });
-  });
-
-  // Album art et content section ensemble
-  showAlbumArt.value = true;
-  showContentSection.value = true;
-
-  // Stagger des infos
-  setTimeout(() => showTrackInfo.value = true, 100);
-  setTimeout(() => showProgressBar.value = true, 200);
-  setTimeout(() => showControls.value = true, 300);
-}
-
-function animateOut() {
-  console.log('🎬 LibrespotView: Animating out');
-  showControls.value = false;
-  showProgressBar.value = false;
-  showTrackInfo.value = false;
-  
-  setTimeout(() => {
-    showAlbumArt.value = false;
-    showContentSection.value = false;
-    hasAnimated.value = false;
-  }, 100);
-}
-
-// === WATCHER PRINCIPAL OPTIM ===
-
-watch(() => props.shouldAnimate, async (shouldAnim) => {
-  console.log('🎵 LibrespotView shouldAnimate:', shouldAnim);
-  
-  if (shouldAnim && hasTrackInfo.value && !hasAnimated.value) {
-    await animateIn();
-  } else if (!shouldAnim && hasAnimated.value) {
-    animateOut();
+  // Si on a des métadonnées valides actuellement, les utiliser et les sauvegarder
+  if (currentMetadata.title && currentMetadata.artist) {
+    lastValidMetadata.value = {
+      title: currentMetadata.title,
+      artist: currentMetadata.artist,
+      album_art_url: currentMetadata.album_art_url || '',
+      is_playing: currentMetadata.is_playing || false
+    };
+    return lastValidMetadata.value;
   }
+  
+  // Sinon, utiliser les dernières métadonnées valides sauvegardées
+  return lastValidMetadata.value;
+});
+
+// === LOGIQUE D'AFFICHAGE AVEC PRELOAD ===
+const isReadyToShow = computed(() => {
+  // Si on a une image, attendre qu'elle soit chargée
+  if (persistentMetadata.value.album_art_url) {
+    return imageLoaded.value || imageError.value;
+  }
+  // Si pas d'image, afficher directement
+  return true;
+});
+
+// Preload de l'image quand l'URL change
+watch(() => persistentMetadata.value.album_art_url, (newUrl) => {
+  if (!newUrl) {
+    imageLoaded.value = true;
+    imageError.value = false;
+    return;
+  }
+  
+  // Reset des états
+  imageLoaded.value = false;
+  imageError.value = false;
+  
+  // Preload de l'image
+  const img = new Image();
+  img.onload = () => {
+    imageLoaded.value = true;
+    console.log('🖼️ Image loaded:', newUrl);
+  };
+  img.onerror = () => {
+    imageError.value = true;
+    console.warn('🖼️ Image failed to load:', newUrl);
+  };
+  img.src = newUrl;
 }, { immediate: true });
 
-// === FONCTIONS UTILITAIRES ===
-
-function seekToPosition(position) {
-  seekTo(position);
-}
-
+// === WATCHERS ===
 watch(() => unifiedStore.metadata, (newMetadata) => {
   if (newMetadata?.position !== undefined) {
     // La synchronisation est gérée dans usePlaybackProgress
   }
 }, { immediate: true });
 
+// === LIFECYCLE ===
 onMounted(async () => {
   try {
     const response = await axios.get('/librespot/status');
@@ -171,6 +164,43 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* === STAGGERING CSS CENTRALISÉ === */
+
+/* États initiaux : tous les éléments sont cachés */
+.stagger-1,
+.stagger-2,
+.stagger-3,
+.stagger-4,
+.stagger-5 {
+  opacity: 0;
+  transform: translateY(var(--space-05));
+}
+
+/* Animation d'entrée déclenchée au montage du composant */
+.librespot-player .stagger-1,
+.librespot-player .stagger-2,
+.librespot-player .stagger-3,
+.librespot-player .stagger-4,
+.librespot-player .stagger-5 {
+  animation: stagger-in 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+/* Délais échelonnés */
+.librespot-player .stagger-1 { animation-delay: 0ms; }
+.librespot-player .stagger-2 { animation-delay: 0ms; } /* Content section en même temps */
+.librespot-player .stagger-3 { animation-delay: 100ms; }
+.librespot-player .stagger-4 { animation-delay: 200ms; }
+.librespot-player .stagger-5 { animation-delay: 300ms; }
+
+/* Animation d'entrée */
+@keyframes stagger-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* === STYLES DU COMPOSANT === */
 .librespot-player {
   width: 100%;
   height: 100%;
@@ -185,23 +215,15 @@ onMounted(async () => {
   background: var(--color-background-neutral);
 }
 
-/* Album Art - FORCER l'état initial */
+/* Album Art */
 .album-art-section {
   flex-shrink: 0;
   aspect-ratio: 1;
-  opacity: 0 !important;
-  transform: translateY(20px) !important;
-  transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
   order: 1;
   z-index: 2;
 }
 
-.album-art-section.slide-in {
-  opacity: 1 !important;
-  transform: translateY(0) !important;
-}
-
-/* Content Section - FORCER l'état initial */
+/* Content Section */
 .content-section {
   flex: 1;
   display: flex;
@@ -209,14 +231,6 @@ onMounted(async () => {
   justify-content: space-between;
   order: 2;
   z-index: 1;
-  opacity: 0 !important;
-  transform: translateY(20px) !important;
-  transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
-}
-
-.content-section.slide-in {
-  opacity: 1 !important;
-  transform: translateY(0) !important;
 }
 
 /* Container pour les deux art covers superposées */
@@ -268,36 +282,6 @@ onMounted(async () => {
   text-align: center;
   gap: var(--space-03);
   padding: var(--space-06) 0;
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
-}
-
-.track-info.slide-up {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.progress-wrapper {
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
-}
-
-.progress-wrapper.slide-up {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.controls-wrapper {
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.6s cubic-bezier(0.25, 1, 0.5, 1), transform 0.6s cubic-bezier(0.25, 1, 0.5, 1);
-}
-
-.controls-wrapper.slide-up {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 .controls-section {
