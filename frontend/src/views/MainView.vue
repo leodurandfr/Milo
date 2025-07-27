@@ -1,17 +1,17 @@
-<!-- MainView.vue - Version transitions Vue pures -->
+<!-- MainView.vue - Version avec ajustements animations -->
 <template>
   <div class="main-view">
-    <!-- Logo simple basé uniquement sur la logique d'affichage -->
+    <!-- Logo avec logique de centrage initial -->
     <Logo 
       :position="logoPosition"
       :size="logoSize"
       :visible="logoVisible"
     />
 
-    <!-- Conteneur de contenu simple -->
+    <!-- Conteneur de contenu -->
     <div class="content-container">
 
-      <!-- Transition centralisée avec léger chevauchement -->
+      <!-- Transition centralisée -->
       <Transition name="main-content">
         
         <!-- LibrespotView -->
@@ -58,10 +58,10 @@ const disconnectingStates = ref({
   librespot: false
 });
 
-// État pour affichage initial du logo
+// État pour affichage initial du logo (centré pendant 1000ms)
 const showInitialLogo = ref(true);
 
-// === LOGIQUE D'AFFICHAGE PURE ===
+// === LOGIQUE D'AFFICHAGE SIMPLE ===
 
 // Condition pour avoir des métadonnées complètes
 const hasCompleteTrackInfo = computed(() => {
@@ -72,10 +72,10 @@ const hasCompleteTrackInfo = computed(() => {
   );
 });
 
-// LibrespotView : Afficher si on a les métadonnées complètes ET après le délai initial
+// LibrespotView : Afficher si on est sur librespot ET connecté (peu importe les métadonnées)
 const shouldShowLibrespotView = computed(() => {
   if (showInitialLogo.value) return false; // Attendre fin logo initial
-  return unifiedStore.displayedSource === 'librespot' && hasCompleteTrackInfo.value;
+  return unifiedStore.displayedSource === 'librespot' && unifiedStore.pluginState === 'connected';
 });
 
 // PluginStatus : Tous les autres cas avec une source active ET après le délai initial
@@ -88,9 +88,8 @@ const shouldShowPluginStatus = computed(() => {
   // Sources bluetooth/roc : toujours PluginStatus
   if (['bluetooth', 'roc'].includes(unifiedStore.displayedSource)) return true;
   
-  // Librespot sans métadonnées complètes : PluginStatus
-  if (unifiedStore.displayedSource === 'librespot' && 
-      (unifiedStore.pluginState === 'ready' || !hasCompleteTrackInfo.value)) {
+  // Librespot en état ready (pas encore connecté) : PluginStatus
+  if (unifiedStore.displayedSource === 'librespot' && unifiedStore.pluginState === 'ready') {
     return true;
   }
   
@@ -128,9 +127,12 @@ const pluginStatusKey = computed(() => {
   return `${currentPluginType.value}-${currentPluginState.value}-${!!currentDeviceName.value}`;
 });
 
-// === LOGIQUE DU LOGO SIMPLIFIÉE ===
+// === LOGIQUE DU LOGO AVEC CENTRAGE INITIAL ===
 
 const logoPosition = computed(() => {
+  // Logo centré pendant les 1000ms initiales
+  if (showInitialLogo.value) return 'center';
+  
   // Logo centré si aucune source ou aucun contenu affiché
   if (unifiedStore.currentSource === 'none' && !unifiedStore.isTransitioning) {
     return 'center';
@@ -145,7 +147,7 @@ const logoSize = computed(() => {
 });
 
 const logoVisible = computed(() => {
-  // Logo initial pendant 1000ms au refresh
+  // Logo visible pendant les 1000ms initiales
   if (showInitialLogo.value) return true;
   
   // Cacher le logo quand LibrespotView est affiché (il prend tout l'écran)
@@ -157,7 +159,7 @@ const logoVisible = computed(() => {
 
 // === LIFECYCLE ===
 onMounted(() => {
-  // Garder le logo visible 1000ms au refresh
+  // Garder le logo centré pendant 1000ms au refresh
   setTimeout(() => {
     showInitialLogo.value = false;
   }, 1000);
@@ -220,27 +222,27 @@ async function handleDisconnect() {
   position: relative;
 }
 
-/* === TRANSITIONS OPTIMISÉES ANTI-FREEZE === */
+/* === TRANSITIONS AVEC SPRING === */
 .main-content-enter-active {
-  transition: opacity 0.4s ease, transform 0.5s cubic-bezier(0.25, 1, 0.5, 1);
-  transition-delay: 0.05s; /* Délai réduit pour moins de freeze */
+  transition: opacity 0.4s ease, transform var(--transition-spring);
+  transition-delay: 0.05s;
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  will-change: opacity, transform; /* Optimisation GPU */
+  will-change: opacity, transform;
 }
 
 .main-content-leave-active {
-  transition: opacity 0.35s ease, transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+  transition: opacity 0.35s ease, transform var(--transition-spring);
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  will-change: opacity, transform; /* Optimisation GPU */
-  z-index: 1; /* Assurer que le sortant est en dessous */
+  will-change: opacity, transform;
+  z-index: 1;
 }
 
 .main-content-enter-from {
