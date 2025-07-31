@@ -1,5 +1,5 @@
 #!/bin/bash
-# Milo Audio System - Installation Script v1.0
+# Milo Audio System - Installation Script v1.1
 
 set -e
 
@@ -10,6 +10,13 @@ MILO_DATA_DIR="/var/lib/milo"
 MILO_REPO="https://github.com/Leshauts/Milo.git"
 REQUIRED_HOSTNAME="milo"
 REBOOT_REQUIRED=false
+
+# Variables pour stocker les choix utilisateur
+USER_HOSTNAME_CHANGE=""
+USER_HIFIBERRY_CHOICE=""
+USER_RESTART_CHOICE=""
+HIFIBERRY_OVERLAY=""
+CARD_NAME=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -41,7 +48,7 @@ show_banner() {
     echo " | |  | | | | (_) |"
     echo " |_|  |_|_|_|\___/ "
     echo ""
-    echo "Audio System Installation Script v1.0"
+    echo "Audio System Installation Script v1.1"
     echo -e "${NC}"
 }
 
@@ -69,43 +76,20 @@ check_system() {
     log_success "Système compatible détecté"
 }
 
-install_dependencies() {
-    log_info "Mise à jour du système..."
-    
-    export DEBIAN_FRONTEND=noninteractive
-    export DEBCONF_NONINTERACTIVE_SEEN=true
-    
-    echo 'Dpkg::Options {
-       "--force-confdef";
-       "--force-confnew";
-    }' | sudo tee /etc/apt/apt.conf.d/local >/dev/null
-    
-    sudo apt update
-    sudo apt upgrade -y
-    
-    log_info "Installation des dépendances de base..."
-    sudo apt install -y git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
-    cmake build-essential pkg-config nodejs npm
-    
-    log_info "Mise à jour de Node.js et npm..."
-    sudo npm install -g n
-    sudo n stable
-    sudo npm install -g npm@latest
-    hash -r
-    
-    sudo rm -f /etc/apt/apt.conf.d/local
-    
-    log_success "Dépendances installées"
-}
-
-setup_hostname() {
-    local current_hostname=$(hostname)
-    
-    log_info "Vérification du hostname..."
-    log_info "Hostname actuel: $current_hostname"
+# ===============================
+# NOUVELLE FONCTION POUR COLLECTER TOUS LES CHOIX
+# ===============================
+collect_user_choices() {
+    echo ""
+    log_info "Configuration initiale - Répondez aux questions suivantes :"
     echo ""
     
+    # 1. Vérification du hostname
+    local current_hostname=$(hostname)
+    log_info "Hostname actuel: $current_hostname"
+    
     if [ "$current_hostname" != "$REQUIRED_HOSTNAME" ]; then
+        echo ""
         echo -e "${YELLOW}⚠️  IMPORTANT:${NC} Milo nécessite le hostname '${REQUIRED_HOSTNAME}' pour:"
         echo "   • Accès via ${REQUIRED_HOSTNAME}.local depuis le navigateur"
         echo "   • Fonctionnement optimal du multiroom (Snapserver)"
@@ -114,33 +98,28 @@ setup_hostname() {
         echo -e "${BLUE}🔄 Changement de hostname requis:${NC} '$current_hostname' → '$REQUIRED_HOSTNAME'"
         echo ""
         
-        read -p "Changer le hostname vers '$REQUIRED_HOSTNAME' ? (O/n): " change_hostname
-        case $change_hostname in
-            [Nn]* )
-                log_error "Installation annulée. Le hostname '$REQUIRED_HOSTNAME' est requis."
-                exit 1
-                ;;
-            * )
-                log_info "Configuration du hostname '$REQUIRED_HOSTNAME'..."
-                configure_hostname "$REQUIRED_HOSTNAME"
-                log_success "Hostname configuré"
-                log_warning "Un redémarrage sera nécessaire après l'installation."
-                REBOOT_REQUIRED=true
-                ;;
-        esac
+        while true; do
+            read -p "Changer le hostname vers '$REQUIRED_HOSTNAME' ? (O/n): " USER_HOSTNAME_CHANGE
+            case $USER_HOSTNAME_CHANGE in
+                [Nn]* )
+                    log_error "Installation annulée. Le hostname '$REQUIRED_HOSTNAME' est requis."
+                    exit 1
+                    ;;
+                [Oo]* | "" )
+                    USER_HOSTNAME_CHANGE="yes"
+                    break
+                    ;;
+                * )
+                    echo "Veuillez répondre par 'O' (oui) ou 'n' (non)."
+                    ;;
+            esac
+        done
     else
-        log_success "Hostname '$REQUIRED_HOSTNAME' déjà configuré"
+        USER_HOSTNAME_CHANGE="already_set"
     fi
-}
-
-configure_hostname() {
-    local new_hostname="$1"
-    echo "$new_hostname" | sudo tee /etc/hostname > /dev/null
-    sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$new_hostname/" /etc/hosts
-    sudo hostnamectl set-hostname "$new_hostname"
-}
-
-choose_hifiberry() {
+    
+    # 2. Choix de la carte HiFiBerry
+    echo ""
     log_info "Configuration de la carte audio HiFiBerry..."
     echo ""
     echo "Sélectionnez votre carte audio HiFiBerry:"
@@ -154,10 +133,10 @@ choose_hifiberry() {
     echo ""
     
     while true; do
-        read -p "Votre choix [1]: " hifiberry_choice
-        hifiberry_choice=${hifiberry_choice:-1}
+        read -p "Votre choix [1]: " USER_HIFIBERRY_CHOICE
+        USER_HIFIBERRY_CHOICE=${USER_HIFIBERRY_CHOICE:-1}
         
-        case $hifiberry_choice in
+        case $USER_HIFIBERRY_CHOICE in
             1) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Carte sélectionnée: Amp2"; break;;
             2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Carte sélectionnée: Amp4"; break;;
             3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; log_success "Carte sélectionnée: Amp4 Pro"; break;;
@@ -167,10 +146,62 @@ choose_hifiberry() {
             *) echo "Choix invalide. Veuillez entrer un nombre entre 1 et 6.";;
         esac
     done
+    
+    # 3. Choix du redémarrage (on le demande maintenant mais on l'utilisera à la fin)
+    echo ""
+    log_info "Un redémarrage sera nécessaire à la fin de l'installation."
+    while true; do
+        read -p "Redémarrer automatiquement à la fin ? (O/n): " USER_RESTART_CHOICE
+        case $USER_RESTART_CHOICE in
+            [Nn]* )
+                USER_RESTART_CHOICE="no"
+                break
+                ;;
+            [Oo]* | "" )
+                USER_RESTART_CHOICE="yes"
+                break
+                ;;
+            * )
+                echo "Veuillez répondre par 'O' (oui) ou 'n' (non)."
+                ;;
+        esac
+    done
+    
+    echo ""
+    log_success "Configuration terminée ! L'installation va maintenant se poursuivre automatiquement..."
+    echo ""
+    sleep 2
+}
+
+# ===============================
+# FONCTIONS MODIFIÉES POUR UTILISER LES VARIABLES
+# ===============================
+
+setup_hostname() {
+    local current_hostname=$(hostname)
+    
+    log_info "Application de la configuration hostname..."
+    
+    if [ "$USER_HOSTNAME_CHANGE" == "yes" ]; then
+        log_info "Configuration du hostname '$REQUIRED_HOSTNAME'..."
+        configure_hostname "$REQUIRED_HOSTNAME"
+        log_success "Hostname configuré"
+        REBOOT_REQUIRED=true
+    elif [ "$USER_HOSTNAME_CHANGE" == "already_set" ]; then
+        log_success "Hostname '$REQUIRED_HOSTNAME' déjà configuré"
+    fi
+}
+
+configure_hostname() {
+    local new_hostname="$1"
+    echo "$new_hostname" | sudo tee /etc/hostname > /dev/null
+    sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$new_hostname/" /etc/hosts
+    sudo hostnamectl set-hostname "$new_hostname"
 }
 
 configure_audio_hardware() {
     if [[ -z "$HIFIBERRY_OVERLAY" ]]; then
+        log_info "Configuration HiFiBerry ignorée"
         return
     fi
     
@@ -210,6 +241,35 @@ configure_audio_hardware() {
     
     log_success "Configuration audio hardware terminée"
     REBOOT_REQUIRED=true
+}
+
+install_dependencies() {
+    log_info "Mise à jour du système..."
+    
+    export DEBIAN_FRONTEND=noninteractive
+    export DEBCONF_NONINTERACTIVE_SEEN=true
+    
+    echo 'Dpkg::Options {
+       "--force-confdef";
+       "--force-confnew";
+    }' | sudo tee /etc/apt/apt.conf.d/local >/dev/null
+    
+    sudo apt update
+    sudo apt upgrade -y
+    
+    log_info "Installation des dépendances de base..."
+    sudo apt install -y git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
+    cmake build-essential pkg-config nodejs npm
+    
+    log_info "Mise à jour de Node.js et npm..."
+    sudo npm install -g n
+    sudo n stable
+    sudo npm install -g npm@latest
+    hash -r
+    
+    sudo rm -f /etc/apt/apt.conf.d/local
+    
+    log_success "Dépendances installées"
 }
 
 create_milo_user() {
@@ -1052,14 +1112,15 @@ finalize_installation() {
    if [[ "$REBOOT_REQUIRED" == "true" ]]; then
        echo -e "${YELLOW}⚠️  REDÉMARRAGE REQUIS${NC}"
        echo ""
-       read -p "Redémarrer maintenant ? (O/n): " restart_now
-       case $restart_now in
-           [Nn]* )
-               echo -e "${YELLOW}Pensez à redémarrer manuellement avec: sudo reboot${NC}"
-               ;;
-           * )
-               log_info "Redémarrage en cours..."
+       
+       case $USER_RESTART_CHOICE in
+           "yes")
+               log_info "Redémarrage automatique dans 5 secondes..."
+               sleep 5
                sudo reboot
+               ;;
+           "no")
+               echo -e "${YELLOW}Pensez à redémarrer manuellement avec: sudo reboot${NC}"
                ;;
        esac
    else
@@ -1133,6 +1194,9 @@ uninstall_milo() {
    esac
 }
 
+# ===============================
+# FONCTION PRINCIPALE MODIFIÉE
+# ===============================
 main() {
    show_banner
    
@@ -1147,9 +1211,13 @@ main() {
    echo ""
    
    check_system
+   
+   # COLLECTE DE TOUS LES CHOIX UTILISATEUR EN DÉBUT D'INSTALLATION
+   collect_user_choices
+   
+   # INSTALLATION AUTOMATIQUE SANS INTERACTION
    install_dependencies
    setup_hostname
-   choose_hifiberry
    configure_audio_hardware
    
    create_milo_user
