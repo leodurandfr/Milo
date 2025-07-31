@@ -80,9 +80,9 @@ const props = defineProps({
 const emit = defineEmits(['disconnect']);
 
 // === FONCTION UTILITAIRE ===
-function cleanHostname(hostname) {
-  if (!hostname) return '';
-  return hostname
+function cleanDeviceName(deviceName) {
+  if (!deviceName) return '';
+  return deviceName
     .replace('.local', '')
     .replace(/-/g, ' ');
 }
@@ -127,13 +127,13 @@ const displayedStatusLines = computed(() => {
 
   // État connected : messages avec nom d'appareil
   if (props.pluginState === 'connected' && props.deviceName) {
-    const cleanedDeviceName = cleanHostname(props.deviceName);
+    const cleanedDeviceName = cleanDeviceName(props.deviceName);
     
     switch (props.pluginType) {
       case 'bluetooth':
-        return ['Connecté à', props.deviceName]; // Bluetooth garde le nom original
+        return ['Connecté à', cleanedDeviceName];
       case 'roc':
-        return ['Connecté au', cleanedDeviceName]; // ROC utilise le nom nettoyé
+        return ['Connecté au', cleanedDeviceName];
       default:
         return ['Connecté à', props.deviceName];
     }
