@@ -296,6 +296,7 @@ onMounted(async () => {
   border-radius: var(--radius-06);
   overflow: hidden;
   box-shadow: 0px 0px 96px 0px #0000000d;
+  pointer-events: none;
 }
 
 .album-art img {
