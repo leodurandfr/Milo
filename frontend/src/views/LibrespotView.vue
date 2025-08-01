@@ -29,8 +29,8 @@
         <!-- Bloc 2 : Contrôles (aligné en bas) -->
         <div class="controls-section">
           <div class="progress-wrapper stagger-4">
-            <ProgressBar :currentPosition="currentPosition" :duration="duration"
-              :progressPercentage="progressPercentage" @seek="seekToPosition" />
+          <ProgressBar :currentPosition="currentPosition" :duration="duration"
+            :progressPercentage="progressPercentage" @seek="seekTo" />
           </div>
           <div class="controls-wrapper stagger-5">
             <PlaybackControls :isPlaying="persistentMetadata.is_playing" @play-pause="togglePlayPause"
