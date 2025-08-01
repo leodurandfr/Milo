@@ -340,13 +340,12 @@ onUnmounted(() => {
   background: var(--color-background-neutral-50);
   border-radius: var(--radius-06);
   width: 100%;
-  max-width: 72%;
+  max-width: 680px;
   max-height: 100%;
   display: flex;
   flex-direction: column;
   /* État initial pour l'animation - OPTIM : valeurs similaires au dock */
   opacity: 0;
-  /* transform: translateY(80px) scale(0.85); */
 }
 
 .modal-container::before {
