@@ -1,35 +1,31 @@
 <!-- frontend/src/components/navigation/BottomNavigation.vuz -->
 <template>
   <!-- Zone de drag invisible -->
-  <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" 
-       @click.stop="onDragZoneClick"></div>
+  <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click.stop="onDragZoneClick"></div>
 
   <!-- Indicateur de drag -->
-  <div class="dock-indicator" :class="{ hidden: isVisible, visible: showDragIndicator }" 
-       @click.stop="onIndicatorClick"></div>
+  <div class="dock-indicator" :class="{ hidden: isVisible, visible: showDragIndicator }" @click.stop="onIndicatorClick">
+  </div>
 
   <!-- Dock de navigation -->
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }">
     <!-- Additional Apps - Mobile uniquement -->
-    <div v-if="additionalAppsInDOM" 
-         ref="additionalAppsContainer"
-         class="additional-apps-container mobile-only"
-         :class="{ visible: showAdditionalApps }">
-      
-      <button v-for="{ id, icon, title, handler } in ADDITIONAL_ACTIONS" :key="id"
-              @click="handler" @touchstart="addPressEffect" @mousedown="addPressEffect" 
-              class="additional-app-content button-interactive-subtle">
+    <div v-if="additionalAppsInDOM" ref="additionalAppsContainer" class="additional-apps-container mobile-only"
+      :class="{ visible: showAdditionalApps }">
+
+      <button v-for="{ id, icon, title, handler } in ADDITIONAL_ACTIONS" :key="id" @click="handler"
+        @touchstart="addPressEffect" @mousedown="addPressEffect"
+        class="additional-app-content button-interactive-subtle">
         <AppIcon :name="icon" :size="32" />
         <div class="app-title heading-2">{{ title }}</div>
       </button>
     </div>
-    
+
     <div ref="dock" class="dock">
       <!-- Volume Controls - Mobile uniquement -->
       <div class="volume-controls mobile-only">
-        <button v-for="{ icon, handler } in VOLUME_CONTROLS" :key="icon"
-                @click="handler" @touchstart="addPressEffect" @mousedown="addPressEffect"
-                class="volume-btn button-interactive-subtle">
+        <button v-for="{ icon, handler } in VOLUME_CONTROLS" :key="icon" @click="handler" @touchstart="addPressEffect"
+          @mousedown="addPressEffect" class="volume-btn button-interactive-subtle">
           <Icon :name="icon" :size="32" />
         </button>
       </div>
@@ -37,12 +33,9 @@
       <!-- App Container -->
       <div class="app-container">
         <!-- Sources Audio -->
-        <button v-for="({ id, icon }, index) in AUDIO_SOURCES" :key="id"
-                :ref="el => dockItems[index] = el"
-                @click="() => handleSourceClick(id, index)"
-                @touchstart="addPressEffect" @mousedown="addPressEffect" 
-                :disabled="unifiedStore.isTransitioning"
-                class="dock-item button-interactive-subtle">
+        <button v-for="({ id, icon }, index) in AUDIO_SOURCES" :key="id" :ref="el => dockItems[index] = el"
+          @click="() => handleSourceClick(id, index)" @touchstart="addPressEffect" @mousedown="addPressEffect"
+          :disabled="unifiedStore.isTransitioning" class="dock-item button-interactive-subtle">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
@@ -51,14 +44,14 @@
 
         <!-- Toggle Additional Apps - Mobile uniquement -->
         <button @click="handleToggleClick" @touchstart="addPressEffect" @mousedown="addPressEffect"
-                class="dock-item toggle-btn mobile-only button-interactive">
+          class="dock-item toggle-btn mobile-only button-interactive">
           <Icon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
         <!-- Actions Desktop -->
-        <button v-for="{ id, icon, handler } in ADDITIONAL_ACTIONS" :key="`desktop-${id}`"
-                @click="handler" @touchstart="addPressEffect" @mousedown="addPressEffect"
-                class="dock-item desktop-only button-interactive-subtle">
+        <button v-for="{ id, icon, handler } in ADDITIONAL_ACTIONS" :key="`desktop-${id}`" @click="handler"
+          @touchstart="addPressEffect" @mousedown="addPressEffect"
+          class="dock-item desktop-only button-interactive-subtle">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
       </div>
@@ -119,7 +112,7 @@ let dragStartY = 0, dragCurrentY = 0, hideTimeout = null, additionalHideTimeout 
 let isDraggingAdditional = false, additionalDragStartY = 0, clickTimeout = null;
 
 // === COMPUTED ===
-const activeSourceIndex = computed(() => 
+const activeSourceIndex = computed(() =>
   AUDIO_SOURCES.findIndex(source => source.id === unifiedStore.currentSource)
 );
 
@@ -130,7 +123,7 @@ const indicatorStyle = ref({
 });
 
 // === UTILITAIRES ===
-const getEventY = (e) => e.type.includes('touch') 
+const getEventY = (e) => e.type.includes('touch')
   ? (e.touches[0]?.clientY || e.changedTouches[0]?.clientY) : e.clientY;
 
 const isDesktop = () => window.matchMedia('not (max-aspect-ratio: 4/3)').matches;
@@ -169,7 +162,7 @@ const updateActiveIndicator = () => {
     const offsetX = itemRect.left - dockRect.left + (itemRect.width / 2) - 2;
 
     indicatorStyle.value = { opacity: '0', transform: `translateX(${offsetX}px)`, transition: 'none' };
-    
+
     setTimeout(() => {
       indicatorStyle.value = {
         opacity: '1',
@@ -288,7 +281,7 @@ const onDragMove = (e) => {
   if (!isDragging.value) return;
   dragCurrentY = getEventY(e);
   const deltaY = dragStartY - dragCurrentY;
-  
+
   if (Math.abs(deltaY) >= 30) {
     if (deltaY > 0 && !isVisible.value) showDock();
     else if (deltaY < 0 && isVisible.value) hideDock();
@@ -346,7 +339,7 @@ const setupDragEvents = () => {
   zone.addEventListener('mousedown', onDragStart);
   zone.addEventListener('touchstart', onDragStart, { passive: false });
   zone.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
-  
+
   if (dockEl) {
     dockEl.addEventListener('mousedown', onDragStart);
     dockEl.addEventListener('touchstart', onDragStart, { passive: false });
@@ -362,7 +355,7 @@ const setupDragEvents = () => {
 const removeDragEvents = () => {
   const zone = dragZone.value;
   const dockEl = dock.value;
-  
+
   if (zone) {
     zone.removeEventListener('mousedown', onDragStart);
     zone.removeEventListener('touchstart', onDragStart);
@@ -542,6 +535,9 @@ onUnmounted(() => {
 }
 
 .volume-btn {
+  display: flex;
+  align-content: center;
+  justify-content: center;
   flex: 1;
   background: var(--color-background-neutral-64);
   border-radius: var(--radius-04);
@@ -598,13 +594,33 @@ onUnmounted(() => {
   transition-delay: 0.1s;
 }
 
-.dock-container.visible .app-container> :nth-child(1) { transition-delay: 0.1s; }
-.dock-container.visible .app-container> :nth-child(2) { transition-delay: 0.15s; }
-.dock-container.visible .app-container> :nth-child(3) { transition-delay: 0.2s; }
-.dock-container.visible .app-container> :nth-child(4) { transition-delay: 0.225s; }
-.dock-container.visible .app-container> :nth-child(5) { transition-delay: 0.25s; }
-.dock-container.visible .app-container> :nth-child(6) { transition-delay: 0.25s; }
-.dock-container.visible .app-container> :nth-child(7) { transition-delay: 0.3s; }
+.dock-container.visible .app-container> :nth-child(1) {
+  transition-delay: 0.1s;
+}
+
+.dock-container.visible .app-container> :nth-child(2) {
+  transition-delay: 0.15s;
+}
+
+.dock-container.visible .app-container> :nth-child(3) {
+  transition-delay: 0.2s;
+}
+
+.dock-container.visible .app-container> :nth-child(4) {
+  transition-delay: 0.225s;
+}
+
+.dock-container.visible .app-container> :nth-child(5) {
+  transition-delay: 0.25s;
+}
+
+.dock-container.visible .app-container> :nth-child(6) {
+  transition-delay: 0.25s;
+}
+
+.dock-container.visible .app-container> :nth-child(7) {
+  transition-delay: 0.3s;
+}
 
 .dock-container.visible.fully-visible .dock-item,
 .dock-container.visible.fully-visible .dock-separator,
@@ -698,6 +714,7 @@ onUnmounted(() => {
 .android-app .dock-indicator {
   bottom: var(--space-07);
 }
+
 .android-app .dock-container.visible {
   transform: translate(-50%) translateY(-48px) scale(1);
 }
