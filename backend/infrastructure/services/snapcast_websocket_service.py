@@ -237,12 +237,44 @@ class SnapcastWebSocketService:
             "client": client
         })
     
-    async def _handle_client_disconnect(self, params: Dict[str, Any]) -> None:
-        """Client déconnecté"""
+    async def _handle_client_connect(self, params: Dict[str, Any]) -> None:
+        """Client connecté - NOUVEAU: Synchronise le volume avec le système principal"""
         client = params.get("client", {})
-        await self._broadcast_snapcast_event("client_disconnected", {
-            "client_id": client.get("id"),
-            "client_name": client.get("config", {}).get("name"),
+        client_id = client.get("id")
+        client_name = client.get("config", {}).get("name", "Unknown")
+        client_host = client.get("host", {}).get("name", "Unknown")
+        client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
+        
+        # 🚀 NOUVEAU: Synchroniser le volume du nouveau client
+        if client_id:
+            try:
+                # Récupérer le volume actuel du système principal via VolumeService
+                if hasattr(self.state_machine, 'volume_service') and self.state_machine.volume_service:
+                    current_volume = await self.state_machine.volume_service.get_volume()
+                    # Convertir le volume d'affichage (0-100) vers ALSA (0-65)
+                    alsa_volume = self.state_machine.volume_service._interpolate_from_display(current_volume)
+                    
+                    # Appliquer le volume au nouveau client via Snapcast
+                    if hasattr(self.state_machine, 'snapcast_service') and self.state_machine.snapcast_service:
+                        success = await self.state_machine.snapcast_service.set_volume(client_id, alsa_volume)
+                        if success:
+                            self.logger.info(f"🎵 New client {client_name} volume synchronized to {alsa_volume} (ALSA) = {current_volume}% (display)")
+                        else:
+                            self.logger.warning(f"⚠️ Failed to sync volume for new client {client_name}")
+                    else:
+                        self.logger.warning("⚠️ Snapcast service not available for volume sync")
+                else:
+                    self.logger.warning("⚠️ Volume service not available for volume sync")
+                    
+            except Exception as e:
+                self.logger.error(f"Error synchronizing volume for new client {client_name}: {e}")
+        
+        # Broadcast de connexion (existant)
+        await self._broadcast_snapcast_event("client_connected", {
+            "client_id": client_id,
+            "client_name": client_name,
+            "client_host": client_host,
+            "client_ip": client_ip,
             "client": client
         })
     

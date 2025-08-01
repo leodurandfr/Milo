@@ -14,6 +14,7 @@ class VolumeService:
     
     MIN_VOLUME = 0
     MAX_VOLUME = 65
+    DEFAULT_STARTUP_VOLUME = 24
     
     def __init__(self, state_machine, snapcast_service):
         self.state_machine = state_machine
@@ -47,7 +48,7 @@ class VolumeService:
         return round((display_volume / 100) * actual_range) + self.MIN_VOLUME
     
     async def initialize(self) -> bool:
-        """Initialise le service volume"""
+        """Initialise le service volume avec un volume par défaut (dans les limitations)"""
         try:
             self.logger.info(f"Initializing ULTRA-FAST volume service (limits: {self.MIN_VOLUME}-{self.MAX_VOLUME}%)")
             
@@ -58,28 +59,23 @@ class VolumeService:
                 self.logger.error(f"Digital mixer not found: {e}")
                 return False
             
-            if self._is_multiroom_enabled():
-                await self._enforce_multiroom_limits()
-                self._current_volume = await self.get_volume()
-            else:
-                initial_volume = await self._get_amixer_volume_fast()
-                if initial_volume is None:
-                    self.logger.error("Failed to get initial volume from amixer")
-                    return False
-                
-                limited_volume = max(self.MIN_VOLUME, min(self.MAX_VOLUME, initial_volume))
-                
-                if limited_volume != initial_volume:
-                    self.logger.info(f"Enforcing amixer limits: {initial_volume}% → {limited_volume}%")
-                    success = await self._set_amixer_volume_fast(limited_volume)
-                    if not success:
-                        return False
-                
-                self._current_volume = self._interpolate_to_display(limited_volume)
-                self._last_amixer_volume = limited_volume
-                self._amixer_cache_time = time.time()
+            # 🚀 MODIFIÉ: Convertir le volume d'affichage vers ALSA
+            startup_alsa_volume = self._interpolate_from_display(self.DEFAULT_STARTUP_VOLUME)
             
-            self.logger.info(f"Ultra-fast volume service ready - Display: {self._current_volume}%")
+            # Forcer le volume au démarrage (mode multiroom ou direct)
+            if self._is_multiroom_enabled():
+                # Mode multiroom: forcer tous les clients au volume ALSA converti
+                await self._set_startup_volume_multiroom(startup_alsa_volume)
+            else:
+                # Mode direct: forcer amixer au volume ALSA converti
+                await self._set_startup_volume_direct(startup_alsa_volume)
+            
+            # Mettre à jour le cache
+            self._current_volume = self.DEFAULT_STARTUP_VOLUME  # Volume d'affichage
+            self._last_amixer_volume = startup_alsa_volume      # Volume ALSA
+            self._amixer_cache_time = time.time()
+            
+            self.logger.info(f"🎵 Startup volume set to {self.DEFAULT_STARTUP_VOLUME}% (display) = {startup_alsa_volume} (ALSA)")
             asyncio.create_task(self._delayed_initial_broadcast())
             return True
             
@@ -389,3 +385,32 @@ class VolumeService:
                 "error": str(e),
                 "limits": {"min": self.MIN_VOLUME, "max": self.MAX_VOLUME}
             }
+            
+            
+    async def _set_startup_volume_direct(self, alsa_volume: int) -> bool:
+        """Force le volume ALSA en mode direct"""
+        try:
+            success = await self._set_amixer_volume_fast(alsa_volume)
+            if success:
+                self.logger.info(f"✅ Direct mode: ALSA volume set to {alsa_volume} ({self.DEFAULT_STARTUP_VOLUME}% display)")
+            return success
+        except Exception as e:
+            self.logger.error(f"Error setting startup volume (direct): {e}")
+            return False
+
+    async def _set_startup_volume_multiroom(self, alsa_volume: int) -> bool:
+        """Force tous les clients Snapcast au volume ALSA"""
+        try:
+            clients = await self.snapcast_service.get_clients()
+            if not clients:
+                self.logger.warning("No Snapcast clients found for startup volume")
+                return True
+            
+            for client in clients:
+                await self.snapcast_service.set_volume(client["id"], alsa_volume)
+                self.logger.info(f"✅ Multiroom: Client {client['name']} volume set to {alsa_volume} ({self.DEFAULT_STARTUP_VOLUME}% display)")
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting startup volume (multiroom): {e}")
+            return False

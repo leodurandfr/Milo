@@ -31,12 +31,14 @@ logger = logging.getLogger(__name__)
 state_machine = container.audio_state_machine()
 routing_service = container.audio_routing_service()
 snapcast_service = container.snapcast_service()
-snapcast_websocket_service = container.snapcast_websocket_service()  # AJOUT
+snapcast_websocket_service = container.snapcast_websocket_service()
 equalizer_service = container.equalizer_service()
 volume_service = container.volume_service()
 rotary_controller = container.rotary_controller()
 ws_manager = container.websocket_manager()
 websocket_server = WebSocketServer(ws_manager, state_machine)
+state_machine.volume_service = volume_service
+state_machine.snapcast_service = snapcast_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
