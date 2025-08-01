@@ -154,7 +154,7 @@ mkdir -p ~/temp/go-librespot
 cd ~/temp/go-librespot
 
 # Télécharger go-librespot
-wget https://github.com/devgianlu/go-librespot/releases/download/v0.2.0/go-librespot_linux_arm64.tar.gz
+wget https://github.com/devgianlu/go-librespot/releases/download/v0.3.1/go-librespot_linux_arm64.tar.gz
 
 # Décompresser l'archive
 tar -xvzf go-librespot_linux_arm64.tar.gz

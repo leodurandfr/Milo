@@ -15,7 +15,7 @@ mkdir -p ~/temp/go-librespot
 cd ~/temp/go-librespot
 
 # Télécharger go-librespot
-wget https://github.com/devgianlu/go-librespot/releases/download/v0.2.0/go-librespot_linux_arm64.tar.gz
+wget https://github.com/devgianlu/go-librespot/releases/download/v0.3.1/go-librespot_linux_arm64.tar.gz
 
 # Décompresser l'archive
 tar -xvzf go-librespot_linux_arm64.tar.gz
@@ -37,7 +37,7 @@ Créer le fichier configuration de go-librespot :
 # Créer le fichier de configuration principal
 sudo tee /var/lib/milo/go-librespot/config.yml > /dev/null << 'EOF'
 # Configuration Spotify Connect
-device_name: "Milo-v0.2"
+device_name: "Milo"
 device_type: "speaker"
 bitrate: 320
 

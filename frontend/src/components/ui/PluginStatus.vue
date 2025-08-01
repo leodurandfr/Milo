@@ -227,7 +227,7 @@ function handleDisconnect() {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
+  gap: var(--space-03);
   align-items: center;
   justify-content: flex-start;
   padding: 0 var(--space-04) var(--space-04) var(--space-04);
