@@ -23,11 +23,11 @@ class RotaryVolumeController:
         
         # Configuration rotary
         self.DEBOUNCE_TIME = 0.05  # 50ms debounce
-        self.VOLUME_STEP = 2       # Changement de volume par step
+        self.VOLUME_STEP = 1       # Changement de volume par step
         self.rotation_accumulator = 0
         self.is_processing = False
-        self.PROCESS_INTERVAL = 0.08  # 80ms entre traitements
-        self.MIN_UPDATE_INTERVAL = 0.15  # 150ms minimum entre updates
+        self.PROCESS_INTERVAL = 0.05  # 80ms entre traitements
+        self.MIN_UPDATE_INTERVAL = 0.05  # 150ms minimum entre updates
         
         # Timing
         self._last_adjustment_time = 0

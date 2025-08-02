@@ -1,4 +1,8 @@
-# Milo - Audio System for Raspberry Pi
+
+
+<img src="https://github.com/user-attachments/assets/a89cb875-5291-47fd-89d0-f24824389a92" />
+
+# Milo (WIP)
 
 Milo is an advanced audio application for Raspberry Pi that transforms your device into a versatile audio platform. The system allows seamless switching between different audio sources (Spotify, Bluetooth, macOS via Snapcast, Web Radio) while offering a sleek and responsive user interface. 
 
@@ -7,7 +11,7 @@ Milo is an advanced audio application for Raspberry Pi that transforms your devi
 - Audio sources :
   - Spotify (displays music playing and playback buttons)
   - Bluetooth (displays connected device and a button to disconnect the connected device)
-  - Wireless Mac audio output (displays roc-vad connected device)
+  - Mac audio output (displays roc-vad connected device)
 - Multi-room audio streaming
 - Equalizer
 - Modern touchscreen user interface
