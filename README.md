@@ -1,6 +1,7 @@
 
-
-<img src="https://github.com/user-attachments/assets/a89cb875-5291-47fd-89d0-f24824389a92" />
+<picture>
+<img style="pointer-events:none" src="https://github.com/user-attachments/assets/a89cb875-5291-47fd-89d0-f24824389a92" />
+</picture>
 
 # Milo (WIP)
 
