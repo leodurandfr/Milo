@@ -42,17 +42,17 @@ const progressStyle = computed(() => {
   const percent = progressPercent.value;
   const height = 8;
   
-  // Calculer le pourcentage exact où 8px = X% de la largeur totale
-  const widthAt8px = (height / containerWidth.value) * 100;
+  // Largeur réelle que devrait avoir la barre à ce pourcentage
+  const actualWidth = (percent / 100) * containerWidth.value;
   
-  if (percent <= widthAt8px) {
-    // Mode cercle : tant que le % ne donne pas plus de 8px
+  if (actualWidth <= height) {
+    // Mode cercle : déplacement de -8px à 0px
     return {
       width: `${height}px`,
-      left: `${(percent / widthAt8px) * height - height}px`
+      left: `${actualWidth - height}px`
     };
   } else {
-    // Mode barre : dès que le % donnerait plus de 8px
+    // Mode barre normale
     return {
       width: `${percent}%`,
       left: '0px'
