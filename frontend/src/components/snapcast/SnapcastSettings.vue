@@ -124,7 +124,7 @@ const audioPresets = [
     name: 'Équilibré',
     config: {
       buffer: 1000,
-      codec: 'flac',
+      codec: 'opus',
       chunk_ms: 20
     }
   },
@@ -259,7 +259,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-
 .settings-content {
   gap: var(--space-02);
   display: flex;
@@ -365,6 +364,9 @@ onMounted(async () => {
 
 .input-with-value .text-mono {
   color: var(--color-text-secondary);
+  min-width: 64px;
+  text-align: right;
+
 }
 
 .select-input {
@@ -384,17 +386,18 @@ onMounted(async () => {
 }
 
 .info-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--space-03) var(--space-04);
-    border-radius: var(--radius-04);
-    background: var(--color-background-strong);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-03) var(--space-04);
+  border-radius: var(--radius-04);
+  background: var(--color-background-strong);
 }
 
 .info-label.text-mono {
   color: var(--color-text-secondary);
 }
+
 .info-value.text-mono {
   color: var(--color-text);
 }
@@ -425,8 +428,9 @@ onMounted(async () => {
   .presets-buttons {
     flex-direction: column;
   }
+
   .info-grid {
-  grid-template-columns: 1fr;
-}
+    grid-template-columns: 1fr;
+  }
 }
 </style>
