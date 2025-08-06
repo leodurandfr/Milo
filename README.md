@@ -1,6 +1,6 @@
 
 <picture>
-<img style="pointer-events:none" src="https://github.com/user-attachments/assets/a89cb875-5291-47fd-89d0-f24824389a92" />
+<img style="pointer-events:none" src="https://leodurand.com/_autres/cover-milo-github@2x.png" />
 </picture>
 
 # Milo (WIP)
