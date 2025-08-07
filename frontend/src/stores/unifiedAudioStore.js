@@ -1,4 +1,4 @@
-// unifiedAudioStore.js - Version finale OPTIM
+// unifiedAudioStore.js - Version avec debug et corrections anti-écrasement
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
@@ -22,6 +22,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   });
   
   let volumeBarRef = null;
+  let lastWebSocketUpdate = 0; // Timestamp du dernier update WebSocket
   
   // === GETTERS ===
   const currentSource = computed(() => systemState.value.active_source);
@@ -45,8 +46,18 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === ACTIONS AUDIO ===
   async function changeSource(source) {
     try {
+      console.log('🚀 CHANGING SOURCE TO:', source);
+      
+      // ✅ NE PAS faire de refresh après - laisser les WebSocket updates arriver
       const response = await axios.post(`/api/audio/source/${source}`);
-      return response.data.status === 'success';
+      const success = response.data.status === 'success';
+      
+      console.log('🚀 CHANGE SOURCE RESPONSE:', success);
+      
+      // ❌ PAS DE REFRESH ICI - les WebSocket events vont arriver
+      // Laisser les WebSocket events gérer l'état
+      
+      return success;
     } catch (err) {
       console.error('Change source error:', err);
       return false;
@@ -124,10 +135,23 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return await adjustVolume(-5);
   }
   
-  // === REFRESH ===
+  // === REFRESH (AVEC PROTECTION ANTI-ÉCRASEMENT) ===
   async function refreshState() {
     try {
       console.log('🔄 Refreshing unified state...');
+      
+      // ✅ PROTECTION : Ne pas écraser si transition en cours
+      if (systemState.value.transitioning) {
+        console.log('⚠️ Skipping refresh - transition in progress');
+        return true;
+      }
+      
+      // ✅ PROTECTION : Ne pas écraser si WebSocket update récent (< 1s)
+      const now = Date.now();
+      if (lastWebSocketUpdate && (now - lastWebSocketUpdate) < 1000) {
+        console.log('⚠️ Skipping refresh - recent WebSocket update');
+        return true;
+      }
       
       // État audio principal
       if (systemState.value.active_source === 'librespot') {
@@ -138,29 +162,25 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
             systemState.value.metadata = freshMetadata;
             systemState.value.plugin_state = response.data.device_connected ? 'connected' : 'ready';
             console.log('✅ Fresh librespot data updated');
-            
-            // 🎯 FIX : Ne pas appeler /api/audio/state pour librespot, on a déjà les fresh data
-            // Directement passer au volume
           } else {
-            // Fallback si fresh-status échoue
+            // Fallback
             const audioResponse = await axios.get('/api/audio/state');
             if (audioResponse.data) {
-              updateSystemState(audioResponse.data);
+              updateSystemState(audioResponse.data, 'http_refresh');
             }
           }
         } catch (freshApiError) {
           console.warn('⚠️ Fresh-status fallback to main API');
-          // Fallback vers l'API principale
           const audioResponse = await axios.get('/api/audio/state');
           if (audioResponse.data) {
-            updateSystemState(audioResponse.data);
+            updateSystemState(audioResponse.data, 'http_fallback');
           }
         }
       } else {
-        // Pour les autres sources (pas librespot), utiliser l'API normale
+        // Pour les autres sources, utiliser l'API normale
         const audioResponse = await axios.get('/api/audio/state');
         if (audioResponse.data) {
-          updateSystemState(audioResponse.data);
+          updateSystemState(audioResponse.data, 'http_refresh');
         }
       }
       
@@ -187,8 +207,13 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   function setupVisibilityListener() {
     const visibilityHandler = () => {
       if (!document.hidden) {
-        // Délai pour laisser le WebSocket se reconnecter
-        setTimeout(refreshState, 500);
+        // Délai plus long pour éviter les conflits avec WebSocket
+        setTimeout(() => {
+          // Seulement refresh si pas de transition en cours
+          if (!systemState.value.transitioning) {
+            refreshState();
+          }
+        }, 1000);
       }
     };
     
@@ -201,8 +226,15 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     };
   }
   
-  // === MISE À JOUR D'ÉTAT ===
-  function updateSystemState(newState) {
+  // === MISE À JOUR D'ÉTAT AVEC DEBUG ===
+  function updateSystemState(newState, source = 'unknown') {
+    console.log('🔄 UPDATING SYSTEM STATE from:', source);
+    console.log('📊 Old state:', JSON.stringify(systemState.value, null, 2));
+    console.log('📊 New state:', JSON.stringify(newState, null, 2));
+    
+    // Tracer d'où vient l'appel
+    console.trace('Update called from:');
+    
     systemState.value = {
       active_source: newState.active_source || 'none',
       plugin_state: newState.plugin_state || 'inactive',
@@ -213,11 +245,18 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : false,
       equalizer_enabled: newState.equalizer_enabled || false
     };
+    
+    console.log('✅ State updated to:', JSON.stringify(systemState.value, null, 2));
   }
   
   function updateState(event) {
+    console.log('🌐 WEBSOCKET EVENT:', event);
+    
     if (event.data?.full_state) {
-      updateSystemState(event.data.full_state);
+      // ✅ Marquer timestamp WebSocket
+      lastWebSocketUpdate = Date.now();
+      
+      updateSystemState(event.data.full_state, 'websocket');
     }
   }
   

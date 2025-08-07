@@ -1,4 +1,4 @@
-<!-- MainView.vue - Version avec ajustements animations -->
+<!-- MainView.vue - Version simplifiée post-corrections backend -->
 <template>
   <div class="main-view">
     <!-- Logo avec logique de centrage initial -->
@@ -61,7 +61,7 @@ const disconnectingStates = ref({
 // État pour affichage initial du logo (centré pendant 1000ms)
 const showInitialLogo = ref(true);
 
-// === LOGIQUE D'AFFICHAGE SIMPLE ===
+// === LOGIQUE D'AFFICHAGE SIMPLIFIÉE ===
 
 // Condition pour avoir des métadonnées complètes
 const hasCompleteTrackInfo = computed(() => {
@@ -72,25 +72,29 @@ const hasCompleteTrackInfo = computed(() => {
   );
 });
 
-// LibrespotView : Afficher si on est sur librespot ET connecté (peu importe les métadonnées)
+// LibrespotView : Logique naturelle sans forçage
 const shouldShowLibrespotView = computed(() => {
-  if (showInitialLogo.value) return false; // Attendre fin logo initial
-  return unifiedStore.displayedSource === 'librespot' && unifiedStore.pluginState === 'connected';
+  if (showInitialLogo.value) return false;
+  
+  // Conditions naturelles : librespot + connecté + métadonnées complètes
+  return unifiedStore.displayedSource === 'librespot' && 
+         unifiedStore.pluginState === 'connected' && 
+         hasCompleteTrackInfo.value;
 });
 
-// PluginStatus : Tous les autres cas avec une source active ET après le délai initial
+// PluginStatus : Tous les autres cas
 const shouldShowPluginStatus = computed(() => {
-  if (showInitialLogo.value) return false; // Attendre fin logo initial
+  if (showInitialLogo.value) return false;
   
-  // Transition en cours
+  // Transition en cours : PluginStatus avec état "starting"
   if (unifiedStore.isTransitioning) return true;
   
   // Sources bluetooth/roc : toujours PluginStatus
   if (['bluetooth', 'roc'].includes(unifiedStore.displayedSource)) return true;
   
-  // Librespot en état ready (pas encore connecté) : PluginStatus
-  if (unifiedStore.displayedSource === 'librespot' && unifiedStore.pluginState === 'ready') {
-    return true;
+  // Librespot SANS les conditions LibrespotView : PluginStatus  
+  if (unifiedStore.displayedSource === 'librespot') {
+    return !hasCompleteTrackInfo.value || unifiedStore.pluginState !== 'connected';
   }
   
   return false;
@@ -103,7 +107,10 @@ const currentPluginType = computed(() => {
 });
 
 const currentPluginState = computed(() => {
+  // Pendant transitions : état "starting"
   if (unifiedStore.isTransitioning) return 'starting';
+  
+  // Sinon : état réel du plugin
   return unifiedStore.pluginState;
 });
 
@@ -122,18 +129,18 @@ const currentDeviceName = computed(() => {
   }
 });
 
-// Clé qui change pour Ready/Connected ET changement de plugin
+// Clé pour forcer re-render des transitions
 const pluginStatusKey = computed(() => {
   return `${currentPluginType.value}-${currentPluginState.value}-${!!currentDeviceName.value}`;
 });
 
-// === LOGIQUE DU LOGO AVEC CENTRAGE INITIAL ===
+// === LOGIQUE DU LOGO ===
 
 const logoPosition = computed(() => {
   // Logo centré pendant les 1000ms initiales
   if (showInitialLogo.value) return 'center';
   
-  // Logo centré si aucune source ou aucun contenu affiché
+  // Logo centré si aucune source active
   if (unifiedStore.currentSource === 'none' && !unifiedStore.isTransitioning) {
     return 'center';
   }
@@ -150,7 +157,7 @@ const logoVisible = computed(() => {
   // Logo visible pendant les 1000ms initiales
   if (showInitialLogo.value) return true;
   
-  // Cacher le logo quand LibrespotView est affiché (il prend tout l'écran)
+  // Cacher le logo quand LibrespotView est affiché (plein écran)
   if (shouldShowLibrespotView.value) return false;
   
   // Visible dans tous les autres cas
