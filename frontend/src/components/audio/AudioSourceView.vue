@@ -10,7 +10,7 @@
         :key="librespotKey"
         class="librespot-container"
       >
-        <LibrespotView />
+      <LibrespotSource />
       </div>
 
       <!-- PluginStatus -->
@@ -19,7 +19,7 @@
         :key="pluginStatusKey"
         class="plugin-status-container"
       >
-        <PluginStatus
+        <AudioSourceStatus
           :plugin-type="currentPluginType"
           :plugin-state="currentPluginState"
           :device-name="currentDeviceName"
@@ -34,8 +34,8 @@
 
 <script setup>
 import { computed, ref, onMounted } from 'vue';
-import LibrespotView from '@/views/LibrespotView.vue';
-import PluginStatus from '@/components/ui/PluginStatus.vue';
+import LibrespotSource from './LibrespotSource.vue';
+import AudioSourceStatus from './AudioSourceStatus.vue';
 
 // Props
 const props = defineProps({

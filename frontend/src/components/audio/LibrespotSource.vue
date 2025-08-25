@@ -49,12 +49,12 @@
 <script setup>
 import { computed, watch, onMounted, ref } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useLibrespotControl } from '@/composables/useLibrespotControl';
-import { usePlaybackProgress } from '@/composables/usePlaybackProgress';
+import { useLibrespotControl } from '../librespot/useLibrespotControl';
+import { usePlaybackProgress } from '../librespot/usePlaybackProgress';
 import axios from 'axios';
 
-import PlaybackControls from '../components/librespot/PlaybackControls.vue';
-import ProgressBar from '../components/librespot/ProgressBar.vue';
+import PlaybackControls from '../librespot/PlaybackControls.vue';
+import ProgressBar from '../librespot/ProgressBar.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();

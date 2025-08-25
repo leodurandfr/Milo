@@ -48,7 +48,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import AppIcon from './AppIcon.vue';
+import AppIcon from '@/components/ui/AppIcon.vue';
 
 // Props
 const props = defineProps({
