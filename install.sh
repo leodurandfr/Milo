@@ -964,14 +964,15 @@ install_avahi_nginx() {
 configure_avahi() {
    log_info "Configuration d'Avahi..."
    
+   # Avahi settings
    sudo tee /etc/avahi/avahi-daemon.conf > /dev/null << 'EOF'
 [server]
 host-name=milo
 domain-name=local
 use-ipv4=yes
 use-ipv6=no
-allow-interfaces=wlan0
-deny-interfaces=eth0,docker0,lo
+#allow-interfaces=wlan0,eth0
+deny-interfaces=docker0,lo
 ratelimit-interval-usec=1000000
 ratelimit-burst=1000
 
@@ -985,6 +986,21 @@ publish-domain=yes
 publish-addresses=yes
 publish-aaaa-on-ipv4=no
 publish-a-on-ipv6=no
+EOF
+
+   # Discovery on network
+   sudo tee /etc/avahi/services/milo.service > /dev/null << 'EOF'
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Milo Audio System on %h</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>80</port>
+    <txt-record>path=/</txt-record>
+    <txt-record>description=Milo Audio Control Interface</txt-record>
+  </service>
+</service-group>
 EOF
    
    log_success "Avahi configuré"
