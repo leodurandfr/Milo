@@ -1,7 +1,6 @@
-<!-- PluginStatus.vue - Version sans transition (gérée par MainView) -->
+<!-- PluginStatus.vue - Version SIMPLIFIÉE sans gestion animation manuelle -->
 <template>
-  <!-- Plus de Transition wrapper - MainView gère tout -->
-  <div v-if="shouldAnimate" class="plugin-status">
+  <div class="plugin-status">
     <div class="plugin-status-content">
       <div class="plugin-status-inner">
         <!-- Section info appareil -->
@@ -67,10 +66,6 @@ const props = defineProps({
     default: ''
   },
   isDisconnecting: {
-    type: Boolean,
-    default: false
-  },
-  shouldAnimate: {
     type: Boolean,
     default: false
   }
@@ -139,7 +134,7 @@ const displayedStatusLines = computed(() => {
     }
   }
 
-  return ['État inconnu'];
+  return ['En attente...'];
 });
 
 const displayedShowDisconnectButton = computed(() => {
@@ -177,7 +172,7 @@ function handleDisconnect() {
 </script>
 
 <style scoped>
-/* === STYLES DU COMPOSANT (transitions gérées par MainView) === */
+/* === STYLES DU COMPOSANT === */
 .plugin-status {
   background: var(--color-background-neutral);
   border-radius: var(--radius-06);

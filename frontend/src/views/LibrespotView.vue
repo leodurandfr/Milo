@@ -1,6 +1,6 @@
-<!-- LibrespotView.vue - Version animation unique avec preload -->
+<!-- LibrespotView.vue - Version avec stagger automatique -->
 <template>
-  <div v-if="isReadyToShow" class="librespot-player" :class="{ 'animate-stagger': shouldAnimate }">
+  <div class="librespot-player">
     <div class="now-playing">
       <!-- Partie gauche : Image de couverture avec staggering CSS -->
       <div class="album-art-section stagger-1">
@@ -29,8 +29,8 @@
         <!-- Bloc 2 : Contrôles (aligné en bas) -->
         <div class="controls-section">
           <div class="progress-wrapper stagger-4">
-          <ProgressBar :currentPosition="currentPosition" :duration="duration"
-            :progressPercentage="progressPercentage" @seek="seekTo" />
+            <ProgressBar :currentPosition="currentPosition" :duration="duration"
+              :progressPercentage="progressPercentage" @seek="seekTo" />
           </div>
           <div class="controls-wrapper stagger-5">
             <PlaybackControls :isPlaying="persistentMetadata.is_playing" @play-pause="togglePlayPause"
@@ -60,11 +60,6 @@ const unifiedStore = useUnifiedAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
 const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackProgress();
 
-// === LOGIQUE SIMPLE D'ANIMATION UNIQUE ===
-const hasAnimated = ref(false);
-const imageLoaded = ref(false);
-const imageError = ref(false);
-
 // === PERSISTANCE DES MÉTADONNÉES ===
 const lastValidMetadata = ref({
   title: '',
@@ -91,64 +86,6 @@ const persistentMetadata = computed(() => {
   return lastValidMetadata.value;
 });
 
-// === LOGIQUE D'AFFICHAGE SIMPLE ===
-const isReadyToShow = computed(() => {
-  // Si on a déjà animé, toujours afficher
-  if (hasAnimated.value) return true;
-  
-  // Première fois : attendre le preload de l'image si elle existe
-  if (persistentMetadata.value.album_art_url) {
-    return imageLoaded.value || imageError.value;
-  }
-  
-  // Pas d'image : afficher directement
-  return true;
-});
-
-const shouldAnimate = computed(() => {
-  // Animer seulement si on n'a pas encore animé ET qu'on est prêt à afficher
-  return !hasAnimated.value && isReadyToShow.value;
-});
-
-// === PRELOAD DE L'IMAGE (seulement si pas encore animé) ===
-watch(() => persistentMetadata.value.album_art_url, (newUrl) => {
-  // Si on a déjà animé, pas de preload nécessaire
-  if (hasAnimated.value) return;
-  
-  if (!newUrl) {
-    imageLoaded.value = true;
-    imageError.value = false;
-    return;
-  }
-  
-  // Reset des états
-  imageLoaded.value = false;
-  imageError.value = false;
-  
-  // Preload de l'image
-  const img = new Image();
-  img.onload = () => {
-    imageLoaded.value = true;
-    console.log('🖼️ Image preloaded:', newUrl);
-  };
-  img.onerror = () => {
-    imageError.value = true;
-    console.warn('🖼️ Image preload failed:', newUrl);
-  };
-  img.src = newUrl;
-}, { immediate: true });
-
-// === MARQUER COMME ANIMÉ APRÈS LA PREMIÈRE ANIMATION ===
-watch(shouldAnimate, (newValue) => {
-  if (newValue) {
-    // Une fois qu'on commence à animer, marquer comme animé après un délai
-    setTimeout(() => {
-      hasAnimated.value = true;
-      console.log('🎬 LibrespotView animation completed');
-    }, 600); // Durée de l'animation stagger la plus longue
-  }
-});
-
 // === WATCHERS ===
 watch(() => unifiedStore.metadata, (newMetadata) => {
   if (newMetadata?.position !== undefined) {
@@ -158,6 +95,8 @@ watch(() => unifiedStore.metadata, (newMetadata) => {
 
 // === LIFECYCLE ===
 onMounted(async () => {
+  console.log('🎬 LibrespotView mounted - natural stagger');
+  
   try {
     const response = await axios.get('/librespot/status');
     if (response.data.status === 'ok') {
@@ -184,7 +123,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* === STAGGERING CSS CONDITIONNEL === */
+/* === STAGGERING SIMPLE ET NATUREL === */
 
 /* États initiaux : tous les éléments sont cachés */
 .stagger-1,
@@ -196,34 +135,24 @@ onMounted(async () => {
   transform: translateY(var(--space-05));
 }
 
-/* Animation d'entrée SEULEMENT si la classe animate-stagger est présente */
-.librespot-player.animate-stagger .stagger-1,
-.librespot-player.animate-stagger .stagger-2,
-.librespot-player.animate-stagger .stagger-3,
-.librespot-player.animate-stagger .stagger-4,
-.librespot-player.animate-stagger .stagger-5 {
-  animation: stagger-in 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+/* Animation automatique et naturelle */
+.librespot-player .stagger-1,
+.librespot-player .stagger-2,
+.librespot-player .stagger-3,
+.librespot-player .stagger-4,
+.librespot-player .stagger-5 {
+  animation: stagger-natural var(--transition-spring) forwards;
 }
 
-/* Si pas d'animation, afficher directement */
-.librespot-player:not(.animate-stagger) .stagger-1,
-.librespot-player:not(.animate-stagger) .stagger-2,
-.librespot-player:not(.animate-stagger) .stagger-3,
-.librespot-player:not(.animate-stagger) .stagger-4,
-.librespot-player:not(.animate-stagger) .stagger-5 {
-  opacity: 1;
-  transform: translateY(0);
-}
+/* Délais échelonnés simples */
+.librespot-player .stagger-1 { animation-delay: 0ms; }
+.librespot-player .stagger-2 { animation-delay: 0ms; }
+.librespot-player .stagger-3 { animation-delay: 100ms; }
+.librespot-player .stagger-4 { animation-delay: 200ms; }
+.librespot-player .stagger-5 { animation-delay: 300ms; }
 
-/* Délais échelonnés */
-.librespot-player.animate-stagger .stagger-1 { animation-delay: 0ms; }
-.librespot-player.animate-stagger .stagger-2 { animation-delay: 0ms; }
-.librespot-player.animate-stagger .stagger-3 { animation-delay: 100ms; }
-.librespot-player.animate-stagger .stagger-4 { animation-delay: 200ms; }
-.librespot-player.animate-stagger .stagger-5 { animation-delay: 300ms; }
-
-/* Animation d'entrée */
-@keyframes stagger-in {
+/* Animation spring naturelle */
+@keyframes stagger-natural {
   to {
     opacity: 1;
     transform: translateY(0);
@@ -235,6 +164,8 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  /* Assurer que les transitions parent fonctionnent */
+  position: relative;
 }
 
 .now-playing {
