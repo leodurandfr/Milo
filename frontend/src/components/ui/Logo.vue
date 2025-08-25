@@ -1,6 +1,6 @@
-<!-- frontend/src/components/ui/Logo.vue -->
+<!-- Logo.vue - Version simplifiée avec 3 modes de transition -->
 <template>
-  <div class="logo-container" :class="positionClass">
+  <div class="logo-container" :class="logoClasses">
     <svg 
       xmlns="http://www.w3.org/2000/svg" 
       class="logo-svg"
@@ -29,19 +29,26 @@ const props = defineProps({
   },
   size: {
     type: String,
-    default: 'large', // 'large' | 'small'
+    default: 'large', // 'large' | 'small'  
     validator: (value) => ['large', 'small'].includes(value)
   },
   visible: {
     type: Boolean,
     default: true
+  },
+  transitionMode: {
+    type: String,
+    default: 'normal', // 'normal' | 'librespot-hide' | 'librespot-show'
+    validator: (value) => ['normal', 'librespot-hide', 'librespot-show'].includes(value)
   }
 });
 
-const positionClass = computed(() => ({
+const logoClasses = computed(() => ({
   'logo-center': props.position === 'center',
   'logo-top': props.position === 'top',
-  'logo-hidden': !props.visible
+  'logo-hidden': !props.visible,
+  'logo-librespot-hide': props.transitionMode === 'librespot-hide',
+  'logo-librespot-show': props.transitionMode === 'librespot-show'
 }));
 
 const sizeClass = computed(() => ({
@@ -60,7 +67,7 @@ const sizeClass = computed(() => ({
   pointer-events: none;
 }
 
-/* Positions */
+/* === POSITIONS DE BASE === */
 .logo-center {
   top: 50%;
   transform: translateX(-50%) translateY(-50%);
@@ -71,12 +78,36 @@ const sizeClass = computed(() => ({
   transform: translateX(-50%);
 }
 
-.logo-hidden {
+/* === ÉTATS DE VISIBILITÉ === */
+
+/* Masquage standard avec scale */
+.logo-hidden:not(.logo-librespot-hide):not(.logo-librespot-show) {
   opacity: 0;
   transform: translateX(-50%) translateY(-50%) scale(0.8);
 }
 
-/* Tailles */
+/* Mode librespot-hide : disparition avec translateY depuis la position actuelle */
+.logo-librespot-hide.logo-hidden {
+  opacity: 0;
+}
+
+.logo-librespot-hide.logo-hidden.logo-center {
+  transform: translateX(-50%) translateY(-50%) translateY(-24px);
+}
+
+.logo-librespot-hide.logo-hidden.logo-top {
+  transform: translateX(-50%) translateY(-24px);
+}
+
+/* Mode librespot-show : réapparition depuis translateY(-24px) vers position normale */
+.logo-librespot-show.logo-top {
+  /* Position finale normale, l'animation CSS va gérer la transition */
+  top: var(--space-06);
+  transform: translateX(-50%);
+  opacity: 1;
+}
+
+/* === TAILLES === */
 .logo-svg {
   display: block;
   transition: all var(--transition-spring-soft);
@@ -92,15 +123,24 @@ const sizeClass = computed(() => ({
   width: auto;
 }
 
-/* Responsive - Mobile */
+/* === RESPONSIVE - MOBILE === */
 @media (max-aspect-ratio: 4/3) {
   .logo-large {
-    height: 40px; /* 40px au lieu de 48px sur mobile */
+    height: 40px;
+  }
+  
+  /* Ajuster translateY pour mobile */
+  .logo-librespot-hide.logo-hidden.logo-center {
+    transform: translateX(-50%) translateY(-50%) translateY(-16px);
+  }
+  
+  .logo-librespot-hide.logo-hidden.logo-top {
+    transform: translateX(-50%) translateY(-16px);
   }
 }
 
-/* iOS */
+/* === iOS === */
 .ios-app .logo-top {
-  top: var(--space-09); 
+  top: var(--space-09);
 }
 </style>

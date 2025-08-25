@@ -68,7 +68,7 @@ const props = defineProps({
 // Émissions
 const emit = defineEmits(['disconnect']);
 
-// État d'attente initial (800ms)
+// État d'attente initial (1000ms)
 const showInitialDelay = ref(true);
 
 // === LOGIQUE DE DÉCISION SIMPLIFIÉE ===
@@ -153,11 +153,11 @@ const librespotKey = computed(() => {
 onMounted(() => {
   console.log('🚀 AudioSourceView mounted - SIMPLIFIED');
   
-  // Attente initiale de 800ms
+  // Attente initiale de 1000ms
   setTimeout(() => {
     console.log('🚀 Initial delay finished');
     showInitialDelay.value = false;
-  }, 800);
+  }, 1000);
 });
 </script>
 

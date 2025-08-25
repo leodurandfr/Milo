@@ -1,4 +1,4 @@
-<!-- MainView.vue - Version ULTRA-SIMPLIFIÉE avec z-index corrects -->
+<!-- MainView.vue - Version simplifiée avec 3 cas précis -->
 <template>
   <div class="main-view">
     <!-- AudioSourceView - Le plus bas -->
@@ -19,12 +19,13 @@
       :position="logoPosition"
       :size="logoSize"
       :visible="logoVisible"
+      :transition-mode="logoTransitionMode"
     />
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
@@ -38,40 +39,108 @@ const disconnectingStates = ref({
   librespot: false
 });
 
-// === LOGIQUE DU LOGO SIMPLIFIÉE ===
+// États du logo
+const logoPosition = ref('center');  // 'center' | 'top'
+const logoSize = ref('large');       // 'large' | 'small'
+const logoVisible = ref(true);
+const logoTransitionMode = ref('normal'); // 'normal' | 'librespot-hide' | 'librespot-show'
+const isInitialLoad = ref(true); // Pour distinguer refresh vs transitions d'état
 
-const logoPosition = computed(() => {
-  // Logo centré si aucune source active
-  if (unifiedStore.currentSource === 'none' && !unifiedStore.isTransitioning) {
-    return 'center';
-  }
-  
-  // Logo en haut dans tous les autres cas
-  return 'top';
-});
+let logoTimeout = null;
 
-const logoSize = computed(() => {
-  return logoPosition.value === 'center' ? 'large' : 'small';
-});
-
-const logoVisible = computed(() => {
-  // Cacher le logo quand LibrespotView est affiché (plein écran)
+// === COMPUTED POUR LES ÉTATS CIBLES ===
+const isLibrespotFullScreen = computed(() => {
   const hasCompleteTrackInfo = !!(
     unifiedStore.pluginState === 'connected' &&
     unifiedStore.metadata?.title &&
     unifiedStore.metadata?.artist
   );
   
-  const isLibrespotFullScreen = unifiedStore.currentSource === 'librespot' && 
-                               unifiedStore.pluginState === 'connected' && 
-                               hasCompleteTrackInfo &&
-                               !unifiedStore.isTransitioning;
+  return unifiedStore.currentSource === 'librespot' && 
+         unifiedStore.pluginState === 'connected' && 
+         hasCompleteTrackInfo &&
+         !unifiedStore.isTransitioning;
+});
+
+const shouldShowLogo = computed(() => {
+  return !isLibrespotFullScreen.value;
+});
+
+const targetPosition = computed(() => {
+  if (unifiedStore.currentSource === 'none' && !unifiedStore.isTransitioning) {
+    return 'center';
+  }
+  return 'top';
+});
+
+const targetSize = computed(() => {
+  return targetPosition.value === 'center' ? 'large' : 'small';
+});
+
+// === LOGIQUE PRINCIPALE ===
+watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisible]) => {
+  if (logoTimeout) {
+    clearTimeout(logoTimeout);
+    logoTimeout = null;
+  }
+
+  // CAS 1 & 2: Logo visible → caché pour librespot
+  if (!newVisible && logoVisible.value) {
+    logoTransitionMode.value = 'librespot-hide';
+    
+    // Transition immédiate si ce n'est pas le chargement initial
+    if (!isInitialLoad.value) {
+      logoVisible.value = false;
+      return;
+    }
+    
+    // Délai de 800ms seulement au chargement initial (refresh)
+    logoTimeout = setTimeout(() => {
+      logoVisible.value = false;
+    }, 900);
+    return;
+  }
+
+  // CAS 3: Logo caché → visible (retour de librespot)
+  if (newVisible && !logoVisible.value) {
+    logoTransitionMode.value = 'librespot-show';
+    logoPosition.value = 'top';
+    logoSize.value = 'small';
+    logoVisible.value = true;
+    isInitialLoad.value = false; // Plus un chargement initial
+    return;
+  }
+
+  // CAS 1 & 2: Changements normaux
+  logoTransitionMode.value = 'normal';
   
-  return !isLibrespotFullScreen;
+  // Transition immédiate si ce n'est pas le chargement initial
+  if (!isInitialLoad.value) {
+    logoPosition.value = newPos;
+    logoSize.value = newSize;
+    logoVisible.value = newVisible;
+    return;
+  }
+  
+  // Délai de 800ms seulement au chargement initial (refresh)
+  logoTimeout = setTimeout(() => {
+    logoPosition.value = newPos;
+    logoSize.value = newSize;
+    logoVisible.value = newVisible;
+    isInitialLoad.value = false; // Marquer fin du chargement initial
+  }, 900);
+}, { immediate: true });
+
+// Initialisation au montage
+onMounted(() => {
+  // Toujours démarrer big+center, même pour librespot connected
+  logoPosition.value = 'center';
+  logoSize.value = 'large';
+  logoVisible.value = true;
+  logoTransitionMode.value = 'normal';
 });
 
 // === GESTION DES ACTIONS ===
-
 async function handleDisconnect() {
   const currentSource = unifiedStore.currentSource;
   if (!currentSource || currentSource === 'none') return;
@@ -109,7 +178,7 @@ async function handleDisconnect() {
   } finally {
     setTimeout(() => {
       disconnectingStates.value[currentSource] = false;
-    }, 1000);
+    }, 900);
   }
 }
 </script>
@@ -125,11 +194,6 @@ async function handleDisconnect() {
   width: 100%;
   height: 100%;
   position: relative;
-  z-index: 1; /* Le plus bas */
+  z-index: 1;
 }
-
-/* VolumeBar sera z-index: 120 (défini dans son composant) */
-/* Logo sera z-index: 100 (défini dans son composant) */  
-/* BottomNavigation sera z-index: 1000 (défini dans son composant) */
-/* AudioSource reste z-index: 1 */
 </style>
