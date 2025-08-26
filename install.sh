@@ -1,5 +1,5 @@
 #!/bin/bash
-# Milo Audio System - Installation Script v1.1
+# Milo Audio System - Installation Script v1.2
 
 set -e
 
@@ -14,9 +14,11 @@ REBOOT_REQUIRED=false
 # Variables pour stocker les choix utilisateur
 USER_HOSTNAME_CHANGE=""
 USER_HIFIBERRY_CHOICE=""
+USER_SCREEN_CHOICE=""
 USER_RESTART_CHOICE=""
 HIFIBERRY_OVERLAY=""
 CARD_NAME=""
+SCREEN_TYPE=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -48,7 +50,7 @@ show_banner() {
     echo " | |  | | | | (_) |"
     echo " |_|  |_|_|_|\___/ "
     echo ""
-    echo "Audio System Installation Script v1.1"
+    echo "Audio System Installation Script v1.2"
     echo -e "${NC}"
 }
 
@@ -77,7 +79,7 @@ check_system() {
 }
 
 # ===============================
-# NOUVELLE FONCTION POUR COLLECTER TOUS LES CHOIX
+# FONCTION POUR COLLECTER TOUS LES CHOIX
 # ===============================
 collect_user_choices() {
     echo ""
@@ -147,7 +149,30 @@ collect_user_choices() {
         esac
     done
     
-    # 3. Choix du redémarrage (on le demande maintenant mais on l'utilisera à la fin)
+    # 3. Nouveau : Choix de l'écran
+    echo ""
+    log_info "Configuration de l'écran tactile..."
+    echo ""
+    echo "Sélectionnez votre écran :"
+    echo ""
+    echo "1) Waveshare 7\" 1024x600 (USB)"
+    echo "2) Waveshare 8\" 1280x800 (DSI)"  
+    echo "3) Pas d'écran ou installation manuelle"
+    echo ""
+    
+    while true; do
+        read -p "Votre choix [1]: " USER_SCREEN_CHOICE
+        USER_SCREEN_CHOICE=${USER_SCREEN_CHOICE:-1}
+        
+        case $USER_SCREEN_CHOICE in
+            1) SCREEN_TYPE="waveshare_7_usb"; log_success "Écran sélectionné: Waveshare 7\" USB"; break;;
+            2) SCREEN_TYPE="waveshare_8_dsi"; log_success "Écran sélectionné: Waveshare 8\" DSI"; break;;
+            3) SCREEN_TYPE="none"; log_warning "Configuration d'écran ignorée"; break;;
+            *) echo "Choix invalide. Veuillez entrer un nombre entre 1 et 3.";;
+        esac
+    done
+    
+    # 4. Choix du redémarrage (on le demande maintenant mais on l'utilisera à la fin)
     echo ""
     log_info "Un redémarrage sera nécessaire à la fin de l'installation."
     while true; do
@@ -243,6 +268,50 @@ configure_audio_hardware() {
     REBOOT_REQUIRED=true
 }
 
+# ===============================
+# NOUVELLE FONCTION POUR L'ÉCRAN
+# ===============================
+configure_screen_hardware() {
+    if [[ "$SCREEN_TYPE" == "none" ]]; then
+        log_info "Configuration d'écran ignorée"
+        return
+    fi
+    
+    log_info "Configuration du hardware d'écran..."
+    
+    local config_file="/boot/firmware/config.txt"
+    
+    if [[ ! -f "$config_file" ]]; then
+        config_file="/boot/config.txt"
+        if [[ ! -f "$config_file" ]]; then
+            log_error "Fichier config.txt non trouvé"
+            exit 1
+        fi
+    fi
+    
+    # Sauvegarde si pas déjà fait
+    if [[ ! -f "$config_file.backup.$(date +%Y%m%d)" ]]; then
+        sudo cp "$config_file" "$config_file.backup.$(date +%Y%m%d_%H%M%S)"
+    fi
+    
+    case $SCREEN_TYPE in
+        "waveshare_8_dsi")
+            log_info "Configuration pour Waveshare 8\" DSI..."
+            if ! grep -q "dtoverlay=vc4-kms-dsi-waveshare-panel,8_0_inch" "$config_file"; then
+                echo "" | sudo tee -a "$config_file"
+                echo "#DSI1 Use - Waveshare 8\" 1280x800" | sudo tee -a "$config_file"
+                echo "dtoverlay=vc4-kms-dsi-waveshare-panel,8_0_inch" | sudo tee -a "$config_file"
+            fi
+            REBOOT_REQUIRED=true
+            ;;
+        "waveshare_7_usb")
+            log_info "Configuration pour Waveshare 7\" USB (aucune modification config.txt requise)"
+            ;;
+    esac
+    
+    log_success "Configuration écran hardware terminée"
+}
+
 install_dependencies() {
     log_info "Mise à jour du système..."
     
@@ -259,7 +328,7 @@ install_dependencies() {
     
     log_info "Installation des dépendances de base..."
     sudo apt install -y git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
-    cmake build-essential pkg-config nodejs npm
+    cmake build-essential pkg-config nodejs npm wget unzip
     
     log_info "Mise à jour de Node.js et npm..."
     sudo npm install -g n
@@ -1053,19 +1122,59 @@ EOF
    log_success "Nginx configuré"
 }
 
-install_brightness_hdmi() {
-    log_info "Installation de Brightness-HDMI..."
+# ===============================
+# FONCTION MODIFIÉE POUR L'INSTALLATION DE LA LUMINOSITÉ
+# ===============================
+install_screen_brightness_control() {
+    if [[ "$SCREEN_TYPE" == "none" ]]; then
+        log_info "Installation du contrôle de luminosité ignorée"
+        return
+    fi
     
-    cd ~/
-    git clone https://github.com/waveshare/RPi-USB-Brightness
-    cd RPi-USB-Brightness
-    cd 64
-    cd lite
-    ./Raspi_USB_Backlight_nogui -b 6
-    
-    cd ~
-    
-    log_success "Brightness-HDMI installé"
+    case $SCREEN_TYPE in
+        "waveshare_7_usb")
+            log_info "Installation du contrôle de luminosité pour Waveshare 7\" USB..."
+            
+            local temp_dir=$(mktemp -d)
+            cd "$temp_dir"
+            
+            git clone https://github.com/waveshare/RPi-USB-Brightness
+            cd RPi-USB-Brightness/64/lite
+            sudo chmod +x Raspi_USB_Backlight_nogui
+            ./Raspi_USB_Backlight_nogui -b 6
+            
+            # Copier l'utilitaire dans un emplacement accessible
+            sudo cp Raspi_USB_Backlight_nogui /usr/local/bin/milo-brightness-7
+            sudo chmod +x /usr/local/bin/milo-brightness-7
+            
+            cd ~
+            rm -rf "$temp_dir"
+            
+            log_success "Contrôle de luminosité 7\" USB installé"
+            ;;
+            
+        "waveshare_8_dsi")
+            log_info "Installation du contrôle de luminosité pour Waveshare 8\" DSI..."
+            
+            local temp_dir=$(mktemp -d)
+            cd "$temp_dir"
+            
+            wget https://files.waveshare.com/wiki/common/Brightness.zip
+            unzip Brightness.zip
+            cd Brightness
+            sudo chmod +x install.sh
+            ./install.sh
+            
+            # Test de la luminosité (valeur par défaut à 100)
+            echo 100 | sudo tee /sys/class/backlight/*/brightness > /dev/null 2>&1 || true
+            
+            cd ~
+            rm -rf "$temp_dir"
+            
+            log_success "Contrôle de luminosité 8\" DSI installé"
+            log_info "Utilisez: echo VALUE | sudo tee /sys/class/backlight/*/brightness (VALUE: 0-255)"
+            ;;
+    esac
 }
 
 enable_services() {
@@ -1116,6 +1225,12 @@ finalize_installation() {
    echo "  • Données: $MILO_DATA_DIR"
    if [[ -n "$HIFIBERRY_OVERLAY" ]]; then
        echo "  • Carte audio: $HIFIBERRY_OVERLAY"
+   fi
+   if [[ "$SCREEN_TYPE" != "none" ]]; then
+       case $SCREEN_TYPE in
+           "waveshare_7_usb") echo "  • Écran: Waveshare 7\" USB 1024x600" ;;
+           "waveshare_8_dsi") echo "  • Écran: Waveshare 8\" DSI 1280x800" ;;
+       esac
    fi
    echo ""
    echo -e "${BLUE}Accès :${NC}"
@@ -1182,6 +1297,7 @@ uninstall_milo() {
    
    log_info "Suppression des binaires..."
    sudo rm -f /usr/local/bin/go-librespot
+   sudo rm -f /usr/local/bin/milo-brightness-7
    
    log_info "Nettoyage des packages..."
    sudo apt autoremove -y
@@ -1235,6 +1351,7 @@ main() {
    install_dependencies
    setup_hostname
    configure_audio_hardware
+   configure_screen_hardware
    
    create_milo_user
    install_milo_application
@@ -1258,7 +1375,7 @@ main() {
    configure_avahi
    configure_nginx
    
-   install_brightness_hdmi
+   install_screen_brightness_control
 
    enable_services
    finalize_installation
