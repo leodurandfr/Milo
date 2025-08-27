@@ -15,15 +15,15 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     multiroom_enabled: false,
     equalizer_enabled: false
   });
-  
+
   const volumeState = ref({
     currentVolume: 0,
     limits: { min: 0, max: 100 }
   });
-  
+
   let volumeBarRef = null;
   let lastWebSocketUpdate = 0; // Timestamp du dernier update WebSocket
-  
+
   // === GETTERS ===
   const currentSource = computed(() => systemState.value.active_source);
   const pluginState = computed(() => systemState.value.plugin_state);
@@ -32,38 +32,38 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   const error = computed(() => systemState.value.error);
   const multiroomEnabled = computed(() => systemState.value.multiroom_enabled);
   const equalizerEnabled = computed(() => systemState.value.equalizer_enabled);
-  
+
   const displayedSource = computed(() => {
     if (systemState.value.transitioning && systemState.value.target_source) {
       return systemState.value.target_source;
     }
     return systemState.value.active_source;
   });
-  
+
   const currentVolume = computed(() => volumeState.value.currentVolume);
   const volumeLimits = computed(() => volumeState.value.limits);
-  
+
   // === ACTIONS AUDIO ===
   async function changeSource(source) {
     try {
       console.log('🚀 CHANGING SOURCE TO:', source);
-      
+
       // ✅ NE PAS faire de refresh après - laisser les WebSocket updates arriver
       const response = await axios.post(`/api/audio/source/${source}`);
       const success = response.data.status === 'success';
-      
+
       console.log('🚀 CHANGE SOURCE RESPONSE:', success);
-      
+
       // ❌ PAS DE REFRESH ICI - les WebSocket events vont arriver
       // Laisser les WebSocket events gérer l'état
-      
+
       return success;
     } catch (err) {
       console.error('Change source error:', err);
       return false;
     }
   }
-  
+
   async function sendCommand(source, command, data = {}) {
     try {
       const response = await axios.post(`/api/audio/control/${source}`, {
@@ -76,7 +76,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       return false;
     }
   }
-  
+
   async function setMultiroomEnabled(enabled) {
     try {
       const response = await axios.post(`/api/routing/multiroom/${enabled}`);
@@ -86,7 +86,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       return false;
     }
   }
-  
+
   async function setEqualizerEnabled(enabled) {
     try {
       const response = await axios.post(`/api/routing/equalizer/${enabled}`);
@@ -96,7 +96,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       return false;
     }
   }
-  
+
   // === ACTIONS VOLUME ===
   async function setVolume(volume, showBar = true) {
     try {
@@ -104,19 +104,19 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         volume,
         show_bar: showBar
       });
-      
+
       if (response.data.status === 'success') {
         volumeState.value.currentVolume = response.data.volume;
         return true;
       }
       return false;
-      
+
     } catch (error) {
       console.error('Error setting volume:', error);
       return false;
     }
   }
-  
+
   async function adjustVolume(delta, showBar = true) {
     fetch('/api/volume/adjust', {
       method: 'POST',
@@ -126,33 +126,33 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       console.error('Erreur volume:', error);
     });
   }
-  
+
   async function increaseVolume() {
     return await adjustVolume(5);
   }
-  
+
   async function decreaseVolume() {
     return await adjustVolume(-5);
   }
-  
+
   // === REFRESH (AVEC PROTECTION ANTI-ÉCRASEMENT) ===
   async function refreshState() {
     try {
       console.log('🔄 Refreshing unified state...');
-      
+
       // ✅ PROTECTION : Ne pas écraser si transition en cours
       if (systemState.value.transitioning) {
         console.log('⚠️ Skipping refresh - transition in progress');
         return true;
       }
-      
+
       // ✅ PROTECTION : Ne pas écraser si WebSocket update récent (< 1s)
       const now = Date.now();
       if (lastWebSocketUpdate && (now - lastWebSocketUpdate) < 1000) {
         console.log('⚠️ Skipping refresh - recent WebSocket update');
         return true;
       }
-      
+
       // État audio principal
       if (systemState.value.active_source === 'librespot') {
         try {
@@ -183,7 +183,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
           updateSystemState(audioResponse.data, 'http_refresh');
         }
       }
-      
+
       // État volume
       const volumeResponse = await axios.get('/api/volume/status');
       if (volumeResponse.data?.status === 'success') {
@@ -193,16 +193,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
           volumeState.value.limits = data.limits;
         }
       }
-      
+
       console.log('✅ Unified state refreshed');
       return true;
-      
+
     } catch (error) {
       console.error('❌ Error refreshing state:', error);
       return false;
     }
   }
-  
+
   // === GESTION VISIBILITÉ ===
   function setupVisibilityListener() {
     const visibilityHandler = () => {
@@ -216,25 +216,25 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         }, 1000);
       }
     };
-    
+
     document.addEventListener('visibilitychange', visibilityHandler);
     window.addEventListener('focus', visibilityHandler);
-    
+
     return () => {
       document.removeEventListener('visibilitychange', visibilityHandler);
       window.removeEventListener('focus', visibilityHandler);
     };
   }
-  
+
   // === MISE À JOUR D'ÉTAT AVEC DEBUG ===
   function updateSystemState(newState, source = 'unknown') {
     console.log('🔄 UPDATING SYSTEM STATE from:', source);
     console.log('📊 Old state:', JSON.stringify(systemState.value, null, 2));
     console.log('📊 New state:', JSON.stringify(newState, null, 2));
-    
+
     // Tracer d'où vient l'appel
     console.trace('Update called from:');
-    
+
     systemState.value = {
       active_source: newState.active_source || 'none',
       plugin_state: newState.plugin_state || 'inactive',
@@ -245,30 +245,31 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : false,
       equalizer_enabled: newState.equalizer_enabled || false
     };
-    
+
     console.log('✅ State updated to:', JSON.stringify(systemState.value, null, 2));
   }
-  
+
   function updateState(event) {
     console.log('🌐 WEBSOCKET EVENT:', event);
-    
+
     if (event.data?.full_state) {
       // ✅ Marquer timestamp WebSocket
       lastWebSocketUpdate = Date.now();
-      
+
       updateSystemState(event.data.full_state, 'websocket');
     }
   }
-  
+
   function handleVolumeEvent(event) {
     if (event.data && typeof event.data.volume === 'number') {
       volumeState.value.currentVolume = event.data.volume;
-      
+
       if (event.data.limits) {
         volumeState.value.limits = event.data.limits;
       }
-      
-      if (event.data.show_bar && volumeBarRef && volumeBarRef.value) {
+
+      // MODIFIÉ : Afficher la barre pour tous les changements de volume
+      if (volumeBarRef && volumeBarRef.value) {
         try {
           volumeBarRef.value.showVolume();
         } catch (error) {
@@ -277,16 +278,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       }
     }
   }
-  
+
   function setVolumeBarRef(reactiveRef) {
     volumeBarRef = reactiveRef;
   }
-  
+
   return {
     // État
     systemState,
     volumeState,
-    
+
     // Getters
     currentSource,
     pluginState,
@@ -298,7 +299,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     displayedSource,
     currentVolume,
     volumeLimits,
-    
+
     // Actions
     changeSource,
     sendCommand,

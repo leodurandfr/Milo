@@ -267,27 +267,24 @@ class VolumeService:
             return False
     
     async def _set_volume_multiroom_fast(self, display_volume: int) -> bool:
-        """Version rapide multiroom (simplifié) - CORRIGÉ"""
+        """Version rapide multiroom - Logique delta uniforme"""
         try:
-            # SUPPRIMÉ : target_volume = self._interpolate_from_display(display_volume)
-            target_volume = display_volume  # Snapcast utilise déjà 0-100
+            target_volume = display_volume
             clients = await self._get_snapcast_clients_cached()
             
             if not clients:
                 return False
             
+            # Calculer la moyenne actuelle
             current_average = sum(client["volume"] for client in clients) / len(clients)
             
-            if current_average <= 5:
-                delta = target_volume - current_average
-                for client in clients:
-                    new_vol = max(0, min(100, round(client["volume"] + delta)))  # Limites 0-100 pour Snapcast
-                    await self.snapcast_service.set_volume(client["id"], new_vol)
-            else:
-                ratio = target_volume / current_average
-                for client in clients:
-                    new_vol = max(0, min(100, round(client["volume"] * ratio)))  # Limites 0-100 pour Snapcast
-                    await self.snapcast_service.set_volume(client["id"], new_vol)
+            # Calculer le delta à appliquer uniformément
+            delta = target_volume - current_average
+            
+            # Appliquer le delta à chaque client
+            for client in clients:
+                new_vol = max(0, min(100, round(client["volume"] + delta)))
+                await self.snapcast_service.set_volume(client["id"], new_vol)
             
             return True
         except Exception:
