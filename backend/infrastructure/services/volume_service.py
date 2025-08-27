@@ -190,7 +190,7 @@ class VolumeService:
             return self._current_volume
     
     async def _get_volume_multiroom_fast(self) -> int:
-        """Version rapide multiroom avec cache"""
+        """Version rapide multiroom avec cache - CORRIGÉ"""
         try:
             clients = await self._get_snapcast_clients_cached()
             
@@ -199,13 +199,13 @@ class VolumeService:
             
             total_volume = sum(client["volume"] for client in clients)
             average_volume = round(total_volume / len(clients))
-            return self._interpolate_to_display(average_volume)
+            return average_volume  # Les volumes Snapcast sont déjà 0-100
         except Exception:
             return self._current_volume
     
-    # 🚀 ADJUST_VOLUME ULTRA-OPTIMISÉ
+    # 🚀 ADJUST_VOLUME ULTRA-OPTIMISÉ CORRIGÉ
     async def adjust_volume(self, delta: int, show_bar: bool = True) -> bool:
-        """Version ultra-rapide pour spam clicks"""
+        """Version ultra-rapide pour spam clicks - CORRIGÉ pour sync Snapcast"""
         async with self._volume_lock:
             try:
                 # Marquer qu'on est en ajustement (active les caches)
@@ -219,8 +219,8 @@ class VolumeService:
                 else:
                     self._adjustment_count += 1
                 
-                # Calcul rapide du nouveau volume
-                current_volume = self._current_volume  # Utiliser la valeur cached
+                # 🔧 CORRECTION : Récupérer le volume réel (pas le cache)
+                current_volume = await self.get_volume()  # Au lieu de self._current_volume
                 new_volume = max(0, min(100, current_volume + delta))
                 
                 # Log optimisé (moins verbose pendant les ajustements)
@@ -267,26 +267,26 @@ class VolumeService:
             return False
     
     async def _set_volume_multiroom_fast(self, display_volume: int) -> bool:
-        """Version rapide multiroom (simplifié)"""
+        """Version rapide multiroom (simplifié) - CORRIGÉ"""
         try:
-            target_volume = self._interpolate_from_display(display_volume)
+            # SUPPRIMÉ : target_volume = self._interpolate_from_display(display_volume)
+            target_volume = display_volume  # Snapcast utilise déjà 0-100
             clients = await self._get_snapcast_clients_cached()
             
             if not clients:
                 return False
             
-            # Logique simplifiée pour la rapidité
             current_average = sum(client["volume"] for client in clients) / len(clients)
             
             if current_average <= 5:
                 delta = target_volume - current_average
                 for client in clients:
-                    new_vol = max(self.MIN_VOLUME, min(self.MAX_VOLUME, round(client["volume"] + delta)))
+                    new_vol = max(0, min(100, round(client["volume"] + delta)))  # Limites 0-100 pour Snapcast
                     await self.snapcast_service.set_volume(client["id"], new_vol)
             else:
                 ratio = target_volume / current_average
                 for client in clients:
-                    new_vol = max(self.MIN_VOLUME, min(self.MAX_VOLUME, round(client["volume"] * ratio)))
+                    new_vol = max(0, min(100, round(client["volume"] * ratio)))  # Limites 0-100 pour Snapcast
                     await self.snapcast_service.set_volume(client["id"], new_vol)
             
             return True
