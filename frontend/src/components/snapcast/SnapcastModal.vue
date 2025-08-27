@@ -4,7 +4,7 @@
     <!-- Vue principale -->
     <div v-if="currentView === 'main'" class="view-main">
       <div class="modal-header">
-        <h2 class="heading-2">Multiroom</h2>
+        <h2 class="heading-2">{{ $t('Multiroom') }}</h2>
         <div class="controls-wrapper">
           <IconButton v-if="isMultiroomActive" icon="settings" variant="dark" @click="showSettings"
             title="Configuration Multiroom" />
@@ -23,7 +23,7 @@
       <div class="modal-header">
         <div class="back-modal-header">
           <IconButton icon="caretLeft" variant="dark" @click="goToMain" />
-          <h2 class="heading-2">Configuration Multiroom</h2>
+          <h2 class="heading-2">{{ $t('Configuration Multiroom') }}</h2>
         </div>
       </div>
       <SnapcastSettings />

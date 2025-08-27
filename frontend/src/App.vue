@@ -1,4 +1,4 @@
-<!-- App.vue - Version finale OPTIM -->
+<!-- App.vue - Version avec i18n WebSocket -->
 <template>
   <div class="app-container">
     <router-view />
@@ -26,6 +26,7 @@ import Modal from '@/components/ui/Modal.vue';
 import SnapcastModal from '@/components/snapcast/SnapcastModal.vue';
 import EqualizerModal from '@/components/equalizer/EqualizerModal.vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 
 const unifiedStore = useUnifiedAudioStore();
@@ -53,7 +54,7 @@ onMounted(() => {
   const visibilityCleanup = unifiedStore.setupVisibilityListener();
   cleanupFunctions.push(visibilityCleanup);
   
-  // Événements WebSocket
+  // Événements WebSocket - Audio
   cleanupFunctions.push(
     on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
@@ -62,6 +63,19 @@ onMounted(() => {
     on('system', 'error', (event) => unifiedStore.updateState(event)),
     on('plugin', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('plugin', 'metadata', (event) => unifiedStore.updateState(event))
+  );
+
+  // Événements WebSocket - i18n
+  cleanupFunctions.push(
+    on('settings', 'language_changed', (event) => {
+      console.log('Received language_changed WebSocket event:', event);
+      if (event.data?.language) {
+        console.log(`Changing language to: ${event.data.language}`);
+        i18n.handleLanguageChanged(event.data.language);
+      } else {
+        console.error('Language_changed event missing language data:', event);
+      }
+    })
   );
 
   // État initial

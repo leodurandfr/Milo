@@ -1,6 +1,7 @@
-// router/index.js - Phase 3 : Route unique simplifiée
+// router/index.js - Avec route Settings
 import { createRouter, createWebHistory } from 'vue-router';
 import MainView from '@/views/MainView.vue';
+import SettingsView from '@/views/SettingsView.vue';
 
 const routes = [
   {
@@ -8,7 +9,15 @@ const routes = [
     name: 'main',
     component: MainView,
     meta: {
-      title: 'Milo'
+      title: 'Milō'
+    }
+  },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: SettingsView,
+    meta: {
+      title: 'Configuration - Milō'
     }
   },
   // Redirections pour compatibilité (optionnel, à supprimer plus tard)

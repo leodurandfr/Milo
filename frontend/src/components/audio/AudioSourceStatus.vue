@@ -1,4 +1,4 @@
-<!-- PluginStatus.vue - Version SIMPLIFIÉE sans gestion animation manuelle -->
+<!-- AudioSourceStatus.vue - Version SIMPLIFIÉE avec traductions -->
 <template>
   <div class="plugin-status">
     <div class="plugin-status-content">
@@ -36,7 +36,7 @@
           <div class="disconnect-button-content">
             <div class="disconnect-button-inner">
               <button @click="handleDisconnect" :disabled="isDisconnecting" class="disconnect-text">
-                <p>{{ isDisconnecting ? 'Déconnexion...' : 'Déconnecter' }}</p>
+                <p>{{ isDisconnecting ? $t('Déconnexion...') : $t('Déconnecter') }}</p>
               </button>
             </div>
           </div>
@@ -49,6 +49,9 @@
 <script setup>
 import { computed } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import { useI18n } from '@/services/i18n';
+
+const { t } = useI18n();
 
 // Props
 const props = defineProps({
@@ -96,13 +99,13 @@ const displayedStatusLines = computed(() => {
   if (props.pluginState === 'starting') {
     switch (props.pluginType) {
       case 'bluetooth':
-        return ['Démarrage du', 'Bluetooth'];
+        return [t('Démarrage du'), t('Bluetooth')];
       case 'roc':
-        return ['Démarrage de', 'MacOS'];
+        return [t('Démarrage de'), t('MacOS')];
       case 'librespot':
-        return ['Démarrage de', 'Spotify'];
+        return [t('Démarrage de'), t('Spotify')];
       default:
-        return ['Démarrage...'];
+        return [t('Démarrage...')];
     }
   }
 
@@ -110,13 +113,13 @@ const displayedStatusLines = computed(() => {
   if (props.pluginState === 'ready') {
     switch (props.pluginType) {
       case 'bluetooth':
-        return ['Bluetooth', 'Prêt à diffuser'];
+        return [t('Bluetooth'), t('Prêt à diffuser')];
       case 'roc':
-        return ['MacOS', 'Prêt à diffuser'];
+        return [t('MacOS'), t('Prêt à diffuser')];
       case 'librespot':
-        return ['Spotify', 'Prêt à diffuser'];
+        return [t('Spotify'), t('Prêt à diffuser')];
       default:
-        return ['En attente de connexion'];
+        return [t('En attente de connexion')];
     }
   }
 
@@ -126,15 +129,15 @@ const displayedStatusLines = computed(() => {
     
     switch (props.pluginType) {
       case 'bluetooth':
-        return ['Connecté à', cleanedDeviceName];
+        return [t('Connecté à'), cleanedDeviceName];
       case 'roc':
-        return ['Connecté au', cleanedDeviceName];
+        return [t('Connecté au'), cleanedDeviceName];
       default:
-        return ['Connecté à', props.deviceName];
+        return [t('Connecté à'), props.deviceName];
     }
   }
 
-  return ['En attente...'];
+  return [t('En attente...')];
 });
 
 const displayedShowDisconnectButton = computed(() => {

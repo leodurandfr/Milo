@@ -4,7 +4,7 @@
     <div class="screen-main">
       <!-- Header avec toggle -->
       <div class="modal-header">
-        <h2 class="heading-2">Égaliseur</h2>
+        <h2 class="heading-2">{{ $t('Égaliseur') }}</h2>
         <div class="controls-wrapper">
           <IconButton v-if="isEqualizerEnabled" icon="reset" variant="dark" :disabled="resetting"
             @click="resetAllBands" />
@@ -17,13 +17,13 @@
       <div class="main-content">
         <div v-if="!isEqualizerEnabled" class="not-active">
           <Icon name="equalizer" :size="148" color="var(--color-background-glass)" />
-          <p class="text-mono">Égaliseur désactivé</p>
+          <p class="text-mono">{{ $t('Égaliseur désactivé') }}</p>
         </div>
 
         <div v-else class="equalizer-controls">
           <div v-if="loading" class="loading-state">
             <Icon name="equalizer" :size="148" color="var(--color-background-glass)" />
-            <p class="text-mono">Chargement de l'égaliseur</p>
+            <p class="text-mono">{{ $t('Chargement de l’égaliseur') }}</p>
           </div>
 
           <template v-else>

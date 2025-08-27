@@ -3,22 +3,22 @@
   <div class="snapclient-details">
     <div v-if="loading" class="loading-state">
       <div class="loading-spinner"></div>
-      <p class="text-body">Chargement des détails...</p>
+      <p class="text-body">{{ $t('Chargement des détails...') }}</p>
     </div>
 
     <div v-else-if="error" class="error-state">
       <p class="error-message text-body">{{ error }}</p>
-      <Button variant="secondary" @click="loadClientDetails">Réessayer</Button>
+      <Button variant="secondary" @click="loadClientDetails">{{ $t('Réessayer') }}</Button>
     </div>
 
     <div v-else class="details-content">
       <!-- Configuration éditable -->
       <section class="config-section">
-        <h2 class="heading-2">Configuration</h2>
+        <h2 class="heading-2">{{ $t('Configuration') }}</h2>
 
         <!-- Nom du client -->
         <div class="form-group">
-          <label for="client-name" class="text-mono">Nom affiché</label>
+          <label for="client-name" class="text-mono">{{ $t('Nom affiché') }}</label>
           <input id="client-name" type="text" v-model="editableConfig.name" :placeholder="clientDetails.host"
             class="text-input text-body" maxlength="50">
         </div>
@@ -26,9 +26,9 @@
         <!-- Latence -->
         <div class="form-group">
           <div class="latency-info-wrapper">
-            <label for="client-latency" class="text-mono">Latence (ms)</label>
+            <label for="client-latency" class="text-mono">{{ $t('Latence (ms)') }}</label>
             <span v-if="clientDetails.latency !== editableConfig.latency" class="change-indicator text-mono">
-              Actuellement: {{ clientDetails.latency }}ms
+              {{ $t('Actuellement:') }} {{ clientDetails.latency }}ms
             </span>
           </div>
           <div class="input-with-value">
@@ -45,22 +45,22 @@
 
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label text-mono">Adresse IP</span>
+            <span class="info-label text-mono">{{ $t('Adresse IP') }}</span>
             <span class="info-value text-mono">{{ clientDetails.ip }}</span>
           </div>
 
           <div class="info-item">
-            <span class="info-label text-mono">Nom du client</span>
+            <span class="info-label text-mono">{{ $t('Nom du client') }}</span>
             <span class="info-value text-mono">{{ clientDetails.host }}</span>
           </div>
 
           <div class="info-item">
-            <span class="info-label text-mono">Version Snapclient</span>
+            <span class="info-label text-mono">{{ $t('Version Snapclient') }}</span>
             <span class="info-value text-mono">{{ clientDetails.snapclient_info?.version || 'Inconnu' }}</span>
           </div>
 
           <div class="info-item">
-            <span class="info-label text-mono">Connexion</span>
+            <span class="info-label text-mono">{{ $t('Connexion') }}</span>
             <div class="connection-status">
               <span :class="['status-dot', getQualityClass(clientDetails.connection_quality)]"></span>
               <span class="text-mono">{{ getQualityText(clientDetails.connection_quality) }}</span>
@@ -71,7 +71,7 @@
 
       <!-- Actions -->
       <Button variant="primary" :disabled="!hasChanges || isUpdating" @click="validateChanges">
-        {{ isUpdating ? 'Validation...' : 'Valider' }}
+        {{ isUpdating ? $t('Validation...') : $t('Valider') }}
       </Button>
     </div>
   </div>
@@ -82,6 +82,10 @@ import { ref, computed, onMounted, watch } from 'vue';
 import axios from 'axios';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
+import { useI18n } from '@/services/i18n';
+
+const { t } = useI18n();
+
 
 // Props
 const props = defineProps({
@@ -219,9 +223,9 @@ function getQualityClass(quality) {
 
 function getQualityText(quality) {
   switch (quality) {
-    case 'good': return 'Bonne';
-    case 'poor': return 'Faible';
-    default: return 'Inconnue';
+    case 'good': return t('Bonne');
+    case 'poor': return t('Faible');
+    default: return t('Inconnue');
   }
 }
 

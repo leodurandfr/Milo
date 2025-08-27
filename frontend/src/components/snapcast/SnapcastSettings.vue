@@ -3,18 +3,18 @@
   <div class="snapcast-settings">
     <div v-if="loading" class="loading-state">
       <div class="loading-spinner"></div>
-      <p>Chargement de la configuration...</p>
+      <p>{{ $t('Chargement de la configuration...') }}</p>
     </div>
 
     <div v-else-if="error" class="error-state">
       <p class="error-message">{{ error }}</p>
-      <button @click="loadServerConfig" class="retry-btn">Réessayer</button>
+      <button @click="loadServerConfig" class="retry-btn">{{ $t('Réessayer') }}</button>
     </div>
 
     <div v-else class="settings-content">
       <!-- Presets Audio -->
       <section class="config-section">
-        <h2 class="heading-2">Presets audio</h2>
+        <h2 class="heading-2">{{ $t('Presets audio') }}</h2>
 
         <div class="presets-buttons">
           <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle" :active="isPresetActive(preset)"
@@ -26,11 +26,11 @@
 
       <!-- Configuration serveur -->
       <section class="config-section">
-        <h2 class="heading-2">Paramètres avancés</h2>
+        <h2 class="heading-2">{{ $t('Paramètres avancés') }}</h2>
 
         <!-- Buffer global -->
         <div class="form-group">
-          <label for="buffer" class="text-mono">Buffer global (ms)</label>
+          <label for="buffer" class="text-mono">{{ $t('Buffer global (ms)') }}</label>
           <div class="input-with-value">
             <RangeSlider v-model="config.buffer" :min="100" :max="2000" :step="50" class="range-input" />
             <span class="text-mono">{{ config.buffer }}ms</span>
@@ -39,7 +39,7 @@
 
         <!-- Codec -->
         <div class="form-group">
-          <label class="text-mono">Codec audio</label>
+          <label class="text-mono">{{ $t('Codec audio') }}</label>
           <div class="codec-buttons">
             <Button variant="toggle" :active="config.codec === 'opus'" @click="selectCodec('opus')">
               Opus
@@ -57,7 +57,7 @@
 
         <!-- Chunk size -->
         <div class="form-group">
-          <label for="chunk" class="text-mono">Taille des chunks (ms)</label>
+          <label for="chunk" class="text-mono">{{ $t('Taille des chunks (ms)') }}</label>
           <div class="input-with-value">
             <RangeSlider v-model="config.chunk_ms" :min="10" :max="100" :step="5" class="range-input" />
             <span class="text-mono">{{ config.chunk_ms }}ms</span>
@@ -67,26 +67,26 @@
 
       <!-- Informations actuelles -->
       <section class="config-section">
-        <h2 class="heading-2">Informations</h2>
+        <h2 class="heading-2">{{ $t('Informations') }}</h2>
 
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label text-mono">Version Snapserver</span>
+            <span class="info-label text-mono">{{ $t('Version Snapserver') }}</span>
             <span class="info-value text-mono">
               {{ serverInfo.server_info?.server?.snapserver?.version || 'Inconnu' }}
             </span>
           </div>
 
           <div class="info-item">
-            <span class="info-label text-mono">Nom du serveur</span>
-            <span class="info-value text-mono">{{ serverInfo.server_info?.server?.host?.name || 'Inconnu' }}</span>
+            <span class="info-label text-mono">{{ $t('Nom du serveur') }}</span>
+            <span class="info-value text-mono">{{ serverInfo.server_info?.server?.host?.name || $t('Inconnu') }}</span>
           </div>
         </div>
       </section>
 
       <!-- Actions -->
       <Button variant="primary" :disabled="loading || applying || !hasChanges" @click="applyConfig">
-        {{ applying ? 'Redémarrage du multiroom en cours...' : 'Appliquer' }}
+        {{ applying ? $t('Redémarrage du multiroom en cours...') : $t('Appliquer') }}
       </Button>
     </div>
   </div>
@@ -97,6 +97,9 @@ import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
+import { useI18n } from '@/services/i18n';
+
+const { t } = useI18n();
 
 // Émissions
 const emit = defineEmits(['close', 'config-updated']);
@@ -109,10 +112,10 @@ const serverInfo = ref({});
 const lastActionTime = ref(0); // Protection contre double-clic
 
 // Presets audio prédéfinis
-const audioPresets = [
+const audioPresets = computed(() => [
   {
     id: 'reactivity',
-    name: 'Réactivité',
+    name: t('Réactivité'),
     config: {
       buffer: 150,
       codec: 'opus',
@@ -121,7 +124,7 @@ const audioPresets = [
   },
   {
     id: 'balanced',
-    name: 'Équilibré',
+    name: t('Équilibré'),
     config: {
       buffer: 1000,
       codec: 'opus',
@@ -130,14 +133,14 @@ const audioPresets = [
   },
   {
     id: 'quality',
-    name: 'Qualité optimale',
+    name: t('Qualité optimale'),
     config: {
       buffer: 1500,
       codec: 'flac',
       chunk_ms: 40
     }
   }
-];
+]);
 
 // Configuration actuelle et originale
 const config = ref({

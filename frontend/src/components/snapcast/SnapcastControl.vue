@@ -2,12 +2,12 @@
 <template>
   <div v-if="!isMultiroomActive" class="not-active">
     <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
-    <p class="text-mono">Le multiroom n'est pas activé</p>
+    <p class="text-mono">{{ $t('Le multiroom n’est pas activé') }}</p>
   </div>
 
   <div v-else-if="clients.length === 0" class="not-active">
     <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
-    <p class="text-mono">Aucun client n'est connecté</p>
+    <p class="text-mono">{{ $t('Aucun client n’est connecté') }}</p>
   </div>
 
   <div v-else class="clients-list">

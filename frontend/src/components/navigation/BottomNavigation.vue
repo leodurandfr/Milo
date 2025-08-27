@@ -396,7 +396,7 @@ onUnmounted(() => {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  height: 32%;
+  height: 36%;
   opacity: 0.2;
   z-index: 999;
   cursor: grab;
@@ -491,7 +491,7 @@ onUnmounted(() => {
 }
 
 .dock-container.visible {
-  transform: translateX(-50%) translateY(-20px) scale(1);
+  transform: translateX(-50%) translateY(-29px) scale(1);
 }
 
 .dock {

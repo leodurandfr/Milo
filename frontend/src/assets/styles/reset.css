@@ -67,9 +67,10 @@ img {
   border: none;
 }
 
-/* Style pour reset l'affichage de l'écran du raspberry 7" */
+/* Style pour pour corriger l'affichage de l'écran du raspberry 7" */
 @media screen and (width: 1024px) and (height: 600px) {
 
+  /* Warm filter to "calibrate" colors */
   body::before {
     content: "";
     position: fixed;
@@ -77,15 +78,19 @@ img {
     left: 0;
     width: 100vw;
     height: 100vh;
-    background-color: rgba(255, 119, 0, 0.3);
+    background-color: rgba(255, 119, 0, 0.36);
     pointer-events: none;
     mix-blend-mode: multiply;
     z-index: 9999;
   }
 
-  .app-container {
-    /* fix screen position in the case */
-    transform: translateX(-3px);
-    height: calc(100% - 8px);
+    /* Center components */
+
+  .now-playing {
+    padding-bottom: calc(var(--space-05) + 8px) !important; 
   }
+
+  .modal-container {
+    margin-left: -20px;
+}
 }

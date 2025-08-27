@@ -2,15 +2,25 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import { i18n } from './services/i18n'
 import './assets/styles/reset.css'
 import './assets/styles/design-system.css'
 
-const app = createApp(App)
+async function initApp() {
+  const app = createApp(App)
 
-app.use(createPinia())
-app.use(router)
+  app.use(createPinia())
+  app.use(router)
 
-app.config.devtools = true
+  // Configuration globale de l'i18n
+  app.config.globalProperties.$t = i18n.t.bind(i18n)
 
+  app.config.devtools = true
 
-app.mount('#app')
+  // Initialiser la langue depuis le serveur avant de monter l'app
+  await i18n.initializeLanguage()
+
+  app.mount('#app')
+}
+
+initApp()

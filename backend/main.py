@@ -1,6 +1,6 @@
-# backend/main.py - Mise à jour avec SnapcastWebSocketService
+# backend/main.py - Version corrigée avec Settings et WebSocket fonctionnel
 """
-Point d'entrée principal de l'application Milo - Version avec SnapcastWebSocketService
+Point d'entrée principal de l'application Milo - Version avec SnapcastWebSocketService et Settings
 """
 import sys
 import os
@@ -20,6 +20,7 @@ from backend.presentation.api.routes.volume import create_volume_router
 from backend.presentation.api.routes.librespot import setup_librespot_routes
 from backend.presentation.api.routes.roc import setup_roc_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
+from backend.presentation.api.routes.settings import create_settings_router
 from backend.presentation.websockets.server import WebSocketServer
 from backend.domain.audio_state import AudioSource
 
@@ -90,7 +91,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routes (inchangées)
+# Routes existantes
 audio_router = audio.create_router(state_machine)
 app.include_router(audio_router)
 
@@ -120,6 +121,10 @@ bluetooth_router = setup_bluetooth_routes(
     lambda: state_machine.plugins.get(AudioSource.BLUETOOTH)
 )
 app.include_router(bluetooth_router)
+
+# NOUVEAU : Routes Settings pour l'i18n avec WebSocket intégré
+settings_router = create_settings_router(ws_manager)
+app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
 # WebSocket
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
