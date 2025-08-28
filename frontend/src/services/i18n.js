@@ -22,6 +22,12 @@ class I18nService {
         translations = (await import('../locales/english.json')).default;
       } else if (language === 'español') {
         translations = (await import('../locales/spanish.json')).default;
+      } else if (language === 'hindi') {
+        translations = (await import('../locales/hindi.json')).default;
+      } else if (language === 'chinese') {
+        translations = (await import('../locales/chinese.json')).default;
+      } else if (language === 'portuguese') {
+        translations = (await import('../locales/portuguese.json')).default;
       }
       
       if (translations) {
@@ -69,8 +75,6 @@ class I18nService {
       const response = await axios.post('/api/settings/language', { language });
       
       if (response.data.status === 'success') {
-        // Le serveur va diffuser l'événement WebSocket
-        // Notre langue sera mise à jour via handleLanguageChanged()
         console.log(`Language change requested: ${language}`);
         return true;
       }
@@ -94,7 +98,10 @@ class I18nService {
     return [
       { code: 'français', name: 'Français', flag: '🇫🇷' },
       { code: 'english', name: 'English', flag: '🇺🇸' },
-      { code: 'español', name: 'Español', flag: '🇪🇸' }
+      { code: 'español', name: 'Español', flag: '🇪🇸' },
+      { code: 'hindi', name: 'हिन्दी', flag: '🇮🇳' },
+      { code: 'chinese', name: '中文', flag: '🇨🇳' },
+      { code: 'portuguese', name: 'Português', flag: '🇵🇹' }
     ];
   }
 

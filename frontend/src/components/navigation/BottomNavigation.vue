@@ -63,10 +63,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, getCurrentInstance } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useI18n } from '@/services/i18n'; 
 import AppIcon from '@/components/ui/AppIcon.vue';
 import Icon from '@/components/ui/Icon.vue';
+
+const { t } = useI18n();
+const instance = getCurrentInstance();
+const $t = instance.appContext.config.globalProperties.$t;
 
 // === CONFIGURATION ===
 const AUDIO_SOURCES = [
@@ -75,10 +80,10 @@ const AUDIO_SOURCES = [
   { id: 'roc', icon: 'roc' }
 ];
 
-const ADDITIONAL_ACTIONS = [
-  { id: 'multiroom', icon: 'multiroom', title: 'Multiroom', handler: () => emit('open-snapcast') },
-  { id: 'equalizer', icon: 'equalizer', title: 'Égaliseur', handler: () => emit('open-equalizer') }
-];
+const ADDITIONAL_ACTIONS = computed(() => [
+  { id: 'multiroom', icon: 'multiroom', title: t('Multiroom'), handler: () => emit('open-snapcast') },
+  { id: 'equalizer', icon: 'equalizer', title: t('Égaliseur'), handler: () => emit('open-equalizer') }
+]);
 
 // Store unifié pour volume ET audio
 const unifiedStore = useUnifiedAudioStore();
