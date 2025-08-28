@@ -1,17 +1,17 @@
-// frontend/src/services/i18n.js - Service de traduction avec WebSocket
+// frontend/src/services/i18n.js - Service de traduction avec codes standardisés
 import { ref } from 'vue';
 import axios from 'axios';
 
 class I18nService {
   constructor() {
-    this.currentLanguage = ref('français');
+    this.currentLanguage = ref('french'); // Code standardisé
     this.translations = new Map();
-    this.fallbackLanguage = 'français';
+    this.fallbackLanguage = 'french';
     this.isInitialized = false;
   }
 
   async loadTranslations(language) {
-    if (language === 'français' || this.translations.has(language)) {
+    if (language === 'french' || this.translations.has(language)) {
       return;
     }
 
@@ -20,7 +20,7 @@ class I18nService {
       
       if (language === 'english') {
         translations = (await import('../locales/english.json')).default;
-      } else if (language === 'español') {
+      } else if (language === 'spanish') {
         translations = (await import('../locales/spanish.json')).default;
       } else if (language === 'hindi') {
         translations = (await import('../locales/hindi.json')).default;
@@ -40,7 +40,7 @@ class I18nService {
 
   t(key) {
     // Français par défaut - retourner la clé telle quelle
-    if (this.currentLanguage.value === 'français') {
+    if (this.currentLanguage.value === 'french') {
       return key;
     }
 
@@ -96,9 +96,9 @@ class I18nService {
 
   getAvailableLanguages() {
     return [
-      { code: 'français', name: 'Français', flag: '🇫🇷' },
+      { code: 'french', name: 'Français', flag: '🇫🇷' },
       { code: 'english', name: 'English', flag: '🇺🇸' },
-      { code: 'español', name: 'Español', flag: '🇪🇸' },
+      { code: 'spanish', name: 'Español', flag: '🇪🇸' },
       { code: 'hindi', name: 'हिन्दी', flag: '🇮🇳' },
       { code: 'chinese', name: '中文', flag: '🇨🇳' },
       { code: 'portuguese', name: 'Português', flag: '🇵🇹' }

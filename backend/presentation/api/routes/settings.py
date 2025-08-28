@@ -1,11 +1,11 @@
-# backend/presentation/api/routes/settings.py - Version corrigée
+# backend/presentation/api/routes/settings.py - Version corrigée avec codes standardisés
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Literal
 import json
 import os
 
-# Modèle pour la requête de changement de langue - CORRIGÉ
+# Modèle pour la requête de changement de langue - CODES STANDARDISÉS
 class LanguageRequest(BaseModel):
     language: Literal['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese']
 
@@ -25,7 +25,7 @@ def load_current_language():
         print(f"Error loading language config: {e}")
     
     print("Using default language: french")
-    return 'french'  # Langue par défaut changée
+    return 'french'  # Langue par défaut
 
 def save_current_language(language: str):
     """Sauvegarder la langue dans le fichier de config"""

@@ -1,4 +1,4 @@
-<!-- frontend/src/views/SettingsView.vue -->
+<!-- frontend/src/views/SettingsView.vue - Version avec WebSocket intégré -->
 <template>
   <div class="settings-view">
     <!-- Header avec retour -->
@@ -30,7 +30,7 @@
         </div>
       </section>
 
-      <!-- Informations version (optionnel pour le futur) -->
+      <!-- Informations version -->
       <section class="settings-section">
         <h2 class="heading-2">{{ $t('Informations') }}</h2>
         
@@ -46,17 +46,35 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from '@/services/i18n';
+import { i18n } from '@/services/i18n';
+import useWebSocket from '@/services/websocket';
 import IconButton from '@/components/ui/IconButton.vue';
 
 const router = useRouter();
 const { setLanguage, getAvailableLanguages, getCurrentLanguage } = useI18n();
+const { on } = useWebSocket();
 
 // Langues disponibles
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
+
+// Initialisation et WebSocket
+onMounted(async () => {
+  // Initialiser la langue depuis le serveur
+  await i18n.initializeLanguage();
+  
+  // Écouter les changements de langue via WebSocket
+  on('settings', 'language_changed', (message) => {
+    console.log('Received language_changed WebSocket event:', message);
+    if (message.data?.language) {
+      console.log('Changing language to:', message.data.language);
+      i18n.handleLanguageChanged(message.data.language);
+    }
+  });
+});
 
 // Actions
 async function changeLanguage(languageCode) {
