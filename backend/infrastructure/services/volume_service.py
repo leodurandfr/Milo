@@ -1,6 +1,6 @@
 # backend/infrastructure/services/volume_service.py
 """
-Service de gestion du volume pour Milo - Version ultra-optimisée pour clics rapides
+Service de gestion du volume pour Milo - Version refactorisée avec API volume affiché unifié
 """
 import asyncio
 import logging
@@ -10,11 +10,12 @@ from typing import Optional
 import time
 
 class VolumeService:
-    """Service de gestion du volume système - Version ultra-rapide pour spam clicks"""
+    """Service de gestion du volume système - API unifiée en volume affiché (0-100%)"""
     
-    MIN_VOLUME = 0
-    MAX_VOLUME = 65
-    DEFAULT_STARTUP_VOLUME = 24
+    # Constantes ALSA (privées - invisible pour les composants)
+    _ALSA_MIN_VOLUME = 0
+    _ALSA_MAX_VOLUME = 65
+    _DEFAULT_STARTUP_DISPLAY_VOLUME = 37  # ~24 en ALSA
     
     def __init__(self, state_machine, snapcast_service):
         self.state_machine = state_machine
@@ -23,34 +24,63 @@ class VolumeService:
         self.logger = logging.getLogger(__name__)
         self._volume_lock = asyncio.Lock()
         
-        # 🚀 OPTIMISATIONS ULTRA-RAPIDES
-        self._current_volume = 0
-        self._last_amixer_volume = 0
-        self._amixer_cache_time = 0
+        # État interne - toujours en volume affiché (0-100%)
+        self._current_display_volume = 0
+        self._last_alsa_volume = 0
+        self._alsa_cache_time = 0
         self._is_adjusting = False
         
-        # Cache clients snapcast (évite les requêtes répétées)
+        # Cache clients snapcast
         self._snapcast_clients_cache = []
         self._snapcast_cache_time = 0
-        self.SNAPCAST_CACHE_MS = 50  # 50ms cache pour clients
+        self.SNAPCAST_CACHE_MS = 50
         
-        # Optimisations logging (moins de logs pendant les ajustements)
+        # Optimisations logging
         self._adjustment_count = 0
         self._first_adjustment_time = 0
     
-    def _interpolate_to_display(self, actual_volume: int) -> int:
-        actual_range = self.MAX_VOLUME - self.MIN_VOLUME
-        normalized = actual_volume - self.MIN_VOLUME
-        return round((normalized / actual_range) * 100)
+    # === INTERPOLATION PRIVÉE ===
+    
+    def _alsa_to_display(self, alsa_volume: int) -> int:
+        """Convertit volume ALSA (0-65) vers volume affiché (0-100%)"""
+        alsa_range = self._ALSA_MAX_VOLUME - self._ALSA_MIN_VOLUME
+        normalized = alsa_volume - self._ALSA_MIN_VOLUME
+        return round((normalized / alsa_range) * 100)
 
-    def _interpolate_from_display(self, display_volume: int) -> int:
-        actual_range = self.MAX_VOLUME - self.MIN_VOLUME
-        return round((display_volume / 100) * actual_range) + self.MIN_VOLUME
+    def _display_to_alsa(self, display_volume: int) -> int:
+        """Convertit volume affiché (0-100%) vers volume ALSA (0-65)"""
+        alsa_range = self._ALSA_MAX_VOLUME - self._ALSA_MIN_VOLUME
+        return round((display_volume / 100) * alsa_range) + self._ALSA_MIN_VOLUME
+    
+    def _clamp_display_volume(self, display_volume: int) -> int:
+        """Limite le volume affiché entre 0-100%"""
+        return max(0, min(100, display_volume))
+    
+    def _clamp_alsa_volume(self, alsa_volume: int) -> int:
+        """Limite le volume ALSA entre MIN-MAX"""
+        return max(self._ALSA_MIN_VOLUME, min(self._ALSA_MAX_VOLUME, alsa_volume))
+    
+    # === CONVERSIONS SNAPCAST ===
+    
+    def _snapcast_to_display(self, snapcast_volume: int) -> int:
+        """Convertit volume Snapcast (0-65) vers volume affiché (0-100%)"""
+        # Même logique que ALSA car on veut la même limitation
+        snapcast_range = self._ALSA_MAX_VOLUME - self._ALSA_MIN_VOLUME
+        normalized = snapcast_volume - self._ALSA_MIN_VOLUME  
+        return round((normalized / snapcast_range) * 100)
+
+    def _display_to_snapcast(self, display_volume: int) -> int:
+        """Convertit volume affiché (0-100%) vers volume Snapcast (0-65)"""
+        # Même logique que ALSA car on veut la même limitation
+        snapcast_range = self._ALSA_MAX_VOLUME - self._ALSA_MIN_VOLUME
+        return round((display_volume / 100) * snapcast_range) + self._ALSA_MIN_VOLUME
+    
+    # === INITIALISATION ===
     
     async def initialize(self) -> bool:
-        """Initialise le service volume avec un volume par défaut (dans les limitations)"""
+        """Initialise le service volume avec un volume par défaut affiché"""
         try:
-            self.logger.info(f"Initializing ULTRA-FAST volume service (limits: {self.MIN_VOLUME}-{self.MAX_VOLUME}%)")
+            self.logger.info(f"Initializing volume service with display volume API (ALSA limits: {self._ALSA_MIN_VOLUME}-{self._ALSA_MAX_VOLUME})")
             
             try:
                 self.mixer = alsaaudio.Mixer('Digital')
@@ -59,23 +89,20 @@ class VolumeService:
                 self.logger.error(f"Digital mixer not found: {e}")
                 return False
             
-            # 🚀 MODIFIÉ: Convertir le volume d'affichage vers ALSA
-            startup_alsa_volume = self._interpolate_from_display(self.DEFAULT_STARTUP_VOLUME)
+            # Forcer le volume au démarrage (en volume affiché)
+            startup_alsa_volume = self._display_to_alsa(self._DEFAULT_STARTUP_DISPLAY_VOLUME)
             
-            # Forcer le volume au démarrage (mode multiroom ou direct)
             if self._is_multiroom_enabled():
-                # Mode multiroom: forcer tous les clients au volume ALSA converti
                 await self._set_startup_volume_multiroom(startup_alsa_volume)
             else:
-                # Mode direct: forcer amixer au volume ALSA converti
                 await self._set_startup_volume_direct(startup_alsa_volume)
             
-            # Mettre à jour le cache
-            self._current_volume = self.DEFAULT_STARTUP_VOLUME  # Volume d'affichage
-            self._last_amixer_volume = startup_alsa_volume      # Volume ALSA
-            self._amixer_cache_time = time.time()
+            # État interne
+            self._current_display_volume = self._DEFAULT_STARTUP_DISPLAY_VOLUME
+            self._last_alsa_volume = startup_alsa_volume
+            self._alsa_cache_time = time.time()
             
-            self.logger.info(f"🎵 Startup volume set to {self.DEFAULT_STARTUP_VOLUME}% (display) = {startup_alsa_volume} (ALSA)")
+            self.logger.info(f"Startup volume set to {self._DEFAULT_STARTUP_DISPLAY_VOLUME}% (display) = {startup_alsa_volume} (ALSA)")
             asyncio.create_task(self._delayed_initial_broadcast())
             return True
             
@@ -86,7 +113,7 @@ class VolumeService:
     async def _delayed_initial_broadcast(self):
         """Diffuse l'état initial"""
         try:
-            await asyncio.sleep(0.5)  # Réduit à 500ms
+            await asyncio.sleep(0.5)
             await self._broadcast_volume_change(show_bar=False)
         except Exception as e:
             self.logger.error(f"Error in delayed initial broadcast: {e}")
@@ -101,49 +128,197 @@ class VolumeService:
         except Exception as e:
             return False
     
-    # 🚀 VERSION ULTRA-RAPIDE d'amixer (moins de parsing, cache agressif)
+    # === API PUBLIQUE - VOLUME AFFICHÉ (0-100%) ===
+    
+    async def get_display_volume(self) -> int:
+        """Récupère le volume affiché actuel (0-100%)"""
+        try:
+            if self._is_multiroom_enabled():
+                return await self._get_display_volume_multiroom()
+            else:
+                return await self._get_display_volume_direct()
+        except Exception:
+            return self._current_display_volume
+    
+    async def set_display_volume(self, display_volume: int, show_bar: bool = True) -> bool:
+        """Définit le volume affiché (0-100%)"""
+        async with self._volume_lock:
+            try:
+                self._is_adjusting = True
+                display_clamped = self._clamp_display_volume(display_volume)
+                
+                if self._is_multiroom_enabled():
+                    success = await self._set_display_volume_multiroom(display_clamped)
+                else:
+                    success = await self._set_display_volume_direct(display_clamped)
+                
+                if success:
+                    self._current_display_volume = display_clamped
+                    await self._broadcast_volume_change_fast(show_bar)
+                
+                self._is_adjusting = False
+                return success
+            except Exception as e:
+                self.logger.error(f"Error setting display volume: {e}")
+                self._is_adjusting = False
+                return False
+    
+    async def adjust_display_volume(self, delta: int, show_bar: bool = True) -> bool:
+        """Ajuste le volume affiché par delta - Version ultra-rapide"""
+        async with self._volume_lock:
+            try:
+                # Marquer ajustement
+                was_adjusting = self._is_adjusting
+                self._is_adjusting = True
+                
+                # Compteur pour logs
+                if not was_adjusting:
+                    self._adjustment_count = 1
+                    self._first_adjustment_time = time.time()
+                else:
+                    self._adjustment_count += 1
+                
+                # Récupérer le volume réel actuel
+                current_volume = await self.get_display_volume()
+                new_volume = self._clamp_display_volume(current_volume + delta)
+                
+                # Log optimisé
+                if self._adjustment_count <= 3 or self._adjustment_count % 5 == 0:
+                    self.logger.debug(f"Fast adjust #{self._adjustment_count}: {current_volume}% + {delta} = {new_volume}%")
+                
+                # Application
+                if self._is_multiroom_enabled():
+                    success = await self._set_display_volume_multiroom(new_volume)
+                else:
+                    success = await self._set_display_volume_direct(new_volume)
+                
+                if success:
+                    self._current_display_volume = new_volume
+                    asyncio.create_task(self._broadcast_volume_change_fast(show_bar))
+                
+                # Marquer fin d'ajustement
+                asyncio.create_task(self._mark_adjustment_done())
+                
+                return success
+                
+            except Exception as e:
+                self.logger.error(f"Error in fast adjust: {e}")
+                self._is_adjusting = False
+                return False
+    
+    async def increase_display_volume(self, delta: int = 5) -> bool:
+        """Augmente le volume affiché"""
+        return await self.adjust_display_volume(delta)
+    
+    async def decrease_display_volume(self, delta: int = 5) -> bool:
+        """Diminue le volume affiché"""
+        return await self.adjust_display_volume(-delta)
+    
+    # === IMPLÉMENTATIONS PRIVÉES - MODE DIRECT ===
+    
+    async def _get_display_volume_direct(self) -> int:
+        """Récupère le volume affiché en mode direct"""
+        alsa_volume = await self._get_amixer_volume_fast()
+        if alsa_volume is None:
+            return self._current_display_volume
+        return self._alsa_to_display(alsa_volume)
+    
+    async def _set_display_volume_direct(self, display_volume: int) -> bool:
+        """Définit le volume affiché en mode direct"""
+        try:
+            alsa_volume = self._display_to_alsa(display_volume)
+            return await self._set_amixer_volume_fast(alsa_volume)
+        except Exception:
+            return False
+    
+    # === IMPLÉMENTATIONS PRIVÉES - MODE MULTIROOM ===
+    
+    async def _get_display_volume_multiroom(self) -> int:
+        """Récupère le volume affiché moyen en mode multiroom"""
+        try:
+            clients = await self._get_snapcast_clients_cached()
+            
+            if not clients:
+                return self._current_display_volume
+            
+            # CORRECTION : Les volumes clients viennent de Snapcast (0-100% native)
+            # mais sont limités par nos constraints (donc 0-65 effectif)
+            # Les convertir vers volume affiché
+            total_display_volume = sum(self._snapcast_to_display(client["volume"]) for client in clients)
+            average_display_volume = round(total_display_volume / len(clients))
+            return average_display_volume
+        except Exception:
+            return self._current_display_volume
+    
+    async def _set_display_volume_multiroom(self, display_volume: int) -> bool:
+        """Définit le volume affiché en mode multiroom avec delta uniforme"""
+        try:
+            clients = await self._get_snapcast_clients_cached()
+            
+            if not clients:
+                return False
+            
+            # CORRECTION : Calculer la moyenne actuelle en supposant que client["volume"] 
+            # vient de Snapcast (0-100%) mais est limité par nos constraints ALSA
+            current_snapcast_volumes = [client["volume"] for client in clients]
+            current_average_snapcast = sum(current_snapcast_volumes) / len(current_snapcast_volumes)
+            
+            # Convertir la moyenne Snapcast vers volume affiché pour calcul du delta
+            current_average_display = self._snapcast_to_display(current_average_snapcast)
+            delta_display = display_volume - current_average_display
+            
+            # Appliquer le delta à chaque client
+            for client in clients:
+                current_client_snapcast = client["volume"]
+                current_client_display = self._snapcast_to_display(current_client_snapcast)
+                new_client_display = self._clamp_display_volume(round(current_client_display + delta_display))
+                new_client_snapcast = self._display_to_snapcast(new_client_display)
+                
+                await self.snapcast_service.set_volume(client["id"], new_client_snapcast)
+            
+            return True
+        except Exception:
+            return False
+    
+    # === MÉTHODES AMIXER OPTIMISÉES (INCHANGÉES) ===
+    
     async def _get_amixer_volume_fast(self) -> Optional[int]:
         """Version ultra-rapide d'amixer get - avec cache agressif"""
         current_time = time.time()
         
-        # Cache de 20ms pendant les ajustements
-        if self._is_adjusting and (current_time - self._amixer_cache_time) < 0.02:
-            return self._last_amixer_volume
+        if self._is_adjusting and (current_time - self._alsa_cache_time) < 0.02:
+            return self._last_alsa_volume
         
         try:
-            # Commande amixer plus directe
             proc = await asyncio.create_subprocess_exec(
                 "amixer", "-M", "get", "Digital",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL  # Pas d'erreurs pendant les ajustements
+                stderr=asyncio.subprocess.DEVNULL
             )
             stdout, _ = await proc.communicate()
             
             if proc.returncode != 0:
-                return self._last_amixer_volume  # Fallback sur cache
+                return self._last_alsa_volume
             
-            # Parsing optimisé (première occurrence seulement)
             output = stdout.decode()
             match = re.search(r'\[(\d+)%\]', output)
             
             if match:
                 volume = int(match.group(1))
-                self._last_amixer_volume = volume
-                self._amixer_cache_time = current_time
+                self._last_alsa_volume = volume
+                self._alsa_cache_time = current_time
                 return volume
             else:
-                return self._last_amixer_volume
+                return self._last_alsa_volume
                 
         except Exception:
-            return self._last_amixer_volume  # Toujours un fallback
+            return self._last_alsa_volume
     
-    # 🚀 VERSION ULTRA-RAPIDE d'amixer set
-    async def _set_amixer_volume_fast(self, volume: int) -> bool:
+    async def _set_amixer_volume_fast(self, alsa_volume: int) -> bool:
         """Version ultra-rapide d'amixer set"""
         try:
-            limited_volume = max(self.MIN_VOLUME, min(self.MAX_VOLUME, volume))
+            limited_volume = self._clamp_alsa_volume(alsa_volume)
             
-            # Commande directe sans capture stderr pendant les ajustements
             proc = await asyncio.create_subprocess_exec(
                 "amixer", "-M", "set", "Digital", f"{limited_volume}%",
                 stdout=asyncio.subprocess.DEVNULL,
@@ -151,16 +326,16 @@ class VolumeService:
             )
             await proc.communicate()
             
-            # Mettre à jour le cache immédiatement
-            self._last_amixer_volume = limited_volume
-            self._amixer_cache_time = time.time()
+            self._last_alsa_volume = limited_volume
+            self._alsa_cache_time = time.time()
             
             return proc.returncode == 0
             
         except Exception:
             return False
     
-    # 🚀 CACHE CLIENTS SNAPCAST pour éviter les requêtes répétées
+    # === CACHE SNAPCAST (INCHANGÉ) ===
+    
     async def _get_snapcast_clients_cached(self):
         """Récupère les clients avec cache ultra-rapide"""
         current_time = time.time() * 1000
@@ -174,222 +349,43 @@ class VolumeService:
             self._snapcast_cache_time = current_time
             return clients
         except Exception:
-            return self._snapcast_clients_cache  # Fallback sur cache
+            return self._snapcast_clients_cache
     
-    async def get_volume(self) -> int:
-        """Version optimisée get_volume"""
-        try:
-            if self._is_multiroom_enabled():
-                return await self._get_volume_multiroom_fast()
-            else:
-                actual_volume = await self._get_amixer_volume_fast()
-                if actual_volume is None:
-                    return self._current_volume
-                return self._interpolate_to_display(actual_volume)
-        except Exception:
-            return self._current_volume
-    
-    async def _get_volume_multiroom_fast(self) -> int:
-        """Version rapide multiroom avec cache - CORRIGÉ"""
-        try:
-            clients = await self._get_snapcast_clients_cached()
-            
-            if not clients:
-                return self._current_volume
-            
-            total_volume = sum(client["volume"] for client in clients)
-            average_volume = round(total_volume / len(clients))
-            return average_volume  # Les volumes Snapcast sont déjà 0-100
-        except Exception:
-            return self._current_volume
-    
-    # 🚀 ADJUST_VOLUME ULTRA-OPTIMISÉ CORRIGÉ
-    async def adjust_volume(self, delta: int, show_bar: bool = True) -> bool:
-        """Version ultra-rapide pour spam clicks - CORRIGÉ pour sync Snapcast"""
-        async with self._volume_lock:
-            try:
-                # Marquer qu'on est en ajustement (active les caches)
-                was_adjusting = self._is_adjusting
-                self._is_adjusting = True
-                
-                # Compteur pour logs optimisés
-                if not was_adjusting:
-                    self._adjustment_count = 1
-                    self._first_adjustment_time = time.time()
-                else:
-                    self._adjustment_count += 1
-                
-                # 🔧 CORRECTION : Récupérer le volume réel (pas le cache)
-                current_volume = await self.get_volume()  # Au lieu de self._current_volume
-                new_volume = max(0, min(100, current_volume + delta))
-                
-                # Log optimisé (moins verbose pendant les ajustements)
-                if self._adjustment_count <= 3 or self._adjustment_count % 5 == 0:
-                    self.logger.debug(f"🚀 Fast adjust #{self._adjustment_count}: {current_volume}% + {delta} = {new_volume}%")
-                
-                # Application ultra-rapide
-                if self._is_multiroom_enabled():
-                    success = await self._set_volume_multiroom_fast(new_volume)
-                else:
-                    success = await self._set_volume_direct_fast(new_volume)
-                
-                if success:
-                    self._current_volume = new_volume
-                    # Broadcast immédiat (pas d'attente)
-                    asyncio.create_task(self._broadcast_volume_change_fast(show_bar))
-                
-                # Marquer fin d'ajustement après un délai
-                asyncio.create_task(self._mark_adjustment_done())
-                
-                return success
-                
-            except Exception as e:
-                self.logger.error(f"Error in fast adjust: {e}")
-                self._is_adjusting = False
-                return False
+    # === MÉTHODES UTILITAIRES (ADAPTÉES) ===
     
     async def _mark_adjustment_done(self):
         """Marque la fin d'ajustement après un délai"""
-        await asyncio.sleep(0.1)  # 100ms après le dernier ajustement
+        await asyncio.sleep(0.1)
         self._is_adjusting = False
         
-        # Log résumé
         if self._adjustment_count > 1:
             duration = time.time() - self._first_adjustment_time
-            self.logger.info(f"📊 Adjustment burst: {self._adjustment_count} changes in {duration:.2f}s")
+            self.logger.info(f"Adjustment burst: {self._adjustment_count} changes in {duration:.2f}s")
     
-    async def _set_volume_direct_fast(self, display_volume: int) -> bool:
-        """Version ultra-rapide direct"""
-        try:
-            actual_volume = self._interpolate_from_display(display_volume)
-            return await self._set_amixer_volume_fast(actual_volume)
-        except Exception:
-            return False
-    
-    async def _set_volume_multiroom_fast(self, display_volume: int) -> bool:
-        """Version rapide multiroom - Logique delta uniforme"""
-        try:
-            target_volume = display_volume
-            clients = await self._get_snapcast_clients_cached()
-            
-            if not clients:
-                return False
-            
-            # Calculer la moyenne actuelle
-            current_average = sum(client["volume"] for client in clients) / len(clients)
-            
-            # Calculer le delta à appliquer uniformément
-            delta = target_volume - current_average
-            
-            # Appliquer le delta à chaque client
-            for client in clients:
-                new_vol = max(0, min(100, round(client["volume"] + delta)))
-                await self.snapcast_service.set_volume(client["id"], new_vol)
-            
-            return True
-        except Exception:
-            return False
-    
-    # 🚀 BROADCAST ULTRA-RAPIDE
     async def _broadcast_volume_change_fast(self, show_bar: bool = True) -> None:
         """Broadcast optimisé pour rapidité"""
         try:
-            # Pas d'appels système pendant les ajustements rapides
             await self.state_machine.broadcast_event("volume", "volume_changed", {
-                "volume": self._current_volume,
-                "amixer_volume": self._last_amixer_volume if not self._is_multiroom_enabled() else None,
+                "volume": self._current_display_volume,  # Toujours volume affiché
                 "multiroom_mode": self._is_multiroom_enabled(),
                 "show_bar": show_bar,
-                "source": "fast_volume_service",
-                "limits": {"min": self.MIN_VOLUME, "max": self.MAX_VOLUME}
+                "source": "volume_service",
             })
         except Exception as e:
-            if self._adjustment_count <= 3:  # Log seulement les premières erreurs
+            if self._adjustment_count <= 3:
                 self.logger.error(f"Error in fast broadcast: {e}")
     
-    # Méthodes existantes simplifiées...
-    async def set_volume(self, display_volume: int, show_bar: bool = True) -> bool:
-        """Version standard set_volume (pour API directe)"""
-        async with self._volume_lock:
-            try:
-                self._is_adjusting = True
-                display_clamped = max(0, min(100, display_volume))
-                
-                if self._is_multiroom_enabled():
-                    success = await self._set_volume_multiroom_fast(display_clamped)
-                else:
-                    success = await self._set_volume_direct_fast(display_clamped)
-                
-                if success:
-                    self._current_volume = display_clamped
-                    await self._broadcast_volume_change_fast(show_bar)
-                
-                self._is_adjusting = False
-                return success
-            except Exception as e:
-                self.logger.error(f"Error setting volume: {e}")
-                self._is_adjusting = False
-                return False
+    async def _broadcast_volume_change(self, show_bar: bool = True) -> None:
+        """Broadcast standard"""
+        await self._broadcast_volume_change_fast(show_bar)
     
-    async def _enforce_multiroom_limits(self) -> None:
-        """Force les limites sur tous les clients Snapcast au démarrage"""
-        try:
-            clients = await self.snapcast_service.get_clients()
-            if not clients:
-                return
-            
-            for client in clients:
-                current_volume = client["volume"]
-                limited_volume = max(self.MIN_VOLUME, min(self.MAX_VOLUME, current_volume))
-                
-                if limited_volume != current_volume:
-                    await self.snapcast_service.set_volume(client["id"], limited_volume)
-                    self.logger.info(f"Enforced limits on {client['name']}: {current_volume}% → {limited_volume}%")
-        except Exception as e:
-            self.logger.error(f"Error enforcing multiroom limits: {e}")
-    
-    async def get_status(self) -> dict:
-        """Récupère l'état complet du volume"""
-        try:
-            multiroom_enabled = self._is_multiroom_enabled()
-            display_volume = self._current_volume
-            
-            if multiroom_enabled:
-                clients = await self._get_snapcast_clients_cached()
-                return {
-                    "volume": display_volume,
-                    "mode": "multiroom_fast",
-                    "multiroom_enabled": True,
-                    "client_count": len(clients),
-                    "snapcast_available": await self.snapcast_service.is_available(),
-                    "mixer_available": self.mixer is not None,
-                    "limits": {"min": self.MIN_VOLUME, "max": self.MAX_VOLUME}
-                }
-            else:
-                return {
-                    "volume": display_volume,
-                    "amixer_volume": self._last_amixer_volume,
-                    "mode": "direct_fast",
-                    "multiroom_enabled": False,
-                    "mixer_available": self.mixer is not None,
-                    "limits": {"min": self.MIN_VOLUME, "max": self.MAX_VOLUME}
-                }
-        except Exception as e:
-            self.logger.error(f"Error getting volume status: {e}")
-            return {
-                "volume": self._current_volume,
-                "mode": "error",
-                "error": str(e),
-                "limits": {"min": self.MIN_VOLUME, "max": self.MAX_VOLUME}
-            }
-            
-            
     async def _set_startup_volume_direct(self, alsa_volume: int) -> bool:
         """Force le volume ALSA en mode direct"""
         try:
             success = await self._set_amixer_volume_fast(alsa_volume)
             if success:
-                self.logger.info(f"✅ Direct mode: ALSA volume set to {alsa_volume} ({self.DEFAULT_STARTUP_VOLUME}% display)")
+                display_volume = self._alsa_to_display(alsa_volume)
+                self.logger.info(f"Direct mode: ALSA volume set to {alsa_volume} ({display_volume}% display)")
             return success
         except Exception as e:
             self.logger.error(f"Error setting startup volume (direct): {e}")
@@ -403,11 +399,62 @@ class VolumeService:
                 self.logger.warning("No Snapcast clients found for startup volume")
                 return True
             
+            display_volume = self._alsa_to_display(alsa_volume)
             for client in clients:
                 await self.snapcast_service.set_volume(client["id"], alsa_volume)
-                self.logger.info(f"✅ Multiroom: Client {client['name']} volume set to {alsa_volume} ({self.DEFAULT_STARTUP_VOLUME}% display)")
+                self.logger.info(f"Multiroom: Client {client['name']} volume set to {alsa_volume} ({display_volume}% display)")
             
             return True
         except Exception as e:
             self.logger.error(f"Error setting startup volume (multiroom): {e}")
             return False
+    
+    # === API DE COMPATIBILITÉ (DÉPRÉCIÉES) ===
+    
+    async def get_volume(self) -> int:
+        """DÉPRÉCIÉ: Utiliser get_display_volume()"""
+        return await self.get_display_volume()
+    
+    async def set_volume(self, volume: int, show_bar: bool = True) -> bool:
+        """DÉPRÉCIÉ: Utiliser set_display_volume()"""
+        return await self.set_display_volume(volume, show_bar)
+    
+    async def adjust_volume(self, delta: int, show_bar: bool = True) -> bool:
+        """DÉPRÉCIÉ: Utiliser adjust_display_volume()"""
+        return await self.adjust_display_volume(delta, show_bar)
+    
+    # === STATUS (ADAPTÉ POUR VOLUME AFFICHÉ) ===
+    
+    async def get_status(self) -> dict:
+        """Récupère l'état complet du volume (en volume affiché)"""
+        try:
+            multiroom_enabled = self._is_multiroom_enabled()
+            display_volume = self._current_display_volume
+            
+            if multiroom_enabled:
+                clients = await self._get_snapcast_clients_cached()
+                return {
+                    "volume": display_volume,
+                    "mode": "multiroom",
+                    "multiroom_enabled": True,
+                    "client_count": len(clients),
+                    "snapcast_available": await self.snapcast_service.is_available(),
+                    "mixer_available": self.mixer is not None,
+                    "display_volume": True  # Indique que ce service utilise le volume affiché
+                }
+            else:
+                return {
+                    "volume": display_volume,
+                    "mode": "direct",
+                    "multiroom_enabled": False,
+                    "mixer_available": self.mixer is not None,
+                    "display_volume": True
+                }
+        except Exception as e:
+            self.logger.error(f"Error getting volume status: {e}")
+            return {
+                "volume": self._current_display_volume,
+                "mode": "error",
+                "error": str(e),
+                "display_volume": True
+            }

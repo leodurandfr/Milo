@@ -1,4 +1,4 @@
-// unifiedAudioStore.js - Version avec debug et corrections anti-écrasement
+// frontend/src/stores/unifiedAudioStore.js - Version volume affiché simplifié
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
@@ -16,13 +16,14 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     equalizer_enabled: false
   });
 
+  // État volume simplifié - UNIQUEMENT volume affiché (0-100%)
   const volumeState = ref({
-    currentVolume: 0,
-    limits: { min: 0, max: 100 }
+    currentVolume: 0
+    // Plus de limits - les limites ALSA sont gérées côté backend uniquement
   });
 
   let volumeBarRef = null;
-  let lastWebSocketUpdate = 0; // Timestamp du dernier update WebSocket
+  let lastWebSocketUpdate = 0;
 
   // === GETTERS ===
   const currentSource = computed(() => systemState.value.active_source);
@@ -40,23 +41,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return systemState.value.active_source;
   });
 
+  // Volume getter simplifié
   const currentVolume = computed(() => volumeState.value.currentVolume);
-  const volumeLimits = computed(() => volumeState.value.limits);
 
-  // === ACTIONS AUDIO ===
+  // === ACTIONS AUDIO (inchangées) ===
   async function changeSource(source) {
     try {
       console.log('🚀 CHANGING SOURCE TO:', source);
-
-      // ✅ NE PAS faire de refresh après - laisser les WebSocket updates arriver
       const response = await axios.post(`/api/audio/source/${source}`);
       const success = response.data.status === 'success';
-
       console.log('🚀 CHANGE SOURCE RESPONSE:', success);
-
-      // ❌ PAS DE REFRESH ICI - les WebSocket events vont arriver
-      // Laisser les WebSocket events gérer l'état
-
       return success;
     } catch (err) {
       console.error('Change source error:', err);
@@ -97,7 +91,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  // === ACTIONS VOLUME ===
+  // === ACTIONS VOLUME SIMPLIFIÉES ===
   async function setVolume(volume, showBar = true) {
     try {
       const response = await axios.post('/api/volume/set', {
@@ -135,25 +129,23 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return await adjustVolume(-5);
   }
 
-  // === REFRESH (AVEC PROTECTION ANTI-ÉCRASEMENT) ===
+  // === REFRESH (PROTECTION ANTI-ÉCRASEMENT) ===
   async function refreshState() {
     try {
       console.log('🔄 Refreshing unified state...');
 
-      // ✅ PROTECTION : Ne pas écraser si transition en cours
       if (systemState.value.transitioning) {
         console.log('⚠️ Skipping refresh - transition in progress');
         return true;
       }
 
-      // ✅ PROTECTION : Ne pas écraser si WebSocket update récent (< 1s)
       const now = Date.now();
       if (lastWebSocketUpdate && (now - lastWebSocketUpdate) < 1000) {
         console.log('⚠️ Skipping refresh - recent WebSocket update');
         return true;
       }
 
-      // État audio principal
+      // État audio
       if (systemState.value.active_source === 'librespot') {
         try {
           const response = await axios.get('/librespot/fresh-status');
@@ -163,7 +155,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
             systemState.value.plugin_state = response.data.device_connected ? 'connected' : 'ready';
             console.log('✅ Fresh librespot data updated');
           } else {
-            // Fallback
             const audioResponse = await axios.get('/api/audio/state');
             if (audioResponse.data) {
               updateSystemState(audioResponse.data, 'http_refresh');
@@ -177,21 +168,18 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
           }
         }
       } else {
-        // Pour les autres sources, utiliser l'API normale
         const audioResponse = await axios.get('/api/audio/state');
         if (audioResponse.data) {
           updateSystemState(audioResponse.data, 'http_refresh');
         }
       }
 
-      // État volume
+      // État volume (simplifié)
       const volumeResponse = await axios.get('/api/volume/status');
       if (volumeResponse.data?.status === 'success') {
         const data = volumeResponse.data.data;
         volumeState.value.currentVolume = data.volume || 0;
-        if (data.limits) {
-          volumeState.value.limits = data.limits;
-        }
+        // Plus de gestion des limites - tout est en 0-100%
       }
 
       console.log('✅ Unified state refreshed');
@@ -203,13 +191,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  // === GESTION VISIBILITÉ ===
+  // === GESTION VISIBILITÉ (inchangée) ===
   function setupVisibilityListener() {
     const visibilityHandler = () => {
       if (!document.hidden) {
-        // Délai plus long pour éviter les conflits avec WebSocket
         setTimeout(() => {
-          // Seulement refresh si pas de transition en cours
           if (!systemState.value.transitioning) {
             refreshState();
           }
@@ -226,13 +212,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     };
   }
 
-  // === MISE À JOUR D'ÉTAT AVEC DEBUG ===
+  // === MISE À JOUR D'ÉTAT (inchangée) ===
   function updateSystemState(newState, source = 'unknown') {
     console.log('🔄 UPDATING SYSTEM STATE from:', source);
     console.log('📊 Old state:', JSON.stringify(systemState.value, null, 2));
     console.log('📊 New state:', JSON.stringify(newState, null, 2));
 
-    // Tracer d'où vient l'appel
     console.trace('Update called from:');
 
     systemState.value = {
@@ -253,22 +238,17 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     console.log('🌐 WEBSOCKET EVENT:', event);
 
     if (event.data?.full_state) {
-      // ✅ Marquer timestamp WebSocket
       lastWebSocketUpdate = Date.now();
-
       updateSystemState(event.data.full_state, 'websocket');
     }
   }
 
   function handleVolumeEvent(event) {
     if (event.data && typeof event.data.volume === 'number') {
+      // Volume simplifié - toujours 0-100%
       volumeState.value.currentVolume = event.data.volume;
 
-      if (event.data.limits) {
-        volumeState.value.limits = event.data.limits;
-      }
-
-      // MODIFIÉ : Afficher la barre pour tous les changements de volume
+      // Afficher la barre pour tous les changements de volume
       if (volumeBarRef && volumeBarRef.value) {
         try {
           volumeBarRef.value.showVolume();
@@ -298,7 +278,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     equalizerEnabled,
     displayedSource,
     currentVolume,
-    volumeLimits,
 
     // Actions
     changeSource,

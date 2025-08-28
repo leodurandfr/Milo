@@ -1,6 +1,6 @@
 # backend/infrastructure/hardware/rotary_volume_controller.py
 """
-Contrôleur rotary encoder KY-040 pour volume - Version OPTIM pour Milo
+Contrôleur rotary encoder KY-040 pour volume - Version API volume affiché
 """
 import lgpio
 import asyncio
@@ -9,7 +9,7 @@ from typing import Optional, Callable, Awaitable
 from time import monotonic
 
 class RotaryVolumeController:
-    """Contrôleur rotary encoder KY-040 optimisé pour Milo"""
+    """Contrôleur rotary encoder KY-040 - API volume affiché (0-100%)"""
     
     def __init__(self, volume_service, clk_pin=22, dt_pin=27, sw_pin=23):
         self.volume_service = volume_service
@@ -21,13 +21,13 @@ class RotaryVolumeController:
         self.running = False
         self.logger = logging.getLogger(__name__)
         
-        # Configuration rotary
+        # Configuration rotary pour volume affiché  
         self.DEBOUNCE_TIME = 0.05  # 50ms debounce
-        self.VOLUME_STEP = 1       # Changement de volume par step
+        self.VOLUME_STEP = 2       # 2 is the minimum possible, otherwise its stuck
         self.rotation_accumulator = 0
         self.is_processing = False
-        self.PROCESS_INTERVAL = 0.05  # 80ms entre traitements
-        self.MIN_UPDATE_INTERVAL = 0.05  # 150ms minimum entre updates
+        self.PROCESS_INTERVAL = 0.05  # 50ms entre traitements
+        self.MIN_UPDATE_INTERVAL = 0.05  # 50ms minimum entre updates
         
         # Timing
         self._last_adjustment_time = 0
@@ -37,7 +37,7 @@ class RotaryVolumeController:
     async def initialize(self) -> bool:
         """Initialise le contrôleur rotary"""
         try:
-            self.logger.info(f"Initializing rotary controller (CLK={self.CLK}, DT={self.DT}, SW={self.SW})")
+            self.logger.info(f"Initializing rotary controller with display volume API (CLK={self.CLK}, DT={self.DT}, SW={self.SW})")
             self.chip_handle = lgpio.gpiochip_open(0)
             
             # Configuration des pins
@@ -51,7 +51,7 @@ class RotaryVolumeController:
             asyncio.create_task(self._monitor_loop())
             asyncio.create_task(self._process_rotations_loop())
             
-            self.logger.info("Rotary controller initialized successfully")
+            self.logger.info("Rotary controller initialized successfully with display volume API")
             return True
             
         except Exception as e:
@@ -92,17 +92,20 @@ class RotaryVolumeController:
                 if should_process:
                     self.is_processing = True
                     
-                    # Calculer le changement de volume
+                    # Calculer le changement de volume affiché (0-100%)
                     volume_delta = self.rotation_accumulator * self.VOLUME_STEP
                     self.rotation_accumulator = 0
                     last_process_time = current_time
                     
-                    # Appliquer le changement via le service volume
+                    
+                    # Appliquer le changement via le service volume (méthode de compatibilité)
                     try:
-                        await self.volume_service.adjust_volume(volume_delta)
+                        result = await self.volume_service.adjust_volume(volume_delta)
+                        print(f"DEBUG ROTARY: Volume service result: {result}")
                         self._last_volume_update = current_time
-                        self.logger.debug(f"Applied volume delta: {volume_delta}")
+                        self.logger.debug(f"Applied volume delta: {volume_delta}% (via rotary)")
                     except Exception as e:
+                        print(f"DEBUG ROTARY: Error adjusting volume: {e}")
                         self.logger.error(f"Error adjusting volume: {e}")
                     
                     self.is_processing = False
@@ -127,11 +130,13 @@ class RotaryVolumeController:
                 if dt_state != clk_state:
                     # Rotation horaire (volume +)
                     self.rotation_accumulator += 1
-                    self.logger.debug("Rotation clockwise →")
+                    print(f"DEBUG ROTARY: Rotation clockwise → (+1%), accumulator={self.rotation_accumulator}")
+                    self.logger.debug("Rotation clockwise → (+1%)")
                 else:
                     # Rotation anti-horaire (volume -)
                     self.rotation_accumulator -= 1
-                    self.logger.debug("Rotation counter-clockwise ←")
+                    print(f"DEBUG ROTARY: Rotation counter-clockwise ← (-1%), accumulator={self.rotation_accumulator}")
+                    self.logger.debug("Rotation counter-clockwise ← (-1%)")
                 
                 self._last_adjustment_time = current_time
             
@@ -143,8 +148,8 @@ class RotaryVolumeController:
             current_time = monotonic()
             
             if current_time - self._last_button_press >= self.DEBOUNCE_TIME:
-                self.logger.debug("Button pressed")
-                # Action libre pour l'instant - pourrait être mute/unmute
+                self.logger.debug("Button pressed - could implement mute/unmute")
+                # Action libre - pourrait être mute/unmute via VolumeService
                 self._last_button_press = current_time
                 await asyncio.sleep(0.2)  # Éviter les rebonds
     

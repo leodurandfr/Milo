@@ -1,15 +1,24 @@
-<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version OPTIM avec drag temps réel -->
+<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version volume affiché simplifié -->
 <template>
   <div class="snapclient-item">
     <!-- Informations du client -->
     <div class="client-name heading-2">{{ client.name }}</div>
 
-    <!-- Contrôle du volume avec drag temps réel -->
+    <!-- Contrôle du volume - SIMPLIFIÉ pour volume affiché uniquement -->
     <div class="volume-control">
-      <RangeSlider :model-value="displayVolume" :min="minVolumeDisplay" :max="maxVolumeDisplay" :step="1"
-        orientation="horizontal" :disabled="client.muted" @input="handleVolumeInput" @change="handleVolumeChange" />
+      <RangeSlider 
+        :model-value="displayVolume" 
+        :min="0" 
+        :max="100" 
+        :step="1"
+        orientation="horizontal" 
+        :disabled="client.muted" 
+        @input="handleVolumeInput" 
+        @change="handleVolumeChange" 
+      />
       <span class="volume-label text-mono">{{ displayVolume }} %</span>
     </div>
+    
     <div class="controls-wrapper">
       <IconButton icon="threeDots" @click="handleShowDetails" title="Voir les détails du client" />
 
@@ -22,7 +31,6 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -38,51 +46,43 @@ const props = defineProps({
 // Émissions
 const emit = defineEmits(['volume-change', 'mute-toggle', 'show-details']);
 
-// Store unifié pour les limites de volume
-const unifiedStore = useUnifiedAudioStore();
-
-// === ÉTAT LOCAL POUR DRAG ===
-
+// === ÉTAT LOCAL POUR DRAG TEMPS RÉEL ===
 const localDisplayVolume = ref(null); // Feedback visuel immédiat pendant drag
 let throttleTimeout = null;
 let finalTimeout = null;
 
-// === LIMITES DE VOLUME ===
+// === LIMITES ALSA ET INTERPOLATION ===
 
-// Limites réelles depuis le store unifié (avec fallback)
-const MIN_VOLUME = computed(() => unifiedStore.volumeLimits?.min ?? 0);
-const MAX_VOLUME = computed(() => unifiedStore.volumeLimits?.max ?? 55);
+// Limites ALSA (doivent correspondre à celles du VolumeService)
+const ALSA_MIN = 0;
+const ALSA_MAX = 65;
 
-// Conversion pour affichage (0-100%)
-const minVolumeDisplay = computed(() => 0);
-const maxVolumeDisplay = computed(() => 100);
-
-// === FONCTIONS D'INTERPOLATION ===
-
-function interpolateToDisplay(actualVolume) {
-  // Convertit le volume réel (MIN-MAX) en volume d'affichage (0-100%)
-  const clampedVolume = Math.max(MIN_VOLUME.value, Math.min(MAX_VOLUME.value, actualVolume));
-  const actualRange = MAX_VOLUME.value - MIN_VOLUME.value;
-  const normalized = clampedVolume - MIN_VOLUME.value;
-  return Math.round((normalized / actualRange) * 100);
+// Fonctions d'interpolation
+function alsaToDisplay(alsaVolume) {
+  const alsaRange = ALSA_MAX - ALSA_MIN;
+  const normalized = alsaVolume - ALSA_MIN;
+  return Math.round((normalized / alsaRange) * 100);
 }
 
-function interpolateFromDisplay(displayVolume) {
-  // Convertit le volume d'affichage (0-100%) en volume réel (MIN-MAX)
-  const actualRange = MAX_VOLUME.value - MIN_VOLUME.value;
-  return Math.round((displayVolume / 100) * actualRange) + MIN_VOLUME.value;
+function displayToAlsa(displayVolume) {
+  const alsaRange = ALSA_MAX - ALSA_MIN;
+  return Math.round((displayVolume / 100) * alsaRange) + ALSA_MIN;
 }
 
-// === VOLUME AFFICHÉ ===
+// === VOLUME AFFICHÉ AVEC INTERPOLATION ===
 
 const displayVolume = computed(() => {
-  // Utiliser volume local pendant le drag, sinon volume du client
-  return localDisplayVolume.value !== null
-    ? localDisplayVolume.value
-    : interpolateToDisplay(props.client.volume);
+  // Utiliser le volume local pendant le drag, sinon interpoler depuis ALSA
+  if (localDisplayVolume.value !== null) {
+    return localDisplayVolume.value;
+  }
+  
+  // Le client.volume vient de Snapcast en ALSA brut (0-65)
+  // L'interpoler pour affichage (0-100%)
+  return alsaToDisplay(props.client.volume);
 });
 
-// === GESTIONNAIRES D'ÉVÉNEMENTS AVEC THROTTLING OPTIM ===
+// === GESTIONNAIRES D'ÉVÉNEMENTS AVEC THROTTLING ===
 
 function handleVolumeInput(newDisplayVolume) {
   // Feedback visuel immédiat
@@ -97,7 +97,7 @@ function handleVolumeInput(newDisplayVolume) {
     sendVolumeUpdate(newDisplayVolume);
   }, 25);
 
-  // Timeout de sécurité pour garantir l'envoi final (500ms)
+  // Timeout de sécurité (500ms)
   finalTimeout = setTimeout(() => {
     sendVolumeUpdate(newDisplayVolume);
   }, 500);
@@ -116,13 +116,13 @@ function handleVolumeChange(newDisplayVolume) {
 }
 
 function sendVolumeUpdate(displayVolume) {
-  // Convertir vers volume réel avec limites
-  const realVolume = interpolateFromDisplay(displayVolume);
-
-  console.log(`Volume update: display=${displayVolume}% → real=${realVolume}% (limits: ${MIN_VOLUME.value}-${MAX_VOLUME.value}%)`);
-
-  // Le WebSocket Snapcast se chargera de la mise à jour
-  emit('volume-change', props.client.id, realVolume);
+  // Convertir le volume affiché (0-100%) vers volume ALSA (0-65)
+  const alsaVolume = displayToAlsa(displayVolume);
+  
+  console.log(`Volume update: display=${displayVolume}% → ALSA=${alsaVolume} (limits: ${ALSA_MIN}-${ALSA_MAX})`);
+  
+  // Envoyer le volume ALSA (car Snapcast attend des valeurs 0-65)
+  emit('volume-change', props.client.id, alsaVolume);
 }
 
 function handleMuteToggle(enabled) {
@@ -132,16 +132,14 @@ function handleMuteToggle(enabled) {
 }
 
 function handleShowDetails() {
-  console.log('🔍 Showing details for client:', props.client.name);
+  console.log('Showing details for client:', props.client.name);
   emit('show-details', props.client);
 }
 
 // === NETTOYAGE ===
-
 import { onUnmounted } from 'vue';
 
 onUnmounted(() => {
-  // Nettoyer les timeouts
   if (throttleTimeout) clearTimeout(throttleTimeout);
   if (finalTimeout) clearTimeout(finalTimeout);
 });

@@ -1,6 +1,6 @@
 # backend/presentation/api/routes/volume.py
 """
-Routes API pour la gestion du volume - Version OPTIM pour Milo
+Routes API pour la gestion du volume - Version volume affiché (0-100%)
 """
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
@@ -11,7 +11,7 @@ def create_volume_router(volume_service):
     
     @router.get("/status")
     async def get_volume_status():
-        """Récupère l'état actuel du volume"""
+        """Récupère l'état actuel du volume (en volume affiché)"""
         try:
             status = await volume_service.get_status()
             return {"status": "success", "data": status}
@@ -20,16 +20,16 @@ def create_volume_router(volume_service):
     
     @router.get("/")
     async def get_current_volume():
-        """Récupère le volume actuel (0-100)"""
+        """Récupère le volume affiché actuel (0-100%)"""
         try:
-            volume = await volume_service.get_volume()
+            volume = await volume_service.get_display_volume()
             return {"status": "success", "volume": volume}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     
     @router.post("/set")
     async def set_volume(payload: Dict[str, Any]):
-        """Définit le volume (0-100)"""
+        """Définit le volume affiché (0-100%)"""
         try:
             volume = payload.get("volume")
             show_bar = payload.get("show_bar", True)
@@ -40,7 +40,7 @@ def create_volume_router(volume_service):
             if not (0 <= volume <= 100):
                 raise HTTPException(status_code=400, detail="Volume must be between 0 and 100")
             
-            success = await volume_service.set_volume(int(volume), show_bar=show_bar)
+            success = await volume_service.set_display_volume(int(volume), show_bar=show_bar)
             
             if success:
                 return {"status": "success", "volume": int(volume)}
@@ -54,7 +54,7 @@ def create_volume_router(volume_service):
     
     @router.post("/adjust")
     async def adjust_volume(payload: Dict[str, Any]):
-        """Ajuste le volume par delta"""
+        """Ajuste le volume affiché par delta"""
         try:
             delta = payload.get("delta")
             show_bar = payload.get("show_bar", True)
@@ -62,10 +62,10 @@ def create_volume_router(volume_service):
             if delta is None or not isinstance(delta, (int, float)):
                 raise HTTPException(status_code=400, detail="Invalid delta value")
             
-            success = await volume_service.adjust_volume(int(delta), show_bar=show_bar)
+            success = await volume_service.adjust_display_volume(int(delta), show_bar=show_bar)
             
             if success:
-                current_volume = await volume_service.get_volume()
+                current_volume = await volume_service.get_display_volume()
                 return {"status": "success", "volume": current_volume, "delta": int(delta)}
             else:
                 raise HTTPException(status_code=500, detail="Failed to adjust volume")
@@ -77,11 +77,11 @@ def create_volume_router(volume_service):
     
     @router.post("/increase")
     async def increase_volume():
-        """Augmente le volume de 5%"""
+        """Augmente le volume affiché de 5%"""
         try:
-            success = await volume_service.adjust_volume(5)
+            success = await volume_service.increase_display_volume(5)
             if success:
-                current_volume = await volume_service.get_volume()
+                current_volume = await volume_service.get_display_volume()
                 return {"status": "success", "volume": current_volume}
             else:
                 raise HTTPException(status_code=500, detail="Failed to increase volume")
@@ -90,11 +90,11 @@ def create_volume_router(volume_service):
     
     @router.post("/decrease")
     async def decrease_volume():
-        """Diminue le volume de 5%"""
+        """Diminue le volume affiché de 5%"""
         try:
-            success = await volume_service.adjust_volume(-5)
+            success = await volume_service.decrease_display_volume(5)
             if success:
-                current_volume = await volume_service.get_volume()
+                current_volume = await volume_service.get_display_volume()
                 return {"status": "success", "volume": current_volume}
             else:
                 raise HTTPException(status_code=500, detail="Failed to decrease volume")
