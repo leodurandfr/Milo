@@ -1,6 +1,6 @@
-# backend/config/container.py - Version OPTIM avec ScreenController
+# backend/config/container.py - Ajout de la configuration auto-disconnect
 """
-Conteneur d'injection de dépendances - Version OPTIM avec observer pattern et ScreenController
+Conteneur d'injection de dépendances - Version avec configuration auto-disconnect
 """
 from dependency_injector import containers, providers
 from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
@@ -14,13 +14,13 @@ from backend.infrastructure.services.snapcast_websocket_service import SnapcastW
 from backend.infrastructure.services.equalizer_service import EqualizerService
 from backend.infrastructure.services.volume_service import VolumeService  
 from backend.infrastructure.hardware.rotary_volume_controller import RotaryVolumeController
-from backend.infrastructure.hardware.screen_controller import ScreenController  # AJOUT
+from backend.infrastructure.hardware.screen_controller import ScreenController
 from backend.presentation.websockets.manager import WebSocketManager
 from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
 
 class Container(containers.DeclarativeContainer):
-    """Conteneur d'injection de dépendances pour Milo - Version OPTIM avec ScreenController"""
+    """Conteneur d'injection de dépendances pour Milo - Version avec auto-disconnect configurable"""
     
     config = providers.Configuration()
     
@@ -29,24 +29,24 @@ class Container(containers.DeclarativeContainer):
     snapcast_service = providers.Singleton(SnapcastService)
     equalizer_service = providers.Singleton(EqualizerService)
     
-    # WebSocket (créé ici pour injection)
+    # WebSocket
     websocket_manager = providers.Singleton(WebSocketManager)
     websocket_event_handler = providers.Singleton(
         WebSocketEventHandler,
         ws_manager=websocket_manager
     )
     
-    # Machine à états unifiée (avec injection du websocket_handler)
+    # Machine à états unifiée
     audio_state_machine = providers.Singleton(
         UnifiedAudioStateMachine,
-        routing_service=providers.Self,  # OPTIM : Will be resolved later
+        routing_service=providers.Self,
         websocket_handler=websocket_event_handler
     )
     
-    # Service de routage audio (sans référence à state_machine)
+    # Service de routage audio
     audio_routing_service = providers.Singleton(AudioRoutingService)
     
-    # Service WebSocket Snapcast (avec injection routing_service pour état initial)
+    # Service WebSocket Snapcast
     snapcast_websocket_service = providers.Singleton(
         SnapcastWebSocketService,
         state_machine=audio_state_machine,
@@ -66,23 +66,25 @@ class Container(containers.DeclarativeContainer):
     rotary_controller = providers.Singleton(
         RotaryVolumeController,
         volume_service=volume_service,
-        clk_pin=22,  # Pin CLK
-        dt_pin=27,   # Pin DT
-        sw_pin=23    # Pin SW (bouton)
+        clk_pin=22,
+        dt_pin=27,
+        sw_pin=23
     )
     
-    # AJOUT : Contrôleur d'écran avec injection de state_machine
     screen_controller = providers.Singleton(
         ScreenController,
         state_machine=audio_state_machine
     )
     
-    # Plugins audio 
+    # Plugins audio avec configuration auto-disconnect
     librespot_plugin = providers.Singleton(
         LibrespotPlugin,
         config=providers.Dict({
             "config_path": "/var/lib/milo/go-librespot/config.yml", 
-            "service_name": "milo-go-librespot.service" 
+            "service_name": "milo-go-librespot.service",
+            # Configuration de la déconnexion automatique
+            "auto_disconnect_on_pause": True,  # True = activé par défaut, False = désactivé
+            "pause_disconnect_delay": 10.0     # Délai en secondes (configurable)
         }),
         state_machine=audio_state_machine
     )
@@ -111,16 +113,16 @@ class Container(containers.DeclarativeContainer):
         state_machine=audio_state_machine
     )
     
-    # Configuration post-création OPTIM avec observer pattern et ScreenController
+    # Configuration post-création
     @providers.Callable
     def initialize_services():
-        """Initialise les services après création - Version OPTIM avec ScreenController"""
+        """Initialise les services après création"""
         # Récupération des instances
         state_machine = container.audio_state_machine()
         routing_service = container.audio_routing_service()
         volume_service = container.volume_service()
         rotary_controller = container.rotary_controller()
-        screen_controller = container.screen_controller()  # AJOUT
+        screen_controller = container.screen_controller()
         snapcast_websocket_service = container.snapcast_websocket_service()
         
         # Configuration du callback pour que routing_service puisse accéder aux plugins
@@ -149,7 +151,7 @@ class Container(containers.DeclarativeContainer):
                 ("routing_service", routing_service.initialize()),
                 ("volume_service", volume_service.initialize()),
                 ("rotary_controller", rotary_controller.initialize()),
-                ("screen_controller", screen_controller.initialize()),  # AJOUT
+                ("screen_controller", screen_controller.initialize()),
                 ("snapcast_websocket_service", snapcast_websocket_service.initialize())
             ]
             

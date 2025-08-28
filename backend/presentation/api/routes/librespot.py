@@ -1,8 +1,9 @@
 """
-Routes API spécifiques pour le plugin librespot - Version avec fresh-status.
+Routes API spécifiques pour le plugin librespot - Version avec configuration auto-disconnect.
 À placer dans backend/presentation/api/routes/librespot.py
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
+from pydantic import BaseModel
 import subprocess
 import asyncio
 import aiohttp
@@ -15,6 +16,11 @@ router = APIRouter(
     tags=["librespot"],
     responses={404: {"description": "Not found"}},
 )
+
+# Modèles Pydantic pour la validation
+class AutoDisconnectConfig(BaseModel):
+    enabled: bool
+    delay: Optional[float] = None  # Optionnel, garde la valeur actuelle si None
 
 # Référence au plugin librespot (sera injectée via l'injection de dépendances)
 librespot_plugin_dependency = None
@@ -79,7 +85,7 @@ async def get_fresh_librespot_status():
                         "status": "success",
                         "fresh_metadata": transformed_metadata,
                         "device_connected": bool(fresh_data.get("track")),
-                        "raw_data": fresh_data,  # Pour debug si nécessaire
+                        "raw_data": fresh_data,
                         "source": "go-librespot-api"
                     }
                 else:
@@ -114,13 +120,11 @@ async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
     try:
         # Force toujours une mise à jour depuis l'API pour avoir l'état le plus récent
         if plugin.session:
-            # Utiliser la méthode correcte pour rafraîchir les métadonnées
             await plugin._refresh_metadata()
         
         # Récupérer les informations de statut complètes
         status = await plugin.get_status()
         
-        # S'assurer que toutes les données sont présentes
         return {
             "status": "ok",
             "is_active": plugin.current_state == PluginState.CONNECTED,
@@ -128,7 +132,8 @@ async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
             "device_connected": status.get("device_connected", False),
             "is_playing": status.get("is_playing", False),
             "metadata": status.get("metadata", {}), 
-            "ws_connected": status.get("ws_connected", False)
+            "ws_connected": status.get("ws_connected", False),
+            "auto_disconnect_config": status.get("auto_disconnect_config", {})
         }
     except Exception as e:
         return {
@@ -138,14 +143,76 @@ async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
             "metadata": {},
             "is_playing": False,
             "device_connected": False,
-            "ws_connected": False
+            "ws_connected": False,
+            "auto_disconnect_config": {}
+        }
+
+@router.get("/auto-disconnect")
+async def get_auto_disconnect_config(plugin = Depends(get_librespot_plugin)):
+    """Récupère la configuration actuelle de la déconnexion automatique"""
+    try:
+        result = await plugin.handle_command("get_auto_disconnect", {})
+        
+        if result.get("success"):
+            return {
+                "status": "success",
+                "config": result.get("config", {})
+            }
+        else:
+            return {
+                "status": "error",
+                "message": result.get("error", "Erreur inconnue")
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Erreur lors de la récupération de la configuration: {str(e)}"
+        }
+
+@router.post("/auto-disconnect")
+async def set_auto_disconnect_config(
+    config: AutoDisconnectConfig, 
+    plugin = Depends(get_librespot_plugin)
+):
+    """Configure la déconnexion automatique après pause"""
+    try:
+        # Validation des données
+        if config.delay is not None and config.delay < 1.0:
+            return {
+                "status": "error",
+                "message": "Le délai doit être d'au moins 1 seconde"
+            }
+        
+        # Envoyer la commande au plugin
+        command_data = {
+            "enabled": config.enabled
+        }
+        if config.delay is not None:
+            command_data["delay"] = config.delay
+        
+        result = await plugin.handle_command("set_auto_disconnect", command_data)
+        
+        if result.get("success"):
+            return {
+                "status": "success",
+                "message": result.get("message", "Configuration mise à jour"),
+                "config": result.get("config", {})
+            }
+        else:
+            return {
+                "status": "error",
+                "message": result.get("error", "Erreur lors de la configuration")
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Erreur inattendue: {str(e)}"
         }
 
 @router.post("/connect")
 async def restart_librespot_connection(plugin = Depends(get_librespot_plugin)):
     """Redémarre la connexion avec go-librespot"""
     try:
-        # Forcer un redémarrage de la connexion WebSocket
         result = await plugin.handle_command("refresh_metadata", {})
         
         if result.get("success"):
@@ -170,7 +237,6 @@ async def restart_librespot_connection(plugin = Depends(get_librespot_plugin)):
 async def restart_go_librespot(plugin = Depends(get_librespot_plugin)):
     """Redémarre complètement le processus go-librespot"""
     try:
-        # Utiliser la commande de redémarrage du plugin
         result = await plugin.handle_command("restart", {})
         
         return {
@@ -188,7 +254,6 @@ async def restart_go_librespot(plugin = Depends(get_librespot_plugin)):
 async def force_librespot_disconnect(plugin = Depends(get_librespot_plugin)):
     """Force l'envoi d'un événement de déconnexion pour librespot"""
     try:
-        # Utiliser la commande force_disconnect du plugin
         result = await plugin.handle_command("force_disconnect", {})
         
         return {
@@ -218,8 +283,6 @@ async def get_librespot_logs(
                 "message": "Le processus go-librespot n'est pas en cours d'exécution"
             }
         
-        # Utiliser le process_manager pour obtenir la sortie
-        # Note: Ici, il faudrait ajouter une méthode pour obtenir la sortie dans le plugin
         return {
             "status": "warning",
             "message": "La récupération des logs n'est pas encore implémentée dans la nouvelle structure",
