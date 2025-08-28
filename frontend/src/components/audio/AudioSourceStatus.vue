@@ -99,13 +99,13 @@ const displayedStatusLines = computed(() => {
   if (props.pluginState === 'starting') {
     switch (props.pluginType) {
       case 'bluetooth':
-        return [t('Démarrage du'), t('Bluetooth')];
+        return [t('Chargement du'), t('Bluetooth')];
       case 'roc':
-        return [t('Démarrage de'), t('MacOS')];
+        return [t('Chargement du'), t('Récepteur audio macOS')];
       case 'librespot':
-        return [t('Démarrage de'), t('Spotify')];
+        return [t('Chargement de'), t('Spotify')];
       default:
-        return [t('Démarrage...')];
+        return [t('Chargement...')];
     }
   }
 
@@ -113,13 +113,13 @@ const displayedStatusLines = computed(() => {
   if (props.pluginState === 'ready') {
     switch (props.pluginType) {
       case 'bluetooth':
-        return [t('Bluetooth'), t('Prêt à diffuser')];
+        return [t('Bluetooth'), t('Prêt à se connecter')];
       case 'roc':
-        return [t('MacOS'), t('Prêt à diffuser')];
+        return [t('Audio macOS'), t('Prêt à diffuser')];
       case 'librespot':
-        return [t('Spotify'), t('Prêt à diffuser')];
+        return [t('Spotify'), t('Prêt à se connecter')];
       default:
-        return [t('En attente de connexion')];
+        return [t('Prêt à se connecter')];
     }
   }
 

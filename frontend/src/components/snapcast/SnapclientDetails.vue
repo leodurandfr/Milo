@@ -41,7 +41,7 @@
 
       <!-- Informations générales -->
       <section class="config-section">
-        <h2 class="heading-2">Informations</h2>
+        <h2 class="heading-2">{{ $t('Informations') }}</h2>
 
         <div class="info-grid">
           <div class="info-item">

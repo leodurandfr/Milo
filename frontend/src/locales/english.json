@@ -6,11 +6,12 @@
   "Langue": "Language",
   "Connecté à": "Connected to",
   "Connecté au": "Connected to",
+  "Prêt à se connecter": "Ready to connect",
   "Prêt à diffuser": "Ready to stream",
   "En attente de connexion": "Waiting for connection",
   "En attente...": "Waiting...",
-  "Démarrage de": "Starting",
-  "Démarrage du": "Starting",
+  "Chargement de": "Starting",
+  "Chargement du": "Starting",
   "Démarrage...": "Starting...",
   "Déconnecter": "Disconnect",
   "Déconnexion...": "Disconnecting...",
@@ -53,6 +54,7 @@
   "Titre inconnu": "Unknown title",
   "Artiste inconnu": "Unknown artist",
   "Bluetooth": "Bluetooth",
-  "MacOS": "macOS",
+  "Audio macOS": "macOS Audio",
+  "Récepteur audio macOS": "macOS Audio Receiver",
   "Spotify": "Spotify"
 }

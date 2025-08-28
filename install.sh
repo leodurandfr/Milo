@@ -403,7 +403,7 @@ install_go_librespot() {
     sudo chown -R "$MILO_USER:audio" "$MILO_DATA_DIR/go-librespot"
     
     sudo tee "$MILO_DATA_DIR/go-librespot/config.yml" > /dev/null << 'EOF'
-device_name: "Milo"
+device_name: "Milō"
 device_type: "speaker"
 bitrate: 320
 
