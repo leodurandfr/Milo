@@ -8,7 +8,7 @@ import alsaaudio
 import re
 import json
 import os
-from typing import Optional
+from typing import Optional, Dict, Any
 import time
 from pathlib import Path
 from backend.infrastructure.services.settings_service import SettingsService
@@ -217,6 +217,34 @@ class VolumeService:
             
         except Exception as e:
             self.logger.error(f"Error reloading startup config: {e}")
+            return False
+
+    async def sync_current_volume_to_all_snapcast_clients(self) -> bool:
+        """Synchronise le volume actuel avec tous les clients Snapcast"""
+        try:
+            if not self._is_multiroom_enabled():
+                self.logger.warning("Multiroom not enabled, cannot sync to snapcast clients")
+                return False
+                
+            current_display_volume = self._current_display_volume
+            current_alsa_volume = self._display_to_alsa(current_display_volume)
+            
+            clients = await self.snapcast_service.get_clients()
+            if not clients:
+                self.logger.info("No Snapcast clients to sync")
+                return True
+            
+            self.logger.info(f"Syncing current volume ({current_display_volume}% = {current_alsa_volume} ALSA) to {len(clients)} Snapcast clients")
+            
+            # Appliquer le volume actuel à tous les clients
+            for client in clients:
+                await self.snapcast_service.set_volume(client["id"], current_alsa_volume)
+                self.logger.debug(f"Synced volume to client {client['name']}: {current_alsa_volume} ALSA")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error syncing volume to snapcast clients: {e}")
             return False
     
     def _display_to_alsa_old_limits(self, display_volume: int, old_min: int, old_max: int) -> int:
@@ -602,7 +630,25 @@ class VolumeService:
             self.logger.error(f"Error setting startup volume (multiroom): {e}")
             return False
     
-    # === API DE COMPATIBILITÉ ===
+    # === API DE CONVERSION PUBLIQUE ===
+    
+    def convert_alsa_to_display(self, alsa_volume: int) -> int:
+        """Conversion publique ALSA → Display (pour les composants frontend)"""
+        return self._alsa_to_display(alsa_volume)
+    
+    def convert_display_to_alsa(self, display_volume: int) -> int:
+        """Conversion publique Display → ALSA (pour les composants frontend)"""
+        return self._display_to_alsa(display_volume)
+    
+    def get_volume_config_public(self) -> Dict[str, Any]:
+        """Retourne la config volume pour les composants frontend"""
+        return {
+            "alsa_min": self._alsa_min_volume,
+            "alsa_max": self._alsa_max_volume,
+            "startup_volume": self._default_startup_display_volume,
+            "restore_last_volume": self._restore_last_volume,
+            "mobile_steps": self._mobile_volume_steps
+        }
     
     async def get_volume(self) -> int:
         """Compatibilité: Utiliser get_display_volume()"""

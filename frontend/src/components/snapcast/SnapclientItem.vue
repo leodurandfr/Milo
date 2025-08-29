@@ -1,10 +1,10 @@
-<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version volume affiché simplifié -->
+<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version ultra-simplifiée -->
 <template>
   <div class="snapclient-item">
     <!-- Informations du client -->
     <div class="client-name heading-2">{{ client.name }}</div>
 
-    <!-- Contrôle du volume - SIMPLIFIÉ pour volume affiché uniquement -->
+    <!-- Contrôle du volume - Ultra-simplifié (pas de conversion) -->
     <div class="volume-control">
       <RangeSlider 
         :model-value="displayVolume" 
@@ -16,7 +16,7 @@
         @input="handleVolumeInput" 
         @change="handleVolumeChange" 
       />
-      <span class="volume-label text-mono">{{ displayVolume }} %</span>
+      <span class="volume-label text-mono">{{ displayVolume }}%</span>
     </div>
     
     <div class="controls-wrapper">
@@ -51,38 +51,21 @@ const localDisplayVolume = ref(null); // Feedback visuel immédiat pendant drag
 let throttleTimeout = null;
 let finalTimeout = null;
 
-// === LIMITES ALSA ET INTERPOLATION ===
-
-// Limites ALSA (doivent correspondre à celles du VolumeService)
-const ALSA_MIN = 0;
-const ALSA_MAX = 65;
-
-// Fonctions d'interpolation
-function alsaToDisplay(alsaVolume) {
-  const alsaRange = ALSA_MAX - ALSA_MIN;
-  const normalized = alsaVolume - ALSA_MIN;
-  return Math.round((normalized / alsaRange) * 100);
-}
-
-function displayToAlsa(displayVolume) {
-  const alsaRange = ALSA_MAX - ALSA_MIN;
-  return Math.round((displayVolume / 100) * alsaRange) + ALSA_MIN;
-}
-
-// === VOLUME AFFICHÉ AVEC INTERPOLATION ===
+// === VOLUME ULTRA-SIMPLIFIÉ ===
 
 const displayVolume = computed(() => {
-  // Utiliser le volume local pendant le drag, sinon interpoler depuis ALSA
+  // Utiliser le volume local pendant le drag
   if (localDisplayVolume.value !== null) {
     return localDisplayVolume.value;
   }
   
-  // Le client.volume vient de Snapcast en ALSA brut (0-65)
-  // L'interpoler pour affichage (0-100%)
-  return alsaToDisplay(props.client.volume);
+  // ULTRA-SIMPLIFIÉ : client.volume devrait déjà être en format display (0-100%) 
+  // grâce aux routes backend corrigées
+  const volume = props.client.volume || 0;
+  return Math.max(0, Math.min(100, Math.round(volume)));
 });
 
-// === GESTIONNAIRES D'ÉVÉNEMENTS AVEC THROTTLING ===
+// === GESTIONNAIRES D'ÉVÉNEMENTS SIMPLIFIÉS ===
 
 function handleVolumeInput(newDisplayVolume) {
   // Feedback visuel immédiat
@@ -116,13 +99,11 @@ function handleVolumeChange(newDisplayVolume) {
 }
 
 function sendVolumeUpdate(displayVolume) {
-  // Convertir le volume affiché (0-100%) vers volume ALSA (0-65)
-  const alsaVolume = displayToAlsa(displayVolume);
+  console.log(`SnapclientItem volume update: ${displayVolume}% (no conversion - backend handles it)`);
   
-  console.log(`Volume update: display=${displayVolume}% → ALSA=${alsaVolume} (limits: ${ALSA_MIN}-${ALSA_MAX})`);
-  
-  // Envoyer le volume ALSA (car Snapcast attend des valeurs 0-65)
-  emit('volume-change', props.client.id, alsaVolume);
+  // ULTRA-SIMPLIFIÉ : Envoyer directement le volume display
+  // Les routes backend feront la conversion display → ALSA
+  emit('volume-change', props.client.id, displayVolume);
 }
 
 function handleMuteToggle(enabled) {

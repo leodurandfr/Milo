@@ -11,6 +11,15 @@ def create_settings_router(ws_manager, volume_service):
     router = APIRouter()
     settings_service = SettingsService()
     
+    @router.get("/volume-config")
+    async def get_volume_config():
+        """Récupère la configuration complète du volume pour le frontend"""
+        try:
+            config = volume_service.get_volume_config_public()
+            return {"status": "success", "config": config}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
     @router.get("/language")
     async def get_current_language():
         """Récupère la langue actuelle"""
@@ -160,6 +169,18 @@ def create_settings_router(ws_manager, volume_service):
             # Rechargement à chaud de la config startup (sans toucher au volume actuel)
             reload_success = await volume_service.reload_startup_config()
             
+            # NOUVEAU: Si on est en mode multiroom, synchroniser le volume actuel avec tous les clients Snapcast
+            snapcast_sync_success = False
+            try:
+                # Vérifier si le multiroom est activé en récupérant l'état du routing
+                if hasattr(volume_service.state_machine, 'routing_service') and volume_service.state_machine.routing_service:
+                    routing_state = volume_service.state_machine.routing_service.get_state()
+                    if routing_state.multiroom_enabled:
+                        snapcast_sync_success = await volume_service.sync_current_volume_to_all_snapcast_clients()
+            except Exception as e:
+                # Log l'erreur mais ne pas faire échouer la requête principale
+                pass
+            
             # Diffusion WebSocket
             await ws_manager.broadcast_dict({
                 "category": "settings",
@@ -170,7 +191,8 @@ def create_settings_router(ws_manager, volume_service):
                         "startup_volume": startup_volume,
                         "restore_last_volume": restore_last_volume
                     },
-                    "reload_success": reload_success
+                    "reload_success": reload_success,
+                    "snapcast_sync_success": snapcast_sync_success
                 }
             })
             
@@ -180,11 +202,34 @@ def create_settings_router(ws_manager, volume_service):
                     "startup_volume": startup_volume,
                     "restore_last_volume": restore_last_volume
                 },
-                "reload_success": reload_success
+                "reload_success": reload_success,
+                "snapcast_sync_success": snapcast_sync_success
             }
             
         except HTTPException:
             raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @router.post("/volume-startup/sync-snapcast")
+    async def sync_volume_to_snapcast():
+        """Synchronise le volume actuel avec tous les clients Snapcast"""
+        try:
+            success = await volume_service.sync_current_volume_to_all_snapcast_clients()
+            
+            if success:
+                # Diffusion WebSocket
+                await ws_manager.broadcast_dict({
+                    "category": "settings",
+                    "type": "snapcast_volume_synced",
+                    "source": "settings",
+                    "data": {"sync_success": True}
+                })
+                
+                return {"status": "success", "message": "Volume synchronized to all Snapcast clients"}
+            else:
+                return {"status": "error", "message": "Failed to synchronize volume (multiroom may be disabled)"}
+                
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     

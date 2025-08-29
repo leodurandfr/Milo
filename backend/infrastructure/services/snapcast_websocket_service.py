@@ -1,6 +1,6 @@
 # backend/infrastructure/services/snapcast_websocket_service.py
 """
-Service WebSocket Snapcast OPTIM - Observer pattern au lieu de cross-référence
+Service WebSocket Snapcast OPTIM - Version corrigée sans duplication
 """
 import asyncio
 import json
@@ -9,7 +9,7 @@ import aiohttp
 from typing import Dict, Any, Optional
 
 class SnapcastWebSocketService:
-    """Service WebSocket pour notifications Snapcast temps réel - Version OPTIM"""
+    """Service WebSocket pour notifications Snapcast temps réel - Version OPTIM corrigée"""
     
     def __init__(self, state_machine, routing_service, host: str = "localhost", port: int = 1780):
         self.state_machine = state_machine
@@ -197,6 +197,20 @@ class SnapcastWebSocketService:
         except Exception as e:
             self.logger.error(f"Error handling message: {e}")
     
+    def _convert_alsa_to_display(self, alsa_volume: int) -> int:
+        """Convertit un volume ALSA vers format display en utilisant les limites du VolumeService"""
+        try:
+            if hasattr(self.state_machine, 'volume_service') and self.state_machine.volume_service:
+                return self.state_machine.volume_service.convert_alsa_to_display(alsa_volume)
+            else:
+                # Fallback avec limites par défaut si VolumeService indisponible
+                alsa_range = 65 - 0  # Limites par défaut
+                normalized = alsa_volume - 0
+                return round((normalized / alsa_range) * 100)
+        except Exception as e:
+            self.logger.error(f"Error converting ALSA to display volume: {e}")
+            return alsa_volume  # Fallback
+    
     async def _handle_notification(self, notification: Dict[str, Any]) -> None:
         """Traite une notification Snapcast - Version OPTIM avec mapping simplifié"""
         method = notification.get("method")
@@ -227,54 +241,52 @@ class SnapcastWebSocketService:
     # === HANDLERS DES NOTIFICATIONS CRITIQUES OPTIM ===
     
     async def _handle_client_connect(self, params: Dict[str, Any]) -> None:
-        """Client connecté"""
-        client = params.get("client", {})
-        await self._broadcast_snapcast_event("client_connected", {
-            "client_id": client.get("id"),
-            "client_name": client.get("config", {}).get("name"),
-            "client_host": client.get("host", {}).get("name"),
-            "client_ip": client.get("host", {}).get("ip", "").replace("::ffff:", ""),
-            "client": client
-        })
-    
-    async def _handle_client_connect(self, params: Dict[str, Any]) -> None:
-        """Client connecté - NOUVEAU: Synchronise le volume avec le système principal"""
+        """Client connecté - Avec synchronisation automatique du volume"""
         client = params.get("client", {})
         client_id = client.get("id")
         client_name = client.get("config", {}).get("name", "Unknown")
         client_host = client.get("host", {}).get("name", "Unknown")
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
         
-        # 🚀 NOUVEAU: Synchroniser le volume du nouveau client
+        # NOUVEAU: Synchroniser le volume du nouveau client avec le volume actuel du système
         if client_id:
             try:
-                # Récupérer le volume actuel du système principal via VolumeService
+                # Récupérer le volume actuel du système via VolumeService
                 if hasattr(self.state_machine, 'volume_service') and self.state_machine.volume_service:
-                    current_volume = await self.state_machine.volume_service.get_volume()
-                    # Convertir le volume d'affichage (0-100) vers ALSA (0-65)
-                    alsa_volume = self.state_machine.volume_service._interpolate_from_display(current_volume)
+                    current_display_volume = await self.state_machine.volume_service.get_display_volume()
+                    # Convertir vers ALSA en utilisant la méthode du VolumeService
+                    current_alsa_volume = self.state_machine.volume_service._display_to_alsa(current_display_volume)
                     
-                    # Appliquer le volume au nouveau client via Snapcast
+                    # Appliquer le volume au nouveau client via SnapcastService
                     if hasattr(self.state_machine, 'snapcast_service') and self.state_machine.snapcast_service:
-                        success = await self.state_machine.snapcast_service.set_volume(client_id, alsa_volume)
+                        success = await self.state_machine.snapcast_service.set_volume(client_id, current_alsa_volume)
                         if success:
-                            self.logger.info(f"🎵 New client {client_name} volume synchronized to {alsa_volume} (ALSA) = {current_volume}% (display)")
+                            self.logger.info(f"New client '{client_name}' volume synchronized to {current_alsa_volume} ALSA ({current_display_volume}% display)")
                         else:
-                            self.logger.warning(f"⚠️ Failed to sync volume for new client {client_name}")
+                            self.logger.warning(f"Failed to sync volume for new client '{client_name}'")
                     else:
-                        self.logger.warning("⚠️ Snapcast service not available for volume sync")
+                        self.logger.warning("Snapcast service not available for volume sync")
                 else:
-                    self.logger.warning("⚠️ Volume service not available for volume sync")
+                    self.logger.warning("Volume service not available for volume sync")
                     
             except Exception as e:
-                self.logger.error(f"Error synchronizing volume for new client {client_name}: {e}")
+                self.logger.error(f"Error synchronizing volume for new client '{client_name}': {e}")
         
-        # Broadcast de connexion (existant)
+        # Broadcast de connexion
         await self._broadcast_snapcast_event("client_connected", {
             "client_id": client_id,
             "client_name": client_name,
             "client_host": client_host,
             "client_ip": client_ip,
+            "client": client
+        })
+    
+    async def _handle_client_disconnect(self, params: Dict[str, Any]) -> None:
+        """Client déconnecté"""
+        client = params.get("client", {})
+        await self._broadcast_snapcast_event("client_disconnected", {
+            "client_id": client.get("id"),
+            "client_name": client.get("config", {}).get("name"),
             "client": client
         })
     
@@ -297,12 +309,21 @@ class SnapcastWebSocketService:
         })
     
     async def _handle_client_mute_changed(self, params: Dict[str, Any]) -> None:
-        """Mute client changé"""
+        """Mute client changé - Avec conversion volume"""
         volume_data = params.get("volume", {})
+        
+        # Volume ALSA depuis Snapcast  
+        alsa_volume = volume_data.get("percent", 0)
+        muted = volume_data.get("muted", False)
+        
+        # Convertir vers format display
+        display_volume = self._convert_alsa_to_display(alsa_volume)
+        
         await self._broadcast_snapcast_event("client_mute_changed", {
             "client_id": params.get("id"),
-            "muted": volume_data.get("muted", False),
-            "volume": volume_data.get("percent", 0)
+            "muted": muted,
+            "volume": display_volume,      # Volume converti
+            "alsa_volume": alsa_volume     # Volume original pour debug
         })
     
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
