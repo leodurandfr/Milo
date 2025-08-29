@@ -1,17 +1,23 @@
 # backend/infrastructure/services/volume_service.py
 """
-Service de gestion du volume pour Milo - Version avec limites configurables
+Service de gestion du volume pour Milo - Version avec startup volume configurable
 """
 import asyncio
 import logging
 import alsaaudio
 import re
+import json
+import os
 from typing import Optional
 import time
+from pathlib import Path
 from backend.infrastructure.services.settings_service import SettingsService
 
 class VolumeService:
-    """Service de gestion du volume système - Version avec limites configurables"""
+    """Service de gestion du volume système - Version avec startup volume configurable"""
+    
+    # Fichier pour sauvegarder le dernier volume
+    LAST_VOLUME_FILE = Path("/var/lib/milo/last_volume.json")
     
     def __init__(self, state_machine, snapcast_service):
         self.state_machine = state_machine
@@ -25,6 +31,7 @@ class VolumeService:
         self._alsa_min_volume = 0
         self._alsa_max_volume = 65
         self._default_startup_display_volume = 37
+        self._restore_last_volume = False
         self._mobile_volume_steps = 5
         
         # État interne - toujours en volume affiché (0-100%)
@@ -41,6 +48,16 @@ class VolumeService:
         # Optimisations logging
         self._adjustment_count = 0
         self._first_adjustment_time = 0
+        
+        # Créer le répertoire pour les données persistantes
+        self._ensure_data_directory()
+    
+    def _ensure_data_directory(self) -> None:
+        """Crée le répertoire de données si nécessaire"""
+        try:
+            self.LAST_VOLUME_FILE.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            self.logger.error(f"Failed to create data directory: {e}")
     
     def _load_volume_config(self) -> None:
         """Charge la configuration volume depuis settings"""
@@ -49,30 +66,112 @@ class VolumeService:
             self._alsa_min_volume = volume_config["alsa_min"]
             self._alsa_max_volume = volume_config["alsa_max"]
             self._default_startup_display_volume = volume_config["startup_volume"]
+            self._restore_last_volume = volume_config["restore_last_volume"]
             self._mobile_volume_steps = volume_config["mobile_volume_steps"]
             
-            self.logger.info(f"Volume config loaded: ALSA({self._alsa_min_volume}-{self._alsa_max_volume}), startup={self._default_startup_display_volume}%, steps={self._mobile_volume_steps}")
+            self.logger.info(f"Volume config loaded: ALSA({self._alsa_min_volume}-{self._alsa_max_volume}), startup={self._default_startup_display_volume}% (restore_last={self._restore_last_volume}), steps={self._mobile_volume_steps}")
             
         except Exception as e:
             self.logger.error(f"Error loading volume config, using defaults: {e}")
             self._alsa_min_volume = 0
             self._alsa_max_volume = 65
             self._default_startup_display_volume = 37
+            self._restore_last_volume = False
             self._mobile_volume_steps = 5
     
-    async def reload_volume_config(self) -> bool:
-        """Recharge la configuration volume et ajuste le volume actuel si nécessaire"""
-        try:
-            self.logger.info("Reloading volume configuration...")
+    def _save_last_volume(self, display_volume: int) -> None:
+        """Sauvegarde le dernier volume (en arrière-plan pour éviter les blocages)"""
+        if not self._restore_last_volume:
+            return
             
-            # Sauvegarder l'ancien volume affiché
+        async def save_async():
+            try:
+                data = {
+                    "last_volume": display_volume,
+                    "timestamp": time.time()
+                }
+                
+                # Écriture atomique via fichier temporaire
+                temp_file = self.LAST_VOLUME_FILE.with_suffix('.tmp')
+                with open(temp_file, 'w') as f:
+                    json.dump(data, f)
+                temp_file.replace(self.LAST_VOLUME_FILE)
+                
+                self.logger.debug(f"Last volume saved: {display_volume}%")
+                
+            except Exception as e:
+                self.logger.error(f"Failed to save last volume: {e}")
+        
+        asyncio.create_task(save_async())
+    
+    def _load_last_volume(self) -> Optional[int]:
+        """Charge le dernier volume sauvegardé"""
+        try:
+            if not self.LAST_VOLUME_FILE.exists():
+                self.logger.info("No last volume file found")
+                return None
+            
+            with open(self.LAST_VOLUME_FILE, 'r') as f:
+                data = json.load(f)
+            
+            last_volume = data.get('last_volume')
+            timestamp = data.get('timestamp', 0)
+            
+            # Vérifier que le fichier n'est pas trop ancien (max 7 jours)
+            age_days = (time.time() - timestamp) / (24 * 3600)
+            if age_days > 7:
+                self.logger.info(f"Last volume file too old ({age_days:.1f} days), ignoring")
+                return None
+            
+            # Valider que le volume est dans les limites actuelles
+            if not (0 <= last_volume <= 100):
+                self.logger.warning(f"Last volume out of range: {last_volume}%, ignoring")
+                return None
+            
+            self.logger.info(f"Loaded last volume: {last_volume}% (saved {age_days:.1f} days ago)")
+            return last_volume
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load last volume: {e}")
+            return None
+    
+    def _determine_startup_volume(self) -> int:
+        """Détermine le volume de démarrage selon la configuration"""
+        if self._restore_last_volume:
+            # Mode restore_last : charger le dernier volume
+            last_volume = self._load_last_volume()
+            if last_volume is not None:
+                self.logger.info(f"Using restored volume: {last_volume}%")
+                return last_volume
+            else:
+                # Fallback sur le volume fixe si pas de fichier
+                self.logger.info(f"No valid last volume, falling back to fixed: {self._default_startup_display_volume}%")
+                return self._default_startup_display_volume
+        else:
+            # Mode fixe : utiliser startup_volume
+            self.logger.info(f"Using fixed startup volume: {self._default_startup_display_volume}%")
+            return self._default_startup_display_volume
+    
+    async def reload_volume_limits(self) -> bool:
+        """Recharge SEULEMENT les limites de volume et ajuste le volume actuel si nécessaire"""
+        try:
+            self.logger.info("Reloading volume limits...")
+            
+            # Sauvegarder l'ancien volume affiché et les anciennes limites
             old_display_volume = self._current_display_volume
+            old_alsa_min = self._alsa_min_volume
+            old_alsa_max = self._alsa_max_volume
             
             # Recharger la config
             self._load_volume_config()
             
+            # Si les limites n'ont pas changé, pas besoin d'ajuster
+            if old_alsa_min == self._alsa_min_volume and old_alsa_max == self._alsa_max_volume:
+                self.logger.info("Volume limits unchanged, no adjustment needed")
+                return True
+            
             # Recalculer les plages avec les nouvelles limites
-            old_alsa_volume = self._display_to_alsa_old_limits(old_display_volume)
+            old_alsa_volume = self._display_to_alsa_old_limits(old_display_volume, old_alsa_min, old_alsa_max)
             new_display_volume = self._alsa_to_display(old_alsa_volume)
             
             # Si le volume calculé avec les nouvelles limites est différent
@@ -91,18 +190,39 @@ class VolumeService:
                     self._current_display_volume = new_display_volume
                     await self._broadcast_volume_change(show_bar=False)
             
-            self.logger.info(f"Volume config reloaded successfully")
+            self.logger.info(f"Volume limits reloaded successfully")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error reloading volume config: {e}")
+            self.logger.error(f"Error reloading volume limits: {e}")
             return False
     
-    def _display_to_alsa_old_limits(self, display_volume: int) -> int:
+    async def reload_startup_config(self) -> bool:
+        """Recharge SEULEMENT la config de startup sans toucher au volume actuel"""
+        try:
+            self.logger.info("Reloading startup volume config...")
+            
+            # Sauvegarder les anciennes valeurs startup
+            old_startup_volume = self._default_startup_display_volume
+            old_restore_last = self._restore_last_volume
+            
+            # Recharger seulement la config startup
+            volume_config = self.settings_service.get_volume_config()
+            self._default_startup_display_volume = volume_config["startup_volume"]
+            self._restore_last_volume = volume_config["restore_last_volume"]
+            # NE PAS toucher aux limites ALSA ni au volume actuel
+            
+            self.logger.info(f"Startup config reloaded: startup={self._default_startup_display_volume}% (restore_last={self._restore_last_volume})")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error reloading startup config: {e}")
+            return False
+    
+    def _display_to_alsa_old_limits(self, display_volume: int, old_min: int, old_max: int) -> int:
         """Convertit avec les anciennes limites (pour comparaison lors du reload)"""
-        # Cette méthode est temporaire pour le reload, utilise les constantes d'origine
-        old_alsa_range = 65 - 0  # Anciennes limites hardcodées
-        return round((display_volume / 100) * old_alsa_range) + 0
+        old_alsa_range = old_max - old_min
+        return round((display_volume / 100) * old_alsa_range) + old_min
     
     # === INTERPOLATION DYNAMIQUE ===
     
@@ -138,15 +258,15 @@ class VolumeService:
         snapcast_range = self._alsa_max_volume - self._alsa_min_volume
         return round((display_volume / 100) * snapcast_range) + self._alsa_min_volume
     
-    # === INITIALISATION ===
+    # === INITIALISATION AVEC STARTUP VOLUME ===
     
     async def initialize(self) -> bool:
-        """Initialise le service volume avec configuration chargée"""
+        """Initialise le service volume avec startup volume configurable"""
         try:
             # Charger la configuration volume
             self._load_volume_config()
             
-            self.logger.info(f"Initializing volume service with configurable limits (ALSA: {self._alsa_min_volume}-{self._alsa_max_volume})")
+            self.logger.info(f"Initializing volume service with configurable startup (ALSA: {self._alsa_min_volume}-{self._alsa_max_volume})")
             
             try:
                 self.mixer = alsaaudio.Mixer('Digital')
@@ -155,8 +275,9 @@ class VolumeService:
                 self.logger.error(f"Digital mixer not found: {e}")
                 return False
             
-            # Forcer le volume au démarrage (en volume affiché)
-            startup_alsa_volume = self._display_to_alsa(self._default_startup_display_volume)
+            # Déterminer le volume de démarrage selon la configuration
+            startup_display_volume = self._determine_startup_volume()
+            startup_alsa_volume = self._display_to_alsa(startup_display_volume)
             
             if self._is_multiroom_enabled():
                 await self._set_startup_volume_multiroom(startup_alsa_volume)
@@ -164,11 +285,13 @@ class VolumeService:
                 await self._set_startup_volume_direct(startup_alsa_volume)
             
             # État interne
-            self._current_display_volume = self._default_startup_display_volume
+            self._current_display_volume = startup_display_volume
             self._last_alsa_volume = startup_alsa_volume
             self._alsa_cache_time = time.time()
             
-            self.logger.info(f"Startup volume set to {self._default_startup_display_volume}% (display) = {startup_alsa_volume} (ALSA)")
+            mode_info = "restored" if self._restore_last_volume else "fixed"
+            self.logger.info(f"Startup volume set to {startup_display_volume}% ({mode_info}) = {startup_alsa_volume} (ALSA)")
+            
             asyncio.create_task(self._delayed_initial_broadcast())
             return True
             
@@ -194,7 +317,7 @@ class VolumeService:
         except Exception as e:
             return False
     
-    # === API PUBLIQUE - VOLUME AFFICHÉ (0-100%) ===
+    # === API PUBLIQUE - VOLUME AFFICHÉ (0-100%) AVEC SAUVEGARDE ===
     
     async def get_display_volume(self) -> int:
         """Récupère le volume affiché actuel (0-100%)"""
@@ -207,7 +330,7 @@ class VolumeService:
             return self._current_display_volume
     
     async def set_display_volume(self, display_volume: int, show_bar: bool = True) -> bool:
-        """Définit le volume affiché (0-100%)"""
+        """Définit le volume affiché (0-100%) avec sauvegarde automatique"""
         async with self._volume_lock:
             try:
                 self._is_adjusting = True
@@ -220,6 +343,8 @@ class VolumeService:
                 
                 if success:
                     self._current_display_volume = display_clamped
+                    # Sauvegarder le volume si restore_last est activé
+                    self._save_last_volume(display_clamped)
                     await self._broadcast_volume_change_fast(show_bar)
                 
                 self._is_adjusting = False
@@ -230,7 +355,7 @@ class VolumeService:
                 return False
     
     async def adjust_display_volume(self, delta: int, show_bar: bool = True) -> bool:
-        """Ajuste le volume affiché par delta avec steps configurables"""
+        """Ajuste le volume affiché par delta avec sauvegarde automatique"""
         async with self._volume_lock:
             try:
                 # Marquer ajustement
@@ -260,6 +385,8 @@ class VolumeService:
                 
                 if success:
                     self._current_display_volume = new_volume
+                    # Sauvegarder le volume si restore_last est activé
+                    self._save_last_volume(new_volume)
                     asyncio.create_task(self._broadcast_volume_change_fast(show_bar))
                 
                 # Marquer fin d'ajustement
@@ -497,10 +624,10 @@ class VolumeService:
         """Diminue le volume avec steps configurables"""
         return await self.decrease_display_volume()
     
-    # === STATUS ===
+    # === STATUS AVEC STARTUP CONFIG ===
     
     async def get_status(self) -> dict:
-        """Récupère l'état complet du volume avec configuration"""
+        """Récupère l'état complet du volume avec configuration startup"""
         try:
             multiroom_enabled = self._is_multiroom_enabled()
             display_volume = self._current_display_volume
@@ -514,6 +641,7 @@ class VolumeService:
                     "alsa_min": self._alsa_min_volume,
                     "alsa_max": self._alsa_max_volume,
                     "startup_volume": self._default_startup_display_volume,
+                    "restore_last_volume": self._restore_last_volume,
                     "mobile_steps": self._mobile_volume_steps
                 }
             }
@@ -540,6 +668,8 @@ class VolumeService:
                 "config": {
                     "alsa_min": self._alsa_min_volume,
                     "alsa_max": self._alsa_max_volume,
+                    "startup_volume": self._default_startup_display_volume,
+                    "restore_last_volume": self._restore_last_volume,
                     "mobile_steps": self._mobile_volume_steps
                 }
             }

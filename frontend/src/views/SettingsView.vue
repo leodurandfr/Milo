@@ -1,4 +1,4 @@
-<!-- frontend/src/views/SettingsView.vue - Version avec limites de volume -->
+<!-- frontend/src/views/SettingsView.vue - Version avec volume au démarrage configurable -->
 <template>
   <div class="settings-view">
     <!-- Header avec retour -->
@@ -74,13 +74,90 @@
             {{ volumeValidation.message }}
           </div>
           
-          <!-- Bouton d'application -->
+          <!-- Bouton d'application limites -->
           <Button 
             variant="primary" 
             :disabled="!volumeValidation.canApply || applyingVolume" 
             @click="applyVolumeLimits"
           >
             {{ applyingVolume ? $t('Application en cours...') : $t('Appliquer les limites') }}
+          </Button>
+        </div>
+
+        <!-- Séparateur -->
+        <div class="settings-separator"></div>
+
+        <!-- Volume au démarrage -->
+        <div class="startup-volume-settings">
+          <h3 class="heading-2">{{ $t('Volume au démarrage') }}</h3>
+          
+          <!-- Mode selection -->
+          <div class="startup-mode-selector">
+            <button 
+              @click="setStartupMode(false)"
+              :class="['mode-button', { active: !startupVolumeConfig.restore_last_volume }]"
+              class="button-interactive"
+            >
+              <div class="mode-content">
+                <div class="mode-title heading-2">{{ $t('Volume fixe') }}</div>
+                <div class="mode-description text-mono">{{ $t('Utilise toujours le même volume') }}</div>
+                <div v-if="!startupVolumeConfig.restore_last_volume" class="active-indicator"></div>
+              </div>
+            </button>
+
+            <button 
+              @click="setStartupMode(true)"
+              :class="['mode-button', { active: startupVolumeConfig.restore_last_volume }]"
+              class="button-interactive"
+            >
+              <div class="mode-content">
+                <div class="mode-title heading-2">{{ $t('Restaurer le dernier') }}</div>
+                <div class="mode-description text-mono">{{ $t('Reprend le volume avant redémarrage') }}</div>
+                <div v-if="startupVolumeConfig.restore_last_volume" class="active-indicator"></div>
+              </div>
+            </button>
+          </div>
+
+          <!-- Volume fixe slider (seulement visible en mode fixe) -->
+          <div v-if="!startupVolumeConfig.restore_last_volume" class="fixed-volume-control">
+            <label class="text-mono">{{ $t('Volume fixe au démarrage') }}</label>
+            <div class="startup-control">
+              <RangeSlider 
+                v-model="startupVolumeConfig.startup_volume" 
+                :min="0" 
+                :max="100" 
+                :step="1"
+                class="startup-slider" 
+              />
+              <span class="startup-value text-mono">{{ startupVolumeConfig.startup_volume }}%</span>
+            </div>
+          </div>
+
+          <!-- Aperçu du mode actuel -->
+          <div class="startup-preview">
+            <div class="preview-label text-mono">{{ $t('Configuration actuelle') }}</div>
+            <div class="preview-info">
+              <span class="info-icon">{{ startupVolumeConfig.restore_last_volume ? '🔄' : '📌' }}</span>
+              <span class="preview-text text-mono">
+                {{ startupVolumeConfig.restore_last_volume 
+                   ? $t('Le volume sera restauré au dernier utilisé') 
+                   : $t('Le volume sera fixé à') + ' ' + startupVolumeConfig.startup_volume + '%' }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Messages de validation startup -->
+          <div v-if="startupValidation.error" class="validation-error">
+            {{ startupValidation.message }}
+          </div>
+          
+          <!-- Bouton d'application startup -->
+          <Button 
+            variant="primary" 
+            :disabled="!startupValidation.canApply || applyingStartup" 
+            @click="applyStartupConfig"
+          >
+            {{ applyingStartup ? $t('Application en cours...') : $t('Appliquer la configuration') }}
           </Button>
         </div>
       </section>
@@ -147,6 +224,19 @@ const originalVolumeLimits = ref({
 
 const applyingVolume = ref(false);
 
+// État du volume au démarrage
+const startupVolumeConfig = ref({
+  startup_volume: 37,
+  restore_last_volume: false
+});
+
+const originalStartupConfig = ref({
+  startup_volume: 37,
+  restore_last_volume: false
+});
+
+const applyingStartup = ref(false);
+
 // Langues disponibles
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
@@ -187,6 +277,30 @@ const volumeValidation = computed(() => {
   };
 });
 
+// Validation du startup volume
+const startupValidation = computed(() => {
+  const startup = startupVolumeConfig.value.startup_volume;
+  const restore = startupVolumeConfig.value.restore_last_volume;
+  
+  if (!restore && (startup < 0 || startup > 100)) {
+    return {
+      error: true,
+      message: 'Le volume de démarrage doit être entre 0 et 100',
+      canApply: false
+    };
+  }
+  
+  // Vérifier s'il y a des changements
+  const hasChanges = startup !== originalStartupConfig.value.startup_volume || 
+                    restore !== originalStartupConfig.value.restore_last_volume;
+  
+  return {
+    error: false,
+    message: '',
+    canApply: hasChanges
+  };
+});
+
 // Gestionnaires de changement avec validation automatique
 function handleMinVolumeChange(newMin) {
   if (newMin + 10 > volumeLimits.value.alsa_max) {
@@ -200,7 +314,11 @@ function handleMaxVolumeChange(newMax) {
   }
 }
 
-// Actions
+function setStartupMode(restoreMode) {
+  startupVolumeConfig.value.restore_last_volume = restoreMode;
+}
+
+// Actions - Volume limits
 async function loadVolumeLimits() {
   try {
     const response = await axios.get('/api/settings/volume-limits');
@@ -242,6 +360,50 @@ async function applyVolumeLimits() {
   }
 }
 
+// Actions - Startup volume
+async function loadStartupVolumeConfig() {
+  try {
+    const response = await axios.get('/api/settings/volume-startup');
+    if (response.data.status === 'success') {
+      const config = response.data.config;
+      startupVolumeConfig.value = {
+        startup_volume: config.startup_volume,
+        restore_last_volume: config.restore_last_volume
+      };
+      originalStartupConfig.value = { ...startupVolumeConfig.value };
+      console.log('Startup volume config loaded:', startupVolumeConfig.value);
+    }
+  } catch (error) {
+    console.error('Error loading startup volume config:', error);
+  }
+}
+
+async function applyStartupConfig() {
+  if (!startupValidation.value.canApply || applyingStartup.value) return;
+  
+  applyingStartup.value = true;
+  
+  try {
+    const response = await axios.post('/api/settings/volume-startup', {
+      startup_volume: startupVolumeConfig.value.startup_volume,
+      restore_last_volume: startupVolumeConfig.value.restore_last_volume
+    });
+    
+    if (response.data.status === 'success') {
+      originalStartupConfig.value = { ...startupVolumeConfig.value };
+      console.log('Startup volume config applied successfully');
+    } else {
+      console.error('Failed to apply startup volume config:', response.data.message);
+    }
+    
+  } catch (error) {
+    console.error('Error applying startup volume config:', error);
+  } finally {
+    applyingStartup.value = false;
+  }
+}
+
+// Actions - Langue
 async function changeLanguage(languageCode) {
   await setLanguage(languageCode);
 }
@@ -254,6 +416,7 @@ function goBack() {
 onMounted(async () => {
   await i18n.initializeLanguage();
   await loadVolumeLimits();
+  await loadStartupVolumeConfig();
   
   // Écouter les changements de langue via WebSocket
   on('settings', 'language_changed', (message) => {
@@ -272,6 +435,19 @@ onMounted(async () => {
       };
       originalVolumeLimits.value = { ...volumeLimits.value };
       console.log('Volume limits updated via WebSocket:', newLimits);
+    }
+  });
+
+  // Écouter les changements de startup volume via WebSocket
+  on('settings', 'volume_startup_changed', (message) => {
+    if (message.data?.config) {
+      const newConfig = message.data.config;
+      startupVolumeConfig.value = {
+        startup_volume: newConfig.startup_volume,
+        restore_last_volume: newConfig.restore_last_volume
+      };
+      originalStartupConfig.value = { ...startupVolumeConfig.value };
+      console.log('Startup volume config updated via WebSocket:', newConfig);
     }
   });
 });
@@ -320,6 +496,14 @@ onMounted(async () => {
 
 .settings-section h2 {
   color: var(--color-text);
+}
+
+/* === SÉPARATEUR === */
+
+.settings-separator {
+  height: 1px;
+  background: var(--color-background-strong);
+  margin: var(--space-02) 0;
 }
 
 /* === SECTION VOLUME === */
@@ -402,6 +586,112 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   color: var(--color-text-secondary);
+}
+
+/* === SECTION VOLUME AU DÉMARRAGE === */
+
+.startup-volume-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+.startup-mode-selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.mode-button {
+  display: flex;
+  align-items: center;
+  padding: var(--space-04);
+  background: var(--color-background-strong);
+  border: 2px solid transparent;
+  border-radius: var(--radius-04);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  width: 100%;
+  text-align: left;
+}
+
+.mode-button:hover {
+  background: var(--color-background);
+  border-color: var(--color-background-glass);
+}
+
+.mode-button.active {
+  background: var(--color-background);
+  border-color: var(--color-brand);
+}
+
+.mode-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+  flex: 1;
+  position: relative;
+}
+
+.mode-title {
+  color: var(--color-text);
+}
+
+.mode-description {
+  color: var(--color-text-secondary);
+}
+
+.fixed-volume-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+  padding: var(--space-04);
+  background: var(--color-background-strong);
+  border-radius: var(--radius-04);
+}
+
+.fixed-volume-control label {
+  color: var(--color-text-secondary);
+}
+
+.startup-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+}
+
+.startup-slider {
+  flex: 1;
+}
+
+.startup-value {
+  color: var(--color-text);
+  min-width: 40px;
+  text-align: right;
+}
+
+.startup-preview {
+  background: var(--color-background-strong);
+  border-radius: var(--radius-04);
+  padding: var(--space-04);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.preview-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+}
+
+.info-icon {
+  font-size: 18px;
+}
+
+.preview-text {
+  color: var(--color-text);
 }
 
 .validation-error {
@@ -510,6 +800,14 @@ onMounted(async () => {
   
   .limit-control {
     gap: var(--space-04);
+  }
+
+  .startup-mode-selector {
+    gap: var(--space-03);
+  }
+
+  .mode-button {
+    padding: var(--space-05) var(--space-04);
   }
 }
 
