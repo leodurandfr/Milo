@@ -1,6 +1,6 @@
 # backend/infrastructure/services/snapcast_websocket_service.py
 """
-Service WebSocket Snapcast OPTIM - Version corrigée sans duplication
+Service WebSocket Snapcast OPTIM - Version avec conversions volume harmonisées
 """
 import asyncio
 import json
@@ -9,7 +9,7 @@ import aiohttp
 from typing import Dict, Any, Optional
 
 class SnapcastWebSocketService:
-    """Service WebSocket pour notifications Snapcast temps réel - Version OPTIM corrigée"""
+    """Service WebSocket pour notifications Snapcast temps réel - Version avec volumes display uniformes"""
     
     def __init__(self, state_machine, routing_service, host: str = "localhost", port: int = 1780):
         self.state_machine = state_machine
@@ -211,8 +211,28 @@ class SnapcastWebSocketService:
             self.logger.error(f"Error converting ALSA to display volume: {e}")
             return alsa_volume  # Fallback
     
+    def _convert_client_volume(self, client: Dict[str, Any]) -> Dict[str, Any]:
+        """Convertit le volume ALSA d'un client vers format display"""
+        try:
+            if "config" in client and "volume" in client["config"]:
+                alsa_volume = client["config"]["volume"].get("percent", 0)
+                display_volume = self._convert_alsa_to_display(alsa_volume)
+                
+                # Créer une copie du client avec volume converti
+                converted_client = client.copy()
+                converted_client["config"] = client["config"].copy()
+                converted_client["config"]["volume"] = client["config"]["volume"].copy()
+                converted_client["config"]["volume"]["percent"] = display_volume
+                converted_client["config"]["volume"]["alsa_percent"] = alsa_volume  # Debug
+                
+                return converted_client
+            return client
+        except Exception as e:
+            self.logger.error(f"Error converting client volume: {e}")
+            return client
+    
     async def _handle_notification(self, notification: Dict[str, Any]) -> None:
-        """Traite une notification Snapcast - Version OPTIM avec mapping simplifié"""
+        """Traite une notification Snapcast - Version avec conversions volume harmonisées"""
         method = notification.get("method")
         params = notification.get("params", {})
         
@@ -238,10 +258,10 @@ class SnapcastWebSocketService:
         if "error" in response:
             self.logger.error(f"Snapcast RPC error: {response['error']}")
     
-    # === HANDLERS DES NOTIFICATIONS CRITIQUES OPTIM ===
+    # === HANDLERS DES NOTIFICATIONS CRITIQUES AVEC CONVERSIONS HARMONISÉES ===
     
     async def _handle_client_connect(self, params: Dict[str, Any]) -> None:
-        """Client connecté - Avec synchronisation automatique du volume"""
+        """Client connecté - Avec volume converti et synchronisation automatique"""
         client = params.get("client", {})
         client_id = client.get("id")
         client_name = client.get("config", {}).get("name", "Unknown")
@@ -272,33 +292,45 @@ class SnapcastWebSocketService:
             except Exception as e:
                 self.logger.error(f"Error synchronizing volume for new client '{client_name}': {e}")
         
-        # Broadcast de connexion
+        # CORRECTION : Convertir le volume du client avant diffusion
+        converted_client = self._convert_client_volume(client)
+        
+        # Broadcast de connexion avec client converti
         await self._broadcast_snapcast_event("client_connected", {
             "client_id": client_id,
             "client_name": client_name,
             "client_host": client_host,
             "client_ip": client_ip,
-            "client": client
+            "client": converted_client  # VOLUME CONVERTI
         })
     
     async def _handle_client_disconnect(self, params: Dict[str, Any]) -> None:
-        """Client déconnecté"""
+        """Client déconnecté - Avec volume converti"""
         client = params.get("client", {})
+        
+        # CORRECTION : Convertir le volume du client avant diffusion
+        converted_client = self._convert_client_volume(client)
+        
         await self._broadcast_snapcast_event("client_disconnected", {
             "client_id": client.get("id"),
             "client_name": client.get("config", {}).get("name"),
-            "client": client
+            "client": converted_client  # VOLUME CONVERTI
         })
     
     async def _handle_client_volume_changed(self, params: Dict[str, Any]) -> None:
-        """Volume client changé"""
+        """Volume client changé - CORRECTION : Conversion vers format display"""
         client_id = params.get("id")
         volume_data = params.get("volume", {})
         
+        # CORRECTION : Convertir le volume ALSA vers display
+        alsa_volume = volume_data.get("percent", 0)
+        display_volume = self._convert_alsa_to_display(alsa_volume)
+        
         await self._broadcast_snapcast_event("client_volume_changed", {
             "client_id": client_id,
-            "volume": volume_data.get("percent", 0),
-            "muted": volume_data.get("muted", False)
+            "volume": display_volume,       # VOLUME CONVERTI
+            "muted": volume_data.get("muted", False),
+            "alsa_volume": alsa_volume      # VOLUME ORIGINAL POUR DEBUG
         })
     
     async def _handle_client_name_changed(self, params: Dict[str, Any]) -> None:
@@ -309,7 +341,7 @@ class SnapcastWebSocketService:
         })
     
     async def _handle_client_mute_changed(self, params: Dict[str, Any]) -> None:
-        """Mute client changé - Avec conversion volume"""
+        """Mute client changé - Avec conversion volume (déjà correct)"""
         volume_data = params.get("volume", {})
         
         # Volume ALSA depuis Snapcast  
