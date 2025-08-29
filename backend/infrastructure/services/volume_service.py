@@ -1,6 +1,6 @@
 # backend/infrastructure/services/volume_service.py
 """
-Service de gestion du volume pour Milo - Version refactorisée avec API volume affiché unifié
+Service de gestion du volume pour Milo - Version avec limites configurables
 """
 import asyncio
 import logging
@@ -8,21 +8,24 @@ import alsaaudio
 import re
 from typing import Optional
 import time
+from backend.infrastructure.services.settings_service import SettingsService
 
 class VolumeService:
-    """Service de gestion du volume système - API unifiée en volume affiché (0-100%)"""
-    
-    # Constantes ALSA (privées - invisible pour les composants)
-    _ALSA_MIN_VOLUME = 0
-    _ALSA_MAX_VOLUME = 65
-    _DEFAULT_STARTUP_DISPLAY_VOLUME = 37  # ~24 en ALSA
+    """Service de gestion du volume système - Version avec limites configurables"""
     
     def __init__(self, state_machine, snapcast_service):
         self.state_machine = state_machine
         self.snapcast_service = snapcast_service
+        self.settings_service = SettingsService()
         self.mixer: Optional[alsaaudio.Mixer] = None
         self.logger = logging.getLogger(__name__)
         self._volume_lock = asyncio.Lock()
+        
+        # Variables de configuration (chargées depuis settings)
+        self._alsa_min_volume = 0
+        self._alsa_max_volume = 65
+        self._default_startup_display_volume = 37
+        self._mobile_volume_steps = 5
         
         # État interne - toujours en volume affiché (0-100%)
         self._current_display_volume = 0
@@ -39,48 +42,111 @@ class VolumeService:
         self._adjustment_count = 0
         self._first_adjustment_time = 0
     
-    # === INTERPOLATION PRIVÉE ===
+    def _load_volume_config(self) -> None:
+        """Charge la configuration volume depuis settings"""
+        try:
+            volume_config = self.settings_service.get_volume_config()
+            self._alsa_min_volume = volume_config["alsa_min"]
+            self._alsa_max_volume = volume_config["alsa_max"]
+            self._default_startup_display_volume = volume_config["startup_volume"]
+            self._mobile_volume_steps = volume_config["mobile_volume_steps"]
+            
+            self.logger.info(f"Volume config loaded: ALSA({self._alsa_min_volume}-{self._alsa_max_volume}), startup={self._default_startup_display_volume}%, steps={self._mobile_volume_steps}")
+            
+        except Exception as e:
+            self.logger.error(f"Error loading volume config, using defaults: {e}")
+            self._alsa_min_volume = 0
+            self._alsa_max_volume = 65
+            self._default_startup_display_volume = 37
+            self._mobile_volume_steps = 5
+    
+    async def reload_volume_config(self) -> bool:
+        """Recharge la configuration volume et ajuste le volume actuel si nécessaire"""
+        try:
+            self.logger.info("Reloading volume configuration...")
+            
+            # Sauvegarder l'ancien volume affiché
+            old_display_volume = self._current_display_volume
+            
+            # Recharger la config
+            self._load_volume_config()
+            
+            # Recalculer les plages avec les nouvelles limites
+            old_alsa_volume = self._display_to_alsa_old_limits(old_display_volume)
+            new_display_volume = self._alsa_to_display(old_alsa_volume)
+            
+            # Si le volume calculé avec les nouvelles limites est différent
+            if new_display_volume != old_display_volume:
+                # Ajuster le volume actuel avec les nouvelles limites
+                if old_alsa_volume < self._alsa_min_volume or old_alsa_volume > self._alsa_max_volume:
+                    # Volume hors des nouvelles limites -> ramener au centre
+                    center_volume = (self._alsa_min_volume + self._alsa_max_volume) // 2
+                    safe_display_volume = self._alsa_to_display(center_volume)
+                    
+                    self.logger.info(f"Volume out of new limits, adjusting: {old_display_volume}% -> {safe_display_volume}%")
+                    await self.set_display_volume(safe_display_volume, show_bar=False)
+                else:
+                    # Volume dans les limites mais interpolation différente -> ajuster
+                    self.logger.info(f"Volume interpolation changed: {old_display_volume}% -> {new_display_volume}%")
+                    self._current_display_volume = new_display_volume
+                    await self._broadcast_volume_change(show_bar=False)
+            
+            self.logger.info(f"Volume config reloaded successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error reloading volume config: {e}")
+            return False
+    
+    def _display_to_alsa_old_limits(self, display_volume: int) -> int:
+        """Convertit avec les anciennes limites (pour comparaison lors du reload)"""
+        # Cette méthode est temporaire pour le reload, utilise les constantes d'origine
+        old_alsa_range = 65 - 0  # Anciennes limites hardcodées
+        return round((display_volume / 100) * old_alsa_range) + 0
+    
+    # === INTERPOLATION DYNAMIQUE ===
     
     def _alsa_to_display(self, alsa_volume: int) -> int:
-        """Convertit volume ALSA (0-65) vers volume affiché (0-100%)"""
-        alsa_range = self._ALSA_MAX_VOLUME - self._ALSA_MIN_VOLUME
-        normalized = alsa_volume - self._ALSA_MIN_VOLUME
+        """Convertit volume ALSA vers volume affiché (0-100%) avec limites configurables"""
+        alsa_range = self._alsa_max_volume - self._alsa_min_volume
+        normalized = alsa_volume - self._alsa_min_volume
         return round((normalized / alsa_range) * 100)
 
     def _display_to_alsa(self, display_volume: int) -> int:
-        """Convertit volume affiché (0-100%) vers volume ALSA (0-65)"""
-        alsa_range = self._ALSA_MAX_VOLUME - self._ALSA_MIN_VOLUME
-        return round((display_volume / 100) * alsa_range) + self._ALSA_MIN_VOLUME
+        """Convertit volume affiché (0-100%) vers volume ALSA avec limites configurables"""
+        alsa_range = self._alsa_max_volume - self._alsa_min_volume
+        return round((display_volume / 100) * alsa_range) + self._alsa_min_volume
     
     def _clamp_display_volume(self, display_volume: int) -> int:
         """Limite le volume affiché entre 0-100%"""
         return max(0, min(100, display_volume))
     
     def _clamp_alsa_volume(self, alsa_volume: int) -> int:
-        """Limite le volume ALSA entre MIN-MAX"""
-        return max(self._ALSA_MIN_VOLUME, min(self._ALSA_MAX_VOLUME, alsa_volume))
+        """Limite le volume ALSA entre les limites configurées"""
+        return max(self._alsa_min_volume, min(self._alsa_max_volume, alsa_volume))
     
     # === CONVERSIONS SNAPCAST ===
     
     def _snapcast_to_display(self, snapcast_volume: int) -> int:
-        """Convertit volume Snapcast (0-65) vers volume affiché (0-100%)"""
-        # Même logique que ALSA car on veut la même limitation
-        snapcast_range = self._ALSA_MAX_VOLUME - self._ALSA_MIN_VOLUME
-        normalized = snapcast_volume - self._ALSA_MIN_VOLUME  
+        """Convertit volume Snapcast vers volume affiché (utilise les mêmes limites que ALSA)"""
+        snapcast_range = self._alsa_max_volume - self._alsa_min_volume
+        normalized = snapcast_volume - self._alsa_min_volume  
         return round((normalized / snapcast_range) * 100)
 
     def _display_to_snapcast(self, display_volume: int) -> int:
-        """Convertit volume affiché (0-100%) vers volume Snapcast (0-65)"""
-        # Même logique que ALSA car on veut la même limitation
-        snapcast_range = self._ALSA_MAX_VOLUME - self._ALSA_MIN_VOLUME
-        return round((display_volume / 100) * snapcast_range) + self._ALSA_MIN_VOLUME
+        """Convertit volume affiché vers volume Snapcast (utilise les mêmes limites que ALSA)"""
+        snapcast_range = self._alsa_max_volume - self._alsa_min_volume
+        return round((display_volume / 100) * snapcast_range) + self._alsa_min_volume
     
     # === INITIALISATION ===
     
     async def initialize(self) -> bool:
-        """Initialise le service volume avec un volume par défaut affiché"""
+        """Initialise le service volume avec configuration chargée"""
         try:
-            self.logger.info(f"Initializing volume service with display volume API (ALSA limits: {self._ALSA_MIN_VOLUME}-{self._ALSA_MAX_VOLUME})")
+            # Charger la configuration volume
+            self._load_volume_config()
+            
+            self.logger.info(f"Initializing volume service with configurable limits (ALSA: {self._alsa_min_volume}-{self._alsa_max_volume})")
             
             try:
                 self.mixer = alsaaudio.Mixer('Digital')
@@ -90,7 +156,7 @@ class VolumeService:
                 return False
             
             # Forcer le volume au démarrage (en volume affiché)
-            startup_alsa_volume = self._display_to_alsa(self._DEFAULT_STARTUP_DISPLAY_VOLUME)
+            startup_alsa_volume = self._display_to_alsa(self._default_startup_display_volume)
             
             if self._is_multiroom_enabled():
                 await self._set_startup_volume_multiroom(startup_alsa_volume)
@@ -98,11 +164,11 @@ class VolumeService:
                 await self._set_startup_volume_direct(startup_alsa_volume)
             
             # État interne
-            self._current_display_volume = self._DEFAULT_STARTUP_DISPLAY_VOLUME
+            self._current_display_volume = self._default_startup_display_volume
             self._last_alsa_volume = startup_alsa_volume
             self._alsa_cache_time = time.time()
             
-            self.logger.info(f"Startup volume set to {self._DEFAULT_STARTUP_DISPLAY_VOLUME}% (display) = {startup_alsa_volume} (ALSA)")
+            self.logger.info(f"Startup volume set to {self._default_startup_display_volume}% (display) = {startup_alsa_volume} (ALSA)")
             asyncio.create_task(self._delayed_initial_broadcast())
             return True
             
@@ -164,7 +230,7 @@ class VolumeService:
                 return False
     
     async def adjust_display_volume(self, delta: int, show_bar: bool = True) -> bool:
-        """Ajuste le volume affiché par delta - Version ultra-rapide"""
+        """Ajuste le volume affiché par delta avec steps configurables"""
         async with self._volume_lock:
             try:
                 # Marquer ajustement
@@ -206,13 +272,15 @@ class VolumeService:
                 self._is_adjusting = False
                 return False
     
-    async def increase_display_volume(self, delta: int = 5) -> bool:
-        """Augmente le volume affiché"""
-        return await self.adjust_display_volume(delta)
+    async def increase_display_volume(self, delta: int = None) -> bool:
+        """Augmente le volume affiché avec steps configurables"""
+        step = delta if delta is not None else self._mobile_volume_steps
+        return await self.adjust_display_volume(step)
     
-    async def decrease_display_volume(self, delta: int = 5) -> bool:
-        """Diminue le volume affiché"""
-        return await self.adjust_display_volume(-delta)
+    async def decrease_display_volume(self, delta: int = None) -> bool:
+        """Diminue le volume affiché avec steps configurables"""
+        step = delta if delta is not None else self._mobile_volume_steps
+        return await self.adjust_display_volume(-step)
     
     # === IMPLÉMENTATIONS PRIVÉES - MODE DIRECT ===
     
@@ -241,9 +309,7 @@ class VolumeService:
             if not clients:
                 return self._current_display_volume
             
-            # CORRECTION : Les volumes clients viennent de Snapcast (0-100% native)
-            # mais sont limités par nos constraints (donc 0-65 effectif)
-            # Les convertir vers volume affiché
+            # Les volumes clients viennent de Snapcast, les convertir vers volume affiché
             total_display_volume = sum(self._snapcast_to_display(client["volume"]) for client in clients)
             average_display_volume = round(total_display_volume / len(clients))
             return average_display_volume
@@ -258,8 +324,7 @@ class VolumeService:
             if not clients:
                 return False
             
-            # CORRECTION : Calculer la moyenne actuelle en supposant que client["volume"] 
-            # vient de Snapcast (0-100%) mais est limité par nos constraints ALSA
+            # Calculer la moyenne actuelle en supposant que client["volume"] vient de Snapcast
             current_snapcast_volumes = [client["volume"] for client in clients]
             current_average_snapcast = sum(current_snapcast_volumes) / len(current_snapcast_volumes)
             
@@ -280,7 +345,7 @@ class VolumeService:
         except Exception:
             return False
     
-    # === MÉTHODES AMIXER OPTIMISÉES (INCHANGÉES) ===
+    # === MÉTHODES AMIXER OPTIMISÉES ===
     
     async def _get_amixer_volume_fast(self) -> Optional[int]:
         """Version ultra-rapide d'amixer get - avec cache agressif"""
@@ -334,7 +399,7 @@ class VolumeService:
         except Exception:
             return False
     
-    # === CACHE SNAPCAST (INCHANGÉ) ===
+    # === CACHE SNAPCAST ===
     
     async def _get_snapcast_clients_cached(self):
         """Récupère les clients avec cache ultra-rapide"""
@@ -351,7 +416,7 @@ class VolumeService:
         except Exception:
             return self._snapcast_clients_cache
     
-    # === MÉTHODES UTILITAIRES (ADAPTÉES) ===
+    # === MÉTHODES UTILITAIRES ===
     
     async def _mark_adjustment_done(self):
         """Marque la fin d'ajustement après un délai"""
@@ -366,10 +431,11 @@ class VolumeService:
         """Broadcast optimisé pour rapidité"""
         try:
             await self.state_machine.broadcast_event("volume", "volume_changed", {
-                "volume": self._current_display_volume,  # Toujours volume affiché
+                "volume": self._current_display_volume,
                 "multiroom_mode": self._is_multiroom_enabled(),
                 "show_bar": show_bar,
                 "source": "volume_service",
+                "mobile_steps": self._mobile_volume_steps
             })
         except Exception as e:
             if self._adjustment_count <= 3:
@@ -409,52 +475,71 @@ class VolumeService:
             self.logger.error(f"Error setting startup volume (multiroom): {e}")
             return False
     
-    # === API DE COMPATIBILITÉ (DÉPRÉCIÉES) ===
+    # === API DE COMPATIBILITÉ ===
     
     async def get_volume(self) -> int:
-        """DÉPRÉCIÉ: Utiliser get_display_volume()"""
+        """Compatibilité: Utiliser get_display_volume()"""
         return await self.get_display_volume()
     
     async def set_volume(self, volume: int, show_bar: bool = True) -> bool:
-        """DÉPRÉCIÉ: Utiliser set_display_volume()"""
+        """Compatibilité: Utiliser set_display_volume()"""
         return await self.set_display_volume(volume, show_bar)
     
     async def adjust_volume(self, delta: int, show_bar: bool = True) -> bool:
-        """DÉPRÉCIÉ: Utiliser adjust_display_volume()"""
+        """Compatibilité: Utiliser adjust_display_volume()"""
         return await self.adjust_display_volume(delta, show_bar)
     
-    # === STATUS (ADAPTÉ POUR VOLUME AFFICHÉ) ===
+    async def increase_volume(self) -> bool:
+        """Augmente le volume avec steps configurables"""
+        return await self.increase_display_volume()
+    
+    async def decrease_volume(self) -> bool:
+        """Diminue le volume avec steps configurables"""
+        return await self.decrease_display_volume()
+    
+    # === STATUS ===
     
     async def get_status(self) -> dict:
-        """Récupère l'état complet du volume (en volume affiché)"""
+        """Récupère l'état complet du volume avec configuration"""
         try:
             multiroom_enabled = self._is_multiroom_enabled()
             display_volume = self._current_display_volume
             
+            base_status = {
+                "volume": display_volume,
+                "multiroom_enabled": multiroom_enabled,
+                "mixer_available": self.mixer is not None,
+                "display_volume": True,
+                "config": {
+                    "alsa_min": self._alsa_min_volume,
+                    "alsa_max": self._alsa_max_volume,
+                    "startup_volume": self._default_startup_display_volume,
+                    "mobile_steps": self._mobile_volume_steps
+                }
+            }
+            
             if multiroom_enabled:
                 clients = await self._get_snapcast_clients_cached()
-                return {
-                    "volume": display_volume,
+                base_status.update({
                     "mode": "multiroom",
-                    "multiroom_enabled": True,
                     "client_count": len(clients),
-                    "snapcast_available": await self.snapcast_service.is_available(),
-                    "mixer_available": self.mixer is not None,
-                    "display_volume": True  # Indique que ce service utilise le volume affiché
-                }
+                    "snapcast_available": await self.snapcast_service.is_available()
+                })
             else:
-                return {
-                    "volume": display_volume,
-                    "mode": "direct",
-                    "multiroom_enabled": False,
-                    "mixer_available": self.mixer is not None,
-                    "display_volume": True
-                }
+                base_status["mode"] = "direct"
+            
+            return base_status
+            
         except Exception as e:
             self.logger.error(f"Error getting volume status: {e}")
             return {
                 "volume": self._current_display_volume,
                 "mode": "error",
                 "error": str(e),
-                "display_volume": True
+                "display_volume": True,
+                "config": {
+                    "alsa_min": self._alsa_min_volume,
+                    "alsa_max": self._alsa_max_volume,
+                    "mobile_steps": self._mobile_volume_steps
+                }
             }

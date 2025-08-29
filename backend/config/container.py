@@ -1,6 +1,6 @@
-# backend/config/container.py - Ajout de la configuration auto-disconnect
+# backend/config/container.py - Ajout SettingsService
 """
-Conteneur d'injection de dépendances - Version avec configuration auto-disconnect
+Conteneur d'injection de dépendances - Version avec SettingsService unifié
 """
 from dependency_injector import containers, providers
 from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
@@ -12,7 +12,8 @@ from backend.infrastructure.services.audio_routing_service import AudioRoutingSe
 from backend.infrastructure.services.snapcast_service import SnapcastService
 from backend.infrastructure.services.snapcast_websocket_service import SnapcastWebSocketService
 from backend.infrastructure.services.equalizer_service import EqualizerService
-from backend.infrastructure.services.volume_service import VolumeService  
+from backend.infrastructure.services.volume_service import VolumeService
+from backend.infrastructure.services.settings_service import SettingsService
 from backend.infrastructure.hardware.rotary_volume_controller import RotaryVolumeController
 from backend.infrastructure.hardware.screen_controller import ScreenController
 from backend.presentation.websockets.manager import WebSocketManager
@@ -20,7 +21,7 @@ from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
 
 class Container(containers.DeclarativeContainer):
-    """Conteneur d'injection de dépendances pour Milo - Version avec auto-disconnect configurable"""
+    """Conteneur d'injection de dépendances pour Milo - Version avec SettingsService"""
     
     config = providers.Configuration()
     
@@ -28,6 +29,7 @@ class Container(containers.DeclarativeContainer):
     systemd_manager = providers.Singleton(SystemdServiceManager)
     snapcast_service = providers.Singleton(SnapcastService)
     equalizer_service = providers.Singleton(EqualizerService)
+    settings_service = providers.Singleton(SettingsService)
     
     # WebSocket
     websocket_manager = providers.Singleton(WebSocketManager)
@@ -55,7 +57,7 @@ class Container(containers.DeclarativeContainer):
         port=1780
     )
     
-    # Service Volume
+    # Service Volume avec SettingsService
     volume_service = providers.Singleton(
         VolumeService,
         state_machine=audio_state_machine,
@@ -76,15 +78,14 @@ class Container(containers.DeclarativeContainer):
         state_machine=audio_state_machine
     )
     
-    # Plugins audio avec configuration auto-disconnect
+    # Plugins audio avec configuration depuis SettingsService
     librespot_plugin = providers.Singleton(
         LibrespotPlugin,
         config=providers.Dict({
             "config_path": "/var/lib/milo/go-librespot/config.yml", 
             "service_name": "milo-go-librespot.service",
-            # Configuration de la déconnexion automatique
-            "auto_disconnect_on_pause": True,  # True = activé par défaut, False = désactivé
-            "pause_disconnect_delay": 10.0     # Délai en secondes (configurable)
+            "auto_disconnect_on_pause": True,
+            "pause_disconnect_delay": 10.0
         }),
         state_machine=audio_state_machine
     )

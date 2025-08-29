@@ -1,6 +1,6 @@
-# backend/main.py - Version corrigée avec Settings et WebSocket fonctionnel
+# backend/main.py - Version avec SettingsService et routes volume-limits
 """
-Point d'entrée principal de l'application Milo - Version avec SnapcastWebSocketService et Settings
+Point d'entrée principal de l'application Milo - Version avec SettingsService unifié
 """
 import sys
 import os
@@ -43,7 +43,7 @@ state_machine.snapcast_service = snapcast_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Gestion du cycle de vie avec SnapcastWebSocketService"""
+    """Gestion du cycle de vie avec SettingsService"""
     try:
         # Initialiser les services
         container.initialize_services()
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     logger.error(f"Plugin {source.value} initialization failed: {e}")
         
-        logger.info("Milo backend startup completed with Snapcast WebSocket service")
+        logger.info("Milo backend startup completed with unified settings")
         
     except Exception as e:
         logger.error(f"Application startup failed: {e}")
@@ -66,16 +66,12 @@ async def lifespan(app: FastAPI):
     
     yield  # L'application tourne
     
-    # Cleanup avec SnapcastWebSocketService
+    # Cleanup
     logger.info("Milo backend shutting down...")
     try:
-        # AJOUT : Nettoyer le service WebSocket Snapcast
         await snapcast_websocket_service.cleanup()
-        logger.info("Snapcast WebSocket service cleanup completed")
-        
-        # Nettoyer le contrôleur rotary
         rotary_controller.cleanup()
-        logger.info("Hardware cleanup completed")
+        logger.info("Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
 
@@ -122,8 +118,8 @@ bluetooth_router = setup_bluetooth_routes(
 )
 app.include_router(bluetooth_router)
 
-# NOUVEAU : Routes Settings pour l'i18n avec WebSocket intégré
-settings_router = create_settings_router(ws_manager)
+# Routes Settings unifiées avec VolumeService pour rechargement à chaud
+settings_router = create_settings_router(ws_manager, volume_service)
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
 # WebSocket

@@ -1,4 +1,4 @@
-<!-- frontend/src/views/SettingsView.vue - Version avec WebSocket intégré -->
+<!-- frontend/src/views/SettingsView.vue - Version avec limites de volume -->
 <template>
   <div class="settings-view">
     <!-- Header avec retour -->
@@ -11,6 +11,80 @@
 
     <!-- Contenu des paramètres -->
     <div class="settings-content">
+      <!-- Section Volume -->
+      <section class="settings-section">
+        <h2 class="heading-2">{{ $t('Volume') }}</h2>
+        
+        <div class="volume-settings">
+          <!-- Limites de volume -->
+          <div class="volume-limits">
+            <div class="limit-group">
+              <label class="text-mono">{{ $t('Volume minimum') }}</label>
+              <div class="limit-control">
+                <RangeSlider 
+                  v-model="volumeLimits.alsa_min" 
+                  :min="0" 
+                  :max="maxMinVolume" 
+                  :step="1"
+                  @input="handleMinVolumeChange"
+                  class="limit-slider" 
+                />
+                <span class="limit-value text-mono">{{ volumeLimits.alsa_min }}</span>
+              </div>
+            </div>
+
+            <div class="limit-group">
+              <label class="text-mono">{{ $t('Volume maximum') }}</label>
+              <div class="limit-control">
+                <RangeSlider 
+                  v-model="volumeLimits.alsa_max" 
+                  :min="minMaxVolume" 
+                  :max="100" 
+                  :step="1"
+                  @input="handleMaxVolumeChange"
+                  class="limit-slider" 
+                />
+                <span class="limit-value text-mono">{{ volumeLimits.alsa_max }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Aperçu du range -->
+          <div class="volume-preview">
+            <div class="preview-label text-mono">{{ $t('Plage de volume résultante') }}</div>
+            <div class="preview-range">
+              <div class="range-bar">
+                <div 
+                  class="range-fill" 
+                  :style="{ 
+                    left: `${volumeLimits.alsa_min}%`, 
+                    width: `${volumeLimits.alsa_max - volumeLimits.alsa_min}%` 
+                  }"
+                ></div>
+              </div>
+              <div class="range-labels text-mono">
+                <span>{{ volumeLimits.alsa_min }}%</span>
+                <span>{{ volumeLimits.alsa_max }}%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Messages de validation -->
+          <div v-if="volumeValidation.error" class="validation-error">
+            {{ volumeValidation.message }}
+          </div>
+          
+          <!-- Bouton d'application -->
+          <Button 
+            variant="primary" 
+            :disabled="!volumeValidation.canApply || applyingVolume" 
+            @click="applyVolumeLimits"
+          >
+            {{ applyingVolume ? $t('Application en cours...') : $t('Appliquer les limites') }}
+          </Button>
+        </div>
+      </section>
+      
       <!-- Section Langue -->
       <section class="settings-section">
         <h2 class="heading-2">{{ $t('Langue') }}</h2>
@@ -46,37 +120,128 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import IconButton from '@/components/ui/IconButton.vue';
+import Button from '@/components/ui/Button.vue';
+import RangeSlider from '@/components/ui/RangeSlider.vue';
+import axios from 'axios';
 
 const router = useRouter();
 const { setLanguage, getAvailableLanguages, getCurrentLanguage } = useI18n();
 const { on } = useWebSocket();
 
+// État des limites de volume
+const volumeLimits = ref({
+  alsa_min: 0,
+  alsa_max: 65
+});
+
+const originalVolumeLimits = ref({
+  alsa_min: 0,
+  alsa_max: 65
+});
+
+const applyingVolume = ref(false);
+
 // Langues disponibles
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
 
-// Initialisation et WebSocket
-onMounted(async () => {
-  // Initialiser la langue depuis le serveur
-  await i18n.initializeLanguage();
+// Validation des limites de volume
+const maxMinVolume = computed(() => Math.max(0, volumeLimits.value.alsa_max - 10));
+const minMaxVolume = computed(() => Math.min(100, volumeLimits.value.alsa_min + 10));
+
+const volumeValidation = computed(() => {
+  const min = volumeLimits.value.alsa_min;
+  const max = volumeLimits.value.alsa_max;
+  const range = max - min;
   
-  // Écouter les changements de langue via WebSocket
-  on('settings', 'language_changed', (message) => {
-    console.log('Received language_changed WebSocket event:', message);
-    if (message.data?.language) {
-      console.log('Changing language to:', message.data.language);
-      i18n.handleLanguageChanged(message.data.language);
-    }
-  });
+  if (range < 10) {
+    return {
+      error: true,
+      message: 'La plage de volume doit être d\'au moins 10',
+      canApply: false
+    };
+  }
+  
+  if (min < 0 || max > 100) {
+    return {
+      error: true,
+      message: 'Les limites doivent être entre 0 et 100',
+      canApply: false
+    };
+  }
+  
+  // Vérifier s'il y a des changements
+  const hasChanges = min !== originalVolumeLimits.value.alsa_min || 
+                    max !== originalVolumeLimits.value.alsa_max;
+  
+  return {
+    error: false,
+    message: '',
+    canApply: hasChanges
+  };
 });
 
+// Gestionnaires de changement avec validation automatique
+function handleMinVolumeChange(newMin) {
+  if (newMin + 10 > volumeLimits.value.alsa_max) {
+    volumeLimits.value.alsa_max = Math.min(100, newMin + 10);
+  }
+}
+
+function handleMaxVolumeChange(newMax) {
+  if (newMax - 10 < volumeLimits.value.alsa_min) {
+    volumeLimits.value.alsa_min = Math.max(0, newMax - 10);
+  }
+}
+
 // Actions
+async function loadVolumeLimits() {
+  try {
+    const response = await axios.get('/api/settings/volume-limits');
+    if (response.data.status === 'success') {
+      const limits = response.data.limits;
+      volumeLimits.value = {
+        alsa_min: limits.alsa_min,
+        alsa_max: limits.alsa_max
+      };
+      originalVolumeLimits.value = { ...volumeLimits.value };
+    }
+  } catch (error) {
+    console.error('Error loading volume limits:', error);
+  }
+}
+
+async function applyVolumeLimits() {
+  if (!volumeValidation.value.canApply || applyingVolume.value) return;
+  
+  applyingVolume.value = true;
+  
+  try {
+    const response = await axios.post('/api/settings/volume-limits', {
+      alsa_min: volumeLimits.value.alsa_min,
+      alsa_max: volumeLimits.value.alsa_max
+    });
+    
+    if (response.data.status === 'success') {
+      originalVolumeLimits.value = { ...volumeLimits.value };
+      console.log('Volume limits applied successfully');
+    } else {
+      console.error('Failed to apply volume limits:', response.data.message);
+    }
+    
+  } catch (error) {
+    console.error('Error applying volume limits:', error);
+  } finally {
+    applyingVolume.value = false;
+  }
+}
+
 async function changeLanguage(languageCode) {
   await setLanguage(languageCode);
 }
@@ -84,6 +249,32 @@ async function changeLanguage(languageCode) {
 function goBack() {
   router.push('/');
 }
+
+// Initialisation et WebSocket
+onMounted(async () => {
+  await i18n.initializeLanguage();
+  await loadVolumeLimits();
+  
+  // Écouter les changements de langue via WebSocket
+  on('settings', 'language_changed', (message) => {
+    if (message.data?.language) {
+      i18n.handleLanguageChanged(message.data.language);
+    }
+  });
+  
+  // Écouter les changements de limites de volume via WebSocket
+  on('settings', 'volume_limits_changed', (message) => {
+    if (message.data?.limits) {
+      const newLimits = message.data.limits;
+      volumeLimits.value = {
+        alsa_min: newLimits.alsa_min,
+        alsa_max: newLimits.alsa_max
+      };
+      originalVolumeLimits.value = { ...volumeLimits.value };
+      console.log('Volume limits updated via WebSocket:', newLimits);
+    }
+  });
+});
 </script>
 
 <style scoped>
@@ -131,7 +322,99 @@ function goBack() {
   color: var(--color-text);
 }
 
-/* Sélecteur de langue */
+/* === SECTION VOLUME === */
+
+.volume-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+.volume-limits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+.limit-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.limit-group label {
+  color: var(--color-text-secondary);
+}
+
+.limit-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+}
+
+.limit-slider {
+  flex: 1;
+}
+
+.limit-value {
+  color: var(--color-text);
+  min-width: 40px;
+  text-align: right;
+}
+
+.volume-preview {
+  background: var(--color-background-strong);
+  border-radius: var(--radius-04);
+  padding: var(--space-04);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.preview-label {
+  color: var(--color-text-secondary);
+}
+
+.preview-range {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.range-bar {
+  height: 8px;
+  background: var(--color-background);
+  border-radius: var(--radius-full);
+  position: relative;
+  overflow: hidden;
+}
+
+.range-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: var(--color-brand);
+  border-radius: var(--radius-full);
+  transition: all var(--transition-fast);
+}
+
+.range-labels {
+  display: flex;
+  justify-content: space-between;
+  color: var(--color-text-secondary);
+}
+
+.validation-error {
+  color: var(--color-error);
+  font-size: var(--font-size-mono);
+  padding: var(--space-02) var(--space-03);
+  background: rgba(244, 67, 54, 0.1);
+  border-radius: var(--radius-03);
+  border-left: 3px solid var(--color-error);
+}
+
+/* === SECTION LANGUE === */
+
 .language-selector {
   display: flex;
   flex-direction: column;
@@ -181,7 +464,8 @@ function goBack() {
   border-radius: var(--radius-full);
 }
 
-/* Grille d'informations */
+/* === GRILLE D'INFORMATIONS === */
+
 .info-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -205,7 +489,8 @@ function goBack() {
   color: var(--color-text);
 }
 
-/* Responsive */
+/* === RESPONSIVE === */
+
 @media (max-aspect-ratio: 4/3) {
   .settings-view {
     padding: var(--space-04);
@@ -217,6 +502,14 @@ function goBack() {
   
   .language-button {
     padding: var(--space-05) var(--space-04);
+  }
+  
+  .volume-limits {
+    gap: var(--space-05);
+  }
+  
+  .limit-control {
+    gap: var(--space-04);
   }
 }
 
