@@ -13,7 +13,6 @@ class SettingsService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.settings_file = os.path.expanduser('~/milo_settings.json')
-        self.legacy_language_file = os.path.expanduser('~/milo_language.json')
         self._cache = None
         
         # Settings par défaut
@@ -37,35 +36,9 @@ class SettingsService:
             }
         }
     
-    def _migrate_legacy_language(self) -> None:
-        """Migre l'ancienne configuration de langue vers le nouveau système"""
-        try:
-            if os.path.exists(self.legacy_language_file):
-                self.logger.info("Migrating legacy language configuration")
-                
-                with open(self.legacy_language_file, 'r', encoding='utf-8') as f:
-                    legacy_config = json.load(f)
-                
-                # Charger ou créer les nouvelles settings
-                settings = self.load_settings()
-                settings["language"] = legacy_config.get("language", "french")
-                
-                # Sauvegarder
-                self.save_settings(settings)
-                
-                # Supprimer l'ancien fichier
-                os.remove(self.legacy_language_file)
-                self.logger.info(f"Legacy language file migrated and removed: {legacy_config}")
-                
-        except Exception as e:
-            self.logger.error(f"Error migrating legacy language: {e}")
-    
     def load_settings(self) -> Dict[str, Any]:
-        """Charge les settings avec migration automatique"""
+        """Charge les settings"""
         try:
-            # Migration legacy si nécessaire
-            self._migrate_legacy_language()
-            
             if os.path.exists(self.settings_file):
                 with open(self.settings_file, 'r', encoding='utf-8') as f:
                     settings = json.load(f)
