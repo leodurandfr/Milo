@@ -1,6 +1,6 @@
-# backend/main.py - Version avec SettingsService et routes volume-limits
+# backend/main.py - Version avec screen_controller injecté dans settings routes
 """
-Point d'entrée principal de l'application Milo - Version avec SettingsService unifié
+Point d'entrée principal de l'application Milo - Version avec SettingsService et screen_controller
 """
 import sys
 import os
@@ -36,6 +36,7 @@ snapcast_websocket_service = container.snapcast_websocket_service()
 equalizer_service = container.equalizer_service()
 volume_service = container.volume_service()
 rotary_controller = container.rotary_controller()
+screen_controller = container.screen_controller()  # AJOUTÉ
 ws_manager = container.websocket_manager()
 websocket_server = WebSocketServer(ws_manager, state_machine)
 state_machine.volume_service = volume_service
@@ -71,6 +72,7 @@ async def lifespan(app: FastAPI):
     try:
         await snapcast_websocket_service.cleanup()
         rotary_controller.cleanup()
+        screen_controller.cleanup()  # AJOUTÉ
         logger.info("Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -118,8 +120,8 @@ bluetooth_router = setup_bluetooth_routes(
 )
 app.include_router(bluetooth_router)
 
-# Routes Settings unifiées avec VolumeService pour rechargement à chaud
-settings_router = create_settings_router(ws_manager, volume_service)
+# MODIFIÉ : Routes Settings avec screen_controller et state_machine injectés
+settings_router = create_settings_router(ws_manager, volume_service, state_machine, screen_controller)
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
 # WebSocket

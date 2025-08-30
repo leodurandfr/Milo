@@ -1,6 +1,6 @@
+# backend/presentation/api/routes/librespot.py
 """
-Routes API spécifiques pour le plugin librespot - Version avec configuration auto-disconnect.
-À placer dans backend/presentation/api/routes/librespot.py
+Routes API spécifiques pour le plugin librespot - Version nettoyée sans auto-disconnect
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
@@ -16,11 +16,6 @@ router = APIRouter(
     tags=["librespot"],
     responses={404: {"description": "Not found"}},
 )
-
-# Modèles Pydantic pour la validation
-class AutoDisconnectConfig(BaseModel):
-    enabled: bool
-    delay: Optional[float] = None  # Optionnel, garde la valeur actuelle si None
 
 # Référence au plugin librespot (sera injectée via l'injection de dépendances)
 librespot_plugin_dependency = None
@@ -145,68 +140,6 @@ async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
             "device_connected": False,
             "ws_connected": False,
             "auto_disconnect_config": {}
-        }
-
-@router.get("/auto-disconnect")
-async def get_auto_disconnect_config(plugin = Depends(get_librespot_plugin)):
-    """Récupère la configuration actuelle de la déconnexion automatique"""
-    try:
-        result = await plugin.handle_command("get_auto_disconnect", {})
-        
-        if result.get("success"):
-            return {
-                "status": "success",
-                "config": result.get("config", {})
-            }
-        else:
-            return {
-                "status": "error",
-                "message": result.get("error", "Erreur inconnue")
-            }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Erreur lors de la récupération de la configuration: {str(e)}"
-        }
-
-@router.post("/auto-disconnect")
-async def set_auto_disconnect_config(
-    config: AutoDisconnectConfig, 
-    plugin = Depends(get_librespot_plugin)
-):
-    """Configure la déconnexion automatique après pause"""
-    try:
-        # Validation des données
-        if config.delay is not None and config.delay < 1.0:
-            return {
-                "status": "error",
-                "message": "Le délai doit être d'au moins 1 seconde"
-            }
-        
-        # Envoyer la commande au plugin
-        command_data = {
-            "enabled": config.enabled
-        }
-        if config.delay is not None:
-            command_data["delay"] = config.delay
-        
-        result = await plugin.handle_command("set_auto_disconnect", command_data)
-        
-        if result.get("success"):
-            return {
-                "status": "success",
-                "message": result.get("message", "Configuration mise à jour"),
-                "config": result.get("config", {})
-            }
-        else:
-            return {
-                "status": "error",
-                "message": result.get("error", "Erreur lors de la configuration")
-            }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Erreur inattendue: {str(e)}"
         }
 
 @router.post("/connect")

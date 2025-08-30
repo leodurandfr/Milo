@@ -1,6 +1,6 @@
 # backend/infrastructure/services/settings_service.py
 """
-Service de gestion des settings unifiés pour Milo
+Service de gestion des settings unifiés pour Milo - Version avec Spotify et Screen timeout
 """
 import json
 import os
@@ -23,10 +23,12 @@ class SettingsService:
                 "alsa_max": 65,
                 "startup_volume": 37,
                 "restore_last_volume": False,
-                "mobile_volume_steps": 5
+                "mobile_volume_steps": 5,
+                "limits_enabled": True  # NOUVEAU : Toggle pour activer/désactiver les limites
             },
-            "display": {
-                "screen_timeout_seconds": 10
+            "screen": {
+                "timeout_seconds": 10,
+                "brightness_on": 5
             },
             "spotify": {
                 "auto_disconnect_delay": 10.0
@@ -159,23 +161,52 @@ class SettingsService:
             # Steps volume mobile
             vol['mobile_volume_steps'] = max(1, min(20, int(vol.get('mobile_volume_steps', 5))))
             
-            # Boolean restore_last_volume
+            # Boolean restore_last_volume et limits_enabled
             vol['restore_last_volume'] = bool(vol.get('restore_last_volume', False))
+            vol['limits_enabled'] = bool(vol.get('limits_enabled', True))  # NOUVEAU
         
-        # Validation display
+        # Validation screen
+        if 'screen' in validated:
+            screen = validated['screen']
+            # Timeout : 3 secondes à 60 minutes
+            screen['timeout_seconds'] = max(3, min(3600, int(screen.get('timeout_seconds', 10))))
+            # Luminosité allumé : 1 à 10, éteint toujours 0
+            screen['brightness_on'] = max(1, min(10, int(screen.get('brightness_on', 5))))
+            screen['brightness_off'] = 0  # Toujours 0
+        
+        # NETTOYAGE : Supprimer display si présent (migration vers screen)
         if 'display' in validated:
-            disp = validated['display']
-            disp['screen_timeout_seconds'] = max(5, min(300, int(disp.get('screen_timeout_seconds', 10))))
+            display_config = validated.pop('display')
+            if 'screen' not in validated:
+                validated['screen'] = {
+                    'timeout_seconds': display_config.get('screen_timeout_seconds', 10),
+                    'brightness_on': 5,
+                    'brightness_off': 0
+                }
         
         # Validation spotify
         if 'spotify' in validated:
             spotify = validated['spotify']
-            spotify['auto_disconnect_delay'] = max(5.0, min(300.0, float(spotify.get('auto_disconnect_delay', 10.0))))
+            # Plage : 1 seconde à 5 minutes (300 secondes)
+            spotify['auto_disconnect_delay'] = max(1.0, min(300.0, float(spotify.get('auto_disconnect_delay', 10.0))))
         
         # Validation langue
         valid_languages = ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese']
         if validated.get('language') not in valid_languages:
             validated['language'] = 'french'
+        
+        # Validation dock
+        if 'dock' in validated:
+            dock = validated['dock']
+            valid_apps = ["spotify", "bluetooth", "roc", "multiroom", "equalizer"]
+            enabled_apps = dock.get('enabled_apps', [])
+            
+            # Filtrer les apps invalides et garder l'ordre
+            dock['enabled_apps'] = [app for app in enabled_apps if app in valid_apps]
+            
+            # Si aucune app valide, utiliser les defaults
+            if not dock['enabled_apps']:
+                dock['enabled_apps'] = self.default_settings['dock']['enabled_apps'].copy()
         
         return validated
     
@@ -208,4 +239,85 @@ class SettingsService:
             
         except Exception as e:
             self.logger.error(f"Error setting volume limits: {e}")
+            return False
+    
+    def set_volume_limits_enabled(self, enabled: bool) -> bool:
+        """Active/désactive les limites de volume"""
+        try:
+            success = self.set_setting('volume.limits_enabled', enabled)
+            
+            if success:
+                self.logger.info(f"Volume limits {'enabled' if enabled else 'disabled'}")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Error setting volume limits enabled: {e}")
+            return False
+    
+    # NOUVEAU : Méthodes pour Spotify
+    def get_spotify_config(self) -> Dict[str, Any]:
+        """Récupère la configuration Spotify complète"""
+        settings = self.load_settings()
+        return settings.get('spotify', self.default_settings['spotify'])
+    
+    def set_spotify_disconnect_delay(self, delay: float) -> bool:
+        """Définit le délai de déconnexion Spotify avec validation"""
+        try:
+            # Validation : 1 seconde à 5 minutes
+            validated_delay = max(1.0, min(300.0, float(delay)))
+            
+            success = self.set_setting('spotify.auto_disconnect_delay', validated_delay)
+            
+            if success:
+                self.logger.info(f"Spotify disconnect delay updated: {validated_delay}s")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Error setting Spotify disconnect delay: {e}")
+            return False
+    
+    # NOUVEAU : Méthodes pour Screen timeout et luminosité
+    def get_screen_config(self) -> Dict[str, Any]:
+        """Récupère la configuration screen complète"""
+        settings = self.load_settings()
+        return settings.get('screen', self.default_settings['screen'])
+    
+    def set_screen_timeout(self, timeout_seconds: int) -> bool:
+        """Définit le timeout d'écran avec validation"""
+        try:
+            # Validation : 3 secondes à 60 minutes
+            validated_timeout = max(3, min(3600, int(timeout_seconds)))
+            
+            success = self.set_setting('screen.timeout_seconds', validated_timeout)
+            
+            if success:
+                self.logger.info(f"Screen timeout updated: {validated_timeout}s")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Error setting screen timeout: {e}")
+            return False
+    
+    def set_screen_brightness(self, brightness_on: int) -> bool:
+        """Définit la luminosité d'écran allumé (brightness_off toujours 0)"""
+        try:
+            # Validation brightness_on : 1 à 10
+            validated_on = max(1, min(10, int(brightness_on)))
+            
+            # brightness_off toujours 0 (écran complètement éteint)
+            success = (
+                self.set_setting('screen.brightness_on', validated_on) and
+                self.set_setting('screen.brightness_off', 0)
+            )
+            
+            if success:
+                self.logger.info(f"Screen brightness updated: on={validated_on}, off=0")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Error setting screen brightness: {e}")
             return False

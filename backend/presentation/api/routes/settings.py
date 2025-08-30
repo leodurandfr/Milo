@@ -1,12 +1,13 @@
 # backend/presentation/api/routes/settings.py
 """
-Routes API pour la gestion des settings unifiés - Version avec startup volume
+Routes API pour la gestion des settings unifiés - Version avec Spotify et Screen timeout
 """
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
 from backend.infrastructure.services.settings_service import SettingsService
+from backend.domain.audio_state import AudioSource
 
-def create_settings_router(ws_manager, volume_service):
+def create_settings_router(ws_manager, volume_service, state_machine, screen_controller):
     """Crée le router settings avec injection de dépendances"""
     router = APIRouter()
     settings_service = SettingsService()
@@ -71,7 +72,8 @@ def create_settings_router(ws_manager, volume_service):
                 "status": "success",
                 "limits": {
                     "alsa_min": volume_config["alsa_min"],
-                    "alsa_max": volume_config["alsa_max"]
+                    "alsa_max": volume_config["alsa_max"],
+                    "limits_enabled": volume_config["limits_enabled"]
                 }
             }
         except Exception as e:
@@ -79,7 +81,7 @@ def create_settings_router(ws_manager, volume_service):
     
     @router.post("/volume-limits")
     async def set_volume_limits(payload: Dict[str, Any]):
-        """Définit les limites de volume avec rechargement à chaud"""
+        """Définit les limites de volume avec application immédiate"""
         try:
             alsa_min = payload.get('alsa_min')
             alsa_max = payload.get('alsa_max')
@@ -116,6 +118,48 @@ def create_settings_router(ws_manager, volume_service):
             return {
                 "status": "success",
                 "limits": {"alsa_min": alsa_min, "alsa_max": alsa_max},
+                "reload_success": reload_success
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @router.post("/volume-limits/toggle")
+    async def toggle_volume_limits(payload: Dict[str, Any]):
+        """Active/désactive les limites de volume avec application immédiate"""
+        try:
+            enabled = payload.get('enabled')
+            
+            if enabled is None:
+                raise HTTPException(status_code=400, detail="enabled required")
+            
+            if not isinstance(enabled, bool):
+                raise HTTPException(status_code=400, detail="enabled must be boolean")
+            
+            # Sauvegarder dans les settings
+            success = settings_service.set_volume_limits_enabled(enabled)
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to save volume limits toggle")
+            
+            # Rechargement à chaud du VolumeService 
+            reload_success = await volume_service.reload_volume_limits()
+            
+            # Diffusion WebSocket
+            await ws_manager.broadcast_dict({
+                "category": "settings",
+                "type": "volume_limits_toggled",
+                "source": "settings",
+                "data": {
+                    "limits_enabled": enabled,
+                    "reload_success": reload_success
+                }
+            })
+            
+            return {
+                "status": "success",
+                "limits_enabled": enabled,
                 "reload_success": reload_success
             }
             
@@ -169,16 +213,14 @@ def create_settings_router(ws_manager, volume_service):
             # Rechargement à chaud de la config startup (sans toucher au volume actuel)
             reload_success = await volume_service.reload_startup_config()
             
-            # NOUVEAU: Si on est en mode multiroom, synchroniser le volume actuel avec tous les clients Snapcast
+            # Synchroniser avec Snapcast si multiroom activé
             snapcast_sync_success = False
             try:
-                # Vérifier si le multiroom est activé en récupérant l'état du routing
                 if hasattr(volume_service.state_machine, 'routing_service') and volume_service.state_machine.routing_service:
                     routing_state = volume_service.state_machine.routing_service.get_state()
                     if routing_state.multiroom_enabled:
                         snapcast_sync_success = await volume_service.sync_current_volume_to_all_snapcast_clients()
-            except Exception as e:
-                # Log l'erreur mais ne pas faire échouer la requête principale
+            except Exception:
                 pass
             
             # Diffusion WebSocket
@@ -231,6 +273,255 @@ def create_settings_router(ws_manager, volume_service):
                 return {"status": "error", "message": "Failed to synchronize volume (multiroom may be disabled)"}
                 
         except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    # NOUVEAU : Routes Spotify
+    @router.get("/spotify-disconnect")
+    async def get_spotify_disconnect_config():
+        """Récupère la configuration de déconnexion automatique Spotify"""
+        try:
+            spotify_config = settings_service.get_spotify_config()
+            return {
+                "status": "success",
+                "config": {
+                    "auto_disconnect_delay": spotify_config["auto_disconnect_delay"]
+                }
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @router.post("/spotify-disconnect")
+    async def set_spotify_disconnect_config(payload: Dict[str, Any]):
+        """Configure la déconnexion automatique Spotify avec application immédiate"""
+        try:
+            delay = payload.get('auto_disconnect_delay')
+            
+            if delay is None:
+                raise HTTPException(status_code=400, detail="auto_disconnect_delay required")
+            
+            # Validation : 1 seconde à 5 minutes
+            if not (1.0 <= delay <= 300.0):
+                raise HTTPException(status_code=400, detail="auto_disconnect_delay must be between 1 and 300 seconds")
+            
+            # Sauvegarder dans les settings
+            success = settings_service.set_spotify_disconnect_delay(delay)
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to save Spotify disconnect config")
+            
+            # Application immédiate sur le plugin librespot (logique agressive)
+            apply_success = False
+            try:
+                librespot_plugin = state_machine.get_plugin(AudioSource.LIBRESPOT)
+                if librespot_plugin:
+                    apply_success = await librespot_plugin.set_auto_disconnect_config(
+                        enabled=True, 
+                        delay=delay, 
+                        save_to_settings=False  # Déjà sauvé ci-dessus
+                    )
+            except Exception as e:
+                self.logger.error(f"Error applying Spotify config to plugin: {e}")
+            
+            # Diffusion WebSocket
+            await ws_manager.broadcast_dict({
+                "category": "settings",
+                "type": "spotify_disconnect_changed",
+                "source": "settings",
+                "data": {
+                    "config": {"auto_disconnect_delay": delay},
+                    "apply_success": apply_success
+                }
+            })
+            
+            return {
+                "status": "success",
+                "config": {"auto_disconnect_delay": delay},
+                "apply_success": apply_success
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    # NOUVEAU : Routes Screen timeout et luminosité
+    @router.get("/screen-timeout")
+    async def get_screen_timeout_config():
+        """Récupère la configuration du timeout d'écran"""
+        try:
+            screen_config = settings_service.get_screen_config()
+            return {
+                "status": "success",
+                "config": {
+                    "screen_timeout_seconds": screen_config["timeout_seconds"]
+                }
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @router.post("/screen-timeout")
+    async def set_screen_timeout_config(payload: Dict[str, Any]):
+        """Configure le timeout d'écran avec application immédiate"""
+        try:
+            timeout_seconds = payload.get('screen_timeout_seconds')
+            
+            if timeout_seconds is None:
+                raise HTTPException(status_code=400, detail="screen_timeout_seconds required")
+            
+            # Validation : 3 secondes à 60 minutes
+            if not (3 <= timeout_seconds <= 3600):
+                raise HTTPException(status_code=400, detail="screen_timeout_seconds must be between 3 and 3600 seconds")
+            
+            # Sauvegarder dans les settings
+            success = settings_service.set_screen_timeout(timeout_seconds)
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to save screen timeout config")
+            
+            # Application immédiate sur le ScreenController (rechargement à chaud)
+            reload_success = False
+            try:
+                reload_success = await screen_controller.reload_screen_config()
+            except Exception as e:
+                print(f"Error applying screen timeout to controller: {e}")
+            
+            # Diffusion WebSocket
+            await ws_manager.broadcast_dict({
+                "category": "settings",
+                "type": "screen_timeout_changed",
+                "source": "settings",
+                "data": {
+                    "config": {"screen_timeout_seconds": timeout_seconds},
+                    "reload_success": reload_success
+                }
+            })
+            
+            return {
+                "status": "success",
+                "config": {"screen_timeout_seconds": timeout_seconds},
+                "reload_success": reload_success
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @router.get("/screen-brightness")
+    async def get_screen_brightness_config():
+        """Récupère la configuration de luminosité d'écran"""
+        try:
+            screen_config = settings_service.get_screen_config()
+            return {
+                "status": "success",
+                "config": {
+                    "brightness_on": screen_config["brightness_on"]
+                }
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @router.post("/screen-brightness")
+    async def set_screen_brightness_config(payload: Dict[str, Any]):
+        """Configure la luminosité d'écran avec application immédiate"""
+        try:
+            brightness_on = payload.get('brightness_on')
+            
+            if brightness_on is None:
+                raise HTTPException(status_code=400, detail="brightness_on required")
+            
+            # Validation : brightness_on entre 1 et 10
+            if not (1 <= brightness_on <= 10):
+                raise HTTPException(status_code=400, detail="brightness_on must be between 1 and 10")
+            
+            # Sauvegarder dans les settings
+            success = settings_service.set_screen_brightness(brightness_on)
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to save screen brightness config")
+            
+            # Application immédiate sur le ScreenController
+            reload_success = False
+            try:
+                reload_success = await screen_controller.reload_screen_config()
+            except Exception as e:
+                print(f"Error applying screen brightness to controller: {e}")
+            
+            # Diffusion WebSocket
+            await ws_manager.broadcast_dict({
+                "category": "settings",
+                "type": "screen_brightness_changed",
+                "source": "settings",
+                "data": {
+                    "config": {"brightness_on": brightness_on},
+                    "reload_success": reload_success
+                }
+            })
+            
+            return {
+                "status": "success",
+                "config": {"brightness_on": brightness_on},
+                "reload_success": reload_success
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @router.post("/screen-brightness/apply")
+    async def apply_screen_brightness_instantly(payload: Dict[str, Any]):
+        """Applique immédiatement la luminosité avec exécution directe de la commande"""
+        try:
+            brightness_on = payload.get('brightness_on')
+            
+            if brightness_on is None:
+                raise HTTPException(status_code=400, detail="brightness_on required")
+            
+            if not (1 <= brightness_on <= 10):
+                raise HTTPException(status_code=400, detail="brightness_on must be between 1 and 10")
+            
+            # Exécution directe de la commande système (comme votre script bash)
+            import asyncio
+            import os
+            
+            backlight_binary = os.path.expanduser("~/RPi-USB-Brightness/64/lite/Raspi_USB_Backlight_nogui -b")
+            cmd = f"sudo {backlight_binary} {brightness_on}"
+            
+            print(f"[INSTANT_BRIGHTNESS] Executing: {cmd}")
+            
+            process = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                print(f"[INSTANT_BRIGHTNESS] Success: {stdout.decode().strip()}")
+                
+                # Optionnel : Mettre à jour l'état du ScreenController
+                try:
+                    screen_controller.brightness_on = brightness_on
+                    screen_controller.screen_on = True  # Marquer comme allumé
+                    screen_controller.last_activity_time = time.monotonic()
+                except:
+                    pass  # Pas grave si ça échoue
+                
+                return {
+                    "status": "success",
+                    "brightness_applied": brightness_on,
+                    "command_output": stdout.decode().strip()
+                }
+            else:
+                print(f"[INSTANT_BRIGHTNESS] Failed: {stderr.decode().strip()}")
+                return {
+                    "status": "error",
+                    "message": f"Command failed: {stderr.decode().strip()}"
+                }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"[INSTANT_BRIGHTNESS] Exception: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
     
     return router

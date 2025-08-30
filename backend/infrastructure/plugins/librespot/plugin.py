@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/librespot/plugin.py
 """
-Plugin librespot optimisé pour Milo - Version avec déconnexion automatique configurable
+Plugin librespot avec lecture config depuis SettingsService - Version agressive pour timer
 """
 import os
 import yaml
@@ -14,20 +14,18 @@ from backend.domain.audio_state import PluginState
 from backend.infrastructure.plugins.plugin_utils import WebSocketManager
 
 class LibrespotPlugin(UnifiedAudioPlugin):
-    """Plugin Spotify via go-librespot - Version avec déconnexion automatique configurable"""
+    """Plugin Spotify via go-librespot - Version avec SettingsService injecté"""
     
-    # Délai par défaut de déconnexion automatique après pause (en secondes)
-    DEFAULT_PAUSE_DISCONNECT_DELAY = 10.0
-    
-    def __init__(self, config: Dict[str, Any], state_machine=None):
+    def __init__(self, config: Dict[str, Any], state_machine=None, settings_service=None):
         super().__init__("librespot", state_machine)
         self.config = config
         self.service_name = config.get("service_name")
         self.config_path = os.path.expanduser(config.get("config_path"))
+        self.settings_service = settings_service
         
-        # Configuration de la déconnexion automatique
-        self.auto_disconnect_enabled = config.get("auto_disconnect_on_pause", True)
-        self.pause_disconnect_delay = config.get("pause_disconnect_delay", self.DEFAULT_PAUSE_DISCONNECT_DELAY)
+        # Configuration de la déconnexion automatique (depuis SettingsService)
+        self.auto_disconnect_enabled = True
+        self.pause_disconnect_delay = 10.0
         
         # État
         self.api_url = None
@@ -45,7 +43,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         self.ws_manager = WebSocketManager(self.logger)
     
     async def _do_initialize(self) -> bool:
-        """Initialisation spécifique à go-librespot"""
+        """Initialisation avec lecture config depuis SettingsService"""
         try:
             # Vérifier l'existence du service
             proc = await asyncio.create_subprocess_exec(
@@ -71,16 +69,29 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             self.api_url = f"http://{addr}:{port}"
             self.ws_url = f"ws://{addr}:{port}/events"
             
-            # Log de la configuration de la déconnexion automatique
-            if self.auto_disconnect_enabled:
-                self.logger.info(f"Auto-disconnect after pause enabled: {self.pause_disconnect_delay}s")
-            else:
-                self.logger.info("Auto-disconnect after pause disabled")
+            # NOUVEAU : Charger la config depuis SettingsService
+            await self._load_settings_config()
+            
+            self.logger.info(f"Spotify disconnect config: enabled={self.auto_disconnect_enabled}, delay={self.pause_disconnect_delay}s")
             
             return True
         except Exception as e:
             self.logger.error(f"Erreur d'initialisation: {e}")
             return False
+    
+    async def _load_settings_config(self):
+        """Charge la configuration depuis SettingsService"""
+        if self.settings_service:
+            try:
+                spotify_delay = self.settings_service.get_setting('spotify.auto_disconnect_delay')
+                if spotify_delay is not None:
+                    self.pause_disconnect_delay = float(spotify_delay)
+                    self.auto_disconnect_enabled = True  # Toujours activé si configuré
+                    self.logger.info(f"Loaded Spotify config from settings: delay={self.pause_disconnect_delay}s")
+                else:
+                    self.logger.info("Using default Spotify config (settings not found)")
+            except Exception as e:
+                self.logger.error(f"Error loading Spotify settings: {e}")
     
     async def _do_start(self) -> bool:
         """Démarrage spécifique à go-librespot"""
@@ -184,19 +195,49 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             self.logger.error(f"Error changing device: {e}")
             return False
     
-    def set_auto_disconnect_config(self, enabled: bool, delay: float = None) -> None:
-        """Configure la déconnexion automatique"""
+    async def set_auto_disconnect_config(self, enabled: bool, delay: float = None, save_to_settings: bool = True) -> bool:
+        """Configure la déconnexion automatique - Version agressive avec sauvegarde settings"""
         old_enabled = self.auto_disconnect_enabled
+        old_delay = self.pause_disconnect_delay
+        
         self.auto_disconnect_enabled = enabled
-        
         if delay is not None:
-            self.pause_disconnect_delay = max(1.0, delay)  # Minimum 1 seconde
+            self.pause_disconnect_delay = max(1.0, delay)
         
-        # Annuler le timer actuel si on désactive la fonctionnalité
-        if not enabled and self._pause_disconnect_timer:
+        # NOUVEAU : Sauvegarder dans SettingsService si demandé
+        if save_to_settings and self.settings_service:
+            try:
+                success = self.settings_service.set_setting('spotify.auto_disconnect_delay', self.pause_disconnect_delay)
+                if not success:
+                    self.logger.error("Failed to save Spotify config to settings")
+                    # Restaurer les anciennes valeurs
+                    self.auto_disconnect_enabled = old_enabled
+                    self.pause_disconnect_delay = old_delay
+                    return False
+            except Exception as e:
+                self.logger.error(f"Error saving Spotify config: {e}")
+                self.auto_disconnect_enabled = old_enabled
+                self.pause_disconnect_delay = old_delay
+                return False
+        
+        # LOGIQUE AGRESSIVE : Si timer en cours et device connecté mais pas en lecture
+        if (self._pause_disconnect_timer and 
+            not self._pause_disconnect_timer.done() and 
+            self._device_connected and 
+            not self._is_playing):
+            
+            self.logger.info(f"Restarting pause timer with new delay: {self.pause_disconnect_delay}s")
+            self._cancel_pause_timer()
+            
+            if self.auto_disconnect_enabled:
+                self._start_pause_timer()
+        
+        # Annuler le timer si on désactive complètement
+        elif not enabled and self._pause_disconnect_timer:
             self._cancel_pause_timer()
         
-        self.logger.info(f"Auto-disconnect config changed: enabled={enabled}, delay={self.pause_disconnect_delay}s (was enabled={old_enabled})")
+        self.logger.info(f"Auto-disconnect config updated: enabled={enabled}, delay={self.pause_disconnect_delay}s")
+        return True
     
     def get_auto_disconnect_config(self) -> Dict[str, Any]:
         """Récupère la configuration de déconnexion automatique"""
@@ -215,7 +256,6 @@ class LibrespotPlugin(UnifiedAudioPlugin):
     
     def _start_pause_timer(self) -> None:
         """Démarre le timer de déconnexion automatique après pause"""
-        # Ne rien faire si la fonctionnalité est désactivée
         if not self.auto_disconnect_enabled:
             self.logger.debug("Auto-disconnect disabled, skipping timer")
             return
@@ -384,21 +424,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 metadata=self._metadata
             )
         
-        elif command == "set_auto_disconnect":
-            enabled = data.get("enabled", True)
-            delay = data.get("delay")
-            self.set_auto_disconnect_config(enabled, delay)
-            return self.format_response(
-                success=True,
-                message=f"Auto-disconnect {'enabled' if enabled else 'disabled'}",
-                config=self.get_auto_disconnect_config()
-            )
-        
-        elif command == "get_auto_disconnect":
-            return self.format_response(
-                success=True,
-                config=self.get_auto_disconnect_config()
-            )
+        # SUPPRIMÉ : Commandes auto_disconnect (maintenant centralisées dans /api/settings)
             
         elif command == "seek" and "position_ms" in data:
             return await self._send_command("seek", {"position": data["position_ms"]})

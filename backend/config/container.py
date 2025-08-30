@@ -1,6 +1,6 @@
-# backend/config/container.py - Ajout SettingsService
+# backend/config/container.py - Injection SettingsService dans LibrespotPlugin et ScreenController
 """
-Conteneur d'injection de dépendances - Version avec SettingsService unifié
+Conteneur d'injection de dépendances - Version avec SettingsService injecté
 """
 from dependency_injector import containers, providers
 from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
@@ -21,7 +21,7 @@ from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
 
 class Container(containers.DeclarativeContainer):
-    """Conteneur d'injection de dépendances pour Milo - Version avec SettingsService"""
+    """Conteneur d'injection de dépendances pour Milo - Version avec SettingsService injecté"""
     
     config = providers.Configuration()
     
@@ -64,7 +64,7 @@ class Container(containers.DeclarativeContainer):
         snapcast_service=snapcast_service
     )
     
-    # Contrôleurs hardware
+    # Contrôleurs hardware avec SettingsService
     rotary_controller = providers.Singleton(
         RotaryVolumeController,
         volume_service=volume_service,
@@ -73,21 +73,22 @@ class Container(containers.DeclarativeContainer):
         sw_pin=23
     )
     
+    # MODIFIÉ : Injection SettingsService dans ScreenController
     screen_controller = providers.Singleton(
         ScreenController,
-        state_machine=audio_state_machine
+        state_machine=audio_state_machine,
+        settings_service=settings_service
     )
     
-    # Plugins audio avec configuration depuis SettingsService
+    # MODIFIÉ : Plugins audio avec SettingsService au lieu de config statique
     librespot_plugin = providers.Singleton(
         LibrespotPlugin,
         config=providers.Dict({
             "config_path": "/var/lib/milo/go-librespot/config.yml", 
-            "service_name": "milo-go-librespot.service",
-            "auto_disconnect_on_pause": True,
-            "pause_disconnect_delay": 10.0
+            "service_name": "milo-go-librespot.service"
         }),
-        state_machine=audio_state_machine
+        state_machine=audio_state_machine,
+        settings_service=settings_service
     )
     
     roc_plugin = providers.Singleton(
