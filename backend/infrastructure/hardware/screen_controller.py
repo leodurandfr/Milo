@@ -1,29 +1,28 @@
 # backend/infrastructure/hardware/screen_controller.py
 """
-Contrôleur d'écran avec SettingsService et rechargement à chaud du timeout
+Contrôleur d'écran - Version OPTIM simplifiée
 """
 import asyncio
-import subprocess
 import logging
 import os
 from time import monotonic
 
 class ScreenController:
-    """Contrôleur d'écran avec configuration depuis SettingsService"""
+    """Contrôleur d'écran simplifié"""
     
     def __init__(self, state_machine, settings_service):
         self.state_machine = state_machine
         self.settings_service = settings_service
         self.logger = logging.getLogger(__name__)
         
-        # Commandes écran
+        # Commandes
         backlight_binary = os.path.expanduser("~/RPi-USB-Brightness/64/lite/Raspi_USB_Backlight_nogui -b")
-        self.SCREEN_ON_CMD = f"sudo {backlight_binary} 5"
-        self.SCREEN_OFF_CMD = f"sudo {backlight_binary} 0"
-        self.TOUCHSCREEN_DEVICE = "/dev/input/by-id/usb-WaveShare_WS170120_220211-event-if00"
+        self.screen_on_cmd = f"sudo {backlight_binary} 5"
+        self.screen_off_cmd = f"sudo {backlight_binary} 0"
+        self.touchscreen_device = "/dev/input/by-id/usb-WaveShare_WS170120_220211-event-if00"
         
         # État
-        self.timeout_seconds = 10  # Valeur par défaut, sera mise à jour depuis settings
+        self.timeout_seconds = 10
         self.last_activity_time = monotonic()
         self.screen_on = True
         self.running = False
@@ -31,153 +30,87 @@ class ScreenController:
         self.touch_process = None
     
     async def initialize(self) -> bool:
-        """Initialise le contrôleur avec lecture config depuis SettingsService"""
+        """Initialise le contrôleur"""
         try:
-            self.logger.info("Initializing screen controller with SettingsService")
-            
-            # Charger la configuration timeout depuis SettingsService
-            await self._load_timeout_config()
-            
-            # Allumer l'écran au démarrage
-            await self._turn_on_screen()
+            self._load_config()
+            await self._screen_cmd(self.screen_on_cmd)
             self.last_activity_time = monotonic()
             self.running = True
             
-            # Démarrer les boucles de monitoring
+            # Démarrer monitoring
             asyncio.create_task(self._monitor_plugin_state())
             asyncio.create_task(self._monitor_timeout())
             asyncio.create_task(self._monitor_touch_events())
             
-            self.logger.info(f"Screen controller initialized with timeout: {self.timeout_seconds}s")
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to initialize screen controller: {e}")
+            self.logger.error(f"Failed to initialize: {e}")
             return False
     
-    async def _load_timeout_config(self):
-        """Charge la configuration timeout depuis SettingsService avec logs détaillés"""
-        self.logger.info(f"[LOAD_CONFIG] SettingsService available: {self.settings_service is not None}")
-        
+    def _load_config(self):
+        """Charge la config timeout"""
         if self.settings_service:
-            try:
-                screen_timeout = self.settings_service.get_setting('screen.timeout_seconds')
-                self.logger.info(f"[LOAD_CONFIG] Raw value from settings: {screen_timeout}")
-                
-                if screen_timeout is not None:
-                    old_timeout = self.timeout_seconds
-                    self.timeout_seconds = max(3, min(3600, int(screen_timeout)))
-                    self.logger.info(f"[LOAD_CONFIG] Timeout changed: {old_timeout}s → {self.timeout_seconds}s")
-                else:
-                    self.logger.warning("[LOAD_CONFIG] Screen timeout not found in settings, using default")
-            except Exception as e:
-                self.logger.error(f"[LOAD_CONFIG] Error loading screen timeout settings: {e}")
-        else:
-            self.logger.error("[LOAD_CONFIG] SettingsService is None - injection failed")
+            timeout = self.settings_service.get_setting('screen.timeout_seconds')
+            if timeout is not None:
+                self.timeout_seconds = max(3, min(3600, int(timeout)))
     
     async def reload_timeout_config(self) -> bool:
-        """Recharge la configuration timeout à chaud avec logs détaillés"""
+        """Recharge la config timeout"""
         try:
             old_timeout = self.timeout_seconds
-            
-            self.logger.info(f"[RELOAD] Current timeout: {old_timeout}s")
-            self.logger.info(f"[RELOAD] SettingsService available: {self.settings_service is not None}")
-            
-            await self._load_timeout_config()
+            self._load_config()
             
             if old_timeout != self.timeout_seconds:
-                self.logger.info(f"[RELOAD] Screen timeout updated: {old_timeout}s → {self.timeout_seconds}s")
-            else:
-                self.logger.warning(f"[RELOAD] Screen timeout unchanged: {self.timeout_seconds}s")
+                self.logger.info(f"Timeout updated: {old_timeout}s → {self.timeout_seconds}s")
             
             return True
         except Exception as e:
-            self.logger.error(f"[RELOAD] Error reloading screen timeout config: {e}")
+            self.logger.error(f"Error reloading config: {e}")
             return False
     
-    async def _turn_on_screen(self):
-        """Allume l'écran"""
+    async def _screen_cmd(self, cmd):
+        """Exécute une commande écran"""
         try:
-            self.logger.info(f"Turning screen ON: {self.SCREEN_ON_CMD}")
-            
             process = await asyncio.create_subprocess_shell(
-                self.SCREEN_ON_CMD,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
+            await process.communicate()
             
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode == 0:
+            if "5" in cmd:
                 self.screen_on = True
-                self.logger.info(f"Screen ON success: {stdout.decode().strip()}")
-            else:
-                self.logger.error(f"Screen ON failed: {stderr.decode().strip()}")
-                
-        except Exception as e:
-            self.logger.error(f"Error turning on screen: {e}")
-    
-    async def _turn_off_screen(self):
-        """Éteint l'écran"""
-        try:
-            self.logger.info(f"Turning screen OFF: {self.SCREEN_OFF_CMD}")
-            
-            process = await asyncio.create_subprocess_shell(
-                self.SCREEN_OFF_CMD,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode == 0:
+            elif "0" in cmd:
                 self.screen_on = False
-                self.logger.info(f"Screen OFF success: {stdout.decode().strip()}")
-            else:
-                self.logger.error(f"Screen OFF failed: {stderr.decode().strip()}")
                 
         except Exception as e:
-            self.logger.error(f"Error turning off screen: {e}")
+            self.logger.error(f"Screen command failed: {e}")
     
     async def _monitor_plugin_state(self):
         """Surveille l'état des plugins"""
         while self.running:
             try:
-                # Récupérer l'état du système
                 system_state = await self.state_machine.get_current_state()
-                new_plugin_state = system_state.get("plugin_state", "inactive")
+                new_state = system_state.get("plugin_state", "inactive")
                 
-                # Si plugin passe en "connected"
-                if self.current_plugin_state != "connected" and new_plugin_state == "connected":
-                    self.logger.info("Plugin connected - turning screen ON")
-                    await self._turn_on_screen()
+                if self.current_plugin_state != "connected" and new_state == "connected":
+                    await self._screen_cmd(self.screen_on_cmd)
                     self.last_activity_time = monotonic()
-
-                # Si plugin passe de "connected" à "ready"
-                elif self.current_plugin_state == "connected" and new_plugin_state == "ready":
-                    self.logger.info("Plugin became ready - resetting activity timer")
+                elif self.current_plugin_state == "connected" and new_state == "ready":
                     self.last_activity_time = monotonic()
                 
-                self.current_plugin_state = new_plugin_state
+                self.current_plugin_state = new_state
                 await asyncio.sleep(2)
                 
             except Exception as e:
-                self.logger.error(f"Error monitoring plugin state: {e}")
+                self.logger.error(f"Plugin monitoring error: {e}")
                 await asyncio.sleep(5)
     
     async def _monitor_timeout(self):
-        """Surveille le timeout avec valeur configurable"""
+        """Surveille le timeout"""
         while self.running:
             try:
-                current_time = monotonic()
-                time_since_activity = current_time - self.last_activity_time
-
-                self.logger.debug(
-                    f"[TimeoutMonitor] screen_on={self.screen_on}, plugin_state={self.current_plugin_state}, "
-                    f"time_since_activity={time_since_activity:.1f}s / timeout={self.timeout_seconds}s"
-                )
+                time_since_activity = monotonic() - self.last_activity_time
                 
-                # Conditions pour éteindre (utilise self.timeout_seconds configurable)
                 should_turn_off = (
                     self.screen_on and
                     time_since_activity >= self.timeout_seconds and
@@ -185,53 +118,41 @@ class ScreenController:
                 )
                 
                 if should_turn_off:
-                    self.logger.info(f"Screen timeout reached ({self.timeout_seconds}s) - turning OFF")
-                    await self._turn_off_screen()
+                    await self._screen_cmd(self.screen_off_cmd)
                 
                 await asyncio.sleep(1)
                 
             except Exception as e:
-                self.logger.error(f"Error in timeout monitor: {e}")
+                self.logger.error(f"Timeout monitoring error: {e}")
                 await asyncio.sleep(10)
     
     async def _monitor_touch_events(self):
         """Surveille les événements tactiles"""
-        self.logger.info(f"Starting touch monitoring on {self.TOUCHSCREEN_DEVICE}")
-        
         while self.running:
             try:
                 self.touch_process = await asyncio.create_subprocess_exec(
-                    "libinput", "debug-events", "--device", self.TOUCHSCREEN_DEVICE,
+                    "libinput", "debug-events", "--device", self.touchscreen_device,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
                 
-                self.logger.info(f"Touch monitoring started on {self.TOUCHSCREEN_DEVICE}")
-                
                 while self.running and self.touch_process.returncode is None:
                     try:
-                        line = await asyncio.wait_for(
-                            self.touch_process.stdout.readline(),
-                            timeout=1.0
-                        )
+                        line = await asyncio.wait_for(self.touch_process.stdout.readline(), timeout=1.0)
                         
-                        if line:
-                            line_str = line.decode().strip()
-                            if "TOUCH_DOWN" in line_str:
-                                self.logger.info("Touch detected!")
-                                await self._turn_on_screen()
-                                self.last_activity_time = monotonic()
-                        else:
+                        if line and "TOUCH_DOWN" in line.decode():
+                            await self._screen_cmd(self.screen_on_cmd)
+                            self.last_activity_time = monotonic()
+                        elif not line:
                             break
                             
                     except asyncio.TimeoutError:
                         continue
-                    except Exception as e:
-                        self.logger.error(f"Error reading touch event: {e}")
+                    except Exception:
                         break
                 
             except Exception as e:
-                self.logger.error(f"Error in touch monitoring: {e}")
+                self.logger.error(f"Touch monitoring error: {e}")
                 await asyncio.sleep(5)
             
             finally:
@@ -248,26 +169,18 @@ class ScreenController:
                     self.touch_process = None
                 
                 if self.running:
-                    self.logger.warning("Touch monitoring crashed, restarting in 5 seconds...")
                     await asyncio.sleep(5)
     
     async def on_touch_detected(self):
-        """Interface publique pour les événements touch externes"""
-        self.logger.info("Touch detected - turning screen ON")
-        await self._turn_on_screen()
+        """Interface publique pour touch externe"""
+        await self._screen_cmd(self.screen_on_cmd)
         self.last_activity_time = monotonic()
     
     def cleanup(self):
         """Nettoie les ressources"""
-        self.logger.info("Cleaning up screen controller")
         self.running = False
-        
         if self.touch_process:
             try:
                 self.touch_process.terminate()
             except Exception:
-                try:
-                    self.touch_process.kill()
-                except Exception:
-                    pass
-            self.touch_process = None
+                pass

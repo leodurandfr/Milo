@@ -1,7 +1,7 @@
-<!-- frontend/src/views/SettingsView.vue - Version refactorisée avec application immédiate -->
+<!-- frontend/src/views/SettingsView.vue - Version OPTIM avec handler unifié -->
 <template>
   <div class="settings-view">
-    <!-- Header avec retour -->
+    <!-- Header -->
     <div class="settings-header">
       <div class="back-button-wrapper">
         <IconButton icon="caretLeft" variant="dark" @click="goBack" />
@@ -9,39 +9,38 @@
       </div>
     </div>
 
-    <!-- Contenu des paramètres -->
+    <!-- Contenu -->
     <div class="settings-content">
-      <!-- Section Volume -->
+      <!-- Volume -->
       <section class="settings-section">
         <h2 class="heading-2">{{ $t('Volume') }}</h2>
         
         <div class="volume-settings">
-          <!-- Toggle pour activer/désactiver les limites -->
+          <!-- Toggle limites -->
           <div class="volume-limits-toggle">
             <Toggle 
-              v-model="volumeConfig.limits_enabled" 
+              v-model="config.volume.limits_enabled" 
               :title="$t('Limites de volume')"
-              @change="handleLimitsToggle"
+              @change="updateSetting('volume-limits/toggle', { enabled: $event })"
             />
             <div class="toggle-description text-mono">
               {{ $t('Restreindre la plage de volume utilisable') }}
             </div>
           </div>
 
-          <!-- Configuration des limites (visible si activé) -->
-          <div v-if="volumeConfig.limits_enabled" class="volume-limits">
+          <!-- Limites volume -->
+          <div v-if="config.volume.limits_enabled" class="volume-limits">
             <div class="limit-group">
               <label class="text-mono">{{ $t('Volume minimum') }}</label>
               <div class="limit-control">
                 <RangeSlider 
-                  v-model="volumeConfig.alsa_min" 
+                  v-model="config.volume.alsa_min" 
                   :min="0" 
-                  :max="maxMinVolume" 
+                  :max="Math.max(0, config.volume.alsa_max - 10)" 
                   :step="1"
-                  @input="handleMinVolumeChange"
-                  class="limit-slider" 
+                  @input="updateVolumeLimits"
                 />
-                <span class="limit-value text-mono">{{ volumeConfig.alsa_min }}</span>
+                <span class="limit-value text-mono">{{ config.volume.alsa_min }}</span>
               </div>
             </div>
 
@@ -49,151 +48,125 @@
               <label class="text-mono">{{ $t('Volume maximum') }}</label>
               <div class="limit-control">
                 <RangeSlider 
-                  v-model="volumeConfig.alsa_max" 
-                  :min="minMaxVolume" 
+                  v-model="config.volume.alsa_max" 
+                  :min="Math.min(100, config.volume.alsa_min + 10)" 
                   :max="100" 
                   :step="1"
-                  @input="handleMaxVolumeChange"
-                  class="limit-slider" 
+                  @input="updateVolumeLimits"
                 />
-                <span class="limit-value text-mono">{{ volumeConfig.alsa_max }}</span>
+                <span class="limit-value text-mono">{{ config.volume.alsa_max }}</span>
               </div>
             </div>
 
-            <!-- Aperçu du range -->
+            <!-- Preview range -->
             <div class="volume-preview">
               <div class="preview-label text-mono">{{ $t('Plage de volume résultante') }}</div>
-              <div class="preview-range">
-                <div class="range-bar">
-                  <div 
-                    class="range-fill" 
-                    :style="{ 
-                      left: `${volumeConfig.alsa_min}%`, 
-                      width: `${volumeConfig.alsa_max - volumeConfig.alsa_min}%` 
-                    }"
-                  ></div>
-                </div>
-                <div class="range-labels text-mono">
-                  <span>{{ volumeConfig.alsa_min }}%</span>
-                  <span>{{ volumeConfig.alsa_max }}%</span>
-                </div>
+              <div class="range-bar">
+                <div 
+                  class="range-fill" 
+                  :style="{ 
+                    left: `${config.volume.alsa_min}%`, 
+                    width: `${config.volume.alsa_max - config.volume.alsa_min}%` 
+                  }"
+                ></div>
+              </div>
+              <div class="range-labels text-mono">
+                <span>{{ config.volume.alsa_min }}%</span>
+                <span>{{ config.volume.alsa_max }}%</span>
               </div>
             </div>
           </div>
 
-          <!-- Messages de validation -->
-          <div v-if="volumeValidation.error" class="validation-error">
-            {{ volumeValidation.message }}
-          </div>
-
-          <!-- Séparateur -->
           <div class="settings-separator"></div>
 
-          <!-- Volume au démarrage -->
+          <!-- Volume démarrage -->
           <div class="startup-volume-settings">
             <h3 class="heading-2">{{ $t('Volume au démarrage') }}</h3>
             
-            <!-- Mode selection -->
             <div class="startup-mode-selector">
               <button 
-                @click="setStartupMode(false)"
-                :class="['mode-button', { active: !startupVolumeConfig.restore_last_volume }]"
-                class="button-interactive"
+                @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: false })"
+                :class="['mode-button', { active: !config.volume.restore_last_volume }]"
               >
                 <div class="mode-content">
                   <div class="mode-title heading-2">{{ $t('Volume fixe') }}</div>
                   <div class="mode-description text-mono">{{ $t('Utilise toujours le même volume') }}</div>
-                  <div v-if="!startupVolumeConfig.restore_last_volume" class="active-indicator"></div>
+                  <div v-if="!config.volume.restore_last_volume" class="active-indicator"></div>
                 </div>
               </button>
 
               <button 
-                @click="setStartupMode(true)"
-                :class="['mode-button', { active: startupVolumeConfig.restore_last_volume }]"
-                class="button-interactive"
+                @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: true })"
+                :class="['mode-button', { active: config.volume.restore_last_volume }]"
               >
                 <div class="mode-content">
                   <div class="mode-title heading-2">{{ $t('Restaurer le dernier') }}</div>
                   <div class="mode-description text-mono">{{ $t('Reprend le volume avant redémarrage') }}</div>
-                  <div v-if="startupVolumeConfig.restore_last_volume" class="active-indicator"></div>
+                  <div v-if="config.volume.restore_last_volume" class="active-indicator"></div>
                 </div>
               </button>
             </div>
 
-            <!-- Volume fixe slider (seulement visible en mode fixe) -->
-            <div v-if="!startupVolumeConfig.restore_last_volume" class="fixed-volume-control">
+            <!-- Volume fixe slider -->
+            <div v-if="!config.volume.restore_last_volume" class="fixed-volume-control">
               <label class="text-mono">{{ $t('Volume fixe au démarrage') }}</label>
               <div class="startup-control">
                 <RangeSlider 
-                  v-model="startupVolumeConfig.startup_volume" 
+                  v-model="config.volume.startup_volume" 
                   :min="0" 
                   :max="100" 
                   :step="1"
-                  @input="handleStartupVolumeChange"
-                  class="startup-slider" 
+                  @input="debouncedUpdate('volume-startup', { startup_volume: $event, restore_last_volume: false })"
                 />
-                <span class="startup-value text-mono">{{ startupVolumeConfig.startup_volume }}%</span>
+                <span class="startup-value text-mono">{{ config.volume.startup_volume }}%</span>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Section Spotify -->
+      <!-- Spotify -->
       <section class="settings-section">
         <h2 class="heading-2">{{ $t('Spotify') }}</h2>
         
-        <div class="spotify-settings">
-          <div class="disconnect-timer">
-            <label class="text-mono">{{ $t('Déconnexion automatique après pause') }}</label>
-            <div class="timer-control">
-              <RangeSlider 
-                v-model="spotifyConfig.auto_disconnect_delay" 
-                :min="1" 
-                :max="300" 
-                :step="1"
-                @input="handleSpotifyDelayChange"
-                class="timer-slider" 
-              />
-              <span class="timer-value text-mono">{{ formatDuration(spotifyConfig.auto_disconnect_delay) }}</span>
-            </div>
-            <div class="timer-description text-mono">
-              {{ $t('Spotify se déconnecte automatiquement après ce délai en pause') }}
-            </div>
+        <div class="disconnect-timer">
+          <label class="text-mono">{{ $t('Déconnexion automatique après pause') }}</label>
+          <div class="timer-control">
+            <RangeSlider 
+              v-model="config.spotify.auto_disconnect_delay" 
+              :min="1" 
+              :max="300" 
+              :step="1"
+              @input="debouncedUpdate('spotify-disconnect', { auto_disconnect_delay: $event })"
+            />
+            <span class="timer-value text-mono">{{ formatDuration(config.spotify.auto_disconnect_delay) }}</span>
           </div>
-
-          <!-- Messages de validation spotify -->
-          <div v-if="spotifyValidation.error" class="validation-error">
-            {{ spotifyValidation.message }}
+          <div class="timer-description text-mono">
+            {{ $t('Spotify se déconnecte automatiquement après ce délai en pause') }}
           </div>
         </div>
       </section>
 
-      <!-- Section Écran -->
+      <!-- Écran -->
       <section class="settings-section">
         <h2 class="heading-2">{{ $t('Écran') }}</h2>
         
         <div class="screen-settings">
-          <!-- Timeout d'écran -->
+          <!-- Timeout -->
           <div class="timeout-control">
             <label class="text-mono">{{ $t('Mise en veille automatique') }}</label>
             <div class="timer-control">
               <RangeSlider 
-                v-model="screenConfig.screen_timeout_seconds" 
+                v-model="config.screen.screen_timeout_seconds" 
                 :min="3" 
                 :max="3600" 
                 :step="1"
-                @input="handleScreenTimeoutChange"
-                class="timer-slider" 
+                @input="debouncedUpdate('screen-timeout', { screen_timeout_seconds: $event })"
               />
-              <span class="timer-value text-mono">{{ formatDuration(screenConfig.screen_timeout_seconds) }}</span>
-            </div>
-            <div class="timer-description text-mono">
-              {{ $t('L\'écran se met en veille après ce délai d\'inactivité') }}
+              <span class="timer-value text-mono">{{ formatDuration(config.screen.screen_timeout_seconds) }}</span>
             </div>
           </div>
 
-          <!-- Séparateur -->
           <div class="settings-separator"></div>
 
           <!-- Luminosité -->
@@ -204,29 +177,23 @@
               <label class="text-mono">{{ $t('Écran allumé') }}</label>
               <div class="brightness-control">
                 <RangeSlider 
-                  v-model="screenConfig.brightness_on" 
+                  v-model="config.screen.brightness_on" 
                   :min="1" 
                   :max="10" 
                   :step="1"
                   @input="handleBrightnessChange"
-                  class="brightness-slider" 
                 />
-                <span class="brightness-value text-mono">{{ screenConfig.brightness_on }}</span>
+                <span class="brightness-value text-mono">{{ config.screen.brightness_on }}</span>
               </div>
               <div class="brightness-description text-mono">
                 {{ $t('Appliqué instantanément pendant l\'utilisation') }}
               </div>
             </div>
           </div>
-
-          <!-- Messages de validation screen -->
-          <div v-if="screenValidation.error" class="validation-error">
-            {{ screenValidation.message }}
-          </div>
         </div>
       </section>
       
-      <!-- Section Langue -->
+      <!-- Langue -->
       <section class="settings-section">
         <h2 class="heading-2">{{ $t('Langue') }}</h2>
         
@@ -234,9 +201,8 @@
           <button 
             v-for="language in availableLanguages" 
             :key="language.code"
-            @click="changeLanguage(language.code)"
+            @click="updateSetting('language', { language: language.code })"
             :class="['language-button', { active: currentLanguage === language.code }]"
-            class="button-interactive"
           >
             <span class="language-flag">{{ language.flag }}</span>
             <span class="language-name heading-2">{{ language.name }}</span>
@@ -245,7 +211,7 @@
         </div>
       </section>
 
-      <!-- Informations version -->
+      <!-- Informations -->
       <section class="settings-section">
         <h2 class="heading-2">{{ $t('Informations') }}</h2>
         
@@ -275,256 +241,88 @@ const router = useRouter();
 const { setLanguage, getAvailableLanguages, getCurrentLanguage } = useI18n();
 const { on } = useWebSocket();
 
-// Configuration volume avec toggle
-const volumeConfig = ref({
-  alsa_min: 0,
-  alsa_max: 65,
-  limits_enabled: true
+// Configuration unifiée
+const config = ref({
+  volume: {
+    limits_enabled: true,
+    alsa_min: 0,
+    alsa_max: 65,
+    restore_last_volume: false,
+    startup_volume: 37
+  },
+  spotify: {
+    auto_disconnect_delay: 10.0
+  },
+  screen: {
+    screen_timeout_seconds: 10,
+    brightness_on: 5
+  }
 });
 
-// Configuration volume au démarrage
-const startupVolumeConfig = ref({
-  startup_volume: 37,
-  restore_last_volume: false
-});
-
-// Configuration Spotify
-const spotifyConfig = ref({
-  auto_disconnect_delay: 10.0
-});
-
-// Configuration écran
-const screenConfig = ref({
-  screen_timeout_seconds: 10,
-  brightness_on: 5
-});
-
-// Langues disponibles
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
 
-// Validation des limites de volume
-const maxMinVolume = computed(() => Math.max(0, volumeConfig.value.alsa_max - 10));
-const minMaxVolume = computed(() => Math.min(100, volumeConfig.value.alsa_min + 10));
-
-const volumeValidation = computed(() => {
-  if (!volumeConfig.value.limits_enabled) return { error: false, message: '' };
-  
-  const min = volumeConfig.value.alsa_min;
-  const max = volumeConfig.value.alsa_max;
-  const range = max - min;
-  
-  if (range < 10) {
-    return {
-      error: true,
-      message: 'La plage de volume doit être d\'au moins 10'
-    };
-  }
-  
-  if (min < 0 || max > 100) {
-    return {
-      error: true,
-      message: 'Les limites doivent être entre 0 et 100'
-    };
-  }
-  
-  return { error: false, message: '' };
-});
-
-// Validation Spotify
-const spotifyValidation = computed(() => {
-  const delay = spotifyConfig.value.auto_disconnect_delay;
-  
-  if (delay < 1 || delay > 300) {
-    return {
-      error: true,
-      message: 'Le délai doit être entre 1 seconde et 5 minutes'
-    };
-  }
-  
-  return { error: false, message: '' };
-});
-
-// Validation Screen
-const screenValidation = computed(() => {
-  const timeout = screenConfig.value.screen_timeout_seconds;
-  const brightnessOn = screenConfig.value.brightness_on;
-  
-  if (timeout < 3 || timeout > 3600) {
-    return {
-      error: true,
-      message: 'Le timeout doit être entre 3 secondes et 60 minutes'
-    };
-  }
-  
-  if (brightnessOn < 1 || brightnessOn > 10) {
-    return {
-      error: true,
-      message: 'La luminosité doit être entre 1 et 10'
-    };
-  }
-  
-  return { error: false, message: '' };
-});
-
-// Formatage des durées
+// Formatage durée
 function formatDuration(seconds) {
-  if (seconds < 60) {
-    return `${seconds}s`;
-  } else if (seconds < 3600) {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
-  } else {
-    const hours = Math.floor(seconds / 3600);
-    const remainingMinutes = Math.floor((seconds % 3600) / 60);
-    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
   }
+  const hours = Math.floor(seconds / 3600);
+  const remainingMinutes = Math.floor((seconds % 3600) / 60);
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
-// Debounce global pour éviter trop d'appels
+// Handler unifié avec debounce global
 let debounceTimeout = null;
-function debounce(func, delay = 500) {
+function debouncedUpdate(endpoint, payload, delay = 800) {
   clearTimeout(debounceTimeout);
-  debounceTimeout = setTimeout(func, delay);
+  debounceTimeout = setTimeout(() => updateSetting(endpoint, payload), delay);
 }
 
-// Handlers avec application immédiate
-
-// Volume limits toggle
-async function handleLimitsToggle(enabled) {
-  console.log('Volume limits toggled:', enabled);
-  
+// Handler principal
+async function updateSetting(endpoint, payload) {
   try {
-    await axios.post('/api/settings/volume-limits/toggle', { enabled });
+    await axios.post(`/api/settings/${endpoint}`, payload);
   } catch (error) {
-    console.error('Error toggling volume limits:', error);
+    console.error(`Error updating ${endpoint}:`, error);
   }
 }
 
-// Volume limits changes
-function handleMinVolumeChange(newMin) {
-  if (newMin + 10 > volumeConfig.value.alsa_max) {
-    volumeConfig.value.alsa_max = Math.min(100, newMin + 10);
+// Handlers spécialisés
+function updateVolumeLimits() {
+  // Auto-ajustement des limites
+  if (config.value.volume.alsa_min + 10 > config.value.volume.alsa_max) {
+    config.value.volume.alsa_max = Math.min(100, config.value.volume.alsa_min + 10);
+  }
+  if (config.value.volume.alsa_max - 10 < config.value.volume.alsa_min) {
+    config.value.volume.alsa_min = Math.max(0, config.value.volume.alsa_max - 10);
   }
   
-  debounce(() => applyVolumeLimits(), 800);
+  debouncedUpdate('volume-limits', {
+    alsa_min: config.value.volume.alsa_min,
+    alsa_max: config.value.volume.alsa_max
+  });
 }
 
-function handleMaxVolumeChange(newMax) {
-  if (newMax - 10 < volumeConfig.value.alsa_min) {
-    volumeConfig.value.alsa_min = Math.max(0, newMax - 10);
-  }
-  
-  debounce(() => applyVolumeLimits(), 800);
-}
-
-async function applyVolumeLimits() {
-  if (volumeValidation.value.error) return;
-  
-  try {
-    await axios.post('/api/settings/volume-limits', {
-      alsa_min: volumeConfig.value.alsa_min,
-      alsa_max: volumeConfig.value.alsa_max
-    });
-    console.log('Volume limits applied automatically');
-  } catch (error) {
-    console.error('Error applying volume limits:', error);
-  }
-}
-
-// Startup volume changes
-function setStartupMode(restoreMode) {
-  startupVolumeConfig.value.restore_last_volume = restoreMode;
-  applyStartupVolumeConfig();
-}
-
-function handleStartupVolumeChange() {
-  debounce(() => applyStartupVolumeConfig(), 800);
-}
-
-async function applyStartupVolumeConfig() {
-  try {
-    await axios.post('/api/settings/volume-startup', {
-      startup_volume: startupVolumeConfig.value.startup_volume,
-      restore_last_volume: startupVolumeConfig.value.restore_last_volume
-    });
-    console.log('Startup volume config applied automatically');
-  } catch (error) {
-    console.error('Error applying startup volume config:', error);
-  }
-}
-
-// Spotify changes
-function handleSpotifyDelayChange() {
-  debounce(() => applySpotifyConfig(), 800);
-}
-
-async function applySpotifyConfig() {
-  if (spotifyValidation.value.error) return;
-  
-  try {
-    await axios.post('/api/settings/spotify-disconnect', {
-      auto_disconnect_delay: spotifyConfig.value.auto_disconnect_delay
-    });
-    console.log('Spotify config applied automatically');
-  } catch (error) {
-    console.error('Error applying Spotify config:', error);
-  }
-}
-
-// Screen timeout changes
-function handleScreenTimeoutChange() {
-  debounce(() => applyScreenTimeoutConfig(), 800);
-}
-
-async function applyScreenTimeoutConfig() {
-  if (screenValidation.value.error) return;
-  
-  try {
-    await axios.post('/api/settings/screen-timeout', {
-      screen_timeout_seconds: screenConfig.value.screen_timeout_seconds
-    });
-    console.log('Screen timeout applied automatically');
-  } catch (error) {
-    console.error('Error applying screen timeout:', error);
-  }
-}
-
-// Brightness changes (application instantanée + sauvegarde avec debounce)
+// Brightness avec double logique (instant + save)
 let brightnessInstantTimeout = null;
 let brightnessDebounceTimeout = null;
 
-function handleBrightnessChange(brightnessValue) {
-  // Application immédiate (300ms debounce)
+function handleBrightnessChange(value) {
+  // Application immédiate
   clearTimeout(brightnessInstantTimeout);
-  brightnessInstantTimeout = setTimeout(async () => {
-    try {
-      await axios.post('/api/settings/screen-brightness/apply', {
-        brightness_on: brightnessValue
-      });
-    } catch (error) {
-      console.error('Error applying brightness instantly:', error);
-    }
+  brightnessInstantTimeout = setTimeout(() => {
+    axios.post('/api/settings/screen-brightness/apply', { brightness_on: value }).catch(console.error);
   }, 300);
   
-  // Sauvegarde définitive (1 seconde debounce)
+  // Sauvegarde
   clearTimeout(brightnessDebounceTimeout);
-  brightnessDebounceTimeout = setTimeout(async () => {
-    try {
-      await axios.post('/api/settings/screen-brightness', {
-        brightness_on: brightnessValue
-      });
-      console.log('Brightness saved automatically');
-    } catch (error) {
-      console.error('Error saving brightness:', error);
-    }
+  brightnessDebounceTimeout = setTimeout(() => {
+    updateSetting('screen-brightness', { brightness_on: value });
   }, 1000);
-}
-
-// Langue (application immédiate)
-async function changeLanguage(languageCode) {
-  await setLanguage(languageCode);
 }
 
 function goBack() {
@@ -534,7 +332,7 @@ function goBack() {
 // Chargement initial
 async function loadAllConfigs() {
   try {
-    const [volumeLimitsResponse, startupVolumeResponse, spotifyResponse, screenTimeoutResponse, brightnessResponse] = await Promise.all([
+    const [volumeLimits, volumeStartup, spotify, screenTimeout, brightness] = await Promise.all([
       axios.get('/api/settings/volume-limits'),
       axios.get('/api/settings/volume-startup'),
       axios.get('/api/settings/spotify-disconnect'),
@@ -542,104 +340,49 @@ async function loadAllConfigs() {
       axios.get('/api/settings/screen-brightness')
     ]);
     
-    // Volume limits
-    if (volumeLimitsResponse.data.status === 'success') {
-      const limits = volumeLimitsResponse.data.limits;
-      volumeConfig.value = {
-        alsa_min: limits.alsa_min,
-        alsa_max: limits.alsa_max,
-        limits_enabled: limits.limits_enabled
-      };
+    if (volumeLimits.data.status === 'success') {
+      Object.assign(config.value.volume, volumeLimits.data.limits);
     }
     
-    // Startup volume
-    if (startupVolumeResponse.data.status === 'success') {
-      const config = startupVolumeResponse.data.config;
-      startupVolumeConfig.value = {
-        startup_volume: config.startup_volume,
-        restore_last_volume: config.restore_last_volume
-      };
+    if (volumeStartup.data.status === 'success') {
+      Object.assign(config.value.volume, volumeStartup.data.config);
     }
     
-    // Spotify
-    if (spotifyResponse.data.status === 'success') {
-      const config = spotifyResponse.data.config;
-      spotifyConfig.value = {
-        auto_disconnect_delay: config.auto_disconnect_delay
-      };
+    if (spotify.data.status === 'success') {
+      Object.assign(config.value.spotify, spotify.data.config);
     }
     
-    // Screen timeout
-    if (screenTimeoutResponse.data.status === 'success') {
-      const config = screenTimeoutResponse.data.config;
-      screenConfig.value.screen_timeout_seconds = config.screen_timeout_seconds;
+    if (screenTimeout.data.status === 'success') {
+      Object.assign(config.value.screen, screenTimeout.data.config);
     }
     
-    // Screen brightness
-    if (brightnessResponse.data.status === 'success') {
-      const config = brightnessResponse.data.config;
-      screenConfig.value.brightness_on = config.brightness_on;
+    if (brightness.data.status === 'success') {
+      Object.assign(config.value.screen, brightness.data.config);
     }
-    
-    console.log('All configurations loaded');
     
   } catch (error) {
-    console.error('Error loading configurations:', error);
+    console.error('Error loading configs:', error);
   }
 }
 
-// Initialisation et WebSocket
+// WebSocket listeners unifiés
+const wsListeners = {
+  'language_changed': (msg) => i18n.handleLanguageChanged(msg.data?.language),
+  'volume_limits_changed': (msg) => Object.assign(config.value.volume, msg.data?.limits || {}),
+  'volume_limits_toggled': (msg) => config.value.volume.limits_enabled = msg.data?.limits_enabled,
+  'volume_startup_changed': (msg) => Object.assign(config.value.volume, msg.data?.config || {}),
+  'spotify_disconnect_changed': (msg) => Object.assign(config.value.spotify, msg.data?.config || {}),
+  'screen_timeout_changed': (msg) => Object.assign(config.value.screen, msg.data?.config || {}),
+  'screen_brightness_changed': (msg) => Object.assign(config.value.screen, msg.data?.config || {})
+};
+
 onMounted(async () => {
   await i18n.initializeLanguage();
   await loadAllConfigs();
   
-  // WebSocket listeners
-  on('settings', 'language_changed', (message) => {
-    if (message.data?.language) {
-      i18n.handleLanguageChanged(message.data.language);
-    }
-  });
-  
-  on('settings', 'volume_limits_changed', (message) => {
-    if (message.data?.limits) {
-      const newLimits = message.data.limits;
-      volumeConfig.value.alsa_min = newLimits.alsa_min;
-      volumeConfig.value.alsa_max = newLimits.alsa_max;
-    }
-  });
-  
-  on('settings', 'volume_limits_toggled', (message) => {
-    if (message.data && typeof message.data.limits_enabled === 'boolean') {
-      volumeConfig.value.limits_enabled = message.data.limits_enabled;
-    }
-  });
-  
-  on('settings', 'volume_startup_changed', (message) => {
-    if (message.data?.config) {
-      const newConfig = message.data.config;
-      startupVolumeConfig.value = {
-        startup_volume: newConfig.startup_volume,
-        restore_last_volume: newConfig.restore_last_volume
-      };
-    }
-  });
-  
-  on('settings', 'spotify_disconnect_changed', (message) => {
-    if (message.data?.config) {
-      spotifyConfig.value.auto_disconnect_delay = message.data.config.auto_disconnect_delay;
-    }
-  });
-  
-  on('settings', 'screen_timeout_changed', (message) => {
-    if (message.data?.config) {
-      screenConfig.value.screen_timeout_seconds = message.data.config.screen_timeout_seconds;
-    }
-  });
-  
-  on('settings', 'screen_brightness_changed', (message) => {
-    if (message.data?.config) {
-      screenConfig.value.brightness_on = message.data.config.brightness_on;
-    }
+  // Enregistrer tous les listeners WebSocket
+  Object.entries(wsListeners).forEach(([eventType, handler]) => {
+    on('settings', eventType, handler);
   });
 });
 </script>
@@ -689,16 +432,13 @@ onMounted(async () => {
   color: var(--color-text);
 }
 
-/* === SÉPARATEUR === */
-
 .settings-separator {
   height: 1px;
   background: var(--color-background-strong);
   margin: var(--space-02) 0;
 }
 
-/* === VOLUME TOGGLE ET LIMITES === */
-
+/* Volume */
 .volume-settings {
   display: flex;
   flex-direction: column;
@@ -738,7 +478,7 @@ onMounted(async () => {
   gap: var(--space-03);
 }
 
-.limit-slider {
+.limit-control > :first-child {
   flex: 1;
 }
 
@@ -759,12 +499,6 @@ onMounted(async () => {
 
 .preview-label {
   color: var(--color-text-secondary);
-}
-
-.preview-range {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
 }
 
 .range-bar {
@@ -790,8 +524,7 @@ onMounted(async () => {
   color: var(--color-text-secondary);
 }
 
-/* === VOLUME AU DÉMARRAGE === */
-
+/* Startup volume */
 .startup-volume-settings {
   display: flex;
   flex-direction: column;
@@ -813,7 +546,6 @@ onMounted(async () => {
   border-radius: var(--radius-04);
   cursor: pointer;
   transition: all var(--transition-fast);
-  position: relative;
   width: 100%;
   text-align: left;
 }
@@ -863,7 +595,7 @@ onMounted(async () => {
   gap: var(--space-03);
 }
 
-.startup-slider {
+.startup-control > :first-child {
   flex: 1;
 }
 
@@ -873,15 +605,7 @@ onMounted(async () => {
   text-align: right;
 }
 
-/* === STYLES SPOTIFY, SCREEN ET LUMINOSITÉ === */
-
-.spotify-settings,
-.screen-settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
+/* Spotify & Screen */
 .disconnect-timer,
 .timeout-control {
   display: flex;
@@ -914,8 +638,8 @@ onMounted(async () => {
   gap: var(--space-03);
 }
 
-.timer-slider,
-.brightness-slider {
+.timer-control > :first-child,
+.brightness-control > :first-child {
   flex: 1;
 }
 
@@ -932,17 +656,7 @@ onMounted(async () => {
   font-size: var(--font-size-small);
 }
 
-.validation-error {
-  color: var(--color-error);
-  font-size: var(--font-size-mono);
-  padding: var(--space-02) var(--space-03);
-  background: rgba(244, 67, 54, 0.1);
-  border-radius: var(--radius-03);
-  border-left: 3px solid var(--color-error);
-}
-
-/* === SECTION LANGUE === */
-
+/* Language */
 .language-selector {
   display: flex;
   flex-direction: column;
@@ -959,7 +673,6 @@ onMounted(async () => {
   border-radius: var(--radius-04);
   cursor: pointer;
   transition: all var(--transition-fast);
-  position: relative;
   width: 100%;
   text-align: left;
 }
@@ -992,8 +705,7 @@ onMounted(async () => {
   border-radius: var(--radius-full);
 }
 
-/* === GRILLE D'INFORMATIONS === */
-
+/* Info */
 .info-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -1017,18 +729,14 @@ onMounted(async () => {
   color: var(--color-text);
 }
 
-/* === RESPONSIVE === */
-
+/* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .settings-view {
     padding: var(--space-04);
   }
   
-  .language-selector {
-    gap: var(--space-03);
-  }
-  
-  .language-button {
+  .language-button,
+  .mode-button {
     padding: var(--space-05) var(--space-04);
   }
   
@@ -1040,14 +748,6 @@ onMounted(async () => {
   .timer-control,
   .brightness-control {
     gap: var(--space-04);
-  }
-
-  .startup-mode-selector {
-    gap: var(--space-03);
-  }
-
-  .mode-button {
-    padding: var(--space-05) var(--space-04);
   }
 }
 
