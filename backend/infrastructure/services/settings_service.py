@@ -1,6 +1,6 @@
 # backend/infrastructure/services/settings_service.py
 """
-Service de gestion des settings - Version OPTIM simplifiée
+Service de gestion des settings - Version OPTIM avec validation dock apps
 """
 import json
 import os
@@ -8,7 +8,7 @@ import logging
 from typing import Dict, Any
 
 class SettingsService:
-    """Gestionnaire de settings simplifié"""
+    """Gestionnaire de settings simplifié avec validation dock"""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -26,6 +26,7 @@ class SettingsService:
                 "mobile_volume_steps": 5
             },
             "screen": {
+                "timeout_enabled": True,
                 "timeout_seconds": 10,
                 "brightness_on": 5
             },
@@ -33,7 +34,7 @@ class SettingsService:
                 "auto_disconnect_delay": 10.0
             },
             "dock": {
-                "enabled_apps": ["spotify", "bluetooth", "roc", "multiroom", "equalizer"]
+                "enabled_apps": ["librespot", "bluetooth", "roc", "multiroom", "equalizer"]
             }
         }
     
@@ -111,10 +112,10 @@ class SettingsService:
         
         vol['restore_last_volume'] = bool(vol_input.get('restore_last_volume', False))
         vol['startup_volume'] = max(vol['alsa_min'], min(vol['alsa_max'], int(vol_input.get('startup_volume', 37))))
-        vol['mobile_volume_steps'] = max(1, min(20, int(vol_input.get('mobile_volume_steps', 5))))
+        vol['mobile_volume_steps'] = max(1, min(10, int(vol_input.get('mobile_volume_steps', 5))))
         validated['volume'] = vol
         
-        # Screen (sans brightness_off)
+        # Screen
         screen_input = settings.get('screen', {})
         validated['screen'] = {
             'timeout_seconds': max(3, min(3600, int(screen_input.get('timeout_seconds', 10)))),
@@ -127,11 +128,21 @@ class SettingsService:
             'auto_disconnect_delay': max(1.0, min(300.0, float(spotify_input.get('auto_disconnect_delay', 10.0))))
         }
         
-        # Dock
+        # Dock avec validation au moins une source audio
         dock_input = settings.get('dock', {})
-        valid_apps = ["spotify", "bluetooth", "roc", "multiroom", "equalizer"]
+        all_valid_apps = ["librespot", "bluetooth", "roc", "multiroom", "equalizer"]
+        audio_sources = ["librespot", "bluetooth", "roc"]
+        other_apps = ["multiroom", "equalizer"]
+        
         enabled_apps = dock_input.get('enabled_apps', [])
-        filtered_apps = [app for app in enabled_apps if app in valid_apps]
+        filtered_apps = [app for app in enabled_apps if app in all_valid_apps]
+        
+        # Vérifier qu'au moins une source audio est activée
+        enabled_audio_sources = [app for app in filtered_apps if app in audio_sources]
+        if not enabled_audio_sources:
+            # Forcer au moins librespot si aucune source audio
+            filtered_apps = ['librespot'] + [app for app in filtered_apps if app in other_apps]
+        
         validated['dock'] = {
             'enabled_apps': filtered_apps if filtered_apps else self.defaults['dock']['enabled_apps'].copy()
         }
@@ -153,7 +164,7 @@ class SettingsService:
             return None
     
     def set_setting(self, key_path: str, value: Any) -> bool:
-        """Définit une setting"""
+        """Définit une setting et invalide le cache"""
         try:
             settings = self.load_settings()
             
@@ -165,8 +176,25 @@ class SettingsService:
                 current = current[key]
             
             current[keys[-1]] = value
-            return self.save_settings(settings)
+            success = self.save_settings(settings)
+            
+            # Invalider le cache pour forcer un reload
+            if success:
+                self._cache = None
+                
+            return success
             
         except Exception as e:
             self.logger.error(f"Error setting {key_path}: {e}")
             return False
+    
+    def get_volume_config(self) -> Dict[str, Any]:
+        """Méthode helper pour récupérer la config volume"""
+        volume_settings = self.get_setting('volume') or {}
+        return {
+            "alsa_min": volume_settings.get("alsa_min", 0),
+            "alsa_max": volume_settings.get("alsa_max", 65),
+            "startup_volume": volume_settings.get("startup_volume", 37),
+            "restore_last_volume": volume_settings.get("restore_last_volume", False),
+            "mobile_volume_steps": volume_settings.get("mobile_volume_steps", 5)
+        }

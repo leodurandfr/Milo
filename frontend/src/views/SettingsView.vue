@@ -1,4 +1,4 @@
-<!-- frontend/src/views/SettingsView.vue - Version OPTIM avec handler unifié -->
+<!-- frontend/src/views/SettingsView.vue - Structure simplifiée avec toggle écran -->
 <template>
   <div class="settings-view">
     <!-- Header -->
@@ -11,24 +11,97 @@
 
     <!-- Contenu -->
     <div class="settings-content">
+      <!-- Interface -->
+      <section class="settings-section">
+        <h2 class="heading-2">{{ $t('Interface') }}</h2>
+        
+        <!-- Applications du dock -->
+        <div class="dock-settings">
+          <h3 class="heading-2">{{ $t('Applications') }}</h3>
+          
+          <!-- Sources audio -->
+          <div class="app-group">
+            <h4 class="app-group-title text-mono">{{ $t('Sources audio') }}</h4>
+            
+            <div class="app-toggles">
+              <Toggle 
+                v-model="config.dock.apps.librespot" 
+                title="Spotify"
+                :disabled="!canDisableAudioSource('librespot')"
+                @change="updateDockApps"
+              />
+              <Toggle 
+                v-model="config.dock.apps.bluetooth" 
+                title="Bluetooth"
+                :disabled="!canDisableAudioSource('bluetooth')"
+                @change="updateDockApps"
+              />
+              <Toggle 
+                v-model="config.dock.apps.roc" 
+                title="Audio macOS"
+                :disabled="!canDisableAudioSource('roc')"
+                @change="updateDockApps"
+              />
+            </div>
+          </div>
+
+          <!-- Fonctionnalités -->
+          <div class="app-group">
+            <h4 class="app-group-title text-mono">{{ $t('Fonctionnalités') }}</h4>
+            
+            <div class="app-toggles">
+              <Toggle 
+                v-model="config.dock.apps.multiroom" 
+                title="Multiroom"
+                @change="updateDockApps"
+              />
+              <Toggle 
+                v-model="config.dock.apps.equalizer" 
+                title="Égaliseur"
+                @change="updateDockApps"
+              />
+            </div>
+          </div>
+
+          <div class="settings-separator"></div>
+
+          <!-- Contrôles volume mobile -->
+          <div class="volume-controls-settings">
+            <h3 class="heading-2">{{ $t('Contrôles volume mobile') }}</h3>
+            <div class="controls-description text-mono">
+              {{ $t('Incrémentation des boutons de volume via le dock en mobile') }}
+            </div>
+            
+            <div class="volume-steps-control">
+              <label class="text-mono">{{ $t('Incrément') }}</label>
+              <div class="steps-control">
+                <RangeSlider 
+                  v-model="config.volume.mobile_volume_steps" 
+                  :min="1" 
+                  :max="10" 
+                  :step="1"
+                  @input="debouncedUpdate('volume-steps', { mobile_volume_steps: $event })"
+                />
+                <span class="steps-value text-mono">{{ config.volume.mobile_volume_steps }}%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- Volume -->
       <section class="settings-section">
         <h2 class="heading-2">{{ $t('Volume') }}</h2>
         
         <div class="volume-settings">
           <!-- Toggle limites -->
-          <div class="volume-limits-toggle">
-            <Toggle 
-              v-model="config.volume.limits_enabled" 
-              :title="$t('Limites de volume')"
-              @change="updateSetting('volume-limits/toggle', { enabled: $event })"
-            />
-            <div class="toggle-description text-mono">
-              {{ $t('Restreindre la plage de volume utilisable') }}
-            </div>
-          </div>
+          <Toggle 
+            v-model="config.volume.limits_enabled" 
+            :title="$t('Limites de volume')"
+            @change="updateVolumeLimitsToggle"
+          />
 
-          <!-- Limites volume -->
+          <!-- Sliders limites (seulement si activées) -->
           <div v-if="config.volume.limits_enabled" class="volume-limits">
             <div class="limit-group">
               <label class="text-mono">{{ $t('Volume minimum') }}</label>
@@ -79,7 +152,7 @@
 
           <div class="settings-separator"></div>
 
-          <!-- Volume démarrage -->
+          <!-- Volume au démarrage -->
           <div class="startup-volume-settings">
             <h3 class="heading-2">{{ $t('Volume au démarrage') }}</h3>
             
@@ -152,16 +225,23 @@
         <h2 class="heading-2">{{ $t('Écran') }}</h2>
         
         <div class="screen-settings">
-          <!-- Timeout -->
-          <div class="timeout-control">
-            <label class="text-mono">{{ $t('Mise en veille automatique') }}</label>
+          <!-- Toggle mise en veille -->
+          <Toggle 
+            v-model="config.screen.timeout_enabled" 
+            :title="$t('Mise en veille automatique')"
+            @change="updateScreenTimeout"
+          />
+
+          <!-- Timeout (seulement si activé) -->
+          <div v-if="config.screen.timeout_enabled" class="timeout-control">
+            <label class="text-mono">{{ $t('Délai de mise en veille') }}</label>
             <div class="timer-control">
               <RangeSlider 
                 v-model="config.screen.screen_timeout_seconds" 
                 :min="3" 
                 :max="3600" 
                 :step="1"
-                @input="debouncedUpdate('screen-timeout', { screen_timeout_seconds: $event })"
+                @input="updateScreenTimeout"
               />
               <span class="timer-value text-mono">{{ formatDuration(config.screen.screen_timeout_seconds) }}</span>
             </div>
@@ -241,28 +321,55 @@ const router = useRouter();
 const { setLanguage, getAvailableLanguages, getCurrentLanguage } = useI18n();
 const { on } = useWebSocket();
 
-// Configuration unifiée
+// Configuration unifiée 
 const config = ref({
   volume: {
     limits_enabled: true,
     alsa_min: 0,
     alsa_max: 65,
     restore_last_volume: false,
-    startup_volume: 37
+    startup_volume: 37,
+    mobile_volume_steps: 5
   },
   spotify: {
     auto_disconnect_delay: 10.0
   },
   screen: {
+    timeout_enabled: true,
     screen_timeout_seconds: 10,
     brightness_on: 5
+  },
+  dock: {
+    apps: {
+      librespot: true,
+      bluetooth: true,
+      roc: true,
+      multiroom: true,
+      equalizer: true
+    }
   }
 });
 
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
 
-// Formatage durée
+// === VALIDATION DOCK APPS ===
+function canDisableAudioSource(sourceId) {
+  // Compter les sources audio actuellement activées
+  const audioSources = ['librespot', 'bluetooth', 'roc'];
+  const enabledAudioSources = audioSources.filter(source => 
+    config.value.dock.apps[source] && source !== sourceId
+  );
+  
+  // On peut désactiver seulement s'il reste au moins une autre source activée
+  return enabledAudioSources.length > 0;
+}
+
+function getEnabledAppsArray() {
+  return Object.keys(config.value.dock.apps).filter(app => config.value.dock.apps[app]);
+}
+
+// === HANDLERS ===
 function formatDuration(seconds) {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) {
@@ -291,7 +398,31 @@ async function updateSetting(endpoint, payload) {
   }
 }
 
-// Handlers spécialisés
+// Handler spécialisé pour dock apps
+function updateDockApps() {
+  const enabledApps = getEnabledAppsArray();
+  debouncedUpdate('dock-apps', { enabled_apps: enabledApps }, 500);
+}
+
+// Handler spécialisé pour volume limits toggle (avec auto-reset à 0-100)
+function updateVolumeLimitsToggle(enabled) {
+  if (!enabled) {
+    // Désactiver les limites -> forcer 0-100 localement aussi
+    config.value.volume.alsa_min = 0;
+    config.value.volume.alsa_max = 100;
+  }
+  updateSetting('volume-limits/toggle', { enabled });
+}
+
+// Handler spécialisé pour screen timeout (avec toggle + valeur)
+function updateScreenTimeout() {
+  debouncedUpdate('screen-timeout', {
+    screen_timeout_enabled: config.value.screen.timeout_enabled,
+    screen_timeout_seconds: config.value.screen.screen_timeout_seconds
+  }, 500);
+}
+
+// Handler volume limits
 function updateVolumeLimits() {
   // Auto-ajustement des limites
   if (config.value.volume.alsa_min + 10 > config.value.volume.alsa_max) {
@@ -329,17 +460,20 @@ function goBack() {
   router.push('/');
 }
 
-// Chargement initial
+// === CHARGEMENT INITIAL ===
 async function loadAllConfigs() {
   try {
-    const [volumeLimits, volumeStartup, spotify, screenTimeout, brightness] = await Promise.all([
+    const [volumeLimits, volumeStartup, volumeSteps, spotify, screenTimeout, brightness, dockApps] = await Promise.all([
       axios.get('/api/settings/volume-limits'),
       axios.get('/api/settings/volume-startup'),
+      axios.get('/api/settings/volume-steps'),
       axios.get('/api/settings/spotify-disconnect'),
       axios.get('/api/settings/screen-timeout'),
-      axios.get('/api/settings/screen-brightness')
+      axios.get('/api/settings/screen-brightness'),
+      axios.get('/api/settings/dock-apps')
     ]);
     
+    // Volume
     if (volumeLimits.data.status === 'success') {
       Object.assign(config.value.volume, volumeLimits.data.limits);
     }
@@ -348,10 +482,16 @@ async function loadAllConfigs() {
       Object.assign(config.value.volume, volumeStartup.data.config);
     }
     
+    if (volumeSteps.data.status === 'success') {
+      config.value.volume.mobile_volume_steps = volumeSteps.data.config.mobile_volume_steps || 5;
+    }
+    
+    // Spotify
     if (spotify.data.status === 'success') {
       Object.assign(config.value.spotify, spotify.data.config);
     }
     
+    // Screen (avec timeout_enabled)
     if (screenTimeout.data.status === 'success') {
       Object.assign(config.value.screen, screenTimeout.data.config);
     }
@@ -360,20 +500,54 @@ async function loadAllConfigs() {
       Object.assign(config.value.screen, brightness.data.config);
     }
     
+    // Dock apps
+    if (dockApps.data.status === 'success') {
+      const enabledApps = dockApps.data.config.enabled_apps || ["librespot", "bluetooth", "roc", "multiroom", "equalizer"];
+      
+      // Convertir array vers objet pour les toggles
+      const appsObj = {};
+      ['librespot', 'bluetooth', 'roc', 'multiroom', 'equalizer'].forEach(app => {
+        appsObj[app] = enabledApps.includes(app);
+      });
+      
+      config.value.dock.apps = appsObj;
+    }
+    
   } catch (error) {
     console.error('Error loading configs:', error);
   }
 }
 
-// WebSocket listeners unifiés
+// === WEBSOCKET LISTENERS ===
 const wsListeners = {
   'language_changed': (msg) => i18n.handleLanguageChanged(msg.data?.language),
   'volume_limits_changed': (msg) => Object.assign(config.value.volume, msg.data?.limits || {}),
-  'volume_limits_toggled': (msg) => config.value.volume.limits_enabled = msg.data?.limits_enabled,
+  'volume_limits_toggled': (msg) => {
+    config.value.volume.limits_enabled = msg.data?.limits_enabled;
+    // Mettre à jour les limites locales aussi si elles sont dans la réponse
+    if (msg.data?.limits) {
+      Object.assign(config.value.volume, msg.data.limits);
+    }
+  },
   'volume_startup_changed': (msg) => Object.assign(config.value.volume, msg.data?.config || {}),
   'spotify_disconnect_changed': (msg) => Object.assign(config.value.spotify, msg.data?.config || {}),
   'screen_timeout_changed': (msg) => Object.assign(config.value.screen, msg.data?.config || {}),
-  'screen_brightness_changed': (msg) => Object.assign(config.value.screen, msg.data?.config || {})
+  'screen_brightness_changed': (msg) => Object.assign(config.value.screen, msg.data?.config || {}),
+  'dock_apps_changed': (msg) => {
+    if (msg.data?.config?.enabled_apps) {
+      const enabledApps = msg.data.config.enabled_apps;
+      const appsObj = {};
+      ['librespot', 'bluetooth', 'roc', 'multiroom', 'equalizer'].forEach(app => {
+        appsObj[app] = enabledApps.includes(app);
+      });
+      config.value.dock.apps = appsObj;
+    }
+  },
+  'volume_steps_changed': (msg) => {
+    if (msg.data?.config?.mobile_volume_steps) {
+      config.value.volume.mobile_volume_steps = msg.data.config.mobile_volume_steps;
+    }
+  }
 };
 
 onMounted(async () => {
@@ -438,6 +612,69 @@ onMounted(async () => {
   margin: var(--space-02) 0;
 }
 
+/* Interface */
+.dock-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+.app-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.app-group-title {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.app-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+  padding-left: var(--space-03);
+}
+
+.volume-controls-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.controls-description {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  margin-top: var(--space-01);
+}
+
+.volume-steps-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.volume-steps-control label {
+  color: var(--color-text-secondary);
+}
+
+.steps-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+}
+
+.steps-control > :first-child {
+  flex: 1;
+}
+
+.steps-value {
+  color: var(--color-text);
+  min-width: 40px;
+  text-align: right;
+}
+
 /* Volume */
 .volume-settings {
   display: flex;
@@ -445,21 +682,11 @@ onMounted(async () => {
   gap: var(--space-04);
 }
 
-.volume-limits-toggle {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.toggle-description {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
-}
-
 .volume-limits {
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
+  padding-left: var(--space-04);
 }
 
 .limit-group {
@@ -605,12 +832,18 @@ onMounted(async () => {
   text-align: right;
 }
 
-/* Spotify & Screen */
-.disconnect-timer,
+/* Screen */
+.screen-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
 .timeout-control {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
+  padding-left: var(--space-04);
 }
 
 .brightness-controls {
@@ -620,6 +853,13 @@ onMounted(async () => {
 }
 
 .brightness-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+/* Spotify */
+.disconnect-timer {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
@@ -746,8 +986,13 @@ onMounted(async () => {
   
   .limit-control,
   .timer-control,
-  .brightness-control {
+  .brightness-control,
+  .steps-control {
     gap: var(--space-04);
+  }
+  
+  .app-toggles {
+    gap: var(--space-03);
   }
 }
 

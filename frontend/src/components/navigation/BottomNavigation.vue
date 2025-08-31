@@ -1,4 +1,4 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vuz -->
+<!-- frontend/src/components/navigation/BottomNavigation.vue - Apps et steps configurables -->
 <template>
   <!-- Zone de drag invisible -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click.stop="onDragZoneClick"></div>
@@ -13,7 +13,7 @@
     <div v-if="additionalAppsInDOM" ref="additionalAppsContainer" class="additional-apps-container mobile-only"
       :class="{ visible: showAdditionalApps }">
 
-      <button v-for="{ id, icon, title, handler } in ADDITIONAL_ACTIONS" :key="id" @click="handler"
+      <button v-for="{ id, icon, title, handler } in enabledAdditionalActions" :key="id" @click="handler"
         @touchstart="addPressEffect" @mousedown="addPressEffect"
         class="additional-app-content button-interactive-subtle">
         <AppIcon :name="icon" :size="32" />
@@ -24,7 +24,7 @@
     <div ref="dock" class="dock">
       <!-- Volume Controls - Mobile uniquement -->
       <div class="volume-controls mobile-only">
-        <button v-for="{ icon, handler } in VOLUME_CONTROLS" :key="icon" @click="handler" @touchstart="addPressEffect"
+        <button v-for="{ icon, handler } in volumeControlsWithSteps" :key="icon" @click="handler" @touchstart="addPressEffect"
           @mousedown="addPressEffect" class="volume-btn button-interactive-subtle">
           <Icon :name="icon" :size="32" />
         </button>
@@ -33,23 +33,23 @@
       <!-- App Container -->
       <div class="app-container">
         <!-- Sources Audio -->
-        <button v-for="({ id, icon }, index) in AUDIO_SOURCES" :key="id" :ref="el => dockItems[index] = el"
+        <button v-for="({ id, icon }, index) in enabledAudioSources" :key="id" :ref="el => dockItems[index] = el"
           @click="() => handleSourceClick(id, index)" @touchstart="addPressEffect" @mousedown="addPressEffect"
           :disabled="unifiedStore.isTransitioning" class="dock-item button-interactive-subtle">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
-        <!-- Séparateur -->
-        <div class="dock-separator"></div>
+        <!-- Séparateur (seulement si on a des additional actions sur desktop) -->
+        <div v-if="enabledAdditionalActions.length > 0" class="dock-separator"></div>
 
-        <!-- Toggle Additional Apps - Mobile uniquement -->
-        <button @click="handleToggleClick" @touchstart="addPressEffect" @mousedown="addPressEffect"
+        <!-- Toggle Additional Apps - Mobile uniquement (seulement si on a des additional actions) -->
+        <button v-if="enabledAdditionalActions.length > 0" @click="handleToggleClick" @touchstart="addPressEffect" @mousedown="addPressEffect"
           class="dock-item toggle-btn mobile-only button-interactive">
           <Icon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
         <!-- Actions Desktop -->
-        <button v-for="{ id, icon, handler } in ADDITIONAL_ACTIONS" :key="`desktop-${id}`" @click="handler"
+        <button v-for="{ id, icon, handler } in enabledAdditionalActions" :key="`desktop-${id}`" @click="handler"
           @touchstart="addPressEffect" @mousedown="addPressEffect"
           class="dock-item desktop-only button-interactive-subtle">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
@@ -66,32 +66,49 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, getCurrentInstance } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useI18n } from '@/services/i18n'; 
+import useWebSocket from '@/services/websocket';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import Icon from '@/components/ui/Icon.vue';
 
 const { t } = useI18n();
 const instance = getCurrentInstance();
 const $t = instance.appContext.config.globalProperties.$t;
+const { on } = useWebSocket();
 
-// === CONFIGURATION ===
-const AUDIO_SOURCES = [
+// === CONFIGURATION STATIQUE ===
+const ALL_AUDIO_SOURCES = [
   { id: 'librespot', icon: 'spotify' },
   { id: 'bluetooth', icon: 'bluetooth' },
   { id: 'roc', icon: 'roc' }
 ];
 
-const ADDITIONAL_ACTIONS = computed(() => [
-  { id: 'multiroom', icon: 'multiroom', title: t('Multiroom'), handler: () => emit('open-snapcast') },
-  { id: 'equalizer', icon: 'equalizer', title: t('Égaliseur'), handler: () => emit('open-equalizer') }
-]);
+const ALL_ADDITIONAL_ACTIONS = [
+  { id: 'multiroom', icon: 'multiroom', title: computed(() => t('Multiroom')), handler: () => emit('open-snapcast') },
+  { id: 'equalizer', icon: 'equalizer', title: computed(() => t('Égaliseur')), handler: () => emit('open-equalizer') }
+];
+
+// === CONFIGURATION DYNAMIQUE ===
+const enabledApps = ref(["librespot", "bluetooth", "roc", "multiroom", "equalizer"]);
+const mobileVolumeSteps = ref(5);
+
+// Sources audio filtrées selon la config
+const enabledAudioSources = computed(() => 
+  ALL_AUDIO_SOURCES.filter(source => enabledApps.value.includes(source.id))
+);
+
+// Actions additionnelles filtrées selon la config
+const enabledAdditionalActions = computed(() => 
+  ALL_ADDITIONAL_ACTIONS.filter(action => enabledApps.value.includes(action.id))
+);
 
 // Store unifié pour volume ET audio
 const unifiedStore = useUnifiedAudioStore();
 
-const VOLUME_CONTROLS = [
-  { icon: 'minus', handler: () => unifiedStore.decreaseVolume() },
-  { icon: 'plus', handler: () => unifiedStore.increaseVolume() }
-];
+// Volume controls avec steps configurables
+const volumeControlsWithSteps = computed(() => [
+  { icon: 'minus', handler: () => unifiedStore.adjustVolume(-mobileVolumeSteps.value) },
+  { icon: 'plus', handler: () => unifiedStore.adjustVolume(mobileVolumeSteps.value) }
+]);
 
 // === ÉMISSIONS ===
 const emit = defineEmits(['open-snapcast', 'open-equalizer']);
@@ -118,7 +135,7 @@ let isDraggingAdditional = false, additionalDragStartY = 0, clickTimeout = null;
 
 // === COMPUTED ===
 const activeSourceIndex = computed(() =>
-  AUDIO_SOURCES.findIndex(source => source.id === unifiedStore.currentSource)
+  enabledAudioSources.value.findIndex(source => source.id === unifiedStore.currentSource)
 );
 
 const indicatorStyle = ref({
@@ -335,6 +352,31 @@ const addPressEffect = (e) => {
   setTimeout(() => button.classList.remove('is-pressed'), 150);
 };
 
+// === CHARGEMENT CONFIG INITIALE ===
+async function loadDockConfig() {
+  try {
+    const response = await fetch('/api/settings/dock-apps');
+    const data = await response.json();
+    if (data.status === 'success') {
+      enabledApps.value = data.config.enabled_apps || ["librespot", "bluetooth", "roc", "multiroom", "equalizer"];
+    }
+  } catch (error) {
+    console.error('Error loading dock config:', error);
+  }
+}
+
+async function loadVolumeStepsConfig() {
+  try {
+    const response = await fetch('/api/settings/volume-steps');
+    const data = await response.json();
+    if (data.status === 'success') {
+      mobileVolumeSteps.value = data.config.mobile_volume_steps || 5;
+    }
+  } catch (error) {
+    console.error('Error loading volume steps config:', error);
+  }
+}
+
 // === ÉVÉNEMENTS GLOBAUX ===
 const setupDragEvents = () => {
   const zone = dragZone.value;
@@ -381,8 +423,36 @@ const removeDragEvents = () => {
 // === LIFECYCLE ===
 watch(() => unifiedStore.currentSource, updateActiveIndicator);
 
-onMounted(() => {
+onMounted(async () => {
   setupDragEvents();
+  
+  // Charger les configs initiales
+  await loadDockConfig();
+  await loadVolumeStepsConfig();
+  
+  // WebSocket listeners pour config dynamique
+  on('settings', 'dock_apps_changed', (message) => {
+    if (message.data?.config?.enabled_apps) {
+      enabledApps.value = message.data.config.enabled_apps;
+      console.log('Dock apps config updated:', enabledApps.value);
+    }
+  });
+  
+  on('settings', 'volume_steps_changed', (message) => {
+    if (message.data?.config?.mobile_volume_steps) {
+      mobileVolumeSteps.value = message.data.config.mobile_volume_steps;
+      console.log('Volume steps config updated via settings:', mobileVolumeSteps.value);
+    }
+  });
+  
+  // Listener pour les volume_changed pour récupérer les steps du backend
+  on('volume', 'volume_changed', (message) => {
+    if (message.data?.mobile_steps && message.data.mobile_steps !== mobileVolumeSteps.value) {
+      mobileVolumeSteps.value = message.data.mobile_steps;
+      console.log('Volume steps updated via volume event:', mobileVolumeSteps.value);
+    }
+  });
+  
   setTimeout(() => showDragIndicator.value = true, 800);
 });
 
@@ -392,7 +462,6 @@ onUnmounted(() => {
 });
 </script>
 
-<!-- STYLES IDENTIQUES - pas de changements CSS -->
 <style scoped>
 /* [Tous les styles CSS restent identiques] */
 .drag-zone {

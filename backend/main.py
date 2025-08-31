@@ -1,6 +1,6 @@
-# backend/main.py - Version avec screen_controller injecté dans settings routes
+# backend/main.py
 """
-Point d'entrée principal de l'application Milo - Version avec SettingsService et screen_controller
+Point d'entrée principal de l'application Milo
 """
 import sys
 import os
@@ -9,6 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
 from contextlib import asynccontextmanager
+from time import monotonic
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config.container import container

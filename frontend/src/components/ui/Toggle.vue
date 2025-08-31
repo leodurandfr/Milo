@@ -1,7 +1,7 @@
-<!-- frontend/src/components/ui/Toggle.vue -->
+<!-- frontend/src/components/ui/Toggle.vue - Font corrigée -->
 <template>
   <div class="toggle-container">
-    <h3 v-if="title">{{ title }}</h3>
+    <h2 v-if="title" class="heading-2">{{ title }}</h2>
     
     <label :class="['toggle', `toggle--${variant}`]">
       <input 
@@ -52,8 +52,9 @@ function handleToggle(event) {
   gap: 12px;
 }
 
-.toggle-container h3 {
+.toggle-container h2 {
   margin: 0;
+  color: var(--color-text);
 }
 
 .toggle {

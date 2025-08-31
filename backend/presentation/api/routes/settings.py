@@ -1,13 +1,13 @@
 # backend/presentation/api/routes/settings.py
 """
-Routes Settings - Version OPTIM avec pattern unifié
+Routes Settings - Version OPTIM avec dock apps et volume steps
 """
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Callable, Optional
 from backend.infrastructure.services.settings_service import SettingsService
 
 def create_settings_router(ws_manager, volume_service, state_machine, screen_controller):
-    """Router settings avec pattern unifié"""
+    """Router settings avec pattern unifié + dock apps + volume steps"""
     router = APIRouter()
     settings = SettingsService()
     
@@ -103,12 +103,32 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
     async def toggle_volume_limits(payload: Dict[str, Any]):
         enabled = payload.get('enabled')
         
+        # Calculer les nouvelles limites
+        if enabled:
+            # Garder les valeurs actuelles
+            current_min = settings.get_setting('volume.alsa_min') or 0
+            current_max = settings.get_setting('volume.alsa_max') or 65
+        else:
+            # Forcer 0-100 quand on désactive
+            current_min = 0
+            current_max = 100
+        
         return await _handle_setting_update(
             payload,
             validator=lambda p: isinstance(p.get('enabled'), bool),
-            setter=lambda: settings.set_setting('volume.limits_enabled', enabled),
+            setter=lambda: (
+                settings.set_setting('volume.limits_enabled', enabled) and
+                settings.set_setting('volume.alsa_min', current_min) and
+                settings.set_setting('volume.alsa_max', current_max)
+            ),
             event_type="volume_limits_toggled",
-            event_data={"limits_enabled": enabled},
+            event_data={
+                "limits_enabled": enabled, 
+                "limits": {
+                    "alsa_min": current_min, 
+                    "alsa_max": current_max
+                }
+            },
             reload_callback=volume_service.reload_volume_limits
         )
     
@@ -142,6 +162,66 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             event_type="volume_startup_changed",
             event_data={"config": {"startup_volume": startup_volume, "restore_last_volume": restore_last_volume}},
             reload_callback=volume_service.reload_startup_config
+        )
+    
+    # NOUVEAU : Volume steps
+    @router.get("/volume-steps")
+    async def get_volume_steps():
+        vol = settings.get_setting('volume') or {}
+        return {
+            "status": "success",
+            "config": {"mobile_volume_steps": vol.get("mobile_volume_steps", 5)}
+        }
+    
+    @router.post("/volume-steps")
+    async def set_volume_steps(payload: Dict[str, Any]):
+        steps = payload.get('mobile_volume_steps')
+        
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: p.get('mobile_volume_steps') is not None and 1 <= p['mobile_volume_steps'] <= 10,
+            setter=lambda: settings.set_setting('volume.mobile_volume_steps', steps),
+            event_type="volume_steps_changed",
+            event_data={"config": {"mobile_volume_steps": steps}},
+            reload_callback=volume_service.reload_volume_steps_config
+        )
+    
+    # NOUVEAU : Dock apps
+    @router.get("/dock-apps")
+    async def get_dock_apps():
+        dock = settings.get_setting('dock') or {}
+        enabled_apps = dock.get('enabled_apps', ["spotify", "bluetooth", "roc", "multiroom", "equalizer"])
+        
+        return {
+            "status": "success",
+            "config": {"enabled_apps": enabled_apps}
+        }
+    
+    @router.post("/dock-apps")
+    async def set_dock_apps(payload: Dict[str, Any]):
+        enabled_apps = payload.get('enabled_apps', [])
+        
+        def validate_dock_apps(p):
+            apps = p.get('enabled_apps', [])
+            if not isinstance(apps, list):
+                return False
+            
+            # Vérifier que toutes les apps sont valides
+            valid_apps = ["librespot", "bluetooth", "roc", "multiroom", "equalizer"]
+            if not all(app in valid_apps for app in apps):
+                return False
+            
+            # Vérifier qu'au moins une source audio est activée
+            audio_sources = ["librespot", "bluetooth", "roc"]
+            enabled_audio_sources = [app for app in apps if app in audio_sources]
+            return len(enabled_audio_sources) > 0
+        
+        return await _handle_setting_update(
+            payload,
+            validator=validate_dock_apps,
+            setter=lambda: settings.set_setting('dock.enabled_apps', enabled_apps),
+            event_type="dock_apps_changed",
+            event_data={"config": {"enabled_apps": enabled_apps}}
         )
     
     # Spotify
@@ -182,19 +262,29 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
         screen = settings.get_setting('screen') or {}
         return {
             "status": "success",
-            "config": {"screen_timeout_seconds": screen.get("timeout_seconds", 10)}
+            "config": {
+                "screen_timeout_enabled": screen.get("timeout_enabled", True),
+                "screen_timeout_seconds": screen.get("timeout_seconds", 10)
+            }
         }
     
     @router.post("/screen-timeout")
     async def set_screen_timeout(payload: Dict[str, Any]):
+        timeout_enabled = payload.get('screen_timeout_enabled')
         timeout_seconds = payload.get('screen_timeout_seconds')
         
         return await _handle_setting_update(
             payload,
-            validator=lambda p: p.get('screen_timeout_seconds') is not None and 3 <= p['screen_timeout_seconds'] <= 3600,
-            setter=lambda: settings.set_setting('screen.timeout_seconds', timeout_seconds),
+            validator=lambda p: (
+                p.get('screen_timeout_enabled') is not None and isinstance(p['screen_timeout_enabled'], bool) and
+                p.get('screen_timeout_seconds') is not None and 3 <= p['screen_timeout_seconds'] <= 3600
+            ),
+            setter=lambda: (
+                settings.set_setting('screen.timeout_enabled', timeout_enabled) and
+                settings.set_setting('screen.timeout_seconds', timeout_seconds)
+            ),
             event_type="screen_timeout_changed",
-            event_data={"config": {"screen_timeout_seconds": timeout_seconds}},
+            event_data={"config": {"screen_timeout_enabled": timeout_enabled, "screen_timeout_seconds": timeout_seconds}},
             reload_callback=screen_controller.reload_timeout_config
         )
     

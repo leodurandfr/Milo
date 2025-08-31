@@ -1,6 +1,6 @@
 # backend/infrastructure/hardware/screen_controller.py
 """
-Contrôleur d'écran - Version OPTIM simplifiée
+Contrôleur d'écran - Version OPTIM avec settings configurables
 """
 import asyncio
 import logging
@@ -8,26 +8,67 @@ import os
 from time import monotonic
 
 class ScreenController:
-    """Contrôleur d'écran simplifié"""
+    """Contrôleur d'écran avec timeout et brightness configurables"""
     
     def __init__(self, state_machine, settings_service):
         self.state_machine = state_machine
         self.settings_service = settings_service
         self.logger = logging.getLogger(__name__)
         
-        # Commandes
-        backlight_binary = os.path.expanduser("~/RPi-USB-Brightness/64/lite/Raspi_USB_Backlight_nogui -b")
-        self.screen_on_cmd = f"sudo {backlight_binary} 5"
-        self.screen_off_cmd = f"sudo {backlight_binary} 0"
+        # Configuration depuis settings
+        self.timeout_enabled = True
+        self.timeout_seconds = 10
+        self.brightness_on = 5
+        
+        # Commandes dynamiques
+        self._update_screen_commands()
         self.touchscreen_device = "/dev/input/by-id/usb-WaveShare_WS170120_220211-event-if00"
         
         # État
-        self.timeout_seconds = 10
         self.last_activity_time = monotonic()
         self.screen_on = True
         self.running = False
         self.current_plugin_state = "inactive"
         self.touch_process = None
+    
+    def _update_screen_commands(self):
+        """Met à jour les commandes avec la luminosité depuis settings"""
+        backlight_binary = os.path.expanduser("~/RPi-USB-Brightness/64/lite/Raspi_USB_Backlight_nogui -b")
+        self.screen_on_cmd = f"sudo {backlight_binary} {self.brightness_on}"
+        self.screen_off_cmd = f"sudo {backlight_binary} 0"
+    
+    def _load_config(self):
+        """Charge la config complète depuis settings"""
+        try:
+            # Invalider le cache pour forcer reload
+            if hasattr(self.settings_service, '_cache'):
+                self.settings_service._cache = None
+            
+            screen_config = self.settings_service.get_setting('screen') or {}
+            self.timeout_enabled = screen_config.get('timeout_enabled', True)
+            self.timeout_seconds = screen_config.get('timeout_seconds', 10)
+            self.brightness_on = screen_config.get('brightness_on', 5)
+            
+            # Mettre à jour les commandes avec la nouvelle luminosité
+            self._update_screen_commands()
+                
+        except Exception as e:
+            self.logger.error(f"Error loading screen config: {e}")
+            # Fallback sur defaults
+            self.timeout_enabled = True
+            self.timeout_seconds = 10
+            self.brightness_on = 5
+            self._update_screen_commands()
+    
+    async def reload_timeout_config(self) -> bool:
+        """Recharge la config timeout/brightness"""
+        try:
+            self._load_config()
+            self.last_activity_time = monotonic()
+            return True
+        except Exception as e:
+            self.logger.error(f"Error reloading screen config: {e}")
+            return False
     
     async def initialize(self) -> bool:
         """Initialise le contrôleur"""
@@ -48,27 +89,6 @@ class ScreenController:
             self.logger.error(f"Failed to initialize: {e}")
             return False
     
-    def _load_config(self):
-        """Charge la config timeout"""
-        if self.settings_service:
-            timeout = self.settings_service.get_setting('screen.timeout_seconds')
-            if timeout is not None:
-                self.timeout_seconds = max(3, min(3600, int(timeout)))
-    
-    async def reload_timeout_config(self) -> bool:
-        """Recharge la config timeout"""
-        try:
-            old_timeout = self.timeout_seconds
-            self._load_config()
-            
-            if old_timeout != self.timeout_seconds:
-                self.logger.info(f"Timeout updated: {old_timeout}s → {self.timeout_seconds}s")
-            
-            return True
-        except Exception as e:
-            self.logger.error(f"Error reloading config: {e}")
-            return False
-    
     async def _screen_cmd(self, cmd):
         """Exécute une commande écran"""
         try:
@@ -77,10 +97,7 @@ class ScreenController:
             )
             await process.communicate()
             
-            if "5" in cmd:
-                self.screen_on = True
-            elif "0" in cmd:
-                self.screen_on = False
+            self.screen_on = str(self.brightness_on) in cmd
                 
         except Exception as e:
             self.logger.error(f"Screen command failed: {e}")
@@ -106,9 +123,14 @@ class ScreenController:
                 await asyncio.sleep(5)
     
     async def _monitor_timeout(self):
-        """Surveille le timeout"""
+        """Surveille le timeout avec vérification timeout_enabled"""
         while self.running:
             try:
+                # Vérifier que timeout est activé
+                if not self.timeout_enabled:
+                    await asyncio.sleep(5)
+                    continue
+                
                 time_since_activity = monotonic() - self.last_activity_time
                 
                 should_turn_off = (
@@ -127,7 +149,7 @@ class ScreenController:
                 await asyncio.sleep(10)
     
     async def _monitor_touch_events(self):
-        """Surveille les événements tactiles"""
+        """Surveille les événements tactiles avec luminosité configurée"""
         while self.running:
             try:
                 self.touch_process = await asyncio.create_subprocess_exec(
@@ -143,6 +165,7 @@ class ScreenController:
                         if line and "TOUCH_DOWN" in line.decode():
                             await self._screen_cmd(self.screen_on_cmd)
                             self.last_activity_time = monotonic()
+                                
                         elif not line:
                             break
                             

@@ -1,6 +1,6 @@
 # backend/infrastructure/services/volume_service.py
 """
-Service de gestion du volume pour Milo - Version avec startup volume configurable
+Service de gestion du volume pour Milo - Version avec volume steps configurables
 """
 import asyncio
 import logging
@@ -14,7 +14,7 @@ from pathlib import Path
 from backend.infrastructure.services.settings_service import SettingsService
 
 class VolumeService:
-    """Service de gestion du volume système - Version avec startup volume configurable"""
+    """Service de gestion du volume système - Version avec volume steps configurables"""
     
     # Fichier pour sauvegarder le dernier volume
     LAST_VOLUME_FILE = Path("/var/lib/milo/last_volume.json")
@@ -60,16 +60,17 @@ class VolumeService:
             self.logger.error(f"Failed to create data directory: {e}")
     
     def _load_volume_config(self) -> None:
-        """Charge la configuration volume depuis settings"""
+        """Charge la configuration volume depuis settings avec cache invalidé"""
         try:
+            # Invalider le cache du SettingsService pour forcer reload
+            self.settings_service._cache = None
+            
             volume_config = self.settings_service.get_volume_config()
             self._alsa_min_volume = volume_config["alsa_min"]
             self._alsa_max_volume = volume_config["alsa_max"]
             self._default_startup_display_volume = volume_config["startup_volume"]
             self._restore_last_volume = volume_config["restore_last_volume"]
             self._mobile_volume_steps = volume_config["mobile_volume_steps"]
-            
-            self.logger.info(f"Volume config loaded: ALSA({self._alsa_min_volume}-{self._alsa_max_volume}), startup={self._default_startup_display_volume}% (restore_last={self._restore_last_volume}), steps={self._mobile_volume_steps}")
             
         except Exception as e:
             self.logger.error(f"Error loading volume config, using defaults: {e}")
@@ -162,6 +163,9 @@ class VolumeService:
             old_alsa_min = self._alsa_min_volume
             old_alsa_max = self._alsa_max_volume
             
+            # CORRECTION : Invalider le cache SettingsService AVANT de recharger
+            self.settings_service._cache = None
+            
             # Recharger la config
             self._load_volume_config()
             
@@ -190,7 +194,7 @@ class VolumeService:
                     self._current_display_volume = new_display_volume
                     await self._broadcast_volume_change(show_bar=False)
             
-            self.logger.info(f"Volume limits reloaded successfully")
+            self.logger.info("Volume limits reloaded successfully")
             return True
             
         except Exception as e:
@@ -217,6 +221,26 @@ class VolumeService:
             
         except Exception as e:
             self.logger.error(f"Error reloading startup config: {e}")
+            return False
+
+    # NOUVEAU : Reload volume steps seulement
+    async def reload_volume_steps_config(self) -> bool:
+        """Recharge SEULEMENT les volume steps sans toucher au volume actuel"""
+        try:
+            # CORRECTION : Invalider le cache SettingsService pour forcer reload
+            self.settings_service._cache = None
+            
+            # Recharger seulement les steps
+            volume_config = self.settings_service.get_volume_config()
+            self._mobile_volume_steps = volume_config["mobile_volume_steps"]
+            
+            # Diffuser le changement via WebSocket
+            await self._broadcast_volume_change(show_bar=False)
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error reloading volume steps: {e}")
             return False
 
     async def sync_current_volume_to_all_snapcast_clients(self) -> bool:
@@ -583,7 +607,7 @@ class VolumeService:
             self.logger.info(f"Adjustment burst: {self._adjustment_count} changes in {duration:.2f}s")
     
     async def _broadcast_volume_change_fast(self, show_bar: bool = True) -> None:
-        """Broadcast optimisé pour rapidité"""
+        """Broadcast optimisé pour rapidité AVEC mobile_steps"""
         try:
             await self.state_machine.broadcast_event("volume", "volume_changed", {
                 "volume": self._current_display_volume,
@@ -597,7 +621,7 @@ class VolumeService:
                 self.logger.error(f"Error in fast broadcast: {e}")
     
     async def _broadcast_volume_change(self, show_bar: bool = True) -> None:
-        """Broadcast standard"""
+        """Broadcast standard AVEC mobile_steps"""
         await self._broadcast_volume_change_fast(show_bar)
     
     async def _set_startup_volume_direct(self, alsa_volume: int) -> bool:
@@ -673,7 +697,7 @@ class VolumeService:
     # === STATUS AVEC STARTUP CONFIG ===
     
     async def get_status(self) -> dict:
-        """Récupère l'état complet du volume avec configuration startup"""
+        """Récupère l'état complet du volume avec configuration startup et mobile steps"""
         try:
             multiroom_enabled = self._is_multiroom_enabled()
             display_volume = self._current_display_volume
