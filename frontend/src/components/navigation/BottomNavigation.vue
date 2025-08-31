@@ -1,4 +1,4 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vue - Apps et steps configurables -->
+<!-- frontend/src/components/navigation/BottomNavigation.vue - Apps et steps configurables avec hold-to-repeat volume -->
 <template>
   <!-- Zone de drag invisible -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click.stop="onDragZoneClick"></div>
@@ -22,10 +22,16 @@
     </div>
 
     <div ref="dock" class="dock">
-      <!-- Volume Controls - Mobile uniquement -->
+      <!-- Volume Controls - Mobile uniquement avec hold-to-repeat -->
       <div class="volume-controls mobile-only">
-        <button v-for="{ icon, handler } in volumeControlsWithSteps" :key="icon" @click="handler" @touchstart="addPressEffect"
-          @mousedown="addPressEffect" class="volume-btn button-interactive-subtle">
+        <button v-for="{ icon, handler, delta } in volumeControlsWithSteps" :key="icon" 
+          @mousedown="(e) => onVolumeHoldStart(delta, e)" 
+          @touchstart="(e) => onVolumeHoldStart(delta, e)"
+          @mouseup="onVolumeHoldEnd"
+          @touchend="onVolumeHoldEnd"
+          @mouseleave="onVolumeHoldEnd"
+          @touchcancel="onVolumeHoldEnd"
+          class="volume-btn button-interactive-subtle">
           <Icon :name="icon" :size="32" />
         </button>
       </div>
@@ -104,10 +110,10 @@ const enabledAdditionalActions = computed(() =>
 // Store unifié pour volume ET audio
 const unifiedStore = useUnifiedAudioStore();
 
-// Volume controls avec steps configurables
+// Volume controls avec steps configurables et delta pour hold-to-repeat
 const volumeControlsWithSteps = computed(() => [
-  { icon: 'minus', handler: () => unifiedStore.adjustVolume(-mobileVolumeSteps.value) },
-  { icon: 'plus', handler: () => unifiedStore.adjustVolume(mobileVolumeSteps.value) }
+  { icon: 'minus', handler: () => unifiedStore.adjustVolume(-mobileVolumeSteps.value), delta: -mobileVolumeSteps.value },
+  { icon: 'plus', handler: () => unifiedStore.adjustVolume(mobileVolumeSteps.value), delta: mobileVolumeSteps.value }
 ]);
 
 // === ÉMISSIONS ===
@@ -128,6 +134,12 @@ const isDragging = ref(false);
 const showAdditionalApps = ref(false);
 const showDragIndicator = ref(false);
 const additionalAppsInDOM = ref(false);
+
+// === HOLD-TO-REPEAT VOLUME ===
+const volumeHoldTimer = ref(null);
+const volumeRepeatTimer = ref(null);
+const isVolumeHolding = ref(false);
+const currentVolumeDelta = ref(0);
 
 // === VARIABLES INTERNES ===
 let dragStartY = 0, dragCurrentY = 0, hideTimeout = null, additionalHideTimeout = null;
@@ -151,7 +163,9 @@ const getEventY = (e) => e.type.includes('touch')
 const isDesktop = () => window.matchMedia('not (max-aspect-ratio: 4/3)').matches;
 
 const clearAllTimers = () => {
-  [hideTimeout, additionalHideTimeout, clickTimeout].forEach(clearTimeout);
+  [hideTimeout, additionalHideTimeout, clickTimeout, volumeHoldTimer.value, volumeRepeatTimer.value].forEach(clearTimeout);
+  volumeHoldTimer.value = null;
+  volumeRepeatTimer.value = null;
 };
 
 const startHideTimer = () => {
@@ -160,6 +174,60 @@ const startHideTimer = () => {
 };
 
 const resetHideTimer = () => isVisible.value && startHideTimer();
+
+// === HOLD-TO-REPEAT VOLUME ===
+const onVolumeHoldStart = (delta, event) => {
+  // Empêcher le comportement par défaut et la propagation
+  event.preventDefault();
+  event.stopPropagation();
+  
+  // Nettoyer les timers précédents
+  onVolumeHoldEnd();
+  
+  // Marquer le début du hold
+  isVolumeHolding.value = true;
+  currentVolumeDelta.value = delta;
+  
+  // Effet visuel immédiat
+  addPressEffect(event);
+  
+  // Premier ajustement immédiat
+  unifiedStore.adjustVolume(delta);
+  
+  // Délai avant répétition (500ms)
+  volumeHoldTimer.value = setTimeout(() => {
+    if (isVolumeHolding.value) {
+      // Commencer la répétition (150ms entre chaque)
+      volumeRepeatTimer.value = setInterval(() => {
+        if (isVolumeHolding.value) {
+          unifiedStore.adjustVolume(currentVolumeDelta.value);
+        } else {
+          clearInterval(volumeRepeatTimer.value);
+          volumeRepeatTimer.value = null;
+        }
+      }, 25);
+    }
+  }, 400);
+  
+  resetHideTimer();
+};
+
+const onVolumeHoldEnd = () => {
+  isVolumeHolding.value = false;
+  
+  // Nettoyer tous les timers de volume
+  if (volumeHoldTimer.value) {
+    clearTimeout(volumeHoldTimer.value);
+    volumeHoldTimer.value = null;
+  }
+  
+  if (volumeRepeatTimer.value) {
+    clearInterval(volumeRepeatTimer.value);
+    volumeRepeatTimer.value = null;
+  }
+  
+  currentVolumeDelta.value = 0;
+};
 
 // === ACTIONS ===
 const handleSourceClick = (sourceId, index) => {
@@ -258,6 +326,9 @@ const hideDock = () => {
   clearAllTimers();
   indicatorStyle.value.opacity = '0';
   setTimeout(() => additionalAppsInDOM.value = false, 400);
+  
+  // Arrêter le hold-to-repeat si le dock se cache
+  onVolumeHoldEnd();
 };
 
 // === GESTION DES CLICS ===
@@ -285,6 +356,9 @@ const onIndicatorClick = () => {
 
 // === GESTION DU DRAG ===
 const onDragStart = (e) => {
+  // Ne pas commencer le drag si on est en train de faire du volume hold
+  if (isVolumeHolding.value) return;
+  
   isDragging.value = true;
   dragStartY = getEventY(e);
   dragCurrentY = dragStartY;
@@ -397,6 +471,11 @@ const setupDragEvents = () => {
   document.addEventListener('touchmove', onDragMove, { passive: false });
   document.addEventListener('touchend', onDragEnd);
   document.addEventListener('click', onClickOutside);
+  
+  // Événements globaux pour arrêter le volume hold si nécessaire
+  document.addEventListener('mouseup', onVolumeHoldEnd);
+  document.addEventListener('touchend', onVolumeHoldEnd);
+  document.addEventListener('touchcancel', onVolumeHoldEnd);
 };
 
 const removeDragEvents = () => {
@@ -418,6 +497,11 @@ const removeDragEvents = () => {
   document.removeEventListener('touchmove', onDragMove);
   document.removeEventListener('touchend', onDragEnd);
   document.removeEventListener('click', onClickOutside);
+  
+  // Nettoyer les événements volume hold
+  document.removeEventListener('mouseup', onVolumeHoldEnd);
+  document.removeEventListener('touchend', onVolumeHoldEnd);
+  document.removeEventListener('touchcancel', onVolumeHoldEnd);
 };
 
 // === LIFECYCLE ===
@@ -459,6 +543,7 @@ onMounted(async () => {
 onUnmounted(() => {
   removeDragEvents();
   clearAllTimers();
+  onVolumeHoldEnd(); // S'assurer que tout est nettoyé
 });
 </script>
 
@@ -619,6 +704,9 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
   padding: var(--space-02);
   transition: all var(--transition-spring);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .app-container {
