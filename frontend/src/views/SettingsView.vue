@@ -1,151 +1,169 @@
-<!-- frontend/src/views/SettingsView.vue - Structure simplifiée avec toggle écran -->
+<!-- frontend/src/views/SettingsView.vue - Version Modal avec clic+drag scroll -->
 <template>
   <div class="settings-view">
-    <!-- Header -->
-    <div class="settings-header">
-      <div class="back-button-wrapper">
-        <IconButton icon="caretLeft" variant="dark" @click="goBack" />
-        <h1 class="heading-1">{{ $t('Configuration') }}</h1>
-      </div>
-    </div>
-
-    <!-- Contenu -->
-    <div class="settings-content">
-      <!-- Interface -->
-      <section class="settings-section">
-        <h2 class="heading-2">{{ $t('Interface') }}</h2>
+    <div class="settings-modal">
+      <!-- Contenu scrollable avec header à l'intérieur -->
+      <div 
+        class="modal-content" 
+        ref="modalContent"
+        @pointerdown="handlePointerDown" 
+        @pointermove="handlePointerMove"
+        @pointerup="handlePointerUp" 
+        @pointercancel="handlePointerUp"
+      >
         
-        <!-- Applications du dock -->
-        <div class="dock-settings">
-          <h3 class="heading-2">{{ $t('Applications') }}</h3>
+        <!-- Header noir avec bouton retour -->
+        <div class="modal-header">
+          <div class="back-button-wrapper">
+            <IconButton icon="caretLeft" variant="dark" @click="goBack" />
+            <h1 class="heading-2">{{ t('Configuration de Milō') }}</h1>
+          </div>
+        </div>
+        
+        <!-- 1. Languages -->
+        <section class="settings-section">
+          <h2 class="heading-2">{{ t('Languages') }}</h2>
+          
+          <div class="language-grid">
+            <button 
+              v-for="language in availableLanguages" 
+              :key="language.code"
+              @click="updateSetting('language', { language: language.code })"
+              :class="['language-button', { active: currentLanguage === language.code }]"
+            >
+              <span class="language-flag">{{ language.flag }}</span>
+              <span class="language-name heading-2">{{ language.name }}</span>
+              <div v-if="currentLanguage === language.code" class="active-indicator"></div>
+            </button>
+          </div>
+        </section>
+
+        <!-- 2. Applications -->
+        <section class="settings-section">
+          <h2 class="heading-2">{{ t('Applications') }}</h2>
           
           <!-- Sources audio -->
           <div class="app-group">
-            <h4 class="app-group-title text-mono">{{ $t('Sources audio') }}</h4>
+            <h3 class="app-group-title text-body">{{ t('Sources audio') }}</h3>
             
-            <div class="app-toggles">
-              <Toggle 
-                v-model="config.dock.apps.librespot" 
-                title="Spotify"
-                :disabled="!canDisableAudioSource('librespot')"
-                @change="updateDockApps"
-              />
-              <Toggle 
-                v-model="config.dock.apps.bluetooth" 
-                title="Bluetooth"
-                :disabled="!canDisableAudioSource('bluetooth')"
-                @change="updateDockApps"
-              />
-              <Toggle 
-                v-model="config.dock.apps.roc" 
-                title="Audio macOS"
-                :disabled="!canDisableAudioSource('roc')"
-                @change="updateDockApps"
-              />
+            <div class="app-list">
+              <div class="app-item">
+                <div class="app-info">
+                  <AppIcon name="spotify" :size="32" />
+                  <span class="app-name text-body">Spotify</span>
+                </div>
+                <Toggle 
+                  v-model="config.dock.apps.librespot" 
+                  variant="primary"
+                  :disabled="!canDisableAudioSource('librespot')"
+                  @change="updateDockApps"
+                />
+              </div>
+
+              <div class="app-item">
+                <div class="app-info">
+                  <AppIcon name="bluetooth" :size="32" />
+                  <span class="app-name text-body">Bluetooth</span>
+                </div>
+                <Toggle 
+                  v-model="config.dock.apps.bluetooth" 
+                  variant="primary"
+                  :disabled="!canDisableAudioSource('bluetooth')"
+                  @change="updateDockApps"
+                />
+              </div>
+
+              <div class="app-item">
+                <div class="app-info">
+                  <AppIcon name="roc" :size="32" />
+                  <span class="app-name text-body">{{ t('Réception audio macOS') }}</span>
+                </div>
+                <Toggle 
+                  v-model="config.dock.apps.roc" 
+                  variant="primary"
+                  :disabled="!canDisableAudioSource('roc')"
+                  @change="updateDockApps"
+                />
+              </div>
             </div>
           </div>
 
           <!-- Fonctionnalités -->
           <div class="app-group">
-            <h4 class="app-group-title text-mono">{{ $t('Fonctionnalités') }}</h4>
+            <h3 class="app-group-title text-body">{{ t('Fonctionnalités') }}</h3>
             
-            <div class="app-toggles">
-              <Toggle 
-                v-model="config.dock.apps.multiroom" 
-                title="Multiroom"
-                @change="updateDockApps"
-              />
-              <Toggle 
-                v-model="config.dock.apps.equalizer" 
-                title="Égaliseur"
-                @change="updateDockApps"
+            <div class="app-list">
+              <div class="app-item">
+                <div class="app-info">
+                  <AppIcon name="multiroom" :size="32" />
+                  <span class="app-name text-body">Multiroom</span>
+                </div>
+                <Toggle 
+                  v-model="config.dock.apps.multiroom" 
+                  variant="primary"
+                  @change="updateDockApps"
+                />
+              </div>
+
+              <div class="app-item">
+                <div class="app-info">
+                  <AppIcon name="equalizer" :size="32" />
+                  <span class="app-name text-body">{{ t('Égaliseur') }}</span>
+                </div>
+                <Toggle 
+                  v-model="config.dock.apps.equalizer" 
+                  variant="primary"
+                  @change="updateDockApps"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. Volume -->
+        <section class="settings-section">
+          <h2 class="heading-2">{{ t('Volume') }}</h2>
+          
+          <!-- Contrôles du volume -->
+          <div class="volume-group">
+            <h3 class="text-body">{{ t('Contrôles du volume') }}</h3>
+            <div class="volume-description text-mono">
+              {{ t('Incrémentation des boutons volume en mobile') }}
+            </div>
+            
+            <div class="volume-steps-control">
+              <RangeSlider 
+                v-model="config.volume.mobile_volume_steps" 
+                :min="1" 
+                :max="10" 
+                :step="1"
+                value-unit="%"
+                @input="debouncedUpdate('volume-steps', { mobile_volume_steps: $event })"
               />
             </div>
           </div>
 
           <div class="settings-separator"></div>
 
-          <!-- Contrôles volume mobile -->
-          <div class="volume-controls-settings">
-            <h3 class="heading-2">{{ $t('Contrôles volume mobile') }}</h3>
-            <div class="controls-description text-mono">
-              {{ $t('Incrémentation des boutons de volume via le dock en mobile') }}
+          <!-- Limites du volume -->
+          <div class="volume-group">
+            <h3 class="text-body">{{ t('Limites du volume') }}</h3>
+            <div class="volume-description text-mono">
+              {{ t('Volume minimal et maximal') }}
             </div>
             
-            <div class="volume-steps-control">
-              <label class="text-mono">{{ $t('Incrément') }}</label>
-              <div class="steps-control">
-                <RangeSlider 
-                  v-model="config.volume.mobile_volume_steps" 
-                  :min="1" 
-                  :max="10" 
-                  :step="1"
-                  @input="debouncedUpdate('volume-steps', { mobile_volume_steps: $event })"
-                />
-                <span class="steps-value text-mono">{{ config.volume.mobile_volume_steps }}%</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Volume -->
-      <section class="settings-section">
-        <h2 class="heading-2">{{ $t('Volume') }}</h2>
-        
-        <div class="volume-settings">
-          <!-- Toggle limites -->
-          <Toggle 
-            v-model="config.volume.limits_enabled" 
-            :title="$t('Limites de volume')"
-            @change="updateVolumeLimitsToggle"
-          />
-
-          <!-- Sliders limites (seulement si activées) -->
-          <div v-if="config.volume.limits_enabled" class="volume-limits">
-            <div class="limit-group">
-              <label class="text-mono">{{ $t('Volume minimum') }}</label>
-              <div class="limit-control">
-                <RangeSlider 
-                  v-model="config.volume.alsa_min" 
-                  :min="0" 
-                  :max="Math.max(0, config.volume.alsa_max - 10)" 
-                  :step="1"
-                  @input="updateVolumeLimits"
-                />
-                <span class="limit-value text-mono">{{ config.volume.alsa_min }}</span>
-              </div>
-            </div>
-
-            <div class="limit-group">
-              <label class="text-mono">{{ $t('Volume maximum') }}</label>
-              <div class="limit-control">
-                <RangeSlider 
-                  v-model="config.volume.alsa_max" 
-                  :min="Math.min(100, config.volume.alsa_min + 10)" 
-                  :max="100" 
-                  :step="1"
-                  @input="updateVolumeLimits"
-                />
-                <span class="limit-value text-mono">{{ config.volume.alsa_max }}</span>
-              </div>
-            </div>
-
-            <!-- Preview range -->
-            <div class="volume-preview">
-              <div class="preview-label text-mono">{{ $t('Plage de volume résultante') }}</div>
-              <div class="range-bar">
-                <div 
-                  class="range-fill" 
-                  :style="{ 
-                    left: `${config.volume.alsa_min}%`, 
-                    width: `${config.volume.alsa_max - config.volume.alsa_min}%` 
-                  }"
-                ></div>
-              </div>
-              <div class="range-labels text-mono">
-                <span>{{ config.volume.alsa_min }}%</span>
-                <span>{{ config.volume.alsa_max }}%</span>
+            <div class="volume-limits-control">
+              <DoubleRangeSlider 
+                v-model="config.volume.limits"
+                :min="0" 
+                :max="100" 
+                :step="1"
+                :gap="10"
+                @input="updateVolumeLimits"
+              />
+              <div class="range-values text-mono">
+                <span>{{ config.volume.limits.min }}%</span>
+                <span>{{ config.volume.limits.max }}%</span>
               </div>
             </div>
           </div>
@@ -153,155 +171,126 @@
           <div class="settings-separator"></div>
 
           <!-- Volume au démarrage -->
-          <div class="startup-volume-settings">
-            <h3 class="heading-2">{{ $t('Volume au démarrage') }}</h3>
+          <div class="volume-group">
+            <h3 class="text-body">{{ t('Volume au démarrage') }}</h3>
             
-            <div class="startup-mode-selector">
-              <button 
+            <div class="startup-mode-buttons">
+              <Button 
+                variant="toggle" 
+                :active="!config.volume.restore_last_volume"
                 @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: false })"
-                :class="['mode-button', { active: !config.volume.restore_last_volume }]"
               >
-                <div class="mode-content">
-                  <div class="mode-title heading-2">{{ $t('Volume fixe') }}</div>
-                  <div class="mode-description text-mono">{{ $t('Utilise toujours le même volume') }}</div>
-                  <div v-if="!config.volume.restore_last_volume" class="active-indicator"></div>
-                </div>
-              </button>
-
-              <button 
+                {{ t('Volume fixe') }}
+              </Button>
+              <Button 
+                variant="toggle" 
+                :active="config.volume.restore_last_volume"
                 @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: true })"
-                :class="['mode-button', { active: config.volume.restore_last_volume }]"
               >
-                <div class="mode-content">
-                  <div class="mode-title heading-2">{{ $t('Restaurer le dernier') }}</div>
-                  <div class="mode-description text-mono">{{ $t('Reprend le volume avant redémarrage') }}</div>
-                  <div v-if="config.volume.restore_last_volume" class="active-indicator"></div>
-                </div>
-              </button>
+                {{ t('Restaurer le dernier') }}
+              </Button>
             </div>
 
-            <!-- Volume fixe slider -->
+            <!-- Volume fixe slider (sans container background) -->
             <div v-if="!config.volume.restore_last_volume" class="fixed-volume-control">
-              <label class="text-mono">{{ $t('Volume fixe au démarrage') }}</label>
-              <div class="startup-control">
+              <div class="volume-description text-mono">
+                {{ t('Volume fixe au démarrage') }}
+              </div>
+              <div class="startup-volume-control">
                 <RangeSlider 
                   v-model="config.volume.startup_volume" 
                   :min="0" 
                   :max="100" 
                   :step="1"
+                  value-unit="%"
                   @input="debouncedUpdate('volume-startup', { startup_volume: $event, restore_last_volume: false })"
                 />
-                <span class="startup-value text-mono">{{ config.volume.startup_volume }}%</span>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <!-- Spotify -->
-      <section class="settings-section">
-        <h2 class="heading-2">{{ $t('Spotify') }}</h2>
-        
-        <div class="disconnect-timer">
-          <label class="text-mono">{{ $t('Déconnexion automatique après pause') }}</label>
-          <div class="timer-control">
-            <RangeSlider 
-              v-model="config.spotify.auto_disconnect_delay" 
-              :min="1" 
-              :max="300" 
-              :step="1"
-              @input="debouncedUpdate('spotify-disconnect', { auto_disconnect_delay: $event })"
-            />
-            <span class="timer-value text-mono">{{ formatDuration(config.spotify.auto_disconnect_delay) }}</span>
-          </div>
-          <div class="timer-description text-mono">
-            {{ $t('Spotify se déconnecte automatiquement après ce délai en pause') }}
-          </div>
-        </div>
-      </section>
-
-      <!-- Écran -->
-      <section class="settings-section">
-        <h2 class="heading-2">{{ $t('Écran') }}</h2>
-        
-        <div class="screen-settings">
-          <!-- Toggle mise en veille -->
-          <Toggle 
-            v-model="config.screen.timeout_enabled" 
-            :title="$t('Mise en veille automatique')"
-            @change="updateScreenTimeout"
-          />
-
-          <!-- Timeout (seulement si activé) -->
-          <div v-if="config.screen.timeout_enabled" class="timeout-control">
-            <label class="text-mono">{{ $t('Délai de mise en veille') }}</label>
-            <div class="timer-control">
+        <!-- 4. Écran -->
+        <section class="settings-section">
+          <h2 class="heading-2">{{ t('Écran') }}</h2>
+          
+          <!-- Luminosité -->
+          <div class="screen-group">
+            <h3 class="text-body">{{ t('Luminosité') }}</h3>
+            <div class="screen-description text-mono">
+              {{ t('Intensité de la luminosité') }}
+            </div>
+            
+            <div class="brightness-control">
               <RangeSlider 
-                v-model="config.screen.screen_timeout_seconds" 
-                :min="3" 
-                :max="3600" 
+                v-model="config.screen.brightness_on" 
+                :min="1" 
+                :max="10" 
                 :step="1"
-                @input="updateScreenTimeout"
+                value-unit=""
+                @input="handleBrightnessChange"
               />
-              <span class="timer-value text-mono">{{ formatDuration(config.screen.screen_timeout_seconds) }}</span>
             </div>
           </div>
 
           <div class="settings-separator"></div>
 
-          <!-- Luminosité -->
-          <div class="brightness-controls">
-            <h3 class="heading-2">{{ $t('Luminosité') }}</h3>
+          <!-- Mise en veille automatique -->
+          <div class="screen-group">
+            <h3 class="text-body">{{ t('Mise en veille automatique') }}</h3>
+            <div class="screen-description text-mono">
+              {{ t('Délai de la mise en veille après :') }}
+            </div>
             
-            <div class="brightness-group">
-              <label class="text-mono">{{ $t('Écran allumé') }}</label>
-              <div class="brightness-control">
-                <RangeSlider 
-                  v-model="config.screen.brightness_on" 
-                  :min="1" 
-                  :max="10" 
-                  :step="1"
-                  @input="handleBrightnessChange"
-                />
-                <span class="brightness-value text-mono">{{ config.screen.brightness_on }}</span>
-              </div>
-              <div class="brightness-description text-mono">
-                {{ $t('Appliqué instantanément pendant l\'utilisation') }}
-              </div>
+            <div class="timeout-buttons">
+              <Button 
+                v-for="timeout in timeoutPresets" 
+                :key="timeout.value"
+                variant="toggle" 
+                :active="isTimeoutActive(timeout.value)"
+                @click="setScreenTimeout(timeout.value)"
+              >
+                {{ timeout.label }}
+              </Button>
             </div>
           </div>
-        </div>
-      </section>
-      
-      <!-- Langue -->
-      <section class="settings-section">
-        <h2 class="heading-2">{{ $t('Langue') }}</h2>
-        
-        <div class="language-selector">
-          <button 
-            v-for="language in availableLanguages" 
-            :key="language.code"
-            @click="updateSetting('language', { language: language.code })"
-            :class="['language-button', { active: currentLanguage === language.code }]"
-          >
-            <span class="language-flag">{{ language.flag }}</span>
-            <span class="language-name heading-2">{{ language.name }}</span>
-            <div v-if="currentLanguage === language.code" class="active-indicator"></div>
-          </button>
-        </div>
-      </section>
+        </section>
 
-      <!-- Informations -->
-      <section class="settings-section">
-        <h2 class="heading-2">{{ $t('Informations') }}</h2>
-        
-        <div class="info-grid">
-          <div class="info-item">
-            <span class="info-label text-mono">Version</span>
-            <span class="info-value text-mono">1.0.0</span>
+        <!-- 5. Spotify -->
+        <section class="settings-section">
+          <h2 class="heading-2">{{ t('Spotify') }}</h2>
+          
+          <div class="spotify-group">
+            <h3 class="text-body">{{ t('Déconnexion automatique') }}</h3>
+            <div class="spotify-description text-mono">
+              {{ t('Délai de déconnexion après que la musique soit en pause pendant :') }}
+            </div>
+            
+            <div class="disconnect-buttons">
+              <Button 
+                v-for="delay in disconnectPresets" 
+                :key="delay.value"
+                variant="toggle" 
+                :active="isDisconnectActive(delay.value)"
+                @click="setSpotifyDisconnect(delay.value)"
+              >
+                {{ delay.label }}
+              </Button>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+
+        <!-- 6. Informations -->
+        <section class="settings-section">
+          <h2 class="heading-2">{{ t('Informations') }}</h2>
+          
+          <div class="info-item">
+            <span class="info-label text-mono">{{ t('Version de Milo') }}</span>
+            <span class="info-value text-mono">0.1.0</span>
+          </div>
+        </section>
+
+      </div>
     </div>
   </div>
 </template>
@@ -314,30 +303,31 @@ import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
+import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
+import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
+import AppIcon from '@/components/ui/AppIcon.vue';
 import axios from 'axios';
 
 const router = useRouter();
-const { setLanguage, getAvailableLanguages, getCurrentLanguage } = useI18n();
+const { t, setLanguage, getAvailableLanguages, getCurrentLanguage } = useI18n();
 const { on } = useWebSocket();
 
 // Configuration unifiée 
 const config = ref({
   volume: {
-    limits_enabled: true,
-    alsa_min: 0,
-    alsa_max: 65,
+    mobile_volume_steps: 5,
+    limits: { min: 0, max: 65 },
     restore_last_volume: false,
-    startup_volume: 37,
-    mobile_volume_steps: 5
+    startup_volume: 37
+  },
+  screen: {
+    brightness_on: 5,
+    timeout_enabled: true,
+    timeout_seconds: 10
   },
   spotify: {
     auto_disconnect_delay: 10.0
-  },
-  screen: {
-    timeout_enabled: true,
-    screen_timeout_seconds: 10,
-    brightness_on: 5
   },
   dock: {
     apps: {
@@ -353,15 +343,31 @@ const config = ref({
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
 
+// === PRESETS ===
+const timeoutPresets = computed(() => [
+  { value: 10, label: t('10s') },
+  { value: 180, label: t('3 min') },
+  { value: 900, label: t('15 min') },
+  { value: 1800, label: t('30 min') },
+  { value: 3600, label: t('1 h') },
+  { value: 0, label: t('Jamais') }
+]);
+
+const disconnectPresets = computed(() => [
+  { value: 10, label: t('10s') },
+  { value: 180, label: t('3 min') },
+  { value: 900, label: t('15 min') },
+  { value: 1800, label: t('30 min') },
+  { value: 3600, label: t('1 h') },
+  { value: 0, label: t('Jamais') }
+]);
+
 // === VALIDATION DOCK APPS ===
 function canDisableAudioSource(sourceId) {
-  // Compter les sources audio actuellement activées
   const audioSources = ['librespot', 'bluetooth', 'roc'];
   const enabledAudioSources = audioSources.filter(source => 
     config.value.dock.apps[source] && source !== sourceId
   );
-  
-  // On peut désactiver seulement s'il reste au moins une autre source activée
   return enabledAudioSources.length > 0;
 }
 
@@ -369,18 +375,80 @@ function getEnabledAppsArray() {
   return Object.keys(config.value.dock.apps).filter(app => config.value.dock.apps[app]);
 }
 
-// === HANDLERS ===
-function formatDuration(seconds) {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+// === PRESET HELPERS ===
+function isTimeoutActive(value) {
+  if (value === 0) {
+    return !config.value.screen.timeout_enabled;
   }
-  const hours = Math.floor(seconds / 3600);
-  const remainingMinutes = Math.floor((seconds % 3600) / 60);
-  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+  return config.value.screen.timeout_enabled && config.value.screen.timeout_seconds === value;
 }
+
+function isDisconnectActive(value) {
+  if (value === 0) {
+    return config.value.spotify.auto_disconnect_delay === 0;
+  }
+  return config.value.spotify.auto_disconnect_delay === value;
+}
+
+// === SCROLL PAR CLIC+DRAG (comme Modal.vue) ===
+const modalContent = ref(null);
+let isDragging = false;
+let startY = 0;
+let startScrollTop = 0;
+let pointerId = null;
+let hasMoved = false;
+
+function handlePointerDown(event) {
+  if (!modalContent.value) return;
+
+  // Exclure les sliders et autres contrôles interactifs
+  const isSlider = event.target.closest('input[type="range"]');
+  const isButton = event.target.closest('button');
+  const isInput = event.target.closest('input, select, textarea');
+
+  if (isSlider || isButton || isInput) {
+    return;
+  }
+
+  isDragging = true;
+  hasMoved = false;
+  pointerId = event.pointerId;
+  startY = event.clientY;
+  startScrollTop = modalContent.value.scrollTop;
+}
+
+function handlePointerMove(event) {
+  if (!isDragging || event.pointerId !== pointerId || !modalContent.value) return;
+
+  const deltaY = Math.abs(startY - event.clientY);
+
+  if (deltaY > 5) {
+    hasMoved = true;
+
+    if (!modalContent.value.hasPointerCapture(event.pointerId)) {
+      modalContent.value.setPointerCapture(event.pointerId);
+    }
+
+    event.preventDefault();
+
+    const scrollDelta = startY - event.clientY;
+    modalContent.value.scrollTop = startScrollTop + scrollDelta;
+  }
+}
+
+function handlePointerUp(event) {
+  if (event.pointerId === pointerId) {
+    isDragging = false;
+    pointerId = null;
+    hasMoved = false;
+
+    if (modalContent.value && modalContent.value.hasPointerCapture(event.pointerId)) {
+      modalContent.value.releasePointerCapture(event.pointerId);
+    }
+  }
+}
+
+// === HANDLERS ===
 
 // Handler unifié avec debounce global
 let debounceTimeout = null;
@@ -398,47 +466,21 @@ async function updateSetting(endpoint, payload) {
   }
 }
 
-// Handler spécialisé pour dock apps
+// Handler dock apps
 function updateDockApps() {
   const enabledApps = getEnabledAppsArray();
   debouncedUpdate('dock-apps', { enabled_apps: enabledApps }, 500);
 }
 
-// Handler spécialisé pour volume limits toggle (avec auto-reset à 0-100)
-function updateVolumeLimitsToggle(enabled) {
-  if (!enabled) {
-    // Désactiver les limites -> forcer 0-100 localement aussi
-    config.value.volume.alsa_min = 0;
-    config.value.volume.alsa_max = 100;
-  }
-  updateSetting('volume-limits/toggle', { enabled });
-}
-
-// Handler spécialisé pour screen timeout (avec toggle + valeur)
-function updateScreenTimeout() {
-  debouncedUpdate('screen-timeout', {
-    screen_timeout_enabled: config.value.screen.timeout_enabled,
-    screen_timeout_seconds: config.value.screen.screen_timeout_seconds
-  }, 500);
-}
-
-// Handler volume limits
-function updateVolumeLimits() {
-  // Auto-ajustement des limites
-  if (config.value.volume.alsa_min + 10 > config.value.volume.alsa_max) {
-    config.value.volume.alsa_max = Math.min(100, config.value.volume.alsa_min + 10);
-  }
-  if (config.value.volume.alsa_max - 10 < config.value.volume.alsa_min) {
-    config.value.volume.alsa_min = Math.max(0, config.value.volume.alsa_max - 10);
-  }
-  
+// Handler volume limits (utilise le DoubleRangeSlider)
+function updateVolumeLimits(limits) {
   debouncedUpdate('volume-limits', {
-    alsa_min: config.value.volume.alsa_min,
-    alsa_max: config.value.volume.alsa_max
+    alsa_min: limits.min,
+    alsa_max: limits.max
   });
 }
 
-// Brightness avec double logique (instant + save)
+// Handler brightness avec application instantanée
 let brightnessInstantTimeout = null;
 let brightnessDebounceTimeout = null;
 
@@ -454,6 +496,28 @@ function handleBrightnessChange(value) {
   brightnessDebounceTimeout = setTimeout(() => {
     updateSetting('screen-brightness', { brightness_on: value });
   }, 1000);
+}
+
+// Handler screen timeout presets
+function setScreenTimeout(value) {
+  if (value === 0) {
+    // Jamais = désactiver
+    updateSetting('screen-timeout', {
+      screen_timeout_enabled: false,
+      screen_timeout_seconds: config.value.screen.timeout_seconds
+    });
+  } else {
+    // Activer avec la valeur
+    updateSetting('screen-timeout', {
+      screen_timeout_enabled: true,
+      screen_timeout_seconds: value
+    });
+  }
+}
+
+// Handler spotify disconnect presets
+function setSpotifyDisconnect(value) {
+  updateSetting('spotify-disconnect', { auto_disconnect_delay: value });
 }
 
 function goBack() {
@@ -473,38 +537,44 @@ async function loadAllConfigs() {
       axios.get('/api/settings/dock-apps')
     ]);
     
-    // Volume
+    // Volume limits → DoubleRangeSlider format
     if (volumeLimits.data.status === 'success') {
-      Object.assign(config.value.volume, volumeLimits.data.limits);
+      config.value.volume.limits = {
+        min: volumeLimits.data.limits.alsa_min || 0,
+        max: volumeLimits.data.limits.alsa_max || 65
+      };
     }
     
+    // Volume startup
     if (volumeStartup.data.status === 'success') {
-      Object.assign(config.value.volume, volumeStartup.data.config);
+      config.value.volume.restore_last_volume = volumeStartup.data.config.restore_last_volume || false;
+      config.value.volume.startup_volume = volumeStartup.data.config.startup_volume || 37;
     }
     
+    // Volume steps
     if (volumeSteps.data.status === 'success') {
       config.value.volume.mobile_volume_steps = volumeSteps.data.config.mobile_volume_steps || 5;
     }
     
     // Spotify
     if (spotify.data.status === 'success') {
-      Object.assign(config.value.spotify, spotify.data.config);
+      config.value.spotify.auto_disconnect_delay = spotify.data.config.auto_disconnect_delay || 10.0;
     }
     
-    // Screen (avec timeout_enabled)
+    // Screen
     if (screenTimeout.data.status === 'success') {
-      Object.assign(config.value.screen, screenTimeout.data.config);
+      config.value.screen.timeout_enabled = screenTimeout.data.config.screen_timeout_enabled !== false;
+      config.value.screen.timeout_seconds = screenTimeout.data.config.screen_timeout_seconds || 10;
     }
     
     if (brightness.data.status === 'success') {
-      Object.assign(config.value.screen, brightness.data.config);
+      config.value.screen.brightness_on = brightness.data.config.brightness_on || 5;
     }
     
     // Dock apps
     if (dockApps.data.status === 'success') {
       const enabledApps = dockApps.data.config.enabled_apps || ["librespot", "bluetooth", "roc", "multiroom", "equalizer"];
       
-      // Convertir array vers objet pour les toggles
       const appsObj = {};
       ['librespot', 'bluetooth', 'roc', 'multiroom', 'equalizer'].forEach(app => {
         appsObj[app] = enabledApps.includes(app);
@@ -521,18 +591,41 @@ async function loadAllConfigs() {
 // === WEBSOCKET LISTENERS ===
 const wsListeners = {
   'language_changed': (msg) => i18n.handleLanguageChanged(msg.data?.language),
-  'volume_limits_changed': (msg) => Object.assign(config.value.volume, msg.data?.limits || {}),
-  'volume_limits_toggled': (msg) => {
-    config.value.volume.limits_enabled = msg.data?.limits_enabled;
-    // Mettre à jour les limites locales aussi si elles sont dans la réponse
+  'volume_limits_changed': (msg) => {
     if (msg.data?.limits) {
-      Object.assign(config.value.volume, msg.data.limits);
+      config.value.volume.limits = {
+        min: msg.data.limits.alsa_min || 0,
+        max: msg.data.limits.alsa_max || 65
+      };
     }
   },
-  'volume_startup_changed': (msg) => Object.assign(config.value.volume, msg.data?.config || {}),
-  'spotify_disconnect_changed': (msg) => Object.assign(config.value.spotify, msg.data?.config || {}),
-  'screen_timeout_changed': (msg) => Object.assign(config.value.screen, msg.data?.config || {}),
-  'screen_brightness_changed': (msg) => Object.assign(config.value.screen, msg.data?.config || {}),
+  'volume_startup_changed': (msg) => {
+    if (msg.data?.config) {
+      config.value.volume.restore_last_volume = msg.data.config.restore_last_volume;
+      config.value.volume.startup_volume = msg.data.config.startup_volume;
+    }
+  },
+  'volume_steps_changed': (msg) => {
+    if (msg.data?.config?.mobile_volume_steps) {
+      config.value.volume.mobile_volume_steps = msg.data.config.mobile_volume_steps;
+    }
+  },
+  'spotify_disconnect_changed': (msg) => {
+    if (msg.data?.config?.auto_disconnect_delay !== undefined) {
+      config.value.spotify.auto_disconnect_delay = msg.data.config.auto_disconnect_delay;
+    }
+  },
+  'screen_timeout_changed': (msg) => {
+    if (msg.data?.config) {
+      config.value.screen.timeout_enabled = msg.data.config.screen_timeout_enabled;
+      config.value.screen.timeout_seconds = msg.data.config.screen_timeout_seconds;
+    }
+  },
+  'screen_brightness_changed': (msg) => {
+    if (msg.data?.config?.brightness_on !== undefined) {
+      config.value.screen.brightness_on = msg.data.config.brightness_on;
+    }
+  },
   'dock_apps_changed': (msg) => {
     if (msg.data?.config?.enabled_apps) {
       const enabledApps = msg.data.config.enabled_apps;
@@ -541,11 +634,6 @@ const wsListeners = {
         appsObj[app] = enabledApps.includes(app);
       });
       config.value.dock.apps = appsObj;
-    }
-  },
-  'volume_steps_changed': (msg) => {
-    if (msg.data?.config?.mobile_volume_steps) {
-      config.value.volume.mobile_volume_steps = msg.data.config.mobile_volume_steps;
     }
   }
 };
@@ -563,18 +651,47 @@ onMounted(async () => {
 
 <style scoped>
 .settings-view {
-  background: var(--color-background);
-  min-height: 100%;
-  padding: var(--space-05);
+  background: var(--color-background-contrast);
+  min-height: 100vh;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-05);
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px var(--space-04) var(--space-07) var(--space-04);
 }
 
-.settings-header {
+.settings-modal {
+  background: var(--color-background-neutral-50);
+  border-radius: var(--radius-06);
+  width: 100%;
+  max-width: 680px;
+  max-height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.settings-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  opacity: 0.8;
+  background: var(--stroke-glass);
+  border-radius: var(--radius-06);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.modal-header {
   background: var(--color-background-contrast);
   border-radius: var(--radius-04);
   padding: var(--space-04);
+  margin-bottom: var(--space-03);
 }
 
 .back-button-wrapper {
@@ -583,20 +700,25 @@ onMounted(async () => {
   gap: var(--space-03);
 }
 
-.settings-header h1 {
+.modal-header h1 {
   color: var(--color-text-contrast);
 }
 
-.settings-content {
+.modal-content {
+  overflow-y: auto;
+  padding: var(--space-04);
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
+  border-radius: var(--radius-06);
+  /* Configuration pour PointerEvents - permet le scroll vertical seulement */
+  touch-action: pan-y;
 }
 
 .settings-section {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
-  padding: var(--space-05);
+  padding: var(--space-05) var(--space-05) var(--space-06) var(--space-05);
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
@@ -612,301 +734,17 @@ onMounted(async () => {
   margin: var(--space-02) 0;
 }
 
-/* Interface */
-.dock-settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.app-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
-.app-group-title {
-  color: var(--color-text-secondary);
-  font-weight: 500;
-}
-
-.app-toggles {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-  padding-left: var(--space-03);
-}
-
-.volume-controls-settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
-.controls-description {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
-  margin-top: var(--space-01);
-}
-
-.volume-steps-control {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.volume-steps-control label {
-  color: var(--color-text-secondary);
-}
-
-.steps-control {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-}
-
-.steps-control > :first-child {
-  flex: 1;
-}
-
-.steps-value {
-  color: var(--color-text);
-  min-width: 40px;
-  text-align: right;
-}
-
-/* Volume */
-.volume-settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.volume-limits {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-  padding-left: var(--space-04);
-}
-
-.limit-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.limit-group label {
-  color: var(--color-text-secondary);
-}
-
-.limit-control {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-}
-
-.limit-control > :first-child {
-  flex: 1;
-}
-
-.limit-value {
-  color: var(--color-text);
-  min-width: 40px;
-  text-align: right;
-}
-
-.volume-preview {
-  background: var(--color-background-strong);
-  border-radius: var(--radius-04);
-  padding: var(--space-04);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
-.preview-label {
-  color: var(--color-text-secondary);
-}
-
-.range-bar {
-  height: 8px;
-  background: var(--color-background);
-  border-radius: var(--radius-full);
-  position: relative;
-  overflow: hidden;
-}
-
-.range-fill {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  background: var(--color-brand);
-  border-radius: var(--radius-full);
-  transition: all var(--transition-fast);
-}
-
-.range-labels {
-  display: flex;
-  justify-content: space-between;
-  color: var(--color-text-secondary);
-}
-
-/* Startup volume */
-.startup-volume-settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.startup-mode-selector {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.mode-button {
-  display: flex;
-  align-items: center;
-  padding: var(--space-04);
-  background: var(--color-background-strong);
-  border: 2px solid transparent;
-  border-radius: var(--radius-04);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  width: 100%;
-  text-align: left;
-}
-
-.mode-button:hover {
-  background: var(--color-background);
-  border-color: var(--color-background-glass);
-}
-
-.mode-button.active {
-  background: var(--color-background);
-  border-color: var(--color-brand);
-}
-
-.mode-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-  flex: 1;
-  position: relative;
-}
-
-.mode-title {
-  color: var(--color-text);
-}
-
-.mode-description {
-  color: var(--color-text-secondary);
-}
-
-.fixed-volume-control {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-  padding: var(--space-04);
-  background: var(--color-background-strong);
-  border-radius: var(--radius-04);
-}
-
-.fixed-volume-control label {
-  color: var(--color-text-secondary);
-}
-
-.startup-control {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-}
-
-.startup-control > :first-child {
-  flex: 1;
-}
-
-.startup-value {
-  color: var(--color-text);
-  min-width: 40px;
-  text-align: right;
-}
-
-/* Screen */
-.screen-settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.timeout-control {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-  padding-left: var(--space-04);
-}
-
-.brightness-controls {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.brightness-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-/* Spotify */
-.disconnect-timer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.disconnect-timer label,
-.timeout-control label,
-.brightness-group label {
-  color: var(--color-text-secondary);
-}
-
-.timer-control,
-.brightness-control {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-}
-
-.timer-control > :first-child,
-.brightness-control > :first-child {
-  flex: 1;
-}
-
-.timer-value,
-.brightness-value {
-  color: var(--color-text);
-  min-width: 60px;
-  text-align: right;
-}
-
-.timer-description,
-.brightness-description {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-small);
-}
-
-/* Language */
-.language-selector {
-  display: flex;
-  flex-direction: column;
+/* Languages Grid */
+.language-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: var(--space-02);
 }
 
 .language-button {
   display: flex;
   align-items: center;
-  gap: var(--space-04);
+  gap: var(--space-03);
   padding: var(--space-04);
   background: var(--color-background-strong);
   border: 2px solid transparent;
@@ -915,6 +753,7 @@ onMounted(async () => {
   transition: all var(--transition-fast);
   width: 100%;
   text-align: left;
+  position: relative;
 }
 
 .language-button:hover {
@@ -928,14 +767,15 @@ onMounted(async () => {
 }
 
 .language-flag {
-  font-size: 24px;
-  width: 32px;
+  font-size: 20px;
+  width: 24px;
   text-align: center;
 }
 
 .language-name {
   flex: 1;
   color: var(--color-text);
+  font-size: var(--font-size-body);
 }
 
 .active-indicator {
@@ -943,15 +783,126 @@ onMounted(async () => {
   height: 8px;
   background: var(--color-brand);
   border-radius: var(--radius-full);
+  position: absolute;
+  right: var(--space-04);
 }
 
-/* Info */
-.info-grid {
-  display: grid;
-  grid-template-columns: 1fr;
+/* Applications */
+.app-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+.app-group-title {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.app-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.app-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-03) var(--space-04);
+  background: var(--color-background-strong);
+  border-radius: var(--radius-04);
+}
+
+.app-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+}
+
+.app-name {
+  color: var(--color-text);
+}
+
+/* Volume */
+.volume-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+.volume-description,
+.screen-description,
+.spotify-description {
+  color: var(--color-text-secondary);
+}
+
+.volume-steps-control,
+.brightness-control,
+.startup-volume-control {
+  display: flex;
+  align-items: center;
+}
+
+/* Volume limits avec DoubleRangeSlider */
+.volume-limits-control {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-02);
 }
 
+.range-values {
+  display: flex;
+  justify-content: space-between;
+  color: var(--color-text-secondary);
+}
+
+/* Startup mode buttons */
+.startup-mode-buttons {
+  display: flex;
+  gap: var(--space-02);
+}
+
+.startup-mode-buttons .btn {
+  flex: 1;
+}
+
+/* Volume fixe sans container background */
+.fixed-volume-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+/* Screen */
+.screen-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+/* Preset buttons (timeout et disconnect) */
+.timeout-buttons,
+.disconnect-buttons {
+  display: flex;
+  gap: var(--space-02);
+  flex-wrap: wrap;
+}
+
+.timeout-buttons .btn,
+.disconnect-buttons .btn {
+  flex: 1;
+  min-width: 80px;
+}
+
+/* Spotify */
+.spotify-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+/* Informations */
 .info-item {
   display: flex;
   justify-content: space-between;
@@ -972,31 +923,44 @@ onMounted(async () => {
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .settings-view {
+    align-items: flex-start;
+    padding: 80px var(--space-02) var(--space-02) var(--space-02);
+  }
+  
+  .settings-modal {
+    max-height: calc(100vh - 80px);
+  }
+  
+  .language-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .timeout-buttons,
+  .disconnect-buttons {
+    flex-direction: column;
+  }
+  
+  .startup-mode-buttons {
+    flex-direction: column;
+  }
+  
+  .app-item {
     padding: var(--space-04);
   }
   
-  .language-button,
-  .mode-button {
-    padding: var(--space-05) var(--space-04);
-  }
-  
-  .volume-limits {
-    gap: var(--space-05);
-  }
-  
-  .limit-control,
-  .timer-control,
+  .volume-steps-control,
   .brightness-control,
-  .steps-control {
-    gap: var(--space-04);
-  }
-  
-  .app-toggles {
-    gap: var(--space-03);
+  .startup-volume-control {
+    gap: var(--space-05);
   }
 }
 
 .ios-app .settings-view {
-  padding-top: var(--space-08);
+  padding-top: 112px;
+}
+
+/* Scrollbar hidden */
+::-webkit-scrollbar {
+  display: none;
 }
 </style>

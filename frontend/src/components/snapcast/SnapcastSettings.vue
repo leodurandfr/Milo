@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapcastSettings.vue -->
+<!-- frontend/src/components/snapcast/SnapcastSettings.vue - Valeur RangeSlider intégrée -->
 <template>
   <div class="snapcast-settings">
     <div v-if="loading" class="loading-state">
@@ -31,10 +31,13 @@
         <!-- Buffer global -->
         <div class="form-group">
           <label for="buffer" class="text-mono">{{ $t('Buffer global (ms)') }}</label>
-          <div class="input-with-value">
-            <RangeSlider v-model="config.buffer" :min="100" :max="2000" :step="50" class="range-input" />
-            <span class="text-mono">{{ config.buffer }}ms</span>
-          </div>
+          <RangeSlider 
+            v-model="config.buffer" 
+            :min="100" 
+            :max="2000" 
+            :step="50" 
+            value-unit="ms"
+          />
         </div>
 
         <!-- Codec -->
@@ -50,18 +53,19 @@
             <Button variant="toggle" :active="config.codec === 'pcm'" @click="selectCodec('pcm')">
               PCM
             </Button>
-
-
           </div>
         </div>
 
         <!-- Chunk size -->
         <div class="form-group">
           <label for="chunk" class="text-mono">{{ $t('Taille des chunks (ms)') }}</label>
-          <div class="input-with-value">
-            <RangeSlider v-model="config.chunk_ms" :min="10" :max="100" :step="5" class="range-input" />
-            <span class="text-mono">{{ config.chunk_ms }}ms</span>
-          </div>
+          <RangeSlider 
+            v-model="config.chunk_ms" 
+            :min="10" 
+            :max="100" 
+            :step="5" 
+            value-unit="ms"
+          />
         </div>
       </section>
 
@@ -109,7 +113,6 @@ const loading = ref(false);
 const applying = ref(false);
 const error = ref(null);
 const serverInfo = ref({});
-const lastActionTime = ref(0); // Protection contre double-clic
 
 // Presets audio prédéfinis
 const audioPresets = computed(() => [
@@ -228,16 +231,11 @@ async function applyConfig() {
       config: config.value
     });
 
-    // 👈 DEBUG : Voir la réponse complète
     console.log('Full response:', response.data);
 
     if (response.data.status === 'success') {
-      // FIX : Mise à jour immédiate de originalConfig pour éviter le bug de bascule
       originalConfig.value = JSON.parse(JSON.stringify(config.value));
       emit('config-updated');
-
-      // Pas de rechargement automatique - laisser l'utilisateur rafraîchir manuellement si besoin
-
     } else {
       error.value = response.data.message || 'Erreur lors de la mise à jour';
     }
@@ -248,10 +246,6 @@ async function applyConfig() {
   } finally {
     applying.value = false;
   }
-}
-
-function closeSettings() {
-  emit('close');
 }
 
 // === LIFECYCLE ===
@@ -269,54 +263,6 @@ onMounted(async () => {
   align-items: stretch;
 }
 
-.settings-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.settings-modal {
-  background: white;
-  border: 1px solid #ddd;
-  width: 100%;
-  max-width: 650px;
-  max-height: 90vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px;
-  border-radius: 16px;
-  border-bottom: 1px solid #eee;
-  background: #f8f9fa;
-}
-
-
-.modal-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-}
-
-.settings-form {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
 .config-section {
   display: flex;
   flex-direction: column;
@@ -326,16 +272,7 @@ onMounted(async () => {
   gap: var(--space-05);
 }
 
-.section-description {
-  margin: 0 0 16px 0;
-  font-size: 13px;
-  color: #666;
-  font-style: italic;
-}
-
-
-
-/* Presets grid - Adapté pour Button */
+/* Presets grid */
 .presets-buttons {
   display: flex;
   gap: var(--space-02);
@@ -345,42 +282,25 @@ onMounted(async () => {
   flex: 1;
 }
 
-
 /* Formulaire */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
 
 .form-group label {
-  display: block;
   color: var(--color-text-secondary);
-  margin-bottom: var(--space-02);
-
 }
 
-.input-with-value {
+.codec-buttons {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  gap: var(--space-02);
 }
 
-.range-input {
+.codec-buttons .btn {
   flex: 1;
 }
-
-.input-with-value .text-mono {
-  color: var(--color-text-secondary);
-  min-width: 64px;
-  text-align: right;
-
-}
-
-.select-input {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  background: white;
-  font-size: 14px;
-}
-
-
 
 .info-grid {
   display: grid;
@@ -405,28 +325,12 @@ onMounted(async () => {
   color: var(--color-text);
 }
 
-
-
-
 .error-message {
   color: var(--color-error);
 }
 
-.codec-buttons {
-  display: flex;
-  gap: var(--space-02);
-}
-
-.codec-buttons .btn {
-  flex: 1;
-}
-
-
-
-
-/* Responsive pour presets */
+/* Responsive */
 @media (max-aspect-ratio: 4/3) {
-
   .codec-buttons,
   .presets-buttons {
     flex-direction: column;

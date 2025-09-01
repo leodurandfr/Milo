@@ -1,4 +1,4 @@
-<!-- frontend/src/components/ui/RangeSlider.vue - Version complète avec height: 100% -->
+<!-- frontend/src/components/ui/RangeSlider.vue - Version avec valeur intégrée et événements drag -->
 <template>
   <div :class="['slider-container', orientation]" :style="cssVars">
     <input 
@@ -9,14 +9,21 @@
       :step="step" 
       :value="modelValue"
       @input="handleInput" 
-      @change="handleChange" 
+      @change="handleChange"
+      @pointerdown="handlePointerDown"
+      @pointerup="handlePointerUp"
       :disabled="disabled"
     >
+    
+    <!-- Valeur intégrée seulement pour horizontal -->
+    <div v-if="orientation === 'horizontal'" class="slider-value text-mono" :class="{ dragging: isDragging }">
+      {{ modelValue }}{{ valueUnit }}
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps({
   modelValue: { type: Number, required: true },
@@ -24,12 +31,16 @@ const props = defineProps({
   max: { type: Number, default: 100 },
   step: { type: Number, default: 1 },
   orientation: { type: String, default: 'horizontal' },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  valueUnit: { type: String, default: '' }
 });
 
-const emit = defineEmits(['update:modelValue', 'input', 'change']);
+const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
 
-// Calcul du pourcentage ajusté pour le centre du thumb
+// État simple du drag pour changement de couleur
+const isDragging = ref(false);
+
+// Calcul du pourcentage ajusté pour le centre du thumb (logique originale)
 const percentage = computed(() => {
   const rawPercentage = ((props.modelValue - props.min) / (props.max - props.min)) * 100;
   
@@ -48,6 +59,7 @@ const cssVars = computed(() => ({
   '--progress': `${percentage.value}%`
 }));
 
+// Handlers simples (logique originale)
 function handleInput(event) {
   const value = parseInt(event.target.value);
   emit('input', value);
@@ -59,15 +71,30 @@ function handleChange(event) {
   emit('change', value);
   emit('update:modelValue', value);
 }
+
+// Gestion simple des événements drag pour changement de couleur
+function handlePointerDown(event) {
+  if (event.button !== 0 || props.disabled) return;
+  
+  isDragging.value = true;
+  emit('drag-start');
+}
+
+function handlePointerUp() {
+  if (isDragging.value) {
+    isDragging.value = false;
+    emit('drag-end');
+  }
+}
 </script>
 
 <style scoped>
-
 /* Container 100% de l'espace disponible */
 .slider-container {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
 .slider-container.horizontal {
@@ -77,7 +104,7 @@ function handleChange(event) {
 
 .slider-container.vertical {
   width: 40px;
-  flex: 1; /* FINAL : flex pour prendre l'espace dans equalizer-slider */
+  flex: 1;
   flex-direction: column;
 }
 
@@ -98,24 +125,24 @@ function handleChange(event) {
   background: linear-gradient(to right, 
     #767C76 0%, 
     #767C76 var(--progress), 
-    #F2F2F2 var(--progress), 
-    #F2F2F2 100%);
+    var(--color-background) var(--progress), 
+    var(--color-background) 100%);
 }
 
 /* Slider vertical - flex: 1 pour prendre l'espace entre label et value */
 .range-slider.vertical {
   width: 40px;
-  flex: 1; /* FINAL : flex pour prendre l'espace disponible entre label/value */
+  flex: 1;
   writing-mode: vertical-lr;
   direction: rtl;
   background: linear-gradient(to top, 
     #767C76 0%, 
     #767C76 var(--progress), 
-    #F2F2F2 var(--progress), 
-    #F2F2F2 100%);
+    var(--color-background) var(--progress), 
+    var(--color-background) 100%);
 }
 
-/* Thumb horizontal */
+/* Thumbs horizontal */
 .range-slider.horizontal::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -136,7 +163,7 @@ function handleChange(event) {
   cursor: pointer;
 }
 
-/* Thumb vertical */
+/* Thumbs vertical */
 .range-slider.vertical::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -158,6 +185,11 @@ function handleChange(event) {
 }
 
 /* Track Firefox */
+.range-slider::-webkit-slider-track {
+  background: transparent;
+  border: none;
+}
+
 .range-slider::-moz-range-track {
   background: transparent;
   border: none;
@@ -174,5 +206,19 @@ function handleChange(event) {
   background: #ccc;
   border-color: #999;
   cursor: not-allowed;
+}
+
+/* Valeur intégrée à droite - seulement horizontal */
+.slider-value {
+  position: absolute;
+  right: var(--space-04);
+  color: var(--color-text-secondary);
+  transition: color var(--transition-fast);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.slider-value.dragging {
+  color: var(--color-brand);
 }
 </style>

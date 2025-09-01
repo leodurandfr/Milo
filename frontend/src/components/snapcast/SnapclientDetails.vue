@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapclientDetails.vue -->
+<!-- frontend/src/components/snapcast/SnapclientDetails.vue - Valeur RangeSlider intégrée -->
 <template>
   <div class="snapclient-details">
     <div v-if="loading" class="loading-state">
@@ -31,11 +31,13 @@
               {{ $t('Actuellement:') }} {{ clientDetails.latency }}ms
             </span>
           </div>
-          <div class="input-with-value">
-            <RangeSlider v-model="editableConfig.latency" :min="0" :max="500" :step="5" class="range-input" />
-            <span class="text-mono">{{ editableConfig.latency }}ms</span>
-
-          </div>
+          <RangeSlider 
+            v-model="editableConfig.latency" 
+            :min="0" 
+            :max="500" 
+            :step="5" 
+            value-unit="ms"
+          />
         </div>
       </section>
 
@@ -85,7 +87,6 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import { useI18n } from '@/services/i18n';
 
 const { t } = useI18n();
-
 
 // Props
 const props = defineProps({
@@ -268,13 +269,8 @@ watch(() => props.client.id, () => {
 }
 
 @keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-
-  100% {
-    transform: rotate(360deg);
-  }
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .error-message {
@@ -322,23 +318,6 @@ watch(() => props.client.id, () => {
 .text-input::placeholder {
   color: var(--color-text-light);
 }
-
-.input-with-value {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-}
-
-.input-with-value .text-mono {
-  color: var(--color-text-secondary);
-  text-align: right;
-  width: var(--space-08);
-}
-
-.range-input {
-  flex: 1;
-}
-
 
 .change-indicator {
   color: var(--color-brand);

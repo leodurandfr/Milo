@@ -1,22 +1,22 @@
-<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version ultra-simplifiée -->
+<!-- frontend/src/components/snapcast/SnapclientItem.vue - Version simplifiée avec RangeSlider intégré -->
 <template>
   <div class="snapclient-item">
     <!-- Informations du client -->
     <div class="client-name heading-2">{{ client.name }}</div>
 
-    <!-- Contrôle du volume - Ultra-simplifié (pas de conversion) -->
+    <!-- Contrôle du volume - Ultra-simplifié avec valeur intégrée -->
     <div class="volume-control">
       <RangeSlider 
         :model-value="displayVolume" 
         :min="0" 
         :max="100" 
         :step="1"
-        orientation="horizontal" 
-        :disabled="client.muted" 
+        :disabled="client.muted"
+        show-value
+        value-unit="%"
         @input="handleVolumeInput" 
         @change="handleVolumeChange" 
       />
-      <span class="volume-label text-mono">{{ displayVolume }}%</span>
     </div>
     
     <div class="controls-wrapper">
@@ -147,13 +147,6 @@ onUnmounted(() => {
   min-width: 112px;
 }
 
-.client-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-  flex-shrink: 0;
-}
-
 .controls-wrapper {
   display: flex;
   align-items: center;
@@ -163,19 +156,7 @@ onUnmounted(() => {
 .volume-control {
   display: flex;
   width: 100%;
-  gap: var(--space-04);
   align-items: center;
-  position: relative;
-}
-
-.volume-label {
-  color: var(--color-text-contrast-50);
-  position: absolute;
-  margin-left: var(--space-04);
-}
-
-.details-btn:hover {
-  background: #dee2e6;
 }
 
 .mute-control {

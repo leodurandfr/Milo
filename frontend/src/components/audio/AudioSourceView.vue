@@ -151,7 +151,7 @@ const librespotKey = computed(() => {
 
 // === LIFECYCLE ===
 onMounted(() => {
-  console.log('🚀 AudioSourceView mounted - SIMPLIFIED');
+  // console.log('🚀 AudioSourceView mounted - SIMPLIFIED');
   
   // Attente initiale de 1000ms
   setTimeout(() => {
