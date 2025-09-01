@@ -1,6 +1,6 @@
 # backend/infrastructure/services/settings_service.py
 """
-Service de gestion des settings - Version OPTIM avec validation dock apps
+Service de gestion des settings - Version OPTIM avec support valeur 0 pour désactivation
 """
 import json
 import os
@@ -8,7 +8,7 @@ import logging
 from typing import Dict, Any
 
 class SettingsService:
-    """Gestionnaire de settings simplifié avec validation dock"""
+    """Gestionnaire de settings simplifié avec support 0 = désactivé"""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -89,7 +89,7 @@ class SettingsService:
             return False
     
     def _validate_and_merge(self, settings: Dict[str, Any]) -> Dict[str, Any]:
-        """Validation et fusion avec defaults en une seule passe"""
+        """Validation et fusion avec defaults - Support 0 = désactivé"""
         validated = {}
         
         # Language
@@ -115,17 +115,23 @@ class SettingsService:
         vol['mobile_volume_steps'] = max(1, min(10, int(vol_input.get('mobile_volume_steps', 5))))
         validated['volume'] = vol
         
-        # Screen
+        # Screen - MODIFIÉ : Accepter 0 pour timeout_seconds (désactivé)
         screen_input = settings.get('screen', {})
+        timeout_seconds_raw = int(screen_input.get('timeout_seconds', 10))
+        
         validated['screen'] = {
-            'timeout_seconds': max(3, min(3600, int(screen_input.get('timeout_seconds', 10)))),
+            # 0 = désactivé, sinon minimum 3 secondes
+            'timeout_seconds': 0 if timeout_seconds_raw == 0 else max(3, min(3600, timeout_seconds_raw)),
             'brightness_on': max(1, min(10, int(screen_input.get('brightness_on', 5))))
         }
         
-        # Spotify
+        # Spotify - MODIFIÉ : Accepter 0 pour auto_disconnect_delay (désactivé)
         spotify_input = settings.get('spotify', {})
+        disconnect_delay_raw = float(spotify_input.get('auto_disconnect_delay', 10.0))
+        
         validated['spotify'] = {
-            'auto_disconnect_delay': max(1.0, min(300.0, float(spotify_input.get('auto_disconnect_delay', 10.0))))
+            # 0 = désactivé, sinon minimum 1.0 seconde
+            'auto_disconnect_delay': 0.0 if disconnect_delay_raw == 0.0 else max(1.0, min(300.0, disconnect_delay_raw))
         }
         
         # Dock avec validation au moins une source audio

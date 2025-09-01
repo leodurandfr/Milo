@@ -1,13 +1,13 @@
 # backend/presentation/api/routes/settings.py
 """
-Routes Settings - Version OPTIM avec dock apps et volume steps
+Routes Settings - Version OPTIM avec support 0 = désactivé pour Spotify et Screen
 """
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Callable, Optional
 from backend.infrastructure.services.settings_service import SettingsService
 
 def create_settings_router(ws_manager, volume_service, state_machine, screen_controller):
-    """Router settings avec pattern unifié + dock apps + volume steps"""
+    """Router settings avec pattern unifié + support 0 = désactivé"""
     router = APIRouter()
     settings = SettingsService()
     
@@ -164,7 +164,7 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             reload_callback=volume_service.reload_startup_config
         )
     
-    # NOUVEAU : Volume steps
+    # Volume steps
     @router.get("/volume-steps")
     async def get_volume_steps():
         vol = settings.get_setting('volume') or {}
@@ -186,7 +186,7 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             reload_callback=volume_service.reload_volume_steps_config
         )
     
-    # NOUVEAU : Dock apps
+    # Dock apps
     @router.get("/dock-apps")
     async def get_dock_apps():
         dock = settings.get_setting('dock') or {}
@@ -224,7 +224,7 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             event_data={"config": {"enabled_apps": enabled_apps}}
         )
     
-    # Spotify
+    # Spotify - MODIFIÉ : Accepter 0 = désactivé
     @router.get("/spotify-disconnect")
     async def get_spotify_disconnect():
         spotify = settings.get_setting('spotify') or {}
@@ -242,29 +242,40 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
                 from backend.domain.audio_state import AudioSource
                 plugin = state_machine.get_plugin(AudioSource.LIBRESPOT)
                 if plugin:
-                    return await plugin.set_auto_disconnect_config(enabled=True, delay=delay, save_to_settings=False)
+                    # 0 = désactivé, sinon activé avec le délai
+                    enabled = delay != 0
+                    return await plugin.set_auto_disconnect_config(enabled=enabled, delay=delay, save_to_settings=False)
             except Exception:
                 pass
             return False
         
         return await _handle_setting_update(
             payload,
-            validator=lambda p: p.get('auto_disconnect_delay') is not None and 1.0 <= p['auto_disconnect_delay'] <= 300.0,
+            # MODIFIÉ : Accepter 0 (désactivé) OU valeur entre 1.0 et 300.0
+            validator=lambda p: (
+                p.get('auto_disconnect_delay') is not None and
+                (p['auto_disconnect_delay'] == 0 or (1.0 <= p['auto_disconnect_delay'] <= 300.0))
+            ),
             setter=lambda: settings.set_setting('spotify.auto_disconnect_delay', delay),
             event_type="spotify_disconnect_changed",
             event_data={"config": {"auto_disconnect_delay": delay}},
             reload_callback=apply_to_plugin
         )
     
-    # Screen timeout
+    # Screen timeout - MODIFIÉ : Accepter 0 = jamais
     @router.get("/screen-timeout")
     async def get_screen_timeout():
         screen = settings.get_setting('screen') or {}
+        timeout_seconds = screen.get("timeout_seconds", 10)
+        
+        # Si timeout_seconds = 0, alors timeout_enabled = false
+        timeout_enabled = timeout_seconds != 0
+        
         return {
             "status": "success",
             "config": {
-                "screen_timeout_enabled": screen.get("timeout_enabled", True),
-                "screen_timeout_seconds": screen.get("timeout_seconds", 10)
+                "screen_timeout_enabled": timeout_enabled,
+                "screen_timeout_seconds": timeout_seconds
             }
         }
     
@@ -275,14 +286,13 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
         
         return await _handle_setting_update(
             payload,
+            # MODIFIÉ : Accepter 0 (jamais) OU valeur entre 3 et 3600
             validator=lambda p: (
                 p.get('screen_timeout_enabled') is not None and isinstance(p['screen_timeout_enabled'], bool) and
-                p.get('screen_timeout_seconds') is not None and 3 <= p['screen_timeout_seconds'] <= 3600
+                p.get('screen_timeout_seconds') is not None and
+                (p['screen_timeout_seconds'] == 0 or (3 <= p['screen_timeout_seconds'] <= 3600))
             ),
-            setter=lambda: (
-                settings.set_setting('screen.timeout_enabled', timeout_enabled) and
-                settings.set_setting('screen.timeout_seconds', timeout_seconds)
-            ),
+            setter=lambda: settings.set_setting('screen.timeout_seconds', timeout_seconds),
             event_type="screen_timeout_changed",
             event_data={"config": {"screen_timeout_enabled": timeout_enabled, "screen_timeout_seconds": timeout_seconds}},
             reload_callback=screen_controller.reload_timeout_config

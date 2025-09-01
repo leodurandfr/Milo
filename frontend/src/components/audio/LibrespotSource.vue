@@ -243,7 +243,7 @@ onMounted(async () => {
   justify-content: center;
   text-align: center;
   gap: var(--space-03);
-  padding: var(--space-06) 0;
+  padding-top: var(--space-06);
 }
 
 .controls-section {

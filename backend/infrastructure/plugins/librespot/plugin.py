@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/librespot/plugin.py
 """
-Plugin librespot avec lecture config depuis SettingsService - Version agressive pour timer
+Plugin librespot avec support 0 = désactivé pour auto_disconnect
 """
 import os
 import yaml
@@ -14,7 +14,7 @@ from backend.domain.audio_state import PluginState
 from backend.infrastructure.plugins.plugin_utils import WebSocketManager
 
 class LibrespotPlugin(UnifiedAudioPlugin):
-    """Plugin Spotify via go-librespot - Version avec SettingsService injecté"""
+    """Plugin Spotify via go-librespot avec support 0 = désactivé"""
     
     def __init__(self, config: Dict[str, Any], state_machine=None, settings_service=None):
         super().__init__("librespot", state_machine)
@@ -69,7 +69,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             self.api_url = f"http://{addr}:{port}"
             self.ws_url = f"ws://{addr}:{port}/events"
             
-            # NOUVEAU : Charger la config depuis SettingsService
+            # Charger la config depuis SettingsService
             await self._load_settings_config()
             
             self.logger.info(f"Spotify disconnect config: enabled={self.auto_disconnect_enabled}, delay={self.pause_disconnect_delay}s")
@@ -80,14 +80,20 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return False
     
     async def _load_settings_config(self):
-        """Charge la configuration depuis SettingsService"""
+        """Charge la configuration depuis SettingsService avec support 0 = désactivé"""
         if self.settings_service:
             try:
                 spotify_delay = self.settings_service.get_setting('spotify.auto_disconnect_delay')
                 if spotify_delay is not None:
-                    self.pause_disconnect_delay = float(spotify_delay)
-                    self.auto_disconnect_enabled = True  # Toujours activé si configuré
-                    self.logger.info(f"Loaded Spotify config from settings: delay={self.pause_disconnect_delay}s")
+                    # MODIFIÉ : Support 0 = désactivé
+                    if spotify_delay == 0.0:
+                        self.auto_disconnect_enabled = False
+                        self.pause_disconnect_delay = 10.0  # Valeur par défaut pour affichage
+                        self.logger.info("Spotify auto-disconnect DISABLED (delay = 0)")
+                    else:
+                        self.auto_disconnect_enabled = True
+                        self.pause_disconnect_delay = float(spotify_delay)
+                        self.logger.info(f"Spotify auto-disconnect ENABLED: delay={self.pause_disconnect_delay}s")
                 else:
                     self.logger.info("Using default Spotify config (settings not found)")
             except Exception as e:
@@ -196,18 +202,29 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return False
     
     async def set_auto_disconnect_config(self, enabled: bool, delay: float = None, save_to_settings: bool = True) -> bool:
-        """Configure la déconnexion automatique - Version agressive avec sauvegarde settings"""
+        """Configure la déconnexion automatique avec support 0 = désactivé"""
         old_enabled = self.auto_disconnect_enabled
         old_delay = self.pause_disconnect_delay
         
-        self.auto_disconnect_enabled = enabled
-        if delay is not None:
+        # MODIFIÉ : Gérer delay = 0 comme désactivé
+        if delay is not None and delay == 0:
+            self.auto_disconnect_enabled = False
+            self.pause_disconnect_delay = 10.0  # Valeur par défaut pour affichage
+            self.logger.info("Auto-disconnect DISABLED (delay = 0)")
+        elif delay is not None:
+            self.auto_disconnect_enabled = enabled
             self.pause_disconnect_delay = max(1.0, delay)
+            self.logger.info(f"Auto-disconnect configured: enabled={enabled}, delay={self.pause_disconnect_delay}s")
+        else:
+            self.auto_disconnect_enabled = enabled
+            self.logger.info(f"Auto-disconnect enabled state changed: {enabled}")
         
-        # NOUVEAU : Sauvegarder dans SettingsService si demandé
+        # Sauvegarder dans SettingsService si demandé
         if save_to_settings and self.settings_service:
             try:
-                success = self.settings_service.set_setting('spotify.auto_disconnect_delay', self.pause_disconnect_delay)
+                # Sauvegarder 0 si désactivé, sinon la vraie valeur
+                save_value = 0.0 if not self.auto_disconnect_enabled else self.pause_disconnect_delay
+                success = self.settings_service.set_setting('spotify.auto_disconnect_delay', save_value)
                 if not success:
                     self.logger.error("Failed to save Spotify config to settings")
                     # Restaurer les anciennes valeurs
@@ -220,23 +237,26 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 self.pause_disconnect_delay = old_delay
                 return False
         
-        # LOGIQUE AGRESSIVE : Si timer en cours et device connecté mais pas en lecture
+        # Gestion du timer en cours
         if (self._pause_disconnect_timer and 
             not self._pause_disconnect_timer.done() and 
             self._device_connected and 
             not self._is_playing):
             
-            self.logger.info(f"Restarting pause timer with new delay: {self.pause_disconnect_delay}s")
             self._cancel_pause_timer()
             
+            # Redémarrer le timer seulement si activé
             if self.auto_disconnect_enabled:
+                self.logger.info(f"Restarting pause timer with new delay: {self.pause_disconnect_delay}s")
                 self._start_pause_timer()
+            else:
+                self.logger.info("Timer cancelled (auto-disconnect disabled)")
         
         # Annuler le timer si on désactive complètement
-        elif not enabled and self._pause_disconnect_timer:
+        elif not self.auto_disconnect_enabled and self._pause_disconnect_timer:
             self._cancel_pause_timer()
+            self.logger.info("Timer cancelled (auto-disconnect disabled)")
         
-        self.logger.info(f"Auto-disconnect config updated: enabled={enabled}, delay={self.pause_disconnect_delay}s")
         return True
     
     def get_auto_disconnect_config(self) -> Dict[str, Any]:
@@ -256,6 +276,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
     
     def _start_pause_timer(self) -> None:
         """Démarre le timer de déconnexion automatique après pause"""
+        # MODIFIÉ : Vérifier explicitement si activé
         if not self.auto_disconnect_enabled:
             self.logger.debug("Auto-disconnect disabled, skipping timer")
             return
@@ -423,8 +444,6 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 message="Métadonnées rafraîchies" if success else "Échec du rafraîchissement",
                 metadata=self._metadata
             )
-        
-        # SUPPRIMÉ : Commandes auto_disconnect (maintenant centralisées dans /api/settings)
             
         elif command == "seek" and "position_ms" in data:
             return await self._send_command("seek", {"position": data["position_ms"]})

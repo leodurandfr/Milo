@@ -1,6 +1,6 @@
 # backend/infrastructure/hardware/screen_controller.py
 """
-Contrôleur d'écran - Version OPTIM avec settings configurables
+Contrôleur d'écran - Version OPTIM avec timeout_seconds = 0 pour jamais
 """
 import asyncio
 import logging
@@ -8,7 +8,7 @@ import os
 from time import monotonic
 
 class ScreenController:
-    """Contrôleur d'écran avec timeout et brightness configurables"""
+    """Contrôleur d'écran avec timeout_seconds = 0 pour désactiver"""
     
     def __init__(self, state_machine, settings_service):
         self.state_machine = state_machine
@@ -16,7 +16,6 @@ class ScreenController:
         self.logger = logging.getLogger(__name__)
         
         # Configuration depuis settings
-        self.timeout_enabled = True
         self.timeout_seconds = 10
         self.brightness_on = 5
         
@@ -38,16 +37,20 @@ class ScreenController:
         self.screen_off_cmd = f"sudo {backlight_binary} 0"
     
     def _load_config(self):
-        """Charge la config complète depuis settings"""
+        """Charge la config complète depuis settings - timeout_seconds = 0 pour jamais"""
         try:
             # Invalider le cache pour forcer reload
             if hasattr(self.settings_service, '_cache'):
                 self.settings_service._cache = None
             
             screen_config = self.settings_service.get_setting('screen') or {}
-            self.timeout_enabled = screen_config.get('timeout_enabled', True)
             self.timeout_seconds = screen_config.get('timeout_seconds', 10)
             self.brightness_on = screen_config.get('brightness_on', 5)
+            
+            # MODIFIÉ : timeout_seconds = 0 signifie jamais (désactivé)
+            timeout_enabled = self.timeout_seconds != 0
+            
+            self.logger.info(f"Screen config loaded: timeout={self.timeout_seconds}s ({'enabled' if timeout_enabled else 'DISABLED'}), brightness={self.brightness_on}")
             
             # Mettre à jour les commandes avec la nouvelle luminosité
             self._update_screen_commands()
@@ -55,7 +58,6 @@ class ScreenController:
         except Exception as e:
             self.logger.error(f"Error loading screen config: {e}")
             # Fallback sur defaults
-            self.timeout_enabled = True
             self.timeout_seconds = 10
             self.brightness_on = 5
             self._update_screen_commands()
@@ -123,11 +125,11 @@ class ScreenController:
                 await asyncio.sleep(5)
     
     async def _monitor_timeout(self):
-        """Surveille le timeout avec vérification timeout_enabled"""
+        """Surveille le timeout - timeout_seconds = 0 pour jamais"""
         while self.running:
             try:
-                # Vérifier que timeout est activé
-                if not self.timeout_enabled:
+                # MODIFIÉ : timeout_seconds = 0 signifie jamais (désactivé)
+                if self.timeout_seconds == 0:
                     await asyncio.sleep(5)
                     continue
                 

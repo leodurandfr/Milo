@@ -1,4 +1,4 @@
-<!-- frontend/src/views/SettingsView.vue - Version Modal avec clic+drag scroll -->
+<!-- frontend/src/views/SettingsView.vue - Fix handlers pour envoyer 0 -->
 <template>
   <div class="settings-view">
     <div class="settings-modal">
@@ -307,10 +307,11 @@ function getEnabledAppsArray() {
 
 // === PRESET HELPERS ===
 function isTimeoutActive(value) {
+  // MODIFIÉ : Jamais = timeout_seconds === 0
   if (value === 0) {
-    return !config.value.screen.timeout_enabled;
+    return config.value.screen.timeout_seconds === 0;
   }
-  return config.value.screen.timeout_enabled && config.value.screen.timeout_seconds === value;
+  return config.value.screen.timeout_seconds === value;
 }
 
 function isDisconnectActive(value) {
@@ -428,21 +429,12 @@ function handleBrightnessChange(value) {
   }, 1000);
 }
 
-// Handler screen timeout presets
+// MODIFIÉ : Handler screen timeout - Envoyer 0 pour Jamais
 function setScreenTimeout(value) {
-  if (value === 0) {
-    // Jamais = désactiver
-    updateSetting('screen-timeout', {
-      screen_timeout_enabled: false,
-      screen_timeout_seconds: config.value.screen.timeout_seconds
-    });
-  } else {
-    // Activer avec la valeur
-    updateSetting('screen-timeout', {
-      screen_timeout_enabled: true,
-      screen_timeout_seconds: value
-    });
-  }
+  updateSetting('screen-timeout', {
+    screen_timeout_enabled: value !== 0,
+    screen_timeout_seconds: value  // Envoie directement la valeur (0 pour Jamais)
+  });
 }
 
 // Handler spotify disconnect presets
@@ -491,10 +483,11 @@ async function loadAllConfigs() {
       config.value.spotify.auto_disconnect_delay = spotify.data.config.auto_disconnect_delay || 10.0;
     }
 
-    // Screen
+    // MODIFIÉ : Screen - Utiliser timeout_seconds pour déterminer l'état
     if (screenTimeout.data.status === 'success') {
-      config.value.screen.timeout_enabled = screenTimeout.data.config.screen_timeout_enabled !== false;
       config.value.screen.timeout_seconds = screenTimeout.data.config.screen_timeout_seconds || 10;
+      // timeout_enabled dérivé de timeout_seconds
+      config.value.screen.timeout_enabled = config.value.screen.timeout_seconds !== 0;
     }
 
     if (brightness.data.status === 'success') {
@@ -545,10 +538,11 @@ const wsListeners = {
       config.value.spotify.auto_disconnect_delay = msg.data.config.auto_disconnect_delay;
     }
   },
+  // MODIFIÉ : Screen timeout - Dériver timeout_enabled de timeout_seconds
   'screen_timeout_changed': (msg) => {
     if (msg.data?.config) {
-      config.value.screen.timeout_enabled = msg.data.config.screen_timeout_enabled;
       config.value.screen.timeout_seconds = msg.data.config.screen_timeout_seconds;
+      config.value.screen.timeout_enabled = config.value.screen.timeout_seconds !== 0;
     }
   },
   'screen_brightness_changed': (msg) => {
