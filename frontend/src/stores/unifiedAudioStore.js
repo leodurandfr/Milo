@@ -132,16 +132,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === REFRESH (PROTECTION ANTI-ÉCRASEMENT) ===
   async function refreshState() {
     try {
-      console.log('🔄 Refreshing unified state...');
+      // console.log('🔄 Refreshing unified state...');
 
       if (systemState.value.transitioning) {
-        console.log('⚠️ Skipping refresh - transition in progress');
+        // console.log('⚠️ Skipping refresh - transition in progress');
         return true;
       }
 
       const now = Date.now();
       if (lastWebSocketUpdate && (now - lastWebSocketUpdate) < 1000) {
-        console.log('⚠️ Skipping refresh - recent WebSocket update');
+        // console.log('⚠️ Skipping refresh - recent WebSocket update');
         return true;
       }
 
@@ -182,7 +182,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         // Plus de gestion des limites - tout est en 0-100%
       }
 
-      console.log('✅ Unified state refreshed');
+      // console.log('✅ Unified state refreshed');
       return true;
 
     } catch (error) {
@@ -214,11 +214,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   // === MISE À JOUR D'ÉTAT (inchangée) ===
   function updateSystemState(newState, source = 'unknown') {
-    console.log('🔄 UPDATING SYSTEM STATE from:', source);
-    console.log('📊 Old state:', JSON.stringify(systemState.value, null, 2));
-    console.log('📊 New state:', JSON.stringify(newState, null, 2));
+    // console.log('🔄 UPDATING SYSTEM STATE from:', source);
+    // console.log('📊 Old state:', JSON.stringify(systemState.value, null, 2));
+    // console.log('📊 New state:', JSON.stringify(newState, null, 2));
 
-    console.trace('Update called from:');
+    // console.trace('Update called from:');
 
     systemState.value = {
       active_source: newState.active_source || 'none',
@@ -231,11 +231,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       equalizer_enabled: newState.equalizer_enabled || false
     };
 
-    console.log('✅ State updated to:', JSON.stringify(systemState.value, null, 2));
+    // console.log('✅ State updated to:', JSON.stringify(systemState.value, null, 2));
   }
 
   function updateState(event) {
-    console.log('🌐 WEBSOCKET EVENT:', event);
+    // console.log('🌐 WEBSOCKET EVENT:', event);
 
     if (event.data?.full_state) {
       lastWebSocketUpdate = Date.now();

@@ -155,7 +155,6 @@ onMounted(() => {
   
   // Attente initiale de 1000ms
   setTimeout(() => {
-    console.log('🚀 Initial delay finished');
     showInitialDelay.value = false;
   }, 1000);
 });
