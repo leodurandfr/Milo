@@ -251,10 +251,10 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
         
         return await _handle_setting_update(
             payload,
-            # MODIFIÉ : Accepter 0 (désactivé) OU valeur entre 1.0 et 300.0
+            # MODIFIÉ : Accepter 0 (désactivé) OU valeur entre 1.0 et 9999 (heure ?)
             validator=lambda p: (
                 p.get('auto_disconnect_delay') is not None and
-                (p['auto_disconnect_delay'] == 0 or (1.0 <= p['auto_disconnect_delay'] <= 300.0))
+                (p['auto_disconnect_delay'] == 0 or (1.0 <= p['auto_disconnect_delay'] <= 9999))
             ),
             setter=lambda: settings.set_setting('spotify.auto_disconnect_delay', delay),
             event_type="spotify_disconnect_changed",

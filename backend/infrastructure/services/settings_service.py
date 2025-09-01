@@ -121,7 +121,7 @@ class SettingsService:
         
         validated['screen'] = {
             # 0 = désactivé, sinon minimum 3 secondes
-            'timeout_seconds': 0 if timeout_seconds_raw == 0 else max(3, min(3600, timeout_seconds_raw)),
+            'timeout_seconds': 0 if timeout_seconds_raw == 0 else max(3, min(9999, timeout_seconds_raw)),
             'brightness_on': max(1, min(10, int(screen_input.get('brightness_on', 5))))
         }
         
@@ -130,8 +130,8 @@ class SettingsService:
         disconnect_delay_raw = float(spotify_input.get('auto_disconnect_delay', 10.0))
         
         validated['spotify'] = {
-            # 0 = désactivé, sinon minimum 1.0 seconde
-            'auto_disconnect_delay': 0.0 if disconnect_delay_raw == 0.0 else max(1.0, min(300.0, disconnect_delay_raw))
+            # 0 = désactivé, sinon minimum 1.0 seconde, maximum 1h (3600s)
+            'auto_disconnect_delay': 0.0 if disconnect_delay_raw == 0.0 else max(1.0, min(9999.0, disconnect_delay_raw))
         }
         
         # Dock avec validation au moins une source audio

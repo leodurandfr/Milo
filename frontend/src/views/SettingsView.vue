@@ -431,14 +431,16 @@ function handleBrightnessChange(value) {
 
 // MODIFIÉ : Handler screen timeout - Envoyer 0 pour Jamais
 function setScreenTimeout(value) {
+  console.log('Setting Screen timeout to:', value);
   updateSetting('screen-timeout', {
     screen_timeout_enabled: value !== 0,
-    screen_timeout_seconds: value  // Envoie directement la valeur (0 pour Jamais)
+    screen_timeout_seconds: value
   });
 }
 
 // Handler spotify disconnect presets
 function setSpotifyDisconnect(value) {
+  console.log('Setting Spotify to:', value);
   updateSetting('spotify-disconnect', { auto_disconnect_delay: value });
 }
 
@@ -480,12 +482,12 @@ async function loadAllConfigs() {
 
     // Spotify
     if (spotify.data.status === 'success') {
-      config.value.spotify.auto_disconnect_delay = spotify.data.config.auto_disconnect_delay || 10.0;
+      config.value.spotify.auto_disconnect_delay = spotify.data.config.auto_disconnect_delay ?? 10.0;
     }
 
     // MODIFIÉ : Screen - Utiliser timeout_seconds pour déterminer l'état
     if (screenTimeout.data.status === 'success') {
-      config.value.screen.timeout_seconds = screenTimeout.data.config.screen_timeout_seconds || 10;
+      config.value.screen.timeout_seconds = screenTimeout.data.config.screen_timeout_seconds ?? 10;
       // timeout_enabled dérivé de timeout_seconds
       config.value.screen.timeout_enabled = config.value.screen.timeout_seconds !== 0;
     }
@@ -505,7 +507,8 @@ async function loadAllConfigs() {
 
       config.value.dock.apps = appsObj;
     }
-
+console.log('Spotify response:', spotify.data);
+console.log('Screen response:', screenTimeout.data);
   } catch (error) {
     console.error('Error loading configs:', error);
   }
