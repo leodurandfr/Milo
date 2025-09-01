@@ -50,7 +50,7 @@
 
     /* === STYLES DE TEXTE === */
 
-    --font-size-h1: 32px;
+    --font-size-h1: 26px;
     --font-size-h2: 22px;
     --font-size-body: 20px;
     --font-size-mono: 16px;
@@ -58,7 +58,7 @@
     --letter-spacing-sans-serif: 1%;
     --letter-spacing-mono: -2%;
 
-    --line-height-h1: 38px;
+    --line-height-h1: 32px;
     --line-height-h2: 30px;
     --line-height-body: 26px;
     --line-height-mono: 22px;

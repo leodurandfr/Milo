@@ -3,34 +3,25 @@
   <div class="settings-view">
     <div class="settings-modal">
       <!-- Contenu scrollable avec header à l'intérieur -->
-      <div 
-        class="modal-content" 
-        ref="modalContent"
-        @pointerdown="handlePointerDown" 
-        @pointermove="handlePointerMove"
-        @pointerup="handlePointerUp" 
-        @pointercancel="handlePointerUp"
-      >
-        
+      <div class="modal-content" ref="modalContent" @pointerdown="handlePointerDown" @pointermove="handlePointerMove"
+        @pointerup="handlePointerUp" @pointercancel="handlePointerUp">
+
         <!-- Header noir avec bouton retour -->
         <div class="modal-header">
           <div class="back-button-wrapper">
             <IconButton icon="caretLeft" variant="dark" @click="goBack" />
-            <h1 class="heading-2">{{ t('Configuration de Milō') }}</h1>
+            <h2 class="heading-2">{{ t('Configuration de Milō') }}</h2>
           </div>
         </div>
-        
+
         <!-- 1. Languages -->
         <section class="settings-section">
-          <h2 class="heading-2">{{ t('Languages') }}</h2>
-          
+          <h1 class="heading-1">{{ t('Languages') }}</h1>
+
           <div class="language-grid">
-            <button 
-              v-for="language in availableLanguages" 
-              :key="language.code"
+            <button v-for="language in availableLanguages" :key="language.code"
               @click="updateSetting('language', { language: language.code })"
-              :class="['language-button', { active: currentLanguage === language.code }]"
-            >
+              :class="['language-button', { active: currentLanguage === language.code }]">
               <span class="language-flag">{{ language.flag }}</span>
               <span class="language-name heading-2">{{ language.name }}</span>
               <div v-if="currentLanguage === language.code" class="active-indicator"></div>
@@ -40,24 +31,20 @@
 
         <!-- 2. Applications -->
         <section class="settings-section">
-          <h2 class="heading-2">{{ t('Applications') }}</h2>
-          
+          <h1 class="heading-1">{{ t('Applications') }}</h1>
+
           <!-- Sources audio -->
           <div class="app-group">
-            <h3 class="app-group-title text-body">{{ t('Sources audio') }}</h3>
-            
+            <p class="app-group-title text-mono">{{ t('Sources audio') }}</p>
+
             <div class="app-list">
               <div class="app-item">
                 <div class="app-info">
                   <AppIcon name="spotify" :size="32" />
                   <span class="app-name text-body">Spotify</span>
                 </div>
-                <Toggle 
-                  v-model="config.dock.apps.librespot" 
-                  variant="primary"
-                  :disabled="!canDisableAudioSource('librespot')"
-                  @change="updateDockApps"
-                />
+                <Toggle v-model="config.dock.apps.librespot" variant="primary"
+                  :disabled="!canDisableAudioSource('librespot')" @change="updateDockApps" />
               </div>
 
               <div class="app-item">
@@ -65,12 +52,8 @@
                   <AppIcon name="bluetooth" :size="32" />
                   <span class="app-name text-body">Bluetooth</span>
                 </div>
-                <Toggle 
-                  v-model="config.dock.apps.bluetooth" 
-                  variant="primary"
-                  :disabled="!canDisableAudioSource('bluetooth')"
-                  @change="updateDockApps"
-                />
+                <Toggle v-model="config.dock.apps.bluetooth" variant="primary"
+                  :disabled="!canDisableAudioSource('bluetooth')" @change="updateDockApps" />
               </div>
 
               <div class="app-item">
@@ -78,31 +61,23 @@
                   <AppIcon name="roc" :size="32" />
                   <span class="app-name text-body">{{ t('Réception audio macOS') }}</span>
                 </div>
-                <Toggle 
-                  v-model="config.dock.apps.roc" 
-                  variant="primary"
-                  :disabled="!canDisableAudioSource('roc')"
-                  @change="updateDockApps"
-                />
+                <Toggle v-model="config.dock.apps.roc" variant="primary" :disabled="!canDisableAudioSource('roc')"
+                  @change="updateDockApps" />
               </div>
             </div>
           </div>
 
           <!-- Fonctionnalités -->
           <div class="app-group">
-            <h3 class="app-group-title text-body">{{ t('Fonctionnalités') }}</h3>
-            
+            <p class="app-group-title text-mono">{{ t('Fonctionnalités') }}</p>
+
             <div class="app-list">
               <div class="app-item">
                 <div class="app-info">
                   <AppIcon name="multiroom" :size="32" />
                   <span class="app-name text-body">Multiroom</span>
                 </div>
-                <Toggle 
-                  v-model="config.dock.apps.multiroom" 
-                  variant="primary"
-                  @change="updateDockApps"
-                />
+                <Toggle v-model="config.dock.apps.multiroom" variant="primary" @change="updateDockApps" />
               </div>
 
               <div class="app-item">
@@ -110,11 +85,7 @@
                   <AppIcon name="equalizer" :size="32" />
                   <span class="app-name text-body">{{ t('Égaliseur') }}</span>
                 </div>
-                <Toggle 
-                  v-model="config.dock.apps.equalizer" 
-                  variant="primary"
-                  @change="updateDockApps"
-                />
+                <Toggle v-model="config.dock.apps.equalizer" variant="primary" @change="updateDockApps" />
               </div>
             </div>
           </div>
@@ -122,24 +93,18 @@
 
         <!-- 3. Volume -->
         <section class="settings-section">
-          <h2 class="heading-2">{{ t('Volume') }}</h2>
-          
+          <h1 class="heading-1">{{ t('Volume') }}</h1>
+
           <!-- Contrôles du volume -->
           <div class="volume-group">
-            <h3 class="text-body">{{ t('Contrôles du volume') }}</h3>
+            <h2 class="heading-2 text-body">{{ t('Contrôles du volume') }}</h2>
             <div class="volume-description text-mono">
               {{ t('Incrémentation des boutons volume en mobile') }}
             </div>
-            
+
             <div class="volume-steps-control">
-              <RangeSlider 
-                v-model="config.volume.mobile_volume_steps" 
-                :min="1" 
-                :max="10" 
-                :step="1"
-                value-unit="%"
-                @input="debouncedUpdate('volume-steps', { mobile_volume_steps: $event })"
-              />
+              <RangeSlider v-model="config.volume.mobile_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
+                @input="debouncedUpdate('volume-steps', { mobile_volume_steps: $event })" />
             </div>
           </div>
 
@@ -147,21 +112,14 @@
 
           <!-- Limites du volume -->
           <div class="volume-group">
-            <h3 class="text-body">{{ t('Limites du volume') }}</h3>
+            <h2 class="heading-2 text-body">{{ t('Limites du volume') }}</h2>
             <div class="volume-description text-mono">
               {{ t('Volume minimal et maximal') }}
             </div>
-            
+
             <div class="volume-limits-control">
-              <DoubleRangeSlider 
-                v-model="config.volume.limits"
-                :min="0" 
-                :max="100" 
-                :step="1"
-                :gap="10"
-                value-unit="%"
-                @input="updateVolumeLimits"
-              />
+              <DoubleRangeSlider v-model="config.volume.limits" :min="0" :max="100" :step="1" :gap="10" value-unit="%"
+                @input="updateVolumeLimits" />
             </div>
           </div>
 
@@ -169,21 +127,15 @@
 
           <!-- Volume au démarrage -->
           <div class="volume-group">
-            <h3 class="text-body">{{ t('Volume au démarrage') }}</h3>
-            
+            <h2 class="heading-2 text-body">{{ t('Volume au démarrage') }}</h2>
+
             <div class="startup-mode-buttons">
-              <Button 
-                variant="toggle" 
-                :active="!config.volume.restore_last_volume"
-                @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: false })"
-              >
+              <Button variant="toggle" :active="!config.volume.restore_last_volume"
+                @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: false })">
                 {{ t('Volume fixe') }}
               </Button>
-              <Button 
-                variant="toggle" 
-                :active="config.volume.restore_last_volume"
-                @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: true })"
-              >
+              <Button variant="toggle" :active="config.volume.restore_last_volume"
+                @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: true })">
                 {{ t('Restaurer le dernier') }}
               </Button>
             </div>
@@ -194,14 +146,8 @@
                 {{ t('Volume fixe au démarrage') }}
               </div>
               <div class="startup-volume-control">
-                <RangeSlider 
-                  v-model="config.volume.startup_volume" 
-                  :min="0" 
-                  :max="100" 
-                  :step="1"
-                  value-unit="%"
-                  @input="debouncedUpdate('volume-startup', { startup_volume: $event, restore_last_volume: false })"
-                />
+                <RangeSlider v-model="config.volume.startup_volume" :min="0" :max="100" :step="1" value-unit="%"
+                  @input="debouncedUpdate('volume-startup', { startup_volume: $event, restore_last_volume: false })" />
               </div>
             </div>
           </div>
@@ -209,24 +155,19 @@
 
         <!-- 4. Écran -->
         <section class="settings-section">
-          <h2 class="heading-2">{{ t('Écran') }}</h2>
-          
+          <h1 class="heading-1">{{ t('Écran') }}</h1>
+
           <!-- Luminosité -->
           <div class="screen-group">
-            <h3 class="text-body">{{ t('Luminosité') }}</h3>
+            <h2 class="heading-2 text-body">{{ t('Luminosité') }}</h2>
+
             <div class="screen-description text-mono">
               {{ t('Intensité de la luminosité') }}
             </div>
-            
+
             <div class="brightness-control">
-              <RangeSlider 
-                v-model="config.screen.brightness_on" 
-                :min="1" 
-                :max="10" 
-                :step="1"
-                value-unit=""
-                @input="handleBrightnessChange"
-              />
+              <RangeSlider v-model="config.screen.brightness_on" :min="1" :max="10" :step="1" value-unit=""
+                @input="handleBrightnessChange" />
             </div>
           </div>
 
@@ -234,19 +175,15 @@
 
           <!-- Mise en veille automatique -->
           <div class="screen-group">
-            <h3 class="text-body">{{ t('Mise en veille automatique') }}</h3>
+            <h2 class="heading-2 text-body">{{ t('Mise en veille automatique') }}</h2>
+
             <div class="screen-description text-mono">
               {{ t('Délai de la mise en veille après :') }}
             </div>
-            
+
             <div class="timeout-buttons">
-              <Button 
-                v-for="timeout in timeoutPresets" 
-                :key="timeout.value"
-                variant="toggle" 
-                :active="isTimeoutActive(timeout.value)"
-                @click="setScreenTimeout(timeout.value)"
-              >
+              <Button v-for="timeout in timeoutPresets" :key="timeout.value" variant="toggle"
+                :active="isTimeoutActive(timeout.value)" @click="setScreenTimeout(timeout.value)">
                 {{ timeout.label }}
               </Button>
             </div>
@@ -255,22 +192,18 @@
 
         <!-- 5. Spotify -->
         <section class="settings-section">
-          <h2 class="heading-2">{{ t('Spotify') }}</h2>
-          
+          <h1 class="heading-1">{{ t('Spotify') }}</h1>
+
           <div class="spotify-group">
-            <h3 class="text-body">{{ t('Déconnexion automatique') }}</h3>
+            <h2 class="heading-2 text-body">{{ t('Déconnexion automatique') }}</h2>
+
             <div class="spotify-description text-mono">
               {{ t('Délai de déconnexion après que la musique soit en pause pendant :') }}
             </div>
-            
+
             <div class="disconnect-buttons">
-              <Button 
-                v-for="delay in disconnectPresets" 
-                :key="delay.value"
-                variant="toggle" 
-                :active="isDisconnectActive(delay.value)"
-                @click="setSpotifyDisconnect(delay.value)"
-              >
+              <Button v-for="delay in disconnectPresets" :key="delay.value" variant="toggle"
+                :active="isDisconnectActive(delay.value)" @click="setSpotifyDisconnect(delay.value)">
                 {{ delay.label }}
               </Button>
             </div>
@@ -280,7 +213,7 @@
         <!-- 6. Informations -->
         <section class="settings-section">
           <h2 class="heading-2">{{ t('Informations') }}</h2>
-          
+
           <div class="info-item">
             <span class="info-label text-mono">{{ t('Version de Milo') }}</span>
             <span class="info-value text-mono">0.1.0</span>
@@ -362,7 +295,7 @@ const disconnectPresets = computed(() => [
 // === VALIDATION DOCK APPS ===
 function canDisableAudioSource(sourceId) {
   const audioSources = ['librespot', 'bluetooth', 'roc'];
-  const enabledAudioSources = audioSources.filter(source => 
+  const enabledAudioSources = audioSources.filter(source =>
     config.value.dock.apps[source] && source !== sourceId
   );
   return enabledAudioSources.length > 0;
@@ -487,7 +420,7 @@ function handleBrightnessChange(value) {
   brightnessInstantTimeout = setTimeout(() => {
     axios.post('/api/settings/screen-brightness/apply', { brightness_on: value }).catch(console.error);
   }, 300);
-  
+
   // Sauvegarde
   clearTimeout(brightnessDebounceTimeout);
   brightnessDebounceTimeout = setTimeout(() => {
@@ -533,7 +466,7 @@ async function loadAllConfigs() {
       axios.get('/api/settings/screen-brightness'),
       axios.get('/api/settings/dock-apps')
     ]);
-    
+
     // Volume limits → DoubleRangeSlider format
     if (volumeLimits.data.status === 'success') {
       config.value.volume.limits = {
@@ -541,45 +474,45 @@ async function loadAllConfigs() {
         max: volumeLimits.data.limits.alsa_max || 65
       };
     }
-    
+
     // Volume startup
     if (volumeStartup.data.status === 'success') {
       config.value.volume.restore_last_volume = volumeStartup.data.config.restore_last_volume || false;
       config.value.volume.startup_volume = volumeStartup.data.config.startup_volume || 37;
     }
-    
+
     // Volume steps
     if (volumeSteps.data.status === 'success') {
       config.value.volume.mobile_volume_steps = volumeSteps.data.config.mobile_volume_steps || 5;
     }
-    
+
     // Spotify
     if (spotify.data.status === 'success') {
       config.value.spotify.auto_disconnect_delay = spotify.data.config.auto_disconnect_delay || 10.0;
     }
-    
+
     // Screen
     if (screenTimeout.data.status === 'success') {
       config.value.screen.timeout_enabled = screenTimeout.data.config.screen_timeout_enabled !== false;
       config.value.screen.timeout_seconds = screenTimeout.data.config.screen_timeout_seconds || 10;
     }
-    
+
     if (brightness.data.status === 'success') {
       config.value.screen.brightness_on = brightness.data.config.brightness_on || 5;
     }
-    
+
     // Dock apps
     if (dockApps.data.status === 'success') {
       const enabledApps = dockApps.data.config.enabled_apps || ["librespot", "bluetooth", "roc", "multiroom", "equalizer"];
-      
+
       const appsObj = {};
       ['librespot', 'bluetooth', 'roc', 'multiroom', 'equalizer'].forEach(app => {
         appsObj[app] = enabledApps.includes(app);
       });
-      
+
       config.value.dock.apps = appsObj;
     }
-    
+
   } catch (error) {
     console.error('Error loading configs:', error);
   }
@@ -638,7 +571,7 @@ const wsListeners = {
 onMounted(async () => {
   await i18n.initializeLanguage();
   await loadAllConfigs();
-  
+
   // Enregistrer tous les listeners WebSocket
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
     on('settings', eventType, handler);
@@ -697,7 +630,7 @@ onMounted(async () => {
   gap: var(--space-03);
 }
 
-.modal-header h1 {
+.modal-header h2 {
   color: var(--color-text-contrast);
 }
 
@@ -792,7 +725,7 @@ onMounted(async () => {
 }
 
 .app-group-title {
-  color: var(--color-text);
+  color: var(--color-text-secondary);
   font-weight: 500;
 }
 
@@ -916,28 +849,28 @@ onMounted(async () => {
     align-items: flex-start;
     padding: 80px var(--space-02) var(--space-02) var(--space-02);
   }
-  
+
   .settings-modal {
     max-height: calc(100vh - 80px);
   }
-  
+
   .language-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .timeout-buttons,
   .disconnect-buttons {
     flex-direction: column;
   }
-  
+
   .startup-mode-buttons {
     flex-direction: column;
   }
-  
+
   .app-item {
     padding: var(--space-04);
   }
-  
+
   .volume-steps-control,
   .brightness-control,
   .startup-volume-control {
