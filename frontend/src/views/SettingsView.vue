@@ -159,12 +159,9 @@
                 :max="100" 
                 :step="1"
                 :gap="10"
+                value-unit="%"
                 @input="updateVolumeLimits"
               />
-              <div class="range-values text-mono">
-                <span>{{ config.volume.limits.min }}%</span>
-                <span>{{ config.volume.limits.max }}%</span>
-              </div>
             </div>
           </div>
 
@@ -848,13 +845,6 @@ onMounted(async () => {
 .volume-limits-control {
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
-}
-
-.range-values {
-  display: flex;
-  justify-content: space-between;
-  color: var(--color-text-secondary);
 }
 
 /* Startup mode buttons */

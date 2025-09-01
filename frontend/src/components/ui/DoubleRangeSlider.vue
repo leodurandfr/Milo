@@ -1,7 +1,7 @@
-<!-- frontend/src/components/ui/DoubleRangeSlider.vue - Reproduction exacte du style RangeSlider -->
+<!-- frontend/src/components/ui/DoubleRangeSlider.vue - Valeurs intégrées complètes -->
 <template>
-  <div class="slider-container horizontal" :style="cssVars">
-    <!-- Track principal avec gradient identique au RangeSlider -->
+  <div class="double-range-slider" :style="cssVars">
+    <!-- Track principal avec gradient -->
     <div 
       class="range-track"
       ref="track"
@@ -12,7 +12,7 @@
     <div 
       class="range-thumb thumb-min"
       :class="{ dragging: isDraggingMin }"
-      :style="{ left: `${minPercentage}%` }"
+      :style="{ left: minPosition }"
       @pointerdown="startDrag($event, 'min')"
       @touchstart.prevent
     ></div>
@@ -21,10 +21,20 @@
     <div 
       class="range-thumb thumb-max"
       :class="{ dragging: isDraggingMax }"
-      :style="{ left: `${maxPercentage}%` }"
+      :style="{ left: maxPosition }"
       @pointerdown="startDrag($event, 'max')"
       @touchstart.prevent
     ></div>
+    
+    <!-- Valeur minimum (gauche) -->
+    <div class="slider-value-min text-mono" :class="{ dragging: isDraggingMin }">
+      {{ modelValue.min }}{{ valueUnit }}
+    </div>
+    
+    <!-- Valeur maximum (droite) -->
+    <div class="slider-value-max text-mono" :class="{ dragging: isDraggingMax }">
+      {{ modelValue.max }}{{ valueUnit }}
+    </div>
   </div>
 </template>
 
@@ -40,33 +50,45 @@ const props = defineProps({
   min: { type: Number, default: 0 },
   max: { type: Number, default: 100 },
   step: { type: Number, default: 1 },
-  gap: { type: Number, default: 10 }
+  gap: { type: Number, default: 10 },
+  valueUnit: { type: String, default: '' }
 });
 
-const emit = defineEmits(['update:modelValue', 'input', 'change']);
+const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
 
 // État du drag
 const isDraggingMin = ref(false);
 const isDraggingMax = ref(false);
 const track = ref(null);
 
-// Calcul des pourcentages EXACT comme dans RangeSlider
-const minPercentage = computed(() => {
+// Calcul des positions en pixels (propre)
+const minPosition = computed(() => {
+  const percentage = (props.modelValue.min - props.min) / (props.max - props.min);
+  return `calc(31px + ${percentage} * (100% - 62px))`;
+});
+
+const maxPosition = computed(() => {
+  const percentage = (props.modelValue.max - props.min) / (props.max - props.min);
+  return `calc(31px + ${percentage} * (100% - 62px))`;
+});
+
+// Pourcentages pour le gradient (même logique que RangeSlider.vue)
+const minPercentageForGradient = computed(() => {
   const rawPercentage = ((props.modelValue.min - props.min) / (props.max - props.min)) * 100;
-  const thumbAdjustment = 15;
+  const thumbAdjustment = 12; // Même valeur que RangeSlider
   return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
 });
 
-const maxPercentage = computed(() => {
+const maxPercentageForGradient = computed(() => {
   const rawPercentage = ((props.modelValue.max - props.min) / (props.max - props.min)) * 100;
-  const thumbAdjustment = 15;
+  const thumbAdjustment = 12; // Même valeur que RangeSlider
   return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
 });
 
-// Variables CSS pour le gradient
+// Variables CSS pour le gradient - utilise la même logique que RangeSlider
 const cssVars = computed(() => ({
-  '--progress-min': `${minPercentage.value}%`,
-  '--progress-max': `${maxPercentage.value}%`
+  '--progress-min': `${minPercentageForGradient.value}%`,
+  '--progress-max': `${maxPercentageForGradient.value}%`
 }));
 
 // Helpers
@@ -79,11 +101,9 @@ function roundToStep(value) {
 }
 
 function updateValues(newMin, newMax, triggerInput = true) {
-  // Contraintes de base
   newMin = clamp(roundToStep(newMin), props.min, props.max);
   newMax = clamp(roundToStep(newMax), props.min, props.max);
   
-  // Garantir le gap minimum
   if (newMax - newMin < props.gap) {
     if (isDraggingMin.value) {
       newMax = Math.min(props.max, newMin + props.gap);
@@ -104,8 +124,7 @@ function updateValues(newMin, newMax, triggerInput = true) {
 
 // Gestion du drag
 let dragType = null;
-let startPosition = 0; // Position initiale du curseur
-let startValue = 0; // Valeur initiale du thumb
+let thumbOffset = 0;
 
 function startDrag(event, type) {
   if (event.button !== 0) return;
@@ -114,14 +133,29 @@ function startDrag(event, type) {
   event.stopPropagation();
   dragType = type;
   
-  // Mémoriser position initiale curseur et valeur initiale
-  startPosition = event.clientX;
-  startValue = type === 'min' ? props.modelValue.min : props.modelValue.max;
+  if (!track.value) return;
+  
+  const rect = track.value.getBoundingClientRect();
+  const clickX = event.clientX;
+  
+  // Position actuelle du centre du thumb avec le nouveau calcul
+  const currentPercentage = type === 'min' 
+    ? (props.modelValue.min - props.min) / (props.max - props.min)
+    : (props.modelValue.max - props.min) / (props.max - props.min);
+    
+  // Position du centre du thumb : 31px + percentage * (largeur utilisable)
+  const usableWidth = rect.width - 62; // largeur - largeur thumb
+  const thumbCenterX = rect.left + 31 + (currentPercentage * usableWidth);
+  
+  // Offset = différence entre où on clique et le centre du thumb
+  thumbOffset = clickX - thumbCenterX;
   
   if (type === 'min') {
     isDraggingMin.value = true;
+    emit('drag-start', 'min');
   } else {
     isDraggingMax.value = true;
+    emit('drag-start', 'max');
   }
   
   document.addEventListener('pointermove', handleDrag);
@@ -133,25 +167,34 @@ function handleDrag(event) {
   if (!track.value || !dragType) return;
   
   const rect = track.value.getBoundingClientRect();
+  const correctedX = event.clientX - thumbOffset;
   
-  // Calculer le delta en pixels depuis la position initiale
-  const deltaX = event.clientX - startPosition;
-  
-  // Convertir le delta en valeur
-  const deltaValue = (deltaX / rect.width) * (props.max - props.min);
-  const newValue = startValue + deltaValue;
+  // Calculer la position dans la zone utilisable (31px à width-31px)
+  const usableWidth = rect.width - 62; // largeur - largeur thumb  
+  const positionInUsableArea = correctedX - rect.left - 31; // position - début zone utilisable
+  const percentage = clamp(positionInUsableArea / usableWidth, 0, 1);
+  const value = props.min + (percentage * (props.max - props.min));
   
   if (dragType === 'min') {
-    updateValues(newValue, props.modelValue.max, true);
+    updateValues(value, props.modelValue.max, true);
   } else {
-    updateValues(props.modelValue.min, newValue, true);
+    updateValues(props.modelValue.min, value, true);
   }
 }
 
 function stopDrag() {
+  const wasMin = isDraggingMin.value;
+  const wasMax = isDraggingMax.value;
+  
   isDraggingMin.value = false;
   isDraggingMax.value = false;
   dragType = null;
+  
+  if (wasMin) {
+    emit('drag-end', 'min');
+  } else if (wasMax) {
+    emit('drag-end', 'max');
+  }
   
   document.removeEventListener('pointermove', handleDrag);
   document.removeEventListener('pointerup', stopDrag);
@@ -162,10 +205,13 @@ function handleTrackClick(event) {
   if (!track.value) return;
   
   const rect = track.value.getBoundingClientRect();
-  const percentage = (event.clientX - rect.left) / rect.width;
+  
+  // Calculer la position dans la zone utilisable
+  const usableWidth = rect.width - 62;
+  const positionInUsableArea = event.clientX - rect.left - 31;
+  const percentage = clamp(positionInUsableArea / usableWidth, 0, 1);
   const value = props.min + (percentage * (props.max - props.min));
   
-  // Déterminer quel thumb est le plus proche
   const distToMin = Math.abs(value - props.modelValue.min);
   const distToMax = Math.abs(value - props.modelValue.max);
   
@@ -188,20 +234,17 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* Container identique à RangeSlider */
-.slider-container {
+/* Container */
+.double-range-slider {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.slider-container.horizontal {
   width: 100%;
   height: 40px;
-  position: relative;
 }
 
-/* Track principal avec gradient 3-sections identique au RangeSlider */
+/* Track avec gradient identique au RangeSlider */
 .range-track {
   width: 100%;
   height: 40px;
@@ -227,16 +270,6 @@ onUnmounted(() => {
   border: 2px solid #767C76;
   cursor: pointer;
   transform: translateX(-50%);
-  transition: transform var(--transition-fast);
-}
-
-.range-thumb:hover {
-  /* Pas de scale au hover - garder juste la transition */
-}
-
-.range-thumb.dragging {
-  cursor: grabbing;
-  /* Pas de scale au drag non plus */
 }
 
 /* Z-index pour les thumbs */
@@ -250,5 +283,33 @@ onUnmounted(() => {
 
 .thumb-max.dragging {
   z-index: 4;
+}
+
+/* Valeur minimum à gauche - au-dessus des thumbs */
+.slider-value-min {
+  position: absolute;
+  left: var(--space-04);
+  color: var(--color-text-secondary);
+  transition: color var(--transition-fast);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.slider-value-min.dragging {
+  color: var(--color-brand);
+}
+
+/* Valeur maximum à droite - au-dessus des thumbs */
+.slider-value-max {
+  position: absolute;
+  right: var(--space-04);
+  color: var(--color-text-secondary);
+  transition: color var(--transition-fast);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.slider-value-max.dragging {
+  color: var(--color-brand);
 }
 </style>
