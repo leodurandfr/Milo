@@ -1,6 +1,6 @@
 # backend/infrastructure/services/volume_service.py
 """
-Service de gestion du volume pour Milo - Version fixée pour steps 1%
+Service de gestion du volume pour Milo - Version avec ajustements relatifs multiroom
 """
 import asyncio
 import logging
@@ -14,7 +14,7 @@ from pathlib import Path
 from backend.infrastructure.services.settings_service import SettingsService
 
 class VolumeService:
-    """Service de gestion du volume système - Version fixée pour steps 1%"""
+    """Service de gestion du volume système - Version avec ajustements relatifs multiroom"""
     
     # Fichier pour sauvegarder le dernier volume
     LAST_VOLUME_FILE = Path("/var/lib/milo/last_volume.json")
@@ -242,34 +242,6 @@ class VolumeService:
             self.logger.error(f"Error reloading volume steps: {e}")
             return False
 
-    async def sync_current_volume_to_all_snapcast_clients(self) -> bool:
-        """Synchronise le volume actuel avec tous les clients Snapcast"""
-        try:
-            if not self._is_multiroom_enabled():
-                self.logger.warning("Multiroom not enabled, cannot sync to snapcast clients")
-                return False
-                
-            current_display_volume = int(self._precise_display_volume)
-            current_alsa_volume = self._display_to_alsa(current_display_volume)
-            
-            clients = await self.snapcast_service.get_clients()
-            if not clients:
-                self.logger.info("No Snapcast clients to sync")
-                return True
-            
-            self.logger.info(f"Syncing current volume ({current_display_volume}% = {current_alsa_volume} ALSA) to {len(clients)} Snapcast clients")
-            
-            # Appliquer le volume actuel à tous les clients
-            for client in clients:
-                await self.snapcast_service.set_volume(client["id"], current_alsa_volume)
-                self.logger.debug(f"Synced volume to client {client['name']}: {current_alsa_volume} ALSA")
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error syncing volume to snapcast clients: {e}")
-            return False
-    
     def _display_to_alsa_old_limits(self, display_volume: int, old_min: int, old_max: int) -> int:
         """Convertit avec les anciennes limites (pour comparaison lors du reload)"""
         old_alsa_range = old_max - old_min
@@ -438,7 +410,7 @@ class VolumeService:
                 self.logger.info(f"Display volume: {current_display}% → {new_display}%")
                 self.logger.info(f"ALSA volume: {current_alsa} → {new_alsa} (delta: {alsa_delta})")
                 
-                # Appliquer le volume ALSA (même si delta=0)
+                # Appliquer le volume ALSA
                 if self._is_multiroom_enabled():
                     success = await self._apply_alsa_volume_multiroom(new_alsa)
                 else:
@@ -473,20 +445,35 @@ class VolumeService:
         except Exception:
             return False
     
-    async def _apply_alsa_volume_multiroom(self, alsa_volume: int) -> bool:
-        """Applique un volume ALSA à tous les clients Snapcast"""
+    async def _apply_alsa_volume_multiroom(self, target_alsa_volume: int) -> bool:
+        """CORRIGÉ : Applique un ajustement RELATIF aux clients Snapcast"""
         try:
             clients = await self._get_snapcast_clients_cached()
             
             if not clients:
                 return False
             
-            # Appliquer le même volume ALSA à tous les clients
+            # Calculer le delta par rapport au volume système précédent
+            previous_alsa = self._display_to_alsa(int(self._precise_display_volume))
+            alsa_delta = target_alsa_volume - previous_alsa
+            
+            if alsa_delta == 0:
+                return True  # Pas de changement
+            
+            self.logger.info(f"Applying relative ALSA delta {alsa_delta} to {len(clients)} clients")
+            
+            # Appliquer le delta relatif à chaque client individuellement
+            # CORRECTION : client["volume"] est DÉJÀ en format correct pour Snapcast (0-100%)
             for client in clients:
-                await self.snapcast_service.set_volume(client["id"], alsa_volume)
+                current_client_vol = client.get("volume", 0)  # Volume client actuel (0-100%)
+                new_client_vol = max(0, min(100, current_client_vol + alsa_delta))
+                
+                await self.snapcast_service.set_volume(client["id"], new_client_vol)
+                self.logger.debug(f"Client {client['name']}: {current_client_vol} → {new_client_vol} (delta: {alsa_delta})")
             
             return True
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"Error in relative multiroom volume: {e}")
             return False
     
     async def increase_display_volume(self, delta: int = None) -> bool:
@@ -613,7 +600,7 @@ class VolumeService:
             return False
 
     async def _set_startup_volume_multiroom(self, alsa_volume: int) -> bool:
-        """Force tous les clients Snapcast au volume ALSA"""
+        """Force tous les clients Snapcast au volume ALSA (SEULEMENT au démarrage)"""
         try:
             clients = await self.snapcast_service.get_clients()
             if not clients:
@@ -623,7 +610,7 @@ class VolumeService:
             display_volume = self._alsa_to_display(alsa_volume)
             for client in clients:
                 await self.snapcast_service.set_volume(client["id"], alsa_volume)
-                self.logger.info(f"Multiroom: Client {client['name']} volume set to {alsa_volume} ({display_volume}% display)")
+                self.logger.info(f"Startup: Client {client['name']} volume set to {alsa_volume} ({display_volume}% display)")
             
             return True
         except Exception as e:
