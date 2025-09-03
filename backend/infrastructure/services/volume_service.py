@@ -1,6 +1,6 @@
 # backend/infrastructure/services/volume_service.py
 """
-Service de gestion du volume pour Milo - Version avec ajustements relatifs multiroom
+Service de gestion du volume pour Milo - Version CORRIGÉE avec moyenne dynamique multiroom
 """
 import asyncio
 import logging
@@ -8,13 +8,13 @@ import alsaaudio
 import re
 import json
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import time
 from pathlib import Path
 from backend.infrastructure.services.settings_service import SettingsService
 
 class VolumeService:
-    """Service de gestion du volume système - Version avec ajustements relatifs multiroom"""
+    """Service de gestion du volume système - Version avec moyenne dynamique multiroom"""
     
     # Fichier pour sauvegarder le dernier volume
     LAST_VOLUME_FILE = Path("/var/lib/milo/last_volume.json")
@@ -35,7 +35,7 @@ class VolumeService:
         self._mobile_volume_steps = 5
         
         # État interne - PRÉCIS en float pour éviter les erreurs d'arrondi
-        self._precise_display_volume = 0.0  # Volume display précis (float)
+        self._precise_display_volume = 0.0  # Volume display précis (float) - utilisé uniquement en mode direct
         self._last_alsa_volume = 0
         self._alsa_cache_time = 0
         self._is_adjusting = False
@@ -159,7 +159,7 @@ class VolumeService:
             self.logger.info("Reloading volume limits...")
             
             # Sauvegarder l'ancien volume affiché et les anciennes limites
-            old_display_volume = int(self._precise_display_volume)
+            old_display_volume = await self.get_display_volume()  # MODIFIÉ : Utiliser la méthode dynamique
             old_alsa_min = self._alsa_min_volume
             old_alsa_max = self._alsa_max_volume
             
@@ -174,25 +174,28 @@ class VolumeService:
                 self.logger.info("Volume limits unchanged, no adjustment needed")
                 return True
             
-            # Recalculer les plages avec les nouvelles limites
-            old_alsa_volume = self._display_to_alsa_old_limits(old_display_volume, old_alsa_min, old_alsa_max)
-            new_display_volume = self._alsa_to_display(old_alsa_volume)
-            
-            # Si le volume calculé avec les nouvelles limites est différent
-            if new_display_volume != old_display_volume:
-                # Ajuster le volume actuel avec les nouvelles limites
-                if old_alsa_volume < self._alsa_min_volume or old_alsa_volume > self._alsa_max_volume:
-                    # Volume hors des nouvelles limites → ramener au centre
-                    center_volume = (self._alsa_min_volume + self._alsa_max_volume) // 2
-                    safe_display_volume = self._alsa_to_display(center_volume)
-                    
-                    self.logger.info(f"Volume out of new limits, adjusting: {old_display_volume}% -> {safe_display_volume}%")
-                    await self.set_display_volume(safe_display_volume, show_bar=False)
-                else:
-                    # Volume dans les limites mais interpolation différente → ajuster
-                    self.logger.info(f"Volume interpolation changed: {old_display_volume}% -> {new_display_volume}%")
-                    self._precise_display_volume = float(new_display_volume)
-                    await self._broadcast_volume_change(show_bar=False)
+            # En mode direct : ajuster le volume interne précis
+            if not self._is_multiroom_enabled():
+                old_alsa_volume = self._display_to_alsa_old_limits(old_display_volume, old_alsa_min, old_alsa_max)
+                new_display_volume = self._alsa_to_display(old_alsa_volume)
+                
+                if new_display_volume != old_display_volume:
+                    if old_alsa_volume < self._alsa_min_volume or old_alsa_volume > self._alsa_max_volume:
+                        # Volume hors des nouvelles limites → ramener au centre
+                        center_volume = (self._alsa_min_volume + self._alsa_max_volume) // 2
+                        safe_display_volume = self._alsa_to_display(center_volume)
+                        
+                        self.logger.info(f"Volume out of new limits, adjusting: {old_display_volume}% -> {safe_display_volume}%")
+                        await self.set_display_volume(safe_display_volume, show_bar=False)
+                    else:
+                        # Volume dans les limites mais interpolation différente → ajuster
+                        self.logger.info(f"Volume interpolation changed: {old_display_volume}% -> {new_display_volume}%")
+                        self._precise_display_volume = float(new_display_volume)
+                        await self._broadcast_volume_change(show_bar=False)
+            # En mode multiroom : les clients garderont automatiquement leur volume, la moyenne se recalculera
+            else:
+                self.logger.info("Multiroom mode: clients will keep their volumes, average will recalculate automatically")
+                await self._broadcast_volume_change(show_bar=False)
             
             self.logger.info("Volume limits reloaded successfully")
             return True
@@ -307,7 +310,7 @@ class VolumeService:
             else:
                 await self._set_startup_volume_direct(startup_alsa_volume)
             
-            # État interne - volume précis en float
+            # État interne - volume précis en float (utilisé uniquement en mode direct)
             self._precise_display_volume = float(startup_display_volume)
             self._last_alsa_volume = startup_alsa_volume
             self._alsa_cache_time = time.time()
@@ -340,11 +343,55 @@ class VolumeService:
         except Exception as e:
             return False
     
-    # === API PUBLIQUE - VOLUME AFFICHÉ (0-100%) SIMPLIFIÉ ===
+    # === NOUVELLE LOGIQUE : CALCUL DE MOYENNE DYNAMIQUE EN MULTIROOM ===
+    
+    async def _calculate_clients_average(self) -> Optional[int]:
+        """Calcule la moyenne des volumes display des clients Snapcast NON-MUTÉS"""
+        try:
+            clients = await self._get_snapcast_clients_cached()
+            if not clients:
+                self.logger.debug("No snapcast clients for average calculation")
+                return None
+            
+            # Filtrer les clients non-mutés
+            active_clients = [c for c in clients if not c.get("muted", False)]
+            
+            if not active_clients:
+                self.logger.debug("No active (non-muted) clients for average calculation")
+                return 0  # Retourner 0 si tous sont mutés
+            
+            # Convertir volumes ALSA vers display et calculer moyenne
+            total_display_volume = 0
+            for client in active_clients:
+                alsa_volume = client.get("volume", 0)  # Volume ALSA du client
+                display_volume = self._alsa_to_display(alsa_volume)  # Conversion vers display
+                total_display_volume += display_volume
+            
+            # Moyenne arrondie à l'entier
+            average = round(total_display_volume / len(active_clients))
+            
+            self.logger.debug(f"Calculated clients average: {average}% from {len(active_clients)} active clients")
+            return average
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating clients average: {e}")
+            return None
+    
+    # === API PUBLIQUE - VOLUME AFFICHÉ (0-100%) CORRIGÉ ===
     
     async def get_display_volume(self) -> int:
-        """Récupère le volume affiché actuel (0-100%) - priorité au volume interne précis"""
-        return int(round(self._precise_display_volume))
+        """CORRIGÉ : Volume dynamique selon le mode"""
+        if self._is_multiroom_enabled():
+            # Mode multiroom : calculer la vraie moyenne des clients
+            average_volume = await self._calculate_clients_average()
+            if average_volume is not None:
+                return average_volume
+            else:
+                # Fallback si pas de clients ou erreur
+                return int(round(self._precise_display_volume))
+        else:
+            # Mode direct : utiliser le volume interne précis
+            return int(round(self._precise_display_volume))
     
     async def set_display_volume(self, display_volume: int, show_bar: bool = True) -> bool:
         """Définit le volume affiché (0-100%) avec sauvegarde automatique"""
@@ -353,18 +400,17 @@ class VolumeService:
                 self._is_adjusting = True
                 display_clamped = self._clamp_display_volume(float(display_volume))
                 
-                # Calculer volume ALSA correspondant
-                target_alsa_volume = self._display_to_alsa(int(display_clamped))
-                
-                # Appliquer le volume ALSA
                 if self._is_multiroom_enabled():
-                    success = await self._apply_alsa_volume_multiroom(target_alsa_volume)
+                    success = await self._set_absolute_volume_multiroom(int(display_clamped))
                 else:
+                    # Mode direct : logique existante
+                    target_alsa_volume = self._display_to_alsa(int(display_clamped))
                     success = await self._apply_alsa_volume_direct(target_alsa_volume)
+                    
+                    if success:
+                        self._precise_display_volume = display_clamped
                 
                 if success:
-                    # Accepter TOUJOURS le volume display demandé
-                    self._precise_display_volume = display_clamped
                     self._save_last_volume(int(display_clamped))
                     await self._broadcast_volume_change_fast(show_bar)
                 
@@ -376,7 +422,7 @@ class VolumeService:
                 return False
     
     async def adjust_display_volume(self, delta: int, show_bar: bool = True) -> bool:
-        """NOUVELLE VERSION SIMPLIFIÉE - Ajuste le volume display précis"""
+        """CORRIGÉ : Ajustements relatifs en multiroom, précis en mode direct"""
         async with self._volume_lock:
             try:
                 # Marquer ajustement
@@ -390,41 +436,34 @@ class VolumeService:
                 else:
                     self._adjustment_count += 1
                 
-                # === VERSION SIMPLIFIÉE ===
-                # Utiliser le volume interne précis au lieu de relire depuis ALSA
-                current_precise = self._precise_display_volume
-                new_precise = self._clamp_display_volume(current_precise + delta)
-                
-                current_display = int(round(current_precise))
-                new_display = int(round(new_precise))
-                
-                # Calculs ALSA
-                current_alsa = self._display_to_alsa(current_display)
-                new_alsa = self._display_to_alsa(new_display)
-                alsa_delta = new_alsa - current_alsa
-                
-                # === DEBUG LOGS ===
-                self.logger.info(f"=== ADJUST DEBUG #{self._adjustment_count} ===")
-                self.logger.info(f"Delta requested: {delta}")
-                self.logger.info(f"Precise volume: {current_precise:.2f}% → {new_precise:.2f}%")
-                self.logger.info(f"Display volume: {current_display}% → {new_display}%")
-                self.logger.info(f"ALSA volume: {current_alsa} → {new_alsa} (delta: {alsa_delta})")
-                
-                # Appliquer le volume ALSA
                 if self._is_multiroom_enabled():
-                    success = await self._apply_alsa_volume_multiroom(new_alsa)
+                    # NOUVELLE LOGIQUE MULTIROOM : Delta relatif appliqué à chaque client
+                    success = await self._apply_volume_delta_multiroom_corrected(delta)
                 else:
+                    # Mode direct : logique existante avec volume précis
+                    current_precise = self._precise_display_volume
+                    new_precise = self._clamp_display_volume(current_precise + delta)
+                    
+                    current_display = int(round(current_precise))
+                    new_display = int(round(new_precise))
+                    
+                    # Calculs ALSA
+                    current_alsa = self._display_to_alsa(current_display)
+                    new_alsa = self._display_to_alsa(new_display)
+                    alsa_delta = new_alsa - current_alsa
+                    
+                    self.logger.debug(f"Direct mode adjust: {current_display}% + {delta} = {new_display}% (ALSA: {current_alsa} → {new_alsa})")
+                    
                     success = await self._apply_alsa_volume_direct(new_alsa)
+                    
+                    if success:
+                        self._precise_display_volume = new_precise
                 
                 if success:
-                    # TOUJOURS accepter le nouveau volume precise
-                    self._precise_display_volume = new_precise
-                    self._save_last_volume(new_display)
+                    # En multiroom, get_display_volume() recalculera la moyenne
+                    final_display_volume = await self.get_display_volume()
+                    self._save_last_volume(final_display_volume)
                     asyncio.create_task(self._broadcast_volume_change_fast(show_bar))
-                    
-                    self.logger.info(f"Volume accepted: {new_display}% (ALSA: {new_alsa})")
-                else:
-                    self.logger.error(f"Failed to apply ALSA volume: {new_alsa}")
                 
                 # Marquer fin d'ajustement
                 asyncio.create_task(self._mark_adjustment_done())
@@ -436,6 +475,61 @@ class VolumeService:
                 self._is_adjusting = False
                 return False
     
+    async def _set_absolute_volume_multiroom(self, target_display_volume: int) -> bool:
+        """Définit un volume absolu en mode multiroom en uniformisant tous les clients"""
+        try:
+            clients = await self._get_snapcast_clients_cached()
+            if not clients:
+                return False
+            
+            # Convertir le volume display cible vers ALSA  
+            target_alsa_volume = self._display_to_alsa(target_display_volume)
+            
+            self.logger.info(f"Setting absolute multiroom volume: {target_display_volume}% (ALSA: {target_alsa_volume}) for {len(clients)} clients")
+            
+            # Uniformiser tous les clients au même volume ALSA
+            for client in clients:
+                await self.snapcast_service.set_volume(client["id"], target_alsa_volume)
+                self.logger.debug(f"Client {client['name']} set to {target_alsa_volume} ALSA ({target_display_volume}% display)")
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting absolute multiroom volume: {e}")
+            return False
+    
+    async def _apply_volume_delta_multiroom_corrected(self, delta: int) -> bool:
+        """NOUVELLE MÉTHODE : Applique un delta relatif à chaque client individuellement"""
+        try:
+            clients = await self._get_snapcast_clients_cached()
+            if not clients:
+                return False
+            
+            self.logger.info(f"Applying relative delta {delta}% to {len(clients)} clients individually")
+            
+            # Appliquer le delta à chaque client individuellement
+            for client in clients:
+                current_alsa_volume = client.get("volume", 0)  # Volume ALSA actuel
+                current_display_volume = self._alsa_to_display(current_alsa_volume)  # Conversion vers display
+                
+                # Nouveau volume display avec delta + limitation à 0-100%
+                new_display_volume = max(0, min(100, current_display_volume + delta))
+                new_alsa_volume = self._display_to_alsa(new_display_volume)  # Reconversion vers ALSA
+                
+                # Appliquer le nouveau volume ALSA au client
+                await self.snapcast_service.set_volume(client["id"], new_alsa_volume)
+                
+                self.logger.debug(f"Client {client['name']}: {current_display_volume}% + {delta} = {new_display_volume}% (ALSA: {current_alsa_volume} → {new_alsa_volume})")
+            
+            # CORRECTION : Invalider le cache pour forcer le recalcul de moyenne
+            self._snapcast_clients_cache = []
+            self._snapcast_cache_time = 0
+            self.logger.debug("Snapcast cache invalidated after volume delta application")
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Error in relative multiroom volume delta: {e}")
+            return False
+    
     # === MÉTHODES D'APPLICATION ALSA SIMPLIFIÉES ===
     
     async def _apply_alsa_volume_direct(self, alsa_volume: int) -> bool:
@@ -443,37 +537,6 @@ class VolumeService:
         try:
             return await self._set_amixer_volume_fast(alsa_volume)
         except Exception:
-            return False
-    
-    async def _apply_alsa_volume_multiroom(self, target_alsa_volume: int) -> bool:
-        """CORRIGÉ : Applique un ajustement RELATIF aux clients Snapcast"""
-        try:
-            clients = await self._get_snapcast_clients_cached()
-            
-            if not clients:
-                return False
-            
-            # Calculer le delta par rapport au volume système précédent
-            previous_alsa = self._display_to_alsa(int(self._precise_display_volume))
-            alsa_delta = target_alsa_volume - previous_alsa
-            
-            if alsa_delta == 0:
-                return True  # Pas de changement
-            
-            self.logger.info(f"Applying relative ALSA delta {alsa_delta} to {len(clients)} clients")
-            
-            # Appliquer le delta relatif à chaque client individuellement
-            # CORRECTION : client["volume"] est DÉJÀ en format correct pour Snapcast (0-100%)
-            for client in clients:
-                current_client_vol = client.get("volume", 0)  # Volume client actuel (0-100%)
-                new_client_vol = max(0, min(100, current_client_vol + alsa_delta))
-                
-                await self.snapcast_service.set_volume(client["id"], new_client_vol)
-                self.logger.debug(f"Client {client['name']}: {current_client_vol} → {new_client_vol} (delta: {alsa_delta})")
-            
-            return True
-        except Exception as e:
-            self.logger.error(f"Error in relative multiroom volume: {e}")
             return False
     
     async def increase_display_volume(self, delta: int = None) -> bool:
@@ -572,8 +635,11 @@ class VolumeService:
     async def _broadcast_volume_change_fast(self, show_bar: bool = True) -> None:
         """Broadcast optimisé pour rapidité AVEC mobile_steps"""
         try:
+            # MODIFIÉ : Utiliser get_display_volume() dynamique  
+            current_volume = await self.get_display_volume()
+            
             await self.state_machine.broadcast_event("volume", "volume_changed", {
-                "volume": int(round(self._precise_display_volume)),
+                "volume": current_volume,
                 "multiroom_mode": self._is_multiroom_enabled(),
                 "show_bar": show_bar,
                 "source": "volume_service",
@@ -665,7 +731,7 @@ class VolumeService:
         """Récupère l'état complet du volume avec configuration startup et mobile steps"""
         try:
             multiroom_enabled = self._is_multiroom_enabled()
-            display_volume = int(round(self._precise_display_volume))
+            display_volume = await self.get_display_volume()  # MODIFIÉ : Utiliser la méthode dynamique
             
             base_status = {
                 "volume": display_volume,
@@ -696,7 +762,7 @@ class VolumeService:
         except Exception as e:
             self.logger.error(f"Error getting volume status: {e}")
             return {
-                "volume": int(round(self._precise_display_volume)),
+                "volume": int(round(self._precise_display_volume)),  # Fallback sur volume interne
                 "mode": "error",
                 "error": str(e),
                 "display_volume": True,
