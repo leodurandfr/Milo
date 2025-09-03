@@ -507,8 +507,8 @@ async function loadAllConfigs() {
 
       config.value.dock.apps = appsObj;
     }
-console.log('Spotify response:', spotify.data);
-console.log('Screen response:', screenTimeout.data);
+    console.log('Spotify response:', spotify.data);
+    console.log('Screen response:', screenTimeout.data);
   } catch (error) {
     console.error('Error loading configs:', error);
   }
@@ -672,7 +672,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: var(--space-03);
-  padding: var(--space-04);
+  padding: var(--space-02) var(--space-02) var(--space-02) var(--space-03);
   background: var(--color-background-strong);
   border: 2px solid transparent;
   border-radius: var(--radius-04);
@@ -729,14 +729,14 @@ onMounted(async () => {
 .app-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
+  gap: var(--space-02);
 }
 
 .app-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-03) var(--space-04);
+  padding: var(--space-02) var(--space-02) var(--space-02) var(--space-04);
   background: var(--color-background-strong);
   border-radius: var(--radius-04);
 }
@@ -744,7 +744,7 @@ onMounted(async () => {
 .app-info {
   display: flex;
   align-items: center;
-  gap: var(--space-03);
+  gap: var(--space-02);
 }
 
 .app-name {
@@ -844,15 +844,15 @@ onMounted(async () => {
 @media (max-aspect-ratio: 4/3) {
   .settings-view {
     align-items: flex-start;
-    padding: 80px var(--space-02) var(--space-02) var(--space-02);
+    padding: var(--space-02);
   }
 
   .settings-modal {
-    max-height: calc(100vh - 80px);
+    max-height: calc(100vh - var(--space-02) * 2);
   }
 
   .language-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 
   .timeout-buttons,
@@ -864,16 +864,19 @@ onMounted(async () => {
     flex-direction: column;
   }
 
-  .app-item {
-    padding: var(--space-04);
-  }
-
   .volume-steps-control,
   .brightness-control,
   .startup-volume-control {
     gap: var(--space-05);
   }
+
+  .app-item {
+    padding: var(--space-02);
+  }
+
 }
+
+/* iOS */
 
 .ios-app .settings-view {
   padding-top: 112px;
