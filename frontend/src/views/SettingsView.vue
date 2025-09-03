@@ -618,7 +618,6 @@ onMounted(async () => {
   background: var(--color-background-contrast);
   border-radius: var(--radius-04);
   padding: var(--space-04);
-  margin-bottom: var(--space-03);
 }
 
 .back-button-wrapper {
