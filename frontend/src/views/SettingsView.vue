@@ -877,8 +877,9 @@ onMounted(async () => {
 
 /* iOS */
 
-.ios-app .settings-view {
-  padding-top: 112px;
+.ios-app .settings-modal {
+  margin-top: 48px;
+  max-height: calc(100vh - 64px);
 }
 
 /* Scrollbar hidden */

@@ -1,26 +1,18 @@
 <!-- MainView.vue - Version simplifiée avec 3 cas précis -->
 <template>
   <div class="main-view">
+    <div class="SettingsAccess" @click="handleSettingsClick"></div>
+
     <!-- AudioSourceView - Le plus bas -->
     <div class="content-container">
-      <AudioSourceView
-        :active-source="unifiedStore.currentSource"
-        :plugin-state="unifiedStore.pluginState"
-        :transitioning="unifiedStore.isTransitioning"
-        :target-source="unifiedStore.systemState.target_source"
-        :metadata="unifiedStore.metadata"
-        :is-disconnecting="disconnectingStates[unifiedStore.currentSource]"
-        @disconnect="handleDisconnect"
-      />
+      <AudioSourceView :active-source="unifiedStore.currentSource" :plugin-state="unifiedStore.pluginState"
+        :transitioning="unifiedStore.isTransitioning" :target-source="unifiedStore.systemState.target_source"
+        :metadata="unifiedStore.metadata" :is-disconnecting="disconnectingStates[unifiedStore.currentSource]"
+        @disconnect="handleDisconnect" />
     </div>
 
     <!-- Logo - Au-dessus d'AudioSource -->
-    <Logo 
-      :position="logoPosition"
-      :size="logoSize"
-      :visible="logoVisible"
-      :transition-mode="logoTransitionMode"
-    />
+    <Logo :position="logoPosition" :size="logoSize" :visible="logoVisible" :transition-mode="logoTransitionMode" />
   </div>
 </template>
 
@@ -55,11 +47,11 @@ const isLibrespotFullScreen = computed(() => {
     unifiedStore.metadata?.title &&
     unifiedStore.metadata?.artist
   );
-  
-  return unifiedStore.currentSource === 'librespot' && 
-         unifiedStore.pluginState === 'connected' && 
-         hasCompleteTrackInfo &&
-         !unifiedStore.isTransitioning;
+
+  return unifiedStore.currentSource === 'librespot' &&
+    unifiedStore.pluginState === 'connected' &&
+    hasCompleteTrackInfo &&
+    !unifiedStore.isTransitioning;
 });
 
 const shouldShowLogo = computed(() => {
@@ -87,13 +79,13 @@ watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisibl
   // CAS 1 & 2: Logo visible → caché pour librespot
   if (!newVisible && logoVisible.value) {
     logoTransitionMode.value = 'librespot-hide';
-    
+
     // Transition immédiate si ce n'est pas le chargement initial
     if (!isInitialLoad.value) {
       logoVisible.value = false;
       return;
     }
-    
+
     // Délai de 800ms seulement au chargement initial (refresh)
     logoTimeout = setTimeout(() => {
       logoVisible.value = false;
@@ -113,7 +105,7 @@ watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisibl
 
   // CAS 1 & 2: Changements normaux
   logoTransitionMode.value = 'normal';
-  
+
   // Transition immédiate si ce n'est pas le chargement initial
   if (!isInitialLoad.value) {
     logoPosition.value = newPos;
@@ -121,7 +113,7 @@ watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisibl
     logoVisible.value = newVisible;
     return;
   }
-  
+
   // Délai de 800ms seulement au chargement initial (refresh)
   logoTimeout = setTimeout(() => {
     logoPosition.value = newPos;
@@ -144,12 +136,12 @@ onMounted(() => {
 async function handleDisconnect() {
   const currentSource = unifiedStore.currentSource;
   if (!currentSource || currentSource === 'none') return;
-  
+
   disconnectingStates.value[currentSource] = true;
-  
+
   try {
     let response;
-    
+
     switch (currentSource) {
       case 'bluetooth':
         response = await fetch('/api/bluetooth/disconnect', {
@@ -164,7 +156,7 @@ async function handleDisconnect() {
         console.warn(`Disconnect not supported for ${currentSource}`);
         return;
     }
-    
+
     if (response && response.ok) {
       const result = await response.json();
       if (result.status === 'success' || result.success) {
@@ -181,6 +173,39 @@ async function handleDisconnect() {
     }, 900);
   }
 }
+
+/* Accès à Settings */
+
+
+const SETTINGS_CLICKS_REQUIRED = 5;
+const CLICK_WINDOW_MS = 5000;
+const settingsClicks = ref(0);
+
+let clickWindowTimer = null;
+
+function resetClickWindow() {
+  settingsClicks.value = 0;
+  if (clickWindowTimer) {
+    clearTimeout(clickWindowTimer);
+    clickWindowTimer = null;
+  }
+}
+
+function handleSettingsClick() {
+  if (settingsClicks.value === 0) {
+    clickWindowTimer = setTimeout(() => {
+      resetClickWindow();
+    }, CLICK_WINDOW_MS);
+  }
+
+  settingsClicks.value += 1;
+
+  if (settingsClicks.value >= SETTINGS_CLICKS_REQUIRED) {
+    resetClickWindow();
+
+    window.location.href = 'http://milo.local/settings';
+  }
+}
 </script>
 
 <style scoped>
@@ -195,5 +220,13 @@ async function handleDisconnect() {
   height: 100%;
   position: relative;
   z-index: 1;
+}
+.SettingsAccess {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 64px; 
+  height: 80px;
+  z-index: 9999;  
 }
 </style>
