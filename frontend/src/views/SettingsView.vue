@@ -16,7 +16,7 @@
 
         <!-- 1. Languages -->
         <section class="settings-section">
-          <h1 class="heading-1">{{ t('Languages') }}</h1>
+          <h1 class="heading-1">{{ t('Langues') }}</h1>
 
           <div class="language-grid">
             <button v-for="language in availableLanguages" :key="language.code"
@@ -24,7 +24,6 @@
               :class="['language-button', { active: currentLanguage === language.code }]">
               <span class="language-flag">{{ language.flag }}</span>
               <span class="language-name heading-2">{{ language.name }}</span>
-              <div v-if="currentLanguage === language.code" class="active-indicator"></div>
             </button>
           </div>
         </section>
@@ -275,20 +274,20 @@ const currentLanguage = computed(() => getCurrentLanguage());
 
 // === PRESETS ===
 const timeoutPresets = computed(() => [
-  { value: 10, label: t('10s') },
-  { value: 180, label: t('3 min') },
-  { value: 900, label: t('15 min') },
-  { value: 1800, label: t('30 min') },
-  { value: 3600, label: t('1 h') },
+  { value: 10, label: t('10 secondes') },
+  { value: 180, label: t('3 minutes') },
+  { value: 900, label: t('15 minutes') },
+  { value: 1800, label: t('30 minutes') },
+  { value: 3600, label: t('1 heure') },
   { value: 0, label: t('Jamais') }
 ]);
 
 const disconnectPresets = computed(() => [
-  { value: 10, label: t('10s') },
-  { value: 180, label: t('3 min') },
-  { value: 900, label: t('15 min') },
-  { value: 1800, label: t('30 min') },
-  { value: 3600, label: t('1 h') },
+  { value: 10, label: t('10 secondes') },
+  { value: 180, label: t('3 minutes') },
+  { value: 900, label: t('15 minutes') },
+  { value: 1800, label: t('30 minutes') },
+  { value: 3600, label: t('1 heure') },
   { value: 0, label: t('Jamais') }
 ]);
 
@@ -704,14 +703,7 @@ onMounted(async () => {
   font-size: var(--font-size-body);
 }
 
-.active-indicator {
-  width: 8px;
-  height: 8px;
-  background: var(--color-brand);
-  border-radius: var(--radius-full);
-  position: absolute;
-  right: var(--space-04);
-}
+
 
 /* Applications */
 .app-group {
@@ -806,12 +798,13 @@ onMounted(async () => {
   display: flex;
   gap: var(--space-02);
   flex-wrap: wrap;
+
 }
 
 .timeout-buttons .btn,
 .disconnect-buttons .btn {
   flex: 1;
-  min-width: 80px;
+  min-width: 150px;
 }
 
 /* Spotify */
@@ -856,8 +849,9 @@ onMounted(async () => {
 
   .timeout-buttons,
   .disconnect-buttons {
-    flex-direction: column;
-  }
+    display: flex;
+    gap: var(--space-02);
+    flex-wrap: wrap;  }
 
   .startup-mode-buttons {
     flex-direction: column;
