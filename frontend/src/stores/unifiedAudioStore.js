@@ -212,13 +212,13 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     };
   }
 
-  // === MISE À JOUR D'ÉTAT (inchangée) ===
+  // === MISE À JOUR D'ÉTAT  ===
   function updateSystemState(newState, source = 'unknown') {
-    // console.log('🔄 UPDATING SYSTEM STATE from:', source);
-    // console.log('📊 Old state:', JSON.stringify(systemState.value, null, 2));
-    // console.log('📊 New state:', JSON.stringify(newState, null, 2));
+    // console.log('🐛 UPDATE SYSTEM STATE - Source:', source);
+    // console.log('🐛 NEW STATE MULTIROOM:', newState.multiroom_enabled);
+    // console.log('🐛 NEW STATE EQUALIZER:', newState.equalizer_enabled);
 
-    // console.trace('Update called from:');
+    // console.log('🐛 AVANT UPDATE - systemState:', JSON.stringify(systemState.value));
 
     systemState.value = {
       active_source: newState.active_source || 'none',
@@ -227,11 +227,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       target_source: newState.target_source || null,
       metadata: newState.metadata || {},
       error: newState.error || null,
-      multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : false,
-      equalizer_enabled: newState.equalizer_enabled || false
+      multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : systemState.value.multiroom_enabled,
+      equalizer_enabled: newState.equalizer_enabled !== undefined ? newState.equalizer_enabled : systemState.value.equalizer_enabled
     };
 
-    // console.log('✅ State updated to:', JSON.stringify(systemState.value, null, 2));
+    // console.log('🐛 APRÈS UPDATE - systemState:', JSON.stringify(systemState.value));
   }
 
   function updateState(event) {
