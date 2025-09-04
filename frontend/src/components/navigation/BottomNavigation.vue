@@ -1,4 +1,4 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vue - Apps et steps configurables avec hold-to-repeat volume -->
+<!-- frontend/src/components/navigation/BottomNavigation.vue - Drag + Hold-to-Repeat SIMPLIFIÉ -->
 <template>
   <!-- Zone de drag invisible -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click.stop="onDragZoneClick"></div>
@@ -127,7 +127,7 @@ const activeIndicator = ref(null);
 const additionalAppsContainer = ref(null);
 const dockItems = ref([]);
 
-// === ÉTAT ===
+// === ÉTAT DOCK ===
 const isVisible = ref(false);
 const isFullyVisible = ref(false);
 const isDragging = ref(false);
@@ -136,10 +136,15 @@ const showDragIndicator = ref(false);
 const additionalAppsInDOM = ref(false);
 
 // === HOLD-TO-REPEAT VOLUME ===
-const volumeHoldTimer = ref(null);
+const volumeStartTimer = ref(null);
 const volumeRepeatTimer = ref(null);
 const isVolumeHolding = ref(false);
 const currentVolumeDelta = ref(0);
+
+// === DRAG VS HOLD DETECTION ===
+const gestureHasMoved = ref(false);
+const gestureStartPosition = ref({ x: 0, y: 0 });
+const MOVE_THRESHOLD = 10;
 
 // === VARIABLES INTERNES ===
 let dragStartY = 0, dragCurrentY = 0, hideTimeout = null, additionalHideTimeout = null;
@@ -160,11 +165,14 @@ const indicatorStyle = ref({
 const getEventY = (e) => e.type.includes('touch')
   ? (e.touches[0]?.clientY || e.changedTouches[0]?.clientY) : e.clientY;
 
+const getEventX = (e) => e.type.includes('touch')
+  ? (e.touches[0]?.clientX || e.changedTouches[0]?.clientX) : e.clientX;
+
 const isDesktop = () => window.matchMedia('not (max-aspect-ratio: 4/3)').matches;
 
 const clearAllTimers = () => {
-  [hideTimeout, additionalHideTimeout, clickTimeout, volumeHoldTimer.value, volumeRepeatTimer.value].forEach(clearTimeout);
-  volumeHoldTimer.value = null;
+  [hideTimeout, additionalHideTimeout, clickTimeout, volumeStartTimer.value, volumeRepeatTimer.value].forEach(clearTimeout);
+  volumeStartTimer.value = null;
   volumeRepeatTimer.value = null;
 };
 
@@ -175,53 +183,66 @@ const startHideTimer = () => {
 
 const resetHideTimer = () => isVisible.value && startHideTimer();
 
+const resetGestureState = () => {
+  gestureHasMoved.value = false;
+  gestureStartPosition.value = { x: 0, y: 0 };
+};
+
 // === HOLD-TO-REPEAT VOLUME ===
 const onVolumeHoldStart = (delta, event) => {
-  // Empêcher le comportement par défaut et la propagation
-  event.preventDefault();
-  event.stopPropagation();
-  
-  // Nettoyer les timers précédents
-  onVolumeHoldEnd();
-  
-  // Marquer le début du hold
-  isVolumeHolding.value = true;
+  // Stocker position de départ
+  gestureStartPosition.value = {
+    x: getEventX(event),
+    y: getEventY(event)
+  };
+  gestureHasMoved.value = false;
   currentVolumeDelta.value = delta;
   
   // Effet visuel immédiat
   addPressEffect(event);
   
-  // Premier ajustement immédiat
-  unifiedStore.adjustVolume(delta);
-  
-  // Délai avant répétition (500ms)
-  volumeHoldTimer.value = setTimeout(() => {
-    if (isVolumeHolding.value) {
-      // Commencer la répétition (150ms entre chaque)
-      volumeRepeatTimer.value = setInterval(() => {
+  // Timer de 150ms pour confirmer que c'est un hold (pas un swipe)
+  volumeStartTimer.value = setTimeout(() => {
+    if (!gestureHasMoved.value) {
+      // Pas de mouvement = c'est un hold, commencer le volume
+      unifiedStore.adjustVolume(delta);
+      isVolumeHolding.value = true;
+      
+      // Démarrer la répétition après 300ms
+      volumeRepeatTimer.value = setTimeout(() => {
         if (isVolumeHolding.value) {
-          unifiedStore.adjustVolume(currentVolumeDelta.value);
-        } else {
-          clearInterval(volumeRepeatTimer.value);
-          volumeRepeatTimer.value = null;
+          const repeatInterval = setInterval(() => {
+            if (isVolumeHolding.value) {
+              unifiedStore.adjustVolume(currentVolumeDelta.value);
+            } else {
+              clearInterval(repeatInterval);
+            }
+          }, 40);
+          volumeRepeatTimer.value = repeatInterval;
         }
-      }, 25);
+      }, 300);
     }
-  }, 400);
+  }, 150);
   
   resetHideTimer();
 };
 
 const onVolumeHoldEnd = () => {
+  // Si c'est un click rapide (relâcher avant 150ms, sans mouvement)
+  if (volumeStartTimer.value && !gestureHasMoved.value && currentVolumeDelta.value !== 0) {
+    // Click rapide détecté = ajuster volume immédiatement
+    unifiedStore.adjustVolume(currentVolumeDelta.value);
+  }
+  
   isVolumeHolding.value = false;
   
-  // Nettoyer tous les timers de volume
-  if (volumeHoldTimer.value) {
-    clearTimeout(volumeHoldTimer.value);
-    volumeHoldTimer.value = null;
+  if (volumeStartTimer.value) {
+    clearTimeout(volumeStartTimer.value);
+    volumeStartTimer.value = null;
   }
   
   if (volumeRepeatTimer.value) {
+    clearTimeout(volumeRepeatTimer.value);
     clearInterval(volumeRepeatTimer.value);
     volumeRepeatTimer.value = null;
   }
@@ -327,8 +348,8 @@ const hideDock = () => {
   indicatorStyle.value.opacity = '0';
   setTimeout(() => additionalAppsInDOM.value = false, 400);
   
-  // Arrêter le hold-to-repeat si le dock se cache
   onVolumeHoldEnd();
+  resetGestureState();
 };
 
 // === GESTION DES CLICS ===
@@ -356,12 +377,10 @@ const onIndicatorClick = () => {
 
 // === GESTION DU DRAG ===
 const onDragStart = (e) => {
-  // Ne pas commencer le drag si on est en train de faire du volume hold
-  if (isVolumeHolding.value) return;
-  
   isDragging.value = true;
   dragStartY = getEventY(e);
   dragCurrentY = dragStartY;
+  resetGestureState();
 };
 
 const onDragMove = (e) => {
@@ -375,13 +394,30 @@ const onDragMove = (e) => {
   }
 
   if (!isDragging.value) return;
-  dragCurrentY = getEventY(e);
+  
+  const currentY = getEventY(e);
+  const currentX = getEventX(e);
+  
+  // Vérifier mouvement pour annuler volume hold si nécessaire
+  if (!gestureHasMoved.value) {
+    const deltaX = Math.abs(currentX - gestureStartPosition.value.x);
+    const deltaY = Math.abs(currentY - gestureStartPosition.value.y);
+    
+    if (deltaX > MOVE_THRESHOLD || deltaY > MOVE_THRESHOLD) {
+      gestureHasMoved.value = true;
+      onVolumeHoldEnd(); // Annuler le volume hold
+    }
+  }
+  
+  // Traitement normal du drag pour le dock
+  dragCurrentY = currentY;
   const deltaY = dragStartY - dragCurrentY;
 
   if (Math.abs(deltaY) >= 30) {
     if (deltaY > 0 && !isVisible.value) showDock();
     else if (deltaY < 0 && isVisible.value) hideDock();
     isDragging.value = false;
+    resetGestureState();
   }
 };
 
@@ -393,6 +429,7 @@ const onDragEnd = () => {
   }
   isDragging.value = false;
   resetHideTimer();
+  resetGestureState();
 };
 
 // === GESTION DU DRAG ADDITIONAL APPS ===
@@ -472,7 +509,7 @@ const setupDragEvents = () => {
   document.addEventListener('touchend', onDragEnd);
   document.addEventListener('click', onClickOutside);
   
-  // Événements globaux pour arrêter le volume hold si nécessaire
+  // Événements globaux pour arrêter le volume hold
   document.addEventListener('mouseup', onVolumeHoldEnd);
   document.addEventListener('touchend', onVolumeHoldEnd);
   document.addEventListener('touchcancel', onVolumeHoldEnd);
@@ -498,7 +535,6 @@ const removeDragEvents = () => {
   document.removeEventListener('touchend', onDragEnd);
   document.removeEventListener('click', onClickOutside);
   
-  // Nettoyer les événements volume hold
   document.removeEventListener('mouseup', onVolumeHoldEnd);
   document.removeEventListener('touchend', onVolumeHoldEnd);
   document.removeEventListener('touchcancel', onVolumeHoldEnd);
@@ -510,11 +546,9 @@ watch(() => unifiedStore.currentSource, updateActiveIndicator);
 onMounted(async () => {
   setupDragEvents();
   
-  // Charger les configs initiales
   await loadDockConfig();
   await loadVolumeStepsConfig();
   
-  // WebSocket listeners pour config dynamique
   on('settings', 'dock_apps_changed', (message) => {
     if (message.data?.config?.enabled_apps) {
       enabledApps.value = message.data.config.enabled_apps;
@@ -529,7 +563,6 @@ onMounted(async () => {
     }
   });
   
-  // Listener pour les volume_changed pour récupérer les steps du backend
   on('volume', 'volume_changed', (message) => {
     if (message.data?.mobile_steps && message.data.mobile_steps !== mobileVolumeSteps.value) {
       mobileVolumeSteps.value = message.data.mobile_steps;
@@ -543,7 +576,8 @@ onMounted(async () => {
 onUnmounted(() => {
   removeDragEvents();
   clearAllTimers();
-  onVolumeHoldEnd(); // S'assurer que tout est nettoyé
+  onVolumeHoldEnd();
+  resetGestureState();
 });
 </script>
 
