@@ -217,7 +217,7 @@ const onVolumeHoldStart = (delta, event) => {
             } else {
               clearInterval(repeatInterval);
             }
-          }, 40);
+          }, 50);
           volumeRepeatTimer.value = repeatInterval;
         }
       }, 300);
