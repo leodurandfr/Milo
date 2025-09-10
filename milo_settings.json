@@ -1,0 +1,27 @@
+{
+  "language": "french",
+  "volume": {
+    "limits_enabled": true,
+    "alsa_min": 3,
+    "alsa_max": 75,
+    "restore_last_volume": true,
+    "startup_volume": 47,
+    "mobile_volume_steps": 2
+  },
+  "screen": {
+    "timeout_seconds": 180,
+    "brightness_on": 7
+  },
+  "spotify": {
+    "auto_disconnect_delay": 180.0
+  },
+  "dock": {
+    "enabled_apps": [
+      "librespot",
+      "bluetooth",
+      "roc",
+      "multiroom",
+      "equalizer"
+    ]
+  }
+}
