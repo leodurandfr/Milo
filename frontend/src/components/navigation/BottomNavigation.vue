@@ -1,4 +1,4 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vue - Drag + Hold-to-Repeat SIMPLIFIÉ -->
+<!-- frontend/src/components/navigation/BottomNavigation.vue - CORRIGÉ : Double déclenchement mobile -->
 <template>
   <!-- Zone de drag invisible -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click.stop="onDragZoneClick"></div>
@@ -22,15 +22,13 @@
     </div>
 
     <div ref="dock" class="dock">
-      <!-- Volume Controls - Mobile uniquement avec hold-to-repeat -->
+      <!-- Volume Controls - Mobile uniquement avec CORRIGÉ hold-to-repeat -->
       <div class="volume-controls mobile-only">
         <button v-for="{ icon, handler, delta } in volumeControlsWithSteps" :key="icon" 
-          @mousedown="(e) => onVolumeHoldStart(delta, e)" 
-          @touchstart="(e) => onVolumeHoldStart(delta, e)"
-          @mouseup="onVolumeHoldEnd"
-          @touchend="onVolumeHoldEnd"
-          @mouseleave="onVolumeHoldEnd"
-          @touchcancel="onVolumeHoldEnd"
+          @pointerdown="(e) => onVolumeHoldStart(delta, e)"
+          @pointerup="onVolumeHoldEnd"
+          @pointercancel="onVolumeHoldEnd"
+          @pointerleave="onVolumeHoldEnd"
           class="volume-btn button-interactive-subtle">
           <Icon :name="icon" :size="32" />
         </button>
@@ -135,12 +133,13 @@ const showAdditionalApps = ref(false);
 const showDragIndicator = ref(false);
 const additionalAppsInDOM = ref(false);
 
-// === HOLD-TO-REPEAT VOLUME ===
+// === CORRIGÉ : HOLD-TO-REPEAT VOLUME SANS DOUBLE DÉCLENCHEMENT ===
 const volumeStartTimer = ref(null);
 const volumeRepeatTimer = ref(null);
 const isVolumeHolding = ref(false);
 const currentVolumeDelta = ref(0);
 const volumeActionTaken = ref(false);
+const volumePointerType = ref(null); // NOUVEAU : Track du type d'événement
 
 // === DRAG VS HOLD DETECTION ===
 const gestureHasMoved = ref(false);
@@ -163,11 +162,11 @@ const indicatorStyle = ref({
 });
 
 // === UTILITAIRES ===
-const getEventY = (e) => e.type.includes('touch')
-  ? (e.touches[0]?.clientY || e.changedTouches[0]?.clientY) : e.clientY;
+const getEventY = (e) => e.type.includes('touch') || e.pointerType === 'touch'
+  ? (e.touches?.[0]?.clientY || e.changedTouches?.[0]?.clientY || e.clientY) : e.clientY;
 
-const getEventX = (e) => e.type.includes('touch')
-  ? (e.touches[0]?.clientX || e.changedTouches[0]?.clientX) : e.clientX;
+const getEventX = (e) => e.type.includes('touch') || e.pointerType === 'touch'
+  ? (e.touches?.[0]?.clientX || e.changedTouches?.[0]?.clientX || e.clientX) : e.clientX;
 
 const isDesktop = () => window.matchMedia('not (max-aspect-ratio: 4/3)').matches;
 
@@ -189,8 +188,16 @@ const resetGestureState = () => {
   gestureStartPosition.value = { x: 0, y: 0 };
 };
 
-// === HOLD-TO-REPEAT VOLUME ===
+// === CORRIGÉ : HOLD-TO-REPEAT VOLUME SANS DOUBLE DÉCLENCHEMENT ===
 const onVolumeHoldStart = (delta, event) => {
+  // CORRIGÉ : Éviter le double déclenchement avec pointer events
+  if (volumePointerType.value && volumePointerType.value !== event.pointerType) {
+    console.log(`Ignoring duplicate volume event: ${event.pointerType} (already handling ${volumePointerType.value})`);
+    return;
+  }
+  
+  volumePointerType.value = event.pointerType;
+  
   // Reset des flags
   gestureStartPosition.value = {
     x: getEventX(event),
@@ -198,16 +205,16 @@ const onVolumeHoldStart = (delta, event) => {
   };
   gestureHasMoved.value = false;
   currentVolumeDelta.value = delta;
-  volumeActionTaken.value = false; // ← NOUVEAU : Reset du flag
+  volumeActionTaken.value = false;
   
   // Effet visuel immédiat
   addPressEffect(event);
   
-  // Timer de 200ms pour distinguer click vs hold (augmenté de 150ms à 200ms)
+  // Timer de 200ms pour distinguer click vs hold
   volumeStartTimer.value = setTimeout(() => {
-    if (!gestureHasMoved.value && !volumeActionTaken.value) {
+    if (!gestureHasMoved.value && !volumeActionTaken.value && volumePointerType.value === event.pointerType) {
       // C'est un hold confirmé
-      volumeActionTaken.value = true; // ← NOUVEAU : Marquer l'action comme prise
+      volumeActionTaken.value = true;
       unifiedStore.adjustVolume(delta);
       isVolumeHolding.value = true;
       
@@ -225,21 +232,27 @@ const onVolumeHoldStart = (delta, event) => {
         }
       }, 300);
     }
-  }, 200); // ← Augmenté à 200ms pour une meilleure distinction
+  }, 200);
   
   resetHideTimer();
 };
 
-const onVolumeHoldEnd = () => {
+const onVolumeHoldEnd = (event) => {
+  // CORRIGÉ : Vérifier que c'est le bon type d'événement
+  if (event && volumePointerType.value && event.pointerType !== volumePointerType.value) {
+    return;
+  }
+  
   // Si c'est un click rapide ET qu'aucune action n'a été prise
   if (!volumeActionTaken.value && !gestureHasMoved.value && currentVolumeDelta.value !== 0) {
     // Click rapide détecté = ajuster volume immédiatement
-    volumeActionTaken.value = true; // ← NOUVEAU : Marquer l'action comme prise
+    volumeActionTaken.value = true;
     unifiedStore.adjustVolume(currentVolumeDelta.value);
   }
   
   // Nettoyage
   isVolumeHolding.value = false;
+  volumePointerType.value = null; // NOUVEAU : Reset du type
   
   if (volumeStartTimer.value) {
     clearTimeout(volumeStartTimer.value);
@@ -253,7 +266,7 @@ const onVolumeHoldEnd = () => {
   }
   
   currentVolumeDelta.value = 0;
-  volumeActionTaken.value = false; // ← NOUVEAU : Reset du flag
+  volumeActionTaken.value = false;
 };
 
 // === ACTIONS ===
@@ -516,9 +529,8 @@ const setupDragEvents = () => {
   document.addEventListener('click', onClickOutside);
   
   // Événements globaux pour arrêter le volume hold
-  document.addEventListener('mouseup', onVolumeHoldEnd);
-  document.addEventListener('touchend', onVolumeHoldEnd);
-  document.addEventListener('touchcancel', onVolumeHoldEnd);
+  document.addEventListener('pointerup', onVolumeHoldEnd);
+  document.addEventListener('pointercancel', onVolumeHoldEnd);
 };
 
 const removeDragEvents = () => {
@@ -541,9 +553,8 @@ const removeDragEvents = () => {
   document.removeEventListener('touchend', onDragEnd);
   document.removeEventListener('click', onClickOutside);
   
-  document.removeEventListener('mouseup', onVolumeHoldEnd);
-  document.removeEventListener('touchend', onVolumeHoldEnd);
-  document.removeEventListener('touchcancel', onVolumeHoldEnd);
+  document.removeEventListener('pointerup', onVolumeHoldEnd);
+  document.removeEventListener('pointercancel', onVolumeHoldEnd);
 };
 
 // === LIFECYCLE ===
@@ -558,21 +569,18 @@ onMounted(async () => {
   on('settings', 'dock_apps_changed', (message) => {
     if (message.data?.config?.enabled_apps) {
       enabledApps.value = message.data.config.enabled_apps;
-      console.log('Dock apps config updated:', enabledApps.value);
     }
   });
   
   on('settings', 'volume_steps_changed', (message) => {
     if (message.data?.config?.mobile_volume_steps) {
       mobileVolumeSteps.value = message.data.config.mobile_volume_steps;
-      console.log('Volume steps config updated via settings:', mobileVolumeSteps.value);
     }
   });
   
   on('volume', 'volume_changed', (message) => {
     if (message.data?.mobile_steps && message.data.mobile_steps !== mobileVolumeSteps.value) {
       mobileVolumeSteps.value = message.data.mobile_steps;
-      console.log('Volume steps updated via volume event:', mobileVolumeSteps.value);
     }
   });
   
@@ -747,6 +755,8 @@ onUnmounted(() => {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+  /* CORRIGÉ : Désactiver les événements par défaut qui causent les doublons */
+  touch-action: manipulation;
 }
 
 .app-container {

@@ -6,7 +6,7 @@
     "alsa_max": 75,
     "restore_last_volume": true,
     "startup_volume": 47,
-    "mobile_volume_steps": 2
+    "mobile_volume_steps": 1
   },
   "screen": {
     "timeout_seconds": 180,
