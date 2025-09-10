@@ -140,6 +140,7 @@ const volumeStartTimer = ref(null);
 const volumeRepeatTimer = ref(null);
 const isVolumeHolding = ref(false);
 const currentVolumeDelta = ref(0);
+const volumeActionTaken = ref(false);
 
 // === DRAG VS HOLD DETECTION ===
 const gestureHasMoved = ref(false);
@@ -190,21 +191,23 @@ const resetGestureState = () => {
 
 // === HOLD-TO-REPEAT VOLUME ===
 const onVolumeHoldStart = (delta, event) => {
-  // Stocker position de départ
+  // Reset des flags
   gestureStartPosition.value = {
     x: getEventX(event),
     y: getEventY(event)
   };
   gestureHasMoved.value = false;
   currentVolumeDelta.value = delta;
+  volumeActionTaken.value = false; // ← NOUVEAU : Reset du flag
   
   // Effet visuel immédiat
   addPressEffect(event);
   
-  // Timer de 150ms pour confirmer que c'est un hold (pas un swipe)
+  // Timer de 200ms pour distinguer click vs hold (augmenté de 150ms à 200ms)
   volumeStartTimer.value = setTimeout(() => {
-    if (!gestureHasMoved.value) {
-      // Pas de mouvement = c'est un hold, commencer le volume
+    if (!gestureHasMoved.value && !volumeActionTaken.value) {
+      // C'est un hold confirmé
+      volumeActionTaken.value = true; // ← NOUVEAU : Marquer l'action comme prise
       unifiedStore.adjustVolume(delta);
       isVolumeHolding.value = true;
       
@@ -222,18 +225,20 @@ const onVolumeHoldStart = (delta, event) => {
         }
       }, 300);
     }
-  }, 150);
+  }, 200); // ← Augmenté à 200ms pour une meilleure distinction
   
   resetHideTimer();
 };
 
 const onVolumeHoldEnd = () => {
-  // Si c'est un click rapide (relâcher avant 150ms, sans mouvement)
-  if (volumeStartTimer.value && !gestureHasMoved.value && currentVolumeDelta.value !== 0) {
+  // Si c'est un click rapide ET qu'aucune action n'a été prise
+  if (!volumeActionTaken.value && !gestureHasMoved.value && currentVolumeDelta.value !== 0) {
     // Click rapide détecté = ajuster volume immédiatement
+    volumeActionTaken.value = true; // ← NOUVEAU : Marquer l'action comme prise
     unifiedStore.adjustVolume(currentVolumeDelta.value);
   }
   
+  // Nettoyage
   isVolumeHolding.value = false;
   
   if (volumeStartTimer.value) {
@@ -248,6 +253,7 @@ const onVolumeHoldEnd = () => {
   }
   
   currentVolumeDelta.value = 0;
+  volumeActionTaken.value = false; // ← NOUVEAU : Reset du flag
 };
 
 // === ACTIONS ===
