@@ -84,7 +84,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
     
     @router.post("/client/{client_id}/volume")
     async def set_snapcast_volume(client_id: str, payload: Dict[str, Any]):
-        """Change le volume d'un client - Accepte volume display et convertit vers ALSA"""
+        """Change le volume d'un client - Accepte volume display et convertit vers ALSA (version simplifiée)"""
         try:
             display_volume = payload.get("volume")
             if not isinstance(display_volume, int) or not (0 <= display_volume <= 100):

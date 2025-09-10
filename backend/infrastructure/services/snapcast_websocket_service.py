@@ -257,15 +257,26 @@ class SnapcastWebSocketService:
     # === HANDLERS DES NOTIFICATIONS - VOLUMES INDIVIDUELS PRÉSERVÉS ===
     
     async def _handle_client_connect(self, params: Dict[str, Any]) -> None:
-        """Client connecté - MODIFIÉ : Ne plus synchroniser automatiquement le volume"""
+        """Client connecté - Initialisation état display découplé"""
         client = params.get("client", {})
         client_id = client.get("id")
         client_name = client.get("config", {}).get("name", "Unknown")
         client_host = client.get("host", {}).get("name", "Unknown")
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
         
-        # NOUVEAU : Les nouveaux clients gardent leur volume individuel
-        self.logger.info(f"New client '{client_name}' connected - preserving individual volume")
+        # NOUVEAU : Initialiser l'état display découplé dans VolumeService
+        if (hasattr(self.state_machine, 'volume_service') and 
+            self.state_machine.volume_service and 
+            hasattr(self.state_machine.volume_service, 'sync_client_volume_from_external')):
+            try:
+                client_alsa_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
+                await self.state_machine.volume_service.sync_client_volume_from_external(
+                    client_id, client_alsa_volume
+                )
+            except Exception as e:
+                self.logger.error(f"Error initializing client display state: {e}")
+        
+        self.logger.info(f"New client '{client_name}' connected - display state initialized")
         
         # Convertir le volume du client avant diffusion
         converted_client = self._convert_client_volume(client)
@@ -293,18 +304,32 @@ class SnapcastWebSocketService:
         })
     
     async def _handle_client_volume_changed(self, params: Dict[str, Any]) -> None:
-        """Volume client changé - Conversion vers format display"""
+        """Volume client changé - Synchronisation état display découplé"""
         client_id = params.get("id")
         volume_data = params.get("volume", {})
         
-        # Convertir le volume ALSA vers display
+        # Récupérer le volume ALSA depuis Snapcast
         alsa_volume = volume_data.get("percent", 0)
+        muted = volume_data.get("muted", False)
+        
+        # NOUVEAU : Synchroniser l'état display découplé dans VolumeService
+        if (hasattr(self.state_machine, 'volume_service') and 
+            self.state_machine.volume_service and 
+            hasattr(self.state_machine.volume_service, 'sync_client_volume_from_external')):
+            try:
+                await self.state_machine.volume_service.sync_client_volume_from_external(
+                    client_id, alsa_volume
+                )
+            except Exception as e:
+                self.logger.error(f"Error syncing client display state: {e}")
+        
+        # Convertir le volume ALSA vers display pour broadcast
         display_volume = self._convert_alsa_to_display(alsa_volume)
         
         await self._broadcast_snapcast_event("client_volume_changed", {
             "client_id": client_id,
             "volume": display_volume,
-            "muted": volume_data.get("muted", False),
+            "muted": muted,
             "alsa_volume": alsa_volume
         })
     
@@ -316,18 +341,30 @@ class SnapcastWebSocketService:
         })
     
     async def _handle_client_mute_changed(self, params: Dict[str, Any]) -> None:
-        """Mute client changé"""
+        """Mute client changé - Synchronisation état display découplé"""
         volume_data = params.get("volume", {})
+        client_id = params.get("id")
         
         # Volume ALSA depuis Snapcast  
         alsa_volume = volume_data.get("percent", 0)
         muted = volume_data.get("muted", False)
         
-        # Convertir vers format display
+        # NOUVEAU : Synchroniser l'état display découplé
+        if (hasattr(self.state_machine, 'volume_service') and 
+            self.state_machine.volume_service and 
+            hasattr(self.state_machine.volume_service, 'sync_client_volume_from_external')):
+            try:
+                await self.state_machine.volume_service.sync_client_volume_from_external(
+                    client_id, alsa_volume
+                )
+            except Exception as e:
+                self.logger.error(f"Error syncing client display state on mute: {e}")
+        
+        # Convertir vers format display pour broadcast
         display_volume = self._convert_alsa_to_display(alsa_volume)
         
         await self._broadcast_snapcast_event("client_mute_changed", {
-            "client_id": params.get("id"),
+            "client_id": client_id,
             "muted": muted,
             "volume": display_volume,
             "alsa_volume": alsa_volume
