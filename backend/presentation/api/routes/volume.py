@@ -1,4 +1,3 @@
-# backend/presentation/api/routes/volume.py
 """
 Routes API pour la gestion du volume - Version volume affiché (0-100%)
 """

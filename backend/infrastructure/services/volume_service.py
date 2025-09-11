@@ -1,4 +1,3 @@
-# backend/infrastructure/services/volume_service.py
 """
 Service de gestion du volume pour Milo - Version production OPTIM
 """
@@ -195,6 +194,15 @@ class VolumeService:
         alsa_range = self._alsa_max_volume - self._alsa_min_volume
         return round((display_volume / 100) * alsa_range) + self._alsa_min_volume
     
+    def _display_to_alsa_precise(self, display_volume: float) -> int:
+        """Convertit volume affiché (0-100% PRÉCIS) vers volume ALSA - Garde la précision pour petits steps"""
+        alsa_range = self._alsa_max_volume - self._alsa_min_volume
+        return round((display_volume / 100.0) * alsa_range) + self._alsa_min_volume
+    
+    def _round_half_up(self, value: float) -> int:
+        """Arrondi mathématique standard (0.5 → 1) au lieu du banker's rounding de Python"""
+        return int(value + 0.5)
+    
     def _clamp_display_volume(self, display_volume: float) -> float:
         """Limite le volume affiché entre 0-100%"""
         return max(0.0, min(100.0, display_volume))
@@ -254,26 +262,21 @@ class VolumeService:
     async def sync_client_volume_from_external(self, client_id: str, new_alsa_volume: int) -> None:
         """Sync externe PRÉCIS - Met à jour la valeur précise seulement si pas d'ajustement en cours"""
         if self._is_adjusting:
-            self.logger.debug(f"VOLUME DEBUG: Ignoring external sync for {client_id[:8]} (currently adjusting)")
             return
         
-        # CLEF : Mettre à jour la valeur précise seulement si elle vient vraiment de l'extérieur
         old_precise = self._client_display_states.get(client_id, "unknown")
         new_display_volume = float(self._alsa_to_display(new_alsa_volume))
         
-        # IMPORTANT : Seulement si la différence est significative (éviter les reboucles)
+        # Seulement si la différence est significative (éviter les reboucles)
         if isinstance(old_precise, float) and abs(old_precise - new_display_volume) < 0.5:
-            self.logger.debug(f"VOLUME DEBUG: Ignoring minor external sync for {client_id[:8]} - Diff < 0.5%")
             return
         
         self._client_display_states[client_id] = new_display_volume
         
-        self.logger.info(f"VOLUME DEBUG: External sync PRECISE {client_id[:8]}: ALSA={new_alsa_volume} → Precise={old_precise} → {new_display_volume:.2f}%")
-        
         try:
             await self.state_machine.broadcast_event("snapcast", "client_volume_changed", {
                 "client_id": client_id,
-                "volume": int(round(new_display_volume)),
+                "volume": self._round_half_up(new_display_volume),
                 "muted": False,
                 "source": "external_sync_precise"
             })
@@ -290,20 +293,16 @@ class VolumeService:
             clients = await self._get_snapcast_clients_cached()
             active_clients = [c for c in clients if not c.get("muted", False)]
             
-            self.logger.info(f"VOLUME DEBUG: Recalculating PRECISE average - {len(active_clients)} active clients")
-            
             if not active_clients:
                 return
             
             old_multiroom_volume = self._multiroom_volume
             precise_volumes = []
-            client_details = []
             
             for client in active_clients:
                 client_id = client["id"]
-                client_name = client.get("name", "Unknown")
                 
-                # CLEF : Utiliser la valeur précise stockée
+                # Utiliser la valeur précise stockée
                 precise_display = self._client_display_states.get(client_id)
                 if precise_display is None:
                     # Fallback seulement si pas encore initialisé
@@ -312,13 +311,9 @@ class VolumeService:
                     self._client_display_states[client_id] = precise_display
                 
                 precise_volumes.append(precise_display)
-                client_details.append(f"'{client_name}': {precise_display:.2f}%")
             
             # Calculer la moyenne précise
             self._multiroom_volume = sum(precise_volumes) / len(precise_volumes)
-            
-            self.logger.info(f"VOLUME DEBUG: Precise volumes: [{', '.join(client_details)}]")
-            self.logger.info(f"VOLUME DEBUG: Precise average: {old_multiroom_volume:.2f}% → {self._multiroom_volume:.2f}%")
             
         except Exception as e:
             self.logger.error(f"Error recalculating precise average: {e}")
@@ -376,11 +371,11 @@ class VolumeService:
     # === API PUBLIQUE ===
     
     async def get_display_volume(self) -> int:
-        """Volume centralisé selon le mode"""
+        """Volume centralisé selon le mode avec arrondi mathématique standard"""
         if self._is_multiroom_enabled():
-            return int(round(self._multiroom_volume))
+            return self._round_half_up(self._multiroom_volume)
         else:
-            return int(round(self._precise_display_volume))
+            return self._round_half_up(self._precise_display_volume)
     
     async def set_display_volume(self, display_volume: int, show_bar: bool = True) -> bool:
         """Définit le volume affiché (0-100%)"""
@@ -436,7 +431,7 @@ class VolumeService:
         try:
             current_precise = self._precise_display_volume
             new_precise = self._clamp_display_volume(current_precise + delta)
-            new_display = int(round(new_precise))
+            new_display = self._round_half_up(new_precise)
             new_alsa = self._display_to_alsa(new_display)
             
             success = await self._apply_alsa_volume_direct(new_alsa)
@@ -452,28 +447,21 @@ class VolumeService:
         try:
             clients = await self._get_snapcast_clients_cached()
             if not clients:
-                self.logger.warning("VOLUME DEBUG: No clients for multiroom adjustment")
                 return False
             
             await self._initialize_client_display_states()
             
-            old_multiroom = self._multiroom_volume
-            
-            self.logger.info(f"VOLUME DEBUG: Multiroom PRECISE adjust - Current avg={old_multiroom:.2f}% + delta={delta}%")
-            
-            # Distribuer le DELTA sur les valeurs display PRÉCISES (pas de conversion ALSA)
+            # Distribuer le DELTA sur les valeurs display PRÉCISES
             snapcast_operations = []
             client_events = []
             new_precise_volumes = []
             
             for client in clients:
                 client_id = client["id"]
-                client_name = client.get("name", "Unknown")
                 
-                # CLEF : Utiliser la valeur display PRÉCISE stockée en interne
+                # Utiliser la valeur display PRÉCISE stockée en interne
                 current_precise_display = self._client_display_states.get(client_id)
                 if current_precise_display is None:
-                    # Initialisation seulement si pas encore en cache
                     current_alsa = client.get("volume", 0)
                     current_precise_display = float(self._alsa_to_display(current_alsa))
                     self._client_display_states[client_id] = current_precise_display
@@ -484,31 +472,24 @@ class VolumeService:
                 # Stocker la nouvelle valeur précise
                 self._client_display_states[client_id] = new_precise_display
                 
-                # Conversion ALSA seulement pour l'envoi vers Snapcast
-                alsa_for_snapcast = self._display_to_alsa(int(round(new_precise_display)))
+                # Conversion ALSA pour Snapcast - UTILISER LA VALEUR PRÉCISE
+                alsa_for_snapcast = self._display_to_alsa_precise(new_precise_display)
                 alsa_clamped = self._clamp_alsa_volume(alsa_for_snapcast)
                 
                 snapcast_operations.append((client_id, alsa_clamped))
                 client_events.append({
                     "client_id": client_id,
-                    "volume": int(round(new_precise_display)),  # Arrondi pour l'affichage
+                    "volume": self._round_half_up(new_precise_display),
                     "muted": client.get("muted", False)
                 })
                 
                 # Collecter les valeurs précises pour la moyenne
                 if not client.get("muted", False):
                     new_precise_volumes.append(new_precise_display)
-                
-                self.logger.info(f"VOLUME DEBUG: Client '{client_name}' PRECISE - {current_precise_display:.2f}% + {delta}% = {new_precise_display:.2f}% | ALSA_out={alsa_clamped}")
             
             # Recalculer la moyenne avec les valeurs PRÉCISES
             if new_precise_volumes:
                 self._multiroom_volume = sum(new_precise_volumes) / len(new_precise_volumes)
-            else:
-                self._multiroom_volume = old_multiroom + delta
-            
-            self.logger.info(f"VOLUME DEBUG: Precise volumes: {[f'{v:.2f}%' for v in new_precise_volumes]}")
-            self.logger.info(f"VOLUME DEBUG: Precise average: {old_multiroom:.2f}% → {self._multiroom_volume:.2f}%")
             
             # Exécuter opérations Snapcast
             await asyncio.gather(
@@ -528,32 +509,24 @@ class VolumeService:
             self._snapcast_clients_cache = []
             self._snapcast_cache_time = 0
             
-            self.logger.info(f"VOLUME DEBUG: Precise adjustment completed - Final average: {self._multiroom_volume:.2f}%")
             return True
             
         except Exception as e:
             self.logger.error(f"Error in precise multiroom adjustment: {e}")
             return False
-
     
     async def _set_multiroom_volume_centralized(self, target_display_volume: int) -> bool:
-        """Set multiroom proportionnel PRÉCIS - Utilise les valeurs display internes"""
+        """Set multiroom avec delta uniforme - Même delta pour tous les clients"""
         try:
             clients = await self._get_snapcast_clients_cached()
             if not clients:
-                self.logger.warning("VOLUME DEBUG: No clients for multiroom set")
                 return False
             
             await self._initialize_client_display_states()
             old_multiroom = self._multiroom_volume
             
-            # Calculer le facteur proportionnel
-            if old_multiroom > 0:
-                scale_factor = target_display_volume / old_multiroom
-            else:
-                scale_factor = 1.0
-            
-            self.logger.info(f"VOLUME DEBUG: Set multiroom PRECISE proportional - Target={target_display_volume}%, Current={old_multiroom:.2f}%, Scale={scale_factor:.3f}")
+            # Calculer le delta au lieu du scale_factor
+            delta = target_display_volume - old_multiroom
             
             snapcast_operations = []
             client_events = []
@@ -561,36 +534,33 @@ class VolumeService:
             
             for client in clients:
                 client_id = client["id"]
-                client_name = client.get("name", "Unknown")
                 
-                # CLEF : Utiliser la valeur display PRÉCISE stockée
+                # Utiliser la valeur display PRÉCISE stockée
                 current_precise_display = self._client_display_states.get(client_id)
                 if current_precise_display is None:
                     current_alsa = client.get("volume", 0)
                     current_precise_display = float(self._alsa_to_display(current_alsa))
                     self._client_display_states[client_id] = current_precise_display
                 
-                # Ajustement proportionnel sur la valeur PRÉCISE
-                new_precise_display = self._clamp_display_volume(current_precise_display * scale_factor)
+                # Ajustement par delta uniforme
+                new_precise_display = self._clamp_display_volume(current_precise_display + delta)
                 
                 # Stocker la nouvelle valeur précise
                 self._client_display_states[client_id] = new_precise_display
                 
-                # Conversion ALSA pour Snapcast
-                alsa_for_snapcast = self._display_to_alsa(int(round(new_precise_display)))
+                # Conversion ALSA pour Snapcast - UTILISER LA VALEUR PRÉCISE
+                alsa_for_snapcast = self._display_to_alsa_precise(new_precise_display)
                 alsa_clamped = self._clamp_alsa_volume(alsa_for_snapcast)
                 
                 snapcast_operations.append((client_id, alsa_clamped))
                 client_events.append({
                     "client_id": client_id,
-                    "volume": int(round(new_precise_display)),
+                    "volume": self._round_half_up(new_precise_display),
                     "muted": client.get("muted", False)
                 })
                 
                 if not client.get("muted", False):
                     new_precise_volumes.append(new_precise_display)
-                
-                self.logger.info(f"VOLUME DEBUG: Client '{client_name}' PRECISE proportional - {current_precise_display:.2f}% × {scale_factor:.3f} = {new_precise_display:.2f}%")
             
             # Recalculer la moyenne précise
             if new_precise_volumes:
@@ -608,14 +578,16 @@ class VolumeService:
                     "client_id": client_event["client_id"],
                     "volume": client_event["volume"],
                     "muted": client_event["muted"],
-                    "source": "multiroom_proportional_precise"
+                    "source": "multiroom_uniform_delta"
                 })
             
-            self.logger.info(f"VOLUME DEBUG: Precise proportional completed - Target={target_display_volume}%, Actual avg={self._multiroom_volume:.2f}%")
+            self._snapcast_clients_cache = []
+            self._snapcast_cache_time = 0
+            
             return True
             
         except Exception as e:
-            self.logger.error(f"Error setting precise proportional volume: {e}")
+            self.logger.error(f"Error setting uniform delta volume: {e}")
             return False
     
     # === BATCHING WEBSOCKET ===
@@ -822,20 +794,44 @@ class VolumeService:
             
             if multiroom_enabled:
                 clients = await self._get_snapcast_clients_cached()
+                client_details = []
+                
+                for client in clients:
+                    client_id = client["id"]
+                    client_name = client.get("name", "Unknown")
+                    client_alsa = client.get("volume", 0)
+                    client_display_precise = self._client_display_states.get(client_id, "not_cached")
+                    client_muted = client.get("muted", False)
+                    
+                    client_details.append({
+                        "id": client_id,
+                        "name": client_name,
+                        "alsa_volume": client_alsa,
+                        "display_volume_precise": client_display_precise,
+                        "display_volume_rounded": self._round_half_up(client_display_precise) if isinstance(client_display_precise, float) else "N/A",
+                        "muted": client_muted
+                    })
+                
                 base_status.update({
                     "mode": "multiroom_centralized",
-                    "multiroom_volume": self._multiroom_volume,
+                    "multiroom_volume_precise": self._multiroom_volume,
+                    "multiroom_volume_rounded": self._round_half_up(self._multiroom_volume),
                     "client_count": len(clients),
-                    "snapcast_available": await self.snapcast_service.is_available()
+                    "snapcast_available": await self.snapcast_service.is_available(),
+                    "clients": client_details
                 })
             else:
-                base_status["mode"] = "direct"
+                base_status.update({
+                    "mode": "direct",
+                    "precise_display_volume": self._precise_display_volume,
+                    "last_alsa_volume": self._last_alsa_volume
+                })
             
             return base_status
         except Exception as e:
             self.logger.error(f"Error getting volume status: {e}")
             return {
-                "volume": int(round(self._precise_display_volume)),
+                "volume": self._round_half_up(self._precise_display_volume),
                 "mode": "error",
                 "error": str(e),
                 "config": self.get_volume_config_public()
