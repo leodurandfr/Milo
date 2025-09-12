@@ -320,9 +320,11 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             reload_callback=screen_controller.reload_timeout_config
         )
     
+    # backend/presentation/api/routes/settings.py
+
     @router.post("/screen-brightness/apply")
     async def apply_brightness_instantly(payload: Dict[str, Any]):
-        """Application instantanée de luminosité"""
+        """Application instantanée de luminosité + restart timeout"""
         try:
             brightness_on = payload.get('brightness_on')
             
@@ -342,10 +344,16 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             stdout, stderr = await process.communicate()
             
             if process.returncode == 0:
+                # NOUVEAU : Redémarrer le timeout sans réappliquer de luminosité
+                from time import monotonic
+                screen_controller.last_activity_time = monotonic()
+                screen_controller.screen_on = True
+                
                 return {
                     "status": "success",
                     "brightness_applied": brightness_on,
-                    "command_output": stdout.decode().strip()
+                    "command_output": stdout.decode().strip(),
+                    "timeout_restarted": True
                 }
             else:
                 return {
