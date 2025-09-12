@@ -22,7 +22,7 @@ class SettingsService:
                 "alsa_min": 0,
                 "alsa_max": 65,
                 "restore_last_volume": False,
-                "startup_volume": 37,
+                "startup_volume": 24,
                 "mobile_volume_steps": 5
             },
             "screen": {

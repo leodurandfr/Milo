@@ -29,6 +29,9 @@ go-librespot/
 bluez-alsa/
 roc-toolkit/
 
+# Configuration file
+milo_settings.json
+
 # Frontend
 node_modules/
 /frontend/dist/

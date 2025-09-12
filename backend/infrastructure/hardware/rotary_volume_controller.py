@@ -100,7 +100,7 @@ class RotaryVolumeController:
                     
                     # Appliquer le changement via le service volume (méthode de compatibilité)
                     try:
-                        result = await self.volume_service.adjust_volume(volume_delta)
+                        result = await self.volume_service.adjust_display_volume(volume_delta)
                         print(f"DEBUG ROTARY: Volume service result: {result}")
                         self._last_volume_update = current_time
                         self.logger.debug(f"Applied volume delta: {volume_delta}% (via rotary)")

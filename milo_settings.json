@@ -6,14 +6,14 @@
     "alsa_max": 75,
     "restore_last_volume": true,
     "startup_volume": 16,
-    "mobile_volume_steps": 1
+    "mobile_volume_steps": 4
   },
   "screen": {
     "timeout_seconds": 180,
     "brightness_on": 7
   },
   "spotify": {
-    "auto_disconnect_delay": 180.0
+    "auto_disconnect_delay": 900.0
   },
   "dock": {
     "enabled_apps": [
