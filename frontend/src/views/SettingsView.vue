@@ -1,4 +1,4 @@
-<!-- frontend/src/views/SettingsView.vue - Fix handlers pour envoyer 0 -->
+<!-- frontend/src/views/SettingsView.vue - Fix handlers pour envoyer 0 + Température système -->
 <template>
   <div class="settings-view">
     <div class="settings-modal">
@@ -217,6 +217,15 @@
             <span class="info-label text-mono">{{ t('Version de Milo') }}</span>
             <span class="info-value text-mono">0.1.0</span>
           </div>
+
+          <div class="info-item">
+            <span class="info-label text-mono">{{ t('Température du système') }}</span>
+            <span class="info-value text-mono">
+              <span v-if="temperatureLoading && systemTemperature === null">...</span>
+              <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
+              <span v-else class="text-error">{{ t('Non disponible') }}</span>
+            </span>
+          </div>
         </section>
 
       </div>
@@ -225,7 +234,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
@@ -268,6 +277,10 @@ const config = ref({
     }
   }
 });
+
+// NOUVEAU : État pour la température
+const systemTemperature = ref(null);
+const temperatureLoading = ref(false);
 
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
@@ -319,6 +332,30 @@ function isDisconnectActive(value) {
   }
   return config.value.spotify.auto_disconnect_delay === value;
 }
+
+// === NOUVEAU : GESTION TEMPÉRATURE ===
+async function loadSystemTemperature() {
+  if (temperatureLoading.value) return;
+  
+  try {
+    temperatureLoading.value = true;
+    const response = await axios.get('/api/settings/system-temperature');
+    
+    if (response.data.status === 'success' && response.data.temperature !== null) {
+      systemTemperature.value = response.data.temperature;
+    } else {
+      systemTemperature.value = null;
+    }
+  } catch (error) {
+    console.error('Error loading temperature:', error);
+    systemTemperature.value = null;
+  } finally {
+    temperatureLoading.value = false;
+  }
+}
+
+// Intervalle pour mettre à jour la température
+let temperatureInterval = null;
 
 // === SCROLL PAR CLIC+DRAG (comme Modal.vue) ===
 const modalContent = ref(null);
@@ -568,10 +605,23 @@ onMounted(async () => {
   await i18n.initializeLanguage();
   await loadAllConfigs();
 
+  // NOUVEAU : Charger la température immédiatement
+  await loadSystemTemperature();
+  
+  // NOUVEAU : Configurer l'intervalle pour la température (toutes les 5 secondes)
+  temperatureInterval = setInterval(loadSystemTemperature, 5000);
+
   // Enregistrer tous les listeners WebSocket
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
     on('settings', eventType, handler);
   });
+});
+
+// NOUVEAU : Nettoyer l'intervalle au démontage
+onUnmounted(() => {
+  if (temperatureInterval) {
+    clearInterval(temperatureInterval);
+  }
 });
 </script>
 
@@ -818,7 +868,7 @@ onMounted(async () => {
 .info-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
   background: var(--color-background-strong);
@@ -830,6 +880,50 @@ onMounted(async () => {
 
 .info-value {
   color: var(--color-text);
+  text-align: right;
+}
+
+.info-value-container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-01);
+}
+
+/* Messages de throttling */
+.throttling-message {
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  text-align: right;
+  padding: var(--space-01) var(--space-02);
+  border-radius: var(--radius-02);
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.throttle-critical {
+  background: rgba(239, 68, 68, 0.1);
+  color: #EF4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.throttle-warning {
+  background: rgba(245, 158, 11, 0.1);
+  color: #F59E0B;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.throttle-error {
+  background: rgba(107, 114, 128, 0.1);
+  color: #6B7280;
+  border: 1px solid rgba(107, 114, 128, 0.2);
+}
+
+/* Style pour température en erreur */
+.text-error {
+  color: var(--color-destructive);
 }
 
 /* Responsive */

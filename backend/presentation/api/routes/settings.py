@@ -1,13 +1,13 @@
 # backend/presentation/api/routes/settings.py
 """
-Routes Settings - Version OPTIM avec support 0 = désactivé pour Spotify et Screen
+Routes Settings - Version OPTIM avec support 0 = désactivé pour Spotify et Screen + Température système
 """
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Callable, Optional
 from backend.infrastructure.services.settings_service import SettingsService
 
 def create_settings_router(ws_manager, volume_service, state_machine, screen_controller):
-    """Router settings avec pattern unifié + support 0 = désactivé"""
+    """Router settings avec pattern unifié + support 0 = désactivé + température"""
     router = APIRouter()
     settings = SettingsService()
     
@@ -357,5 +357,97 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+    
+    # NOUVEAU : Température système + Throttling
+    @router.get("/system-temperature")
+    async def get_system_temperature():
+        """Récupère la température du Raspberry Pi et le statut de throttling"""
+        try:
+            import asyncio
+            
+            # Récupérer température et throttling en parallèle
+            temp_process = asyncio.create_subprocess_shell(
+                "vcgencmd measure_temp",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            throttle_process = asyncio.create_subprocess_shell(
+                "vcgencmd get_throttled",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            temp_proc, throttle_proc = await asyncio.gather(temp_process, throttle_process)
+            temp_stdout, temp_stderr = await temp_proc.communicate()
+            throttle_stdout, throttle_stderr = await throttle_proc.communicate()
+            
+            result = {"status": "success"}
+            
+            # Parser température
+            if temp_proc.returncode == 0:
+                temp_output = temp_stdout.decode().strip()
+                if temp_output.startswith("temp=") and temp_output.endswith("'C"):
+                    temp_str = temp_output.replace("temp=", "").replace("'C", "")
+                    result["temperature"] = float(temp_str)
+                    result["unit"] = "°C"
+                else:
+                    result["temperature"] = None
+            else:
+                result["temperature"] = None
+            
+            # Parser throttling
+            throttle_status = {"code": "0x0", "current": [], "past": [], "severity": "ok"}
+            
+            if throttle_proc.returncode == 0:
+                throttle_output = throttle_stdout.decode().strip()
+                if throttle_output.startswith("throttled="):
+                    throttle_code = throttle_output.replace("throttled=", "").strip()
+                    throttle_status["code"] = throttle_code
+                    
+                    try:
+                        throttle_value = int(throttle_code, 16)
+                        
+                        # Problèmes actuels
+                        if throttle_value & 0x1:
+                            throttle_status["current"].append("Sous-tension")
+                        if throttle_value & 0x2:
+                            throttle_status["current"].append("Surchauffe")
+                        if throttle_value & 0x4:
+                            throttle_status["current"].append("Fréquence réduite (alimentation)")
+                        if throttle_value & 0x8:
+                            throttle_status["current"].append("Fréquence réduite (température)")
+                        
+                        # Problèmes passés
+                        if throttle_value & 0x80000:
+                            throttle_status["past"].append("Sous-tension détectée")
+                        if throttle_value & 0x100000:
+                            throttle_status["past"].append("Surchauffe détectée")
+                        if throttle_value & 0x200000:
+                            throttle_status["past"].append("Fréquence réduite (alimentation)")
+                        if throttle_value & 0x400000:
+                            throttle_status["past"].append("Fréquence réduite (température)")
+                        
+                        # Déterminer la sévérité
+                        if throttle_status["current"]:
+                            throttle_status["severity"] = "critical"
+                        elif throttle_status["past"]:
+                            throttle_status["severity"] = "warning"
+                        else:
+                            throttle_status["severity"] = "ok"
+                            
+                    except ValueError:
+                        pass
+            
+            result["throttling"] = throttle_status
+            return result
+            
+        except Exception as e:
+            return {
+                "status": "error", 
+                "message": str(e),
+                "temperature": None,
+                "throttling": {"code": "error", "current": [], "past": [], "severity": "error"}
+            }
     
     return router
