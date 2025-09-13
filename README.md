@@ -5,7 +5,7 @@
 
 # Milo (WIP)
 
-Milo is an advanced audio application for Raspberry Pi that transforms your device into a versatile audio platform. The system allows seamless switching between different audio sources (Spotify, Bluetooth, macOS audio output) while offering a sleek and responsive user interface. 
+Milo is an advanced audio application for Raspberry Pi that transforms your device into a versatile audio platform. The system allows seamless switching between different audio sources (Spotify, Bluetooth, Mac audio output) while offering a sleek and responsive user interface. 
 
 ## Features
 
@@ -21,13 +21,13 @@ Milo is an advanced audio application for Raspberry Pi that transforms your devi
 
 ## Additional applications 
 - [Milo Mac](https://github.com/Leshauts/Milo-Mac) : Native look and feel app in Menu Bar to control Milo from your Mac.
-- [Milo iOS](https://github.com/Leshauts/Milo-iOS) : iOS app that displays milo.local in full screen [wip: need to add project in Github]
+- [Milo iOS](https://github.com/Leshauts/Milo-iOS) : iOS app that displays milo.local in full screen
 - Milo Android : Android app that displays milo.local in full screen [wip: need to add project in Github]
 
 ## Daemon used for this application
 - go-librespot (Spotify)
 - bluez-alsa (Bluetooth Audio)
-- roc-streaming (macOS audio ouput)
+- roc-streaming (%ac audio ouput)
 - snapcast (Multiroom)
 - alsaequal (Equalizer)
 

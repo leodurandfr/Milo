@@ -5,7 +5,7 @@
   "Langues": "भाषाएं",
   "Applications": "एप्लिकेशन",
   "Sources audio": "ऑडियो स्रोत",
-  "Réception audio macOS": "macOS ऑडियो रिसेप्शन",
+  "Réception audio Mac": "Mac ऑडियो रिसेप्शन",
   "Fonctionnalités": "सुविधाएं",
   "Volume": "वॉल्यूम",
   "Contrôles du volume": "वॉल्यूम नियंत्रण",
@@ -84,6 +84,5 @@
   "Titre inconnu": "अज्ञात शीर्षक",
   "Artiste inconnu": "अज्ञात कलाकार",
   "Bluetooth": "ब्लूटूथ",
-  "Audio macOS": "macOS ऑडियो",
-  "Récepteur audio macOS": "macOS ऑडियो रिसीवर"
+  "Récepteur audio Mac": "Mac ऑडियो रिसीवर"
 }

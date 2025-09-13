@@ -5,7 +5,7 @@
   "Langues": "Idiomas",
   "Applications": "Aplicações",
   "Sources audio": "Fontes de áudio",
-  "Réception audio macOS": "Recepção de áudio macOS",
+  "Réception audio Mac": "Recepção de áudio Mac",
   "Fonctionnalités": "Funcionalidades",
   "Volume": "Volume",
   "Contrôles du volume": "Controles de volume",
@@ -84,6 +84,5 @@
   "Titre inconnu": "Título desconhecido",
   "Artiste inconnu": "Artista desconhecido",
   "Bluetooth": "Bluetooth",
-  "Audio macOS": "Áudio macOS",
-  "Récepteur audio macOS": "Receptor de áudio macOS"
+  "Récepteur audio Mac": "Receptor de áudio Mac"
 }

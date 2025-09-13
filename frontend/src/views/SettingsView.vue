@@ -58,7 +58,7 @@
               <div class="app-item">
                 <div class="app-info">
                   <AppIcon name="roc" :size="32" />
-                  <span class="app-name text-body">{{ t('Réception audio macOS') }}</span>
+                  <span class="app-name text-body">{{ t('Réception audio Mac') }}</span>
                 </div>
                 <Toggle v-model="config.dock.apps.roc" variant="primary" :disabled="!canDisableAudioSource('roc')"
                   @change="updateDockApps" />

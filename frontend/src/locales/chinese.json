@@ -5,7 +5,7 @@
   "Langues": "语言",
   "Applications": "应用程序",
   "Sources audio": "音频源",
-  "Réception audio macOS": "macOS 音频接收",
+  "Réception audio Mac": "Mac 音频接收",
   "Fonctionnalités": "功能",
   "Volume": "音量",
   "Contrôles du volume": "音量控制",
@@ -84,6 +84,5 @@
   "Titre inconnu": "未知标题",
   "Artiste inconnu": "未知艺术家",
   "Bluetooth": "蓝牙",
-  "Audio macOS": "macOS 音频",
-  "Récepteur audio macOS": "macOS 音频接收器"
+  "Récepteur audio Mac": "Mac 音频接收器"
 }

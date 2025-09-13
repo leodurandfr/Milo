@@ -101,7 +101,7 @@ const displayedStatusLines = computed(() => {
       case 'bluetooth':
         return [t('Chargement du'), t('Bluetooth')];
       case 'roc':
-        return [t('Chargement du'), t('Récepteur audio macOS')];
+        return [t('Chargement du'), t('Récepteur audio Mac')];
       case 'librespot':
         return [t('Chargement de'), t('Spotify')];
       default:
@@ -115,7 +115,7 @@ const displayedStatusLines = computed(() => {
       case 'bluetooth':
         return [t('Bluetooth'), t('Prêt à se connecter')];
       case 'roc':
-        return [t('Audio macOS'), t('Prêt à diffuser')];
+        return [t('Récepteur audio Mac'), t('Prêt à diffuser')];
       case 'librespot':
         return [t('Spotify'), t('Prêt à se connecter')];
       default:
