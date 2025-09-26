@@ -17,14 +17,12 @@ const unifiedStore = useUnifiedAudioStore();
 const isVisible = ref(false);
 let hideTimer = null;
 
-// Computed pour les styles du volume-fill
+// Computed simplifié pour le style de la barre
 const volumeFillStyle = computed(() => {
   const volume = unifiedStore.currentVolume;
-  const isCircleMode = volume < 10;
-  
   return {
-    width: isCircleMode ? '32px' : `${volume}%`,
-    left: isCircleMode ? `${(volume * 3.2) - 32}px` : '-0.3px'
+    width: '100%',
+    transform: `translateX(${volume - 100}%)`
   };
 });
 
@@ -99,6 +97,7 @@ onMounted(() => {
   color: var(--color-text-secondary);
   margin-left: var(--space-04);
   position: absolute;
+  z-index: 1;
 }
 
 .volume-fill {
@@ -106,7 +105,7 @@ onMounted(() => {
   height: 100%;
   background: var(--color-background-contrast);
   border-radius: var(--radius-full);
-  transition: width 0.2s ease, left 0.2s ease;
+  transition: transform 0.2s ease;
 }
 
 @media (max-aspect-ratio: 4/3) {
