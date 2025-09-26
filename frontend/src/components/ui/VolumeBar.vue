@@ -86,9 +86,20 @@ onMounted(() => {
   position: relative;
   width: 100%;
   height: 32px;
-  background: var(--color-background-neutral);
   border-radius: var(--radius-full);
   overflow: hidden;
+}
+
+.volume-slider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 4px;
+  right: 4px;
+  height: 100%;
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-full);
+  z-index: 0;
 }
 
 .volume-slider .text-mono {
@@ -97,7 +108,7 @@ onMounted(() => {
   color: var(--color-text-secondary);
   margin-left: var(--space-04);
   position: absolute;
-  z-index: 1;
+  z-index: 2;
 }
 
 .volume-fill {
@@ -106,6 +117,7 @@ onMounted(() => {
   background: var(--color-background-contrast);
   border-radius: var(--radius-full);
   transition: transform 0.2s ease;
+  z-index: 1;
 }
 
 @media (max-aspect-ratio: 4/3) {
