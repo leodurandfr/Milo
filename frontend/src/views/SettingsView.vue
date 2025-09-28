@@ -237,7 +237,20 @@
                 </div>
                 
                 <div class="dependency-status">
-                  <div v-if="dep.update_available" class="update-badge text-mono">
+                  <!-- État de mise à jour en cours -->
+                  <div v-if="isUpdating(key)" class="update-progress-badge text-mono">
+                    {{ getUpdateProgress(key) }}%
+                  </div>
+                  <!-- Bouton mettre à jour -->
+                  <Button v-else-if="dep.update_available && canUpdate(key)" 
+                          variant="primary" 
+                          size="small"
+                          @click="startUpdate(key)"
+                          :disabled="isAnyUpdateInProgress()">
+                    {{ t('Mettre à jour') }}
+                  </Button>
+                  <!-- Badges d'état normaux -->
+                  <div v-else-if="dep.update_available" class="update-badge text-mono">
                     {{ t('Mise à jour disponible') }}
                   </div>
                   <div v-else-if="getInstallStatus(dep) === 'installed'" class="status-badge status-ok text-mono">
@@ -250,6 +263,14 @@
                     {{ t('État inconnu') }}
                   </div>
                 </div>
+              </div>
+
+              <!-- Message de progression si mise à jour en cours -->
+              <div v-if="isUpdating(key)" class="update-progress">
+                <div class="progress-bar">
+                  <div class="progress-fill" :style="{ width: getUpdateProgress(key) + '%' }"></div>
+                </div>
+                <p class="progress-message text-mono">{{ getUpdateMessage(key) }}</p>
               </div>
 
               <div class="dependency-versions">
@@ -364,6 +385,10 @@ const dependencies = ref({});
 const dependenciesLoading = ref(false);
 const dependenciesError = ref(false);
 
+// NOUVEAUX : États pour les mises à jour
+const updateStates = ref({});
+const supportedUpdates = ['go-librespot', 'snapcast']; // Seules ces dépendances peuvent être mises à jour
+
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
 
@@ -431,6 +456,58 @@ function getLatestVersion(dep) {
 
 function getGitHubStatus(dep) {
   return dep.latest?.status || 'unknown';
+}
+
+// === NOUVEAUX : HELPERS POUR LES MISES À JOUR ===
+function canUpdate(depKey) {
+  return supportedUpdates.includes(depKey);
+}
+
+function isUpdating(depKey) {
+  return updateStates.value[depKey]?.updating || false;
+}
+
+function isAnyUpdateInProgress() {
+  return Object.values(updateStates.value).some(state => state.updating);
+}
+
+function getUpdateProgress(depKey) {
+  return updateStates.value[depKey]?.progress || 0;
+}
+
+function getUpdateMessage(depKey) {
+  return updateStates.value[depKey]?.message || '';
+}
+
+// === NOUVEAU : GESTION DES MISES À JOUR ===
+async function startUpdate(depKey) {
+  if (!canUpdate(depKey) || isUpdating(depKey)) return;
+  
+  try {
+    // Initialiser l'état de mise à jour
+    updateStates.value[depKey] = {
+      updating: true,
+      progress: 0,
+      message: t('Initialisation de la mise à jour...')
+    };
+    
+    const response = await axios.post(`/api/settings/dependencies/${depKey}/update`);
+    
+    if (response.data.status !== 'success') {
+      throw new Error(response.data.message || 'Failed to start update');
+    }
+    
+    console.log(`Update started for ${depKey}: ${response.data.message}`);
+    
+  } catch (error) {
+    console.error(`Error starting update for ${depKey}:`, error);
+    
+    // Réinitialiser l'état en cas d'erreur
+    delete updateStates.value[depKey];
+    
+    // Afficher l'erreur à l'utilisateur (vous pouvez améliorer ça avec une notification)
+    alert(`Erreur lors du démarrage de la mise à jour: ${error.message}`);
+  }
 }
 
 // === NOUVEAU : GESTION DES DÉPENDANCES ===
@@ -702,7 +779,6 @@ const wsListeners = {
       config.value.spotify.auto_disconnect_delay = msg.data.config.auto_disconnect_delay;
     }
   },
-  // Screen timeout - Dériver timeout_enabled de timeout_seconds
   'screen_timeout_changed': (msg) => {
     if (msg.data?.config) {
       config.value.screen.timeout_seconds = msg.data.config.screen_timeout_seconds;
@@ -722,6 +798,40 @@ const wsListeners = {
         appsObj[app] = enabledApps.includes(app);
       });
       config.value.dock.apps = appsObj;
+    }
+  },
+  // NOUVEAUX : Listeners pour les mises à jour
+  'dependency_update_progress': (msg) => {
+    const { dependency, progress, message, status } = msg.data;
+    if (dependency && updateStates.value[dependency]) {
+      updateStates.value[dependency] = {
+        updating: status === 'updating',
+        progress: progress || 0,
+        message: message || ''
+      };
+    }
+  },
+  'dependency_update_complete': (msg) => {
+    const { dependency, success, message, error, old_version, new_version } = msg.data;
+    
+    if (dependency) {
+      // Réinitialiser l'état de mise à jour
+      delete updateStates.value[dependency];
+      
+      if (success) {
+        console.log(`Update completed for ${dependency}: ${old_version} → ${new_version}`);
+        
+        // Recharger les dépendances pour afficher la nouvelle version
+        loadDependencies();
+        
+        // Notification de succès (vous pouvez améliorer avec un toast)
+        alert(`Mise à jour terminée: ${dependency} ${old_version} → ${new_version}`);
+      } else {
+        console.error(`Update failed for ${dependency}: ${error}`);
+        
+        // Notification d'erreur
+        alert(`Échec de la mise à jour de ${dependency}: ${error}`);
+      }
     }
   }
 };
@@ -1075,6 +1185,40 @@ onUnmounted(() => {
   background: var(--color-background-neutral);
   color: var(--color-warning);
   border: 1px solid var(--color-warning);
+}
+
+.update-progress-badge {
+  background: var(--color-background-neutral);
+  color: var(--color-info);
+  border: 1px solid var(--color-info);
+  min-width: 60px;
+}
+
+.update-progress {
+  margin-top: var(--space-03);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--color-background);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--color-brand);
+  border-radius: var(--radius-full);
+  transition: width var(--transition-normal);
+}
+
+.progress-message {
+  color: var(--color-text-secondary);
+  text-align: center;
 }
 
 .dependency-versions {

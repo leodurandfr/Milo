@@ -1,17 +1,23 @@
 # backend/presentation/api/routes/settings.py
 """
-Routes Settings - Version OPTIM avec support 0 = désactivé pour Spotify et Screen + Température + Dépendances
+Routes Settings - Version COMPLÈTE avec mises à jour Phase 2A
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Dict, Any, Callable, Optional
 from backend.infrastructure.services.settings_service import SettingsService
 from backend.infrastructure.services.dependency_version_service import DependencyVersionService
+from backend.infrastructure.services.dependency_update_service import DependencyUpdateService
+import asyncio
 
 def create_settings_router(ws_manager, volume_service, state_machine, screen_controller):
-    """Router settings avec pattern unifié + support 0 = désactivé + température + dépendances"""
+    """Router settings avec pattern unifié + support 0 = désactivé + température + dépendances + mises à jour"""
     router = APIRouter()
     settings = SettingsService()
     dependency_service = DependencyVersionService()
+    update_service = DependencyUpdateService()
+    
+    # Store pour suivre les mises à jour en cours
+    active_updates = {}
     
     async def _handle_setting_update(
         payload: Dict[str, Any], 
@@ -49,6 +55,8 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+    
+    # [... toutes les routes existantes restent identiques ...]
     
     # Language
     @router.get("/language")
@@ -105,13 +113,10 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
     async def toggle_volume_limits(payload: Dict[str, Any]):
         enabled = payload.get('enabled')
         
-        # Calculer les nouvelles limites
         if enabled:
-            # Garder les valeurs actuelles
             current_min = settings.get_setting('volume.alsa_min') or 0
             current_max = settings.get_setting('volume.alsa_max') or 65
         else:
-            # Forcer 0-100 quand on désactive
             current_min = 0
             current_max = 100
         
@@ -208,12 +213,10 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             if not isinstance(apps, list):
                 return False
             
-            # Vérifier que toutes les apps sont valides
             valid_apps = ["librespot", "bluetooth", "roc", "multiroom", "equalizer"]
             if not all(app in valid_apps for app in apps):
                 return False
             
-            # Vérifier qu'au moins une source audio est activée
             audio_sources = ["librespot", "bluetooth", "roc"]
             enabled_audio_sources = [app for app in apps if app in audio_sources]
             return len(enabled_audio_sources) > 0
@@ -226,7 +229,7 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             event_data={"config": {"enabled_apps": enabled_apps}}
         )
     
-    # Spotify - MODIFIÉ : Accepter 0 = désactivé
+    # Spotify
     @router.get("/spotify-disconnect")
     async def get_spotify_disconnect():
         spotify = settings.get_setting('spotify') or {}
@@ -244,7 +247,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
                 from backend.domain.audio_state import AudioSource
                 plugin = state_machine.get_plugin(AudioSource.LIBRESPOT)
                 if plugin:
-                    # 0 = désactivé, sinon activé avec le délai
                     enabled = delay != 0
                     return await plugin.set_auto_disconnect_config(enabled=enabled, delay=delay, save_to_settings=False)
             except Exception:
@@ -253,7 +255,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
         
         return await _handle_setting_update(
             payload,
-            # MODIFIÉ : Accepter 0 (désactivé) OU valeur entre 1.0 et 9999 (heure ?)
             validator=lambda p: (
                 p.get('auto_disconnect_delay') is not None and
                 (p['auto_disconnect_delay'] == 0 or (1.0 <= p['auto_disconnect_delay'] <= 9999))
@@ -264,13 +265,12 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             reload_callback=apply_to_plugin
         )
     
-    # Screen timeout - MODIFIÉ : Accepter 0 = jamais
+    # Screen timeout
     @router.get("/screen-timeout")
     async def get_screen_timeout():
         screen = settings.get_setting('screen') or {}
         timeout_seconds = screen.get("timeout_seconds", 10)
         
-        # Si timeout_seconds = 0, alors timeout_enabled = false
         timeout_enabled = timeout_seconds != 0
         
         return {
@@ -288,7 +288,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
         
         return await _handle_setting_update(
             payload,
-            # MODIFIÉ : Accepter 0 (jamais) OU valeur entre 3 et 3600
             validator=lambda p: (
                 p.get('screen_timeout_enabled') is not None and isinstance(p['screen_timeout_enabled'], bool) and
                 p.get('screen_timeout_seconds') is not None and
@@ -344,7 +343,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             stdout, stderr = await process.communicate()
             
             if process.returncode == 0:
-                # NOUVEAU : Redémarrer le timeout sans réappliquer de luminosité
                 from time import monotonic
                 screen_controller.last_activity_time = monotonic()
                 screen_controller.screen_on = True
@@ -373,7 +371,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
         try:
             import asyncio
             
-            # Récupérer température et throttling en parallèle
             temp_process = asyncio.create_subprocess_shell(
                 "vcgencmd measure_temp",
                 stdout=asyncio.subprocess.PIPE,
@@ -416,7 +413,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
                     try:
                         throttle_value = int(throttle_code, 16)
                         
-                        # Problèmes actuels
                         if throttle_value & 0x1:
                             throttle_status["current"].append("Sous-tension")
                         if throttle_value & 0x2:
@@ -426,7 +422,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
                         if throttle_value & 0x8:
                             throttle_status["current"].append("Fréquence réduite (température)")
                         
-                        # Problèmes passés
                         if throttle_value & 0x80000:
                             throttle_status["past"].append("Sous-tension détectée")
                         if throttle_value & 0x100000:
@@ -436,7 +431,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
                         if throttle_value & 0x400000:
                             throttle_status["past"].append("Fréquence réduite (température)")
                         
-                        # Déterminer la sévérité
                         if throttle_status["current"]:
                             throttle_status["severity"] = "critical"
                         elif throttle_status["past"]:
@@ -458,7 +452,7 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
                 "throttling": {"code": "error", "current": [], "past": [], "severity": "error"}
             }
     
-    # === NOUVELLES ROUTES DÉPENDANCES ===
+    # === ROUTES DÉPENDANCES (Phase 1) ===
     
     @router.get("/dependencies")
     async def get_all_dependencies():
@@ -540,6 +534,164 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
                 "status": "error",
                 "message": str(e),
                 "latest": None
+            }
+    
+    # === NOUVELLES ROUTES MISES À JOUR (Phase 2A) ===
+    
+    @router.get("/dependencies/{dependency_key}/can-update")
+    async def check_can_update_dependency(dependency_key: str):
+        """Vérifie si une dépendance peut être mise à jour"""
+        try:
+            result = await update_service.can_update_dependency(dependency_key)
+            return {
+                "status": "success",
+                **result
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e),
+                "can_update": False
+            }
+    
+    @router.post("/dependencies/{dependency_key}/update")
+    async def update_dependency(dependency_key: str, background_tasks: BackgroundTasks):
+        """Lance la mise à jour d'une dépendance en arrière-plan"""
+        
+        # Vérifier si une mise à jour est déjà en cours
+        if dependency_key in active_updates:
+            return {
+                "status": "error",
+                "message": "Update already in progress for this dependency"
+            }
+        
+        # Vérifier que la mise à jour est possible
+        can_update = await update_service.can_update_dependency(dependency_key)
+        if not can_update.get("can_update"):
+            return {
+                "status": "error", 
+                "message": can_update.get("reason", "Cannot update")
+            }
+        
+        # Marquer comme en cours
+        active_updates[dependency_key] = {
+            "status": "starting",
+            "progress": 0,
+            "message": "Initializing update..."
+        }
+        
+        # Callback de progression
+        async def progress_callback(message: str, progress: int):
+            active_updates[dependency_key] = {
+                "status": "updating",
+                "progress": progress,
+                "message": message
+            }
+            
+            # Broadcast WebSocket
+            await ws_manager.broadcast_dict({
+                "category": "settings",
+                "type": "dependency_update_progress",
+                "source": "dependency_update",
+                "data": {
+                    "dependency": dependency_key,
+                    "progress": progress,
+                    "message": message,
+                    "status": "updating"
+                }
+            })
+        
+        # Fonction de mise à jour en arrière-plan
+        async def do_update():
+            try:
+                result = await update_service.update_dependency(dependency_key, progress_callback)
+                
+                if result["success"]:
+                    # Mise à jour réussie
+                    del active_updates[dependency_key]
+                    
+                    await ws_manager.broadcast_dict({
+                        "category": "settings",
+                        "type": "dependency_update_complete",
+                        "source": "dependency_update",
+                        "data": {
+                            "dependency": dependency_key,
+                            "success": True,
+                            "message": result.get("message", "Update completed"),
+                            "old_version": result.get("old_version"),
+                            "new_version": result.get("new_version")
+                        }
+                    })
+                else:
+                    # Mise à jour échouée
+                    del active_updates[dependency_key]
+                    
+                    await ws_manager.broadcast_dict({
+                        "category": "settings",
+                        "type": "dependency_update_complete",
+                        "source": "dependency_update",
+                        "data": {
+                            "dependency": dependency_key,
+                            "success": False,
+                            "error": result.get("error", "Update failed")
+                        }
+                    })
+                    
+            except Exception as e:
+                # Erreur inattendue
+                if dependency_key in active_updates:
+                    del active_updates[dependency_key]
+                
+                await ws_manager.broadcast_dict({
+                    "category": "settings",
+                    "type": "dependency_update_complete",
+                    "source": "dependency_update",
+                    "data": {
+                        "dependency": dependency_key,
+                        "success": False,
+                        "error": str(e)
+                    }
+                })
+        
+        # Lancer en arrière-plan
+        background_tasks.add_task(do_update)
+        
+        return {
+            "status": "success",
+            "message": f"Update started for {dependency_key}",
+            "available_version": can_update.get("available_version")
+        }
+    
+    @router.get("/dependencies/{dependency_key}/update-status")
+    async def get_update_status(dependency_key: str):
+        """Récupère le statut de mise à jour d'une dépendance"""
+        if dependency_key in active_updates:
+            return {
+                "status": "success",
+                "updating": True,
+                **active_updates[dependency_key]
+            }
+        else:
+            return {
+                "status": "success",
+                "updating": False,
+                "message": "No update in progress"
+            }
+    
+    @router.post("/dependencies/{dependency_key}/cancel-update")
+    async def cancel_update(dependency_key: str):
+        """Annule une mise à jour en cours (si possible)"""
+        if dependency_key in active_updates:
+            # Note: L'annulation n'est pas implémentée dans cette version
+            # pour des raisons de sécurité (éviter les états incohérents)
+            return {
+                "status": "error", 
+                "message": "Update cancellation not supported. Please wait for completion."
+            }
+        else:
+            return {
+                "status": "success",
+                "message": "No update in progress"
             }
     
     return router

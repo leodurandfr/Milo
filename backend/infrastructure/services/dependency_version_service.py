@@ -15,7 +15,7 @@ class DependencyVersionService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         
-        # Configuration des dépendances (ordre : Spotify, Bluetooth, macOS, Multiroom)
+        # Configuration des dépendances (snapserver et snapclient séparés)
         self.dependencies = {
             "go-librespot": {
                 "name": "go-librespot",
@@ -25,6 +25,24 @@ class DependencyVersionService:
                 },
                 "repo": "devgianlu/go-librespot",
                 "version_regex": r"(\d+\.\d+\.\d+)"
+            },
+            "snapserver": {
+                "name": "Snapserver",
+                "description": "Serveur multiroom",
+                "commands": {
+                    "main": ["snapserver", "--version"]
+                },
+                "repo": "badaix/snapcast",
+                "version_regex": r"v(\d+\.\d+\.\d+)"
+            },
+            "snapclient": {
+                "name": "Snapclient", 
+                "description": "Client multiroom",
+                "commands": {
+                    "main": ["snapclient", "--version"]
+                },
+                "repo": "badaix/snapcast",
+                "version_regex": r"v(\d+\.\d+\.\d+)"
             },
             "bluez-alsa": {
                 "name": "BlueZ ALSA",
@@ -36,23 +54,13 @@ class DependencyVersionService:
                 "version_regex": r"v(\d+\.\d+\.\d+)"
             },
             "roc-toolkit": {
-                "name": "ROC Streaming", 
+                "name": "ROC Streaming",
                 "description": "Streaming audio depuis macOS",
                 "commands": {
                     "recv": ["roc-recv", "--version"]
                 },
                 "repo": "roc-streaming/roc-toolkit",
                 "version_regex": r"roc-recv (\d+\.\d+\.\d+)"
-            },
-            "snapcast": {
-                "name": "Snapcast",
-                "description": "Serveur et client multiroom",
-                "commands": {
-                    "server": ["snapserver", "--version"],
-                    "client": ["snapclient", "--version"]
-                },
-                "repo": "badaix/snapcast",
-                "version_regex": r"v(\d+\.\d+\.\d+)"
             }
         }
         
