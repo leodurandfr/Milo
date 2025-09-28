@@ -1,15 +1,17 @@
 # backend/presentation/api/routes/settings.py
 """
-Routes Settings - Version OPTIM avec support 0 = désactivé pour Spotify et Screen + Température système
+Routes Settings - Version OPTIM avec support 0 = désactivé pour Spotify et Screen + Température + Dépendances
 """
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Callable, Optional
 from backend.infrastructure.services.settings_service import SettingsService
+from backend.infrastructure.services.dependency_version_service import DependencyVersionService
 
 def create_settings_router(ws_manager, volume_service, state_machine, screen_controller):
-    """Router settings avec pattern unifié + support 0 = désactivé + température"""
+    """Router settings avec pattern unifié + support 0 = désactivé + température + dépendances"""
     router = APIRouter()
     settings = SettingsService()
+    dependency_service = DependencyVersionService()
     
     async def _handle_setting_update(
         payload: Dict[str, Any], 
@@ -320,8 +322,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             reload_callback=screen_controller.reload_timeout_config
         )
     
-    # backend/presentation/api/routes/settings.py
-
     @router.post("/screen-brightness/apply")
     async def apply_brightness_instantly(payload: Dict[str, Any]):
         """Application instantanée de luminosité + restart timeout"""
@@ -366,7 +366,7 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     
-    # NOUVEAU : Température système + Throttling
+    # Température système + Throttling
     @router.get("/system-temperature")
     async def get_system_temperature():
         """Récupère la température du Raspberry Pi et le statut de throttling"""
@@ -456,6 +456,90 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
                 "message": str(e),
                 "temperature": None,
                 "throttling": {"code": "error", "current": [], "past": [], "severity": "error"}
+            }
+    
+    # === NOUVELLES ROUTES DÉPENDANCES ===
+    
+    @router.get("/dependencies")
+    async def get_all_dependencies():
+        """Récupère le statut de toutes les dépendances (installées + GitHub)"""
+        try:
+            results = await dependency_service.get_all_dependency_status()
+            return {
+                "status": "success",
+                "dependencies": results,
+                "count": len(results)
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e),
+                "dependencies": {},
+                "count": 0
+            }
+    
+    @router.get("/dependencies/list")
+    async def get_dependency_list():
+        """Récupère la liste des dépendances configurées"""
+        try:
+            dependencies = dependency_service.get_dependency_list()
+            return {
+                "status": "success",
+                "dependencies": dependencies
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e),
+                "dependencies": []
+            }
+    
+    @router.get("/dependencies/{dependency_key}")
+    async def get_dependency_details(dependency_key: str):
+        """Récupère les détails d'une dépendance spécifique"""
+        try:
+            result = await dependency_service._get_dependency_full_status(dependency_key)
+            return {
+                "status": "success",
+                "dependency": result
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e),
+                "dependency": None
+            }
+    
+    @router.get("/dependencies/{dependency_key}/installed")
+    async def get_dependency_installed_version(dependency_key: str):
+        """Récupère uniquement la version installée d'une dépendance"""
+        try:
+            result = await dependency_service.get_installed_version(dependency_key)
+            return {
+                "status": "success",
+                "installed": result
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e),
+                "installed": None
+            }
+    
+    @router.get("/dependencies/{dependency_key}/latest")
+    async def get_dependency_latest_version(dependency_key: str):
+        """Récupère uniquement la dernière version depuis GitHub"""
+        try:
+            result = await dependency_service.get_latest_github_version(dependency_key)
+            return {
+                "status": "success",
+                "latest": result
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e),
+                "latest": None
             }
     
     return router

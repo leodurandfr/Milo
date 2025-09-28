@@ -1,4 +1,4 @@
-<!-- frontend/src/views/SettingsView.vue - Fix handlers pour envoyer 0 + Température système -->
+<!-- frontend/src/views/SettingsView.vue - Avec section Dépendances -->
 <template>
   <div class="settings-view">
     <div class="settings-modal">
@@ -209,7 +209,84 @@
           </div>
         </section>
 
-        <!-- 6. Informations -->
+        <!-- 6. NOUVEAU : Dépendances -->
+        <section class="settings-section">
+          <h1 class="heading-1">{{ t('Dépendances') }}</h1>
+
+          <div v-if="dependenciesLoading" class="dependencies-loading">
+            <div class="loading-message text-mono">
+              {{ t('Vérification des versions...') }}
+            </div>
+          </div>
+
+          <div v-else-if="dependenciesError" class="dependencies-error">
+            <div class="error-message text-mono">
+              {{ t('Erreur lors du chargement des dépendances') }}
+            </div>
+            <Button variant="secondary" @click="loadDependencies">
+              {{ t('Réessayer') }}
+            </Button>
+          </div>
+
+          <div v-else class="dependencies-list">
+            <div v-for="(dep, key) in dependencies" :key="key" class="dependency-item">
+              <div class="dependency-header">
+                <div class="dependency-info">
+                  <h3 class="dependency-name text-body">{{ dep.name }}</h3>
+                  <p class="dependency-description text-mono">{{ dep.description }}</p>
+                </div>
+                
+                <div class="dependency-status">
+                  <div v-if="dep.update_available" class="update-badge text-mono">
+                    {{ t('Mise à jour disponible') }}
+                  </div>
+                  <div v-else-if="getInstallStatus(dep) === 'installed'" class="status-badge status-ok text-mono">
+                    {{ t('À jour') }}
+                  </div>
+                  <div v-else-if="getInstallStatus(dep) === 'not_installed'" class="status-badge status-error text-mono">
+                    {{ t('Non installé') }}
+                  </div>
+                  <div v-else class="status-badge status-unknown text-mono">
+                    {{ t('État inconnu') }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="dependency-versions">
+                <!-- Version installée -->
+                <div class="version-info">
+                  <span class="version-label text-mono">{{ t('Installé') }}</span>
+                  <span class="version-value text-mono">
+                    <span v-if="getInstalledVersion(dep)">{{ getInstalledVersion(dep) }}</span>
+                    <span v-else class="text-error">{{ t('Non disponible') }}</span>
+                  </span>
+                </div>
+
+                <!-- Version disponible - seulement si mise à jour disponible -->
+                <div v-if="dep.update_available" class="version-info">
+                  <span class="version-label text-mono">{{ t('Disponible') }}</span>
+                  <span class="version-value text-mono">
+                    <span v-if="getLatestVersion(dep)">{{ getLatestVersion(dep) }}</span>
+                    <span v-else-if="getGitHubStatus(dep) === 'error'" class="text-error">{{ t('Erreur API') }}</span>
+                    <span v-else>{{ t('Chargement...') }}</span>
+                  </span>
+                </div>
+              </div>
+
+              <!-- Détails d'erreur si nécessaire -->
+              <div v-if="dep.installed?.errors?.length" class="dependency-errors">
+                <details class="error-details">
+                  <summary class="text-mono">{{ t('Détails des erreurs') }}</summary>
+                  <ul class="error-list">
+                    <li v-for="error in dep.installed.errors" :key="error" class="text-mono">{{ error }}</li>
+                  </ul>
+                </details>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 7. Informations -->
         <section class="settings-section">
           <h2 class="heading-2">{{ t('Informations') }}</h2>
 
@@ -278,9 +355,14 @@ const config = ref({
   }
 });
 
-// NOUVEAU : État pour la température
+// États existants
 const systemTemperature = ref(null);
 const temperatureLoading = ref(false);
+
+// NOUVEAUX : États pour les dépendances
+const dependencies = ref({});
+const dependenciesLoading = ref(false);
+const dependenciesError = ref(false);
 
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
@@ -319,7 +401,6 @@ function getEnabledAppsArray() {
 
 // === PRESET HELPERS ===
 function isTimeoutActive(value) {
-  // MODIFIÉ : Jamais = timeout_seconds === 0
   if (value === 0) {
     return config.value.screen.timeout_seconds === 0;
   }
@@ -333,7 +414,51 @@ function isDisconnectActive(value) {
   return config.value.spotify.auto_disconnect_delay === value;
 }
 
-// === NOUVEAU : GESTION TEMPÉRATURE ===
+// === NOUVEAUX : HELPERS POUR LES DÉPENDANCES ===
+function getInstallStatus(dep) {
+  return dep.installed?.status || 'unknown';
+}
+
+function getInstalledVersion(dep) {
+  const versions = dep.installed?.versions || {};
+  const versionValues = Object.values(versions);
+  return versionValues.length > 0 ? versionValues[0] : null;
+}
+
+function getLatestVersion(dep) {
+  return dep.latest?.version || null;
+}
+
+function getGitHubStatus(dep) {
+  return dep.latest?.status || 'unknown';
+}
+
+// === NOUVEAU : GESTION DES DÉPENDANCES ===
+async function loadDependencies() {
+  if (dependenciesLoading.value) return;
+  
+  try {
+    dependenciesLoading.value = true;
+    dependenciesError.value = false;
+    
+    const response = await axios.get('/api/settings/dependencies');
+    
+    if (response.data.status === 'success') {
+      dependencies.value = response.data.dependencies || {};
+      dependenciesError.value = false;
+    } else {
+      dependenciesError.value = true;
+      console.error('Error loading dependencies:', response.data.message);
+    }
+  } catch (error) {
+    console.error('Error loading dependencies:', error);
+    dependenciesError.value = true;
+  } finally {
+    dependenciesLoading.value = false;
+  }
+}
+
+// === GESTION TEMPÉRATURE ===
 async function loadSystemTemperature() {
   if (temperatureLoading.value) return;
   
@@ -465,7 +590,7 @@ function handleBrightnessChange(value) {
   }, 1000);
 }
 
-// MODIFIÉ : Handler screen timeout - Envoyer 0 pour Jamais
+// Handler screen timeout - Envoyer 0 pour Jamais
 function setScreenTimeout(value) {
   console.log('Setting Screen timeout to:', value);
   updateSetting('screen-timeout', {
@@ -521,7 +646,7 @@ async function loadAllConfigs() {
       config.value.spotify.auto_disconnect_delay = spotify.data.config.auto_disconnect_delay ?? 10.0;
     }
 
-    // MODIFIÉ : Screen - Utiliser timeout_seconds pour déterminer l'état
+    // Screen - Utiliser timeout_seconds pour déterminer l'état
     if (screenTimeout.data.status === 'success') {
       config.value.screen.timeout_seconds = screenTimeout.data.config.screen_timeout_seconds ?? 10;
       // timeout_enabled dérivé de timeout_seconds
@@ -577,7 +702,7 @@ const wsListeners = {
       config.value.spotify.auto_disconnect_delay = msg.data.config.auto_disconnect_delay;
     }
   },
-  // MODIFIÉ : Screen timeout - Dériver timeout_enabled de timeout_seconds
+  // Screen timeout - Dériver timeout_enabled de timeout_seconds
   'screen_timeout_changed': (msg) => {
     if (msg.data?.config) {
       config.value.screen.timeout_seconds = msg.data.config.screen_timeout_seconds;
@@ -605,10 +730,13 @@ onMounted(async () => {
   await i18n.initializeLanguage();
   await loadAllConfigs();
 
-  // NOUVEAU : Charger la température immédiatement
+  // Charger la température immédiatement
   await loadSystemTemperature();
   
-  // NOUVEAU : Configurer l'intervalle pour la température (toutes les 5 secondes)
+  // NOUVEAU : Charger les dépendances immédiatement
+  await loadDependencies();
+  
+  // Configurer l'intervalle pour la température (toutes les 5 secondes)
   temperatureInterval = setInterval(loadSystemTemperature, 5000);
 
   // Enregistrer tous les listeners WebSocket
@@ -617,7 +745,7 @@ onMounted(async () => {
   });
 });
 
-// NOUVEAU : Nettoyer l'intervalle au démontage
+// Nettoyer l'intervalle au démontage
 onUnmounted(() => {
   if (temperatureInterval) {
     clearInterval(temperatureInterval);
@@ -753,8 +881,6 @@ onUnmounted(() => {
   font-size: var(--font-size-body);
 }
 
-
-
 /* Applications */
 .app-group {
   display: flex;
@@ -848,7 +974,6 @@ onUnmounted(() => {
   display: flex;
   gap: var(--space-02);
   flex-wrap: wrap;
-
 }
 
 .timeout-buttons .btn,
@@ -862,6 +987,140 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
+}
+
+/* === NOUVEAU : STYLES DÉPENDANCES === */
+
+.dependencies-loading,
+.dependencies-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-03);
+  padding: var(--space-05);
+  text-align: center;
+}
+
+.loading-message,
+.error-message {
+  color: var(--color-text-secondary);
+}
+
+.dependencies-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+.dependency-item {
+  background: var(--color-background-strong);
+  border-radius: var(--radius-04);
+  padding: var(--space-04);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.dependency-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-03);
+}
+
+.dependency-info {
+  flex: 1;
+}
+
+.dependency-name {
+  color: var(--color-text);
+  margin-bottom: var(--space-01);
+}
+
+.dependency-description {
+  color: var(--color-text-secondary);
+}
+
+.dependency-status {
+  flex-shrink: 0;
+}
+
+.status-badge,
+.update-badge {
+  padding: var(--space-01) var(--space-02);
+  border-radius: var(--radius-02);
+  text-align: center;
+  min-width: 80px;
+}
+
+.status-ok {
+  background: var(--color-background-neutral);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+
+.status-error {
+  background: var(--color-background-neutral);
+  color: var(--color-error);
+  border: 1px solid var(--color-error);
+}
+
+.status-unknown {
+  background: var(--color-background-neutral);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-text-secondary);
+}
+
+.update-badge {
+  background: var(--color-background-neutral);
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning);
+}
+
+.dependency-versions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-03);
+}
+
+.version-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+}
+
+.version-label {
+  color: var(--color-text-secondary);
+}
+
+.version-value {
+  color: var(--color-text);
+}
+
+.dependency-errors {
+  margin-top: var(--space-02);
+}
+
+.error-details {
+  background: var(--color-background);
+  border-radius: var(--radius-02);
+  padding: var(--space-02);
+}
+
+.error-details summary {
+  cursor: pointer;
+  color: var(--color-text-secondary);
+}
+
+.error-list {
+  margin: var(--space-02) 0 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.error-list li {
+  color: var(--color-error);
+  padding: var(--space-01) 0;
 }
 
 /* Informations */
@@ -881,44 +1140,6 @@ onUnmounted(() => {
 .info-value {
   color: var(--color-text);
   text-align: right;
-}
-
-.info-value-container {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--space-01);
-}
-
-/* Messages de throttling */
-.throttling-message {
-  font-size: var(--font-size-caption);
-  font-weight: 500;
-  text-align: right;
-  padding: var(--space-01) var(--space-02);
-  border-radius: var(--radius-02);
-  white-space: nowrap;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.throttle-critical {
-  background: rgba(239, 68, 68, 0.1);
-  color: #EF4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-.throttle-warning {
-  background: rgba(245, 158, 11, 0.1);
-  color: #F59E0B;
-  border: 1px solid rgba(245, 158, 11, 0.2);
-}
-
-.throttle-error {
-  background: rgba(107, 114, 128, 0.1);
-  color: #6B7280;
-  border: 1px solid rgba(107, 114, 128, 0.2);
 }
 
 /* Style pour température en erreur */
@@ -945,7 +1166,8 @@ onUnmounted(() => {
   .disconnect-buttons {
     display: flex;
     gap: var(--space-02);
-    flex-wrap: wrap;  }
+    flex-wrap: wrap;
+  }
 
   .startup-mode-buttons {
     flex-direction: column;
@@ -961,10 +1183,20 @@ onUnmounted(() => {
     padding: var(--space-02);
   }
 
+  /* Responsive pour dépendances */
+  .dependency-versions {
+    grid-template-columns: 1fr;
+    gap: var(--space-02);
+  }
+
+  .dependencies-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-02);
+  }
 }
 
 /* iOS */
-
 .ios-app .settings-modal {
   margin-top: 48px;
   max-height: calc(100vh - 64px);
