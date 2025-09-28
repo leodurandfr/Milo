@@ -235,18 +235,23 @@
                   <h3 class="dependency-name text-body">{{ dep.name }}</h3>
                   <p class="dependency-description text-mono">{{ dep.description }}</p>
                 </div>
-                
+
                 <div class="dependency-status">
                   <!-- État de mise à jour en cours -->
                   <div v-if="isUpdating(key)" class="update-progress-badge text-mono">
-                    {{ getUpdateProgress(key) }}%
+                    {{ t('Mise à jour...') }}
                   </div>
+                  <!-- Bouton mise à jour terminée -->
+                  <div v-else-if="isUpdateCompleted(key)" class="status-badge status-updated text-mono">
+                    {{ t('Mise à jour terminée') }}
+                  </div>
+                  <!-- Bouton mise à jour terminée -->
+                  <Button v-else-if="isUpdateCompleted(key)" variant="secondary" size="small" disabled>
+                    {{ t('Mise à jour terminé') }}
+                  </Button>
                   <!-- Bouton mettre à jour -->
-                  <Button v-else-if="dep.update_available && canUpdate(key)" 
-                          variant="primary" 
-                          size="small"
-                          @click="startUpdate(key)"
-                          :disabled="isAnyUpdateInProgress()">
+                  <Button v-else-if="dep.update_available && canUpdate(key)" variant="primary" size="small"
+                    @click="startUpdate(key)" :disabled="isAnyUpdateInProgress()">
                     {{ t('Mettre à jour') }}
                   </Button>
                   <!-- Badges d'état normaux -->
@@ -256,7 +261,8 @@
                   <div v-else-if="getInstallStatus(dep) === 'installed'" class="status-badge status-ok text-mono">
                     {{ t('À jour') }}
                   </div>
-                  <div v-else-if="getInstallStatus(dep) === 'not_installed'" class="status-badge status-error text-mono">
+                  <div v-else-if="getInstallStatus(dep) === 'not_installed'"
+                    class="status-badge status-error text-mono">
                     {{ t('Non installé') }}
                   </div>
                   <div v-else class="status-badge status-unknown text-mono">
@@ -387,7 +393,8 @@ const dependenciesError = ref(false);
 
 // NOUVEAUX : États pour les mises à jour
 const updateStates = ref({});
-const supportedUpdates = ['go-librespot', 'snapcast']; // Seules ces dépendances peuvent être mises à jour
+const completedUpdates = ref(new Set());
+const supportedUpdates = ['go-librespot', 'snapserver', 'snapclient']; // Seules ces dépendances peuvent être mises à jour
 
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
@@ -478,11 +485,17 @@ function getUpdateProgress(depKey) {
 function getUpdateMessage(depKey) {
   return updateStates.value[depKey]?.message || '';
 }
+function isUpdateCompleted(depKey) {
+  return completedUpdates.value.has(depKey);
+}
 
+function clearCompletedUpdate(depKey) {
+  completedUpdates.value.delete(depKey);
+}
 // === NOUVEAU : GESTION DES MISES À JOUR ===
 async function startUpdate(depKey) {
   if (!canUpdate(depKey) || isUpdating(depKey)) return;
-  
+
   try {
     // Initialiser l'état de mise à jour
     updateStates.value[depKey] = {
@@ -490,21 +503,21 @@ async function startUpdate(depKey) {
       progress: 0,
       message: t('Initialisation de la mise à jour...')
     };
-    
+
     const response = await axios.post(`/api/settings/dependencies/${depKey}/update`);
-    
+
     if (response.data.status !== 'success') {
       throw new Error(response.data.message || 'Failed to start update');
     }
-    
+
     console.log(`Update started for ${depKey}: ${response.data.message}`);
-    
+
   } catch (error) {
     console.error(`Error starting update for ${depKey}:`, error);
-    
+
     // Réinitialiser l'état en cas d'erreur
     delete updateStates.value[depKey];
-    
+
     // Afficher l'erreur à l'utilisateur (vous pouvez améliorer ça avec une notification)
     alert(`Erreur lors du démarrage de la mise à jour: ${error.message}`);
   }
@@ -513,13 +526,13 @@ async function startUpdate(depKey) {
 // === NOUVEAU : GESTION DES DÉPENDANCES ===
 async function loadDependencies() {
   if (dependenciesLoading.value) return;
-  
+
   try {
     dependenciesLoading.value = true;
     dependenciesError.value = false;
-    
+
     const response = await axios.get('/api/settings/dependencies');
-    
+
     if (response.data.status === 'success') {
       dependencies.value = response.data.dependencies || {};
       dependenciesError.value = false;
@@ -538,11 +551,11 @@ async function loadDependencies() {
 // === GESTION TEMPÉRATURE ===
 async function loadSystemTemperature() {
   if (temperatureLoading.value) return;
-  
+
   try {
     temperatureLoading.value = true;
     const response = await axios.get('/api/settings/system-temperature');
-    
+
     if (response.data.status === 'success' && response.data.temperature !== null) {
       systemTemperature.value = response.data.temperature;
     } else {
@@ -813,24 +826,22 @@ const wsListeners = {
   },
   'dependency_update_complete': (msg) => {
     const { dependency, success, message, error, old_version, new_version } = msg.data;
-    
+
     if (dependency) {
       // Réinitialiser l'état de mise à jour
       delete updateStates.value[dependency];
-      
+
       if (success) {
         console.log(`Update completed for ${dependency}: ${old_version} → ${new_version}`);
-        
+
+        // Marquer comme terminé (pas d'alert)
+        completedUpdates.value.add(dependency);
+
         // Recharger les dépendances pour afficher la nouvelle version
         loadDependencies();
-        
-        // Notification de succès (vous pouvez améliorer avec un toast)
-        alert(`Mise à jour terminée: ${dependency} ${old_version} → ${new_version}`);
       } else {
         console.error(`Update failed for ${dependency}: ${error}`);
-        
-        // Notification d'erreur
-        alert(`Échec de la mise à jour de ${dependency}: ${error}`);
+        // Pas d'alert, juste log en console
       }
     }
   }
@@ -842,10 +853,10 @@ onMounted(async () => {
 
   // Charger la température immédiatement
   await loadSystemTemperature();
-  
+
   // NOUVEAU : Charger les dépendances immédiatement
   await loadDependencies();
-  
+
   // Configurer l'intervalle pour la température (toutes les 5 secondes)
   temperatureInterval = setInterval(loadSystemTemperature, 5000);
 
@@ -1155,43 +1166,23 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.status-badge,
-.update-badge {
-  padding: var(--space-01) var(--space-02);
-  border-radius: var(--radius-02);
-  text-align: center;
-  min-width: 80px;
+.status-error,
+.status-unknown {
+  color: var(--color-error);
 }
 
 .status-ok {
-  background: var(--color-background-neutral);
-  color: var(--color-success);
-  border: 1px solid var(--color-success);
-}
-
-.status-error {
-  background: var(--color-background-neutral);
-  color: var(--color-error);
-  border: 1px solid var(--color-error);
-}
-
-.status-unknown {
-  background: var(--color-background-neutral);
   color: var(--color-text-secondary);
-  border: 1px solid var(--color-text-secondary);
 }
-
+.status-updated {
+  color: var(--color-brand);
+}
 .update-badge {
-  background: var(--color-background-neutral);
-  color: var(--color-warning);
-  border: 1px solid var(--color-warning);
+  color: var(--color-text-secondary);
 }
 
 .update-progress-badge {
-  background: var(--color-background-neutral);
-  color: var(--color-info);
-  border: 1px solid var(--color-info);
-  min-width: 60px;
+  color: var(--color-brand);
 }
 
 .update-progress {

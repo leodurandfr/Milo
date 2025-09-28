@@ -271,6 +271,43 @@ class DependencyUpdateService(DependencyVersionService):
             
         except Exception as e:
             return {"success": False, "error": str(e)}
+        
+        
+    async def _download_snapcast_component(self, component_key: str, version: str) -> Dict[str, Any]:
+        """Télécharge un composant snapcast (.deb)"""
+        try:
+            temp_dir = tempfile.mkdtemp()
+            
+            # Déterminer le nom du package selon le composant
+            if component_key == "snapserver":
+                package_name = f"snapserver_{version}-1_arm64_bookworm.deb"
+            elif component_key == "snapclient":
+                package_name = f"snapclient_{version}-1_arm64_bookworm.deb"
+            else:
+                return {"success": False, "error": f"Unknown component: {component_key}"}
+            
+            # URL de téléchargement
+            url = f"https://github.com/badaix/snapcast/releases/download/v{version}/{package_name}"
+            
+            # Télécharger
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        return {"success": False, "error": f"Download failed: HTTP {response.status}"}
+                    
+                    deb_path = Path(temp_dir) / package_name
+                    async with aiofiles.open(deb_path, 'wb') as f:
+                        async for chunk in response.content.iter_chunked(8192):
+                            await f.write(chunk)
+            
+            return {
+                "success": True,
+                "deb_path": str(deb_path),
+                "temp_dir": temp_dir
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
     
     async def _download_snapcast_debs(self, version: str) -> Dict[str, Any]:
         """Télécharge les packages .deb snapcast"""
