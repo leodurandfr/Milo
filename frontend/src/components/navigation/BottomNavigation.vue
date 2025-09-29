@@ -1,4 +1,4 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vue - CORRIGÉ : Double déclenchement mobile -->
+<!-- frontend/src/components/navigation/BottomNavigation.vue -->
 <template>
   <!-- Zone de drag invisible -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click.stop="onDragZoneClick"></div>
@@ -10,10 +10,10 @@
   <!-- Dock de navigation -->
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }">
     <!-- Additional Apps - Mobile uniquement -->
-    <div v-if="additionalAppsInDOM" ref="additionalAppsContainer" class="additional-apps-container mobile-only"
+    <div v-if="additionalAppsInDOM && additionalDockApps.length > 0" ref="additionalAppsContainer" class="additional-apps-container mobile-only"
       :class="{ visible: showAdditionalApps }">
 
-      <button v-for="{ id, icon, title, handler } in enabledAdditionalActions" :key="id" @click="handler"
+      <button v-for="{ id, icon, title, handler } in additionalDockApps" :key="id" @click="handler"
         @touchstart="addPressEffect" @mousedown="addPressEffect"
         class="additional-app-content button-interactive-subtle">
         <AppIcon :name="icon" :size="32" />
@@ -22,7 +22,7 @@
     </div>
 
     <div ref="dock" class="dock">
-      <!-- Volume Controls - Mobile uniquement avec CORRIGÉ hold-to-repeat -->
+      <!-- Volume Controls - Mobile uniquement -->
       <div class="volume-controls mobile-only">
         <button v-for="{ icon, handler, delta } in volumeControlsWithSteps" :key="icon" 
           @pointerdown="(e) => onVolumeHoldStart(delta, e)"
@@ -36,24 +36,24 @@
 
       <!-- App Container -->
       <div class="app-container">
-        <!-- Sources Audio -->
-        <button v-for="({ id, icon }, index) in enabledAudioSources" :key="id" :ref="el => dockItems[index] = el"
-          @click="() => handleSourceClick(id, index)" @touchstart="addPressEffect" @mousedown="addPressEffect"
+        <!-- Apps dans le dock (toujours 3) -->
+        <button v-for="({ id, icon }, index) in dockApps" :key="id" :ref="el => dockItems[index] = el"
+          @click="() => handleAppClick(id, index)" @touchstart="addPressEffect" @mousedown="addPressEffect"
           :disabled="unifiedStore.isTransitioning" class="dock-item button-interactive-subtle">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
-        <!-- Séparateur (seulement si on a des additional actions sur desktop) -->
-        <div v-if="enabledAdditionalActions.length > 0" class="dock-separator"></div>
+        <!-- Séparateur (seulement si on a des additional apps sur desktop) -->
+        <div v-if="additionalDockApps.length > 0" class="dock-separator desktop-only"></div>
 
-        <!-- Toggle Additional Apps - Mobile uniquement (seulement si on a des additional actions) -->
-        <button v-if="enabledAdditionalActions.length > 0" @click="handleToggleClick" @touchstart="addPressEffect" @mousedown="addPressEffect"
+        <!-- Toggle Additional Apps - Mobile uniquement (seulement si on a plus de 3 apps) -->
+        <button v-if="additionalDockApps.length > 0" @click="handleToggleClick" @touchstart="addPressEffect" @mousedown="addPressEffect"
           class="dock-item toggle-btn mobile-only button-interactive">
           <Icon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
-        <!-- Actions Desktop -->
-        <button v-for="{ id, icon, handler } in enabledAdditionalActions" :key="`desktop-${id}`" @click="handler"
+        <!-- Actions Desktop (toutes les additional apps) -->
+        <button v-for="{ id, icon, handler } in additionalDockApps" :key="`desktop-${id}`" @click="handler"
           @touchstart="addPressEffect" @mousedown="addPressEffect"
           class="dock-item desktop-only button-interactive-subtle">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
@@ -95,13 +95,16 @@ const ALL_ADDITIONAL_ACTIONS = [
 const enabledApps = ref(["librespot", "bluetooth", "roc", "multiroom", "equalizer"]);
 const mobileVolumeSteps = ref(5);
 
-const enabledAudioSources = computed(() => 
-  ALL_AUDIO_SOURCES.filter(source => enabledApps.value.includes(source.id))
-);
+// Computed pour obtenir toutes les apps activées dans l'ordre
+const allEnabledApps = computed(() => {
+  const audioSources = ALL_AUDIO_SOURCES.filter(source => enabledApps.value.includes(source.id));
+  const additionalActions = ALL_ADDITIONAL_ACTIONS.filter(action => enabledApps.value.includes(action.id));
+  return [...audioSources, ...additionalActions];
+});
 
-const enabledAdditionalActions = computed(() => 
-  ALL_ADDITIONAL_ACTIONS.filter(action => enabledApps.value.includes(action.id))
-);
+// Diviser en deux groupes : 3 premières dans le dock, le reste dans additional
+const dockApps = computed(() => allEnabledApps.value.slice(0, 3));
+const additionalDockApps = computed(() => allEnabledApps.value.slice(3));
 
 // === STORE ET CONTRÔLES ===
 const unifiedStore = useUnifiedAudioStore();
@@ -153,7 +156,7 @@ let hideTimeout = null, additionalHideTimeout = null, clickTimeout = null, dragG
 
 // === COMPUTED ===
 const activeSourceIndex = computed(() =>
-  enabledAudioSources.value.findIndex(source => source.id === unifiedStore.currentSource)
+  dockApps.value.findIndex(app => app.id === unifiedStore.currentSource)
 );
 
 const indicatorStyle = ref({
@@ -190,7 +193,7 @@ const resetGestureState = () => {
   gestureStartPosition.value = { x: 0, y: 0 };
 };
 
-// === GESTION VOLUME HOLD (CORRIGÉ) ===
+// === GESTION VOLUME HOLD ===
 const onVolumeHoldStart = (delta, event) => {
   if (volumePointerType.value && volumePointerType.value !== event.pointerType) {
     return;
@@ -388,10 +391,21 @@ const onIndicatorClick = () => {
 };
 
 // === ACTIONS ===
-const handleSourceClick = (sourceId, index) => {
+const handleAppClick = (appId, index) => {
   resetHideTimer();
-  moveIndicatorTo(index);
-  unifiedStore.changeSource(sourceId);
+  
+  // Si c'est une source audio, changer la source
+  const isAudioSource = ALL_AUDIO_SOURCES.some(source => source.id === appId);
+  if (isAudioSource) {
+    moveIndicatorTo(index);
+    unifiedStore.changeSource(appId);
+  } else {
+    // Sinon, exécuter le handler de l'action
+    const action = ALL_ADDITIONAL_ACTIONS.find(a => a.id === appId);
+    if (action && action.handler) {
+      action.handler();
+    }
+  }
 };
 
 // === INDICATEUR ACTIF ===
@@ -609,7 +623,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* [Tous les styles CSS restent identiques] */
 .drag-zone {
   position: fixed;
   width: 280px;
@@ -625,7 +638,7 @@ onUnmounted(() => {
 
 .drag-zone.dragging {
   cursor: grabbing;
-    height: 50%;
+  height: 50%;
 }
 
 .additional-apps-container {
@@ -769,7 +782,6 @@ onUnmounted(() => {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
-  /* CORRIGÉ : Désactiver les événements par défaut qui causent les doublons */
   touch-action: manipulation;
 }
 
