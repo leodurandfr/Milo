@@ -1,5 +1,5 @@
 #!/bin/bash
-# Milo Sat - Installation Script v1.0
+# Milo Sat - Installation Script v1.1 (Optimized)
 
 set -e
 
@@ -47,7 +47,7 @@ show_banner() {
     echo " | |  | | | | (_) | ___) | (_| | |_ "
     echo " |_|  |_|_|_|\___/ |____/ \__,_|\__|"
     echo ""
-    echo "Satellite Installation Script v1.0"
+    echo "Satellite Installation Script v1.1"
     echo -e "${NC}"
 }
 
@@ -82,22 +82,6 @@ discover_milo_principal() {
     if MILO_PRINCIPAL_IP=$(getent hosts milo.local 2>/dev/null | awk '{print $1}' | head -1); then
         log_success "Milo principal trouvé à l'adresse: $MILO_PRINCIPAL_IP (milo.local)"
         return 0
-    fi
-    
-    # Fallback: scanner le réseau local pour trouver un serveur sur le port 8000
-    log_info "Recherche manuelle sur le réseau local..."
-    local network=$(ip route | grep -E '192\.168\.|10\.0\.|172\.' | grep -v default | head -1 | awk '{print $1}' | head -1)
-    
-    if [[ -n "$network" ]]; then
-        log_info "Scan du réseau $network..."
-        for i in {1..254}; do
-            local ip="${network%.*}.$i"
-            if timeout 1 bash -c "cat < /dev/null > /dev/tcp/$ip/8000" 2>/dev/null; then
-                MILO_PRINCIPAL_IP="$ip"
-                log_success "Milo principal trouvé à l'adresse: $MILO_PRINCIPAL_IP"
-                return 0
-            fi
-        done
     fi
     
     log_error "Impossible de trouver Milo principal automatiquement."
@@ -223,11 +207,27 @@ install_dependencies() {
     export DEBIAN_FRONTEND=noninteractive
     export DEBCONF_NONINTERACTIVE_SEEN=true
     
+    # Configuration pour installation non-interactive complète
+    echo 'Dpkg::Options {
+       "--force-confdef";
+       "--force-confnew";
+    }' | sudo tee /etc/apt/apt.conf.d/local >/dev/null
+    
     sudo apt update
     sudo apt upgrade -y
     
-    log_info "Installation des dépendances..."
-    sudo apt install -y python3-pip python3-venv python3-dev libasound2-dev wget avahi-utils
+    log_info "Installation des dépendances minimales..."
+    # Packages strictement nécessaires pour Milo Sat
+    sudo apt install -y \
+        python3-pip \
+        python3-venv \
+        python3-dev \
+        libasound2-dev \
+        wget \
+        avahi-utils
+    
+    # Nettoyage de la configuration temporaire
+    sudo rm -f /etc/apt/apt.conf.d/local
     
     log_success "Dépendances installées"
 }
@@ -252,7 +252,10 @@ install_snapclient() {
     cd "$temp_dir"
     
     wget https://github.com/badaix/snapcast/releases/download/v0.31.0/snapclient_0.31.0-1_arm64_bookworm.deb
-    sudo apt install -y ./snapclient_0.31.0-1_arm64_bookworm.deb
+    
+    # Installation avec options non-interactive
+    export DEBIAN_FRONTEND=noninteractive
+    sudo apt install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confnew" ./snapclient_0.31.0-1_arm64_bookworm.deb
     
     cd ~
     rm -rf "$temp_dir"
