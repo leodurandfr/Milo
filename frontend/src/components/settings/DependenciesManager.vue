@@ -125,8 +125,8 @@
         <div v-for="satellite in satellites" :key="satellite.hostname" class="dependency-item">
           <div class="dependency-header">
             <div class="dependency-info">
-              <h3 class="dependency-name text-body">{{ $t('Snapclient de') }} {{ satellite.hostname }}</h3>
-              <p class="dependency-description text-mono">{{ satellite.display_name }}</p>
+              <h3 class="dependency-name text-body">{{ $t('Snapclient de') }} {{ satellite.display_name }}</h3>
+              <p class="dependency-description text-mono">Client multiroom {{ satellite.hostname }}</p>
             </div>
 
             <div class="dependency-status">

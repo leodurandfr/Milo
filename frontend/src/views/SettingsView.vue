@@ -215,19 +215,20 @@
         <!-- 7. Informations -->
         <section class="settings-section">
           <h2 class="heading-2">{{ t('Informations') }}</h2>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label text-mono">{{ t('Version de Milo') }}</span>
+              <span class="info-value text-mono">0.1.0</span>
+            </div>
 
-          <div class="info-item">
-            <span class="info-label text-mono">{{ t('Version de Milo') }}</span>
-            <span class="info-value text-mono">0.1.0</span>
-          </div>
-
-          <div class="info-item">
-            <span class="info-label text-mono">{{ t('Température du système') }}</span>
-            <span class="info-value text-mono">
-              <span v-if="temperatureLoading && systemTemperature === null">...</span>
-              <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
-              <span v-else class="text-error">{{ t('Non disponible') }}</span>
-            </span>
+            <div class="info-item">
+              <span class="info-label text-mono">{{ t('Température') }}</span>
+              <span class="info-value text-mono">
+                <span v-if="temperatureLoading && systemTemperature === null">...</span>
+                <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
+                <span v-else class="text-error">{{ t('Non disponible') }}</span>
+              </span>
+            </div>
           </div>
         </section>
 
@@ -856,7 +857,15 @@ onUnmounted(() => {
   gap: var(--space-04);
 }
 
+
 /* Informations */
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-02);
+}
+
 .info-item {
   display: flex;
   justify-content: space-between;
@@ -892,6 +901,10 @@ onUnmounted(() => {
 
   .language-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .info-grid {
+    grid-template-columns: 1fr;
   }
 
   .timeout-buttons,
