@@ -379,6 +379,21 @@ enable_services() {
     log_success "Services activés"
 }
 
+configure_sudoers() {
+    log_info "Configuration des permissions sudo pour milo-sat..."
+    
+    sudo tee /etc/sudoers.d/milo-sat > /dev/null << 'EOF'
+# Milo Sat - Permissions pour les mises à jour automatiques
+milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop milo-sat-snapclient.service
+milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl start milo-sat-snapclient.service
+milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active milo-sat-snapclient.service
+milo-sat ALL=(root) NOPASSWD:SETENV: /usr/bin/apt install *
+EOF
+    
+    sudo chmod 0440 /etc/sudoers.d/milo-sat
+    log_success "Permissions sudo configurées"
+}
+
 finalize_installation() {
     log_info "Finalisation de l'installation..."
     
@@ -455,6 +470,7 @@ main() {
     create_systemd_services
     enable_services
     
+    configure_sudoers 
     finalize_installation
 }
 

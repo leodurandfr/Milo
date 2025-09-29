@@ -1,10 +1,11 @@
 # backend/infrastructure/services/satellite_dependency_update_service.py
 """
-Service de mise à jour des dépendances satellites - Version OPTIM
+Service de mise à jour des dépendances satellites - Version avec support token GitHub
 """
 import asyncio
 import aiohttp
 import logging
+import os
 from typing import Dict, Any, List, Optional
 
 class SatelliteDependencyUpdateService:
@@ -15,10 +16,27 @@ class SatelliteDependencyUpdateService:
         self.logger = logging.getLogger(__name__)
         self.satellite_api_port = 8001
         
+        # Token GitHub (optionnel)
+        self.github_token = os.environ.get('GITHUB_TOKEN')
+        if self.github_token:
+            self.logger.info("GitHub token detected for satellite updates")
+        
         # Cache pour les satellites détectés
         self._satellites_cache = {}
         self._cache_timeout = 30  # 30 secondes
         self._last_cache_time = 0
+    
+    def _get_github_headers(self) -> Dict[str, str]:
+        """Retourne les headers pour les requêtes GitHub (avec token si disponible)"""
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Milo-Audio-System"
+        }
+        
+        if self.github_token:
+            headers["Authorization"] = f"token {self.github_token}"
+        
+        return headers
     
     async def discover_satellites(self) -> List[Dict[str, Any]]:
         """Découvre les satellites actifs sur le réseau"""
@@ -243,19 +261,22 @@ class SatelliteDependencyUpdateService:
         }
     
     async def _get_latest_snapclient_version(self) -> Optional[str]:
-        """Récupère la dernière version de snapclient depuis GitHub"""
+        """Récupère la dernière version de snapclient depuis GitHub avec token"""
         try:
             url = "https://api.github.com/repos/badaix/snapcast/releases/latest"
+            headers = self._get_github_headers()
             
             timeout = aiohttp.ClientTimeout(total=10)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
+                async with session.get(url, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
                         tag_name = data.get("tag_name", "")
                         
                         # Extraire le numéro de version (v0.31.0 -> 0.31.0)
                         return tag_name.lstrip('v')
+                    elif response.status == 403:
+                        self.logger.warning("GitHub API rate limit - snapclient version unavailable")
             
             return None
             

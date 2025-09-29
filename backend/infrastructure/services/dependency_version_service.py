@@ -1,11 +1,12 @@
 # backend/infrastructure/services/dependency_version_service.py
 """
-Service de gestion des versions des dépendances - Version OPTIM
+Service de gestion des versions des dépendances - Version avec support token GitHub
 """
 import asyncio
 import aiohttp
 import logging
 import re
+import os
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
@@ -14,6 +15,13 @@ class DependencyVersionService:
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
+        
+        # Récupérer le token GitHub depuis l'environnement (optionnel)
+        self.github_token = os.environ.get('GITHUB_TOKEN')
+        if self.github_token:
+            self.logger.info("GitHub token detected - using authenticated API (5000 req/hour)")
+        else:
+            self.logger.info("No GitHub token - using anonymous API (60 req/hour)")
         
         # Configuration des dépendances (snapserver et snapclient séparés)
         self.dependencies = {
@@ -68,6 +76,18 @@ class DependencyVersionService:
         self._github_cache = {}
         self._cache_timeout = 3600  # 1 heure
         self._last_github_fetch = {}
+    
+    def _get_github_headers(self) -> Dict[str, str]:
+        """Retourne les headers pour les requêtes GitHub (avec token si disponible)"""
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Milo-Audio-System"
+        }
+        
+        if self.github_token:
+            headers["Authorization"] = f"token {self.github_token}"
+        
+        return headers
     
     async def get_installed_version(self, dependency_key: str) -> Dict[str, Any]:
         """Récupère la version installée d'une dépendance"""
@@ -146,7 +166,7 @@ class DependencyVersionService:
             raise Exception(f"Execution error: {str(e)}")
     
     async def get_latest_github_version(self, dependency_key: str) -> Dict[str, Any]:
-        """Récupère la dernière version depuis GitHub avec cache"""
+        """Récupère la dernière version depuis GitHub avec cache et token"""
         if dependency_key not in self.dependencies:
             return {"status": "error", "message": "Unknown dependency"}
         
@@ -163,11 +183,12 @@ class DependencyVersionService:
             return self._github_cache[cache_key]
         
         try:
-            # Appel à l'API GitHub
+            # Appel à l'API GitHub avec headers (incluant token si disponible)
             url = f"https://api.github.com/repos/{repo}/releases/latest"
+            headers = self._get_github_headers()
             
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         data = await response.json()
                         tag_name = data.get("tag_name", "")
@@ -200,7 +221,15 @@ class DependencyVersionService:
                         return result
                     
                     elif response.status == 403:
-                        return {"status": "error", "message": "GitHub API rate limit exceeded"}
+                        error_data = await response.json()
+                        error_message = error_data.get("message", "Rate limit exceeded")
+                        
+                        if self.github_token:
+                            self.logger.warning(f"GitHub API error despite token: {error_message}")
+                        else:
+                            self.logger.warning(f"GitHub API rate limit - consider adding GITHUB_TOKEN")
+                        
+                        return {"status": "error", "message": error_message}
                     else:
                         return {"status": "error", "message": f"GitHub API error: {response.status}"}
         
