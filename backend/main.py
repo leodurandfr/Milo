@@ -22,6 +22,7 @@ from backend.presentation.api.routes.librespot import setup_librespot_routes
 from backend.presentation.api.routes.roc import setup_roc_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
 from backend.presentation.api.routes.settings import create_settings_router
+from backend.presentation.api.routes.dependencies import create_dependencies_router
 from backend.presentation.websockets.server import WebSocketServer
 from backend.domain.audio_state import AudioSource
 
@@ -121,9 +122,14 @@ bluetooth_router = setup_bluetooth_routes(
 )
 app.include_router(bluetooth_router)
 
-# MODIFIÉ : Routes Settings avec screen_controller et state_machine injectés
 settings_router = create_settings_router(ws_manager, volume_service, state_machine, screen_controller)
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
+
+dependencies_router = create_dependencies_router(
+    ws_manager=container.websocket_manager(),
+    snapcast_service=container.snapcast_service()
+)
+app.include_router(dependencies_router)
 
 # WebSocket
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)

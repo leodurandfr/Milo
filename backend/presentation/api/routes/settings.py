@@ -1,23 +1,16 @@
 # backend/presentation/api/routes/settings.py
 """
-Routes Settings - Version COMPLÈTE avec mises à jour Phase 2A
+Routes Settings - Version NETTOYÉE sans dépendances
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Callable, Optional
 from backend.infrastructure.services.settings_service import SettingsService
-from backend.infrastructure.services.dependency_version_service import DependencyVersionService
-from backend.infrastructure.services.dependency_update_service import DependencyUpdateService
 import asyncio
 
 def create_settings_router(ws_manager, volume_service, state_machine, screen_controller):
-    """Router settings avec pattern unifié + support 0 = désactivé + température + dépendances + mises à jour"""
+    """Router settings avec pattern unifié + support 0 = désactivé + température"""
     router = APIRouter()
     settings = SettingsService()
-    dependency_service = DependencyVersionService()
-    update_service = DependencyUpdateService()
-    
-    # Store pour suivre les mises à jour en cours
-    active_updates = {}
     
     async def _handle_setting_update(
         payload: Dict[str, Any], 
@@ -55,8 +48,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-    
-    # [... toutes les routes existantes restent identiques ...]
     
     # Language
     @router.get("/language")
@@ -450,248 +441,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
                 "message": str(e),
                 "temperature": None,
                 "throttling": {"code": "error", "current": [], "past": [], "severity": "error"}
-            }
-    
-    # === ROUTES DÉPENDANCES (Phase 1) ===
-    
-    @router.get("/dependencies")
-    async def get_all_dependencies():
-        """Récupère le statut de toutes les dépendances (installées + GitHub)"""
-        try:
-            results = await dependency_service.get_all_dependency_status()
-            return {
-                "status": "success",
-                "dependencies": results,
-                "count": len(results)
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "dependencies": {},
-                "count": 0
-            }
-    
-    @router.get("/dependencies/list")
-    async def get_dependency_list():
-        """Récupère la liste des dépendances configurées"""
-        try:
-            dependencies = dependency_service.get_dependency_list()
-            return {
-                "status": "success",
-                "dependencies": dependencies
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "dependencies": []
-            }
-    
-    @router.get("/dependencies/{dependency_key}")
-    async def get_dependency_details(dependency_key: str):
-        """Récupère les détails d'une dépendance spécifique"""
-        try:
-            result = await dependency_service._get_dependency_full_status(dependency_key)
-            return {
-                "status": "success",
-                "dependency": result
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "dependency": None
-            }
-    
-    @router.get("/dependencies/{dependency_key}/installed")
-    async def get_dependency_installed_version(dependency_key: str):
-        """Récupère uniquement la version installée d'une dépendance"""
-        try:
-            result = await dependency_service.get_installed_version(dependency_key)
-            return {
-                "status": "success",
-                "installed": result
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "installed": None
-            }
-    
-    @router.get("/dependencies/{dependency_key}/latest")
-    async def get_dependency_latest_version(dependency_key: str):
-        """Récupère uniquement la dernière version depuis GitHub"""
-        try:
-            result = await dependency_service.get_latest_github_version(dependency_key)
-            return {
-                "status": "success",
-                "latest": result
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "latest": None
-            }
-    
-    # === NOUVELLES ROUTES MISES À JOUR (Phase 2A) ===
-    
-    @router.get("/dependencies/{dependency_key}/can-update")
-    async def check_can_update_dependency(dependency_key: str):
-        """Vérifie si une dépendance peut être mise à jour"""
-        try:
-            result = await update_service.can_update_dependency(dependency_key)
-            return {
-                "status": "success",
-                **result
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e),
-                "can_update": False
-            }
-    
-    @router.post("/dependencies/{dependency_key}/update")
-    async def update_dependency(dependency_key: str, background_tasks: BackgroundTasks):
-        """Lance la mise à jour d'une dépendance en arrière-plan"""
-        
-        # Vérifier si une mise à jour est déjà en cours
-        if dependency_key in active_updates:
-            return {
-                "status": "error",
-                "message": "Update already in progress for this dependency"
-            }
-        
-        # Vérifier que la mise à jour est possible
-        can_update = await update_service.can_update_dependency(dependency_key)
-        if not can_update.get("can_update"):
-            return {
-                "status": "error", 
-                "message": can_update.get("reason", "Cannot update")
-            }
-        
-        # Marquer comme en cours
-        active_updates[dependency_key] = {
-            "status": "starting",
-            "progress": 0,
-            "message": "Initializing update..."
-        }
-        
-        # Callback de progression
-        async def progress_callback(message: str, progress: int):
-            active_updates[dependency_key] = {
-                "status": "updating",
-                "progress": progress,
-                "message": message
-            }
-            
-            # Broadcast WebSocket
-            await ws_manager.broadcast_dict({
-                "category": "settings",
-                "type": "dependency_update_progress",
-                "source": "dependency_update",
-                "data": {
-                    "dependency": dependency_key,
-                    "progress": progress,
-                    "message": message,
-                    "status": "updating"
-                }
-            })
-        
-        # Fonction de mise à jour en arrière-plan
-        async def do_update():
-            try:
-                result = await update_service.update_dependency(dependency_key, progress_callback)
-                
-                if result["success"]:
-                    # Mise à jour réussie
-                    del active_updates[dependency_key]
-                    
-                    await ws_manager.broadcast_dict({
-                        "category": "settings",
-                        "type": "dependency_update_complete",
-                        "source": "dependency_update",
-                        "data": {
-                            "dependency": dependency_key,
-                            "success": True,
-                            "message": result.get("message", "Update completed"),
-                            "old_version": result.get("old_version"),
-                            "new_version": result.get("new_version")
-                        }
-                    })
-                else:
-                    # Mise à jour échouée
-                    del active_updates[dependency_key]
-                    
-                    await ws_manager.broadcast_dict({
-                        "category": "settings",
-                        "type": "dependency_update_complete",
-                        "source": "dependency_update",
-                        "data": {
-                            "dependency": dependency_key,
-                            "success": False,
-                            "error": result.get("error", "Update failed")
-                        }
-                    })
-                    
-            except Exception as e:
-                # Erreur inattendue
-                if dependency_key in active_updates:
-                    del active_updates[dependency_key]
-                
-                await ws_manager.broadcast_dict({
-                    "category": "settings",
-                    "type": "dependency_update_complete",
-                    "source": "dependency_update",
-                    "data": {
-                        "dependency": dependency_key,
-                        "success": False,
-                        "error": str(e)
-                    }
-                })
-        
-        # Lancer en arrière-plan
-        background_tasks.add_task(do_update)
-        
-        return {
-            "status": "success",
-            "message": f"Update started for {dependency_key}",
-            "available_version": can_update.get("available_version")
-        }
-    
-    @router.get("/dependencies/{dependency_key}/update-status")
-    async def get_update_status(dependency_key: str):
-        """Récupère le statut de mise à jour d'une dépendance"""
-        if dependency_key in active_updates:
-            return {
-                "status": "success",
-                "updating": True,
-                **active_updates[dependency_key]
-            }
-        else:
-            return {
-                "status": "success",
-                "updating": False,
-                "message": "No update in progress"
-            }
-    
-    @router.post("/dependencies/{dependency_key}/cancel-update")
-    async def cancel_update(dependency_key: str):
-        """Annule une mise à jour en cours (si possible)"""
-        if dependency_key in active_updates:
-            # Note: L'annulation n'est pas implémentée dans cette version
-            # pour des raisons de sécurité (éviter les états incohérents)
-            return {
-                "status": "error", 
-                "message": "Update cancellation not supported. Please wait for completion."
-            }
-        else:
-            return {
-                "status": "success",
-                "message": "No update in progress"
             }
     
     return router

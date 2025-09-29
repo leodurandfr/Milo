@@ -1,4 +1,4 @@
-<!-- frontend/src/views/SettingsView.vue - Avec section Dépendances -->
+<!-- frontend/src/views/SettingsView.vue - Version complète avec DependenciesManager -->
 <template>
   <div class="settings-view">
     <div class="settings-modal">
@@ -209,109 +209,8 @@
           </div>
         </section>
 
-        <!-- 6. NOUVEAU : Dépendances -->
-        <section class="settings-section">
-          <h1 class="heading-1">{{ t('Dépendances') }}</h1>
-
-          <div v-if="dependenciesLoading" class="dependencies-loading">
-            <div class="loading-message text-mono">
-              {{ t('Vérification des versions...') }}
-            </div>
-          </div>
-
-          <div v-else-if="dependenciesError" class="dependencies-error">
-            <div class="error-message text-mono">
-              {{ t('Erreur lors du chargement des dépendances') }}
-            </div>
-            <Button variant="secondary" @click="loadDependencies">
-              {{ t('Réessayer') }}
-            </Button>
-          </div>
-
-          <div v-else class="dependencies-list">
-            <div v-for="(dep, key) in dependencies" :key="key" class="dependency-item">
-              <div class="dependency-header">
-                <div class="dependency-info">
-                  <h3 class="dependency-name text-body">{{ dep.name }}</h3>
-                  <p class="dependency-description text-mono">{{ dep.description }}</p>
-                </div>
-
-                <div class="dependency-status">
-                  <!-- État de mise à jour en cours -->
-                  <div v-if="isUpdating(key)" class="update-progress-badge text-mono">
-                    {{ t('Mise à jour...') }}
-                  </div>
-                  <!-- Bouton mise à jour terminée -->
-                  <div v-else-if="isUpdateCompleted(key)" class="status-badge status-updated text-mono">
-                    {{ t('Mise à jour terminée') }}
-                  </div>
-                  <!-- Bouton mise à jour terminée -->
-                  <Button v-else-if="isUpdateCompleted(key)" variant="secondary" size="small" disabled>
-                    {{ t('Mise à jour terminé') }}
-                  </Button>
-                  <!-- Bouton mettre à jour -->
-                  <Button v-else-if="dep.update_available && canUpdate(key)" variant="primary" size="small"
-                    @click="startUpdate(key)" :disabled="isAnyUpdateInProgress()">
-                    {{ t('Mettre à jour') }}
-                  </Button>
-                  <!-- Badges d'état normaux -->
-                  <div v-else-if="dep.update_available" class="update-badge text-mono">
-                    {{ t('Mise à jour disponible') }}
-                  </div>
-                  <div v-else-if="getInstallStatus(dep) === 'installed'" class="status-badge status-ok text-mono">
-                    {{ t('À jour') }}
-                  </div>
-                  <div v-else-if="getInstallStatus(dep) === 'not_installed'"
-                    class="status-badge status-error text-mono">
-                    {{ t('Non installé') }}
-                  </div>
-                  <div v-else class="status-badge status-unknown text-mono">
-                    {{ t('État inconnu') }}
-                  </div>
-                </div>
-              </div>
-
-              <!-- Message de progression si mise à jour en cours -->
-              <div v-if="isUpdating(key)" class="update-progress">
-                <div class="progress-bar">
-                  <div class="progress-fill" :style="{ width: getUpdateProgress(key) + '%' }"></div>
-                </div>
-                <p class="progress-message text-mono">{{ getUpdateMessage(key) }}</p>
-              </div>
-
-              <div class="dependency-versions">
-                <!-- Version installée -->
-                <div class="version-info">
-                  <span class="version-label text-mono">{{ t('Installé') }}</span>
-                  <span class="version-value text-mono">
-                    <span v-if="getInstalledVersion(dep)">{{ getInstalledVersion(dep) }}</span>
-                    <span v-else class="text-error">{{ t('Non disponible') }}</span>
-                  </span>
-                </div>
-
-                <!-- Version disponible - seulement si mise à jour disponible -->
-                <div v-if="dep.update_available" class="version-info">
-                  <span class="version-label text-mono">{{ t('Disponible') }}</span>
-                  <span class="version-value text-mono">
-                    <span v-if="getLatestVersion(dep)">{{ getLatestVersion(dep) }}</span>
-                    <span v-else-if="getGitHubStatus(dep) === 'error'" class="text-error">{{ t('Erreur API') }}</span>
-                    <span v-else>{{ t('Chargement...') }}</span>
-                  </span>
-                </div>
-              </div>
-
-              <!-- Détails d'erreur si nécessaire -->
-              <div v-if="dep.installed?.errors?.length" class="dependency-errors">
-                <details class="error-details">
-                  <summary class="text-mono">{{ t('Détails des erreurs') }}</summary>
-                  <ul class="error-list">
-                    <li v-for="error in dep.installed.errors" :key="error" class="text-mono">{{ error }}</li>
-                  </ul>
-                </details>
-              </div>
-            </div>
-          </div>
-        </section>
+        <!-- 6. Dépendances (composant unifié) -->
+        <DependenciesManager />
 
         <!-- 7. Informations -->
         <section class="settings-section">
@@ -349,6 +248,7 @@ import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import DependenciesManager from '@/components/settings/DependenciesManager.vue';
 import axios from 'axios';
 
 const router = useRouter();
@@ -385,16 +285,6 @@ const config = ref({
 // États existants
 const systemTemperature = ref(null);
 const temperatureLoading = ref(false);
-
-// NOUVEAUX : États pour les dépendances
-const dependencies = ref({});
-const dependenciesLoading = ref(false);
-const dependenciesError = ref(false);
-
-// NOUVEAUX : États pour les mises à jour
-const updateStates = ref({});
-const completedUpdates = ref(new Set());
-const supportedUpdates = ['go-librespot', 'snapserver', 'snapclient']; // Seules ces dépendances peuvent être mises à jour
 
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
@@ -446,106 +336,73 @@ function isDisconnectActive(value) {
   return config.value.spotify.auto_disconnect_delay === value;
 }
 
-// === NOUVEAUX : HELPERS POUR LES DÉPENDANCES ===
-function getInstallStatus(dep) {
-  return dep.installed?.status || 'unknown';
+// === HANDLERS ===
+
+// Handler unifié avec debounce global
+let debounceTimeout = null;
+function debouncedUpdate(endpoint, payload, delay = 800) {
+  clearTimeout(debounceTimeout);
+  debounceTimeout = setTimeout(() => updateSetting(endpoint, payload), delay);
 }
 
-function getInstalledVersion(dep) {
-  const versions = dep.installed?.versions || {};
-  const versionValues = Object.values(versions);
-  return versionValues.length > 0 ? versionValues[0] : null;
-}
-
-function getLatestVersion(dep) {
-  return dep.latest?.version || null;
-}
-
-function getGitHubStatus(dep) {
-  return dep.latest?.status || 'unknown';
-}
-
-// === NOUVEAUX : HELPERS POUR LES MISES À JOUR ===
-function canUpdate(depKey) {
-  return supportedUpdates.includes(depKey);
-}
-
-function isUpdating(depKey) {
-  return updateStates.value[depKey]?.updating || false;
-}
-
-function isAnyUpdateInProgress() {
-  return Object.values(updateStates.value).some(state => state.updating);
-}
-
-function getUpdateProgress(depKey) {
-  return updateStates.value[depKey]?.progress || 0;
-}
-
-function getUpdateMessage(depKey) {
-  return updateStates.value[depKey]?.message || '';
-}
-function isUpdateCompleted(depKey) {
-  return completedUpdates.value.has(depKey);
-}
-
-function clearCompletedUpdate(depKey) {
-  completedUpdates.value.delete(depKey);
-}
-// === NOUVEAU : GESTION DES MISES À JOUR ===
-async function startUpdate(depKey) {
-  if (!canUpdate(depKey) || isUpdating(depKey)) return;
-
+// Handler principal
+async function updateSetting(endpoint, payload) {
   try {
-    // Initialiser l'état de mise à jour
-    updateStates.value[depKey] = {
-      updating: true,
-      progress: 0,
-      message: t('Initialisation de la mise à jour...')
-    };
-
-    const response = await axios.post(`/api/settings/dependencies/${depKey}/update`);
-
-    if (response.data.status !== 'success') {
-      throw new Error(response.data.message || 'Failed to start update');
-    }
-
-    console.log(`Update started for ${depKey}: ${response.data.message}`);
-
+    await axios.post(`/api/settings/${endpoint}`, payload);
   } catch (error) {
-    console.error(`Error starting update for ${depKey}:`, error);
-
-    // Réinitialiser l'état en cas d'erreur
-    delete updateStates.value[depKey];
-
-    // Afficher l'erreur à l'utilisateur (vous pouvez améliorer ça avec une notification)
-    alert(`Erreur lors du démarrage de la mise à jour: ${error.message}`);
+    console.error(`Error updating ${endpoint}:`, error);
   }
 }
 
-// === NOUVEAU : GESTION DES DÉPENDANCES ===
-async function loadDependencies() {
-  if (dependenciesLoading.value) return;
+// Handler dock apps
+function updateDockApps() {
+  const enabledApps = getEnabledAppsArray();
+  debouncedUpdate('dock-apps', { enabled_apps: enabledApps }, 500);
+}
 
-  try {
-    dependenciesLoading.value = true;
-    dependenciesError.value = false;
+// Handler volume limits (utilise le DoubleRangeSlider)
+function updateVolumeLimits(limits) {
+  debouncedUpdate('volume-limits', {
+    alsa_min: limits.min,
+    alsa_max: limits.max
+  });
+}
 
-    const response = await axios.get('/api/settings/dependencies');
+// Handler brightness avec application instantanée
+let brightnessInstantTimeout = null;
+let brightnessDebounceTimeout = null;
 
-    if (response.data.status === 'success') {
-      dependencies.value = response.data.dependencies || {};
-      dependenciesError.value = false;
-    } else {
-      dependenciesError.value = true;
-      console.error('Error loading dependencies:', response.data.message);
-    }
-  } catch (error) {
-    console.error('Error loading dependencies:', error);
-    dependenciesError.value = true;
-  } finally {
-    dependenciesLoading.value = false;
-  }
+function handleBrightnessChange(value) {
+  // Application immédiate
+  clearTimeout(brightnessInstantTimeout);
+  brightnessInstantTimeout = setTimeout(() => {
+    axios.post('/api/settings/screen-brightness/apply', { brightness_on: value }).catch(console.error);
+  }, 300);
+
+  // Sauvegarde
+  clearTimeout(brightnessDebounceTimeout);
+  brightnessDebounceTimeout = setTimeout(() => {
+    updateSetting('screen-brightness', { brightness_on: value });
+  }, 1000);
+}
+
+// Handler screen timeout - Envoyer 0 pour Jamais
+function setScreenTimeout(value) {
+  console.log('Setting Screen timeout to:', value);
+  updateSetting('screen-timeout', {
+    screen_timeout_enabled: value !== 0,
+    screen_timeout_seconds: value
+  });
+}
+
+// Handler spotify disconnect presets
+function setSpotifyDisconnect(value) {
+  console.log('Setting Spotify to:', value);
+  updateSetting('spotify-disconnect', { auto_disconnect_delay: value });
+}
+
+function goBack() {
+  router.push('/');
 }
 
 // === GESTION TEMPÉRATURE ===
@@ -630,75 +487,6 @@ function handlePointerUp(event) {
   }
 }
 
-// === HANDLERS ===
-
-// Handler unifié avec debounce global
-let debounceTimeout = null;
-function debouncedUpdate(endpoint, payload, delay = 800) {
-  clearTimeout(debounceTimeout);
-  debounceTimeout = setTimeout(() => updateSetting(endpoint, payload), delay);
-}
-
-// Handler principal
-async function updateSetting(endpoint, payload) {
-  try {
-    await axios.post(`/api/settings/${endpoint}`, payload);
-  } catch (error) {
-    console.error(`Error updating ${endpoint}:`, error);
-  }
-}
-
-// Handler dock apps
-function updateDockApps() {
-  const enabledApps = getEnabledAppsArray();
-  debouncedUpdate('dock-apps', { enabled_apps: enabledApps }, 500);
-}
-
-// Handler volume limits (utilise le DoubleRangeSlider)
-function updateVolumeLimits(limits) {
-  debouncedUpdate('volume-limits', {
-    alsa_min: limits.min,
-    alsa_max: limits.max
-  });
-}
-
-// Handler brightness avec application instantanée
-let brightnessInstantTimeout = null;
-let brightnessDebounceTimeout = null;
-
-function handleBrightnessChange(value) {
-  // Application immédiate
-  clearTimeout(brightnessInstantTimeout);
-  brightnessInstantTimeout = setTimeout(() => {
-    axios.post('/api/settings/screen-brightness/apply', { brightness_on: value }).catch(console.error);
-  }, 300);
-
-  // Sauvegarde
-  clearTimeout(brightnessDebounceTimeout);
-  brightnessDebounceTimeout = setTimeout(() => {
-    updateSetting('screen-brightness', { brightness_on: value });
-  }, 1000);
-}
-
-// Handler screen timeout - Envoyer 0 pour Jamais
-function setScreenTimeout(value) {
-  console.log('Setting Screen timeout to:', value);
-  updateSetting('screen-timeout', {
-    screen_timeout_enabled: value !== 0,
-    screen_timeout_seconds: value
-  });
-}
-
-// Handler spotify disconnect presets
-function setSpotifyDisconnect(value) {
-  console.log('Setting Spotify to:', value);
-  updateSetting('spotify-disconnect', { auto_disconnect_delay: value });
-}
-
-function goBack() {
-  router.push('/');
-}
-
 // === CHARGEMENT INITIAL ===
 async function loadAllConfigs() {
   try {
@@ -758,8 +546,6 @@ async function loadAllConfigs() {
 
       config.value.dock.apps = appsObj;
     }
-    console.log('Spotify response:', spotify.data);
-    console.log('Screen response:', screenTimeout.data);
   } catch (error) {
     console.error('Error loading configs:', error);
   }
@@ -812,38 +598,6 @@ const wsListeners = {
       });
       config.value.dock.apps = appsObj;
     }
-  },
-  // NOUVEAUX : Listeners pour les mises à jour
-  'dependency_update_progress': (msg) => {
-    const { dependency, progress, message, status } = msg.data;
-    if (dependency && updateStates.value[dependency]) {
-      updateStates.value[dependency] = {
-        updating: status === 'updating',
-        progress: progress || 0,
-        message: message || ''
-      };
-    }
-  },
-  'dependency_update_complete': (msg) => {
-    const { dependency, success, message, error, old_version, new_version } = msg.data;
-
-    if (dependency) {
-      // Réinitialiser l'état de mise à jour
-      delete updateStates.value[dependency];
-
-      if (success) {
-        console.log(`Update completed for ${dependency}: ${old_version} → ${new_version}`);
-
-        // Marquer comme terminé (pas d'alert)
-        completedUpdates.value.add(dependency);
-
-        // Recharger les dépendances pour afficher la nouvelle version
-        loadDependencies();
-      } else {
-        console.error(`Update failed for ${dependency}: ${error}`);
-        // Pas d'alert, juste log en console
-      }
-    }
   }
 };
 
@@ -853,9 +607,6 @@ onMounted(async () => {
 
   // Charger la température immédiatement
   await loadSystemTemperature();
-
-  // NOUVEAU : Charger les dépendances immédiatement
-  await loadDependencies();
 
   // Configurer l'intervalle pour la température (toutes les 5 secondes)
   temperatureInterval = setInterval(loadSystemTemperature, 5000);
@@ -935,7 +686,6 @@ onUnmounted(() => {
   flex-direction: column;
   gap: var(--space-03);
   border-radius: var(--radius-06);
-  /* Configuration pour PointerEvents - permet le scroll vertical seulement */
   touch-action: pan-y;
 }
 
@@ -1059,13 +809,11 @@ onUnmounted(() => {
   align-items: center;
 }
 
-/* Volume limits avec DoubleRangeSlider */
 .volume-limits-control {
   display: flex;
   flex-direction: column;
 }
 
-/* Startup mode buttons */
 .startup-mode-buttons {
   display: flex;
   gap: var(--space-02);
@@ -1075,7 +823,6 @@ onUnmounted(() => {
   flex: 1;
 }
 
-/* Volume fixe sans container background */
 .fixed-volume-control {
   display: flex;
   flex-direction: column;
@@ -1089,7 +836,6 @@ onUnmounted(() => {
   gap: var(--space-04);
 }
 
-/* Preset buttons (timeout et disconnect) */
 .timeout-buttons,
 .disconnect-buttons {
   display: flex;
@@ -1108,154 +854,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
-}
-
-/* === NOUVEAU : STYLES DÉPENDANCES === */
-
-.dependencies-loading,
-.dependencies-error {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-05);
-  text-align: center;
-}
-
-.loading-message,
-.error-message {
-  color: var(--color-text-secondary);
-}
-
-.dependencies-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.dependency-item {
-  background: var(--color-background-strong);
-  border-radius: var(--radius-04);
-  padding: var(--space-04);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
-.dependency-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--space-03);
-}
-
-.dependency-info {
-  flex: 1;
-}
-
-.dependency-name {
-  color: var(--color-text);
-  margin-bottom: var(--space-01);
-}
-
-.dependency-description {
-  color: var(--color-text-secondary);
-}
-
-.dependency-status {
-  flex-shrink: 0;
-}
-
-.status-error,
-.status-unknown {
-  color: var(--color-error);
-}
-
-.status-ok {
-  color: var(--color-text-secondary);
-}
-.status-updated {
-  color: var(--color-brand);
-}
-.update-badge {
-  color: var(--color-text-secondary);
-}
-
-.update-progress-badge {
-  color: var(--color-brand);
-}
-
-.update-progress {
-  margin-top: var(--space-03);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.progress-bar {
-  width: 100%;
-  height: 6px;
-  background: var(--color-background);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--color-brand);
-  border-radius: var(--radius-full);
-  transition: width var(--transition-normal);
-}
-
-.progress-message {
-  color: var(--color-text-secondary);
-  text-align: center;
-}
-
-.dependency-versions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-03);
-}
-
-.version-info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-}
-
-.version-label {
-  color: var(--color-text-secondary);
-}
-
-.version-value {
-  color: var(--color-text);
-}
-
-.dependency-errors {
-  margin-top: var(--space-02);
-}
-
-.error-details {
-  background: var(--color-background);
-  border-radius: var(--radius-02);
-  padding: var(--space-02);
-}
-
-.error-details summary {
-  cursor: pointer;
-  color: var(--color-text-secondary);
-}
-
-.error-list {
-  margin: var(--space-02) 0 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.error-list li {
-  color: var(--color-error);
-  padding: var(--space-01) 0;
 }
 
 /* Informations */
@@ -1277,7 +875,6 @@ onUnmounted(() => {
   text-align: right;
 }
 
-/* Style pour température en erreur */
 .text-error {
   color: var(--color-destructive);
 }
@@ -1317,27 +914,13 @@ onUnmounted(() => {
   .app-item {
     padding: var(--space-02);
   }
-
-  /* Responsive pour dépendances */
-  .dependency-versions {
-    grid-template-columns: 1fr;
-    gap: var(--space-02);
-  }
-
-  .dependencies-actions {
-    flex-direction: column;
-    align-items: stretch;
-    gap: var(--space-02);
-  }
 }
 
-/* iOS */
 .ios-app .settings-modal {
   margin-top: 48px;
   max-height: calc(100vh - 64px);
 }
 
-/* Scrollbar hidden */
 ::-webkit-scrollbar {
   display: none;
 }
