@@ -5,7 +5,7 @@
 
 # Milō
 
-Milō is an advanced audio application for Raspberry Pi that transforms your device into a versatile audio platform. The system allows seamless switching between different audio sources (Spotify, Bluetooth, Mac audio output) while offering a sleek and responsive user interface. 
+Milō is an audio application for Raspberry Pi that transforms your device into a versatile audio platform. The system allows seamless switching between different audio sources (Spotify, Bluetooth, Mac audio output) while offering a sleek and responsive user interface. 
 
 ## Features
 
@@ -43,14 +43,20 @@ chmod +x install.sh
 ./install.sh
 ```
 
-**Uninstall:**
+**Uninstall Milō:**
 ```
 ./install.sh --uninstall
 ```
 
 ## Installation for Milō Sat
+Enjoy Multiroom by installing Milō Sat on other Raspberry Pi devices with an audio‑amp hat and listen to your music all around your home.
 ```
 wget https://raw.githubusercontent.com/Leshauts/Milo/main/milo-sat/install-sat.sh
 chmod +x install-sat.sh
 ./install-sat.sh
+```
+
+**Uninstall Milō Sat:**
+```
+./install-sat.sh --uninstall
 ```
