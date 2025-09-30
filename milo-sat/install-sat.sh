@@ -381,21 +381,6 @@ EOF
     log_success "Permissions sudo configurées"
 }
 
-configure_default_volume() {
-    log_info "Configuration du volume par défaut à 16%..."
-    
-    # Définir le volume ALSA à 16/100
-    sudo -u "$MILO_SAT_USER" amixer -c "$CARD_NAME" sset 'Digital' 16% > /dev/null 2>&1
-    
-    # Sauvegarder la configuration ALSA pour persistance
-    sudo alsactl store > /dev/null 2>&1
-    
-    if [ $? -eq 0 ]; then
-        log_success "Volume configuré à 16% et sauvegardé"
-    else
-        log_warning "Volume sera configuré au premier démarrage"
-    fi
-}
 
 finalize_installation() {
     log_info "Finalisation de l'installation..."
@@ -608,7 +593,6 @@ main() {
     create_systemd_services
     enable_services
     configure_sudoers
-    configure_default_volume
     
     finalize_installation
 }

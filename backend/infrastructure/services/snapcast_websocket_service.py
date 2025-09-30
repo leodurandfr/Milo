@@ -295,7 +295,7 @@ class SnapcastWebSocketService:
             self.logger.error(f"Error delegating to VolumeService: {e}")
     
     async def _notify_volume_service_client_connected(self, client_id: str, client: Dict[str, Any]) -> None:
-        """NOUVEAU : Notifie VolumeService d'un nouveau client pour initialisation volume"""
+        """Notifie VolumeService d'un nouveau client - Gère l'initialisation intelligente du volume"""
         try:
             volume_service = getattr(self.state_machine, 'volume_service', None)
             if not volume_service:
@@ -304,13 +304,13 @@ class SnapcastWebSocketService:
             # Extraire le volume ALSA du client
             alsa_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
             
-            # Déléguer l'initialisation du volume au VolumeService
-            await volume_service.sync_client_volume_from_external(client_id, alsa_volume)
+            # Utiliser la nouvelle méthode d'initialisation
+            await volume_service.initialize_new_client_volume(client_id, alsa_volume)
             
-            self.logger.debug(f"Notified VolumeService of new client {client_id}")
+            self.logger.debug(f"Initialized volume for new client {client_id}")
             
         except Exception as e:
-            self.logger.error(f"Error notifying VolumeService of new client: {e}")
+            self.logger.error(f"Error initializing new client volume: {e}")
     
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """Diffuse un événement Snapcast via le système WebSocket Milo - VERSION ALLÉGÉE"""

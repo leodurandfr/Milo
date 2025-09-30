@@ -220,6 +220,64 @@ class VolumeService:
     
     # === GESTION DES ÉTATS DISPLAY PAR CLIENT ===
     
+    
+    async def initialize_new_client_volume(self, client_id: str, client_alsa_volume: int) -> bool:
+    """Initialise le volume d'un nouveau client - Applique currentVolume si restore_last_volume activé"""
+    try:
+        # Vérifier si c'est vraiment un nouveau client
+        if client_id in self._client_display_states:
+            # Client déjà connu, utiliser sync normale
+            await self.sync_client_volume_from_external(client_id, client_alsa_volume)
+            return True
+        
+        # Nouveau client détecté
+        is_multiroom = self._is_multiroom_enabled()
+        should_apply_current = self._restore_last_volume and is_multiroom
+        
+        if should_apply_current:
+            # Appliquer le volume actuel du multiroom au nouveau client
+            target_display_volume = self._multiroom_volume
+            target_alsa_volume = self._display_to_alsa_precise(target_display_volume)
+            target_alsa_clamped = self._clamp_alsa_volume(target_alsa_volume)
+            
+            self.logger.info(
+                f"New client {client_id}: applying current multiroom volume "
+                f"{self._round_half_up(target_display_volume)}% (instead of startup_volume)"
+            )
+            
+            # Définir le volume sur Snapcast
+            success = await self.snapcast_service.set_volume(client_id, target_alsa_clamped)
+            
+            if success:
+                # Enregistrer dans les états internes
+                self._client_display_states[client_id] = target_display_volume
+                
+                # Broadcast de l'événement
+                await self.state_machine.broadcast_event("snapcast", "client_volume_changed", {
+                    "client_id": client_id,
+                    "volume": self._round_half_up(target_display_volume),
+                    "muted": False,
+                    "source": "new_client_multiroom_sync"
+                })
+                
+                return True
+        else:
+            # Mode normal : utiliser le volume du client tel qu'il arrive
+            display_volume = float(self._alsa_to_display(client_alsa_volume))
+            self._client_display_states[client_id] = display_volume
+            
+            self.logger.info(
+                f"New client {client_id}: using its current volume "
+                f"{self._round_half_up(display_volume)}%"
+            )
+        
+        return True
+        
+    except Exception as e:
+        self.logger.error(f"Error initializing new client volume: {e}")
+        return False
+    
+    
     async def _initialize_client_display_states(self) -> None:
         """Initialise les états display des clients"""
         if self._client_states_initialized:
