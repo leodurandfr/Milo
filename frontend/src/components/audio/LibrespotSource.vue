@@ -132,16 +132,18 @@ onMounted(async () => {
 .stagger-4,
 .stagger-5 {
   opacity: 0;
-  transform: translateY(var(--space-05));
+  transform: translateY(var(--space-07));
 }
 
-/* Animation automatique et naturelle */
+/* Animation avec deux effets séparés */
 .librespot-player .stagger-1,
 .librespot-player .stagger-2,
 .librespot-player .stagger-3,
 .librespot-player .stagger-4,
 .librespot-player .stagger-5 {
-  animation: stagger-natural var(--transition-spring) forwards;
+  animation: 
+    stagger-transform var(--transition-spring) forwards,
+    stagger-opacity 0.4s ease forwards;
 }
 
 /* Délais échelonnés simples */
@@ -151,11 +153,17 @@ onMounted(async () => {
 .librespot-player .stagger-4 { animation-delay: 200ms; }
 .librespot-player .stagger-5 { animation-delay: 300ms; }
 
-/* Animation spring naturelle */
-@keyframes stagger-natural {
+/* Animation spring pour le transform */
+@keyframes stagger-transform {
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Animation ease pour l'opacité */
+@keyframes stagger-opacity {
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
