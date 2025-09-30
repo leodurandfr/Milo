@@ -1,37 +1,57 @@
-<!-- MainView.vue - Version simplifiée avec 3 cas précis -->
+<!-- frontend/src/views/MainView.vue -->
 <template>
   <div class="main-view">
-    <div class="SettingsAccess" @click="handleSettingsClick"></div>
+    <!-- Hotspot secret pour ouvrir Settings -->
+    <div class="SettingsAccess" role="button" aria-label="Open settings" @click="handleSettingsClick"></div>
 
-    <!-- AudioSourceView - Le plus bas -->
+    <!-- Contenu principal -->
     <div class="content-container">
-      <AudioSourceView :active-source="unifiedStore.currentSource" :plugin-state="unifiedStore.pluginState"
-        :transitioning="unifiedStore.isTransitioning" :target-source="unifiedStore.systemState.target_source"
-        :metadata="unifiedStore.metadata" :is-disconnecting="disconnectingStates[unifiedStore.currentSource]"
-        @disconnect="handleDisconnect" />
+      <AudioSourceView
+        :active-source="unifiedStore.currentSource"
+        :plugin-state="unifiedStore.pluginState"
+        :transitioning="unifiedStore.isTransitioning"
+        :target-source="unifiedStore.systemState.target_source"
+        :metadata="unifiedStore.metadata"
+        :is-disconnecting="disconnectingStates[unifiedStore.currentSource]"
+        @disconnect="handleDisconnect"
+      />
     </div>
 
-    <!-- Logo - Au-dessus d'AudioSource -->
-    <Logo :position="logoPosition" :size="logoSize" :visible="logoVisible" :transition-mode="logoTransitionMode" />
+    <!-- Logo -->
+    <Logo
+      :position="logoPosition"
+      :size="logoSize"
+      :visible="logoVisible"
+      :transition-mode="logoTransitionMode"
+    />
+
+    <!-- Modal Settings -->
+    <Modal :is-open="isSettingsOpen" @close="closeSettings" height-mode="auto">
+      <SettingsModal @close="closeSettings" />
+    </Modal>
   </div>
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
 
+import Modal from '@/components/ui/Modal.vue';
+import SettingsModal from '@/components/settings/SettingsModal.vue';
+
 const unifiedStore = useUnifiedAudioStore();
 
-// États de déconnexion pour chaque plugin
+// === États de déconnexion pour chaque plugin ===
 const disconnectingStates = ref({
   bluetooth: false,
   roc: false,
   librespot: false
 });
 
-// États du logo
+// === États du logo ===
 const logoPosition = ref('center');  // 'center' | 'top'
 const logoSize = ref('large');       // 'large' | 'small'
 const logoVisible = ref(true);
@@ -80,13 +100,13 @@ watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisibl
   if (!newVisible && logoVisible.value) {
     logoTransitionMode.value = 'librespot-hide';
 
-    // Transition immédiate si ce n'est pas le chargement initial
+    // Transition immédiate si ce n’est pas le chargement initial
     if (!isInitialLoad.value) {
       logoVisible.value = false;
       return;
     }
 
-    // Délai de 800ms seulement au chargement initial (refresh)
+    // Délai seulement au chargement initial (refresh)
     logoTimeout = setTimeout(() => {
       logoVisible.value = false;
     }, 900);
@@ -99,14 +119,14 @@ watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisibl
     logoPosition.value = 'top';
     logoSize.value = 'small';
     logoVisible.value = true;
-    isInitialLoad.value = false; // Plus un chargement initial
+    isInitialLoad.value = false;
     return;
   }
 
   // CAS 1 & 2: Changements normaux
   logoTransitionMode.value = 'normal';
 
-  // Transition immédiate si ce n'est pas le chargement initial
+  // Transition immédiate si ce n’est pas le chargement initial
   if (!isInitialLoad.value) {
     logoPosition.value = newPos;
     logoSize.value = newSize;
@@ -114,12 +134,12 @@ watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisibl
     return;
   }
 
-  // Délai de 800ms seulement au chargement initial (refresh)
+  // Délai seulement au chargement initial (refresh)
   logoTimeout = setTimeout(() => {
     logoPosition.value = newPos;
     logoSize.value = newSize;
     logoVisible.value = newVisible;
-    isInitialLoad.value = false; // Marquer fin du chargement initial
+    isInitialLoad.value = false;
   }, 900);
 }, { immediate: true });
 
@@ -174,13 +194,22 @@ async function handleDisconnect() {
   }
 }
 
-/* Accès à Settings */
+/* =========================
+   Accès à Settings (tap secret)
+   ========================= */
+const isSettingsOpen = ref(false);
 
+function openSettings() {
+  isSettingsOpen.value = true;
+}
+function closeSettings() {
+  isSettingsOpen.value = false;
+}
 
 const SETTINGS_CLICKS_REQUIRED = 5;
 const CLICK_WINDOW_MS = 5000;
-const settingsClicks = ref(0);
 
+const settingsClicks = ref(0);
 let clickWindowTimer = null;
 
 function resetClickWindow() {
@@ -202,10 +231,15 @@ function handleSettingsClick() {
 
   if (settingsClicks.value >= SETTINGS_CLICKS_REQUIRED) {
     resetClickWindow();
-
-    window.location.href = 'http://milo.local/settings';
+    openSettings(); // ✅ Ouvre la modal au lieu d'aller sur /settings
   }
 }
+
+onUnmounted(() => {
+  // Nettoyage si on quitte la vue
+  if (clickWindowTimer) clearTimeout(clickWindowTimer);
+  if (logoTimeout) clearTimeout(logoTimeout);
+});
 </script>
 
 <style scoped>
@@ -221,12 +255,13 @@ function handleSettingsClick() {
   position: relative;
   z-index: 1;
 }
+
 .SettingsAccess {
   position: absolute;
   top: 0;
   right: 0;
-  width: 64px; 
+  width: 64px;
   height: 80px;
-  z-index: 9999;  
+  z-index: 9999;
 }
 </style>

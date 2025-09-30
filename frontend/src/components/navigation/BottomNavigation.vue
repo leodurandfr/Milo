@@ -702,15 +702,15 @@ onUnmounted(() => {
 }
 
 .additional-apps-container.visible .additional-app-content:first-child {
-  transition-delay: 0.075s;
+  transition-delay: 0.1s;
 }
 
 .additional-apps-container.visible .additional-app-content:nth-child(2) {
-  transition-delay: 0.125s;
+  transition-delay: 0.137s;
 }
 
 .additional-apps-container.visible .additional-app-content:nth-child(3) {
-  transition-delay: 0.2s;
+  transition-delay: 0.175s;
 }
 
 .app-title {
