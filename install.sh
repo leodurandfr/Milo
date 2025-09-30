@@ -327,8 +327,10 @@ install_dependencies() {
     sudo apt upgrade -y
     
     log_info "Installation des dépendances de base..."
-    sudo apt install -y git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
-    cmake build-essential pkg-config nodejs npm wget unzip
+    sudo apt install -y \
+        git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
+        cmake build-essential pkg-config nodejs npm wget unzip \
+        fonts-noto-color-emoji fontconfig
     
     log_info "Mise à jour de Node.js et npm..."
     sudo npm install -g n
