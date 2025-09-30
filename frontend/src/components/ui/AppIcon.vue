@@ -14,12 +14,11 @@
 <script setup>
 import { computed } from 'vue';
 
-// Props
 const props = defineProps({
   name: { 
     type: String, 
     required: true,
-    validator: (value) => ['bluetooth', 'spotify', 'roc', 'multiroom', 'equalizer'].includes(value)
+    validator: (value) => ['bluetooth', 'spotify', 'roc', 'multiroom', 'equalizer', 'settings'].includes(value)
   },
   size: { 
     type: [String, Number], 
@@ -32,7 +31,6 @@ const props = defineProps({
   }
 });
 
-// Icône de chargement animée
 const loadingIcon = `<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
 <rect width="32" height="32" rx="8" fill="#F7F7F7"/>
 
@@ -78,7 +76,6 @@ const loadingIcon = `<svg width="32" height="32" viewBox="0 0 32 32" fill="none"
 
 </svg>`;
 
-// Icônes SVG avec IDs uniques
 const appIcons = {
   bluetooth: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72"><path fill="#0046EB" d="M0 28.8C0 18.72 0 13.679 1.962 9.828a18 18 0 0 1 7.866-7.866C13.678 0 18.72 0 28.8 0h14.4c10.08 0 15.121 0 18.972 1.962a18 18 0 0 1 7.866 7.866C72 13.678 72 18.72 72 28.8v14.4c0 10.08 0 15.121-1.962 18.972a18 18 0 0 1-7.866 7.866C58.322 72 53.28 72 43.2 72H28.8c-10.08 0-15.121 0-18.972-1.962a18 18 0 0 1-7.866-7.866C0 58.322 0 53.28 0 43.2V28.8Z"/><g clip-path="url(#bluetooth-clip)"><path fill="#fff" d="M35.218 13.434a1.75 1.75 0 0 1 1.832.166l14 10.5a1.75 1.75 0 0 1 0 2.8L38.917 36l12.133 9.1a1.75 1.75 0 0 1 0 2.8l-14 10.5a1.75 1.75 0 0 1-2.8-1.4V39.5l-11.2 8.4a1.75 1.75 0 0 1-2.1-2.8l12.133-9.101L20.95 26.9l-.138-.115A1.75 1.75 0 0 1 22.902 24l.148.1 11.2 8.399V15c0-.663.375-1.269.968-1.566ZM37.75 53.5l9.333-6.999-9.333-7v13.999Zm0-21 9.333-6.999-9.333-7v13.999Z"/></g><defs><clipPath id="bluetooth-clip"><path fill="#fff" d="M8 8h56v56H8z"/></clipPath></defs></svg>`,
   
@@ -89,11 +86,12 @@ const appIcons = {
   multiroom: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72"><path fill="#EE642D" d="M0 28.8C0 18.72 0 13.679 1.962 9.828a18 18 0 0 1 7.866-7.866C13.678 0 18.72 0 28.8 0h14.4c10.08 0 15.121 0 18.972 1.962a18 18 0 0 1 7.866 7.866C72 13.678 72 18.72 72 28.8v14.4c0 10.08 0 15.121-1.962 18.972a18 18 0 0 1-7.866 7.866C58.322 72 53.28 72 43.2 72H28.8c-10.08 0-15.121 0-18.972-1.962a18 18 0 0 1-7.866-7.866C0 58.322 0 53.28 0 43.2V28.8Z"/><g fill="#fff" clip-path="url(#multiroom-clip)"><path d="M41.25 36a5.25 5.25 0 1 0-10.5 0 5.25 5.25 0 0 0 10.5 0Zm3.5 0a8.75 8.75 0 1 1-17.5 0 8.75 8.75 0 0 1 17.5 0Z" opacity=".95"/><path d="M22.956 24.333a1.75 1.75 0 0 1 2.607 2.334 13.99 13.99 0 0 0-.42 18.177l.42.49.114.139a1.751 1.751 0 0 1-2.72 2.194 17.487 17.487 0 0 1 0-23.334Zm23.618-.136a1.75 1.75 0 0 1 2.47.136A17.487 17.487 0 0 1 53.504 36l-.018.805a17.487 17.487 0 0 1-4.444 10.862 1.75 1.75 0 0 1-2.606-2.334 13.99 13.99 0 0 0 3.555-8.688l.013-.645c0-3.444-1.27-6.767-3.568-9.333a1.75 1.75 0 0 1 .137-2.47Z" opacity=".7"/><path d="M17.25 17.629a1.75 1.75 0 0 1 2.498 2.45 22.726 22.726 0 0 0-.76 31.027l.76.814.119.134a1.75 1.75 0 0 1-2.616 2.318 26.228 26.228 0 0 1 0-36.743Zm35.024-.024a1.75 1.75 0 0 1 2.475.024 26.223 26.223 0 0 1 0 36.743 1.75 1.75 0 0 1-2.497-2.452 22.726 22.726 0 0 0 0-31.84 1.75 1.75 0 0 1 .022-2.475Z" opacity=".4"/></g><defs><clipPath id="multiroom-clip"><path fill="#fff" d="M8 8h56v56H8z"/></clipPath></defs></svg>`,
 
   equalizer: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72"><path fill="url(#equalizer-bg)" d="M0 28.8C0 18.72 0 13.679 1.962 9.828a18 18 0 0 1 7.866-7.866C13.678 0 18.72 0 28.8 0h14.4c10.08 0 15.121 0 18.972 1.962a18 18 0 0 1 7.866 7.866C72 13.678 72 18.72 72 28.8v14.4c0 10.08 0 15.121-1.962 18.972a18 18 0 0 1-7.866 7.866C58.322 72 53.28 72 43.2 72H28.8c-10.08 0-15.121 0-18.972-1.962a18 18 0 0 1-7.866-7.866C0 58.322 0 53.28 0 43.2V28.8Z"/><g clip-path="url(#equalizer-clip)"><path fill="url(#equalizer-text)" d="M20.25 15c.966 0 1.75.784 1.75 1.75v14.22a7.003 7.003 0 0 1 0 13.558V55.25a1.75 1.75 0 1 1-3.5 0V44.528a7.002 7.002 0 0 1 0-13.557V16.75c0-.966.784-1.75 1.75-1.75ZM36 15c.967 0 1.75.784 1.75 1.75v3.72a7.003 7.003 0 0 1 0 13.558V55.25a1.75 1.75 0 1 1-3.5 0V34.028a7.002 7.002 0 0 1 0-13.557V16.75c0-.966.783-1.75 1.75-1.75Zm15.75 0c.967 0 1.75.784 1.75 1.75v21.22a7.003 7.003 0 0 1 0 13.558v3.722a1.75 1.75 0 1 1-3.5 0v-3.722a7.002 7.002 0 0 1 0-13.557V16.75c0-.966.783-1.75 1.75-1.75Zm0 26.25a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm-31.5-7a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7ZM36 23.75a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/></g><defs><linearGradient id="equalizer-bg" x1="36" x2="36" y1="0" y2="72" gradientUnits="userSpaceOnUse"><stop stop-color="#393E3B"/><stop offset="1" stop-color="#1D201E"/></linearGradient><linearGradient id="equalizer-text" x1="36" x2="36" y1="15" y2="57" gradientUnits="userSpaceOnUse"><stop stop-color="#fff"/><stop offset="1" stop-color="#C7D6E5"/></linearGradient><clipPath id="equalizer-clip"><path fill="#fff" d="M8 8h56v56H8z"/></clipPath></defs></svg>`,
+
+  settings: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72"><g clip-path="url(#settings-outer-clip)"><path fill="url(#settings-bg)" d="M0 28.8C0 18.72 0 13.679 1.962 9.828a18 18 0 0 1 7.866-7.866C13.678 0 18.72 0 28.8 0h14.4c10.08 0 15.121 0 18.972 1.962a18 18 0 0 1 7.866 7.866C72 13.678 72 18.72 72 28.8v14.4c0 10.08 0 15.121-1.962 18.972a18 18 0 0 1-7.866 7.866C58.322 72 53.28 72 43.2 72H28.8c-10.08 0-15.121 0-18.972-1.962a18 18 0 0 1-7.866-7.866C0 58.322 0 53.28 0 43.2V28.8Z"/><g filter="url(#settings-shadow)"><path fill="url(#settings-gear)" d="M30.112 13.127a1.75 1.75 0 0 1 1.337.365l4.084 3.264c.313-.007.627-.007.941 0l4.086-3.261a1.751 1.751 0 0 1 1.541-.325 23.508 23.508 0 0 1 5.063 1.996l.681.38.172.114c.384.287.636.722.69 1.205l.584 5.195c.227.216.448.439.665.666l5.194.584a1.75 1.75 0 0 1 1.318.86 23.441 23.441 0 0 1 2.38 5.742c.143.537.023 1.11-.323 1.543L55.26 35.54c.008.314.008.629 0 .943l3.263 4.085a1.75 1.75 0 0 1 .324 1.538 23.502 23.502 0 0 1-2.363 5.743 1.751 1.751 0 0 1-1.321.865l-5.196.583c-.216.227-.438.45-.666.666l-.583 5.194a1.75 1.75 0 0 1-.86 1.318 23.44 23.44 0 0 1-5.742 2.38 1.751 1.751 0 0 1-1.543-.323l-4.085-3.264a19.48 19.48 0 0 1-.943 0l-4.084 3.261a1.75 1.75 0 0 1-1.538.326 23.505 23.505 0 0 1-5.744-2.364 1.75 1.75 0 0 1-.864-1.32l-.584-5.196a19.466 19.466 0 0 1-.67-.671l-5.202-.608a1.75 1.75 0 0 1-1.31-.86 23.438 23.438 0 0 1-2.38-5.742 1.75 1.75 0 0 1 .324-1.542l3.263-4.085a19.739 19.739 0 0 1 0-.942l-3.261-4.085a1.75 1.75 0 0 1-.324-1.541 23.503 23.503 0 0 1 2.376-5.743l.113-.172a1.75 1.75 0 0 1 1.205-.69l5.195-.585c.217-.227.439-.45.666-.666l.584-5.192.035-.204a1.75 1.75 0 0 1 .83-1.116 23.443 23.443 0 0 1 5.735-2.363l.202-.04Zm-.14 3.665a19.943 19.943 0 0 0-3.286 1.353l-.554 4.936c-.048.43-.255.827-.578 1.114-.473.42-.921.869-1.341 1.342a1.752 1.752 0 0 1-1.115.578l-4.94.554a20.004 20.004 0 0 0-1.363 3.295l3.103 3.885c.27.338.405.764.38 1.195a16.12 16.12 0 0 0 0 1.903 1.75 1.75 0 0 1-.38 1.195l-3.104 3.884a19.935 19.935 0 0 0 1.368 3.297l4.949.58.16.026c.364.077.696.27.945.55.316.356.647.697.993 1.023l.35.32.115.113c.257.274.42.625.462 1l.554 4.938a20.001 20.001 0 0 0 3.295 1.355l3.886-3.103c.337-.27.764-.404 1.195-.379.633.038 1.269.038 1.902 0l.161-.002c.376.013.74.146 1.036.382l3.883 3.103a19.928 19.928 0 0 0 3.292-1.367l.556-4.937.025-.16a1.75 1.75 0 0 1 .552-.953c.474-.42.922-.87 1.343-1.343l.112-.116a1.75 1.75 0 0 1 1.001-.461l4.938-.555a19.994 19.994 0 0 0 1.355-3.295l-3.102-3.886a1.75 1.75 0 0 1-.38-1.195c.037-.633.037-1.268 0-1.901-.026-.432.11-.858.38-1.196l3.102-3.884a19.93 19.93 0 0 0-1.364-3.293l-4.94-.555a1.75 1.75 0 0 1-1.113-.578c-.42-.474-.869-.921-1.343-1.342a1.752 1.752 0 0 1-.577-1.114l-.555-4.94a19.996 19.996 0 0 0-3.295-1.362l-3.884 3.102a1.75 1.75 0 0 1-1.195.38 16.14 16.14 0 0 0-1.903 0 1.75 1.75 0 0 1-1.195-.38l-3.886-3.106ZM36 25.5c5.799 0 10.5 4.701 10.5 10.5 0 5.8-4.702 10.5-10.5 10.5-5.8 0-10.5-4.701-10.5-10.5S30.2 25.5 36 25.5Zm0 3.5a7 7 0 1 0 0 14 7 7 0 0 0 0-14Z"/></g></g><defs><linearGradient id="settings-bg" x1="36" x2="36" y1="0" y2="72" gradientUnits="userSpaceOnUse"><stop stop-color="#CFCFD5"/><stop offset="1" stop-color="#B1B1B6"/></linearGradient><linearGradient id="settings-gear" x1="36.009" x2="36.009" y1="13.111" y2="58.914" gradientUnits="userSpaceOnUse"><stop stop-color="#4A4A4A"/><stop offset="1" stop-color="#303030"/></linearGradient><clipPath id="settings-outer-clip"><path fill="#fff" d="M0 0h72v72H0z"/></clipPath><filter id="settings-shadow" width="77.797" height="77.803" x="-2.89" y="-.89" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feColorMatrix in="SourceAlpha" result="hardAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"/><feOffset dy="2"/><feGaussianBlur stdDeviation="8"/><feComposite in2="hardAlpha" operator="out"/><feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.16 0"/><feBlend in2="BackgroundImageFix" result="effect1_dropShadow_5785_5169"/><feBlend in="SourceGraphic" in2="effect1_dropShadow_5785_5169" result="shape"/></filter></defs></svg>`
 };
 
-// Style computed avec taille forcée
 const iconStyle = computed(() => {
-  let sizeInPx = 32; // Default
+  let sizeInPx = 32;
   
   if (typeof props.size === 'number') {
     sizeInPx = props.size;
@@ -113,21 +111,17 @@ const iconStyle = computed(() => {
   };
 });
 
-// Contenu SVG sans modification nécessaire
 const svgContent = computed(() => {
-  // Si on est en état loading, retourner l'icône de chargement
   if (props.state === 'loading') {
     return loadingIcon;
   }
   
-  // Sinon, retourner l'icône normale
   const icon = appIcons[props.name];
   if (!icon) {
     console.warn(`AppIcon "${props.name}" not found`);
     return '';
   }
   
-  // Retourner directement l'icône (les IDs sont déjà uniques)
   return icon;
 });
 </script>
@@ -140,7 +134,6 @@ const svgContent = computed(() => {
   flex-shrink: 0;
   border-radius: var(--radius-02);
   overflow: hidden;
-  /* Force la taille via les variables CSS */
   width: var(--icon-size);
   height: var(--icon-size);
 }
@@ -165,7 +158,6 @@ const svgContent = computed(() => {
   display: block;
 }
 
-/* Mobile responsive - Override taille large */
 @media (max-aspect-ratio: 4/3) {
   .app-icon.size-large {
     width: 64px !important;

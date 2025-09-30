@@ -10,11 +10,11 @@
   <!-- Dock de navigation -->
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }">
     <!-- Additional Apps - Mobile uniquement -->
-    <div v-if="additionalAppsInDOM && additionalDockApps.length > 0" ref="additionalAppsContainer" class="additional-apps-container mobile-only"
-      :class="{ visible: showAdditionalApps }">
+    <div v-if="additionalAppsInDOM && additionalDockApps.length > 0" ref="additionalAppsContainer"
+      class="additional-apps-container mobile-only" :class="{ visible: showAdditionalApps }">
 
-      <button v-for="{ id, icon, title, handler } in additionalDockApps" :key="id" @click="handler"
-        @touchstart="addPressEffect" @mousedown="addPressEffect"
+      <button v-for="({ id, icon, title, handler }, index) in additionalDockApps.slice().reverse()" :key="id"
+        @click="handler" @touchstart="addPressEffect" @mousedown="addPressEffect"
         class="additional-app-content button-interactive-subtle">
         <AppIcon :name="icon" :size="32" />
         <div class="app-title heading-2">{{ title }}</div>
@@ -24,12 +24,9 @@
     <div ref="dock" class="dock">
       <!-- Volume Controls - Mobile uniquement -->
       <div class="volume-controls mobile-only">
-        <button v-for="{ icon, handler, delta } in volumeControlsWithSteps" :key="icon" 
-          @pointerdown="(e) => onVolumeHoldStart(delta, e)"
-          @pointerup="onVolumeHoldEnd"
-          @pointercancel="onVolumeHoldEnd"
-          @pointerleave="onVolumeHoldEnd"
-          class="volume-btn button-interactive-subtle">
+        <button v-for="{ icon, handler, delta } in volumeControlsWithSteps" :key="icon"
+          @pointerdown="(e) => onVolumeHoldStart(delta, e)" @pointerup="onVolumeHoldEnd"
+          @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd" class="volume-btn button-interactive-subtle">
           <Icon :name="icon" :size="32" />
         </button>
       </div>
@@ -47,8 +44,8 @@
         <div v-if="additionalDockApps.length > 0" class="dock-separator desktop-only"></div>
 
         <!-- Toggle Additional Apps - Mobile uniquement (seulement si on a plus de 3 apps) -->
-        <button v-if="additionalDockApps.length > 0" @click="handleToggleClick" @touchstart="addPressEffect" @mousedown="addPressEffect"
-          class="dock-item toggle-btn mobile-only button-interactive">
+        <button v-if="additionalDockApps.length > 0" @click="handleToggleClick" @touchstart="addPressEffect"
+          @mousedown="addPressEffect" class="dock-item toggle-btn mobile-only button-interactive">
           <Icon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
@@ -69,7 +66,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, getCurrentInstance } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useI18n } from '@/services/i18n'; 
+import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import AppIcon from '@/components/ui/AppIcon.vue';
 import Icon from '@/components/ui/Icon.vue';
@@ -88,7 +85,8 @@ const ALL_AUDIO_SOURCES = [
 
 const ALL_ADDITIONAL_ACTIONS = [
   { id: 'multiroom', icon: 'multiroom', title: computed(() => t('Multiroom')), handler: () => emit('open-snapcast') },
-  { id: 'equalizer', icon: 'equalizer', title: computed(() => t('Égaliseur')), handler: () => emit('open-equalizer') }
+  { id: 'equalizer', icon: 'equalizer', title: computed(() => t('Égaliseur')), handler: () => emit('open-equalizer') },
+  { id: 'settings', icon: 'settings', title: computed(() => t('Paramètres')), handler: () => emit('open-settings') }
 ];
 
 // === CONFIGURATION DYNAMIQUE ===
@@ -115,7 +113,7 @@ const volumeControlsWithSteps = computed(() => [
 ]);
 
 // === ÉMISSIONS ===
-const emit = defineEmits(['open-snapcast', 'open-equalizer']);
+const emit = defineEmits(['open-snapcast', 'open-equalizer', 'open-settings']);
 
 // === REFS PRINCIPAUX ===
 const dragZone = ref(null);
@@ -198,21 +196,21 @@ const onVolumeHoldStart = (delta, event) => {
   if (volumePointerType.value && volumePointerType.value !== event.pointerType) {
     return;
   }
-  
+
   volumePointerType.value = event.pointerType;
   gestureStartPosition.value = { x: getEventX(event), y: getEventY(event) };
   gestureHasMoved.value = false;
   currentVolumeDelta.value = delta;
   volumeActionTaken.value = false;
-  
+
   addPressEffect(event);
-  
+
   volumeStartTimer.value = setTimeout(() => {
     if (!gestureHasMoved.value && !volumeActionTaken.value && volumePointerType.value === event.pointerType) {
       volumeActionTaken.value = true;
       unifiedStore.adjustVolume(delta);
       isVolumeHolding.value = true;
-      
+
       volumeRepeatTimer.value = setTimeout(() => {
         if (isVolumeHolding.value) {
           const repeatInterval = setInterval(() => {
@@ -227,7 +225,7 @@ const onVolumeHoldStart = (delta, event) => {
       }, 300);
     }
   }, 200);
-  
+
   resetHideTimer();
 };
 
@@ -235,26 +233,26 @@ const onVolumeHoldEnd = (event) => {
   if (event && volumePointerType.value && event.pointerType !== volumePointerType.value) {
     return;
   }
-  
+
   if (!volumeActionTaken.value && !gestureHasMoved.value && currentVolumeDelta.value !== 0) {
     volumeActionTaken.value = true;
     unifiedStore.adjustVolume(currentVolumeDelta.value);
   }
-  
+
   isVolumeHolding.value = false;
   volumePointerType.value = null;
-  
+
   if (volumeStartTimer.value) {
     clearTimeout(volumeStartTimer.value);
     volumeStartTimer.value = null;
   }
-  
+
   if (volumeRepeatTimer.value) {
     clearTimeout(volumeRepeatTimer.value);
     clearInterval(volumeRepeatTimer.value);
     volumeRepeatTimer.value = null;
   }
-  
+
   currentVolumeDelta.value = 0;
   volumeActionTaken.value = false;
 };
@@ -277,7 +275,7 @@ const hideDock = () => {
   clearAllTimers();
   indicatorStyle.value.opacity = '0';
   setTimeout(() => additionalAppsInDOM.value = false, 400);
-  
+
   onVolumeHoldEnd();
   resetGestureState();
 };
@@ -289,12 +287,12 @@ const onDragStart = (e) => {
   dragCurrentY = dragStartY;
   dragStartTime = Date.now();
   dragActionTaken.value = false;
-  
+
   if (dragGraceTimeout) {
     clearTimeout(dragGraceTimeout);
     dragGraceTimeout = null;
   }
-  
+
   resetGestureState();
 };
 
@@ -309,42 +307,42 @@ const onDragMove = (e) => {
   }
 
   if (!isDragging.value) return;
-  
+
   const currentY = getEventY(e);
   const currentX = getEventX(e);
-  
+
   // Vérifier mouvement pour annuler volume hold
   if (!gestureHasMoved.value) {
     const deltaX = Math.abs(currentX - gestureStartPosition.value.x);
     const deltaY = Math.abs(currentY - gestureStartPosition.value.y);
-    
+
     if (deltaX > MOVE_THRESHOLD || deltaY > MOVE_THRESHOLD) {
       gestureHasMoved.value = true;
       onVolumeHoldEnd();
     }
   }
-  
+
   // Logique de drag améliorée
   dragCurrentY = currentY;
   const deltaY = dragStartY - dragCurrentY;
   const dragDuration = Date.now() - dragStartTime;
   const velocity = Math.abs(deltaY) / Math.max(dragDuration, 1);
-  
+
   // Seuil adaptatif selon la vitesse
   let threshold = 30;
   if (velocity >= 0.5) {
     threshold = Math.max(20, 30 - (velocity * 10));
   }
-  
+
   if (Math.abs(deltaY) >= threshold && !dragActionTaken.value) {
     dragActionTaken.value = true;
-    
+
     if (deltaY > 0 && !isVisible.value) {
       showDock();
     } else if (deltaY < 0 && isVisible.value) {
       hideDock();
     }
-    
+
     dragGraceTimeout = setTimeout(() => {
       isDragging.value = false;
       dragActionTaken.value = false;
@@ -359,20 +357,20 @@ const onDragEnd = () => {
     isDraggingAdditional = false;
     return;
   }
-  
+
   if (!dragActionTaken.value) {
     isDragging.value = false;
     resetGestureState();
   }
-  
+
   resetHideTimer();
 };
 
 // === GESTION CLICS ===
 const onClickOutside = (event) => {
-  if (!isVisible.value || 
-      (dockContainer.value && dockContainer.value.contains(event.target)) ||
-      event.target.closest('.modal-overlay, .modal-container, .modal-content')) {
+  if (!isVisible.value ||
+    (dockContainer.value && dockContainer.value.contains(event.target)) ||
+    event.target.closest('.modal-overlay, .modal-container, .modal-content')) {
     return;
   }
   hideDock();
@@ -393,7 +391,7 @@ const onIndicatorClick = () => {
 // === ACTIONS ===
 const handleAppClick = (appId, index) => {
   resetHideTimer();
-  
+
   // Si c'est une source audio, changer la source
   const isAudioSource = ALL_AUDIO_SOURCES.some(source => source.id === appId);
   if (isAudioSource) {
@@ -572,14 +570,14 @@ const removeDragEvents = () => {
   }
 
   removeAdditionalDragEvents();
-  
+
   ['mousemove', 'mouseup', 'touchmove', 'touchend', 'click'].forEach(event => {
-    document.removeEventListener(event, event === 'mousemove' ? onDragMove : 
-                                          event === 'mouseup' ? onDragEnd :
-                                          event === 'touchmove' ? onDragMove :
-                                          event === 'touchend' ? onDragEnd : onClickOutside);
+    document.removeEventListener(event, event === 'mousemove' ? onDragMove :
+      event === 'mouseup' ? onDragEnd :
+        event === 'touchmove' ? onDragMove :
+          event === 'touchend' ? onDragEnd : onClickOutside);
   });
-  
+
   document.removeEventListener('pointerup', onVolumeHoldEnd);
   document.removeEventListener('pointercancel', onVolumeHoldEnd);
 };
@@ -589,28 +587,28 @@ watch(() => unifiedStore.currentSource, updateActiveIndicator);
 
 onMounted(async () => {
   setupDragEvents();
-  
+
   await Promise.all([loadDockConfig(), loadVolumeStepsConfig()]);
-  
+
   // WebSocket listeners
   on('settings', 'dock_apps_changed', (message) => {
     if (message.data?.config?.enabled_apps) {
       enabledApps.value = message.data.config.enabled_apps;
     }
   });
-  
+
   on('settings', 'volume_steps_changed', (message) => {
     if (message.data?.config?.mobile_volume_steps) {
       mobileVolumeSteps.value = message.data.config.mobile_volume_steps;
     }
   });
-  
+
   on('volume', 'volume_changed', (message) => {
     if (message.data?.mobile_steps && message.data.mobile_steps !== mobileVolumeSteps.value) {
       mobileVolumeSteps.value = message.data.mobile_steps;
     }
   });
-  
+
   setTimeout(() => showDragIndicator.value = true, 800);
 });
 
@@ -704,10 +702,14 @@ onUnmounted(() => {
 }
 
 .additional-apps-container.visible .additional-app-content:first-child {
-  transition-delay: 0.1s;
+  transition-delay: 0.075s;
 }
 
 .additional-apps-container.visible .additional-app-content:nth-child(2) {
+  transition-delay: 0.125s;
+}
+
+.additional-apps-container.visible .additional-app-content:nth-child(3) {
   transition-delay: 0.2s;
 }
 
@@ -859,6 +861,11 @@ onUnmounted(() => {
 .dock-container.visible .app-container> :nth-child(7) {
   transition-delay: 0.3s;
 }
+
+.dock-container.visible .app-container> :nth-child(8) {
+  transition-delay: 0.35s;
+}
+
 
 .dock-container.visible.fully-visible .dock-item,
 .dock-container.visible.fully-visible .dock-separator,

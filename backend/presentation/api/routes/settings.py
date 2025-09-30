@@ -188,7 +188,7 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
     @router.get("/dock-apps")
     async def get_dock_apps():
         dock = settings.get_setting('dock') or {}
-        enabled_apps = dock.get('enabled_apps', ["spotify", "bluetooth", "roc", "multiroom", "equalizer"])
+        enabled_apps = dock.get('enabled_apps', ["librespot", "bluetooth", "roc", "multiroom", "equalizer", "settings"])
         
         return {
             "status": "success",
@@ -204,7 +204,7 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             if not isinstance(apps, list):
                 return False
             
-            valid_apps = ["librespot", "bluetooth", "roc", "multiroom", "equalizer"]
+            valid_apps = ["librespot", "bluetooth", "roc", "multiroom", "equalizer", "settings"]
             if not all(app in valid_apps for app in apps):
                 return False
             

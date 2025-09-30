@@ -34,7 +34,7 @@ class SettingsService:
                 "auto_disconnect_delay": 10.0
             },
             "dock": {
-                "enabled_apps": ["librespot", "bluetooth", "roc", "multiroom", "equalizer"]
+                "enabled_apps": ["librespot", "bluetooth", "roc", "multiroom", "equalizer", "settings"]
             }
         }
     
@@ -136,9 +136,9 @@ class SettingsService:
         
         # Dock avec validation au moins une source audio
         dock_input = settings.get('dock', {})
-        all_valid_apps = ["librespot", "bluetooth", "roc", "multiroom", "equalizer"]
+        all_valid_apps = ["librespot", "bluetooth", "roc", "multiroom", "equalizer", "settings"]
         audio_sources = ["librespot", "bluetooth", "roc"]
-        other_apps = ["multiroom", "equalizer"]
+        other_apps = ["multiroom", "equalizer", "settings"]
         
         enabled_apps = dock_input.get('enabled_apps', [])
         filtered_apps = [app for app in enabled_apps if app in all_valid_apps]
