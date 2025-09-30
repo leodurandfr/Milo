@@ -444,7 +444,7 @@ onMounted(async () => {
 .dependencies-manager {
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
+  gap: var(--space-02);
 }
 
 .dependencies-section {
