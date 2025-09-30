@@ -1,4 +1,4 @@
-<!-- frontend/src/views/MainView.vue -->
+<!-- MainView.vue - Version simplifiée avec 3 cas précis -->
 <template>
   <div class="main-view">
     <div class="SettingsAccess" @click="handleSettingsClick"></div>
@@ -13,15 +13,6 @@
 
     <!-- Logo - Au-dessus d'AudioSource -->
     <Logo :position="logoPosition" :size="logoSize" :visible="logoVisible" :transition-mode="logoTransitionMode" />
-
-    <!-- Modals -->
-    <SnapcastModal :is-open="isSnapcastOpen" @close="isSnapcastOpen = false" />
-    <EqualizerModal :is-open="isEqualizerOpen" @close="isEqualizerOpen = false" />
-    <SettingsModal :is-open="isSettingsOpen" @close="isSettingsOpen = false" />
-
-    <!-- Bottom Navigation -->
-    <BottomNavigation @open-snapcast="isSnapcastOpen = true" @open-equalizer="isEqualizerOpen = true"
-      @open-settings="isSettingsOpen = true" />
   </div>
 </template>
 
@@ -30,10 +21,6 @@ import { computed, ref, watch, onMounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
-import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
-import SnapcastModal from '@/components/snapcast/SnapcastModal.vue';
-import EqualizerModal from '@/components/equalizer/EqualizerModal.vue';
-import SettingsModal from '@/components/settings/SettingsModal.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 
@@ -44,17 +31,12 @@ const disconnectingStates = ref({
   librespot: false
 });
 
-// États des modals
-const isSnapcastOpen = ref(false);
-const isEqualizerOpen = ref(false);
-const isSettingsOpen = ref(false);
-
 // États du logo
-const logoPosition = ref('center');
-const logoSize = ref('large');
+const logoPosition = ref('center');  // 'center' | 'top'
+const logoSize = ref('large');       // 'large' | 'small'
 const logoVisible = ref(true);
-const logoTransitionMode = ref('normal');
-const isInitialLoad = ref(true);
+const logoTransitionMode = ref('normal'); // 'normal' | 'librespot-hide' | 'librespot-show'
+const isInitialLoad = ref(true); // Pour distinguer refresh vs transitions d'état
 
 let logoTimeout = null;
 
@@ -94,31 +76,37 @@ watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisibl
     logoTimeout = null;
   }
 
+  // CAS 1 & 2: Logo visible → caché pour librespot
   if (!newVisible && logoVisible.value) {
     logoTransitionMode.value = 'librespot-hide';
 
+    // Transition immédiate si ce n'est pas le chargement initial
     if (!isInitialLoad.value) {
       logoVisible.value = false;
       return;
     }
 
+    // Délai de 800ms seulement au chargement initial (refresh)
     logoTimeout = setTimeout(() => {
       logoVisible.value = false;
     }, 900);
     return;
   }
 
+  // CAS 3: Logo caché → visible (retour de librespot)
   if (newVisible && !logoVisible.value) {
     logoTransitionMode.value = 'librespot-show';
     logoPosition.value = 'top';
     logoSize.value = 'small';
     logoVisible.value = true;
-    isInitialLoad.value = false;
+    isInitialLoad.value = false; // Plus un chargement initial
     return;
   }
 
+  // CAS 1 & 2: Changements normaux
   logoTransitionMode.value = 'normal';
 
+  // Transition immédiate si ce n'est pas le chargement initial
   if (!isInitialLoad.value) {
     logoPosition.value = newPos;
     logoSize.value = newSize;
@@ -126,15 +114,18 @@ watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisibl
     return;
   }
 
+  // Délai de 800ms seulement au chargement initial (refresh)
   logoTimeout = setTimeout(() => {
     logoPosition.value = newPos;
     logoSize.value = newSize;
     logoVisible.value = newVisible;
-    isInitialLoad.value = false;
+    isInitialLoad.value = false; // Marquer fin du chargement initial
   }, 900);
 }, { immediate: true });
 
+// Initialisation au montage
 onMounted(() => {
+  // Toujours démarrer big+center, même pour librespot connected
   logoPosition.value = 'center';
   logoSize.value = 'large';
   logoVisible.value = true;
@@ -183,7 +174,9 @@ async function handleDisconnect() {
   }
 }
 
-// === ACCÈS CACHÉ À SETTINGS ===
+/* Accès à Settings */
+
+
 const SETTINGS_CLICKS_REQUIRED = 5;
 const CLICK_WINDOW_MS = 5000;
 const settingsClicks = ref(0);
@@ -209,7 +202,8 @@ function handleSettingsClick() {
 
   if (settingsClicks.value >= SETTINGS_CLICKS_REQUIRED) {
     resetClickWindow();
-    isSettingsOpen.value = true;
+
+    window.location.href = 'http://milo.local/settings';
   }
 }
 </script>
@@ -227,13 +221,12 @@ function handleSettingsClick() {
   position: relative;
   z-index: 1;
 }
-
 .SettingsAccess {
   position: absolute;
   top: 0;
   right: 0;
-  width: 64px;
+  width: 64px; 
   height: 80px;
-  z-index: 9999;
+  z-index: 9999;  
 }
 </style>

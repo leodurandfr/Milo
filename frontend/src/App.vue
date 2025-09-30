@@ -6,6 +6,8 @@
     <BottomNavigation 
       @open-snapcast="isSnapcastOpen = true"
       @open-equalizer="isEqualizerOpen = true"
+      @open-settings="isSettingsOpen = true"
+      
     />
 
     <Modal :is-open="isSnapcastOpen" height-mode="auto" @close="isSnapcastOpen = false">
@@ -15,6 +17,11 @@
     <Modal :is-open="isEqualizerOpen" height-mode="fixed" @close="isEqualizerOpen = false">
       <EqualizerModal />
     </Modal>
+
+    <Modal :is-open="isSettingsOpen" height-mode="fixed" @close="isSettingsOpen = false">
+      <SettingsModal />
+    </Modal>
+
   </div>
 </template>
 
@@ -25,6 +32,8 @@ import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 import Modal from '@/components/ui/Modal.vue';
 import SnapcastModal from '@/components/snapcast/SnapcastModal.vue';
 import EqualizerModal from '@/components/equalizer/EqualizerModal.vue';
+import SettingsModal from '@/components/settings/SettingsModal.vue';
+
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
@@ -35,13 +44,17 @@ const { on } = useWebSocket();
 const volumeBar = ref(null);
 const isSnapcastOpen = ref(false);
 const isEqualizerOpen = ref(false);
+const isSettingsOpen = ref(false);
 
 // Provide pour les composants enfants
 provide('openSnapcast', () => isSnapcastOpen.value = true);
 provide('openEqualizer', () => isEqualizerOpen.value = true);
+provide('openSettings', () => isSettingsOpen.value = true);
 provide('closeModals', () => {
   isSnapcastOpen.value = false;
   isEqualizerOpen.value = false;
+  isSettingsOpen.value = false;
+
 });
 
 const cleanupFunctions = [];
