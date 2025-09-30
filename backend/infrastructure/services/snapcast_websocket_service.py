@@ -25,6 +25,8 @@ class SnapcastWebSocketService:
         self.running = False
         self.should_connect = False
         self.reconnect_task = None
+        self._known_client_ids = set()
+
         
         # ID pour les requêtes JSON-RPC
         self.request_id = 0
@@ -51,6 +53,7 @@ class SnapcastWebSocketService:
         except Exception as e:
             self.logger.error(f"Failed to initialize Snapcast WebSocket: {e}")
             return False
+    
     
     async def start_connection(self) -> None:
         """Démarre la connexion WebSocket quand le multiroom est activé"""
@@ -195,27 +198,63 @@ class SnapcastWebSocketService:
             self.logger.error(f"Error handling message: {e}")
     
     async def _handle_notification(self, notification: Dict[str, Any]) -> None:
-        """Traite une notification Snapcast - VERSION ALLÉGÉE SANS VOLUME"""
+        """Traite une notification Snapcast"""
         method = notification.get("method")
         params = notification.get("params", {})
         
-        self.logger.debug(f"Received Snapcast notification: {method}")
+        self.logger.info(f"📨 SNAPCAST NOTIFICATION RECEIVED: {method}")
         
-        # NOUVEAU : Mapping ALLÉGÉ - SANS événements volume
         non_volume_notifications = {
             "Client.OnConnect": lambda p: self._handle_client_connect(p),
             "Client.OnDisconnect": lambda p: self._handle_client_disconnect(p),
-            "Client.OnNameChanged": lambda p: self._handle_client_name_changed(p)
-            # SUPPRIMÉ : "Client.OnVolumeChanged" et "Client.OnMute" - VolumeService s'en charge
+            "Client.OnNameChanged": lambda p: self._handle_client_name_changed(p),
+            "Server.OnUpdate": lambda p: self._handle_server_update(p)  # ← NOUVEAU
         }
         
         if method in non_volume_notifications:
             await non_volume_notifications[method](params)
         elif method in ["Client.OnVolumeChanged", "Client.OnMute"]:
-            # NOUVEAU : Déléguer au VolumeService pour les événements volume
             await self._delegate_volume_event_to_volume_service(method, params)
         else:
             self.logger.debug(f"Unhandled notification: {method}")
+    
+    async def _handle_server_update(self, params: Dict[str, Any]) -> None:
+        """NOUVEAU : Gère Server.OnUpdate et détecte les nouveaux clients"""
+        try:
+            server = params.get("server", {})
+            groups = server.get("groups", [])
+            
+            # Extraire tous les clients connectés
+            current_client_ids = set()
+            new_clients = []
+            
+            for group in groups:
+                for client in group.get("clients", []):
+                    if not client.get("connected"):
+                        continue
+                    
+                    client_id = client.get("id")
+                    current_client_ids.add(client_id)
+                    
+                    # Nouveau client détecté ?
+                    if client_id not in self._known_client_ids:
+                        self.logger.info(f"🟢 NEW CLIENT DETECTED in Server.OnUpdate: {client_id}")
+                        new_clients.append(client)
+            
+            # Mettre à jour le cache
+            self._known_client_ids = current_client_ids
+            
+            # Initialiser les nouveaux clients
+            for client in new_clients:
+                client_id = client.get("id")
+                client_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
+                
+                self.logger.info(f"  - Initializing new client {client_id} (current ALSA: {client_volume}%)")
+                await self._notify_volume_service_client_connected(client_id, client)
+            
+        except Exception as e:
+            self.logger.error(f"Error handling Server.OnUpdate: {e}", exc_info=True) 
+        
     
     async def _handle_response(self, response: Dict[str, Any]) -> None:
         """Traite une réponse à une requête"""
@@ -231,19 +270,24 @@ class SnapcastWebSocketService:
         client_name = client.get("config", {}).get("name", "Unknown")
         client_host = client.get("host", {}).get("name", "Unknown")
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
+        client_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
         
-        self.logger.info(f"New client '{client_name}' connected")
+        self.logger.info(f"🔵 NEW CLIENT CONNECTED:")
+        self.logger.info(f"  - ID: {client_id}")
+        self.logger.info(f"  - Name: {client_name}")
+        self.logger.info(f"  - Host: {client_host}")
+        self.logger.info(f"  - IP: {client_ip}")
+        self.logger.info(f"  - Initial ALSA volume: {client_volume}%")
         
-        # NOUVEAU : Notifier VolumeService du nouveau client (il gèrera l'initialisation du volume)
+        # Notifier VolumeService du nouveau client
         await self._notify_volume_service_client_connected(client_id, client)
         
-        # Broadcast de connexion SANS données volume
+        # Broadcast de connexion
         await self._broadcast_snapcast_event("client_connected", {
             "client_id": client_id,
             "client_name": client_name,
             "client_host": client_host,
             "client_ip": client_ip
-            # SUPPRIMÉ : "client" avec données volume - VolumeService s'en charge
         })
     
     async def _handle_client_disconnect(self, params: Dict[str, Any]) -> None:
@@ -295,23 +339,34 @@ class SnapcastWebSocketService:
             self.logger.error(f"Error delegating to VolumeService: {e}")
     
     async def _notify_volume_service_client_connected(self, client_id: str, client: Dict[str, Any]) -> None:
-        """Notifie VolumeService d'un nouveau client - Gère l'initialisation intelligente du volume"""
+        """Notifie VolumeService d'un nouveau client + bascule sur Multiroom"""
         try:
+            self.logger.info(f"🔵 _notify_volume_service_client_connected for {client_id}")
+            
             volume_service = getattr(self.state_machine, 'volume_service', None)
+            snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
+            
             if not volume_service:
+                self.logger.warning("⚠️ VolumeService not available")
                 return
             
             # Extraire le volume ALSA du client
             alsa_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
+            self.logger.info(f"  - Client ALSA volume: {alsa_volume}")
             
-            # Utiliser la nouvelle méthode d'initialisation
-            await volume_service.initialize_new_client_volume(client_id, alsa_volume)
+            # NOUVEAU : Basculer le groupe sur Multiroom AVANT d'initialiser le volume
+            if snapcast_service:
+                self.logger.info(f"  - Setting client group to Multiroom...")
+                await snapcast_service.set_client_group_to_multiroom(client_id)
             
-            self.logger.debug(f"Initialized volume for new client {client_id}")
+            # Initialiser le volume
+            result = await volume_service.initialize_new_client_volume(client_id, alsa_volume)
+            self.logger.info(f"  - initialize_new_client_volume result: {result}")
             
         except Exception as e:
-            self.logger.error(f"Error initializing new client volume: {e}")
-    
+            self.logger.error(f"❌ Error initializing new client: {e}", exc_info=True)
+            
+        
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """Diffuse un événement Snapcast via le système WebSocket Milo - VERSION ALLÉGÉE"""
         if self.state_machine:

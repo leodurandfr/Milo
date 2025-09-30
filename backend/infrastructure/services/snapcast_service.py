@@ -64,6 +64,43 @@ class SnapcastService:
             self.logger.error(f"Error setting groups to multiroom: {e}")
             return False
     
+    async def set_client_group_to_multiroom(self, client_id: str) -> bool:
+        """Bascule le groupe d'un client sur le stream Multiroom"""
+        try:
+            # Récupérer le statut pour trouver le groupe du client
+            status = await self._request("Server.GetStatus")
+            if not status:
+                return False
+            
+            groups = status.get("server", {}).get("groups", [])
+            
+            # Trouver le groupe du client
+            client_group_id = None
+            for group in groups:
+                for client in group.get("clients", []):
+                    if client.get("id") == client_id:
+                        client_group_id = group.get("id")
+                        break
+                if client_group_id:
+                    break
+            
+            if not client_group_id:
+                self.logger.warning(f"Client {client_id} not found in any group")
+                return False
+            
+            # Basculer le groupe sur Multiroom
+            result = await self._request("Group.SetStream", {
+                "id": client_group_id,
+                "stream_id": "Multiroom"
+            })
+            
+            self.logger.info(f"Client {client_id} group switched to Multiroom: {bool(result)}")
+            return bool(result)
+            
+        except Exception as e:
+            self.logger.error(f"Error setting client group to multiroom: {e}")
+            return False
+    
     # === COMMANDES CLIENT (REST uniquement) ===
     
     async def set_volume(self, client_id: str, volume: int) -> bool:
