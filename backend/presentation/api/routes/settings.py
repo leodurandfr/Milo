@@ -220,6 +220,7 @@ def create_settings_router(
         """
         Met à jour les apps activées dans le dock.
         Si une app est désactivée, arrête les processus associés.
+        Si une app est activée, démarre les processus associés (multiroom/equalizer).
         Approche stricte : une erreur = rollback complet.
         """
         try:
@@ -240,11 +241,12 @@ def create_settings_router(
             old_settings = settings.load_settings()
             old_enabled_apps = old_settings.get("dock", {}).get("enabled_apps", [])
             
-            # Détection des apps désactivées
+            # Détection des changements
             disabled_apps = set(old_enabled_apps) - set(enabled_apps)
+            enabled_apps_new = set(enabled_apps) - set(old_enabled_apps)
             
-            if not disabled_apps:
-                # Aucune app désactivée, juste sauvegarder
+            if not disabled_apps and not enabled_apps_new:
+                # Aucun changement, juste sauvegarder
                 success = settings.set_setting("dock.enabled_apps", enabled_apps)
                 if success:
                     await ws_manager.broadcast_dict({
@@ -261,7 +263,7 @@ def create_settings_router(
             operations_log = []
             
             try:
-                # Traiter chaque app désactivée
+                # === TRAITER LES DÉSACTIVATIONS ===
                 for app in disabled_apps:
                     logger.info(f"Processing disable for app: {app}")
                     
@@ -309,11 +311,45 @@ def create_settings_router(
                     
                     # === EQUALIZER ===
                     elif app == 'equalizer':
-                        # Pour l'instant : juste désactiver le routing
-                        # Pas de backup des valeurs (PHASE 2)
                         operations_log.append("Disabling equalizer routing")
                         logger.info("Disabling equalizer routing")
                         await routing_service.set_equalizer_enabled(False)
+                
+                # === TRAITER LES ACTIVATIONS ===
+                for app in enabled_apps_new:
+                    logger.info(f"Processing enable for app: {app}")
+                    
+                    # === SOURCES AUDIO : NE RIEN FAIRE ===
+                    if app in ['librespot', 'bluetooth', 'roc']:
+                        operations_log.append(f"App {app} enabled (no service start needed)")
+                        logger.info(f"App {app} enabled in dock (services will start on source change)")
+                    
+                    # === MULTIROOM ===
+                    elif app == 'multiroom':
+                        # 1. Activer le routing
+                        operations_log.append("Enabling multiroom routing")
+                        logger.info("Enabling multiroom routing")
+                        await routing_service.set_multiroom_enabled(True)
+                        
+                        # 2. Démarrer snapserver
+                        operations_log.append("Starting milo-snapserver-multiroom.service")
+                        logger.info("Starting milo-snapserver-multiroom.service")
+                        success = await systemd_manager.start("milo-snapserver-multiroom.service")
+                        if not success:
+                            raise ValueError("Failed to start milo-snapserver-multiroom.service")
+                        
+                        # 3. Démarrer snapclient
+                        operations_log.append("Starting milo-snapclient-multiroom.service")
+                        logger.info("Starting milo-snapclient-multiroom.service")
+                        success = await systemd_manager.start("milo-snapclient-multiroom.service")
+                        if not success:
+                            raise ValueError("Failed to start milo-snapclient-multiroom.service")
+                    
+                    # === EQUALIZER ===
+                    elif app == 'equalizer':
+                        operations_log.append("Enabling equalizer routing")
+                        logger.info("Enabling equalizer routing")
+                        await routing_service.set_equalizer_enabled(True)
                 
                 # Toutes les opérations ont réussi → sauvegarder les settings
                 operations_log.append("Saving new settings")
@@ -344,7 +380,7 @@ def create_settings_router(
                 raise HTTPException(
                     status_code=500,
                     detail={
-                        "message": f"Failed to disable apps: {str(e)}",
+                        "message": f"Failed to update apps: {str(e)}",
                         "operations_log": operations_log
                     }
                 )
