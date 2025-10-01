@@ -80,7 +80,7 @@ const { on } = useWebSocket();
 const ALL_AUDIO_SOURCES = [
   { id: 'librespot', icon: 'spotify' },
   { id: 'bluetooth', icon: 'bluetooth' },
-  { id: 'roc', icon: 'roc' }
+  { id: 'roc', icon: 'macos' }
 ];
 
 const ALL_ADDITIONAL_ACTIONS = [
