@@ -1,14 +1,25 @@
 # backend/presentation/api/routes/settings.py
 """
-Routes Settings - Version NETTOYÉE sans dépendances
+Routes Settings - Version avec désactivation des apps et arrêt des processus
 """
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Callable, Optional
 from backend.infrastructure.services.settings_service import SettingsService
+from backend.domain.audio_state import AudioSource
+import logging
 import asyncio
 
-def create_settings_router(ws_manager, volume_service, state_machine, screen_controller):
-    """Router settings avec pattern unifié + support 0 = désactivé + température"""
+logger = logging.getLogger(__name__)
+
+def create_settings_router(
+    ws_manager, 
+    volume_service, 
+    state_machine, 
+    screen_controller,
+    systemd_manager,
+    routing_service
+):
+    """Router settings avec désactivation propre des apps"""
     router = APIRouter()
     settings = SettingsService()
     
@@ -48,6 +59,15 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+    
+    def _get_services_for_source(source: str) -> list:
+        """Retourne la liste des services systemd pour une source audio"""
+        services_map = {
+            'librespot': ['milo-go-librespot.service'],
+            'roc': ['milo-roc.service'],
+            'bluetooth': ['milo-bluealsa-aplay.service', 'milo-bluealsa.service']
+        }
+        return services_map.get(source, [])
     
     # Language
     @router.get("/language")
@@ -184,7 +204,7 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             reload_callback=volume_service.reload_volume_steps_config
         )
     
-    # Dock apps
+    # Dock apps - VERSION AVEC DÉSACTIVATION DES PROCESSUS
     @router.get("/dock-apps")
     async def get_dock_apps():
         dock = settings.get_setting('dock') or {}
@@ -197,28 +217,143 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
     
     @router.post("/dock-apps")
     async def set_dock_apps(payload: Dict[str, Any]):
-        enabled_apps = payload.get('enabled_apps', [])
-        
-        def validate_dock_apps(p):
-            apps = p.get('enabled_apps', [])
-            if not isinstance(apps, list):
-                return False
+        """
+        Met à jour les apps activées dans le dock.
+        Si une app est désactivée, arrête les processus associés.
+        Approche stricte : une erreur = rollback complet.
+        """
+        try:
+            enabled_apps = payload.get('enabled_apps', [])
             
+            # Validation basique
             valid_apps = ["librespot", "bluetooth", "roc", "multiroom", "equalizer", "settings"]
-            if not all(app in valid_apps for app in apps):
-                return False
+            if not isinstance(enabled_apps, list) or not all(app in valid_apps for app in enabled_apps):
+                raise HTTPException(status_code=400, detail="Invalid enabled_apps list")
             
+            # Au moins une source audio doit être activée
             audio_sources = ["librespot", "bluetooth", "roc"]
-            enabled_audio_sources = [app for app in apps if app in audio_sources]
-            return len(enabled_audio_sources) > 0
+            enabled_audio_sources = [app for app in enabled_apps if app in audio_sources]
+            if not enabled_audio_sources:
+                raise HTTPException(status_code=400, detail="At least one audio source must be enabled")
+            
+            # Charger ancienne config
+            old_settings = settings.load_settings()
+            old_enabled_apps = old_settings.get("dock", {}).get("enabled_apps", [])
+            
+            # Détection des apps désactivées
+            disabled_apps = set(old_enabled_apps) - set(enabled_apps)
+            
+            if not disabled_apps:
+                # Aucune app désactivée, juste sauvegarder
+                success = settings.set_setting("dock.enabled_apps", enabled_apps)
+                if success:
+                    await ws_manager.broadcast_dict({
+                        "category": "settings",
+                        "type": "dock_apps_changed",
+                        "source": "settings",
+                        "data": {"config": {"enabled_apps": enabled_apps}}
+                    })
+                    return {"status": "success", "config": {"enabled_apps": enabled_apps}}
+                else:
+                    raise HTTPException(status_code=500, detail="Failed to save settings")
+            
+            # Log des opérations pour debug
+            operations_log = []
+            
+            try:
+                # Traiter chaque app désactivée
+                for app in disabled_apps:
+                    logger.info(f"Processing disable for app: {app}")
+                    
+                    # === SOURCES AUDIO ===
+                    if app in ['librespot', 'bluetooth', 'roc']:
+                        current_source = state_machine.system_state.active_source.value
+                        
+                        if app == current_source:
+                            # Source active : transition vers none (arrête automatiquement)
+                            operations_log.append(f"Transitioning {app} to none")
+                            logger.info(f"Transitioning active source {app} to none")
+                            success = await state_machine.transition_to_source(AudioSource.NONE)
+                            if not success:
+                                raise ValueError(f"Failed to transition from {app} to none")
+                        else:
+                            # Source inactive : arrêter directement les services
+                            services_to_stop = _get_services_for_source(app)
+                            for service in services_to_stop:
+                                operations_log.append(f"Stopping service {service}")
+                                logger.info(f"Stopping service {service}")
+                                success = await systemd_manager.stop(service)
+                                if not success:
+                                    raise ValueError(f"Failed to stop service {service}")
+                    
+                    # === MULTIROOM ===
+                    elif app == 'multiroom':
+                        # 1. Désactiver le routing
+                        operations_log.append("Disabling multiroom routing")
+                        logger.info("Disabling multiroom routing")
+                        await routing_service.set_multiroom_enabled(False)
+                        
+                        # 2. Arrêter snapserver
+                        operations_log.append("Stopping milo-snapserver-multiroom.service")
+                        logger.info("Stopping milo-snapserver-multiroom.service")
+                        success = await systemd_manager.stop("milo-snapserver-multiroom.service")
+                        if not success:
+                            raise ValueError("Failed to stop milo-snapserver-multiroom.service")
+                        
+                        # 3. Arrêter snapclient
+                        operations_log.append("Stopping milo-snapclient-multiroom.service")
+                        logger.info("Stopping milo-snapclient-multiroom.service")
+                        success = await systemd_manager.stop("milo-snapclient-multiroom.service")
+                        if not success:
+                            raise ValueError("Failed to stop milo-snapclient-multiroom.service")
+                    
+                    # === EQUALIZER ===
+                    elif app == 'equalizer':
+                        # Pour l'instant : juste désactiver le routing
+                        # Pas de backup des valeurs (PHASE 2)
+                        operations_log.append("Disabling equalizer routing")
+                        logger.info("Disabling equalizer routing")
+                        await routing_service.set_equalizer_enabled(False)
+                
+                # Toutes les opérations ont réussi → sauvegarder les settings
+                operations_log.append("Saving new settings")
+                logger.info("All operations successful, saving settings")
+                success = settings.set_setting("dock.enabled_apps", enabled_apps)
+                if not success:
+                    raise ValueError("Failed to save settings")
+                
+                # Broadcast WebSocket
+                await ws_manager.broadcast_dict({
+                    "category": "settings",
+                    "type": "dock_apps_changed",
+                    "source": "settings",
+                    "data": {"config": {"enabled_apps": enabled_apps}}
+                })
+                
+                return {
+                    "status": "success",
+                    "config": {"enabled_apps": enabled_apps},
+                    "operations": operations_log
+                }
+                
+            except Exception as e:
+                # ROLLBACK : Une erreur = annulation complète
+                logger.error(f"Error during dock-apps update: {e}")
+                logger.error(f"Operations completed before error: {operations_log}")
+                
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "message": f"Failed to disable apps: {str(e)}",
+                        "operations_log": operations_log
+                    }
+                )
         
-        return await _handle_setting_update(
-            payload,
-            validator=validate_dock_apps,
-            setter=lambda: settings.set_setting('dock.enabled_apps', enabled_apps),
-            event_type="dock_apps_changed",
-            event_data={"config": {"enabled_apps": enabled_apps}}
-        )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in dock-apps update: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
     
     # Spotify
     @router.get("/spotify-disconnect")
@@ -235,7 +370,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
         
         async def apply_to_plugin():
             try:
-                from backend.domain.audio_state import AudioSource
                 plugin = state_machine.get_plugin(AudioSource.LIBRESPOT)
                 if plugin:
                     enabled = delay != 0
@@ -321,7 +455,6 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
             if not brightness_on or not (1 <= brightness_on <= 10):
                 raise HTTPException(status_code=400, detail="brightness_on must be between 1 and 10")
             
-            import asyncio
             import os
             
             backlight_binary = os.path.expanduser("~/RPi-USB-Brightness/64/lite/Raspi_USB_Backlight_nogui -b")
@@ -355,13 +488,11 @@ def create_settings_router(ws_manager, volume_service, state_machine, screen_con
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     
-    # Température système + Throttling
+    # Température système
     @router.get("/system-temperature")
     async def get_system_temperature():
         """Récupère la température du Raspberry Pi et le statut de throttling"""
         try:
-            import asyncio
-            
             temp_process = asyncio.create_subprocess_shell(
                 "vcgencmd measure_temp",
                 stdout=asyncio.subprocess.PIPE,

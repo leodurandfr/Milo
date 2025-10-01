@@ -38,7 +38,8 @@ snapcast_websocket_service = container.snapcast_websocket_service()
 equalizer_service = container.equalizer_service()
 volume_service = container.volume_service()
 rotary_controller = container.rotary_controller()
-screen_controller = container.screen_controller()  # AJOUTÉ
+screen_controller = container.screen_controller()
+systemd_manager = container.systemd_manager()
 ws_manager = container.websocket_manager()
 websocket_server = WebSocketServer(ws_manager, state_machine)
 state_machine.volume_service = volume_service
@@ -67,14 +68,14 @@ async def lifespan(app: FastAPI):
         logger.error(f"Application startup failed: {e}")
         raise
     
-    yield  # L'application tourne
+    yield
     
     # Cleanup
     logger.info("Milo backend shutting down...")
     try:
         await snapcast_websocket_service.cleanup()
         rotary_controller.cleanup()
-        screen_controller.cleanup()  # AJOUTÉ
+        screen_controller.cleanup()
         logger.info("Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -122,7 +123,14 @@ bluetooth_router = setup_bluetooth_routes(
 )
 app.include_router(bluetooth_router)
 
-settings_router = create_settings_router(ws_manager, volume_service, state_machine, screen_controller)
+settings_router = create_settings_router(
+    ws_manager, 
+    volume_service, 
+    state_machine, 
+    screen_controller,
+    systemd_manager,
+    routing_service
+)
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
 dependencies_router = create_dependencies_router(
