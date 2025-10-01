@@ -665,21 +665,7 @@ onUnmounted(() => {
   pointer-events: auto;
 }
 
-.additional-apps-container::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 2px;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-06);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: -1;
-  pointer-events: none;
-}
+
 
 .additional-app-content {
   display: flex;
@@ -687,7 +673,7 @@ onUnmounted(() => {
   gap: var(--space-03);
   padding: var(--space-02);
   width: 100%;
-  background: var(--color-background-neutral-64);
+  background: var(--color-background-neutral-50);
   border: none;
   cursor: pointer;
   border-radius: var(--radius-04);
@@ -745,13 +731,30 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.dock::before {
+.dock::before,
+.additional-apps-container::before {
   content: '';
   position: absolute;
   inset: 0;
-  padding: 2px;
+  padding: 1.5px;
   background: var(--stroke-glass);
   border-radius: var(--radius-06);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.additional-app-content.button-interactive-subtle::before{
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1.5px;
+  background: var(--stroke-glass);
+  border-radius: var(--radius-04);
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
