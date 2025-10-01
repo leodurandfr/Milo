@@ -309,7 +309,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--color-background-contrast-64);
+  background: var(--color-background-modal);
   backdrop-filter: blur(32px);
   display: flex;
   align-items: flex-start;
