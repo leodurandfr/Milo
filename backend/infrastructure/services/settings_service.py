@@ -23,7 +23,8 @@ class SettingsService:
                 "alsa_max": 65,
                 "restore_last_volume": False,
                 "startup_volume": 24,
-                "mobile_volume_steps": 5
+                "mobile_volume_steps": 5,
+                "rotary_volume_steps": 2
             },
             "screen": {
                 "timeout_enabled": True,
@@ -113,6 +114,7 @@ class SettingsService:
         vol['restore_last_volume'] = bool(vol_input.get('restore_last_volume', False))
         vol['startup_volume'] = max(vol['alsa_min'], min(vol['alsa_max'], int(vol_input.get('startup_volume', 37))))
         vol['mobile_volume_steps'] = max(1, min(10, int(vol_input.get('mobile_volume_steps', 5))))
+        vol['rotary_volume_steps'] = max(1, min(10, int(vol_input.get('rotary_volume_steps', 2))))
         validated['volume'] = vol
         
         # Screen - MODIFIÉ : Accepter 0 pour timeout_seconds (désactivé)
@@ -202,5 +204,6 @@ class SettingsService:
             "alsa_max": volume_settings.get("alsa_max", 65),
             "startup_volume": volume_settings.get("startup_volume", 37),
             "restore_last_volume": volume_settings.get("restore_last_volume", False),
-            "mobile_volume_steps": volume_settings.get("mobile_volume_steps", 5)
+            "mobile_volume_steps": volume_settings.get("mobile_volume_steps", 5),
+            "rotary_volume_steps": volume_settings.get("rotary_volume_steps", 2)
         }

@@ -152,6 +152,7 @@ function handlePointerUp() {
   background: #FFFFFF;
   border: 2px solid #767C76;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .range-slider.horizontal::-moz-range-thumb {

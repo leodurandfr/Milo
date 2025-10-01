@@ -479,7 +479,7 @@ onMounted(async () => {
 .dependencies-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
+  gap: var(--space-03);
 }
 
 .dependency-item {

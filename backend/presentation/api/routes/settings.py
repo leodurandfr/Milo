@@ -182,7 +182,7 @@ def create_settings_router(
             reload_callback=volume_service.reload_startup_config
         )
     
-    # Volume steps
+    # Volume steps (mobile)
     @router.get("/volume-steps")
     async def get_volume_steps():
         vol = settings.get_setting('volume') or {}
@@ -202,6 +202,28 @@ def create_settings_router(
             event_type="volume_steps_changed",
             event_data={"config": {"mobile_volume_steps": steps}},
             reload_callback=volume_service.reload_volume_steps_config
+        )
+    
+    # Rotary steps
+    @router.get("/rotary-steps")
+    async def get_rotary_steps():
+        vol = settings.get_setting('volume') or {}
+        return {
+            "status": "success",
+            "config": {"rotary_volume_steps": vol.get("rotary_volume_steps", 2)}
+        }
+    
+    @router.post("/rotary-steps")
+    async def set_rotary_steps(payload: Dict[str, Any]):
+        steps = payload.get('rotary_volume_steps')
+        
+        return await _handle_setting_update(
+            payload,
+            validator=lambda p: p.get('rotary_volume_steps') is not None and 1 <= p['rotary_volume_steps'] <= 10,
+            setter=lambda: settings.set_setting('volume.rotary_volume_steps', steps),
+            event_type="rotary_steps_changed",
+            event_data={"config": {"rotary_volume_steps": steps}},
+            reload_callback=volume_service.reload_rotary_steps_config
         )
     
     # Dock apps - VERSION AVEC DÉSACTIVATION DES PROCESSUS

@@ -1,9 +1,9 @@
-<!-- frontend/src/components/ui/Toggle.vue - Font corrigée -->
+<!-- frontend/src/components/ui/Toggle.vue - Avec variantes de taille -->
 <template>
   <div class="toggle-container">
     <h2 v-if="title" class="heading-2">{{ title }}</h2>
     
-    <label :class="['toggle', `toggle--${variant}`]">
+    <label :class="['toggle', `toggle--${variant}`, `toggle--${size}`]">
       <input 
         type="checkbox" 
         :checked="modelValue"
@@ -33,6 +33,11 @@ const props = defineProps({
     type: String,
     default: 'primary',
     validator: (value) => ['primary', 'secondary'].includes(value)
+  },
+  size: {
+    type: String,
+    default: 'default',
+    validator: (value) => ['default', 'compact'].includes(value)
   }
 });
 
@@ -60,8 +65,40 @@ function handleToggle(event) {
 .toggle {
   position: relative;
   display: inline-block;
+}
+
+/* Taille par défaut - Desktop */
+.toggle--default {
   width: 70px;
   height: 40px;
+}
+
+.toggle--default .slider:before {
+  height: 36px;
+  width: 36px;
+  left: 2px;
+  bottom: 2px;
+}
+
+.toggle--default input:checked + .slider:before {
+  transform: translateX(30px);
+}
+
+/* Taille compacte - Desktop */
+.toggle--compact {
+  width: 62px;
+  height: 32px;
+}
+
+.toggle--compact .slider:before {
+  height: 28px;
+  width: 28px;
+  left: 2px;
+  bottom: 2px;
+}
+
+.toggle--compact input:checked + .slider:before {
+  transform: translateX(30px);
 }
 
 .toggle input {
@@ -84,10 +121,6 @@ function handleToggle(event) {
 .slider:before {
   position: absolute;
   content: "";
-  height: 36px;
-  width: 36px;
-  left: 2px;
-  bottom: 2px;
   background-color: var(--color-background-neutral);
   border-radius: var(--radius-full);
   transition: transform 0.2s ease;
@@ -110,11 +143,6 @@ function handleToggle(event) {
   background-color: var(--color-background-contrast);
 }
 
-/* État activé */
-input:checked + .slider:before {
-  transform: translateX(30px);
-}
-
 /* État désactivé */
 input:disabled + .slider {
   background-color: #999;
@@ -122,18 +150,22 @@ input:disabled + .slider {
 }
 
 /* Responsive - Mobile (aspect ratio < 4/3) */
+/* Sur mobile, toutes les tailles utilisent les mêmes dimensions */
 @media (max-aspect-ratio: 4/3) {
-  .toggle {
+  .toggle--default,
+  .toggle--compact {
     width: 56px;
     height: 32px;
   }
   
-  .slider:before {
+  .toggle--default .slider:before,
+  .toggle--compact .slider:before {
     height: 28px;
     width: 28px;
   }
   
-  input:checked + .slider:before {
+  .toggle--default input:checked + .slider:before,
+  .toggle--compact input:checked + .slider:before {
     transform: translateX(24px);
   }
 }

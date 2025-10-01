@@ -32,6 +32,7 @@ class VolumeService:
         self._default_startup_display_volume = 37
         self._restore_last_volume = False
         self._mobile_volume_steps = 5
+        self._rotary_volume_steps = 2
         
         # États internes
         self._precise_display_volume = 0.0
@@ -74,6 +75,7 @@ class VolumeService:
             self._default_startup_display_volume = volume_config["startup_volume"]
             self._restore_last_volume = volume_config["restore_last_volume"]
             self._mobile_volume_steps = volume_config["mobile_volume_steps"]
+            self._rotary_volume_steps = volume_config["rotary_volume_steps"]
         except Exception as e:
             self.logger.error(f"Error loading volume config: {e}")
     
@@ -177,6 +179,17 @@ class VolumeService:
             self.logger.error(f"Error reloading volume steps: {e}")
             return False
 
+    async def reload_rotary_steps_config(self) -> bool:
+        """Recharge les rotary steps"""
+        try:
+            self.settings_service._cache = None
+            volume_config = self.settings_service.get_volume_config()
+            self._rotary_volume_steps = volume_config["rotary_volume_steps"]
+            return True
+        except Exception as e:
+            self.logger.error(f"Error reloading rotary steps: {e}")
+            return False
+
     def _display_to_alsa_old_limits(self, display_volume: int, old_min: int, old_max: int) -> int:
         """Convertit avec les anciennes limites"""
         old_alsa_range = old_max - old_min
@@ -226,7 +239,6 @@ class VolumeService:
         try:
             self.logger.info(f"🔵 initialize_new_client_volume: {client_id}, alsa={client_alsa_volume}")
             
-            # NOUVEAU LOG
             self.logger.info(f"  Current _client_display_states: {list(self._client_display_states.keys())}")
             
             if client_id in self._client_display_states:
@@ -236,7 +248,6 @@ class VolumeService:
             
             self.logger.info(f"🟢 Client {client_id} is NEW")
             
-            # NOUVEAUX LOGS
             is_multiroom = self._is_multiroom_enabled()
             self.logger.info(f"  is_multiroom: {is_multiroom}")
             self.logger.info(f"  _multiroom_volume: {self._multiroom_volume}")
@@ -806,8 +817,13 @@ class VolumeService:
             "alsa_max": self._alsa_max_volume,
             "startup_volume": self._default_startup_display_volume,
             "restore_last_volume": self._restore_last_volume,
-            "mobile_steps": self._mobile_volume_steps
+            "mobile_steps": self._mobile_volume_steps,
+            "rotary_steps": self._rotary_volume_steps
         }
+    
+    def get_rotary_step(self) -> int:
+        """Retourne le step actuel du rotary encoder"""
+        return self._rotary_volume_steps
     
     async def get_status(self) -> dict:
         """État complet"""

@@ -23,7 +23,6 @@ class RotaryVolumeController:
         
         # Configuration rotary pour volume affiché  
         self.DEBOUNCE_TIME = 0.05  # 50ms debounce
-        self.VOLUME_STEP = 2       # 2 is the minimum possible, otherwise its stuck
         self.rotation_accumulator = 0
         self.is_processing = False
         self.PROCESS_INTERVAL = 0.05  # 50ms entre traitements
@@ -92,20 +91,20 @@ class RotaryVolumeController:
                 if should_process:
                     self.is_processing = True
                     
+                    # Récupérer le step dynamique depuis VolumeService
+                    volume_step = self.volume_service.get_rotary_step()
+                    
                     # Calculer le changement de volume affiché (0-100%)
-                    volume_delta = self.rotation_accumulator * self.VOLUME_STEP
+                    volume_delta = self.rotation_accumulator * volume_step
                     self.rotation_accumulator = 0
                     last_process_time = current_time
                     
-                    
-                    # Appliquer le changement via le service volume (méthode de compatibilité)
+                    # Appliquer le changement via le service volume
                     try:
                         result = await self.volume_service.adjust_display_volume(volume_delta)
-                        print(f"DEBUG ROTARY: Volume service result: {result}")
                         self._last_volume_update = current_time
-                        self.logger.debug(f"Applied volume delta: {volume_delta}% (via rotary)")
+                        self.logger.debug(f"Applied volume delta: {volume_delta}% (via rotary, step={volume_step})")
                     except Exception as e:
-                        print(f"DEBUG ROTARY: Error adjusting volume: {e}")
                         self.logger.error(f"Error adjusting volume: {e}")
                     
                     self.is_processing = False
@@ -130,13 +129,11 @@ class RotaryVolumeController:
                 if dt_state != clk_state:
                     # Rotation horaire (volume +)
                     self.rotation_accumulator += 1
-                    print(f"DEBUG ROTARY: Rotation clockwise → (+1%), accumulator={self.rotation_accumulator}")
-                    self.logger.debug("Rotation clockwise → (+1%)")
+                    self.logger.debug(f"Rotation clockwise → (+1), accumulator={self.rotation_accumulator}")
                 else:
                     # Rotation anti-horaire (volume -)
                     self.rotation_accumulator -= 1
-                    print(f"DEBUG ROTARY: Rotation counter-clockwise ← (-1%), accumulator={self.rotation_accumulator}")
-                    self.logger.debug("Rotation counter-clockwise ← (-1%)")
+                    self.logger.debug(f"Rotation counter-clockwise ← (-1), accumulator={self.rotation_accumulator}")
                 
                 self._last_adjustment_time = current_time
             

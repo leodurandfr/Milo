@@ -25,7 +25,7 @@
         <h1 class="heading-1">{{ t('Applications') }}</h1>
 
         <!-- Sources audio -->
-        <div class="app-group">
+        <div class="setting-item-container">
           <p class="app-group-title text-mono">{{ t('Sources audio') }}</p>
 
           <div class="app-list">
@@ -34,7 +34,7 @@
                 <AppIcon name="spotify" :size="32" />
                 <span class="app-name text-body">Spotify</span>
               </div>
-              <Toggle v-model="config.dock.apps.librespot" variant="primary"
+              <Toggle v-model="config.dock.apps.librespot" variant="primary" size="compact"
                 :disabled="!canDisableAudioSource('librespot')" @change="updateDockApps" />
             </div>
 
@@ -43,23 +43,23 @@
                 <AppIcon name="bluetooth" :size="32" />
                 <span class="app-name text-body">Bluetooth</span>
               </div>
-              <Toggle v-model="config.dock.apps.bluetooth" variant="primary"
+              <Toggle v-model="config.dock.apps.bluetooth" variant="primary" size="compact"
                 :disabled="!canDisableAudioSource('bluetooth')" @change="updateDockApps" />
             </div>
 
             <div class="app-item">
               <div class="app-info">
                 <AppIcon name="macos" :size="32" />
-                <span class="app-name text-body">{{ t('Réception audio Mac') }}</span>
+                <span class="app-name text-body">{{ t('macOS') }}</span>
               </div>
-              <Toggle v-model="config.dock.apps.roc" variant="primary" :disabled="!canDisableAudioSource('roc')"
-                @change="updateDockApps" />
+              <Toggle v-model="config.dock.apps.roc" variant="primary" size="compact"
+                :disabled="!canDisableAudioSource('roc')" @change="updateDockApps" />
             </div>
           </div>
         </div>
 
         <!-- Fonctionnalités -->
-        <div class="app-group">
+        <div class="setting-item-container">
           <p class="app-group-title text-mono">{{ t('Fonctionnalités') }}</p>
 
           <div class="app-list">
@@ -68,7 +68,7 @@
                 <AppIcon name="multiroom" :size="32" />
                 <span class="app-name text-body">Multiroom</span>
               </div>
-              <Toggle v-model="config.dock.apps.multiroom" variant="primary" @change="updateDockApps" />
+              <Toggle v-model="config.dock.apps.multiroom" variant="primary" size="compact" @change="updateDockApps" />
             </div>
 
             <div class="app-item">
@@ -76,7 +76,7 @@
                 <AppIcon name="equalizer" :size="32" />
                 <span class="app-name text-body">{{ t('Égaliseur') }}</span>
               </div>
-              <Toggle v-model="config.dock.apps.equalizer" variant="primary" @change="updateDockApps" />
+              <Toggle v-model="config.dock.apps.equalizer" variant="primary" size="compact" @change="updateDockApps" />
             </div>
 
             <div class="app-item">
@@ -84,7 +84,7 @@
                 <AppIcon name="settings" :size="32" />
                 <span class="app-name text-body">{{ t('Paramètres') }}</span>
               </div>
-              <Toggle v-model="config.dock.apps.settings" variant="primary" @change="updateDockApps" />
+              <Toggle v-model="config.dock.apps.settings" variant="primary" size="compact" @change="updateDockApps" />
             </div>
           </div>
         </div>
@@ -97,14 +97,30 @@
         <!-- Contrôles du volume -->
         <div class="volume-group">
           <h2 class="heading-2 text-body">{{ t('Contrôles du volume') }}</h2>
-          <div class="volume-description text-mono">
-            {{ t('Incrémentation des boutons volume en mobile') }}
+
+          <div class="setting-item-container">
+            <!-- Rotary encoder -->
+            <div class="volume-item-setting text-mono">
+              {{ t('Incrémentation du rotary encoder') }}
+            </div>
+
+            <div class="volume-steps-control">
+              <RangeSlider v-model="config.volume.rotary_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
+                @input="debouncedUpdate('rotary-steps', { rotary_volume_steps: $event })" />
+            </div>
+          </div>
+          <!-- Mobile -->
+          <div class="setting-item-container">
+
+            <div class="volume-item-setting text-mono">
+              {{ t('Incrémentation des boutons volume en mobile') }}
+            </div>
+            <div class="volume-steps-control">
+              <RangeSlider v-model="config.volume.mobile_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
+                @input="debouncedUpdate('volume-steps', { mobile_volume_steps: $event })" />
+            </div>
           </div>
 
-          <div class="volume-steps-control">
-            <RangeSlider v-model="config.volume.mobile_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
-              @input="debouncedUpdate('volume-steps', { mobile_volume_steps: $event })" />
-          </div>
         </div>
 
         <div class="settings-separator"></div>
@@ -112,13 +128,15 @@
         <!-- Limites du volume -->
         <div class="volume-group">
           <h2 class="heading-2 text-body">{{ t('Limites du volume') }}</h2>
-          <div class="volume-description text-mono">
-            {{ t('Volume minimal et maximal') }}
-          </div>
+          <div class="setting-item-container">
+            <div class="volume-item-setting text-mono">
+              {{ t('Volume minimal et maximal') }}
+            </div>
 
-          <div class="volume-limits-control">
-            <DoubleRangeSlider v-model="config.volume.limits" :min="0" :max="100" :step="1" :gap="10" value-unit="%"
-              @input="updateVolumeLimits" />
+            <div class="volume-limits-control">
+              <DoubleRangeSlider v-model="config.volume.limits" :min="0" :max="100" :step="1" :gap="10" value-unit="%"
+                @input="updateVolumeLimits" />
+            </div>
           </div>
         </div>
 
@@ -139,8 +157,8 @@
             </Button>
           </div>
 
-          <div v-if="!config.volume.restore_last_volume" class="fixed-volume-control">
-            <div class="volume-description text-mono">
+          <div v-if="!config.volume.restore_last_volume" class="setting-item-container">
+            <div class="volume-item-setting text-mono">
               {{ t('Volume fixe au démarrage') }}
             </div>
             <div class="startup-volume-control">
@@ -158,14 +176,15 @@
         <!-- Luminosité -->
         <div class="screen-group">
           <h2 class="heading-2 text-body">{{ t('Luminosité') }}</h2>
+          <div class="setting-item-container">
+            <div class="screen-description text-mono">
+              {{ t('Intensité de la luminosité') }}
+            </div>
 
-          <div class="screen-description text-mono">
-            {{ t('Intensité de la luminosité') }}
-          </div>
-
-          <div class="brightness-control">
-            <RangeSlider v-model="config.screen.brightness_on" :min="1" :max="10" :step="1" value-unit=""
-              @input="handleBrightnessChange" />
+            <div class="brightness-control">
+              <RangeSlider v-model="config.screen.brightness_on" :min="1" :max="10" :step="1" value-unit=""
+                @input="handleBrightnessChange" />
+            </div>
           </div>
         </div>
 
@@ -174,16 +193,17 @@
         <!-- Mise en veille automatique -->
         <div class="screen-group">
           <h2 class="heading-2 text-body">{{ t('Mise en veille automatique') }}</h2>
+          <div class="setting-item-container">
+            <div class="screen-description text-mono">
+              {{ t('Délai de la mise en veille après :') }}
+            </div>
 
-          <div class="screen-description text-mono">
-            {{ t('Délai de la mise en veille après :') }}
-          </div>
-
-          <div class="timeout-buttons">
-            <Button v-for="timeout in timeoutPresets" :key="timeout.value" variant="toggle"
-              :active="isTimeoutActive(timeout.value)" @click="setScreenTimeout(timeout.value)">
-              {{ timeout.label }}
-            </Button>
+            <div class="timeout-buttons">
+              <Button v-for="timeout in timeoutPresets" :key="timeout.value" variant="toggle"
+                :active="isTimeoutActive(timeout.value)" @click="setScreenTimeout(timeout.value)">
+                {{ timeout.label }}
+              </Button>
+            </div>
           </div>
         </div>
       </section>
@@ -194,16 +214,17 @@
 
         <div class="spotify-group">
           <h2 class="heading-2 text-body">{{ t('Déconnexion automatique') }}</h2>
+          <div class="setting-item-container">
+            <div class="spotify-description text-mono">
+              {{ t('Délai de déconnexion après que la musique soit en pause pendant :') }}
+            </div>
 
-          <div class="spotify-description text-mono">
-            {{ t('Délai de déconnexion après que la musique soit en pause pendant :') }}
-          </div>
-
-          <div class="disconnect-buttons">
-            <Button v-for="delay in disconnectPresets" :key="delay.value" variant="toggle"
-              :active="isDisconnectActive(delay.value)" @click="setSpotifyDisconnect(delay.value)">
-              {{ delay.label }}
-            </Button>
+            <div class="disconnect-buttons">
+              <Button v-for="delay in disconnectPresets" :key="delay.value" variant="toggle"
+                :active="isDisconnectActive(delay.value)" @click="setSpotifyDisconnect(delay.value)">
+                {{ delay.label }}
+              </Button>
+            </div>
           </div>
         </div>
       </section>
@@ -256,6 +277,7 @@ const { on } = useWebSocket();
 const config = ref({
   volume: {
     mobile_volume_steps: 5,
+    rotary_volume_steps: 2,
     limits: { min: 0, max: 65 },
     restore_last_volume: false,
     startup_volume: 37
@@ -406,10 +428,11 @@ let temperatureInterval = null;
 
 async function loadAllConfigs() {
   try {
-    const [volumeLimits, volumeStartup, volumeSteps, spotify, screenTimeout, brightness, dockApps] = await Promise.all([
+    const [volumeLimits, volumeStartup, volumeSteps, rotarySteps, spotify, screenTimeout, brightness, dockApps] = await Promise.all([
       axios.get('/api/settings/volume-limits'),
       axios.get('/api/settings/volume-startup'),
       axios.get('/api/settings/volume-steps'),
+      axios.get('/api/settings/rotary-steps'),
       axios.get('/api/settings/spotify-disconnect'),
       axios.get('/api/settings/screen-timeout'),
       axios.get('/api/settings/screen-brightness'),
@@ -430,6 +453,10 @@ async function loadAllConfigs() {
 
     if (volumeSteps.data.status === 'success') {
       config.value.volume.mobile_volume_steps = volumeSteps.data.config.mobile_volume_steps || 5;
+    }
+
+    if (rotarySteps.data.status === 'success') {
+      config.value.volume.rotary_volume_steps = rotarySteps.data.config.rotary_volume_steps || 2;
     }
 
     if (spotify.data.status === 'success') {
@@ -479,6 +506,11 @@ const wsListeners = {
   volume_steps_changed: (msg) => {
     if (msg.data?.config?.mobile_volume_steps) {
       config.value.volume.mobile_volume_steps = msg.data.config.mobile_volume_steps;
+    }
+  },
+  rotary_steps_changed: (msg) => {
+    if (msg.data?.config?.rotary_volume_steps) {
+      config.value.volume.rotary_volume_steps = msg.data.config.rotary_volume_steps;
     }
   },
   spotify_disconnect_changed: (msg) => {
@@ -550,8 +582,6 @@ onUnmounted(() => {
   align-items: center;
 }
 
-
-
 .modal-header h2 {
   color: var(--color-text-contrast);
 }
@@ -621,7 +651,7 @@ onUnmounted(() => {
 .app-group {
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
+  gap: var(--space-03);
 }
 
 .app-group-title {
@@ -630,8 +660,8 @@ onUnmounted(() => {
 }
 
 .app-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: var(--space-02);
 }
 
@@ -639,7 +669,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-02) var(--space-02) var(--space-02) var(--space-04);
+  padding: var(--space-02);
   background: var(--color-background-strong);
   border-radius: var(--radius-04);
 }
@@ -660,7 +690,13 @@ onUnmounted(() => {
   gap: var(--space-04);
 }
 
-.volume-description,
+.setting-item-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.volume-item-setting,
 .screen-description,
 .spotify-description {
   color: var(--color-text-secondary);
@@ -685,12 +721,6 @@ onUnmounted(() => {
 
 .startup-mode-buttons .btn {
   flex: 1;
-}
-
-.fixed-volume-control {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
 }
 
 .screen-group {
@@ -753,6 +783,12 @@ onUnmounted(() => {
 
   .info-grid {
     grid-template-columns: 1fr;
+  }
+
+  .app-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-02);
   }
 
   .timeout-buttons,
