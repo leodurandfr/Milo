@@ -19,9 +19,9 @@ Milō is an audio application for Raspberry Pi that transforms your device into 
 - Centralized volume control
 
 ## Additional applications 
-- [Milō Mac](https://github.com/Leshauts/Milo-Mac) : Native look and feel app in Menu Bar to control Milo from your Mac.
+- [Milō Mac](https://github.com/Leshauts/Milo-Mac) : Native look and feel app in Menu Bar to control Milō from your Mac.
 - [Milō iOS](https://github.com/Leshauts/Milo-iOS) : iOS app that displays milo.local in full screen
-- Milō Android : Android app that displays milo.local in full screen [wip: need to add project in Github]
+- [Milō Android](https://github.com/Leshauts/Milo-Android) : Android app that displays milo.local in full screen
 
 ## Dependencies
 - go-librespot (Spotify Connect)
