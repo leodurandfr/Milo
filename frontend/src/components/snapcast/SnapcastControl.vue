@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue - VERSION FINALE avec événement anticipé -->
 <template>
   <div v-if="!isMultiroomActive" class="not-active">
     <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
@@ -6,9 +6,9 @@
   </div>
 
   <div v-else class="clients-container">
-    <!-- Skeletons pendant premier chargement -->
+    <!-- Skeletons pendant chargement initial -->
     <div v-if="showSkeletons" class="clients-list">
-      <SnapclientItemSkeleton v-for="i in 3" :key="`skeleton-${i}`" />
+      <SnapclientItemSkeleton v-for="i in 3" :key="`skeleton-${i}`" class="fade-in" />
     </div>
 
     <!-- Message si aucun client -->
@@ -19,9 +19,18 @@
 
     <!-- Liste des clients -->
     <div v-else class="clients-list">
-      <SnapclientItem v-for="client in clients" :key="client.id" :client="client"
-        :class="{ 'fade-in': fadingInClients.includes(client.id), 'fade-out': fadingOutClients.includes(client.id) }"
-        @volume-change="handleVolumeChange" @mute-toggle="handleMuteToggle" @show-details="handleShowDetails" />
+      <SnapclientItem 
+        v-for="client in clients" 
+        :key="client.id" 
+        :client="client"
+        :class="{ 
+          'fade-in': fadingInClients.includes(client.id), 
+          'fade-out': fadingOutClients.includes(client.id) 
+        }"
+        @volume-change="handleVolumeChange" 
+        @mute-toggle="handleMuteToggle" 
+        @show-details="handleShowDetails" 
+      />
     </div>
   </div>
 </template>
@@ -72,24 +81,26 @@ function sortClients(clientsList) {
   });
 }
 
-// État local - Initialiser avec le cache immédiatement
-const cache = loadCache();
-const clients = ref(cache ? sortClients(cache) : []);
-const showSkeletons = ref(!cache);
+// États
+const clients = ref([]);
+const showSkeletons = ref(false);
 const fadingInClients = ref([]);
 const fadingOutClients = ref([]);
+const isDeactivating = ref(false);
 let unsubscribeFunctions = [];
 
 const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
 
 // === ANIMATIONS ===
-async function fadeOutClients(clientIds) {
-  if (clientIds.length === 0) return;
+async function fadeOutAllClients() {
+  if (clients.value.length === 0) return;
 
-  fadingOutClients.value = clientIds;
+  const allIds = clients.value.map(c => c.id);
+  fadingOutClients.value = allIds;
+  
   await new Promise(resolve => setTimeout(resolve, 200));
-
-  clients.value = clients.value.filter(c => !clientIds.includes(c.id));
+  
+  clients.value = [];
   fadingOutClients.value = [];
 }
 
@@ -109,10 +120,7 @@ async function fadeInClients(newClients) {
 async function fetchSnapcastClients() {
   try {
     const response = await axios.get('/api/routing/snapcast/clients');
-    if (response.data.clients) {
-      return sortClients(response.data.clients);
-    }
-    return [];
+    return response.data.clients ? sortClients(response.data.clients) : [];
   } catch (error) {
     console.error('Error fetching clients:', error);
     return [];
@@ -123,20 +131,14 @@ async function fetchSnapcastClients() {
 async function loadSnapcastClients() {
   const cache = loadCache();
 
-  if (!cache || cache.length === 0) {
-    // PREMIÈRE FOIS - Skeletons
-    const freshClients = await fetchSnapcastClients();
-
+  if (cache && cache.length > 0) {
+    // AVEC CACHE : Affichage immédiat
+    clients.value = cache;
     showSkeletons.value = false;
-    clients.value = freshClients;
-
-    if (freshClients.length > 0) {
-      saveCache(freshClients);
-    }
-  } else {
-    // FOIS SUIVANTES - Cache déjà affiché
+    
+    // Fetch en arrière-plan
     const freshClients = await fetchSnapcastClients();
-
+    
     const cacheIds = new Set(cache.map(c => c.id));
     const freshIds = new Set(freshClients.map(c => c.id));
 
@@ -144,7 +146,10 @@ async function loadSnapcastClients() {
     const addedClients = freshClients.filter(c => !cacheIds.has(c.id));
 
     if (removedIds.length > 0) {
-      await fadeOutClients(removedIds);
+      fadingOutClients.value = removedIds;
+      await new Promise(resolve => setTimeout(resolve, 200));
+      clients.value = clients.value.filter(c => !removedIds.includes(c.id));
+      fadingOutClients.value = [];
     }
 
     if (addedClients.length > 0) {
@@ -153,6 +158,21 @@ async function loadSnapcastClients() {
 
     clients.value = sortClients(freshClients);
     saveCache(freshClients);
+    
+  } else {
+    // SANS CACHE : Skeletons puis fade-in groupé
+    showSkeletons.value = true;
+    
+    const freshClients = await fetchSnapcastClients();
+    
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    showSkeletons.value = false;
+    
+    if (freshClients.length > 0) {
+      await fadeInClients(freshClients);
+      saveCache(freshClients);
+    }
   }
 }
 
@@ -179,32 +199,35 @@ function handleShowDetails(client) {
 
 // === WEBSOCKET HANDLERS ===
 async function handleClientConnected(event) {
-  console.log('🟢 handleClientConnected CALLED', event);
-  console.log('🟢 event.data:', event.data);
-  
-  // CORRECTION : Extraire AUSSI volume et muted
   const { client_id, client_name, client_host, client_ip, volume, muted } = event.data;
   
-  if (client_id && !clients.value.find(c => c.id === client_id)) {
-    const newClient = {
-      id: client_id,
-      name: client_name || client_host || 'Unknown',
-      host: client_host || 'unknown',
-      volume: volume || 0,     // CORRECTION : Utiliser la valeur de l'event
-      muted: muted || false,   // CORRECTION : Utiliser la valeur de l'event
-      ip: client_ip || 'Unknown'
-    };
-    
-    console.log('🟢 New client object:', newClient);
-    await fadeInClients([newClient]);
-    saveCache(clients.value);
-  }
+  if (!client_id || isDeactivating.value) return;
+  if (clients.value.find(c => c.id === client_id)) return;
+
+  const newClient = {
+    id: client_id,
+    name: client_name || client_host || 'Unknown',
+    host: client_host || 'unknown',
+    volume: volume || 0,
+    muted: muted || false,
+    ip: client_ip || 'Unknown'
+  };
+  
+  await fadeInClients([newClient]);
+  saveCache(clients.value);
 }
 
 async function handleClientDisconnected(event) {
+  if (isDeactivating.value) return;
+  
   const clientId = event.data.client_id;
-  if (clients.value.find(c => c.id === clientId)) {
-    await fadeOutClients([clientId]);
+  const client = clients.value.find(c => c.id === clientId);
+  
+  if (client) {
+    fadingOutClients.value = [clientId];
+    await new Promise(resolve => setTimeout(resolve, 200));
+    clients.value = clients.value.filter(c => c.id !== clientId);
+    fadingOutClients.value = [];
     saveCache(clients.value);
   }
 }
@@ -240,24 +263,38 @@ function handleSystemStateChanged(event) {
   unifiedStore.updateState(event);
 }
 
+// === HANDLER POUR DÉSACTIVATION ANTICIPÉE ===
+async function handleMultiroomDisabling(event) {
+  console.log('🚨 MULTIROOM DISABLING EVENT REÇU');
+  
+  // Activer immédiatement le flag pour ignorer les événements suivants
+  isDeactivating.value = true;
+  
+  // Fade-out synchronisé de TOUS les clients actuels
+  await fadeOutAllClients();
+  showSkeletons.value = false;
+  
+  // Maintenir le flag pendant 1 seconde pour ignorer tous les client_disconnected
+  setTimeout(() => {
+    isDeactivating.value = false;
+    console.log('✅ Flag isDeactivating désactivé');
+  }, 1000);
+}
+
 // === LIFECYCLE ===
 onMounted(async () => {
   if (isMultiroomActive.value) {
     await loadSnapcastClients();
   }
 
-  console.log('🔵 Registering WebSocket handlers');
-
   unsubscribeFunctions.push(
-    on('snapcast', 'client_connected', (event) => {
-      console.log('🔵 RAW client_connected event:', event);
-      handleClientConnected(event);
-    }),
+    on('snapcast', 'client_connected', handleClientConnected),
     on('snapcast', 'client_disconnected', handleClientDisconnected),
     on('snapcast', 'client_volume_changed', handleClientVolumeChanged),
     on('snapcast', 'client_name_changed', handleClientNameChanged),
     on('snapcast', 'client_mute_changed', handleClientMuteChanged),
-    on('system', 'state_changed', handleSystemStateChanged)
+    on('system', 'state_changed', handleSystemStateChanged),
+    on('routing', 'multiroom_disabling', handleMultiroomDisabling) // NOUVEAU
   );
 });
 
@@ -265,14 +302,14 @@ onUnmounted(() => {
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
 });
 
-// Watcher pour le mode multiroom
-watch(isMultiroomActive, async (newValue) => {
-  if (newValue) {
+// === WATCHER POUR ACTIVATION UNIQUEMENT ===
+watch(isMultiroomActive, async (newValue, oldValue) => {
+  if (newValue && !oldValue) {
+    // ACTIVATION
+    isDeactivating.value = false;
     await loadSnapcastClients();
-  } else {
-    clients.value = [];
-    showSkeletons.value = false;
   }
+  // La désactivation est gérée par handleMultiroomDisabling
 });
 </script>
 
@@ -316,7 +353,6 @@ watch(isMultiroomActive, async (newValue) => {
     opacity: 0;
     transform: translateY(-8px);
   }
-
   to {
     opacity: 1;
     transform: translateY(0);
@@ -328,7 +364,6 @@ watch(isMultiroomActive, async (newValue) => {
     opacity: 1;
     transform: translateY(0);
   }
-
   to {
     opacity: 0;
     transform: translateY(-8px);

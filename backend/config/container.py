@@ -136,6 +136,9 @@ class Container(containers.DeclarativeContainer):
         # Configuration snapcast_service pour auto-configuration sur "Multiroom"
         routing_service.set_snapcast_service(container.snapcast_service())
 
+        # Configuration state_machine pour routing_service
+        routing_service.set_state_machine(state_machine)
+
         # Résoudre la référence circulaire state_machine ↔ routing_service
         state_machine.routing_service = routing_service
         
