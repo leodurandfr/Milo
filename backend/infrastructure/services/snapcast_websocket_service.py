@@ -264,30 +264,38 @@ class SnapcastWebSocketService:
     # === HANDLERS ALLÉGÉS - SANS GESTION VOLUME ===
     
     async def _handle_client_connect(self, params: Dict[str, Any]) -> None:
-        """Client connecté - SANS initialisation volume (VolumeService s'en charge)"""
+        """Client connecté - Version avec volume converti (sans fallback)"""
         client = params.get("client", {})
         client_id = client.get("id")
         client_name = client.get("config", {}).get("name", "Unknown")
         client_host = client.get("host", {}).get("name", "Unknown")
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
-        client_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
+        alsa_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
+        
+        # Conversion ALSA → Display (OBLIGATOIRE)
+        volume_service = getattr(self.state_machine, 'volume_service', None)
+        if not volume_service:
+            self.logger.error("❌ VolumeService not available - cannot convert volume")
+            return  # Ne pas envoyer l'événement avec un volume incorrect
+        
+        display_volume = volume_service.convert_alsa_to_display(alsa_volume)
         
         self.logger.info(f"🔵 NEW CLIENT CONNECTED:")
         self.logger.info(f"  - ID: {client_id}")
         self.logger.info(f"  - Name: {client_name}")
         self.logger.info(f"  - Host: {client_host}")
         self.logger.info(f"  - IP: {client_ip}")
-        self.logger.info(f"  - Initial ALSA volume: {client_volume}%")
+        self.logger.info(f"  - ALSA volume: {alsa_volume}% → Display: {display_volume}%")
         
-        # Notifier VolumeService du nouveau client
         await self._notify_volume_service_client_connected(client_id, client)
         
-        # Broadcast de connexion
         await self._broadcast_snapcast_event("client_connected", {
             "client_id": client_id,
             "client_name": client_name,
             "client_host": client_host,
-            "client_ip": client_ip
+            "client_ip": client_ip,
+            "volume": display_volume,
+            "muted": client.get("config", {}).get("volume", {}).get("muted", False)
         })
     
     async def _handle_client_disconnect(self, params: Dict[str, Any]) -> None:

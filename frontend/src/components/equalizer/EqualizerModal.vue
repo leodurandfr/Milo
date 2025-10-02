@@ -1,4 +1,4 @@
-<!-- frontend/src/components/equalizer/EqualizerModal.vue - Version OPTIM nettoyée -->
+<!-- frontend/src/components/equalizer/EqualizerModal.vue -->
 <template>
   <div class="equalizer-modal">
     <div class="screen-main">
@@ -21,16 +21,21 @@
         </div>
 
         <div v-else class="equalizer-controls">
-          <div v-if="loading" class="loading-state">
-            <Icon name="equalizer" :size="148" color="var(--color-background-glass)" />
-            <p class="text-mono">{{ $t('Chargement de l’égaliseur') }}</p>
-          </div>
-
-          <template v-else>
-            <RangeSliderEqualizer v-for="band in bands" :key="band.id" v-model="band.value" :label="band.display_name"
-              :orientation="sliderOrientation" :min="0" :max="100" :step="1" unit="%" :disabled="updating"
-              @input="handleBandInput(band.id, $event)" @change="handleBandChange(band.id, $event)" />
-          </template>
+          <RangeSliderEqualizer 
+            v-for="band in bands" 
+            :key="band.id" 
+            v-model="band.value" 
+            :label="band.display_name"
+            :orientation="sliderOrientation" 
+            :min="0" 
+            :max="100" 
+            :step="1" 
+            unit="%" 
+            :disabled="updating || !bandsLoaded"
+            :class="{ 'slider-loading': !bandsLoaded }"
+            @input="handleBandInput(band.id, $event)" 
+            @change="handleBandChange(band.id, $event)" 
+          />
         </div>
       </div>
     </div>
@@ -50,29 +55,118 @@ import Icon from '@/components/ui/Icon.vue';
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
+// === CONSTANTES ===
+const STATIC_BANDS = [
+  { id: "00", freq: "31 Hz", display_name: "31" },
+  { id: "01", freq: "63 Hz", display_name: "63" },
+  { id: "02", freq: "125 Hz", display_name: "125" },
+  { id: "03", freq: "250 Hz", display_name: "250" },
+  { id: "04", freq: "500 Hz", display_name: "500" },
+  { id: "05", freq: "1 kHz", display_name: "1K" },
+  { id: "06", freq: "2 kHz", display_name: "2K" },
+  { id: "07", freq: "4 kHz", display_name: "4K" },
+  { id: "08", freq: "8 kHz", display_name: "8K" },
+  { id: "09", freq: "16 kHz", display_name: "16K" }
+];
+
+const DEFAULT_VALUE = 66;
+const CACHE_KEY = 'equalizer_bands_cache';
+
 // État local
-const loading = ref(false);
 const updating = ref(false);
 const resetting = ref(false);
 const bands = ref([]);
+const bandsLoaded = ref(false);
 const isMobile = ref(false);
 
-// Gestion du throttling pour les bandes
+// Gestion du throttling
 const bandThrottleMap = new Map();
 const THROTTLE_DELAY = 100;
 const FINAL_DELAY = 300;
 
-// Références pour nettoyage
 let unsubscribeFunctions = [];
 
 // Computed
 const isEqualizerEnabled = computed(() => unifiedStore.equalizerEnabled);
 const sliderOrientation = computed(() => isMobile.value ? 'horizontal' : 'vertical');
 
-// Détection mobile
-function updateMobileStatus() {
-  const aspectRatio = window.innerWidth / window.innerHeight;
-  isMobile.value = aspectRatio <= 4 / 3;
+// === CACHE MANAGEMENT ===
+function loadCache() {
+  try {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (!cached) return null;
+    return JSON.parse(cached);
+  } catch (error) {
+    console.error('Error loading equalizer cache:', error);
+    return null;
+  }
+}
+
+function saveCache(bandsList) {
+  try {
+    const cacheData = bandsList.map(b => ({ id: b.id, value: b.value }));
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+  } catch (error) {
+    console.error('Error saving equalizer cache:', error);
+  }
+}
+
+// === INITIALISATION DES BANDES ===
+function initializeBands() {
+  const cache = loadCache();
+  
+  if (cache && cache.length === 10) {
+    // Utiliser le cache
+    bands.value = STATIC_BANDS.map(staticBand => {
+      const cachedBand = cache.find(c => c.id === staticBand.id);
+      return {
+        ...staticBand,
+        value: cachedBand ? cachedBand.value : DEFAULT_VALUE
+      };
+    });
+  } else {
+    // Valeurs par défaut
+    bands.value = STATIC_BANDS.map(band => ({
+      ...band,
+      value: DEFAULT_VALUE
+    }));
+  }
+}
+
+// === LOAD EQUALIZER DATA ===
+async function loadEqualizerData() {
+  if (!isEqualizerEnabled.value) return;
+
+  bandsLoaded.value = false;
+  
+  try {
+    const [statusResponse, bandsResponse] = await Promise.all([
+      axios.get('/api/equalizer/status'),
+      axios.get('/api/equalizer/bands')
+    ]);
+
+    if (statusResponse.data.available && bandsResponse.data.bands) {
+      const apiBands = bandsResponse.data.bands;
+      
+      // Animer vers les vraies valeurs
+      bands.value = bands.value.map(band => {
+        const apiBand = apiBands.find(b => b.id === band.id);
+        return {
+          ...band,
+          value: apiBand ? apiBand.value : band.value
+        };
+      });
+      
+      saveCache(bands.value);
+    }
+  } catch (error) {
+    console.error('Error loading equalizer data:', error);
+  } finally {
+    // Petit délai pour l'animation CSS
+    setTimeout(() => {
+      bandsLoaded.value = true;
+    }, 50);
+  }
 }
 
 // === FETCH INITIAL ===
@@ -93,27 +187,10 @@ async function fetchEqualizerState() {
   }
 }
 
-async function loadEqualizerData() {
-  if (!isEqualizerEnabled.value) return;
-
-  loading.value = true;
-  try {
-    const [statusResponse, bandsResponse] = await Promise.all([
-      axios.get('/api/equalizer/status'),
-      axios.get('/api/equalizer/bands')
-    ]);
-
-    if (statusResponse.data.available) {
-      bands.value = bandsResponse.data.bands || [];
-    } else {
-      bands.value = [];
-    }
-  } catch (error) {
-    console.error('Error loading equalizer data:', error);
-    bands.value = [];
-  } finally {
-    loading.value = false;
-  }
+// === DÉTECTION MOBILE ===
+function updateMobileStatus() {
+  const aspectRatio = window.innerWidth / window.innerHeight;
+  isMobile.value = aspectRatio <= 4 / 3;
 }
 
 // === GESTION DES BANDES ===
@@ -126,6 +203,7 @@ function handleBandInput(bandId, value) {
 function handleBandChange(bandId, value) {
   sendBandRequest(bandId, value);
   clearThrottleForBand(bandId);
+  saveCache(bands.value);
 }
 
 function handleBandThrottled(bandId, value) {
@@ -181,6 +259,7 @@ async function resetAllBands() {
     const response = await axios.post('/api/equalizer/reset', { value: 66 });
     if (response.data.status === 'success') {
       bands.value.forEach(band => { band.value = 66; });
+      saveCache(bands.value);
     }
   } catch (error) {
     console.error('Error resetting bands:', error);
@@ -214,9 +293,10 @@ const watcherInterval = setInterval(() => {
   if (lastEqualizerState !== isEqualizerEnabled.value) {
     lastEqualizerState = isEqualizerEnabled.value;
     if (isEqualizerEnabled.value) {
+      initializeBands();
       loadEqualizerData();
     } else {
-      bands.value = [];
+      bandsLoaded.value = false;
       bandThrottleMap.forEach(state => {
         if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
         if (state.finalTimeout) clearTimeout(state.finalTimeout);
@@ -230,6 +310,9 @@ const watcherInterval = setInterval(() => {
 onMounted(async () => {
   updateMobileStatus();
   window.addEventListener('resize', updateMobileStatus);
+  
+  // Initialiser les bandes immédiatement
+  initializeBands();
   
   await fetchEqualizerState();
   
@@ -316,11 +399,14 @@ onUnmounted(() => {
   overflow-x: auto;
 }
 
-.loading-state {
-  width: 100%;
-  text-align: center;
-  padding: 20px;
-  align-self: center;
+/* Animation de chargement des sliders */
+.slider-loading {
+  opacity: 0.5;
+  transition: opacity 200ms ease-out;
+}
+
+.slider-loading:not(.slider-loading) {
+  opacity: 1;
 }
 
 @media (max-aspect-ratio: 4/3) {

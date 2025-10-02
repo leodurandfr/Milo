@@ -1,4 +1,4 @@
-// frontend/src/stores/unifiedAudioStore.js - Version volume affiché simplifié
+// frontend/src/stores/unifiedAudioStore.js - Version avec chargement routing au démarrage
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
@@ -19,7 +19,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // État volume simplifié - UNIQUEMENT volume affiché (0-100%)
   const volumeState = ref({
     currentVolume: 0
-    // Plus de limits - les limites ALSA sont gérées côté backend uniquement
   });
 
   let volumeBarRef = null;
@@ -41,10 +40,9 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return systemState.value.active_source;
   });
 
-  // Volume getter simplifié
   const currentVolume = computed(() => volumeState.value.currentVolume);
 
-  // === ACTIONS AUDIO (inchangées) ===
+  // === ACTIONS AUDIO ===
   async function changeSource(source) {
     try {
       console.log('🚀 CHANGING SOURCE TO:', source);
@@ -91,7 +89,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  // === ACTIONS VOLUME SIMPLIFIÉES ===
+  // === ACTIONS VOLUME ===
   async function setVolume(volume, showBar = true) {
     try {
       const response = await axios.post('/api/volume/set', {
@@ -129,19 +127,15 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return await adjustVolume(-5);
   }
 
-  // === REFRESH (PROTECTION ANTI-ÉCRASEMENT) ===
+  // === REFRESH (AVEC CHARGEMENT ROUTING) ===
   async function refreshState() {
     try {
-      // console.log('🔄 Refreshing unified state...');
-
       if (systemState.value.transitioning) {
-        // console.log('⚠️ Skipping refresh - transition in progress');
         return true;
       }
 
       const now = Date.now();
       if (lastWebSocketUpdate && (now - lastWebSocketUpdate) < 1000) {
-        // console.log('⚠️ Skipping refresh - recent WebSocket update');
         return true;
       }
 
@@ -174,15 +168,24 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         }
       }
 
-      // État volume (simplifié)
+      // État volume
       const volumeResponse = await axios.get('/api/volume/status');
       if (volumeResponse.data?.status === 'success') {
         const data = volumeResponse.data.data;
         volumeState.value.currentVolume = data.volume || 0;
-        // Plus de gestion des limites - tout est en 0-100%
       }
 
-      // console.log('✅ Unified state refreshed');
+      // AJOUT : État routing (multiroom + equalizer)
+      const routingResponse = await axios.get('/api/routing/status');
+      if (routingResponse.data?.routing) {
+        if (routingResponse.data.routing.multiroom_enabled !== undefined) {
+          systemState.value.multiroom_enabled = routingResponse.data.routing.multiroom_enabled;
+        }
+        if (routingResponse.data.routing.equalizer_enabled !== undefined) {
+          systemState.value.equalizer_enabled = routingResponse.data.routing.equalizer_enabled;
+        }
+      }
+
       return true;
 
     } catch (error) {
@@ -191,7 +194,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  // === GESTION VISIBILITÉ (inchangée) ===
+  // === GESTION VISIBILITÉ ===
   function setupVisibilityListener() {
     const visibilityHandler = () => {
       if (!document.hidden) {
@@ -212,14 +215,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     };
   }
 
-  // === MISE À JOUR D'ÉTAT  ===
+  // === MISE À JOUR D'ÉTAT ===
   function updateSystemState(newState, source = 'unknown') {
-    // console.log('🐛 UPDATE SYSTEM STATE - Source:', source);
-    // console.log('🐛 NEW STATE MULTIROOM:', newState.multiroom_enabled);
-    // console.log('🐛 NEW STATE EQUALIZER:', newState.equalizer_enabled);
-
-    // console.log('🐛 AVANT UPDATE - systemState:', JSON.stringify(systemState.value));
-
     systemState.value = {
       active_source: newState.active_source || 'none',
       plugin_state: newState.plugin_state || 'inactive',
@@ -230,13 +227,9 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : systemState.value.multiroom_enabled,
       equalizer_enabled: newState.equalizer_enabled !== undefined ? newState.equalizer_enabled : systemState.value.equalizer_enabled
     };
-
-    // console.log('🐛 APRÈS UPDATE - systemState:', JSON.stringify(systemState.value));
   }
 
   function updateState(event) {
-    // console.log('🌐 WEBSOCKET EVENT:', event);
-
     if (event.data?.full_state) {
       lastWebSocketUpdate = Date.now();
       updateSystemState(event.data.full_state, 'websocket');
@@ -245,10 +238,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   function handleVolumeEvent(event) {
     if (event.data && typeof event.data.volume === 'number') {
-      // Volume simplifié - toujours 0-100%
       volumeState.value.currentVolume = event.data.volume;
 
-      // Afficher la barre pour tous les changements de volume
       if (volumeBarRef && volumeBarRef.value) {
         try {
           volumeBarRef.value.showVolume();
