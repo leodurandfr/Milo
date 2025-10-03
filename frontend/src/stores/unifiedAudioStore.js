@@ -1,4 +1,4 @@
-// frontend/src/stores/unifiedAudioStore.js - Version avec chargement routing au démarrage
+// frontend/src/stores/unifiedAudioStore.js - Version avec état de transition multiroom
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
@@ -20,6 +20,9 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   const volumeState = ref({
     currentVolume: 0
   });
+
+  // État de transition multiroom
+  const isMultiroomTransitioning = ref(false);
 
   let volumeBarRef = null;
   let lastWebSocketUpdate = 0;
@@ -127,6 +130,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return await adjustVolume(-5);
   }
 
+  // === ACTIONS TRANSITION MULTIROOM ===
+  function setMultiroomTransitioning(value) {
+    isMultiroomTransitioning.value = value;
+  }
+
   // === REFRESH (AVEC CHARGEMENT ROUTING) ===
   async function refreshState() {
     try {
@@ -175,7 +183,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         volumeState.value.currentVolume = data.volume || 0;
       }
 
-      // AJOUT : État routing (multiroom + equalizer)
+      // État routing (multiroom + equalizer)
       const routingResponse = await axios.get('/api/routing/status');
       if (routingResponse.data?.routing) {
         if (routingResponse.data.routing.multiroom_enabled !== undefined) {
@@ -258,6 +266,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // État
     systemState,
     volumeState,
+    isMultiroomTransitioning,
 
     // Getters
     currentSource,
@@ -282,6 +291,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     decreaseVolume,
     handleVolumeEvent,
     setVolumeBarRef,
+    setMultiroomTransitioning,
     refreshState,
     setupVisibilityListener
   };

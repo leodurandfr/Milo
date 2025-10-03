@@ -1,6 +1,6 @@
-# backend/infrastructure/services/audio_routing_service.py - Version corrigée
+# backend/infrastructure/services/audio_routing_service.py
 """
-Service de routage audio pour Milo - Version avec événement multiroom_disabling
+Service de routage audio pour Milo - Version avec événements multiroom_enabling et multiroom_disabling
 """
 import os
 import json
@@ -14,7 +14,7 @@ from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class AudioRoutingService:
-    """Service de routage audio avec notification anticipée de désactivation"""
+    """Service de routage audio avec notifications anticipées d'activation/désactivation"""
     
     # Constantes pour la persistance
     STATE_DIR = Path("/var/lib/milo")
@@ -29,7 +29,7 @@ class AudioRoutingService:
         
         self.snapcast_websocket_service = None
         self.snapcast_service = None
-        self.state_machine = None  # AJOUTÉ : Référence au state_machine
+        self.state_machine = None
         
         # Services snapcast
         self.snapserver_service = "milo-snapserver-multiroom.service"
@@ -159,9 +159,21 @@ class AudioRoutingService:
             await self._update_systemd_environment()
             
             if enabled:
+                # NOUVEAU : Envoyer l'événement AVANT de démarrer les services
+                if self.state_machine:
+                    self.logger.info("📢 Broadcasting multiroom_enabling event")
+                    await self.state_machine.broadcast_event("routing", "multiroom_enabling", {
+                        "reason": "user_action"
+                    })
+                    
+                    # Petit délai pour laisser le frontend réagir
+                    await asyncio.sleep(0.1)
+                else:
+                    self.logger.warning("⚠️ state_machine not available, cannot broadcast event")
+                
                 success = await self._transition_to_multiroom(active_source)
             else:
-                # NOUVEAU : Envoyer l'événement AVANT d'arrêter les services
+                # Envoyer l'événement AVANT d'arrêter les services
                 if self.state_machine:
                     self.logger.info("📢 Broadcasting multiroom_disabling event")
                     await self.state_machine.broadcast_event("routing", "multiroom_disabling", {

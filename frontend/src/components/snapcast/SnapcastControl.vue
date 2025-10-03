@@ -1,18 +1,18 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue - VERSION FINALE avec événement anticipé -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue - VERSION FINALE avec événements symétriques -->
 <template>
-  <div v-if="!isMultiroomActive" class="not-active">
+  <div v-if="(!isMultiroomActive && !unifiedStore.isMultiroomTransitioning) || isDeactivating" class="not-active">
     <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
     <p class="text-mono">{{ $t("Le multiroom n'est pas activé") }}</p>
   </div>
 
   <div v-else class="clients-container">
-    <!-- Skeletons pendant chargement initial -->
+    <!-- Skeletons pendant chargement/activation -->
     <div v-if="showSkeletons" class="clients-list">
       <SnapclientItemSkeleton v-for="i in 3" :key="`skeleton-${i}`" class="fade-in" />
     </div>
 
-    <!-- Message si aucun client -->
-    <div v-else-if="clients.length === 0" class="not-active">
+    <!-- Message si aucun client (sauf pendant désactivation) -->
+    <div v-else-if="clients.length === 0 && !isDeactivating" class="not-active">
       <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
       <p class="text-mono">{{ $t("Aucun client n'est connecté") }}</p>
     </div>
@@ -72,6 +72,15 @@ function saveCache(clientsList) {
   }
 }
 
+function clearCache() {
+  try {
+    localStorage.removeItem(CACHE_KEY);
+    console.log('🗑️ Cache cleared');
+  } catch (error) {
+    console.error('Error clearing cache:', error);
+  }
+}
+
 // === CLIENT SORTING ===
 function sortClients(clientsList) {
   return [...clientsList].sort((a, b) => {
@@ -128,11 +137,12 @@ async function fetchSnapcastClients() {
 }
 
 // === LOAD CLIENTS ===
-async function loadSnapcastClients() {
-  const cache = loadCache();
+async function loadSnapcastClients(forceNoCache = false) {
+  const cache = forceNoCache ? null : loadCache();
 
   if (cache && cache.length > 0) {
     // AVEC CACHE : Affichage immédiat
+    console.log('📦 Using cache for instant display');
     clients.value = cache;
     showSkeletons.value = false;
     
@@ -161,6 +171,7 @@ async function loadSnapcastClients() {
     
   } else {
     // SANS CACHE : Skeletons puis fade-in groupé
+    console.log('⏳ No cache, showing skeletons then fetching');
     showSkeletons.value = true;
     
     const freshClients = await fetchSnapcastClients();
@@ -263,6 +274,23 @@ function handleSystemStateChanged(event) {
   unifiedStore.updateState(event);
 }
 
+// === HANDLER POUR ACTIVATION ANTICIPÉE ===
+async function handleMultiroomEnabling(event) {
+  console.log('🚀 MULTIROOM ENABLING EVENT REÇU');
+  
+  // Activer le flag de transition dans le store
+  unifiedStore.setMultiroomTransitioning(true);
+  
+  // Vider immédiatement les clients et afficher skeletons
+  clients.value = [];
+  showSkeletons.value = true;
+  
+  // Vider le cache
+  clearCache();
+  
+  console.log('✅ Skeletons displayed, cache cleared, waiting for services to start');
+}
+
 // === HANDLER POUR DÉSACTIVATION ANTICIPÉE ===
 async function handleMultiroomDisabling(event) {
   console.log('🚨 MULTIROOM DISABLING EVENT REÇU');
@@ -274,11 +302,11 @@ async function handleMultiroomDisabling(event) {
   await fadeOutAllClients();
   showSkeletons.value = false;
   
-  // Maintenir le flag pendant 1 seconde pour ignorer tous les client_disconnected
-  setTimeout(() => {
-    isDeactivating.value = false;
-    console.log('✅ Flag isDeactivating désactivé');
-  }, 1000);
+  // Vider le cache
+  clearCache();
+  
+  console.log('✅ Waiting for backend confirmation to reset isDeactivating flag');
+  // Note: isDeactivating sera réinitialisé dans le watcher quand isMultiroomActive devient false
 }
 
 // === LIFECYCLE ===
@@ -294,7 +322,8 @@ onMounted(async () => {
     on('snapcast', 'client_name_changed', handleClientNameChanged),
     on('snapcast', 'client_mute_changed', handleClientMuteChanged),
     on('system', 'state_changed', handleSystemStateChanged),
-    on('routing', 'multiroom_disabling', handleMultiroomDisabling) // NOUVEAU
+    on('routing', 'multiroom_enabling', handleMultiroomEnabling),
+    on('routing', 'multiroom_disabling', handleMultiroomDisabling)
   );
 });
 
@@ -302,14 +331,24 @@ onUnmounted(() => {
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
 });
 
-// === WATCHER POUR ACTIVATION UNIQUEMENT ===
+// === WATCHER POUR ACTIVATION/DÉSACTIVATION ===
 watch(isMultiroomActive, async (newValue, oldValue) => {
   if (newValue && !oldValue) {
-    // ACTIVATION
+    // ACTIVATION : services démarrés, charger les clients
+    console.log('✅ Multiroom services started, loading clients');
     isDeactivating.value = false;
-    await loadSnapcastClients();
+    
+    // forceNoCache si on est en transition (skeletons déjà affichés)
+    const forceNoCache = unifiedStore.isMultiroomTransitioning;
+    await loadSnapcastClients(forceNoCache);
+    
+    // Reset du flag de transition dans le store
+    unifiedStore.setMultiroomTransitioning(false);
+  } else if (!newValue && oldValue) {
+    // DÉSACTIVATION : backend a confirmé, réinitialiser le flag
+    console.log('✅ Multiroom disabled confirmed, resetting isDeactivating flag');
+    isDeactivating.value = false;
   }
-  // La désactivation est gérée par handleMultiroomDisabling
 });
 </script>
 

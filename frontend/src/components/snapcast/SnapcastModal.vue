@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapcastModal.vue - Navigation locale complète -->
+<!-- frontend/src/components/snapcast/SnapcastModal.vue - Version avec désactivation du toggle pendant transition -->
 <template>
   <div class="snapcast-modal">
     <!-- Vue principale -->
@@ -8,8 +8,12 @@
         <div class="controls-wrapper">
           <IconButton v-if="isMultiroomActive" icon="settings" variant="dark" @click="showSettings"
             title="Configuration Multiroom" />
-          <Toggle v-model="isMultiroomActive" variant="primary" :disabled="unifiedStore.isTransitioning"
-            @change="handleMultiroomToggle" />
+          <Toggle 
+            v-model="isMultiroomActive" 
+            variant="primary" 
+            :disabled="unifiedStore.isTransitioning || unifiedStore.isMultiroomTransitioning"
+            @change="handleMultiroomToggle" 
+          />
         </div>
       </div>
 
@@ -141,7 +145,6 @@ watch(currentView, (newView, oldView) => {
 .main-content {
   flex: 1;
 }
-
 
 .back-modal-header {
   gap: var(--space-03);
