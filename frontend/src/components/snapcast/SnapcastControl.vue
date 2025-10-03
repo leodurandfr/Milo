@@ -412,7 +412,7 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
 
 .message-content {
   display: flex;
-  /* height: 232px; */
+  min-height: 364px; /* Hauteur pour 3 clients */
   flex-direction: column;
   justify-content: center;
   align-items: center;

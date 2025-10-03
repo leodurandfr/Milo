@@ -87,7 +87,9 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-03);
+    min-height: 116px;
   }
+  
 
   .skeleton-name {
     flex: 1;
