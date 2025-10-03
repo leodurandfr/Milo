@@ -23,6 +23,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   // État de transition multiroom
   const isMultiroomTransitioning = ref(false);
+  const isMultiroomDeactivating = ref(false);
 
   let volumeBarRef = null;
   let lastWebSocketUpdate = 0;
@@ -133,6 +134,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === ACTIONS TRANSITION MULTIROOM ===
   function setMultiroomTransitioning(value) {
     isMultiroomTransitioning.value = value;
+  }
+
+  function setMultiroomDeactivating(value) {
+    isMultiroomDeactivating.value = value;
   }
 
   // === REFRESH (AVEC CHARGEMENT ROUTING) ===
@@ -267,6 +272,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     systemState,
     volumeState,
     isMultiroomTransitioning,
+    isMultiroomDeactivating,
 
     // Getters
     currentSource,
@@ -292,6 +298,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     handleVolumeEvent,
     setVolumeBarRef,
     setMultiroomTransitioning,
+    setMultiroomDeactivating,
     refreshState,
     setupVisibilityListener
   };

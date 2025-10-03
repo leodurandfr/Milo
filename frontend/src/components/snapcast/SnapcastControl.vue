@@ -1,6 +1,6 @@
 <!-- frontend/src/components/snapcast/SnapcastControl.vue - VERSION FINALE avec événements symétriques -->
 <template>
-  <div v-if="(!isMultiroomActive && !unifiedStore.isMultiroomTransitioning) || isDeactivating" class="not-active">
+  <div v-if="(!isMultiroomActive && !unifiedStore.isMultiroomTransitioning) || (isDeactivating && clients.length === 0)" class="not-active">
     <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
     <p class="text-mono">{{ $t("Le multiroom n'est pas activé") }}</p>
   </div>
@@ -95,10 +95,10 @@ const clients = ref([]);
 const showSkeletons = ref(false);
 const fadingInClients = ref([]);
 const fadingOutClients = ref([]);
-const isDeactivating = ref(false);
 let unsubscribeFunctions = [];
 
 const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
+const isDeactivating = computed(() => unifiedStore.isMultiroomDeactivating);
 
 // === ANIMATIONS ===
 async function fadeOutAllClients() {
@@ -295,8 +295,8 @@ async function handleMultiroomEnabling(event) {
 async function handleMultiroomDisabling(event) {
   console.log('🚨 MULTIROOM DISABLING EVENT REÇU');
   
-  // Activer immédiatement le flag pour ignorer les événements suivants
-  isDeactivating.value = true;
+  // Activer le flag de désactivation dans le store
+  unifiedStore.setMultiroomDeactivating(true);
   
   // Fade-out synchronisé de TOUS les clients actuels
   await fadeOutAllClients();
@@ -311,6 +311,23 @@ async function handleMultiroomDisabling(event) {
 
 // === LIFECYCLE ===
 onMounted(async () => {
+  // NOUVEAU : Reset des flags de transition si incohérents avec l'état réel
+  // (Cas : modal fermée pendant une transition, puis réouverte)
+  const currentMultiroomState = isMultiroomActive.value;
+  
+  if (unifiedStore.isMultiroomTransitioning && currentMultiroomState) {
+    // Multiroom actif mais flag "activating" encore à true → reset
+    console.log('⚠️ Reset isMultiroomTransitioning (multiroom already active)');
+    unifiedStore.setMultiroomTransitioning(false);
+  }
+  
+  if (unifiedStore.isMultiroomDeactivating && !currentMultiroomState) {
+    // Multiroom inactif mais flag "deactivating" encore à true → reset
+    console.log('⚠️ Reset isMultiroomDeactivating (multiroom already inactive)');
+    unifiedStore.setMultiroomDeactivating(false);
+  }
+  
+  // Charger les clients si multiroom actif
   if (isMultiroomActive.value) {
     await loadSnapcastClients();
   }
@@ -336,7 +353,7 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
   if (newValue && !oldValue) {
     // ACTIVATION : services démarrés, charger les clients
     console.log('✅ Multiroom services started, loading clients');
-    isDeactivating.value = false;
+    unifiedStore.setMultiroomDeactivating(false);
     
     // forceNoCache si on est en transition (skeletons déjà affichés)
     const forceNoCache = unifiedStore.isMultiroomTransitioning;
@@ -347,7 +364,7 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
   } else if (!newValue && oldValue) {
     // DÉSACTIVATION : backend a confirmé, réinitialiser le flag
     console.log('✅ Multiroom disabled confirmed, resetting isDeactivating flag');
-    isDeactivating.value = false;
+    unifiedStore.setMultiroomDeactivating(false);
   }
 });
 </script>

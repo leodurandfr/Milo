@@ -6,12 +6,17 @@
       <div class="modal-header">
         <h2 class="heading-2">{{ $t('Multiroom') }}</h2>
         <div class="controls-wrapper">
-          <IconButton v-if="isMultiroomActive" icon="settings" variant="dark" @click="showSettings"
-            title="Configuration Multiroom" />
+          <IconButton 
+            v-if="isMultiroomActive && !unifiedStore.isMultiroomDeactivating" 
+            icon="settings" 
+            variant="dark" 
+            @click="showSettings"
+            title="Configuration Multiroom" 
+          />
           <Toggle 
             v-model="isMultiroomActive" 
             variant="primary" 
-            :disabled="unifiedStore.isTransitioning || unifiedStore.isMultiroomTransitioning"
+            :disabled="unifiedStore.isTransitioning || unifiedStore.isMultiroomTransitioning || unifiedStore.isMultiroomDeactivating"
             @change="handleMultiroomToggle" 
           />
         </div>
