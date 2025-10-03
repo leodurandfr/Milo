@@ -219,7 +219,7 @@ class SnapcastWebSocketService:
             self.logger.debug(f"Unhandled notification: {method}")
     
     async def _handle_server_update(self, params: Dict[str, Any]) -> None:
-        """NOUVEAU : Gère Server.OnUpdate et détecte les nouveaux clients"""
+        """Gère Server.OnUpdate et détecte les nouveaux clients ET les déconnexions"""
         try:
             server = params.get("server", {})
             groups = server.get("groups", [])
@@ -241,6 +241,16 @@ class SnapcastWebSocketService:
                         self.logger.info(f"🟢 NEW CLIENT DETECTED in Server.OnUpdate: {client_id}")
                         new_clients.append(client)
             
+            # NOUVEAU : Détecter les clients disparus (déconnectés)
+            disconnected_client_ids = self._known_client_ids - current_client_ids
+            
+            for disconnected_id in disconnected_client_ids:
+                self.logger.info(f"🔴 CLIENT DISCONNECTED detected in Server.OnUpdate: {disconnected_id}")
+                await self._broadcast_snapcast_event("client_disconnected", {
+                    "client_id": disconnected_id,
+                    "client_name": "Unknown"  # On n'a plus accès au nom
+                })
+            
             # Mettre à jour le cache
             self._known_client_ids = current_client_ids
             
@@ -253,7 +263,7 @@ class SnapcastWebSocketService:
                 await self._notify_volume_service_client_connected(client_id, client)
             
         except Exception as e:
-            self.logger.error(f"Error handling Server.OnUpdate: {e}", exc_info=True) 
+            self.logger.error(f"Error handling Server.OnUpdate: {e}", exc_info=True)
         
     
     async def _handle_response(self, response: Dict[str, Any]) -> None:

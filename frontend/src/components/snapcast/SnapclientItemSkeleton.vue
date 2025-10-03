@@ -46,16 +46,16 @@
 }
 
 .skeleton-button {
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-full);
   background: var(--color-background-strong);
 }
 
 .skeleton-toggle {
-  width: 48px;
-  height: 28px;
-  border-radius: 14px;
+  width: 70px;
+  height: 40px;
+  border-radius: 20px;
   background: var(--color-background-strong);
 }
 

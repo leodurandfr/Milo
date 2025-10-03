@@ -149,6 +149,7 @@ watch(currentView, (newView, oldView) => {
 
 .main-content {
   flex: 1;
+  overflow: visible;
 }
 
 .back-modal-header {

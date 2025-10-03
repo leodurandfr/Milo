@@ -387,7 +387,6 @@ onUnmounted(() => {
   flex-direction: column;
   min-height: 0;
   border-radius: var(--radius-06);
-  /* Configuration pour PointerEvents - permet le scroll vertical seulement */
   touch-action: pan-y;
 }
 

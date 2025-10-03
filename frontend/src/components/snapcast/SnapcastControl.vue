@@ -1,42 +1,42 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue - VERSION FINALE avec événements symétriques -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue -->
 <template>
-  <div v-if="(!isMultiroomActive && !unifiedStore.isMultiroomTransitioning) || (isDeactivating && clients.length === 0)" class="not-active">
-    <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
-    <p class="text-mono">{{ $t("Le multiroom n'est pas activé") }}</p>
-  </div>
-
-  <div v-else class="clients-container">
-    <!-- Skeletons pendant chargement/activation -->
-    <div v-if="showSkeletons" class="clients-list">
-      <SnapclientItemSkeleton v-for="i in 3" :key="`skeleton-${i}`" class="fade-in" />
-    </div>
-
-    <!-- Message si aucun client (sauf pendant désactivation) -->
-    <div v-else-if="clients.length === 0 && !isDeactivating" class="not-active">
-      <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
-      <p class="text-mono">{{ $t("Aucun client n'est connecté") }}</p>
-    </div>
-
-    <!-- Liste des clients -->
-    <div v-else class="clients-list">
-      <SnapclientItem 
-        v-for="client in clients" 
-        :key="client.id" 
-        :client="client"
-        :class="{ 
-          'fade-in': fadingInClients.includes(client.id), 
-          'fade-out': fadingOutClients.includes(client.id) 
-        }"
-        @volume-change="handleVolumeChange" 
-        @mute-toggle="handleMuteToggle" 
-        @show-details="handleShowDetails" 
-      />
+  <div class="clients-container" 
+       :class="{ 'show-background': showBackground }" 
+       :style="{ height: containerHeight }">
+    
+    <div class="clients-list" ref="clientsListRef">
+      <!-- MESSAGE : Multiroom désactivé OU en cours de désactivation -->
+      <div v-if="showMessage" class="message-content">
+        <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
+        <p class="text-mono">{{ $t("Le multiroom n'est pas activé") }}</p>
+      </div>
+      
+      <!-- SKELETONS : Activation en cours -->
+      <template v-else-if="showSkeletons">
+        <SnapclientItemSkeleton v-for="i in 3" :key="`skeleton-${i}`" />
+      </template>
+      
+      <!-- CLIENTS : Liste normale -->
+      <template v-else>
+        <SnapclientItem 
+          v-for="client in clients" 
+          :key="client.id" 
+          :client="client"
+          :class="{ 
+            'fade-in': fadingInClients.includes(client.id), 
+            'fade-out': fadingOutClients.includes(client.id) 
+          }"
+          @volume-change="handleVolumeChange" 
+          @mute-toggle="handleMuteToggle" 
+          @show-details="handleShowDetails" 
+        />
+      </template>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
@@ -48,6 +48,11 @@ const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
 const emit = defineEmits(['show-client-details']);
+
+const clientsListRef = ref(null);
+const containerHeight = ref('232px');
+
+let resizeObserver = null;
 
 // === CACHE MANAGEMENT ===
 const CACHE_KEY = 'snapcast_clients_cache';
@@ -100,15 +105,52 @@ let unsubscribeFunctions = [];
 const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
 const isDeactivating = computed(() => unifiedStore.isMultiroomDeactivating);
 
+// === COMPUTED POUR L'AFFICHAGE ===
+const showMessage = computed(() => {
+  if (!isMultiroomActive.value && !unifiedStore.isMultiroomTransitioning) {
+    return true;
+  }
+  if (isDeactivating.value && clients.value.length === 0) {
+    return true;
+  }
+  return false;
+});
+
+const showBackground = computed(() => {
+  return showMessage.value;
+});
+
+// === RESIZE OBSERVER SETUP ===
+function setupResizeObserver() {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
+
+  resizeObserver = new ResizeObserver(entries => {
+    if (entries[0]) {
+      const newHeight = entries[0].contentRect.height;
+      const currentHeight = parseFloat(containerHeight.value);
+
+      if (Math.abs(newHeight - currentHeight) > 2) {
+        containerHeight.value = `${newHeight}px`;
+      }
+    }
+  });
+
+  if (clientsListRef.value) {
+    resizeObserver.observe(clientsListRef.value);
+  }
+}
+
 // === ANIMATIONS ===
 async function fadeOutAllClients() {
   if (clients.value.length === 0) return;
 
   const allIds = clients.value.map(c => c.id);
   fadingOutClients.value = allIds;
-  
+
   await new Promise(resolve => setTimeout(resolve, 200));
-  
+
   clients.value = [];
   fadingOutClients.value = [];
 }
@@ -141,14 +183,12 @@ async function loadSnapcastClients(forceNoCache = false) {
   const cache = forceNoCache ? null : loadCache();
 
   if (cache && cache.length > 0) {
-    // AVEC CACHE : Affichage immédiat
     console.log('📦 Using cache for instant display');
     clients.value = cache;
     showSkeletons.value = false;
-    
-    // Fetch en arrière-plan
+
     const freshClients = await fetchSnapcastClients();
-    
+
     const cacheIds = new Set(cache.map(c => c.id));
     const freshIds = new Set(freshClients.map(c => c.id));
 
@@ -168,18 +208,17 @@ async function loadSnapcastClients(forceNoCache = false) {
 
     clients.value = sortClients(freshClients);
     saveCache(freshClients);
-    
+
   } else {
-    // SANS CACHE : Skeletons puis fade-in groupé
     console.log('⏳ No cache, showing skeletons then fetching');
     showSkeletons.value = true;
-    
+
     const freshClients = await fetchSnapcastClients();
-    
+
     await new Promise(resolve => setTimeout(resolve, 300));
-    
+
     showSkeletons.value = false;
-    
+
     if (freshClients.length > 0) {
       await fadeInClients(freshClients);
       saveCache(freshClients);
@@ -211,7 +250,7 @@ function handleShowDetails(client) {
 // === WEBSOCKET HANDLERS ===
 async function handleClientConnected(event) {
   const { client_id, client_name, client_host, client_ip, volume, muted } = event.data;
-  
+
   if (!client_id || isDeactivating.value) return;
   if (clients.value.find(c => c.id === client_id)) return;
 
@@ -223,17 +262,17 @@ async function handleClientConnected(event) {
     muted: muted || false,
     ip: client_ip || 'Unknown'
   };
-  
+
   await fadeInClients([newClient]);
   saveCache(clients.value);
 }
 
 async function handleClientDisconnected(event) {
   if (isDeactivating.value) return;
-  
+
   const clientId = event.data.client_id;
   const client = clients.value.find(c => c.id === clientId);
-  
+
   if (client) {
     fadingOutClients.value = [clientId];
     await new Promise(resolve => setTimeout(resolve, 200));
@@ -274,63 +313,48 @@ function handleSystemStateChanged(event) {
   unifiedStore.updateState(event);
 }
 
-// === HANDLER POUR ACTIVATION ANTICIPÉE ===
 async function handleMultiroomEnabling(event) {
   console.log('🚀 MULTIROOM ENABLING EVENT REÇU');
-  
-  // Activer le flag de transition dans le store
+
   unifiedStore.setMultiroomTransitioning(true);
-  
-  // Vider immédiatement les clients et afficher skeletons
   clients.value = [];
   showSkeletons.value = true;
-  
-  // Vider le cache
   clearCache();
-  
+
   console.log('✅ Skeletons displayed, cache cleared, waiting for services to start');
 }
 
-// === HANDLER POUR DÉSACTIVATION ANTICIPÉE ===
 async function handleMultiroomDisabling(event) {
   console.log('🚨 MULTIROOM DISABLING EVENT REÇU');
-  
-  // Activer le flag de désactivation dans le store
+
   unifiedStore.setMultiroomDeactivating(true);
-  
-  // Fade-out synchronisé de TOUS les clients actuels
   await fadeOutAllClients();
   showSkeletons.value = false;
-  
-  // Vider le cache
   clearCache();
-  
+
   console.log('✅ Waiting for backend confirmation to reset isDeactivating flag');
-  // Note: isDeactivating sera réinitialisé dans le watcher quand isMultiroomActive devient false
 }
 
 // === LIFECYCLE ===
 onMounted(async () => {
-  // NOUVEAU : Reset des flags de transition si incohérents avec l'état réel
-  // (Cas : modal fermée pendant une transition, puis réouverte)
   const currentMultiroomState = isMultiroomActive.value;
-  
+
   if (unifiedStore.isMultiroomTransitioning && currentMultiroomState) {
-    // Multiroom actif mais flag "activating" encore à true → reset
     console.log('⚠️ Reset isMultiroomTransitioning (multiroom already active)');
     unifiedStore.setMultiroomTransitioning(false);
   }
-  
+
   if (unifiedStore.isMultiroomDeactivating && !currentMultiroomState) {
-    // Multiroom inactif mais flag "deactivating" encore à true → reset
     console.log('⚠️ Reset isMultiroomDeactivating (multiroom already inactive)');
     unifiedStore.setMultiroomDeactivating(false);
   }
-  
-  // Charger les clients si multiroom actif
+
   if (isMultiroomActive.value) {
     await loadSnapcastClients();
   }
+
+  await nextTick();
+  setupResizeObserver();
 
   unsubscribeFunctions.push(
     on('snapcast', 'client_connected', handleClientConnected),
@@ -346,23 +370,22 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
 });
 
-// === WATCHER POUR ACTIVATION/DÉSACTIVATION ===
+// === WATCHERS ===
 watch(isMultiroomActive, async (newValue, oldValue) => {
   if (newValue && !oldValue) {
-    // ACTIVATION : services démarrés, charger les clients
     console.log('✅ Multiroom services started, loading clients');
     unifiedStore.setMultiroomDeactivating(false);
-    
-    // forceNoCache si on est en transition (skeletons déjà affichés)
+
     const forceNoCache = unifiedStore.isMultiroomTransitioning;
     await loadSnapcastClients(forceNoCache);
-    
-    // Reset du flag de transition dans le store
+
     unifiedStore.setMultiroomTransitioning(false);
   } else if (!newValue && oldValue) {
-    // DÉSACTIVATION : backend a confirmé, réinitialiser le flag
     console.log('✅ Multiroom disabled confirmed, resetting isDeactivating flag');
     unifiedStore.setMultiroomDeactivating(false);
   }
@@ -370,29 +393,48 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
 </script>
 
 <style scoped>
-.not-active {
-  display: flex;
-  height: 100%;
-  flex-direction: column;
-  padding: var(--space-09) var(--space-05);
-  border-radius: var(--radius-04);
-  background: var(--color-background-neutral);
-  gap: var(--space-04);
-}
-
-.not-active .text-mono {
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
 .clients-container {
-  height: 100%;
+  transition: height var(--transition-spring);
+  overflow: visible;
+}
+
+.clients-container.show-background .clients-list {
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
 }
 
 .clients-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
+  overflow: visible;
+}
+
+.message-content {
+  display: flex;
+  /* height: 232px; */
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-04);
+  padding: var(--space-05);
+  
+  opacity: 0;
+  animation: fadeIn 400ms ease-out forwards;
+}
+
+.message-content .text-mono {
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .fade-in {
@@ -402,17 +444,6 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
 .fade-out {
   animation: fadeOut 200ms ease-out;
   pointer-events: none;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 @keyframes fadeOut {
