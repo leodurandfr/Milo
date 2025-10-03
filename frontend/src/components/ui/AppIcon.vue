@@ -1,4 +1,3 @@
-<!-- frontend/src/components/ui/AppIcon.vue -->
 <template>
   <div 
     class="app-icon" 
@@ -18,7 +17,7 @@ const props = defineProps({
   name: { 
     type: String, 
     required: true,
-    validator: (value) => ['bluetooth', 'spotify', 'macos', 'multiroom', 'equalizer', 'settings'].includes(value)
+    validator: (value) => ['bluetooth', 'librespot', 'roc', 'multiroom', 'equalizer', 'settings'].includes(value)
   },
   size: { 
     type: [String, Number], 
@@ -30,6 +29,16 @@ const props = defineProps({
     validator: (value) => ['normal', 'loading'].includes(value)
   }
 });
+
+// === MAPPING DES ICÔNES ===
+const iconMapping = {
+  'librespot': 'spotify',
+  'roc': 'macos',
+  'bluetooth': 'bluetooth',
+  'multiroom': 'multiroom',
+  'equalizer': 'equalizer',
+  'settings': 'settings'
+};
 
 const svgModules = import.meta.glob('@/assets/app-icons/*.svg', { 
   query: '?raw',
@@ -130,9 +139,12 @@ const svgContent = computed(() => {
     return loadingIcon;
   }
   
-  const icon = appIcons[props.name];
+  // Utiliser le mapping pour trouver le bon fichier SVG
+  const iconFileName = iconMapping[props.name] || props.name;
+  const icon = appIcons[iconFileName];
+  
   if (!icon) {
-    console.warn(`AppIcon "${props.name}" not found`);
+    console.warn(`AppIcon "${props.name}" (mapped to "${iconFileName}") not found`);
     return '';
   }
   

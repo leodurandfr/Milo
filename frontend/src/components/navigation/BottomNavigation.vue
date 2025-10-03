@@ -77,11 +77,8 @@ const $t = instance.appContext.config.globalProperties.$t;
 const { on } = useWebSocket();
 
 // === CONFIGURATION STATIQUE ===
-const ALL_AUDIO_SOURCES = [
-  { id: 'librespot', icon: 'spotify' },
-  { id: 'bluetooth', icon: 'bluetooth' },
-  { id: 'roc', icon: 'macos' }
-];
+const ALL_AUDIO_SOURCES = ['librespot', 'bluetooth', 'roc'];
+
 
 const ALL_ADDITIONAL_ACTIONS = [
   { id: 'multiroom', icon: 'multiroom', title: computed(() => t('Multiroom')), handler: () => emit('open-snapcast') },
@@ -95,8 +92,13 @@ const mobileVolumeSteps = ref(5);
 
 // Computed pour obtenir toutes les apps activées dans l'ordre
 const allEnabledApps = computed(() => {
-  const audioSources = ALL_AUDIO_SOURCES.filter(source => enabledApps.value.includes(source.id));
-  const additionalActions = ALL_ADDITIONAL_ACTIONS.filter(action => enabledApps.value.includes(action.id));
+  const audioSources = ALL_AUDIO_SOURCES
+    .filter(source => enabledApps.value.includes(source))
+    .map(source => ({ id: source, icon: source }));
+    
+  const additionalActions = ALL_ADDITIONAL_ACTIONS
+    .filter(action => enabledApps.value.includes(action.id));
+    
   return [...audioSources, ...additionalActions];
 });
 
@@ -393,7 +395,7 @@ const handleAppClick = (appId, index) => {
   resetHideTimer();
 
   // Si c'est une source audio, changer la source
-  const isAudioSource = ALL_AUDIO_SOURCES.some(source => source.id === appId);
+  const isAudioSource = ALL_AUDIO_SOURCES.includes(appId);
   if (isAudioSource) {
     moveIndicatorTo(index);
     unifiedStore.changeSource(appId);
