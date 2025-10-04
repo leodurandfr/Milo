@@ -208,7 +208,7 @@ class SnapcastWebSocketService:
             "Client.OnConnect": lambda p: self._handle_client_connect(p),
             "Client.OnDisconnect": lambda p: self._handle_client_disconnect(p),
             "Client.OnNameChanged": lambda p: self._handle_client_name_changed(p),
-            "Server.OnUpdate": lambda p: self._handle_server_update(p)  # ← NOUVEAU
+            "Server.OnUpdate": lambda p: self._handle_server_update(p)
         }
         
         if method in non_volume_notifications:
@@ -315,7 +315,6 @@ class SnapcastWebSocketService:
         await self._broadcast_snapcast_event("client_disconnected", {
             "client_id": client.get("id"),
             "client_name": client.get("config", {}).get("name")
-            # SUPPRIMÉ : données volume
         })
     
     async def _handle_client_name_changed(self, params: Dict[str, Any]) -> None:
@@ -325,10 +324,10 @@ class SnapcastWebSocketService:
             "name": params.get("name")
         })
     
-    # === NOUVEAU : DÉLÉGATION AU VOLUME SERVICE ===
+    # === NOUVEAU : DÉLÉGATION AU VOLUME SERVICE + BROADCAST MUTE ===
     
     async def _delegate_volume_event_to_volume_service(self, method: str, params: Dict[str, Any]) -> None:
-        """NOUVEAU : Délègue les événements volume au VolumeService"""
+        """Délègue les événements volume au VolumeService ET broadcast pour l'UI"""
         try:
             volume_service = getattr(self.state_machine, 'volume_service', None)
             if not volume_service:
@@ -339,19 +338,22 @@ class SnapcastWebSocketService:
             if not client_id:
                 return
             
-            if method == "Client.OnVolumeChanged":
-                volume_data = params.get("volume", {})
-                alsa_volume = volume_data.get("percent", 0)
-                # Déléguer la synchronisation au VolumeService
-                await volume_service.sync_client_volume_from_external(client_id, alsa_volume)
-                
-            elif method == "Client.OnMute":
-                volume_data = params.get("volume", {})
-                alsa_volume = volume_data.get("percent", 0)
-                # Déléguer la synchronisation au VolumeService  
-                await volume_service.sync_client_volume_from_external(client_id, alsa_volume)
+            volume_data = params.get("volume", {})
+            alsa_volume = volume_data.get("percent", 0)
+            muted = volume_data.get("muted", False)
             
-            self.logger.debug(f"Delegated {method} to VolumeService for client {client_id}")
+            # Déléguer la synchronisation au VolumeService
+            await volume_service.sync_client_volume_from_external(client_id, alsa_volume)
+            
+            # 🆕 TOUJOURS broadcaster le statut mute (pour Client.OnVolumeChanged ET Client.OnMute)
+            display_volume = volume_service.convert_alsa_to_display(alsa_volume)
+            await self._broadcast_snapcast_event("client_mute_changed", {
+                "client_id": client_id,
+                "volume": display_volume,
+                "muted": muted
+            })
+            
+            self.logger.debug(f"Delegated {method} to VolumeService for client {client_id} (muted={muted})")
             
         except Exception as e:
             self.logger.error(f"Error delegating to VolumeService: {e}")
@@ -386,7 +388,7 @@ class SnapcastWebSocketService:
             
         
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Diffuse un événement Snapcast via le système WebSocket Milo - VERSION ALLÉGÉE"""
+        """Diffuse un événement Snapcast via le système WebSocket Milo"""
         if self.state_machine:
             await self.state_machine.broadcast_event("snapcast", event_type, {
                 **data,

@@ -1,4 +1,4 @@
-<!-- frontend/src/components/ui/RangeSlider.vue - Version avec valeur intégrée et événements drag -->
+<!-- frontend/src/components/ui/RangeSlider.vue -->
 <template>
   <div :class="['slider-container', orientation]" :style="cssVars">
     <input 
@@ -15,7 +15,6 @@
       :disabled="disabled"
     >
     
-    <!-- Valeur intégrée seulement pour horizontal -->
     <div v-if="orientation === 'horizontal'" class="slider-value text-mono" :class="{ dragging: isDragging }">
       {{ modelValue }}{{ valueUnit }}
     </div>
@@ -37,14 +36,11 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
 
-// État simple du drag pour changement de couleur
 const isDragging = ref(false);
 
-// Calcul du pourcentage ajusté pour le centre du thumb (logique originale)
 const percentage = computed(() => {
   const rawPercentage = ((props.modelValue - props.min) / (props.max - props.min)) * 100;
   
-  // Ajustement selon l'orientation
   if (props.orientation === 'horizontal') {
     const thumbAdjustment = 15;
     return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
@@ -54,12 +50,10 @@ const percentage = computed(() => {
   }
 });
 
-// Variables CSS
 const cssVars = computed(() => ({
   '--progress': `${percentage.value}%`
 }));
 
-// Handlers simples (logique originale)
 function handleInput(event) {
   const value = parseInt(event.target.value);
   emit('input', value);
@@ -72,10 +66,8 @@ function handleChange(event) {
   emit('update:modelValue', value);
 }
 
-// Gestion simple des événements drag pour changement de couleur
 function handlePointerDown(event) {
   if (event.button !== 0 || props.disabled) return;
-  
   isDragging.value = true;
   emit('drag-start');
 }
@@ -89,7 +81,6 @@ function handlePointerUp() {
 </script>
 
 <style scoped>
-/* Container 100% de l'espace disponible */
 .slider-container {
   display: flex;
   align-items: center;
@@ -108,7 +99,6 @@ function handlePointerUp() {
   flex-direction: column;
 }
 
-/* Base slider */
 .range-slider {
   -webkit-appearance: none;
   appearance: none;
@@ -116,9 +106,9 @@ function handlePointerUp() {
   cursor: pointer;
   border: none;
   border-radius: 20px;
+  transition: opacity 300ms ease;
 }
 
-/* Slider horizontal - 100% largeur */
 .range-slider.horizontal {
   width: 100%;
   height: 40px;
@@ -129,7 +119,6 @@ function handlePointerUp() {
     var(--color-background) 100%);
 }
 
-/* Slider vertical - flex: 1 pour prendre l'espace entre label et value */
 .range-slider.vertical {
   width: 40px;
   flex: 1;
@@ -142,7 +131,6 @@ function handlePointerUp() {
     var(--color-background) 100%);
 }
 
-/* Thumbs horizontal */
 .range-slider.horizontal::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -164,7 +152,6 @@ function handlePointerUp() {
   cursor: pointer;
 }
 
-/* Thumbs vertical */
 .range-slider.vertical::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -185,7 +172,6 @@ function handlePointerUp() {
   cursor: pointer;
 }
 
-/* Track Firefox */
 .range-slider::-webkit-slider-track {
   background: transparent;
   border: none;
@@ -196,7 +182,6 @@ function handlePointerUp() {
   border: none;
 }
 
-/* États disabled */
 .range-slider:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -204,17 +189,14 @@ function handlePointerUp() {
 
 .range-slider:disabled::-webkit-slider-thumb,
 .range-slider:disabled::-moz-range-thumb {
-  background: #ccc;
-  border-color: #999;
   cursor: not-allowed;
 }
 
-/* Valeur intégrée à droite - seulement horizontal */
 .slider-value {
   position: absolute;
   right: var(--space-04);
   color: var(--color-text-secondary);
-  transition: color var(--transition-fast);
+  transition: color 300ms ease;
   pointer-events: none;
   z-index: 1;
 }

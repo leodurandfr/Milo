@@ -1,13 +1,23 @@
-<!-- frontend/src/components/snapcast/SnapclientItem.vue - Skeleton via CSS uniquement (corrigé) -->
+<!-- frontend/src/components/snapcast/SnapclientItem.vue -->
 <template>
   <div class="snapclient-item">
-    <!-- Name -->
-    <div class="client-name heading-2" :class="{ 'skeleton-shimmer': isLoading }">
+    <div 
+      class="client-name heading-2" 
+      :class="{ 
+        'skeleton-shimmer': isLoading,
+        'muted': client.muted
+      }"
+    >
       <span>{{ isLoading ? '' : client.name }}</span>
     </div>
     
-    <!-- Volume -->
-    <div class="volume-control" :class="{ 'skeleton-shimmer': isLoading }">
+    <div 
+      class="volume-control" 
+      :class="{ 
+        'skeleton-shimmer': isLoading,
+        'muted': client.muted
+      }"
+    >
       <RangeSlider 
         :model-value="displayVolume" 
         :min="0" 
@@ -21,7 +31,6 @@
       />
     </div>
     
-    <!-- Controls -->
     <div class="controls-wrapper">
       <div class="control-button" :class="{ 'skeleton-shimmer': isLoading }">
         <IconButton 
@@ -45,7 +54,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted, watch } from 'vue';
+import { ref, computed, onUnmounted } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -62,23 +71,6 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['volume-change', 'mute-toggle', 'show-details']);
-
-// 🔍 DEBUG: Watcher pour suivre les changements de isLoading
-watch(() => props.isLoading, (newVal, oldVal) => {
-  console.log(`🎭 SnapclientItem [${props.client.id}] isLoading changed: ${oldVal} → ${newVal}`);
-  if (newVal === false && oldVal === true) {
-    console.log('✨ Transition skeleton → content devrait démarrer maintenant (400ms)');
-  }
-}, { immediate: true });
-
-watch(() => props.client, (newVal, oldVal) => {
-  if (oldVal?.id !== newVal?.id) {
-    console.log(`🔄 SnapclientItem ID changed: ${oldVal?.id} → ${newVal?.id}`);
-  }
-  if (oldVal?.name !== newVal?.name) {
-    console.log(`📝 SnapclientItem name changed: ${oldVal?.name} → ${newVal?.name}`);
-  }
-}, { deep: true });
 
 const localDisplayVolume = ref(null);
 let throttleTimeout = null;
@@ -151,7 +143,6 @@ onUnmounted(() => {
   background: var(--color-background-neutral);
 }
 
-/* Client name */
 .client-name {
   min-width: 112px;
   max-width: 112px;
@@ -161,6 +152,11 @@ onUnmounted(() => {
   white-space: nowrap;
   height: 28px;
   position: relative;
+  transition: color 300ms ease;
+}
+
+.client-name.muted {
+  color: var(--color-text-light);
 }
 
 .client-name::before {
@@ -197,13 +193,15 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-/* Volume control */
 .volume-control {
   flex: 1;
-  /* height: 40px; */
   display: flex;
   align-items: center;
   position: relative;
+}
+
+.volume-control.muted :deep(.slider-value) {
+  color: var(--color-text-light);
 }
 
 .volume-control::before {
@@ -239,7 +237,6 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-/* Controls wrapper */
 .controls-wrapper {
   display: flex;
   align-items: center;
@@ -247,8 +244,6 @@ onUnmounted(() => {
 }
 
 .control-button {
-  /* width: 40px;
-  height: 40px; */
   border-radius: var(--radius-full);
   display: flex;
   align-items: center;
@@ -290,8 +285,6 @@ onUnmounted(() => {
 }
 
 .control-toggle {
-  /* width: 70px;
-  height: 40px; */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -336,7 +329,6 @@ onUnmounted(() => {
   100% { background-position: 200% 0; }
 }
 
-/* Responsive Mobile */
 @media (max-aspect-ratio: 4/3) {
   .snapclient-item {
     display: flex;

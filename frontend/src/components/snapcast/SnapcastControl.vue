@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version optimisée avec transitions fluides -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue -->
 <template>
   <div class="clients-container" :style="{ height: containerHeight }">
     <div class="clients-list" ref="clientsListRef" :class="{ 'with-background': showBackground }">
@@ -87,10 +87,7 @@ const isActivating = computed(() => unifiedStore.isMultiroomTransitioning);
 const isDeactivating = computed(() => unifiedStore.isMultiroomDeactivating);
 
 const showMessage = computed(() => {
-  // Cacher le message pendant l'activation (pour montrer les skeletons)
   if (isActivating.value) return false;
-  
-  // Afficher le message si en cours de désactivation OU multiroom désactivé
   return isDeactivating.value || !isMultiroomActive.value;
 });
 
@@ -98,9 +95,7 @@ const showBackground = computed(() => {
   return showMessage.value;
 });
 
-// Clients à afficher
 const displayClients = computed(() => {
-  // Si pas de clients et isLoading, afficher 3 placeholders vides
   if (clients.value.length === 0 && isLoadingClients.value) {
     return Array.from({ length: 3 }, (_, i) => ({ 
       id: `placeholder-${i}`,
@@ -149,61 +144,35 @@ async function loadSnapcastClients(forceNoCache = false) {
   const cache = forceNoCache ? null : loadCache();
 
   if (cache && cache.length > 0 && !forceNoCache) {
-    // OPTION A : Afficher le cache immédiatement SANS skeletons
     clients.value = cache;
     isLoadingClients.value = false;
     
-    // Fetch en arrière-plan pour mise à jour silencieuse
     const freshClients = await fetchSnapcastClients();
     
-    // Mise à jour silencieuse (pas de transition)
     if (JSON.stringify(freshClients) !== JSON.stringify(cache)) {
       clients.value = sortClients(freshClients);
       saveCache(freshClients);
     }
 
   } else {
-    // Pas de cache OU activation multiroom
-    console.log('🚀 Chargement sans cache - Fetch API pour avoir les vrais IDs');
-    
-    // Fetch AVANT de créer les skeletons pour avoir les vrais IDs
     const freshClients = await fetchSnapcastClients();
     const sortedClients = sortClients(freshClients);
     
-    console.log('✅ API retournée, création skeletons avec vrais IDs:', sortedClients.map(c => c.id));
-    
-    // Créer des skeletons AVEC LES VRAIS IDS des clients
     clients.value = sortedClients.map(client => ({
-      id: client.id,  // ✅ Même ID = Vue réutilisera le composant
+      id: client.id,
       name: '',
       volume: 0,
       muted: false
     }));
     isLoadingClients.value = true;
     
-    console.log('🎭 Skeletons créés avec IDs:', clients.value.map(c => c.id));
-    
-    // Attendre 600ms pour voir les skeletons
     await new Promise(resolve => setTimeout(resolve, 600));
     
-    console.log('⏰ 600ms écoulées, démarrage transition');
-    
-    // CRITIQUE : Changer isLoadingClients AVANT les données
-    console.log('🎬 AVANT: isLoadingClients =', isLoadingClients.value);
     isLoadingClients.value = false;
-    console.log('🎬 APRÈS: isLoadingClients =', isLoadingClients.value);
-    
-    console.log('⏳ Attente nextTick...');
     await nextTick();
-    console.log('✅ nextTick terminé');
     
-    // Puis mettre à jour les données (mêmes IDs = Vue met à jour au lieu de recréer)
-    console.log('📝 AVANT: clients.value =', clients.value.map(c => `${c.id}:${c.name || 'empty'}`));
     clients.value = sortedClients;
-    console.log('📝 APRÈS: clients.value =', clients.value.map(c => `${c.id}:${c.name}`));
-    
     saveCache(sortedClients);
-    console.log('💾 Cache sauvegardé');
   }
 }
 
@@ -289,12 +258,7 @@ function handleSystemStateChanged(event) {
 
 async function handleMultiroomEnabling() {
   unifiedStore.setMultiroomTransitioning(true);
-  
-  // NE PAS créer de skeletons génériques ici
-  // On va attendre le fetch API pour avoir les vrais IDs
   isLoadingClients.value = true;
-  
-  // Vider le cache car on veut des données fraîches
   clearCache();
 }
 
@@ -397,7 +361,7 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
   gap: var(--space-02);
 }
 
-/* Transitions Message (plus rapides - 300ms) */
+/* Transitions Message */
 .message-enter-active {
   transition: opacity 300ms ease, transform 300ms ease;
 }
@@ -418,7 +382,7 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
   transform: translateY(-12px);
 }
 
-/* Transitions Clients (300ms pour activation rapide) */
+/* Transitions Clients */
 .clients-enter-active {
   transition: opacity 300ms ease 100ms, transform 300ms ease 100ms;
 }
