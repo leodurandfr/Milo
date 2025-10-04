@@ -42,12 +42,24 @@ const { on } = useWebSocket();
 const emit = defineEmits(['show-client-details']);
 
 const clientsListRef = ref(null);
-const containerHeight = ref('232px');
+const containerHeight = ref('0px');
 const clients = ref([]);
 const isLoadingClients = ref(false);
 
+// Constantes de hauteur
+const ITEM_HEIGHT_DESKTOP = 80; // Hauteur SnapclientItem (68px) + gap (12px)
+const ITEM_HEIGHT_MOBILE = 128; // Hauteur mobile (116px) + gap (12px)
+const MESSAGE_HEIGHT = 364; // Hauteur du message "multiroom désactivé"
+
 let resizeObserver = null;
 let unsubscribeFunctions = [];
+
+// Fonction pour calculer la hauteur initiale
+function calculateInitialHeight(clientsCount) {
+  const isMobile = window.matchMedia('(max-aspect-ratio: 4/3)').matches;
+  const itemHeight = isMobile ? ITEM_HEIGHT_MOBILE : ITEM_HEIGHT_DESKTOP;
+  return clientsCount > 0 ? clientsCount * itemHeight : MESSAGE_HEIGHT;
+}
 
 // === CACHE ===
 const CACHE_KEY = 'snapcast_clients_cache';
@@ -147,6 +159,9 @@ async function loadSnapcastClients(forceNoCache = false) {
     clients.value = cache;
     isLoadingClients.value = false;
     
+    // Calculer la hauteur initiale basée sur le nombre de clients en cache
+    containerHeight.value = `${calculateInitialHeight(cache.length)}px`;
+    
     const freshClients = await fetchSnapcastClients();
     
     if (JSON.stringify(freshClients) !== JSON.stringify(cache)) {
@@ -157,6 +172,9 @@ async function loadSnapcastClients(forceNoCache = false) {
   } else {
     const freshClients = await fetchSnapcastClients();
     const sortedClients = sortClients(freshClients);
+    
+    // Calculer la hauteur pour les placeholders (toujours 3)
+    containerHeight.value = `${calculateInitialHeight(3)}px`;
     
     clients.value = sortedClients.map(client => ({
       id: client.id,
@@ -281,6 +299,9 @@ onMounted(async () => {
 
   if (isMultiroomActive.value) {
     await loadSnapcastClients();
+  } else {
+    // Définir la hauteur du message si multiroom désactivé
+    containerHeight.value = `${MESSAGE_HEIGHT}px`;
   }
 
   await nextTick();
