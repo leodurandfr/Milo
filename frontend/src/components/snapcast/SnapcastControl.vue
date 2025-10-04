@@ -5,7 +5,7 @@
       <!-- MESSAGE : Multiroom désactivé -->
       <Transition name="message">
         <div v-if="showMessage" key="message" class="message-content">
-          <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
+          <Icon name="multiroom" :size="96" color="var(--color-background-glass)" />
           <p class="text-mono">{{ $t("Le multiroom n'est pas activé") }}</p>
         </div>
       </Transition>
@@ -13,15 +13,9 @@
       <!-- CLIENTS : Skeletons OU Items réels -->
       <Transition name="clients">
         <div v-if="!showMessage" key="clients" class="clients-wrapper">
-          <SnapclientItem 
-            v-for="client in displayClients" 
-            :key="client.id" 
-            :client="client"
-            :is-loading="isLoadingClients"
-            @volume-change="handleVolumeChange" 
-            @mute-toggle="handleMuteToggle" 
-            @show-details="handleShowDetails" 
-          />
+          <SnapclientItem v-for="client in displayClients" :key="client.id" :client="client"
+            :is-loading="isLoadingClients" @volume-change="handleVolumeChange" @mute-toggle="handleMuteToggle"
+            @show-details="handleShowDetails" />
         </div>
       </Transition>
     </div>
@@ -46,19 +40,26 @@ const containerHeight = ref('0px');
 const clients = ref([]);
 const isLoadingClients = ref(false);
 
-// Constantes de hauteur
-const ITEM_HEIGHT_DESKTOP = 80; // Hauteur SnapclientItem (68px) + gap (12px)
-const ITEM_HEIGHT_MOBILE = 128; // Hauteur mobile (116px) + gap (12px)
-const MESSAGE_HEIGHT = 364; // Hauteur du message "multiroom désactivé"
+// Constantes de hauteur mesurées
+const ITEM_HEIGHT_DESKTOP = 72;
+const ITEM_HEIGHT_MOBILE = 116;
+const GAP_DESKTOP = 8;
+const GAP_MOBILE = 8;
+const MESSAGE_HEIGHT = 364;
 
 let resizeObserver = null;
 let unsubscribeFunctions = [];
 
 // Fonction pour calculer la hauteur initiale
 function calculateInitialHeight(clientsCount) {
+  if (clientsCount === 0) return MESSAGE_HEIGHT;
+
   const isMobile = window.matchMedia('(max-aspect-ratio: 4/3)').matches;
   const itemHeight = isMobile ? ITEM_HEIGHT_MOBILE : ITEM_HEIGHT_DESKTOP;
-  return clientsCount > 0 ? clientsCount * itemHeight : MESSAGE_HEIGHT;
+  const gap = isMobile ? GAP_MOBILE : GAP_DESKTOP;
+
+  // Hauteur = (items * hauteur) + ((items - 1) * gap)
+  return (clientsCount * itemHeight) + ((clientsCount - 1) * gap);
 }
 
 // === CACHE ===
@@ -109,7 +110,7 @@ const showBackground = computed(() => {
 
 const displayClients = computed(() => {
   if (clients.value.length === 0 && isLoadingClients.value) {
-    return Array.from({ length: 3 }, (_, i) => ({ 
+    return Array.from({ length: 3 }, (_, i) => ({
       id: `placeholder-${i}`,
       name: '',
       volume: 0,
@@ -158,12 +159,12 @@ async function loadSnapcastClients(forceNoCache = false) {
   if (cache && cache.length > 0 && !forceNoCache) {
     clients.value = cache;
     isLoadingClients.value = false;
-    
+
     // Calculer la hauteur initiale basée sur le nombre de clients en cache
     containerHeight.value = `${calculateInitialHeight(cache.length)}px`;
-    
+
     const freshClients = await fetchSnapcastClients();
-    
+
     if (JSON.stringify(freshClients) !== JSON.stringify(cache)) {
       clients.value = sortClients(freshClients);
       saveCache(freshClients);
@@ -172,10 +173,10 @@ async function loadSnapcastClients(forceNoCache = false) {
   } else {
     const freshClients = await fetchSnapcastClients();
     const sortedClients = sortClients(freshClients);
-    
+
     // Calculer la hauteur pour les placeholders (toujours 3)
     containerHeight.value = `${calculateInitialHeight(3)}px`;
-    
+
     clients.value = sortedClients.map(client => ({
       id: client.id,
       name: '',
@@ -183,12 +184,12 @@ async function loadSnapcastClients(forceNoCache = false) {
       muted: false
     }));
     isLoadingClients.value = true;
-    
+
     await new Promise(resolve => setTimeout(resolve, 600));
-    
+
     isLoadingClients.value = false;
     await nextTick();
-    
+
     clients.value = sortedClients;
     saveCache(sortedClients);
   }
@@ -363,7 +364,7 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
 
 .message-content {
   display: flex;
-  min-height: 364px;
+  min-height: 232px;
   flex-direction: column;
   justify-content: center;
   align-items: center;
@@ -422,5 +423,11 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
 .clients-leave-to {
   opacity: 0;
   transform: translateY(-12px);
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .message-content {
+    min-height: 364px;
+  }
 }
 </style>
