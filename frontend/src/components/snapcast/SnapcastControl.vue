@@ -1,36 +1,29 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue -->
+<!-- frontend/src/components/snapcast/SnapcastControl.vue - Version optimisée avec transitions fluides -->
 <template>
-  <div class="clients-container" 
-       :class="{ 'show-background': showBackground }" 
-       :style="{ height: containerHeight }">
-    
-    <div class="clients-list" ref="clientsListRef">
-      <!-- MESSAGE : Multiroom désactivé OU en cours de désactivation -->
-      <div v-if="showMessage" class="message-content">
-        <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
-        <p class="text-mono">{{ $t("Le multiroom n'est pas activé") }}</p>
-      </div>
-      
-      <!-- SKELETONS : Activation en cours -->
-      <template v-else-if="showSkeletons">
-        <SnapclientItemSkeleton v-for="i in 3" :key="`skeleton-${i}`" />
-      </template>
-      
-      <!-- CLIENTS : Liste normale -->
-      <template v-else>
-        <SnapclientItem 
-          v-for="client in clients" 
-          :key="client.id" 
-          :client="client"
-          :class="{ 
-            'fade-in': fadingInClients.includes(client.id), 
-            'fade-out': fadingOutClients.includes(client.id) 
-          }"
-          @volume-change="handleVolumeChange" 
-          @mute-toggle="handleMuteToggle" 
-          @show-details="handleShowDetails" 
-        />
-      </template>
+  <div class="clients-container" :style="{ height: containerHeight }">
+    <div class="clients-list" ref="clientsListRef" :class="{ 'with-background': showBackground }">
+      <!-- MESSAGE : Multiroom désactivé -->
+      <Transition name="message">
+        <div v-if="showMessage" key="message" class="message-content">
+          <Icon name="multiroom" :size="148" color="var(--color-background-glass)" />
+          <p class="text-mono">{{ $t("Le multiroom n'est pas activé") }}</p>
+        </div>
+      </Transition>
+
+      <!-- CLIENTS : Skeletons OU Items réels -->
+      <Transition name="clients">
+        <div v-if="!showMessage" key="clients" class="clients-wrapper">
+          <SnapclientItem 
+            v-for="client in displayClients" 
+            :key="client.id" 
+            :client="client"
+            :is-loading="isLoadingClients"
+            @volume-change="handleVolumeChange" 
+            @mute-toggle="handleMuteToggle" 
+            @show-details="handleShowDetails" 
+          />
+        </div>
+      </Transition>
     </div>
   </div>
 </template>
@@ -41,7 +34,6 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 import SnapclientItem from './SnapclientItem.vue';
-import SnapclientItemSkeleton from './SnapclientItemSkeleton.vue';
 import Icon from '@/components/ui/Icon.vue';
 
 const unifiedStore = useUnifiedAudioStore();
@@ -51,20 +43,20 @@ const emit = defineEmits(['show-client-details']);
 
 const clientsListRef = ref(null);
 const containerHeight = ref('232px');
+const clients = ref([]);
+const isLoadingClients = ref(false);
 
 let resizeObserver = null;
+let unsubscribeFunctions = [];
 
-// === CACHE MANAGEMENT ===
+// === CACHE ===
 const CACHE_KEY = 'snapcast_clients_cache';
 
 function loadCache() {
   try {
     const cached = localStorage.getItem(CACHE_KEY);
-    if (!cached) return null;
-    const parsed = JSON.parse(cached);
-    return parsed.length > 0 ? parsed : null;
-  } catch (error) {
-    console.error('Error loading cache:', error);
+    return cached ? JSON.parse(cached) : null;
+  } catch {
     return null;
   }
 }
@@ -78,15 +70,9 @@ function saveCache(clientsList) {
 }
 
 function clearCache() {
-  try {
-    localStorage.removeItem(CACHE_KEY);
-    console.log('🗑️ Cache cleared');
-  } catch (error) {
-    console.error('Error clearing cache:', error);
-  }
+  localStorage.removeItem(CACHE_KEY);
 }
 
-// === CLIENT SORTING ===
 function sortClients(clientsList) {
   return [...clientsList].sort((a, b) => {
     if (a.host === "milo") return -1;
@@ -95,32 +81,38 @@ function sortClients(clientsList) {
   });
 }
 
-// États
-const clients = ref([]);
-const showSkeletons = ref(false);
-const fadingInClients = ref([]);
-const fadingOutClients = ref([]);
-let unsubscribeFunctions = [];
-
+// === COMPUTED ===
 const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
+const isActivating = computed(() => unifiedStore.isMultiroomTransitioning);
 const isDeactivating = computed(() => unifiedStore.isMultiroomDeactivating);
 
-// === COMPUTED POUR L'AFFICHAGE ===
 const showMessage = computed(() => {
-  if (!isMultiroomActive.value && !unifiedStore.isMultiroomTransitioning) {
-    return true;
-  }
-  if (isDeactivating.value && clients.value.length === 0) {
-    return true;
-  }
-  return false;
+  // Cacher le message pendant l'activation (pour montrer les skeletons)
+  if (isActivating.value) return false;
+  
+  // Afficher le message si en cours de désactivation OU multiroom désactivé
+  return isDeactivating.value || !isMultiroomActive.value;
 });
 
 const showBackground = computed(() => {
   return showMessage.value;
 });
 
-// === RESIZE OBSERVER SETUP ===
+// Clients à afficher
+const displayClients = computed(() => {
+  // Si pas de clients et isLoading, afficher 3 placeholders vides
+  if (clients.value.length === 0 && isLoadingClients.value) {
+    return Array.from({ length: 3 }, (_, i) => ({ 
+      id: `placeholder-${i}`,
+      name: '',
+      volume: 0,
+      muted: false
+    }));
+  }
+  return clients.value;
+});
+
+// === RESIZE OBSERVER ===
 function setupResizeObserver() {
   if (resizeObserver) {
     resizeObserver.disconnect();
@@ -142,31 +134,6 @@ function setupResizeObserver() {
   }
 }
 
-// === ANIMATIONS ===
-async function fadeOutAllClients() {
-  if (clients.value.length === 0) return;
-
-  const allIds = clients.value.map(c => c.id);
-  fadingOutClients.value = allIds;
-
-  await new Promise(resolve => setTimeout(resolve, 200));
-
-  clients.value = [];
-  fadingOutClients.value = [];
-}
-
-async function fadeInClients(newClients) {
-  if (newClients.length === 0) return;
-
-  const newIds = newClients.map(c => c.id);
-  fadingInClients.value = newIds;
-
-  clients.value = sortClients([...clients.value, ...newClients]);
-
-  await new Promise(resolve => setTimeout(resolve, 200));
-  fadingInClients.value = [];
-}
-
 // === FETCH CLIENTS ===
 async function fetchSnapcastClients() {
   try {
@@ -178,55 +145,69 @@ async function fetchSnapcastClients() {
   }
 }
 
-// === LOAD CLIENTS ===
 async function loadSnapcastClients(forceNoCache = false) {
   const cache = forceNoCache ? null : loadCache();
 
-  if (cache && cache.length > 0) {
-    console.log('📦 Using cache for instant display');
+  if (cache && cache.length > 0 && !forceNoCache) {
+    // OPTION A : Afficher le cache immédiatement SANS skeletons
     clients.value = cache;
-    showSkeletons.value = false;
-
+    isLoadingClients.value = false;
+    
+    // Fetch en arrière-plan pour mise à jour silencieuse
     const freshClients = await fetchSnapcastClients();
-
-    const cacheIds = new Set(cache.map(c => c.id));
-    const freshIds = new Set(freshClients.map(c => c.id));
-
-    const removedIds = [...cacheIds].filter(id => !freshIds.has(id));
-    const addedClients = freshClients.filter(c => !cacheIds.has(c.id));
-
-    if (removedIds.length > 0) {
-      fadingOutClients.value = removedIds;
-      await new Promise(resolve => setTimeout(resolve, 200));
-      clients.value = clients.value.filter(c => !removedIds.includes(c.id));
-      fadingOutClients.value = [];
-    }
-
-    if (addedClients.length > 0) {
-      await fadeInClients(addedClients);
-    }
-
-    clients.value = sortClients(freshClients);
-    saveCache(freshClients);
-
-  } else {
-    console.log('⏳ No cache, showing skeletons then fetching');
-    showSkeletons.value = true;
-
-    const freshClients = await fetchSnapcastClients();
-
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    showSkeletons.value = false;
-
-    if (freshClients.length > 0) {
-      await fadeInClients(freshClients);
+    
+    // Mise à jour silencieuse (pas de transition)
+    if (JSON.stringify(freshClients) !== JSON.stringify(cache)) {
+      clients.value = sortClients(freshClients);
       saveCache(freshClients);
     }
+
+  } else {
+    // Pas de cache OU activation multiroom
+    console.log('🚀 Chargement sans cache - Fetch API pour avoir les vrais IDs');
+    
+    // Fetch AVANT de créer les skeletons pour avoir les vrais IDs
+    const freshClients = await fetchSnapcastClients();
+    const sortedClients = sortClients(freshClients);
+    
+    console.log('✅ API retournée, création skeletons avec vrais IDs:', sortedClients.map(c => c.id));
+    
+    // Créer des skeletons AVEC LES VRAIS IDS des clients
+    clients.value = sortedClients.map(client => ({
+      id: client.id,  // ✅ Même ID = Vue réutilisera le composant
+      name: '',
+      volume: 0,
+      muted: false
+    }));
+    isLoadingClients.value = true;
+    
+    console.log('🎭 Skeletons créés avec IDs:', clients.value.map(c => c.id));
+    
+    // Attendre 600ms pour voir les skeletons
+    await new Promise(resolve => setTimeout(resolve, 600));
+    
+    console.log('⏰ 600ms écoulées, démarrage transition');
+    
+    // CRITIQUE : Changer isLoadingClients AVANT les données
+    console.log('🎬 AVANT: isLoadingClients =', isLoadingClients.value);
+    isLoadingClients.value = false;
+    console.log('🎬 APRÈS: isLoadingClients =', isLoadingClients.value);
+    
+    console.log('⏳ Attente nextTick...');
+    await nextTick();
+    console.log('✅ nextTick terminé');
+    
+    // Puis mettre à jour les données (mêmes IDs = Vue met à jour au lieu de recréer)
+    console.log('📝 AVANT: clients.value =', clients.value.map(c => `${c.id}:${c.name || 'empty'}`));
+    clients.value = sortedClients;
+    console.log('📝 APRÈS: clients.value =', clients.value.map(c => `${c.id}:${c.name}`));
+    
+    saveCache(sortedClients);
+    console.log('💾 Cache sauvegardé');
   }
 }
 
-// === GESTIONNAIRES D'ÉVÉNEMENTS ===
+// === HANDLERS ===
 async function handleVolumeChange(clientId, volume) {
   try {
     await axios.post(`/api/routing/snapcast/client/${clientId}/volume`, { volume });
@@ -263,7 +244,7 @@ async function handleClientConnected(event) {
     ip: client_ip || 'Unknown'
   };
 
-  await fadeInClients([newClient]);
+  clients.value = sortClients([...clients.value, newClient]);
   saveCache(clients.value);
 }
 
@@ -271,15 +252,8 @@ async function handleClientDisconnected(event) {
   if (isDeactivating.value) return;
 
   const clientId = event.data.client_id;
-  const client = clients.value.find(c => c.id === clientId);
-
-  if (client) {
-    fadingOutClients.value = [clientId];
-    await new Promise(resolve => setTimeout(resolve, 200));
-    clients.value = clients.value.filter(c => c.id !== clientId);
-    fadingOutClients.value = [];
-    saveCache(clients.value);
-  }
+  clients.value = clients.value.filter(c => c.id !== clientId);
+  saveCache(clients.value);
 }
 
 function handleClientVolumeChanged(event) {
@@ -313,39 +287,31 @@ function handleSystemStateChanged(event) {
   unifiedStore.updateState(event);
 }
 
-async function handleMultiroomEnabling(event) {
-  console.log('🚀 MULTIROOM ENABLING EVENT REÇU');
-
+async function handleMultiroomEnabling() {
   unifiedStore.setMultiroomTransitioning(true);
-  clients.value = [];
-  showSkeletons.value = true;
+  
+  // NE PAS créer de skeletons génériques ici
+  // On va attendre le fetch API pour avoir les vrais IDs
+  isLoadingClients.value = true;
+  
+  // Vider le cache car on veut des données fraîches
   clearCache();
-
-  console.log('✅ Skeletons displayed, cache cleared, waiting for services to start');
 }
 
-async function handleMultiroomDisabling(event) {
-  console.log('🚨 MULTIROOM DISABLING EVENT REÇU');
-
+async function handleMultiroomDisabling() {
   unifiedStore.setMultiroomDeactivating(true);
-  await fadeOutAllClients();
-  showSkeletons.value = false;
+  clients.value = [];
+  isLoadingClients.value = false;
   clearCache();
-
-  console.log('✅ Waiting for backend confirmation to reset isDeactivating flag');
 }
 
 // === LIFECYCLE ===
 onMounted(async () => {
-  const currentMultiroomState = isMultiroomActive.value;
-
-  if (unifiedStore.isMultiroomTransitioning && currentMultiroomState) {
-    console.log('⚠️ Reset isMultiroomTransitioning (multiroom already active)');
+  if (unifiedStore.isMultiroomTransitioning && isMultiroomActive.value) {
     unifiedStore.setMultiroomTransitioning(false);
   }
 
-  if (unifiedStore.isMultiroomDeactivating && !currentMultiroomState) {
-    console.log('⚠️ Reset isMultiroomDeactivating (multiroom already inactive)');
+  if (unifiedStore.isMultiroomDeactivating && !isMultiroomActive.value) {
     unifiedStore.setMultiroomDeactivating(false);
   }
 
@@ -378,7 +344,6 @@ onUnmounted(() => {
 // === WATCHERS ===
 watch(isMultiroomActive, async (newValue, oldValue) => {
   if (newValue && !oldValue) {
-    console.log('✅ Multiroom services started, loading clients');
     unifiedStore.setMultiroomDeactivating(false);
 
     const forceNoCache = unifiedStore.isMultiroomTransitioning;
@@ -386,7 +351,6 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
 
     unifiedStore.setMultiroomTransitioning(false);
   } else if (!newValue && oldValue) {
-    console.log('✅ Multiroom disabled confirmed, resetting isDeactivating flag');
     unifiedStore.setMultiroomDeactivating(false);
   }
 });
@@ -396,31 +360,30 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
 .clients-container {
   transition: height var(--transition-spring);
   overflow: visible;
-}
-
-.clients-container.show-background .clients-list {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
+  position: relative;
 }
 
 .clients-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
   overflow: visible;
+  border-radius: var(--radius-04);
+  transition: background 400ms ease;
+  position: relative;
+}
+
+.clients-list.with-background {
+  background: var(--color-background-neutral);
 }
 
 .message-content {
   display: flex;
-  min-height: 364px; /* Hauteur pour 3 clients */
+  min-height: 364px;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   gap: var(--space-04);
   padding: var(--space-05);
-  
-  opacity: 0;
-  animation: fadeIn 400ms ease-out forwards;
 }
 
 .message-content .text-mono {
@@ -428,32 +391,51 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
   color: var(--color-text-secondary);
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+.clients-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
 }
 
-.fade-in {
-  animation: fadeIn 200ms ease-out;
+/* Transitions Message (plus rapides - 300ms) */
+.message-enter-active {
+  transition: opacity 300ms ease, transform 300ms ease;
 }
 
-.fade-out {
-  animation: fadeOut 200ms ease-out;
-  pointer-events: none;
+.message-leave-active {
+  transition: opacity 300ms ease, transform 300ms ease;
+  position: absolute;
+  width: 100%;
 }
 
-@keyframes fadeOut {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
+.message-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.message-leave-to {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+
+/* Transitions Clients (300ms pour activation rapide) */
+.clients-enter-active {
+  transition: opacity 300ms ease 100ms, transform 300ms ease 100ms;
+}
+
+.clients-leave-active {
+  transition: opacity 300ms ease, transform 300ms ease;
+  position: absolute;
+  width: 100%;
+}
+
+.clients-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.clients-leave-to {
+  opacity: 0;
+  transform: translateY(-12px);
 }
 </style>
