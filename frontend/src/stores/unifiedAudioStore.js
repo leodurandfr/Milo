@@ -1,10 +1,10 @@
-// frontend/src/stores/unifiedAudioStore.js - Version avec état de transition multiroom
+// frontend/src/stores/unifiedAudioStore.js - Version nettoyée sans états UI
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
-  // === ÉTAT UNIQUE ===
+  // === ÉTAT SYSTÈME UNIQUE ===
   const systemState = ref({
     active_source: 'none',
     plugin_state: 'inactive',
@@ -16,14 +16,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     equalizer_enabled: false
   });
 
-  // État volume simplifié - UNIQUEMENT volume affiché (0-100%)
+  // === ÉTAT VOLUME ===
   const volumeState = ref({
     currentVolume: 0
   });
-
-  // État de transition multiroom
-  const isMultiroomTransitioning = ref(false);
-  const isMultiroomDeactivating = ref(false);
 
   let volumeBarRef = null;
   let lastWebSocketUpdate = 0;
@@ -131,16 +127,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return await adjustVolume(-5);
   }
 
-  // === ACTIONS TRANSITION MULTIROOM ===
-  function setMultiroomTransitioning(value) {
-    isMultiroomTransitioning.value = value;
-  }
-
-  function setMultiroomDeactivating(value) {
-    isMultiroomDeactivating.value = value;
-  }
-
-  // === REFRESH (AVEC CHARGEMENT ROUTING) ===
+  // === REFRESH ===
   async function refreshState() {
     try {
       if (systemState.value.transitioning) {
@@ -271,8 +258,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // État
     systemState,
     volumeState,
-    isMultiroomTransitioning,
-    isMultiroomDeactivating,
 
     // Getters
     currentSource,
@@ -297,8 +282,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     decreaseVolume,
     handleVolumeEvent,
     setVolumeBarRef,
-    setMultiroomTransitioning,
-    setMultiroomDeactivating,
     refreshState,
     setupVisibilityListener
   };

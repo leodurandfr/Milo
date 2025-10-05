@@ -40,25 +40,27 @@ const containerHeight = ref('0px');
 const clients = ref([]);
 const isLoadingClients = ref(false);
 
-// Constantes de hauteur mesurées
+// États locaux pour les transitions multiroom
+const isMultiroomTransitioning = ref(false);
+const isMultiroomDeactivating = ref(false);
+
+// Mémorisation du dernier nombre de clients connus
+const lastKnownClientCount = ref(3); // Défaut : 3 skeletons
+
+// Constantes de hauteur
 const ITEM_HEIGHT_DESKTOP = 72;
 const ITEM_HEIGHT_MOBILE = 116;
 const GAP_DESKTOP = 8;
 const GAP_MOBILE = 8;
-const MESSAGE_HEIGHT = 364;
 
 let resizeObserver = null;
 let unsubscribeFunctions = [];
 
-// Fonction pour calculer la hauteur initiale
 function calculateInitialHeight(clientsCount) {
-  if (clientsCount === 0) return MESSAGE_HEIGHT;
-
   const isMobile = window.matchMedia('(max-aspect-ratio: 4/3)').matches;
   const itemHeight = isMobile ? ITEM_HEIGHT_MOBILE : ITEM_HEIGHT_DESKTOP;
   const gap = isMobile ? GAP_MOBILE : GAP_DESKTOP;
 
-  // Hauteur = (items * hauteur) + ((items - 1) * gap)
   return (clientsCount * itemHeight) + ((clientsCount - 1) * gap);
 }
 
@@ -96,12 +98,10 @@ function sortClients(clientsList) {
 
 // === COMPUTED ===
 const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
-const isActivating = computed(() => unifiedStore.isMultiroomTransitioning);
-const isDeactivating = computed(() => unifiedStore.isMultiroomDeactivating);
 
 const showMessage = computed(() => {
-  if (isActivating.value) return false;
-  return isDeactivating.value || !isMultiroomActive.value;
+  if (isMultiroomTransitioning.value) return false;
+  return isMultiroomDeactivating.value || !isMultiroomActive.value;
 });
 
 const showBackground = computed(() => {
@@ -157,11 +157,10 @@ async function loadSnapcastClients(forceNoCache = false) {
   const cache = forceNoCache ? null : loadCache();
 
   if (cache && cache.length > 0 && !forceNoCache) {
+    lastKnownClientCount.value = cache.length;
     clients.value = cache;
     isLoadingClients.value = false;
-
-    // Calculer la hauteur initiale basée sur le nombre de clients en cache
-    containerHeight.value = `${calculateInitialHeight(cache.length)}px`;
+    containerHeight.value = `${calculateInitialHeight(lastKnownClientCount.value)}px`;
 
     const freshClients = await fetchSnapcastClients();
 
@@ -174,8 +173,9 @@ async function loadSnapcastClients(forceNoCache = false) {
     const freshClients = await fetchSnapcastClients();
     const sortedClients = sortClients(freshClients);
 
-    // Calculer la hauteur pour les placeholders (toujours 3)
-    containerHeight.value = `${calculateInitialHeight(3)}px`;
+    // Mémoriser le nombre de clients (minimum 3 pour les skeletons par défaut)
+    lastKnownClientCount.value = sortedClients.length || 3;
+    containerHeight.value = `${calculateInitialHeight(lastKnownClientCount.value)}px`;
 
     clients.value = sortedClients.map(client => ({
       id: client.id,
@@ -220,7 +220,7 @@ function handleShowDetails(client) {
 async function handleClientConnected(event) {
   const { client_id, client_name, client_host, client_ip, volume, muted } = event.data;
 
-  if (!client_id || isDeactivating.value) return;
+  if (!client_id || isMultiroomDeactivating.value) return;
   if (clients.value.find(c => c.id === client_id)) return;
 
   const newClient = {
@@ -237,7 +237,7 @@ async function handleClientConnected(event) {
 }
 
 async function handleClientDisconnected(event) {
-  if (isDeactivating.value) return;
+  if (isMultiroomDeactivating.value) return;
 
   const clientId = event.data.client_id;
   clients.value = clients.value.filter(c => c.id !== clientId);
@@ -276,13 +276,13 @@ function handleSystemStateChanged(event) {
 }
 
 async function handleMultiroomEnabling() {
-  unifiedStore.setMultiroomTransitioning(true);
+  isMultiroomTransitioning.value = true;
   isLoadingClients.value = true;
   clearCache();
 }
 
 async function handleMultiroomDisabling() {
-  unifiedStore.setMultiroomDeactivating(true);
+  isMultiroomDeactivating.value = true;
   clients.value = [];
   isLoadingClients.value = false;
   clearCache();
@@ -290,19 +290,19 @@ async function handleMultiroomDisabling() {
 
 // === LIFECYCLE ===
 onMounted(async () => {
-  if (unifiedStore.isMultiroomTransitioning && isMultiroomActive.value) {
-    unifiedStore.setMultiroomTransitioning(false);
+  if (isMultiroomTransitioning.value && isMultiroomActive.value) {
+    isMultiroomTransitioning.value = false;
   }
 
-  if (unifiedStore.isMultiroomDeactivating && !isMultiroomActive.value) {
-    unifiedStore.setMultiroomDeactivating(false);
+  if (isMultiroomDeactivating.value && !isMultiroomActive.value) {
+    isMultiroomDeactivating.value = false;
   }
 
   if (isMultiroomActive.value) {
     await loadSnapcastClients();
   } else {
-    // Définir la hauteur du message si multiroom désactivé
-    containerHeight.value = `${MESSAGE_HEIGHT}px`;
+    // Utiliser le dernier nombre de clients connus au lieu d'une constante
+    containerHeight.value = `${calculateInitialHeight(lastKnownClientCount.value)}px`;
   }
 
   await nextTick();
@@ -330,14 +330,14 @@ onUnmounted(() => {
 // === WATCHERS ===
 watch(isMultiroomActive, async (newValue, oldValue) => {
   if (newValue && !oldValue) {
-    unifiedStore.setMultiroomDeactivating(false);
+    isMultiroomDeactivating.value = false;
 
-    const forceNoCache = unifiedStore.isMultiroomTransitioning;
+    const forceNoCache = isMultiroomTransitioning.value;
     await loadSnapcastClients(forceNoCache);
 
-    unifiedStore.setMultiroomTransitioning(false);
+    isMultiroomTransitioning.value = false;
   } else if (!newValue && oldValue) {
-    unifiedStore.setMultiroomDeactivating(false);
+    isMultiroomDeactivating.value = false;
   }
 });
 </script>
@@ -383,7 +383,6 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
   gap: var(--space-02);
 }
 
-/* Transitions Message */
 .message-enter-active {
   transition: opacity 300ms ease, transform 300ms ease;
 }
@@ -404,7 +403,6 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
   transform: translateY(-12px);
 }
 
-/* Transitions Clients */
 .clients-enter-active {
   transition: opacity 300ms ease 100ms, transform 300ms ease 100ms;
 }

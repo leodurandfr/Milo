@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapcastModal.vue - Version avec désactivation du toggle pendant transition -->
+<!-- frontend/src/components/snapcast/SnapcastModal.vue -->
 <template>
   <div class="snapcast-modal">
     <!-- Vue principale -->
@@ -7,7 +7,7 @@
         <h2 class="heading-2">{{ $t('Multiroom') }}</h2>
         <div class="controls-wrapper">
           <IconButton 
-            v-if="isMultiroomActive && !unifiedStore.isMultiroomDeactivating" 
+            v-if="isMultiroomActive" 
             icon="settings" 
             variant="dark" 
             @click="showSettings"
@@ -16,7 +16,7 @@
           <Toggle 
             v-model="isMultiroomActive" 
             variant="primary" 
-            :disabled="unifiedStore.isTransitioning || unifiedStore.isMultiroomTransitioning || unifiedStore.isMultiroomDeactivating"
+            :disabled="unifiedStore.isTransitioning"
             @change="handleMultiroomToggle" 
           />
         </div>
@@ -62,7 +62,7 @@ import SnapclientDetails from './SnapclientDetails.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 
-// === NAVIGATION LOCALE ULTRA-SIMPLE ===
+// === NAVIGATION LOCALE ===
 const currentView = ref('main'); // 'main', 'settings', 'client-details'
 const selectedClient = ref(null);
 
@@ -92,7 +92,6 @@ async function handleMultiroomToggle(enabled) {
 }
 
 // === RESET AUTOMATIQUE ===
-// Retourner au main quand le multiroom est désactivé
 watch(isMultiroomActive, (enabled) => {
   if (!enabled && currentView.value !== 'main') {
     console.log('🔙 Multiroom deactivated, going back to main');
@@ -100,7 +99,6 @@ watch(isMultiroomActive, (enabled) => {
   }
 });
 
-// Debug pour suivre les changements de vue
 watch(currentView, (newView, oldView) => {
   console.log(`🖥️ Snapcast view changed: ${oldView} → ${newView}`);
   if (newView === 'client-details') {
