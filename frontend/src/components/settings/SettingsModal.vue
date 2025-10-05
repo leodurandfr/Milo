@@ -1,4 +1,3 @@
-<!-- frontend/src/components/settings/SettingsModal.vue -->
 <template>
   <div class="settings-modal">
     <!-- Vue Home : Liste des catégories -->
@@ -6,53 +5,14 @@
       <ModalHeader :title="t('Configuration de Milō')" />
 
       <div class="settings-nav-grid">
-        <button class="nav-button" @click="goToView('languages')">
-          <Icon name="settings" :size="32" />
-          <span class="nav-button-text text-body">{{ t('Langues') }}</span>
-          <Icon name="caretRight" :size="24" />
-        </button>
-
-        <button class="nav-button" @click="goToView('apps')">
-          <Icon name="settings" :size="32" />
-          <span class="nav-button-text text-body">{{ t('Applications') }}</span>
-          <Icon name="caretRight" :size="24" />
-        </button>
-
-        <button class="nav-button" @click="goToView('volume')">
-          <Icon name="settings" :size="32" />
-          <span class="nav-button-text text-body">{{ t('Volume') }}</span>
-          <Icon name="caretRight" :size="24" />
-        </button>
-
-        <button class="nav-button" @click="goToView('screen')">
-          <Icon name="settings" :size="32" />
-          <span class="nav-button-text text-body">{{ t('Écran') }}</span>
-          <Icon name="caretRight" :size="24" />
-        </button>
-
-        <button class="nav-button" @click="goToView('spotify')">
-          <AppIcon name="librespot" :size="32" />
-          <span class="nav-button-text text-body">Spotify</span>
-          <Icon name="caretRight" :size="24" />
-        </button>
-
-        <button class="nav-button" @click="goToView('multiroom')">
-          <AppIcon name="multiroom" :size="32" />
-          <span class="nav-button-text text-body">Multiroom</span>
-          <Icon name="caretRight" :size="24" />
-        </button>
-
-        <button class="nav-button" @click="goToView('dependencies')">
-          <Icon name="settings" :size="32" />
-          <span class="nav-button-text text-body">{{ t('Dépendances') }}</span>
-          <Icon name="caretRight" :size="24" />
-        </button>
-
-        <button class="nav-button" @click="goToView('info')">
-          <Icon name="settings" :size="32" />
-          <span class="nav-button-text text-body">{{ t('Informations') }}</span>
-          <Icon name="caretRight" :size="24" />
-        </button>
+        <SettingsCategory icon="languages" :title="t('Langues')" @click="goToView('languages')" />
+        <SettingsCategory icon="applications" :title="t('Applications')" @click="goToView('apps')" />
+        <SettingsCategory icon="volume" :title="t('Volume')" @click="goToView('volume')" />
+        <SettingsCategory icon="display" :title="t('Écran')" @click="goToView('screen')" />
+        <SettingsCategory icon="spotify" title="Spotify" @click="goToView('spotify')" />
+        <SettingsCategory icon="multiroom" title="Multiroom" @click="goToView('multiroom')" />
+        <SettingsCategory icon="dependencies" :title="t('Dépendances')" @click="goToView('dependencies')" />
+        <SettingsCategory icon="information" :title="t('Informations')" @click="goToView('info')" />
       </div>
     </div>
 
@@ -155,8 +115,8 @@
       <ModalHeader :title="t('Volume')" show-back @back="goToHome" />
 
       <div class="settings-container">
+        <!-- Contrôles du volume -->
         <section class="settings-section">
-          <!-- Contrôles du volume -->
           <div class="volume-group">
             <h2 class="heading-2 text-body">{{ t('Contrôles du volume') }}</h2>
 
@@ -180,10 +140,10 @@
               </div>
             </div>
           </div>
+        </section>
 
-          <div class="settings-separator"></div>
-
-          <!-- Limites du volume -->
+        <!-- Limites du volume -->
+        <section class="settings-section">
           <div class="volume-group">
             <h2 class="heading-2 text-body">{{ t('Limites du volume') }}</h2>
             <div class="setting-item-container">
@@ -196,10 +156,10 @@
               </div>
             </div>
           </div>
+        </section>
 
-          <div class="settings-separator"></div>
-
-          <!-- Volume au démarrage -->
+        <!-- Volume au démarrage -->
+        <section class="settings-section">
           <div class="volume-group">
             <h2 class="heading-2 text-body">{{ t('Volume au démarrage') }}</h2>
 
@@ -233,8 +193,8 @@
       <ModalHeader :title="t('Écran')" show-back @back="goToHome" />
 
       <div class="settings-container">
+        <!-- Luminosité -->
         <section class="settings-section">
-          <!-- Luminosité -->
           <div class="screen-group">
             <h2 class="heading-2 text-body">{{ t('Luminosité') }}</h2>
             <div class="setting-item-container">
@@ -247,10 +207,10 @@
               </div>
             </div>
           </div>
+        </section>
 
-          <div class="settings-separator"></div>
-
-          <!-- Mise en veille automatique -->
+        <!-- Mise en veille automatique -->
+        <section class="settings-section">
           <div class="screen-group">
             <h2 class="heading-2 text-body">{{ t('Mise en veille automatique') }}</h2>
             <div class="setting-item-container">
@@ -298,8 +258,8 @@
       <ModalHeader title="Multiroom" show-back @back="goToHome" />
 
       <div class="settings-container">
+        <!-- Enceintes multiroom -->
         <section class="settings-section">
-          <!-- Enceintes multiroom -->
           <div class="multiroom-group">
             <h2 class="heading-2 text-body">{{ t('Enceintes multiroom') }}</h2>
 
@@ -322,12 +282,12 @@
               </div>
             </div>
           </div>
+        </section>
 
-          <div class="settings-separator"></div>
-
-          <!-- Presets audio -->
+        <!-- Presets audio -->
+        <section class="settings-section">
           <div class="multiroom-group">
-            <h2 class="heading-2 text-body">{{ t('Presets audio') }}</h2>
+            <h2 class="heading-2 text-body">{{ t('Pré-réglages') }}</h2>
             <div class="presets-buttons">
               <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle" :active="isPresetActive(preset)"
                 :disabled="applyingServerConfig" @click="applyPreset(preset)">
@@ -335,10 +295,10 @@
               </Button>
             </div>
           </div>
+        </section>
 
-          <div class="settings-separator"></div>
-
-          <!-- Paramètres avancés -->
+        <!-- Paramètres avancés -->
+        <section class="settings-section">
           <div class="multiroom-group">
             <h2 class="heading-2 text-body">{{ t('Paramètres avancés') }}</h2>
 
@@ -425,6 +385,7 @@ import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import SettingsCategory from '@/components/settings/SettingsCategory.vue';
 import DependenciesManager from '@/components/settings/DependenciesManager.vue';
 import axios from 'axios';
 
@@ -907,28 +868,6 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-02);
-}
-
-.nav-button {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-03);
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.nav-button:hover {
-  background: var(--color-background-strong);
-  border-color: var(--color-background-glass);
-}
-
-.nav-button-text {
-  flex: 1;
-  text-align: left;
-  color: var(--color-text);
 }
 
 /* Settings Container */
