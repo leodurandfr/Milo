@@ -14,8 +14,7 @@
       <Transition name="clients">
         <div v-if="!showMessage" key="clients" class="clients-wrapper">
           <SnapclientItem v-for="client in displayClients" :key="client.id" :client="client"
-            :is-loading="isLoadingClients" @volume-change="handleVolumeChange" @mute-toggle="handleMuteToggle"
-            @show-details="handleShowDetails" />
+            :is-loading="isLoadingClients" @volume-change="handleVolumeChange" @mute-toggle="handleMuteToggle" />
         </div>
       </Transition>
     </div>
@@ -32,8 +31,6 @@ import Icon from '@/components/ui/Icon.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
-
-const emit = defineEmits(['show-client-details']);
 
 const clientsListRef = ref(null);
 const containerHeight = ref('0px');
@@ -212,10 +209,6 @@ async function handleMuteToggle(clientId, muted) {
   }
 }
 
-function handleShowDetails(client) {
-  emit('show-client-details', client);
-}
-
 // === WEBSOCKET HANDLERS ===
 async function handleClientConnected(event) {
   const { client_id, client_name, client_host, client_ip, volume, muted } = event.data;
@@ -301,7 +294,6 @@ onMounted(async () => {
   if (isMultiroomActive.value) {
     await loadSnapcastClients();
   } else {
-    // Utiliser le dernier nombre de clients connus au lieu d'une constante
     containerHeight.value = `${calculateInitialHeight(lastKnownClientCount.value)}px`;
   }
 

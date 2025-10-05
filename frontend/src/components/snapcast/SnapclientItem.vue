@@ -31,24 +31,13 @@
       />
     </div>
     
-    <div class="controls-wrapper">
-      <div class="control-button" :class="{ 'skeleton-shimmer': isLoading }">
-        <IconButton 
-          icon="threeDots" 
-          @click="handleShowDetails" 
-          title="Voir les détails du client"
-          :style="{ opacity: isLoading ? 0 : 1 }"
-        />
-      </div>
-      
-      <div class="control-toggle" :class="{ 'skeleton-shimmer': isLoading }">
-        <Toggle 
-          :model-value="!client.muted" 
-          variant="secondary" 
-          @change="handleMuteToggle"
-          :style="{ opacity: isLoading ? 0 : 1 }"
-        />
-      </div>
+    <div class="control-toggle" :class="{ 'skeleton-shimmer': isLoading }">
+      <Toggle 
+        :model-value="!client.muted" 
+        variant="secondary" 
+        @change="handleMuteToggle"
+        :style="{ opacity: isLoading ? 0 : 1 }"
+      />
     </div>
   </div>
 </template>
@@ -57,7 +46,6 @@
 import { ref, computed, onUnmounted } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
-import IconButton from '@/components/ui/IconButton.vue';
 
 const props = defineProps({
   client: {
@@ -70,7 +58,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['volume-change', 'mute-toggle', 'show-details']);
+const emit = defineEmits(['volume-change', 'mute-toggle']);
 
 const localDisplayVolume = ref(null);
 let throttleTimeout = null;
@@ -117,12 +105,6 @@ function handleMuteToggle(enabled) {
   if (!props.isLoading) {
     const newMuted = !enabled;
     emit('mute-toggle', props.client.id, newMuted);
-  }
-}
-
-function handleShowDetails() {
-  if (!props.isLoading) {
-    emit('show-details', props.client);
   }
 }
 
@@ -237,53 +219,6 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-.controls-wrapper {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-}
-
-.control-button {
-  border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.control-button::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    var(--color-background-strong) 0%,
-    var(--color-background-glass) 50%,
-    var(--color-background-strong) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  opacity: 0;
-  transition: opacity 400ms ease;
-  pointer-events: none;
-}
-
-.control-button.skeleton-shimmer::before {
-  opacity: 1;
-}
-
-.control-button > * {
-  opacity: 1;
-  transition: opacity 400ms ease;
-  position: relative;
-  z-index: 1;
-}
-
-.control-button.skeleton-shimmer > * {
-  opacity: 0;
-}
-
 .control-toggle {
   display: flex;
   align-items: center;
@@ -343,10 +278,9 @@ onUnmounted(() => {
     min-width: 0;
   }
 
-  .controls-wrapper {
+  .control-toggle {
     order: 2;
     margin-left: auto;
-    flex-shrink: 0;
   }
 
   .volume-control {

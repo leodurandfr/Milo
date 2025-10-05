@@ -1,13 +1,13 @@
 # backend/presentation/api/routes/snapcast.py
 """
-Routes API pour Snapcast - Version avec conversion volume harmonisée
+Routes API pour Snapcast - Version simplifiée sans latency
 """
 import time
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
 
 def create_snapcast_router(routing_service, snapcast_service, state_machine):
-    """Crée le router Snapcast - Version avec conversion volume"""
+    """Crée le router Snapcast - Version simplifiée"""
     router = APIRouter(prefix="/api/routing/snapcast", tags=["snapcast"])
     
     # === FONCTION UTILITAIRE WEBSOCKET ===
@@ -37,11 +37,10 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
         converted_clients = []
         for client in clients:
             converted_client = client.copy()
-            # Convertir le volume ALSA vers display
             alsa_volume = client.get("volume", 0)
             display_volume = volume_service.convert_alsa_to_display(alsa_volume)
             converted_client["volume"] = display_volume
-            converted_client["volume_alsa"] = alsa_volume  # Garder l'original pour debug
+            converted_client["volume_alsa"] = alsa_volume
             converted_clients.append(converted_client)
         
         return converted_clients
@@ -50,7 +49,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
     
     @router.get("/status")
     async def get_snapcast_status():
-        """État de Snapcast - Version refactorisée"""
+        """État de Snapcast"""
         try:
             available = await snapcast_service.is_available()
             clients = await snapcast_service.get_clients() if available else []
@@ -66,16 +65,13 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
     
     @router.get("/clients")
     async def get_snapcast_clients():
-        """Récupère les clients Snapcast avec volumes convertis en format display"""
+        """Récupère les clients Snapcast avec volumes convertis"""
         try:
             routing_state = routing_service.get_state()
             if not routing_state.multiroom_enabled:
                 return {"clients": [], "message": "Multiroom not active"}
             
-            # Récupérer les clients avec volumes ALSA
             alsa_clients = await snapcast_service.get_clients()
-            
-            # Convertir les volumes vers format display
             display_clients = _convert_client_volumes_to_display(alsa_clients)
             
             return {"clients": display_clients}
@@ -84,19 +80,17 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
     
     @router.post("/client/{client_id}/volume")
     async def set_snapcast_volume(client_id: str, payload: Dict[str, Any]):
-        """Change le volume d'un client - Accepte volume display et convertit vers ALSA (version simplifiée)"""
+        """Change le volume d'un client"""
         try:
             display_volume = payload.get("volume")
             if not isinstance(display_volume, int) or not (0 <= display_volume <= 100):
                 return {"status": "error", "message": "Invalid volume (0-100%)"}
             
-            # Convertir le volume display vers ALSA avant de l'envoyer à Snapcast
             volume_service = _get_volume_service()
             if volume_service:
                 alsa_volume = volume_service.convert_display_to_alsa(display_volume)
                 success = await snapcast_service.set_volume(client_id, alsa_volume)
             else:
-                # Fallback si pas de VolumeService
                 success = await snapcast_service.set_volume(client_id, display_volume)
             
             if success:
@@ -123,11 +117,28 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
         except Exception as e:
             return {"status": "error", "message": str(e)}
     
+    @router.post("/client/{client_id}/name")
+    async def set_client_name(client_id: str, payload: Dict[str, Any]):
+        """Configure le nom d'un client"""
+        try:
+            name = payload.get("name")
+            if not isinstance(name, str) or not name.strip():
+                return {"status": "error", "message": "Invalid name"}
+            
+            success = await snapcast_service.set_client_name(client_id, name.strip())
+            
+            if success:
+                await _publish_snapcast_update()
+            
+            return {"status": "success" if success else "error"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
     # === ROUTES MONITORING ===
     
     @router.get("/monitoring")
     async def get_snapcast_monitoring():
-        """Récupère les informations de monitoring Snapcast avec volumes convertis"""
+        """Récupère les informations de monitoring Snapcast"""
         try:
             routing_state = routing_service.get_state()
             if not routing_state.multiroom_enabled:
@@ -147,11 +158,8 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
                     "server_config": {}
                 }
             
-            # Récupérer les informations avec volumes ALSA
             alsa_clients = await snapcast_service.get_detailed_clients()
             server_config = await snapcast_service.get_server_config()
-            
-            # Convertir les volumes vers format display
             display_clients = _convert_client_volumes_to_display(alsa_clients)
             
             return {
@@ -170,7 +178,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
     
     @router.get("/server-config")
     async def get_snapcast_server_config():
-        """Récupère la configuration du serveur (depuis /etc/snapserver.conf)"""
+        """Récupère la configuration du serveur"""
         try:
             available = await snapcast_service.is_available()
             if not available:
@@ -181,71 +189,13 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     
-    # === ROUTES CONFIGURATION CLIENT ===
-    
-    @router.post("/client/{client_id}/latency")
-    async def set_client_latency(client_id: str, payload: Dict[str, Any]):
-        """Configure la latence d'un client"""
-        try:
-            latency = payload.get("latency")
-            if not isinstance(latency, int) or not (0 <= latency <= 1000):
-                return {"status": "error", "message": "Invalid latency (0-1000ms)"}
-            
-            success = await snapcast_service.set_client_latency(client_id, latency)
-            
-            if success:
-                await _publish_snapcast_update()
-            
-            return {"status": "success" if success else "error"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-    
-    @router.post("/client/{client_id}/name")
-    async def set_client_name(client_id: str, payload: Dict[str, Any]):
-        """Configure le nom d'un client"""
-        try:
-            name = payload.get("name")
-            if not isinstance(name, str) or not name.strip():
-                return {"status": "error", "message": "Invalid name"}
-            
-            success = await snapcast_service.set_client_name(client_id, name.strip())
-            
-            if success:
-                await _publish_snapcast_update()
-            
-            return {"status": "success" if success else "error"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-    
-    @router.get("/client/{client_id}/details")
-    async def get_client_details(client_id: str):
-        """Récupère les détails d'un client spécifique avec volume converti"""
-        try:
-            alsa_clients = await snapcast_service.get_detailed_clients()
-            alsa_client = next((c for c in alsa_clients if c["id"] == client_id), None)
-            
-            if not alsa_client:
-                raise HTTPException(status_code=404, detail="Client not found")
-            
-            # Convertir le volume vers format display
-            display_clients = _convert_client_volumes_to_display([alsa_client])
-            display_client = display_clients[0] if display_clients else alsa_client
-            
-            return {"client": display_client}
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-    
     # === ROUTES CONFIGURATION SERVEUR ===
     
     @router.post("/server/config")
     async def update_server_config(payload: Dict[str, Any]):
-        """Met à jour la configuration serveur (modifie /etc/snapserver.conf)"""
+        """Met à jour la configuration serveur"""
         try:
             config = payload.get("config", {})
-            
-            # Appliquer la configuration (validation incluse)
             success = await snapcast_service.update_server_config(config)
             
             if success:
@@ -259,17 +209,5 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
                 
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    
-    @router.get("/health")
-    async def get_snapcast_health():
-        """Diagnostic de santé simple"""
-        try:
-            health = await snapcast_service.get_simple_health()
-            return health
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": f"Erreur diagnostic: {str(e)}"
-            }
     
     return router

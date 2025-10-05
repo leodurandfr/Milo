@@ -23,6 +23,7 @@ import resetIcon from '@/assets/icons/reset.svg?raw';
 import settingsIcon from '@/assets/icons/settings.svg?raw';
 import closeIcon from '@/assets/icons/close.svg?raw';
 import caretLeftIcon from '@/assets/icons/caret-left.svg?raw';
+import caretRightIcon from '@/assets/icons/caret-left.svg?raw';
 import multiroomIcon from '@/assets/icons/multiroom.svg?raw';
 import equalizerIcon from '@/assets/icons/equalizer.svg?raw';
 
@@ -40,6 +41,7 @@ const icons = {
   settings: settingsIcon,
   close: closeIcon,
   caretLeft : caretLeftIcon,
+  caretRight : caretRightIcon,
   multiroom : multiroomIcon,
   equalizer : equalizerIcon,
 

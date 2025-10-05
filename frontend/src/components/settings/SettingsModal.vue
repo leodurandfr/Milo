@@ -229,10 +229,115 @@
         </div>
       </section>
 
-      <!-- 6. Dépendances -->
+      <!-- 6. Multiroom -->
+      <section class="settings-section">
+        <h1 class="heading-1">{{ t('Multiroom') }}</h1>
+
+        <!-- Enceintes multiroom -->
+        <div class="multiroom-group">
+          <h2 class="heading-2 text-body">{{ t('Enceintes multiroom') }}</h2>
+          
+          <div v-if="loadingClients" class="loading-state">
+            <p class="text-mono">{{ t('Chargement des enceintes...') }}</p>
+          </div>
+
+          <div v-else-if="snapcastClients.length === 0" class="no-clients-state">
+            <p class="text-mono">{{ t('Aucune enceinte connectée') }}</p>
+          </div>
+
+          <div v-else class="clients-list">
+            <div v-for="client in snapcastClients" :key="client.id" class="client-config-item">
+              <div class="client-info-wrapper">
+                <span class="client-hostname text-mono">{{ client.host }}</span>
+                <input 
+                  type="text" 
+                  v-model="clientNames[client.id]"
+                  :placeholder="client.host"
+                  class="client-name-input text-body"
+                  maxlength="50"
+                  @blur="updateClientName(client.id)"
+                  @keyup.enter="updateClientName(client.id)"
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-separator"></div>
+
+        <!-- Presets audio -->
+        <div class="multiroom-group">
+          <h2 class="heading-2 text-body">{{ t('Presets audio') }}</h2>
+
+          <div class="presets-buttons">
+            <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle" :active="isPresetActive(preset)"
+              :disabled="applyingServerConfig" @click="applyPreset(preset)">
+              {{ preset.name }}
+            </Button>
+          </div>
+        </div>
+
+        <div class="settings-separator"></div>
+
+        <!-- Paramètres avancés -->
+        <div class="multiroom-group">
+          <h2 class="heading-2 text-body">{{ t('Paramètres avancés') }}</h2>
+
+          <!-- Buffer global -->
+          <div class="form-group">
+            <label class="text-mono">{{ t('Buffer global (ms)') }}</label>
+            <RangeSlider 
+              v-model="serverConfig.buffer" 
+              :min="100" 
+              :max="2000" 
+              :step="50" 
+              value-unit="ms"
+            />
+          </div>
+
+          <!-- Codec -->
+          <div class="form-group">
+            <label class="text-mono">{{ t('Codec audio') }}</label>
+            <div class="codec-buttons">
+              <Button variant="toggle" :active="serverConfig.codec === 'opus'" @click="selectCodec('opus')">
+                Opus
+              </Button>
+              <Button variant="toggle" :active="serverConfig.codec === 'flac'" @click="selectCodec('flac')">
+                FLAC
+              </Button>
+              <Button variant="toggle" :active="serverConfig.codec === 'pcm'" @click="selectCodec('pcm')">
+                PCM
+              </Button>
+            </div>
+          </div>
+
+          <!-- Chunk size -->
+          <div class="form-group">
+            <label class="text-mono">{{ t('Taille des chunks (ms)') }}</label>
+            <RangeSlider 
+              v-model="serverConfig.chunk_ms" 
+              :min="10" 
+              :max="100" 
+              :step="5" 
+              value-unit="ms"
+            />
+          </div>
+
+          <!-- Bouton appliquer -->
+          <Button 
+            variant="primary" 
+            :disabled="loadingServerConfig || applyingServerConfig || !hasServerConfigChanges" 
+            @click="applyServerConfig"
+          >
+            {{ applyingServerConfig ? t('Redémarrage du multiroom en cours...') : t('Appliquer') }}
+          </Button>
+        </div>
+      </section>
+
+      <!-- 7. Dépendances -->
       <DependenciesManager />
 
-      <!-- 7. Informations -->
+      <!-- 8. Informations -->
       <section class="settings-section">
         <h2 class="heading-2">{{ t('Informations') }}</h2>
         <div class="info-grid">
@@ -260,7 +365,6 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
-import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
@@ -302,6 +406,22 @@ const config = ref({
   }
 });
 
+// Multiroom - Clients
+const snapcastClients = ref([]);
+const loadingClients = ref(false);
+const clientNames = ref({});
+
+// Multiroom - Server config
+const serverConfig = ref({
+  buffer: 1000,
+  codec: 'flac',
+  chunk_ms: 20,
+  sampleformat: '48000:16:2'
+});
+const originalServerConfig = ref({});
+const loadingServerConfig = ref(false);
+const applyingServerConfig = ref(false);
+
 const systemTemperature = ref(null);
 const temperatureLoading = ref(false);
 
@@ -325,6 +445,28 @@ const disconnectPresets = computed(() => [
   { value: 3600, label: t('1 heure') },
   { value: 0, label: t('Jamais') }
 ]);
+
+const audioPresets = computed(() => [
+  {
+    id: 'reactivity',
+    name: t('Réactivité'),
+    config: { buffer: 150, codec: 'opus', chunk_ms: 10 }
+  },
+  {
+    id: 'balanced',
+    name: t('Équilibré'),
+    config: { buffer: 1000, codec: 'opus', chunk_ms: 20 }
+  },
+  {
+    id: 'quality',
+    name: t('Qualité optimale'),
+    config: { buffer: 1500, codec: 'flac', chunk_ms: 40 }
+  }
+]);
+
+const hasServerConfigChanges = computed(() => {
+  return JSON.stringify(serverConfig.value) !== JSON.stringify(originalServerConfig.value);
+});
 
 function canDisableAudioSource(sourceId) {
   const audioSources = ['librespot', 'bluetooth', 'roc'];
@@ -350,6 +492,14 @@ function isDisconnectActive(value) {
     return config.value.spotify.auto_disconnect_delay === 0;
   }
   return config.value.spotify.auto_disconnect_delay === value;
+}
+
+function isPresetActive(preset) {
+  const current = serverConfig.value;
+  const presetConfig = preset.config;
+  return current.buffer === presetConfig.buffer &&
+    current.codec === presetConfig.codec &&
+    current.chunk_ms === presetConfig.chunk_ms;
 }
 
 let debounceTimeout = null;
@@ -403,6 +553,101 @@ function setScreenTimeout(value) {
 function setSpotifyDisconnect(value) {
   updateSetting('spotify-disconnect', { auto_disconnect_delay: value });
 }
+
+// === MULTIROOM - CLIENTS ===
+
+async function loadSnapcastClients() {
+  loadingClients.value = true;
+  try {
+    const response = await axios.get('/api/routing/snapcast/clients');
+    if (response.data.clients) {
+      snapcastClients.value = response.data.clients;
+      
+      // Initialiser clientNames avec les noms actuels
+      clientNames.value = {};
+      response.data.clients.forEach(client => {
+        clientNames.value[client.id] = client.name || client.host;
+      });
+    }
+  } catch (error) {
+    console.error('Error loading snapcast clients:', error);
+  } finally {
+    loadingClients.value = false;
+  }
+}
+
+async function updateClientName(clientId) {
+  const newName = clientNames.value[clientId]?.trim();
+  if (!newName) return;
+
+  try {
+    const response = await axios.post(`/api/routing/snapcast/client/${clientId}/name`, {
+      name: newName
+    });
+
+    if (response.data.status === 'success') {
+      console.log(`Client ${clientId} name updated to: ${newName}`);
+    }
+  } catch (error) {
+    console.error('Error updating client name:', error);
+  }
+}
+
+// === MULTIROOM - SERVER CONFIG ===
+
+function applyPreset(preset) {
+  serverConfig.value.buffer = preset.config.buffer;
+  serverConfig.value.codec = preset.config.codec;
+  serverConfig.value.chunk_ms = preset.config.chunk_ms;
+}
+
+function selectCodec(codecName) {
+  serverConfig.value.codec = codecName;
+}
+
+async function loadServerConfig() {
+  loadingServerConfig.value = true;
+  try {
+    const response = await axios.get('/api/routing/snapcast/server-config');
+    const fileConfig = response.data.config?.file_config?.parsed_config?.stream || {};
+    const streamConfig = response.data.config?.stream_config || {};
+
+    serverConfig.value = {
+      buffer: parseInt(fileConfig.buffer || streamConfig.buffer_ms || '1000'),
+      codec: fileConfig.codec || streamConfig.codec || 'flac',
+      chunk_ms: parseInt(fileConfig.chunk_ms || streamConfig.chunk_ms) || 20,
+      sampleformat: '48000:16:2'
+    };
+
+    originalServerConfig.value = JSON.parse(JSON.stringify(serverConfig.value));
+  } catch (error) {
+    console.error('Error loading server config:', error);
+  } finally {
+    loadingServerConfig.value = false;
+  }
+}
+
+async function applyServerConfig() {
+  if (!hasServerConfigChanges.value || applyingServerConfig.value) return;
+
+  applyingServerConfig.value = true;
+  try {
+    const response = await axios.post('/api/routing/snapcast/server/config', {
+      config: serverConfig.value
+    });
+
+    if (response.data.status === 'success') {
+      originalServerConfig.value = JSON.parse(JSON.stringify(serverConfig.value));
+      console.log('Server config applied successfully');
+    }
+  } catch (error) {
+    console.error('Error applying server config:', error);
+  } finally {
+    applyingServerConfig.value = false;
+  }
+}
+
+// === TEMPÉRATURE ===
 
 async function loadSystemTemperature() {
   if (temperatureLoading.value) return;
@@ -538,6 +783,17 @@ const wsListeners = {
       });
       config.value.dock.apps = appsObj;
     }
+  },
+  client_name_changed: (msg) => {
+    const { client_id, name } = msg.data;
+    if (clientNames.value[client_id] !== undefined) {
+      clientNames.value[client_id] = name;
+    }
+    // Mettre à jour aussi la liste des clients
+    const client = snapcastClients.value.find(c => c.id === client_id);
+    if (client) {
+      client.name = name;
+    }
   }
 };
 
@@ -545,11 +801,17 @@ onMounted(async () => {
   await i18n.initializeLanguage();
   await loadAllConfigs();
   await loadSystemTemperature();
+  await loadSnapcastClients();
+  await loadServerConfig();
 
   temperatureInterval = setInterval(loadSystemTemperature, 5000);
 
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
-    on('settings', eventType, handler);
+    if (eventType === 'client_name_changed') {
+      on('snapcast', eventType, handler);
+    } else {
+      on('settings', eventType, handler);
+    }
   });
 });
 
@@ -605,6 +867,7 @@ onUnmounted(() => {
   margin: var(--space-02) 0;
 }
 
+/* Languages */
 .language-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -648,12 +911,7 @@ onUnmounted(() => {
   font-size: var(--font-size-body);
 }
 
-.app-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
+/* Applications */
 .app-group-title {
   color: var(--color-text-secondary);
   font-weight: 500;
@@ -684,7 +942,11 @@ onUnmounted(() => {
   color: var(--color-text);
 }
 
-.volume-group {
+/* Volume */
+.volume-group,
+.screen-group,
+.spotify-group,
+.multiroom-group {
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
@@ -723,12 +985,7 @@ onUnmounted(() => {
   flex: 1;
 }
 
-.screen-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
+/* Screen */
 .timeout-buttons,
 .disconnect-buttons {
   display: flex;
@@ -742,12 +999,84 @@ onUnmounted(() => {
   min-width: 150px;
 }
 
-.spotify-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
+/* Multiroom */
+.loading-state,
+.no-clients-state {
+  text-align: center;
+  padding: var(--space-04);
+  color: var(--color-text-secondary);
 }
 
+.clients-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.client-config-item {
+  background: var(--color-background-strong);
+  border-radius: var(--radius-04);
+  padding: var(--space-03) var(--space-04);
+}
+
+.client-info-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.client-hostname {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.client-name-input {
+  padding: var(--space-02) var(--space-03);
+  border: 2px solid var(--color-background-glass);
+  border-radius: var(--radius-03);
+  background: var(--color-background);
+  color: var(--color-text);
+  transition: border-color var(--transition-fast);
+}
+
+.client-name-input:focus {
+  outline: none;
+  border-color: var(--color-brand);
+}
+
+.client-name-input::placeholder {
+  color: var(--color-text-light);
+}
+
+.presets-buttons {
+  display: flex;
+  gap: var(--space-02);
+}
+
+.presets-buttons .btn {
+  flex: 1;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.form-group label {
+  color: var(--color-text-secondary);
+}
+
+.codec-buttons {
+  display: flex;
+  gap: var(--space-02);
+}
+
+.codec-buttons .btn {
+  flex: 1;
+}
+
+/* Info */
 .info-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -810,6 +1139,11 @@ onUnmounted(() => {
 
   .app-item {
     padding: var(--space-02);
+  }
+
+  .codec-buttons,
+  .presets-buttons {
+    flex-direction: column;
   }
 }
 </style>

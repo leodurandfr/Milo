@@ -1,9 +1,7 @@
 <!-- frontend/src/components/ui/Modal.vue -->
 <template>
-  <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" :class="{ 'fixed-height': heightMode === 'fixed' }"
-    @click.self="handleOverlayClick">
-
-    <div ref="modalContainer" class="modal-container" :class="{ 'fixed-height': heightMode === 'fixed' }">
+  <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" @click.self="handleOverlayClick">
+    <div ref="modalContainer" class="modal-container">
       <IconButtonFloating ref="closeButton" class="close-btn-position" icon-name="close" aria-label="Fermer"
         @click="close" />
 
@@ -28,11 +26,6 @@ const props = defineProps({
   closeOnOverlay: {
     type: Boolean,
     default: true
-  },
-  heightMode: {
-    type: String,
-    default: 'auto', // 'auto' pour multiroom, 'fixed' pour equalizer
-    validator: (value) => ['auto', 'fixed'].includes(value)
   }
 });
 
@@ -189,7 +182,6 @@ async function closeModal() {
     if (!closeButton.value || !closeButton.value.$el) return;
     closeButton.value.$el.style.transition = `opacity ${ANIMATION_TIMINGS.closeButtonDurationOut}ms ease-out`;
     closeButton.value.$el.style.opacity = '0';
-    // Pas de translateY - garde juste la position horizontale
     closeButton.value.$el.style.transform = 'translateX(-50%)';
   }, ANIMATION_TIMINGS.closeButtonDelayOut);
   animationTimeouts.push(closeButtonCloseTimeout);
@@ -302,7 +294,7 @@ onUnmounted(() => {
   display: none;
 }
 
-/* Overlay - comportement par défaut (auto) */
+/* Overlay */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -316,25 +308,10 @@ onUnmounted(() => {
   justify-content: center;
   z-index: 1000;
   padding: 48px var(--space-04) var(--space-07) var(--space-04);
-  /* État initial pour l'animation */
   opacity: 0;
 }
 
-/* Overlay mode fixed (equalizer) */
-.modal-overlay.fixed-height {
-  align-items: center;
-}
-
-/* Wrapper pour contenir modal-container et close button */
-.modal-wrapper {
-  position: relative;
-  display: flex;
-  justify-content: center;
-  width: 100%;
-  max-width: 700px;
-}
-
-/* Container - comportement par défaut (auto) */
+/* Container */
 .modal-container {
   position: relative;
   background: var(--color-background-neutral-50);
@@ -344,7 +321,6 @@ onUnmounted(() => {
   max-height: 100%;
   display: flex;
   flex-direction: column;
-  /* État initial pour l'animation - OPTIM : valeurs similaires au dock */
   opacity: 0;
 }
 
@@ -365,12 +341,7 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-/* Container mode fixed (equalizer) */
-.modal-container.fixed-height {
-  height: 100%;
-}
-
-/* Positionnement du bouton close - DESKTOP : en haut à droite à l'extérieur du modal-container */
+/* Positionnement du bouton close - DESKTOP : en haut à droite à l'extérieur */
 .close-btn-position {
   position: absolute;
   top: 0;
@@ -379,7 +350,7 @@ onUnmounted(() => {
   transform: translateY(-24px);
 }
 
-/* Contenu - comportement par défaut (auto) */
+/* Contenu */
 .modal-content {
   overflow-y: auto;
   padding: var(--space-04);
@@ -390,21 +361,10 @@ onUnmounted(() => {
   touch-action: pan-y;
 }
 
-/* Contenu mode fixed (equalizer) */
-.modal-container.fixed-height .modal-content {
-  flex: 1;
-  height: 100%;
-}
-
 /* Responsive - MOBILE : bouton centré en haut */
 @media (max-aspect-ratio: 4/3) {
   ::-webkit-scrollbar {
     display: none;
-  }
-
-  .modal-wrapper {
-    width: 100%;
-    max-width: none;
   }
 
   .close-btn-position {
@@ -414,8 +374,7 @@ onUnmounted(() => {
     transform: translateX(-50%) translateY(-24px);
   }
 
-  .modal-overlay,
-  .modal-overlay.fixed-height {
+  .modal-overlay {
     align-items: flex-start;
     padding: 80px var(--space-02) var(--space-02) var(--space-02);
   }
@@ -423,15 +382,9 @@ onUnmounted(() => {
   .modal-container {
     max-width: none;
   }
-
-  .modal-container.fixed-height {
-    height: min-content;
-  }
 }
 
-.ios-app .modal-overlay,
-.ios-app .modal-overlay.fixed-height {
+.ios-app .modal-overlay {
   padding: 112px var(--space-02) var(--space-02) var(--space-02);
 }
-
 </style>
