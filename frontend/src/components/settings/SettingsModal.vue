@@ -308,6 +308,12 @@
             </div>
 
             <div class="form-group">
+              <label class="text-mono">{{ t('Taille des chunks (ms)') }}</label>
+              <RangeSlider v-model="serverConfig.chunk_ms" :min="10" :max="100" :step="5" value-unit="ms" />
+            </div>
+
+
+            <div class="form-group">
               <label class="text-mono">{{ t('Codec audio') }}</label>
               <div class="codec-buttons">
                 <Button variant="toggle" :active="serverConfig.codec === 'opus'" @click="selectCodec('opus')">
@@ -322,10 +328,7 @@
               </div>
             </div>
 
-            <div class="form-group">
-              <label class="text-mono">{{ t('Taille des chunks (ms)') }}</label>
-              <RangeSlider v-model="serverConfig.chunk_ms" :min="10" :max="100" :step="5" value-unit="ms" />
-            </div>
+
 
             <Button variant="primary" :disabled="loadingServerConfig || applyingServerConfig || !hasServerConfigChanges"
               @click="applyServerConfig">

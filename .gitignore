@@ -51,3 +51,6 @@ yarn-error.log*
 .vscode/
 *.swp
 *.swo
+
+# Ignore Claude doc
+/CLAUDE.md
