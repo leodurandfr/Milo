@@ -3,9 +3,7 @@
   <div class="settings-modal">
     <!-- Vue Home : Liste des catégories -->
     <div v-if="currentView === 'home'" class="view-home">
-      <div class="modal-header">
-        <h2 class="heading-2">{{ t('Configuration de Milō') }}</h2>
-      </div>
+      <ModalHeader :title="t('Configuration de Milō')" />
 
       <div class="settings-nav-grid">
         <button class="nav-button" @click="goToView('languages')">
@@ -60,12 +58,7 @@
 
     <!-- Vue Langues -->
     <div v-else-if="currentView === 'languages'" class="view-detail">
-      <div class="modal-header">
-        <div class="back-modal-header">
-          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
-          <h2 class="heading-2">{{ t('Langues') }}</h2>
-        </div>
-      </div>
+      <ModalHeader :title="t('Langues')" show-back @back="goToHome" />
 
       <div class="settings-container">
         <section class="settings-section">
@@ -83,12 +76,7 @@
 
     <!-- Vue Applications -->
     <div v-else-if="currentView === 'apps'" class="view-detail">
-      <div class="modal-header">
-        <div class="back-modal-header">
-          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
-          <h2 class="heading-2">{{ t('Applications') }}</h2>
-        </div>
-      </div>
+      <ModalHeader :title="t('Applications')" show-back @back="goToHome" />
 
       <div class="settings-container">
         <section class="settings-section">
@@ -136,7 +124,8 @@
                   <AppIcon name="multiroom" :size="32" />
                   <span class="app-name text-body">Multiroom</span>
                 </div>
-                <Toggle v-model="config.dock.apps.multiroom" variant="primary" size="compact" @change="updateDockApps" />
+                <Toggle v-model="config.dock.apps.multiroom" variant="primary" size="compact"
+                  @change="updateDockApps" />
               </div>
 
               <div class="app-item">
@@ -144,7 +133,8 @@
                   <AppIcon name="equalizer" :size="32" />
                   <span class="app-name text-body">{{ t('Égaliseur') }}</span>
                 </div>
-                <Toggle v-model="config.dock.apps.equalizer" variant="primary" size="compact" @change="updateDockApps" />
+                <Toggle v-model="config.dock.apps.equalizer" variant="primary" size="compact"
+                  @change="updateDockApps" />
               </div>
 
               <div class="app-item">
@@ -162,12 +152,7 @@
 
     <!-- Vue Volume -->
     <div v-else-if="currentView === 'volume'" class="view-detail">
-      <div class="modal-header">
-        <div class="back-modal-header">
-          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
-          <h2 class="heading-2">{{ t('Volume') }}</h2>
-        </div>
-      </div>
+      <ModalHeader :title="t('Volume')" show-back @back="goToHome" />
 
       <div class="settings-container">
         <section class="settings-section">
@@ -245,12 +230,7 @@
 
     <!-- Vue Écran -->
     <div v-else-if="currentView === 'screen'" class="view-detail">
-      <div class="modal-header">
-        <div class="back-modal-header">
-          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
-          <h2 class="heading-2">{{ t('Écran') }}</h2>
-        </div>
-      </div>
+      <ModalHeader :title="t('Écran')" show-back @back="goToHome" />
 
       <div class="settings-container">
         <section class="settings-section">
@@ -291,12 +271,7 @@
 
     <!-- Vue Spotify -->
     <div v-else-if="currentView === 'spotify'" class="view-detail">
-      <div class="modal-header">
-        <div class="back-modal-header">
-          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
-          <h2 class="heading-2">Spotify</h2>
-        </div>
-      </div>
+      <ModalHeader title="Spotify" show-back @back="goToHome" />
 
       <div class="settings-container">
         <section class="settings-section">
@@ -320,19 +295,14 @@
 
     <!-- Vue Multiroom -->
     <div v-else-if="currentView === 'multiroom'" class="view-detail">
-      <div class="modal-header">
-        <div class="back-modal-header">
-          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
-          <h2 class="heading-2">Multiroom</h2>
-        </div>
-      </div>
+      <ModalHeader title="Multiroom" show-back @back="goToHome" />
 
       <div class="settings-container">
         <section class="settings-section">
           <!-- Enceintes multiroom -->
           <div class="multiroom-group">
             <h2 class="heading-2 text-body">{{ t('Enceintes multiroom') }}</h2>
-            
+
             <div v-if="loadingClients" class="loading-state">
               <p class="text-mono">{{ t('Chargement des enceintes...') }}</p>
             </div>
@@ -345,15 +315,9 @@
               <div v-for="client in snapcastClients" :key="client.id" class="client-config-item">
                 <div class="client-info-wrapper">
                   <span class="client-hostname text-mono">{{ client.host }}</span>
-                  <input 
-                    type="text" 
-                    v-model="clientNames[client.id]"
-                    :placeholder="client.host"
-                    class="client-name-input text-body"
-                    maxlength="50"
-                    @blur="updateClientName(client.id)"
-                    @keyup.enter="updateClientName(client.id)"
-                  >
+                  <input type="text" v-model="clientNames[client.id]" :placeholder="client.host"
+                    class="client-name-input text-body" maxlength="50" @blur="updateClientName(client.id)"
+                    @keyup.enter="updateClientName(client.id)">
                 </div>
               </div>
             </div>
@@ -380,13 +344,7 @@
 
             <div class="form-group">
               <label class="text-mono">{{ t('Buffer global (ms)') }}</label>
-              <RangeSlider 
-                v-model="serverConfig.buffer" 
-                :min="100" 
-                :max="2000" 
-                :step="50" 
-                value-unit="ms"
-              />
+              <RangeSlider v-model="serverConfig.buffer" :min="100" :max="2000" :step="50" value-unit="ms" />
             </div>
 
             <div class="form-group">
@@ -406,20 +364,11 @@
 
             <div class="form-group">
               <label class="text-mono">{{ t('Taille des chunks (ms)') }}</label>
-              <RangeSlider 
-                v-model="serverConfig.chunk_ms" 
-                :min="10" 
-                :max="100" 
-                :step="5" 
-                value-unit="ms"
-              />
+              <RangeSlider v-model="serverConfig.chunk_ms" :min="10" :max="100" :step="5" value-unit="ms" />
             </div>
 
-            <Button 
-              variant="primary" 
-              :disabled="loadingServerConfig || applyingServerConfig || !hasServerConfigChanges" 
-              @click="applyServerConfig"
-            >
+            <Button variant="primary" :disabled="loadingServerConfig || applyingServerConfig || !hasServerConfigChanges"
+              @click="applyServerConfig">
               {{ applyingServerConfig ? t('Redémarrage du multiroom en cours...') : t('Appliquer') }}
             </Button>
           </div>
@@ -429,12 +378,7 @@
 
     <!-- Vue Dépendances -->
     <div v-else-if="currentView === 'dependencies'" class="view-detail">
-      <div class="modal-header">
-        <div class="back-modal-header">
-          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
-          <h2 class="heading-2">{{ t('Dépendances') }}</h2>
-        </div>
-      </div>
+      <ModalHeader :title="t('Dépendances')" show-back @back="goToHome" />
 
       <div class="settings-container">
         <DependenciesManager />
@@ -443,12 +387,7 @@
 
     <!-- Vue Informations -->
     <div v-else-if="currentView === 'info'" class="view-detail">
-      <div class="modal-header">
-        <div class="back-modal-header">
-          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
-          <h2 class="heading-2">{{ t('Informations') }}</h2>
-        </div>
-      </div>
+      <ModalHeader :title="t('Informations')" show-back @back="goToHome" />
 
       <div class="settings-container">
         <section class="settings-section">
@@ -478,6 +417,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
+import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Icon from '@/components/ui/Icon.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -690,7 +630,7 @@ async function loadSnapcastClients() {
     const response = await axios.get('/api/routing/snapcast/clients');
     if (response.data.clients) {
       snapcastClients.value = response.data.clients;
-      
+
       clientNames.value = {};
       response.data.clients.forEach(client => {
         clientNames.value[client.id] = client.name || client.host;
@@ -959,25 +899,6 @@ onUnmounted(() => {
 .view-detail {
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
-}
-
-.modal-header {
-  display: flex;
-  background: var(--color-background-contrast);
-  border-radius: var(--radius-04);
-  padding: var(--space-04);
-  /* min-height: 72px; */
-  align-items: center;
-}
-
-.modal-header h2 {
-  color: var(--color-text-contrast);
-}
-
-.back-modal-header {
-  display: flex;
-  align-items: center;
   gap: var(--space-03);
 }
 
@@ -1312,14 +1233,6 @@ onUnmounted(() => {
   .codec-buttons,
   .presets-buttons {
     flex-direction: column;
-  }
-
-  .back-modal-header {
-    padding: var(--space-04) 0 var(--space-04) var(--space-04);
-  }
-
-  .modal-header {
-    padding: 0 var(--space-04);
   }
 }
 </style>

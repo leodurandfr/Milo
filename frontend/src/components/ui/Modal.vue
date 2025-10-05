@@ -362,11 +362,11 @@ onUnmounted(() => {
 }
 
 /* Support pour back-modal-header */
-.modal-content :deep(.back-modal-header) {
+/* .modal-content :deep(.back-modal-header) {
   display: flex;
   align-items: center;
   gap: var(--space-03);
-}
+} */
 
 /* Responsive - MOBILE : bouton centré en haut */
 @media (max-aspect-ratio: 4/3) {

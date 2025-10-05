@@ -1,15 +1,16 @@
 <!-- frontend/src/components/snapcast/SnapcastModal.vue -->
 <template>
   <div class="snapcast-modal">
-    <div class="modal-header">
-      <h2 class="heading-2">{{ $t('Multiroom') }}</h2>
-      <Toggle 
-        v-model="isMultiroomActive" 
-        variant="primary" 
-        :disabled="unifiedStore.isTransitioning"
-        @change="handleMultiroomToggle" 
-      />
-    </div>
+    <ModalHeader :title="$t('Multiroom')">
+      <template #actions>
+        <Toggle 
+          v-model="isMultiroomActive" 
+          variant="primary" 
+          :disabled="unifiedStore.isTransitioning"
+          @change="handleMultiroomToggle" 
+        />
+      </template>
+    </ModalHeader>
 
     <div class="main-content">
       <SnapcastControl />
@@ -20,6 +21,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SnapcastControl from './SnapcastControl.vue';
 
@@ -37,19 +39,6 @@ async function handleMultiroomToggle(enabled) {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
-}
-
-.modal-header {
-  background: var(--color-background-contrast);
-  border-radius: var(--radius-04);
-  padding: var(--space-04);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.modal-header h2 {
-  color: var(--color-text-contrast);
 }
 
 .main-content {

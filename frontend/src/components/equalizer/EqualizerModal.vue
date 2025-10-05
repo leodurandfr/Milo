@@ -3,15 +3,23 @@
   <div class="equalizer-modal">
     <div class="screen-main">
       <!-- Header avec toggle -->
-      <div class="modal-header">
-        <h2 class="heading-2">{{ $t('Égaliseur') }}</h2>
-        <div class="controls-wrapper">
-          <IconButton v-if="isEqualizerEnabled" icon="reset" variant="dark" :disabled="resetting"
-            @click="resetAllBands" />
-          <Toggle v-model="isEqualizerEnabled" variant="primary" :disabled="unifiedStore.isTransitioning"
-            @change="handleEqualizerToggle" />
-        </div>
-      </div>
+      <ModalHeader :title="$t('Égaliseur')">
+        <template #actions>
+          <IconButton 
+            v-if="isEqualizerEnabled" 
+            icon="reset" 
+            variant="dark" 
+            :disabled="resetting"
+            @click="resetAllBands" 
+          />
+          <Toggle 
+            v-model="isEqualizerEnabled" 
+            variant="primary" 
+            :disabled="unifiedStore.isTransitioning"
+            @change="handleEqualizerToggle" 
+          />
+        </template>
+      </ModalHeader>
 
       <!-- Contenu principal -->
       <div class="main-content">
@@ -21,10 +29,21 @@
         </div>
 
         <div v-else class="equalizer-controls">
-          <RangeSliderEqualizer v-for="band in bands" :key="band.id" v-model="band.value" :label="band.display_name"
-            :orientation="sliderOrientation" :min="0" :max="100" :step="1" unit="%" :disabled="updating || !bandsLoaded"
-            :class="{ 'slider-loading': !bandsLoaded }" @input="handleBandInput(band.id, $event)"
-            @change="handleBandChange(band.id, $event)" />
+          <RangeSliderEqualizer 
+            v-for="band in bands" 
+            :key="band.id" 
+            v-model="band.value" 
+            :label="band.display_name"
+            :orientation="sliderOrientation" 
+            :min="0" 
+            :max="100" 
+            :step="1" 
+            unit="%" 
+            :disabled="updating || !bandsLoaded"
+            :class="{ 'slider-loading': !bandsLoaded }" 
+            @input="handleBandInput(band.id, $event)"
+            @change="handleBandChange(band.id, $event)" 
+          />
         </div>
       </div>
     </div>
@@ -36,6 +55,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
+import ModalHeader from '@/components/ui/ModalHeader.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import RangeSliderEqualizer from './RangeSliderEqualizer.vue';
@@ -337,25 +357,6 @@ onUnmounted(() => {
   gap: var(--space-03);
   height: 100%;
   min-height: 0;
-}
-
-.modal-header {
-  background: var(--color-background-contrast);
-  border-radius: var(--radius-04);
-  padding: var(--space-04);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.modal-header h2 {
-  color: var(--color-text-contrast);
-}
-
-.controls-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
 .main-content {
