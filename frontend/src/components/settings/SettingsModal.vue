@@ -1,361 +1,474 @@
 <!-- frontend/src/components/settings/SettingsModal.vue -->
 <template>
   <div class="settings-modal">
-    <!-- Header noir avec bouton retour -->
-    <div class="modal-header">
-      <h2 class="heading-2">{{ t('Configuration de Milō') }}</h2>
+    <!-- Vue Home : Liste des catégories -->
+    <div v-if="currentView === 'home'" class="view-home">
+      <div class="modal-header">
+        <h2 class="heading-2">{{ t('Configuration de Milō') }}</h2>
+      </div>
+
+      <div class="settings-nav-grid">
+        <button class="nav-button" @click="goToView('languages')">
+          <Icon name="settings" :size="32" />
+          <span class="nav-button-text text-body">{{ t('Langues') }}</span>
+          <Icon name="caretRight" :size="24" />
+        </button>
+
+        <button class="nav-button" @click="goToView('apps')">
+          <Icon name="settings" :size="32" />
+          <span class="nav-button-text text-body">{{ t('Applications') }}</span>
+          <Icon name="caretRight" :size="24" />
+        </button>
+
+        <button class="nav-button" @click="goToView('volume')">
+          <Icon name="settings" :size="32" />
+          <span class="nav-button-text text-body">{{ t('Volume') }}</span>
+          <Icon name="caretRight" :size="24" />
+        </button>
+
+        <button class="nav-button" @click="goToView('screen')">
+          <Icon name="settings" :size="32" />
+          <span class="nav-button-text text-body">{{ t('Écran') }}</span>
+          <Icon name="caretRight" :size="24" />
+        </button>
+
+        <button class="nav-button" @click="goToView('spotify')">
+          <AppIcon name="librespot" :size="32" />
+          <span class="nav-button-text text-body">Spotify</span>
+          <Icon name="caretRight" :size="24" />
+        </button>
+
+        <button class="nav-button" @click="goToView('multiroom')">
+          <AppIcon name="multiroom" :size="32" />
+          <span class="nav-button-text text-body">Multiroom</span>
+          <Icon name="caretRight" :size="24" />
+        </button>
+
+        <button class="nav-button" @click="goToView('dependencies')">
+          <Icon name="settings" :size="32" />
+          <span class="nav-button-text text-body">{{ t('Dépendances') }}</span>
+          <Icon name="caretRight" :size="24" />
+        </button>
+
+        <button class="nav-button" @click="goToView('info')">
+          <Icon name="settings" :size="32" />
+          <span class="nav-button-text text-body">{{ t('Informations') }}</span>
+          <Icon name="caretRight" :size="24" />
+        </button>
+      </div>
     </div>
-    <div class="settings-container">
-      <!-- 1. Languages -->
-      <section class="settings-section">
-        <h1 class="heading-1">{{ t('Langues') }}</h1>
 
-        <div class="language-grid">
-          <button v-for="language in availableLanguages" :key="language.code"
-            @click="updateSetting('language', { language: language.code })"
-            :class="['language-button', { active: currentLanguage === language.code }]">
-            <span class="language-flag">{{ language.flag }}</span>
-            <span class="language-name heading-2">{{ language.name }}</span>
-          </button>
+    <!-- Vue Langues -->
+    <div v-else-if="currentView === 'languages'" class="view-detail">
+      <div class="modal-header">
+        <div class="back-modal-header">
+          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
+          <h2 class="heading-2">{{ t('Langues') }}</h2>
         </div>
-      </section>
+      </div>
 
-      <!-- 2. Applications -->
-      <section class="settings-section">
-        <h1 class="heading-1">{{ t('Applications') }}</h1>
-
-        <!-- Sources audio -->
-        <div class="setting-item-container">
-          <p class="app-group-title text-mono">{{ t('Sources audio') }}</p>
-
-          <div class="app-list">
-            <div class="app-item">
-              <div class="app-info">
-                <AppIcon name="spotify" :size="32" />
-                <span class="app-name text-body">Spotify</span>
-              </div>
-              <Toggle v-model="config.dock.apps.librespot" variant="primary" size="compact"
-                :disabled="!canDisableAudioSource('librespot')" @change="updateDockApps" />
-            </div>
-
-            <div class="app-item">
-              <div class="app-info">
-                <AppIcon name="bluetooth" :size="32" />
-                <span class="app-name text-body">Bluetooth</span>
-              </div>
-              <Toggle v-model="config.dock.apps.bluetooth" variant="primary" size="compact"
-                :disabled="!canDisableAudioSource('bluetooth')" @change="updateDockApps" />
-            </div>
-
-            <div class="app-item">
-              <div class="app-info">
-                <AppIcon name="macos" :size="32" />
-                <span class="app-name text-body">{{ t('macOS') }}</span>
-              </div>
-              <Toggle v-model="config.dock.apps.roc" variant="primary" size="compact"
-                :disabled="!canDisableAudioSource('roc')" @change="updateDockApps" />
-            </div>
+      <div class="settings-container">
+        <section class="settings-section">
+          <div class="language-grid">
+            <button v-for="language in availableLanguages" :key="language.code"
+              @click="updateSetting('language', { language: language.code })"
+              :class="['language-button', { active: currentLanguage === language.code }]">
+              <span class="language-flag">{{ language.flag }}</span>
+              <span class="language-name heading-2">{{ language.name }}</span>
+            </button>
           </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Vue Applications -->
+    <div v-else-if="currentView === 'apps'" class="view-detail">
+      <div class="modal-header">
+        <div class="back-modal-header">
+          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
+          <h2 class="heading-2">{{ t('Applications') }}</h2>
         </div>
+      </div>
 
-        <!-- Fonctionnalités -->
-        <div class="setting-item-container">
-          <p class="app-group-title text-mono">{{ t('Fonctionnalités') }}</p>
-
-          <div class="app-list">
-            <div class="app-item">
-              <div class="app-info">
-                <AppIcon name="multiroom" :size="32" />
-                <span class="app-name text-body">Multiroom</span>
-              </div>
-              <Toggle v-model="config.dock.apps.multiroom" variant="primary" size="compact" @change="updateDockApps" />
-            </div>
-
-            <div class="app-item">
-              <div class="app-info">
-                <AppIcon name="equalizer" :size="32" />
-                <span class="app-name text-body">{{ t('Égaliseur') }}</span>
-              </div>
-              <Toggle v-model="config.dock.apps.equalizer" variant="primary" size="compact" @change="updateDockApps" />
-            </div>
-
-            <div class="app-item">
-              <div class="app-info">
-                <AppIcon name="settings" :size="32" />
-                <span class="app-name text-body">{{ t('Paramètres') }}</span>
-              </div>
-              <Toggle v-model="config.dock.apps.settings" variant="primary" size="compact" @change="updateDockApps" />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 3. Volume -->
-      <section class="settings-section">
-        <h1 class="heading-1">{{ t('Volume') }}</h1>
-
-        <!-- Contrôles du volume -->
-        <div class="volume-group">
-          <h2 class="heading-2 text-body">{{ t('Contrôles du volume') }}</h2>
-
+      <div class="settings-container">
+        <section class="settings-section">
+          <!-- Sources audio -->
           <div class="setting-item-container">
-            <!-- Rotary encoder -->
-            <div class="volume-item-setting text-mono">
-              {{ t('Incrémentation du rotary encoder') }}
-            </div>
+            <p class="app-group-title text-mono">{{ t('Sources audio') }}</p>
 
-            <div class="volume-steps-control">
-              <RangeSlider v-model="config.volume.rotary_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
-                @input="debouncedUpdate('rotary-steps', { rotary_volume_steps: $event })" />
+            <div class="app-list">
+              <div class="app-item">
+                <div class="app-info">
+                  <AppIcon name="librespot" :size="32" />
+                  <span class="app-name text-body">Spotify</span>
+                </div>
+                <Toggle v-model="config.dock.apps.librespot" variant="primary" size="compact"
+                  :disabled="!canDisableAudioSource('librespot')" @change="updateDockApps" />
+              </div>
+
+              <div class="app-item">
+                <div class="app-info">
+                  <AppIcon name="bluetooth" :size="32" />
+                  <span class="app-name text-body">Bluetooth</span>
+                </div>
+                <Toggle v-model="config.dock.apps.bluetooth" variant="primary" size="compact"
+                  :disabled="!canDisableAudioSource('bluetooth')" @change="updateDockApps" />
+              </div>
+
+              <div class="app-item">
+                <div class="app-info">
+                  <AppIcon name="roc" :size="32" />
+                  <span class="app-name text-body">{{ t('macOS') }}</span>
+                </div>
+                <Toggle v-model="config.dock.apps.roc" variant="primary" size="compact"
+                  :disabled="!canDisableAudioSource('roc')" @change="updateDockApps" />
+              </div>
             </div>
           </div>
-          <!-- Mobile -->
+
+          <!-- Fonctionnalités -->
           <div class="setting-item-container">
+            <p class="app-group-title text-mono">{{ t('Fonctionnalités') }}</p>
 
-            <div class="volume-item-setting text-mono">
-              {{ t('Incrémentation des boutons volume en mobile') }}
+            <div class="app-list">
+              <div class="app-item">
+                <div class="app-info">
+                  <AppIcon name="multiroom" :size="32" />
+                  <span class="app-name text-body">Multiroom</span>
+                </div>
+                <Toggle v-model="config.dock.apps.multiroom" variant="primary" size="compact" @change="updateDockApps" />
+              </div>
+
+              <div class="app-item">
+                <div class="app-info">
+                  <AppIcon name="equalizer" :size="32" />
+                  <span class="app-name text-body">{{ t('Égaliseur') }}</span>
+                </div>
+                <Toggle v-model="config.dock.apps.equalizer" variant="primary" size="compact" @change="updateDockApps" />
+              </div>
+
+              <div class="app-item">
+                <div class="app-info">
+                  <AppIcon name="settings" :size="32" />
+                  <span class="app-name text-body">{{ t('Paramètres') }}</span>
+                </div>
+                <Toggle v-model="config.dock.apps.settings" variant="primary" size="compact" @change="updateDockApps" />
+              </div>
             </div>
-            <div class="volume-steps-control">
-              <RangeSlider v-model="config.volume.mobile_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
-                @input="debouncedUpdate('volume-steps', { mobile_volume_steps: $event })" />
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Vue Volume -->
+    <div v-else-if="currentView === 'volume'" class="view-detail">
+      <div class="modal-header">
+        <div class="back-modal-header">
+          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
+          <h2 class="heading-2">{{ t('Volume') }}</h2>
+        </div>
+      </div>
+
+      <div class="settings-container">
+        <section class="settings-section">
+          <!-- Contrôles du volume -->
+          <div class="volume-group">
+            <h2 class="heading-2 text-body">{{ t('Contrôles du volume') }}</h2>
+
+            <div class="setting-item-container">
+              <div class="volume-item-setting text-mono">
+                {{ t('Incrémentation du rotary encoder') }}
+              </div>
+              <div class="volume-steps-control">
+                <RangeSlider v-model="config.volume.rotary_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
+                  @input="debouncedUpdate('rotary-steps', { rotary_volume_steps: $event })" />
+              </div>
+            </div>
+
+            <div class="setting-item-container">
+              <div class="volume-item-setting text-mono">
+                {{ t('Incrémentation des boutons volume en mobile') }}
+              </div>
+              <div class="volume-steps-control">
+                <RangeSlider v-model="config.volume.mobile_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
+                  @input="debouncedUpdate('volume-steps', { mobile_volume_steps: $event })" />
+              </div>
             </div>
           </div>
 
-        </div>
+          <div class="settings-separator"></div>
 
-        <div class="settings-separator"></div>
-
-        <!-- Limites du volume -->
-        <div class="volume-group">
-          <h2 class="heading-2 text-body">{{ t('Limites du volume') }}</h2>
-          <div class="setting-item-container">
-            <div class="volume-item-setting text-mono">
-              {{ t('Volume minimal et maximal') }}
-            </div>
-
-            <div class="volume-limits-control">
-              <DoubleRangeSlider v-model="config.volume.limits" :min="0" :max="100" :step="1" :gap="10" value-unit="%"
-                @input="updateVolumeLimits" />
+          <!-- Limites du volume -->
+          <div class="volume-group">
+            <h2 class="heading-2 text-body">{{ t('Limites du volume') }}</h2>
+            <div class="setting-item-container">
+              <div class="volume-item-setting text-mono">
+                {{ t('Volume minimal et maximal') }}
+              </div>
+              <div class="volume-limits-control">
+                <DoubleRangeSlider v-model="config.volume.limits" :min="0" :max="100" :step="1" :gap="10" value-unit="%"
+                  @input="updateVolumeLimits" />
+              </div>
             </div>
           </div>
+
+          <div class="settings-separator"></div>
+
+          <!-- Volume au démarrage -->
+          <div class="volume-group">
+            <h2 class="heading-2 text-body">{{ t('Volume au démarrage') }}</h2>
+
+            <div class="startup-mode-buttons">
+              <Button variant="toggle" :active="!config.volume.restore_last_volume"
+                @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: false })">
+                {{ t('Volume fixe') }}
+              </Button>
+              <Button variant="toggle" :active="config.volume.restore_last_volume"
+                @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: true })">
+                {{ t('Restaurer le dernier') }}
+              </Button>
+            </div>
+
+            <div v-if="!config.volume.restore_last_volume" class="setting-item-container">
+              <div class="volume-item-setting text-mono">
+                {{ t('Volume fixe au démarrage') }}
+              </div>
+              <div class="startup-volume-control">
+                <RangeSlider v-model="config.volume.startup_volume" :min="0" :max="100" :step="1" value-unit="%"
+                  @input="debouncedUpdate('volume-startup', { startup_volume: $event, restore_last_volume: false })" />
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Vue Écran -->
+    <div v-else-if="currentView === 'screen'" class="view-detail">
+      <div class="modal-header">
+        <div class="back-modal-header">
+          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
+          <h2 class="heading-2">{{ t('Écran') }}</h2>
         </div>
+      </div>
 
-        <div class="settings-separator"></div>
+      <div class="settings-container">
+        <section class="settings-section">
+          <!-- Luminosité -->
+          <div class="screen-group">
+            <h2 class="heading-2 text-body">{{ t('Luminosité') }}</h2>
+            <div class="setting-item-container">
+              <div class="screen-description text-mono">
+                {{ t('Intensité de la luminosité') }}
+              </div>
+              <div class="brightness-control">
+                <RangeSlider v-model="config.screen.brightness_on" :min="1" :max="10" :step="1" value-unit=""
+                  @input="handleBrightnessChange" />
+              </div>
+            </div>
+          </div>
 
-        <!-- Volume au démarrage -->
-        <div class="volume-group">
-          <h2 class="heading-2 text-body">{{ t('Volume au démarrage') }}</h2>
+          <div class="settings-separator"></div>
 
-          <div class="startup-mode-buttons">
-            <Button variant="toggle" :active="!config.volume.restore_last_volume"
-              @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: false })">
-              {{ t('Volume fixe') }}
+          <!-- Mise en veille automatique -->
+          <div class="screen-group">
+            <h2 class="heading-2 text-body">{{ t('Mise en veille automatique') }}</h2>
+            <div class="setting-item-container">
+              <div class="screen-description text-mono">
+                {{ t('Délai de la mise en veille après :') }}
+              </div>
+              <div class="timeout-buttons">
+                <Button v-for="timeout in timeoutPresets" :key="timeout.value" variant="toggle"
+                  :active="isTimeoutActive(timeout.value)" @click="setScreenTimeout(timeout.value)">
+                  {{ timeout.label }}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Vue Spotify -->
+    <div v-else-if="currentView === 'spotify'" class="view-detail">
+      <div class="modal-header">
+        <div class="back-modal-header">
+          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
+          <h2 class="heading-2">Spotify</h2>
+        </div>
+      </div>
+
+      <div class="settings-container">
+        <section class="settings-section">
+          <div class="spotify-group">
+            <h2 class="heading-2 text-body">{{ t('Déconnexion automatique') }}</h2>
+            <div class="setting-item-container">
+              <div class="spotify-description text-mono">
+                {{ t('Délai de déconnexion après que la musique soit en pause pendant :') }}
+              </div>
+              <div class="disconnect-buttons">
+                <Button v-for="delay in disconnectPresets" :key="delay.value" variant="toggle"
+                  :active="isDisconnectActive(delay.value)" @click="setSpotifyDisconnect(delay.value)">
+                  {{ delay.label }}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Vue Multiroom -->
+    <div v-else-if="currentView === 'multiroom'" class="view-detail">
+      <div class="modal-header">
+        <div class="back-modal-header">
+          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
+          <h2 class="heading-2">Multiroom</h2>
+        </div>
+      </div>
+
+      <div class="settings-container">
+        <section class="settings-section">
+          <!-- Enceintes multiroom -->
+          <div class="multiroom-group">
+            <h2 class="heading-2 text-body">{{ t('Enceintes multiroom') }}</h2>
+            
+            <div v-if="loadingClients" class="loading-state">
+              <p class="text-mono">{{ t('Chargement des enceintes...') }}</p>
+            </div>
+
+            <div v-else-if="snapcastClients.length === 0" class="no-clients-state">
+              <p class="text-mono">{{ t('Aucune enceinte connectée') }}</p>
+            </div>
+
+            <div v-else class="clients-list">
+              <div v-for="client in snapcastClients" :key="client.id" class="client-config-item">
+                <div class="client-info-wrapper">
+                  <span class="client-hostname text-mono">{{ client.host }}</span>
+                  <input 
+                    type="text" 
+                    v-model="clientNames[client.id]"
+                    :placeholder="client.host"
+                    class="client-name-input text-body"
+                    maxlength="50"
+                    @blur="updateClientName(client.id)"
+                    @keyup.enter="updateClientName(client.id)"
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-separator"></div>
+
+          <!-- Presets audio -->
+          <div class="multiroom-group">
+            <h2 class="heading-2 text-body">{{ t('Presets audio') }}</h2>
+            <div class="presets-buttons">
+              <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle" :active="isPresetActive(preset)"
+                :disabled="applyingServerConfig" @click="applyPreset(preset)">
+                {{ preset.name }}
+              </Button>
+            </div>
+          </div>
+
+          <div class="settings-separator"></div>
+
+          <!-- Paramètres avancés -->
+          <div class="multiroom-group">
+            <h2 class="heading-2 text-body">{{ t('Paramètres avancés') }}</h2>
+
+            <div class="form-group">
+              <label class="text-mono">{{ t('Buffer global (ms)') }}</label>
+              <RangeSlider 
+                v-model="serverConfig.buffer" 
+                :min="100" 
+                :max="2000" 
+                :step="50" 
+                value-unit="ms"
+              />
+            </div>
+
+            <div class="form-group">
+              <label class="text-mono">{{ t('Codec audio') }}</label>
+              <div class="codec-buttons">
+                <Button variant="toggle" :active="serverConfig.codec === 'opus'" @click="selectCodec('opus')">
+                  Opus
+                </Button>
+                <Button variant="toggle" :active="serverConfig.codec === 'flac'" @click="selectCodec('flac')">
+                  FLAC
+                </Button>
+                <Button variant="toggle" :active="serverConfig.codec === 'pcm'" @click="selectCodec('pcm')">
+                  PCM
+                </Button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="text-mono">{{ t('Taille des chunks (ms)') }}</label>
+              <RangeSlider 
+                v-model="serverConfig.chunk_ms" 
+                :min="10" 
+                :max="100" 
+                :step="5" 
+                value-unit="ms"
+              />
+            </div>
+
+            <Button 
+              variant="primary" 
+              :disabled="loadingServerConfig || applyingServerConfig || !hasServerConfigChanges" 
+              @click="applyServerConfig"
+            >
+              {{ applyingServerConfig ? t('Redémarrage du multiroom en cours...') : t('Appliquer') }}
             </Button>
-            <Button variant="toggle" :active="config.volume.restore_last_volume"
-              @click="updateSetting('volume-startup', { startup_volume: config.volume.startup_volume, restore_last_volume: true })">
-              {{ t('Restaurer le dernier') }}
-            </Button>
           </div>
+        </section>
+      </div>
+    </div>
 
-          <div v-if="!config.volume.restore_last_volume" class="setting-item-container">
-            <div class="volume-item-setting text-mono">
-              {{ t('Volume fixe au démarrage') }}
-            </div>
-            <div class="startup-volume-control">
-              <RangeSlider v-model="config.volume.startup_volume" :min="0" :max="100" :step="1" value-unit="%"
-                @input="debouncedUpdate('volume-startup', { startup_volume: $event, restore_last_volume: false })" />
-            </div>
-          </div>
+    <!-- Vue Dépendances -->
+    <div v-else-if="currentView === 'dependencies'" class="view-detail">
+      <div class="modal-header">
+        <div class="back-modal-header">
+          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
+          <h2 class="heading-2">{{ t('Dépendances') }}</h2>
         </div>
-      </section>
+      </div>
 
-      <!-- 4. Écran -->
-      <section class="settings-section">
-        <h1 class="heading-1">{{ t('Écran') }}</h1>
+      <div class="settings-container">
+        <DependenciesManager />
+      </div>
+    </div>
 
-        <!-- Luminosité -->
-        <div class="screen-group">
-          <h2 class="heading-2 text-body">{{ t('Luminosité') }}</h2>
-          <div class="setting-item-container">
-            <div class="screen-description text-mono">
-              {{ t('Intensité de la luminosité') }}
-            </div>
-
-            <div class="brightness-control">
-              <RangeSlider v-model="config.screen.brightness_on" :min="1" :max="10" :step="1" value-unit=""
-                @input="handleBrightnessChange" />
-            </div>
-          </div>
+    <!-- Vue Informations -->
+    <div v-else-if="currentView === 'info'" class="view-detail">
+      <div class="modal-header">
+        <div class="back-modal-header">
+          <IconButton icon="caretLeft" variant="dark" @click="goToHome" />
+          <h2 class="heading-2">{{ t('Informations') }}</h2>
         </div>
+      </div>
 
-        <div class="settings-separator"></div>
-
-        <!-- Mise en veille automatique -->
-        <div class="screen-group">
-          <h2 class="heading-2 text-body">{{ t('Mise en veille automatique') }}</h2>
-          <div class="setting-item-container">
-            <div class="screen-description text-mono">
-              {{ t('Délai de la mise en veille après :') }}
+      <div class="settings-container">
+        <section class="settings-section">
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="info-label text-mono">{{ t('Version de Milo') }}</span>
+              <span class="info-value text-mono">0.1.0</span>
             </div>
 
-            <div class="timeout-buttons">
-              <Button v-for="timeout in timeoutPresets" :key="timeout.value" variant="toggle"
-                :active="isTimeoutActive(timeout.value)" @click="setScreenTimeout(timeout.value)">
-                {{ timeout.label }}
-              </Button>
+            <div class="info-item">
+              <span class="info-label text-mono">{{ t('Température') }}</span>
+              <span class="info-value text-mono">
+                <span v-if="temperatureLoading && systemTemperature === null">...</span>
+                <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
+                <span v-else class="text-error">{{ t('Non disponible') }}</span>
+              </span>
             </div>
           </div>
-        </div>
-      </section>
-
-      <!-- 5. Spotify -->
-      <section class="settings-section">
-        <h1 class="heading-1">{{ t('Spotify') }}</h1>
-
-        <div class="spotify-group">
-          <h2 class="heading-2 text-body">{{ t('Déconnexion automatique') }}</h2>
-          <div class="setting-item-container">
-            <div class="spotify-description text-mono">
-              {{ t('Délai de déconnexion après que la musique soit en pause pendant :') }}
-            </div>
-
-            <div class="disconnect-buttons">
-              <Button v-for="delay in disconnectPresets" :key="delay.value" variant="toggle"
-                :active="isDisconnectActive(delay.value)" @click="setSpotifyDisconnect(delay.value)">
-                {{ delay.label }}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 6. Multiroom -->
-      <section class="settings-section">
-        <h1 class="heading-1">{{ t('Multiroom') }}</h1>
-
-        <!-- Enceintes multiroom -->
-        <div class="multiroom-group">
-          <h2 class="heading-2 text-body">{{ t('Enceintes multiroom') }}</h2>
-          
-          <div v-if="loadingClients" class="loading-state">
-            <p class="text-mono">{{ t('Chargement des enceintes...') }}</p>
-          </div>
-
-          <div v-else-if="snapcastClients.length === 0" class="no-clients-state">
-            <p class="text-mono">{{ t('Aucune enceinte connectée') }}</p>
-          </div>
-
-          <div v-else class="clients-list">
-            <div v-for="client in snapcastClients" :key="client.id" class="client-config-item">
-              <div class="client-info-wrapper">
-                <span class="client-hostname text-mono">{{ client.host }}</span>
-                <input 
-                  type="text" 
-                  v-model="clientNames[client.id]"
-                  :placeholder="client.host"
-                  class="client-name-input text-body"
-                  maxlength="50"
-                  @blur="updateClientName(client.id)"
-                  @keyup.enter="updateClientName(client.id)"
-                >
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="settings-separator"></div>
-
-        <!-- Presets audio -->
-        <div class="multiroom-group">
-          <h2 class="heading-2 text-body">{{ t('Presets audio') }}</h2>
-
-          <div class="presets-buttons">
-            <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle" :active="isPresetActive(preset)"
-              :disabled="applyingServerConfig" @click="applyPreset(preset)">
-              {{ preset.name }}
-            </Button>
-          </div>
-        </div>
-
-        <div class="settings-separator"></div>
-
-        <!-- Paramètres avancés -->
-        <div class="multiroom-group">
-          <h2 class="heading-2 text-body">{{ t('Paramètres avancés') }}</h2>
-
-          <!-- Buffer global -->
-          <div class="form-group">
-            <label class="text-mono">{{ t('Buffer global (ms)') }}</label>
-            <RangeSlider 
-              v-model="serverConfig.buffer" 
-              :min="100" 
-              :max="2000" 
-              :step="50" 
-              value-unit="ms"
-            />
-          </div>
-
-          <!-- Codec -->
-          <div class="form-group">
-            <label class="text-mono">{{ t('Codec audio') }}</label>
-            <div class="codec-buttons">
-              <Button variant="toggle" :active="serverConfig.codec === 'opus'" @click="selectCodec('opus')">
-                Opus
-              </Button>
-              <Button variant="toggle" :active="serverConfig.codec === 'flac'" @click="selectCodec('flac')">
-                FLAC
-              </Button>
-              <Button variant="toggle" :active="serverConfig.codec === 'pcm'" @click="selectCodec('pcm')">
-                PCM
-              </Button>
-            </div>
-          </div>
-
-          <!-- Chunk size -->
-          <div class="form-group">
-            <label class="text-mono">{{ t('Taille des chunks (ms)') }}</label>
-            <RangeSlider 
-              v-model="serverConfig.chunk_ms" 
-              :min="10" 
-              :max="100" 
-              :step="5" 
-              value-unit="ms"
-            />
-          </div>
-
-          <!-- Bouton appliquer -->
-          <Button 
-            variant="primary" 
-            :disabled="loadingServerConfig || applyingServerConfig || !hasServerConfigChanges" 
-            @click="applyServerConfig"
-          >
-            {{ applyingServerConfig ? t('Redémarrage du multiroom en cours...') : t('Appliquer') }}
-          </Button>
-        </div>
-      </section>
-
-      <!-- 7. Dépendances -->
-      <DependenciesManager />
-
-      <!-- 8. Informations -->
-      <section class="settings-section">
-        <h2 class="heading-2">{{ t('Informations') }}</h2>
-        <div class="info-grid">
-          <div class="info-item">
-            <span class="info-label text-mono">{{ t('Version de Milo') }}</span>
-            <span class="info-value text-mono">0.1.0</span>
-          </div>
-
-          <div class="info-item">
-            <span class="info-label text-mono">{{ t('Température') }}</span>
-            <span class="info-value text-mono">
-              <span v-if="temperatureLoading && systemTemperature === null">...</span>
-              <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
-              <span v-else class="text-error">{{ t('Non disponible') }}</span>
-            </span>
-          </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
   </div>
 </template>
@@ -365,6 +478,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
+import Icon from '@/components/ui/Icon.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
@@ -373,11 +488,24 @@ import AppIcon from '@/components/ui/AppIcon.vue';
 import DependenciesManager from '@/components/settings/DependenciesManager.vue';
 import axios from 'axios';
 
+
 const emit = defineEmits(['close']);
 
 const { t, setLanguage, getAvailableLanguages, getCurrentLanguage } = useI18n();
 const { on } = useWebSocket();
 
+// Navigation
+const currentView = ref('home');
+
+function goToView(view) {
+  currentView.value = view;
+}
+
+function goToHome() {
+  currentView.value = 'home';
+}
+
+// Config
 const config = ref({
   volume: {
     mobile_volume_steps: 5,
@@ -563,7 +691,6 @@ async function loadSnapcastClients() {
     if (response.data.clients) {
       snapcastClients.value = response.data.clients;
       
-      // Initialiser clientNames avec les noms actuels
       clientNames.value = {};
       response.data.clients.forEach(client => {
         clientNames.value[client.id] = client.name || client.host;
@@ -789,7 +916,6 @@ const wsListeners = {
     if (clientNames.value[client_id] !== undefined) {
       clientNames.value[client_id] = name;
     }
-    // Mettre à jour aussi la liste des clients
     const client = snapcastClients.value.find(c => c.id === client_id);
     if (client) {
       client.name = name;
@@ -823,13 +949,14 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.settings-container {
+.settings-modal {
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
+  gap: var(--space-03);
 }
 
-.settings-modal {
+.view-home,
+.view-detail {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
@@ -839,8 +966,8 @@ onUnmounted(() => {
   display: flex;
   background: var(--color-background-contrast);
   border-radius: var(--radius-04);
-  padding: 0 var(--space-05);
-  min-height: 72px;
+  padding: var(--space-04);
+  /* min-height: 72px; */
   align-items: center;
 }
 
@@ -848,17 +975,55 @@ onUnmounted(() => {
   color: var(--color-text-contrast);
 }
 
+.back-modal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+}
+
+/* Navigation Grid */
+.settings-nav-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-02);
+}
+
+.nav-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+  padding: var(--space-03);
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.nav-button:hover {
+  background: var(--color-background-strong);
+  border-color: var(--color-background-glass);
+}
+
+.nav-button-text {
+  flex: 1;
+  text-align: left;
+  color: var(--color-text);
+}
+
+/* Settings Container */
+.settings-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
 .settings-section {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
-  padding: var(--space-06) var(--space-05) var(--space-06) var(--space-05);
+  padding: var(--space-06) var(--space-05);
   display: flex;
   flex-direction: column;
   gap: var(--space-05);
-}
-
-.settings-section h2 {
-  color: var(--color-text);
 }
 
 .settings-separator {
@@ -886,7 +1051,6 @@ onUnmounted(() => {
   transition: all var(--transition-fast);
   width: 100%;
   text-align: left;
-  position: relative;
 }
 
 .language-button:hover {
@@ -942,7 +1106,7 @@ onUnmounted(() => {
   color: var(--color-text);
 }
 
-/* Volume */
+/* Volume, Screen, Spotify, Multiroom */
 .volume-group,
 .screen-group,
 .spotify-group,
@@ -985,7 +1149,6 @@ onUnmounted(() => {
   flex: 1;
 }
 
-/* Screen */
 .timeout-buttons,
 .disconnect-buttons {
   display: flex;
@@ -999,7 +1162,7 @@ onUnmounted(() => {
   min-width: 150px;
 }
 
-/* Multiroom */
+/* Multiroom clients */
 .loading-state,
 .no-clients-state {
   text-align: center;
@@ -1105,7 +1268,12 @@ onUnmounted(() => {
   color: var(--color-destructive);
 }
 
+/* Responsive */
 @media (max-aspect-ratio: 4/3) {
+  .settings-nav-grid {
+    grid-template-columns: 1fr;
+  }
+
   .language-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -1144,6 +1312,14 @@ onUnmounted(() => {
   .codec-buttons,
   .presets-buttons {
     flex-direction: column;
+  }
+
+  .back-modal-header {
+    padding: var(--space-04) 0 var(--space-04) var(--space-04);
+  }
+
+  .modal-header {
+    padding: 0 var(--space-04);
   }
 }
 </style>

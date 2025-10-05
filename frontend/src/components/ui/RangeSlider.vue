@@ -1,20 +1,10 @@
 <!-- frontend/src/components/ui/RangeSlider.vue -->
 <template>
   <div :class="['slider-container', orientation]" :style="cssVars">
-    <input 
-      type="range" 
-      :class="['range-slider', orientation]"
-      :min="min" 
-      :max="max" 
-      :step="step" 
-      :value="modelValue"
-      @input="handleInput" 
-      @change="handleChange"
-      @pointerdown="handlePointerDown"
-      @pointerup="handlePointerUp"
-      :disabled="disabled"
-    >
-    
+    <input type="range" :class="['range-slider', orientation]" :min="min" :max="max" :step="step" :value="modelValue"
+      @input="handleInput" @change="handleChange" @pointerdown="handlePointerDown" @pointerup="handlePointerUp"
+      :disabled="disabled">
+
     <div v-if="orientation === 'horizontal'" class="slider-value text-mono" :class="{ dragging: isDragging }">
       {{ modelValue }}{{ valueUnit }}
     </div>
@@ -40,7 +30,7 @@ const isDragging = ref(false);
 
 const percentage = computed(() => {
   const rawPercentage = ((props.modelValue - props.min) / (props.max - props.min)) * 100;
-  
+
   if (props.orientation === 'horizontal') {
     const thumbAdjustment = 15;
     return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
@@ -112,23 +102,24 @@ function handlePointerUp() {
 .range-slider.horizontal {
   width: 100%;
   height: 40px;
-  background: linear-gradient(to right, 
-    #767C76 0%, 
-    #767C76 var(--progress), 
-    var(--color-background) var(--progress), 
-    var(--color-background) 100%);
+  background: linear-gradient(to right,
+      #767C76 0%,
+      #767C76 var(--progress),
+      var(--color-background) var(--progress),
+      var(--color-background) 100%);
 }
 
 .range-slider.vertical {
   width: 40px;
+  min-height: 260px;
   flex: 1;
   writing-mode: vertical-lr;
   direction: rtl;
-  background: linear-gradient(to top, 
-    #767C76 0%, 
-    #767C76 var(--progress), 
-    var(--color-background) var(--progress), 
-    var(--color-background) 100%);
+  background: linear-gradient(to top,
+      #767C76 0%,
+      #767C76 var(--progress),
+      var(--color-background) var(--progress),
+      var(--color-background) 100%);
 }
 
 .range-slider.horizontal::-webkit-slider-thumb {

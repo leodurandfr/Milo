@@ -21,21 +21,10 @@
         </div>
 
         <div v-else class="equalizer-controls">
-          <RangeSliderEqualizer 
-            v-for="band in bands" 
-            :key="band.id" 
-            v-model="band.value" 
-            :label="band.display_name"
-            :orientation="sliderOrientation" 
-            :min="0" 
-            :max="100" 
-            :step="1" 
-            unit="%" 
-            :disabled="updating || !bandsLoaded"
-            :class="{ 'slider-loading': !bandsLoaded }"
-            @input="handleBandInput(band.id, $event)" 
-            @change="handleBandChange(band.id, $event)" 
-          />
+          <RangeSliderEqualizer v-for="band in bands" :key="band.id" v-model="band.value" :label="band.display_name"
+            :orientation="sliderOrientation" :min="0" :max="100" :step="1" unit="%" :disabled="updating || !bandsLoaded"
+            :class="{ 'slider-loading': !bandsLoaded }" @input="handleBandInput(band.id, $event)"
+            @change="handleBandChange(band.id, $event)" />
         </div>
       </div>
     </div>
@@ -114,7 +103,7 @@ function saveCache(bandsList) {
 // === INITIALISATION DES BANDES ===
 function initializeBands() {
   const cache = loadCache();
-  
+
   if (cache && cache.length === 10) {
     // Utiliser le cache
     bands.value = STATIC_BANDS.map(staticBand => {
@@ -138,7 +127,7 @@ async function loadEqualizerData() {
   if (!isEqualizerEnabled.value) return;
 
   bandsLoaded.value = false;
-  
+
   try {
     const [statusResponse, bandsResponse] = await Promise.all([
       axios.get('/api/equalizer/status'),
@@ -147,7 +136,7 @@ async function loadEqualizerData() {
 
     if (statusResponse.data.available && bandsResponse.data.bands) {
       const apiBands = bandsResponse.data.bands;
-      
+
       // Animer vers les vraies valeurs
       bands.value = bands.value.map(band => {
         const apiBand = apiBands.find(b => b.id === band.id);
@@ -156,7 +145,7 @@ async function loadEqualizerData() {
           value: apiBand ? apiBand.value : band.value
         };
       });
-      
+
       saveCache(bands.value);
     }
   } catch (error) {
@@ -174,11 +163,11 @@ async function fetchEqualizerState() {
   try {
     const routingResponse = await axios.get('/api/routing/status');
     const routingData = routingResponse.data;
-    
+
     if (routingData.routing?.equalizer_enabled !== undefined) {
       unifiedStore.systemState.equalizer_enabled = routingData.routing.equalizer_enabled;
     }
-    
+
     if (routingData.routing?.equalizer_enabled) {
       await loadEqualizerData();
     }
@@ -310,12 +299,12 @@ const watcherInterval = setInterval(() => {
 onMounted(async () => {
   updateMobileStatus();
   window.addEventListener('resize', updateMobileStatus);
-  
+
   // Initialiser les bandes immédiatement
   initializeBands();
-  
+
   await fetchEqualizerState();
-  
+
   unsubscribeFunctions.push(
     on('equalizer', 'band_changed', handleEqualizerUpdate),
     on('equalizer', 'reset', handleEqualizerUpdate)
@@ -326,7 +315,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateMobileStatus);
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
   clearInterval(watcherInterval);
-  
+
   bandThrottleMap.forEach(state => {
     if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
     if (state.finalTimeout) clearTimeout(state.finalTimeout);
@@ -353,7 +342,7 @@ onUnmounted(() => {
 .modal-header {
   background: var(--color-background-contrast);
   border-radius: var(--radius-04);
-  padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05);
+  padding: var(--space-04);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -377,7 +366,7 @@ onUnmounted(() => {
   display: flex;
   height: 100%;
   flex-direction: column;
-  padding: var(--space-09) var(--space-05);
+  padding: var(--space-05);
   border-radius: var(--radius-04);
   background: var(--color-background-neutral);
   gap: var(--space-04);

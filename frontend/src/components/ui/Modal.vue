@@ -145,7 +145,7 @@ async function openModal() {
   // Attendre la fin de l'animation
   const totalDuration = Math.max(
     ANIMATION_TIMINGS.closeButtonDelay + ANIMATION_TIMINGS.closeButtonDuration,
-    ANIMATION_TIMINGS.containerDelay + 600, // Durée approximative de --transition-spring
+    ANIMATION_TIMINGS.containerDelay + 600,
     ANIMATION_TIMINGS.overlayDelay + ANIMATION_TIMINGS.overlayDuration
   );
 
@@ -359,6 +359,13 @@ onUnmounted(() => {
   min-height: 0;
   border-radius: var(--radius-06);
   touch-action: pan-y;
+}
+
+/* Support pour back-modal-header */
+.modal-content :deep(.back-modal-header) {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
 }
 
 /* Responsive - MOBILE : bouton centré en haut */

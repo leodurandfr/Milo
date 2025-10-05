@@ -42,7 +42,7 @@ async function handleMultiroomToggle(enabled) {
 .modal-header {
   background: var(--color-background-contrast);
   border-radius: var(--radius-04);
-  padding: var(--space-04) var(--space-05);
+  padding: var(--space-04);
   display: flex;
   justify-content: space-between;
   align-items: center;
