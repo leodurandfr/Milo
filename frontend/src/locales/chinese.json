@@ -110,6 +110,8 @@
   "applications": {
     "title": "应用程序",
     "features": "功能",
+    "spotify": "Spotify",
+    "bluetooth": "蓝牙",
     "macOS": "macOS"
   },
   "clientDetails": {

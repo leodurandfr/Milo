@@ -3,7 +3,7 @@
   <div class="update-manager">
     <!-- Dépendances locales (Milo principal) -->
     <section class="update-section">
-      <h1 class="heading-1">{{ $t('dependencies.miloTitle') }}</h1>
+      <h1 class="heading-2">{{ $t('dependencies.miloTitle') }}</h1>
 
       <div v-if="localDependenciesLoading" class="loading-state">
         <div class="loading-message text-mono">
@@ -73,7 +73,7 @@
 
     <!-- Satellites connectés -->
     <section class="update-section">
-      <h1 class="heading-1">{{ $t('dependencies.satellitesTitle') }}</h1>
+      <h1 class="heading-2">{{ $t('dependencies.satellitesTitle') }}</h1>
 
       <div v-if="satellitesLoading" class="loading-state">
         <div class="loading-message text-mono">

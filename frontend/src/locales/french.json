@@ -110,8 +110,9 @@
   "applications": {
     "title": "Applications",
     "features": "Fonctionnalités",
-    "macOS": "macOS"
-  },
+    "spotify": "Spotify",
+    "bluetooth": "Bluetooth",
+    "macOS": "macOS"  },
   "clientDetails": {
     "viewDetails": "Voir les détails du client",
     "displayName": "Nom affiché",

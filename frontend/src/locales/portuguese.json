@@ -110,6 +110,8 @@
   "applications": {
     "title": "Aplicações",
     "features": "Funcionalidades",
+    "spotify": "Spotify",
+    "bluetooth": "Bluetooth",
     "macOS": "macOS"
   },
   "clientDetails": {
