@@ -97,6 +97,7 @@ function handlePointerUp() {
   border: none;
   border-radius: 20px;
   transition: opacity 300ms ease;
+  pointer-events: none;
 }
 
 .range-slider.horizontal {
@@ -132,6 +133,7 @@ function handlePointerUp() {
   border: 2px solid #767C76;
   cursor: pointer;
   box-shadow: none;
+  pointer-events: auto;
 }
 
 .range-slider.horizontal::-moz-range-thumb {
@@ -141,6 +143,7 @@ function handlePointerUp() {
   background: #FFFFFF;
   border: 2px solid #767C76;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .range-slider.vertical::-webkit-slider-thumb {
@@ -152,6 +155,7 @@ function handlePointerUp() {
   background: #FFFFFF;
   border: 2px solid #767C76;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .range-slider.vertical::-moz-range-thumb {
@@ -161,16 +165,19 @@ function handlePointerUp() {
   background: #FFFFFF;
   border: 2px solid #767C76;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .range-slider::-webkit-slider-track {
   background: transparent;
   border: none;
+  pointer-events: none;
 }
 
 .range-slider::-moz-range-track {
   background: transparent;
   border: none;
+  pointer-events: none;
 }
 
 .range-slider:disabled {

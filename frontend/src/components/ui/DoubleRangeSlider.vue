@@ -2,10 +2,9 @@
 <template>
   <div class="double-range-slider" :style="cssVars">
     <!-- Track principal avec gradient -->
-    <div 
+    <div
       class="range-track"
       ref="track"
-      @pointerdown="handleTrackClick"
     ></div>
     
     <!-- Thumb minimum -->
@@ -185,41 +184,20 @@ function handleDrag(event) {
 function stopDrag() {
   const wasMin = isDraggingMin.value;
   const wasMax = isDraggingMax.value;
-  
+
   isDraggingMin.value = false;
   isDraggingMax.value = false;
   dragType = null;
-  
+
   if (wasMin) {
     emit('drag-end', 'min');
   } else if (wasMax) {
     emit('drag-end', 'max');
   }
-  
+
   document.removeEventListener('pointermove', handleDrag);
   document.removeEventListener('pointerup', stopDrag);
   document.removeEventListener('pointercancel', stopDrag);
-}
-
-function handleTrackClick(event) {
-  if (!track.value) return;
-  
-  const rect = track.value.getBoundingClientRect();
-  
-  // Calculer la position dans la zone utilisable
-  const usableWidth = rect.width - 62;
-  const positionInUsableArea = event.clientX - rect.left - 31;
-  const percentage = clamp(positionInUsableArea / usableWidth, 0, 1);
-  const value = props.min + (percentage * (props.max - props.min));
-  
-  const distToMin = Math.abs(value - props.modelValue.min);
-  const distToMax = Math.abs(value - props.modelValue.max);
-  
-  if (distToMin < distToMax) {
-    updateValues(value, props.modelValue.max, true);
-  } else {
-    updateValues(props.modelValue.min, value, true);
-  }
 }
 
 onMounted(() => {
@@ -249,14 +227,14 @@ onUnmounted(() => {
   width: 100%;
   height: 40px;
   border-radius: 20px;
-  background: linear-gradient(to right, 
-    var(--color-background) 0%, 
-    var(--color-background) var(--progress-min), 
-    #767C76 var(--progress-min), 
-    #767C76 var(--progress-max), 
-    var(--color-background) var(--progress-max), 
+  background: linear-gradient(to right,
+    var(--color-background) 0%,
+    var(--color-background) var(--progress-min),
+    #767C76 var(--progress-min),
+    #767C76 var(--progress-max),
+    var(--color-background) var(--progress-max),
     var(--color-background) 100%);
-  cursor: pointer;
+  pointer-events: none;
 }
 
 /* Thumbs identiques au RangeSlider */
