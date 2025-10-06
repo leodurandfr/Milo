@@ -1,8 +1,8 @@
-<!-- frontend/src/components/settings/DependenciesManager.vue -->
+<!-- frontend/src/components/settings/categories/UpdateManager.vue -->
 <template>
-  <div class="dependencies-manager">
+  <div class="update-manager">
     <!-- Dépendances locales (Milo principal) -->
-    <section class="dependencies-section">
+    <section class="update-section">
       <h1 class="heading-1">{{ $t('Dépendances de Milō') }}</h1>
 
       <div v-if="localDependenciesLoading" class="loading-state">
@@ -72,7 +72,7 @@
     </section>
 
     <!-- Satellites connectés -->
-    <section class="dependencies-section">
+    <section class="update-section">
       <h1 class="heading-1">{{ $t('Dépendances des satellites connectés') }}</h1>
 
       <div v-if="satellitesLoading" class="loading-state">
@@ -391,13 +391,13 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.dependencies-manager {
+.update-manager {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
 }
 
-.dependencies-section {
+.update-section {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
   padding: var(--space-06) var(--space-05);
