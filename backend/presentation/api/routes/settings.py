@@ -80,7 +80,7 @@ def create_settings_router(
         
         return await _handle_setting_update(
             payload,
-            validator=lambda p: p.get('language') in ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese'],
+            validator=lambda p: p.get('language') in ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german'],
             setter=lambda: settings.set_setting('language', new_language),
             event_type="language_changed",
             event_data={"language": new_language}

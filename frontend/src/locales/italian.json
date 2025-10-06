@@ -1,0 +1,152 @@
+{
+  "settings": {
+    "title": "Impostazioni Milō",
+    "languages": "Lingue",
+    "applications": "Applicazioni",
+    "volume": "Volume",
+    "screen": "Schermo",
+    "dependencies": "Dipendenze",
+    "information": "Informazioni"
+  },
+  "audioSources": {
+    "title": "Sorgenti audio",
+    "spotify": "Spotify",
+    "bluetooth": "Bluetooth",
+    "macReceiver": "Ricevitore Audio Mac",
+    "rocReception": "Ricezione audio Mac"
+  },
+  "multiroom": {
+    "title": "Multiroom",
+    "settings": "Impostazioni Multiroom",
+    "disabled": "Multiroom non è abilitato",
+    "noClients": "Nessun client connesso",
+    "speakers": "Altoparlanti multiroom",
+    "loadingSpeakers": "Caricamento altoparlanti...",
+    "noSpeakers": "Nessun altoparlante connesso",
+    "restarting": "Riavvio multiroom..."
+  },
+  "equalizer": {
+    "title": "Equalizzatore",
+    "disabled": "Equalizzatore disabilitato",
+    "loading": "Caricamento equalizzatore",
+    "presets": "Preset audio"
+  },
+  "status": {
+    "loading": "Avvio...",
+    "loadingOf": "Avvio",
+    "ready": "Pronto per connettersi",
+    "readyToStream": "Pronto per lo streaming",
+    "waiting": "In attesa...",
+    "connectedTo": "Connesso a",
+    "connectedToMac": "Connesso a",
+    "disconnect": "Disconnetti",
+    "disconnecting": "Disconnessione..."
+  },
+  "volumeSettings": {
+    "title": "Volume",
+    "controls": "Controlli volume",
+    "rotaryIncrement": "Incremento encoder rotativo",
+    "mobileIncrement": "Incremento pulsante volume mobile",
+    "limits": "Limiti volume",
+    "minMax": "Volume minimo e massimo",
+    "startup": "Volume all'avvio",
+    "fixedVolume": "Volume fisso",
+    "restoreLast": "Ripristina ultimo",
+    "fixedStartup": "Volume di avvio fisso"
+  },
+  "screenSettings": {
+    "title": "Schermo",
+    "brightness": "Luminosità",
+    "brightnessIntensity": "Intensità luminosità",
+    "autoSleep": "Sospensione automatica",
+    "sleepDelay": "Ritardo sospensione dopo:"
+  },
+  "spotifySettings": {
+    "title": "Spotify",
+    "autoDisconnect": "Disconnessione automatica",
+    "disconnectDelay": "Ritardo disconnessione dopo la pausa della musica per:"
+  },
+  "multiroomSettings": {
+    "presets": "Preset",
+    "reactivity": "Reattività",
+    "balanced": "Bilanciato",
+    "optimalQuality": "Qualità ottimale",
+    "advanced": "Impostazioni avanzate",
+    "globalBuffer": "Buffer globale (ms)",
+    "codec": "Codec audio",
+    "chunkSize": "Dimensione chunk (ms)",
+    "serverName": "Nome server",
+    "apply": "Applica"
+  },
+  "dependencies": {
+    "title": "Dipendenze",
+    "miloTitle": "Dipendenze Milō",
+    "satellitesTitle": "Dipendenze satellite connessi",
+    "checking": "Verifica versioni...",
+    "error": "Errore caricamento dipendenze",
+    "retry": "Riprova",
+    "latestVersion": "Ultima ver.",
+    "installed": "Installato",
+    "notAvailable": "Non disponibile",
+    "update": "Aggiorna",
+    "errorDetails": "Dettagli errore",
+    "searchingSatellites": "Ricerca satelliti...",
+    "errorDetectingSatellites": "Errore rilevamento satelliti",
+    "noSatellites": "Nessun satellite rilevato sulla rete",
+    "snapclientOf": "Snapclient di",
+    "updatingInit": "Inizializzazione aggiornamento...",
+    "spotifyConnect": "Spotify Connect",
+    "multiroomServer": "Server multiroom",
+    "multiroomClient": "Client multiroom",
+    "bluetoothAudio": "Audio bluetooth",
+    "macStreaming": "Streaming audio da macOS"
+  },
+  "info": {
+    "title": "Informazioni",
+    "miloVersion": "Versione Milo",
+    "temperature": "Temperatura"
+  },
+  "applications": {
+    "title": "Applicazioni",
+    "features": "Funzionalità",
+    "macOS": "macOS"
+  },
+  "clientDetails": {
+    "viewDetails": "Visualizza dettagli client",
+    "displayName": "Nome visualizzato",
+    "latency": "Latenza (ms)",
+    "currently": "Attualmente",
+    "ipAddress": "Indirizzo IP",
+    "clientName": "Nome client",
+    "snapclientVersion": "Versione Snapclient",
+    "snapserverVersion": "Versione Snapserver",
+    "connection": "Connessione",
+    "validate": "Valida",
+    "validating": "Validazione...",
+    "good": "Buono",
+    "poor": "Scarso",
+    "unknown": "Sconosciuto",
+    "loadingDetails": "Caricamento dettagli...",
+    "errorLoadingDetails": "Impossibile caricare dettagli client",
+    "errorValidating": "Errore validazione modifiche"
+  },
+  "playback": {
+    "unknownTitle": "Titolo sconosciuto",
+    "unknownArtist": "Artista sconosciuto"
+  },
+  "time": {
+    "10seconds": "10 secondi",
+    "3minutes": "3 minuti",
+    "15minutes": "15 minuti",
+    "30minutes": "30 minuti",
+    "1hour": "1 ora",
+    "never": "Mai"
+  },
+  "common": {
+    "settings": "Impostazioni",
+    "parameters": "Impostazioni",
+    "configuration": "Impostazioni",
+    "language": "Lingua",
+    "unknown": "Sconosciuto"
+  }
+}

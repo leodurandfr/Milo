@@ -30,6 +30,10 @@ class I18nService {
         translations = (await import('../locales/chinese.json')).default;
       } else if (language === 'portuguese') {
         translations = (await import('../locales/portuguese.json')).default;
+      } else if (language === 'italian') {
+        translations = (await import('../locales/italian.json')).default;
+      } else if (language === 'german') {
+        translations = (await import('../locales/german.json')).default;
       }
 
       if (translations) {
@@ -129,7 +133,9 @@ class I18nService {
       { code: 'spanish', name: 'Español', flag: '🇪🇸' },
       { code: 'hindi', name: 'हिन्दी', flag: '🇮🇳' },
       { code: 'chinese', name: '中文', flag: '🇨🇳' },
-      { code: 'portuguese', name: 'Português', flag: '🇵🇹' }
+      { code: 'portuguese', name: 'Português', flag: '🇵🇹' },
+      { code: 'italian', name: 'Italiano', flag: '🇮🇹' },
+      { code: 'german', name: 'Deutsch', flag: '🇩🇪' }
     ];
   }
 
