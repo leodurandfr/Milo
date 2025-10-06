@@ -5,45 +5,53 @@
       <!-- Header avec toggle -->
       <ModalHeader :title="$t('Égaliseur')">
         <template #actions>
-          <IconButton 
-            v-if="isEqualizerEnabled" 
-            icon="reset" 
-            variant="dark" 
+          <IconButton
+            v-if="isEqualizerEnabled"
+            icon="reset"
+            variant="dark"
             :disabled="resetting"
-            @click="resetAllBands" 
+            @click="resetAllBands"
           />
-          <Toggle 
-            v-model="isEqualizerEnabled" 
-            variant="primary" 
+          <Toggle
+            v-model="isEqualizerEnabled"
+            variant="primary"
             :disabled="unifiedStore.isTransitioning"
-            @change="handleEqualizerToggle" 
+            @change="handleEqualizerToggle"
           />
         </template>
       </ModalHeader>
 
-      <!-- Contenu principal -->
-      <div class="main-content">
-        <div v-if="!isEqualizerEnabled" class="not-active">
-          <Icon name="equalizer" :size="148" color="var(--color-background-glass)" />
-          <p class="text-mono">{{ $t('Égaliseur désactivé') }}</p>
-        </div>
+      <!-- Contenu principal avec hauteur animée -->
+      <div class="content-container" :style="{ height: containerHeight }">
+        <div class="content-wrapper" ref="contentWrapperRef" :class="{ 'with-background': !isEqualizerEnabled }">
+          <!-- MESSAGE : Égaliseur désactivé -->
+          <Transition name="message">
+            <div v-if="!isEqualizerEnabled" key="message" class="message-content">
+              <Icon name="equalizer" :size="96" color="var(--color-background-glass)" />
+              <p class="text-mono">{{ $t('L’égaliseur est désactivé') }}</p>
+            </div>
+          </Transition>
 
-        <div v-else class="equalizer-controls">
-          <RangeSliderEqualizer 
-            v-for="band in bands" 
-            :key="band.id" 
-            v-model="band.value" 
-            :label="band.display_name"
-            :orientation="sliderOrientation" 
-            :min="0" 
-            :max="100" 
-            :step="1" 
-            unit="%" 
-            :disabled="updating || !bandsLoaded"
-            :class="{ 'slider-loading': !bandsLoaded }" 
-            @input="handleBandInput(band.id, $event)"
-            @change="handleBandChange(band.id, $event)" 
-          />
+          <!-- EQUALIZER : Controls -->
+          <Transition name="controls">
+            <div v-if="isEqualizerEnabled" key="controls" class="equalizer-controls">
+              <RangeSliderEqualizer
+                v-for="band in bands"
+                :key="band.id"
+                v-model="band.value"
+                :label="band.display_name"
+                :orientation="sliderOrientation"
+                :min="0"
+                :max="100"
+                :step="1"
+                unit="%"
+                :disabled="updating || !bandsLoaded"
+                :class="{ 'slider-loading': !bandsLoaded }"
+                @input="handleBandInput(band.id, $event)"
+                @change="handleBandChange(band.id, $event)"
+              />
+            </div>
+          </Transition>
         </div>
       </div>
     </div>
@@ -51,7 +59,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
@@ -87,6 +95,8 @@ const resetting = ref(false);
 const bands = ref([]);
 const bandsLoaded = ref(false);
 const isMobile = ref(false);
+const contentWrapperRef = ref(null);
+const containerHeight = ref('auto');
 
 // Gestion du throttling
 const bandThrottleMap = new Map();
@@ -94,6 +104,7 @@ const THROTTLE_DELAY = 100;
 const FINAL_DELAY = 300;
 
 let unsubscribeFunctions = [];
+let resizeObserver = null;
 
 // Computed
 const isEqualizerEnabled = computed(() => unifiedStore.equalizerEnabled);
@@ -200,6 +211,38 @@ async function fetchEqualizerState() {
 function updateMobileStatus() {
   const aspectRatio = window.innerWidth / window.innerHeight;
   isMobile.value = aspectRatio <= 4 / 3;
+}
+
+// === RESIZE OBSERVER ===
+let isFirstResize = true;
+
+function setupResizeObserver() {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
+
+  resizeObserver = new ResizeObserver(entries => {
+    if (entries[0]) {
+      const newHeight = entries[0].contentRect.height;
+
+      // Première fois : initialiser sans transition
+      if (isFirstResize) {
+        containerHeight.value = `${newHeight}px`;
+        isFirstResize = false;
+        return;
+      }
+
+      const currentHeight = parseFloat(containerHeight.value);
+
+      if (Math.abs(newHeight - currentHeight) > 2) {
+        containerHeight.value = `${newHeight}px`;
+      }
+    }
+  });
+
+  if (contentWrapperRef.value) {
+    resizeObserver.observe(contentWrapperRef.value);
+  }
 }
 
 // === GESTION DES BANDES ===
@@ -325,6 +368,10 @@ onMounted(async () => {
 
   await fetchEqualizerState();
 
+  // Setup ResizeObserver après le prochain tick pour que la ref soit disponible
+  await nextTick();
+  setupResizeObserver();
+
   unsubscribeFunctions.push(
     on('equalizer', 'band_changed', handleEqualizerUpdate),
     on('equalizer', 'reset', handleEqualizerUpdate)
@@ -335,6 +382,10 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateMobileStatus);
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
   clearInterval(watcherInterval);
+
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
 
   bandThrottleMap.forEach(state => {
     if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
@@ -359,21 +410,36 @@ onUnmounted(() => {
   min-height: 0;
 }
 
-.main-content {
-  flex: 1;
+.content-container {
+  transition: height var(--transition-spring);
+  overflow: visible;
+  position: relative;
 }
 
-.not-active {
+.content-wrapper {
   display: flex;
-  height: 100%;
   flex-direction: column;
-  padding: var(--space-05);
+  overflow: visible;
   border-radius: var(--radius-04);
-  background: var(--color-background-neutral);
-  gap: var(--space-04);
+  transition: background 400ms ease;
+  position: relative;
 }
 
-.not-active .text-mono {
+.content-wrapper.with-background {
+  background: var(--color-background-neutral);
+}
+
+.message-content {
+  display: flex;
+  min-height: 232px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-04);
+  padding: var(--space-05);
+}
+
+.message-content .text-mono {
   text-align: center;
   color: var(--color-text-secondary);
 }
@@ -381,12 +447,53 @@ onUnmounted(() => {
 .equalizer-controls {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
-  height: 100%;
   display: flex;
   justify-content: space-between;
   gap: var(--space-02);
   padding: var(--space-05);
   overflow-x: auto;
+}
+
+/* Transitions pour message */
+.message-enter-active {
+  transition: opacity 300ms ease, transform 300ms ease;
+}
+
+.message-leave-active {
+  transition: opacity 300ms ease, transform 300ms ease;
+  position: absolute;
+  width: 100%;
+}
+
+.message-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.message-leave-to {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+
+/* Transitions pour controls */
+.controls-enter-active {
+  transition: opacity 300ms ease 100ms, transform 300ms ease 100ms;
+}
+
+.controls-leave-active {
+  transition: opacity 300ms ease, transform 300ms ease;
+  position: absolute;
+  width: 100%;
+}
+
+.controls-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.controls-leave-to {
+  opacity: 0;
+  transform: translateY(-12px);
 }
 
 /* Animation de chargement des sliders */
@@ -400,8 +507,8 @@ onUnmounted(() => {
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .main-content {
-    flex: none;
+  .message-content {
+    min-height: 364px;
   }
 
   .equalizer-controls {

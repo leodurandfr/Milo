@@ -6,7 +6,7 @@
       <Transition name="message">
         <div v-if="showMessage" key="message" class="message-content">
           <Icon name="multiroom" :size="96" color="var(--color-background-glass)" />
-          <p class="text-mono">{{ $t("Le multiroom n'est pas activé") }}</p>
+          <p class="text-mono">{{ $t("Le multiroom est désactivé") }}</p>
         </div>
       </Transition>
 
@@ -346,7 +346,7 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
   flex-direction: column;
   overflow: visible;
   border-radius: var(--radius-04);
-  transition: background 400ms ease;
+  transition: 400ms ease;
   position: relative;
 }
 
