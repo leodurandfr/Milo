@@ -10,17 +10,25 @@
   </div>
 </template>
 
+<script>
+// Compteur global pour générer des IDs uniques pour chaque instance
+let instanceCounter = 0;
+</script>
+
 <script setup>
 import { computed } from 'vue';
 
+// Générer un ID unique pour cette instance du composant
+const instanceId = ++instanceCounter;
+
 const props = defineProps({
-  name: { 
-    type: String, 
+  name: {
+    type: String,
     required: true,
     validator: (value) => ['bluetooth', 'librespot', 'roc', 'multiroom', 'equalizer', 'settings'].includes(value)
   },
-  size: { 
-    type: [String, Number], 
+  size: {
+    type: [String, Number],
     default: 32
   },
   state: {
@@ -79,9 +87,9 @@ const prepareSvg = (svgString, prefix) => {
   return result;
 };
 
-const appIcons = Object.keys(svgModules).reduce((acc, path) => {
+const appIconsOriginal = Object.keys(svgModules).reduce((acc, path) => {
   const name = path.match(/\/([^/]+)\.svg$/)[1];
-  acc[name] = prepareSvg(svgModules[path].default, name);
+  acc[name] = svgModules[path].default;
   return acc;
 }, {});
 
@@ -138,17 +146,18 @@ const svgContent = computed(() => {
   if (props.state === 'loading') {
     return loadingIcon;
   }
-  
+
   // Utiliser le mapping pour trouver le bon fichier SVG
   const iconFileName = iconMapping[props.name] || props.name;
-  const icon = appIcons[iconFileName];
-  
+  const icon = appIconsOriginal[iconFileName];
+
   if (!icon) {
     console.warn(`AppIcon "${props.name}" (mapped to "${iconFileName}") not found`);
     return '';
   }
-  
-  return icon;
+
+  // Appliquer prepareSvg avec un préfixe unique pour cette instance
+  return prepareSvg(icon, `${iconFileName}-${instanceId}`);
 });
 </script>
 
