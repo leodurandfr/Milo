@@ -36,7 +36,7 @@
           <div class="disconnect-button-content">
             <div class="disconnect-button-inner">
               <button @click="handleDisconnect" :disabled="isDisconnecting" class="disconnect-text">
-                <p>{{ isDisconnecting ? $t('Déconnexion...') : $t('Déconnecter') }}</p>
+                <p>{{ isDisconnecting ? $t('status.disconnecting') : $t('status.disconnect') }}</p>
               </button>
             </div>
           </div>
@@ -99,13 +99,13 @@ const displayedStatusLines = computed(() => {
   if (props.pluginState === 'starting') {
     switch (props.pluginType) {
       case 'bluetooth':
-        return [t('Chargement du'), t('Bluetooth')];
+        return [t('status.loadingOfMasculine'), t('audioSources.bluetooth')];
       case 'roc':
-        return [t('Chargement du'), t('Récepteur audio Mac')];
+        return [t('status.loadingOfMasculine'), t('audioSources.macReceiver')];
       case 'librespot':
-        return [t('Chargement de'), t('Spotify')];
+        return [t('status.loadingOf'), t('audioSources.spotify')];
       default:
-        return [t('Chargement...')];
+        return [t('status.loading')];
     }
   }
 
@@ -113,31 +113,31 @@ const displayedStatusLines = computed(() => {
   if (props.pluginState === 'ready') {
     switch (props.pluginType) {
       case 'bluetooth':
-        return [t('Bluetooth'), t('Prêt à se connecter')];
+        return [t('audioSources.bluetooth'), t('status.ready')];
       case 'roc':
-        return [t('Récepteur audio Mac'), t('Prêt à diffuser')];
+        return [t('audioSources.macReceiver'), t('status.readyToStream')];
       case 'librespot':
-        return [t('Spotify'), t('Prêt à se connecter')];
+        return [t('audioSources.spotify'), t('status.ready')];
       default:
-        return [t('Prêt à se connecter')];
+        return [t('status.ready')];
     }
   }
 
   // État connected : messages avec nom d'appareil
   if (props.pluginState === 'connected' && props.deviceName) {
     const cleanedDeviceName = cleanDeviceName(props.deviceName);
-    
+
     switch (props.pluginType) {
       case 'bluetooth':
-        return [t('Connecté à'), cleanedDeviceName];
+        return [t('status.connectedTo'), cleanedDeviceName];
       case 'roc':
-        return [t('Connecté au'), cleanedDeviceName];
+        return [t('status.connectedToMac'), cleanedDeviceName];
       default:
-        return [t('Connecté à'), props.deviceName];
+        return [t('status.connectedTo'), props.deviceName];
     }
   }
 
-  return [t('En attente...')];
+  return [t('status.waiting')];
 });
 
 const displayedShowDisconnectButton = computed(() => {

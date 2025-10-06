@@ -3,16 +3,16 @@
   <section class="settings-section">
     <div class="info-grid">
       <div class="info-item">
-        <span class="info-label text-mono">{{ t('Version de Milo') }}</span>
+        <span class="info-label text-mono">{{ t('info.miloVersion') }}</span>
         <span class="info-value text-mono">0.1.0</span>
       </div>
 
       <div class="info-item">
-        <span class="info-label text-mono">{{ t('Température') }}</span>
+        <span class="info-label text-mono">{{ t('info.temperature') }}</span>
         <span class="info-value text-mono">
           <span v-if="temperatureLoading && systemTemperature === null">...</span>
           <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
-          <span v-else class="text-error">{{ t('Non disponible') }}</span>
+          <span v-else class="text-error">{{ t('dependencies.notAvailable') }}</span>
         </span>
       </div>
     </div>

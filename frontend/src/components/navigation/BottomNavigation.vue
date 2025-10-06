@@ -81,9 +81,9 @@ const ALL_AUDIO_SOURCES = ['librespot', 'bluetooth', 'roc'];
 
 
 const ALL_ADDITIONAL_ACTIONS = [
-  { id: 'multiroom', icon: 'multiroom', title: computed(() => t('Multiroom')), handler: () => emit('open-snapcast') },
-  { id: 'equalizer', icon: 'equalizer', title: computed(() => t('Égaliseur')), handler: () => emit('open-equalizer') },
-  { id: 'settings', icon: 'settings', title: computed(() => t('Paramètres')), handler: () => emit('open-settings') }
+  { id: 'multiroom', icon: 'multiroom', title: computed(() => t('multiroom.title')), handler: () => emit('open-snapcast') },
+  { id: 'equalizer', icon: 'equalizer', title: computed(() => t('equalizer.title')), handler: () => emit('open-equalizer') },
+  { id: 'settings', icon: 'settings', title: computed(() => t('common.settings')), handler: () => emit('open-settings') }
 ];
 
 // === CONFIGURATION DYNAMIQUE ===

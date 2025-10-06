@@ -4,11 +4,11 @@
     <!-- Contrôles du volume -->
     <section class="settings-section">
       <div class="volume-group">
-        <h2 class="heading-2 text-body">{{ t('Contrôles du volume') }}</h2>
+        <h2 class="heading-2 text-body">{{ t('volumeSettings.controls') }}</h2>
 
         <div class="setting-item-container">
           <div class="volume-item-setting text-mono">
-            {{ t('Incrémentation du rotary encoder') }}
+            {{ t('volumeSettings.rotaryIncrement') }}
           </div>
           <div class="volume-steps-control">
             <RangeSlider v-model="config.rotary_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
@@ -18,7 +18,7 @@
 
         <div class="setting-item-container">
           <div class="volume-item-setting text-mono">
-            {{ t('Incrémentation des boutons volume en mobile') }}
+            {{ t('volumeSettings.mobileIncrement') }}
           </div>
           <div class="volume-steps-control">
             <RangeSlider v-model="config.mobile_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
@@ -31,10 +31,10 @@
     <!-- Limites du volume -->
     <section class="settings-section">
       <div class="volume-group">
-        <h2 class="heading-2 text-body">{{ t('Limites du volume') }}</h2>
+        <h2 class="heading-2 text-body">{{ t('volumeSettings.limits') }}</h2>
         <div class="setting-item-container">
           <div class="volume-item-setting text-mono">
-            {{ t('Volume minimal et maximal') }}
+            {{ t('volumeSettings.minMax') }}
           </div>
           <div class="volume-limits-control">
             <DoubleRangeSlider v-model="config.limits" :min="0" :max="100" :step="1" :gap="10" value-unit="%"
@@ -47,22 +47,22 @@
     <!-- Volume au démarrage -->
     <section class="settings-section">
       <div class="volume-group">
-        <h2 class="heading-2 text-body">{{ t('Volume au démarrage') }}</h2>
+        <h2 class="heading-2 text-body">{{ t('volumeSettings.startup') }}</h2>
 
         <div class="startup-mode-buttons">
           <Button variant="toggle" :active="!config.restore_last_volume"
             @click="updateSetting('volume-startup', { startup_volume: config.startup_volume, restore_last_volume: false })">
-            {{ t('Volume fixe') }}
+            {{ t('volumeSettings.fixedVolume') }}
           </Button>
           <Button variant="toggle" :active="config.restore_last_volume"
             @click="updateSetting('volume-startup', { startup_volume: config.startup_volume, restore_last_volume: true })">
-            {{ t('Restaurer le dernier') }}
+            {{ t('volumeSettings.restoreLast') }}
           </Button>
         </div>
 
         <div v-if="!config.restore_last_volume" class="setting-item-container">
           <div class="volume-item-setting text-mono">
-            {{ t('Volume fixe au démarrage') }}
+            {{ t('volumeSettings.fixedStartup') }}
           </div>
           <div class="startup-volume-control">
             <RangeSlider v-model="config.startup_volume" :min="0" :max="100" :step="1" value-unit="%"

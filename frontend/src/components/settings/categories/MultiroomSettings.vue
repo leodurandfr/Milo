@@ -4,14 +4,14 @@
     <!-- Enceintes multiroom -->
     <section class="settings-section">
       <div class="multiroom-group">
-        <h2 class="heading-2 text-body">{{ t('Enceintes multiroom') }}</h2>
+        <h2 class="heading-2 text-body">{{ t('multiroom.speakers') }}</h2>
 
         <div v-if="loadingClients" class="loading-state">
-          <p class="text-mono">{{ t('Chargement des enceintes...') }}</p>
+          <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
         </div>
 
         <div v-else-if="sortedSnapcastClients.length === 0" class="no-clients-state">
-          <p class="text-mono">{{ t('Aucune enceinte connectée') }}</p>
+          <p class="text-mono">{{ t('multiroom.noSpeakers') }}</p>
         </div>
 
         <div v-else class="clients-list" :style="clientsGridStyle">
@@ -31,7 +31,7 @@
     <!-- Presets audio -->
     <section class="settings-section">
       <div class="multiroom-group">
-        <h2 class="heading-2 text-body">{{ t('Pré-réglages') }}</h2>
+        <h2 class="heading-2 text-body">{{ t('multiroomSettings.presets') }}</h2>
         <div class="presets-buttons">
           <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle" :active="isPresetActive(preset)"
             :disabled="applyingServerConfig" @click="applyPreset(preset)">
@@ -44,20 +44,20 @@
     <!-- Paramètres avancés -->
     <section class="settings-section">
       <div class="multiroom-group">
-        <h2 class="heading-2 text-body">{{ t('Paramètres avancés') }}</h2>
+        <h2 class="heading-2 text-body">{{ t('multiroomSettings.advanced') }}</h2>
 
         <div class="form-group">
-          <label class="text-mono">{{ t('Buffer global (ms)') }}</label>
+          <label class="text-mono">{{ t('multiroomSettings.globalBuffer') }}</label>
           <RangeSlider v-model="serverConfig.buffer" :min="100" :max="2000" :step="50" value-unit="ms" />
         </div>
 
         <div class="form-group">
-          <label class="text-mono">{{ t('Taille des chunks (ms)') }}</label>
+          <label class="text-mono">{{ t('multiroomSettings.chunkSize') }}</label>
           <RangeSlider v-model="serverConfig.chunk_ms" :min="10" :max="100" :step="5" value-unit="ms" />
         </div>
 
         <div class="form-group">
-          <label class="text-mono">{{ t('Codec audio') }}</label>
+          <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
           <div class="codec-buttons">
             <Button variant="toggle" :active="serverConfig.codec === 'opus'" @click="selectCodec('opus')">
               Opus
@@ -75,7 +75,7 @@
 
     <Button v-if="hasServerConfigChanges" variant="primary" class="apply-button-sticky"
       :disabled="loadingServerConfig || applyingServerConfig" @click="applyServerConfig">
-      {{ applyingServerConfig ? t('Redémarrage du multiroom en cours...') : t('Appliquer') }}
+      {{ applyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
     </Button>
   </div>
 </template>
@@ -121,17 +121,17 @@ const applyingServerConfig = ref(false);
 const audioPresets = computed(() => [
   {
     id: 'reactivity',
-    name: t('Réactivité'),
+    name: t('multiroomSettings.reactivity'),
     config: { buffer: 150, codec: 'opus', chunk_ms: 10 }
   },
   {
     id: 'balanced',
-    name: t('Équilibré'),
+    name: t('multiroomSettings.balanced'),
     config: { buffer: 1000, codec: 'opus', chunk_ms: 20 }
   },
   {
     id: 'quality',
-    name: t('Qualité optimale'),
+    name: t('multiroomSettings.optimalQuality'),
     config: { buffer: 1500, codec: 'flac', chunk_ms: 40 }
   }
 ]);

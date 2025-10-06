@@ -6,19 +6,21 @@ class I18nService {
   constructor() {
     this.currentLanguage = ref('french'); // Code standardisé
     this.translations = new Map();
-    this.fallbackLanguage = 'french';
+    this.fallbackLanguage = 'english';
     this.isInitialized = false;
   }
 
   async loadTranslations(language) {
-    if (language === 'french' || this.translations.has(language)) {
+    if (this.translations.has(language)) {
       return;
     }
 
     try {
       let translations;
-      
-      if (language === 'english') {
+
+      if (language === 'french') {
+        translations = (await import('../locales/french.json')).default;
+      } else if (language === 'english') {
         translations = (await import('../locales/english.json')).default;
       } else if (language === 'spanish') {
         translations = (await import('../locales/spanish.json')).default;
@@ -29,7 +31,7 @@ class I18nService {
       } else if (language === 'portuguese') {
         translations = (await import('../locales/portuguese.json')).default;
       }
-      
+
       if (translations) {
         this.translations.set(language, translations);
       }
@@ -38,22 +40,48 @@ class I18nService {
     }
   }
 
+  // Helper to get nested value from object using dot notation
+  getNestedValue(obj, path) {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  }
+
   t(key) {
-    // Français par défaut - retourner la clé telle quelle
-    if (this.currentLanguage.value === 'french') {
-      return key;
+    // Load translations for current language
+    const translations = this.translations.get(this.currentLanguage.value);
+
+    if (translations) {
+      const value = this.getNestedValue(translations, key);
+      if (value !== undefined) {
+        return value;
+      }
     }
 
-    // Chercher dans les traductions chargées
-    const translations = this.translations.get(this.currentLanguage.value);
-    return translations?.[key] || key;
+    // Fallback to English if not found
+    if (this.currentLanguage.value !== this.fallbackLanguage) {
+      const fallbackTranslations = this.translations.get(this.fallbackLanguage);
+      if (fallbackTranslations) {
+        const fallbackValue = this.getNestedValue(fallbackTranslations, key);
+        if (fallbackValue !== undefined) {
+          return fallbackValue;
+        }
+      }
+    }
+
+    // Return key if no translation found
+    return key;
   }
 
   // Initialiser la langue depuis le serveur
   async initializeLanguage() {
     if (this.isInitialized) return;
-    
+
     try {
+      // Always preload French and English translations
+      await Promise.all([
+        this.loadTranslations('french'),
+        this.loadTranslations('english')
+      ]);
+
       const response = await axios.get('/api/settings/language');
       if (response.data.status === 'success') {
         const serverLanguage = response.data.language;

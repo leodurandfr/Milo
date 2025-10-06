@@ -4,10 +4,10 @@
     <!-- Luminosité -->
     <section class="settings-section">
       <div class="screen-group">
-        <h2 class="heading-2 text-body">{{ t('Luminosité') }}</h2>
+        <h2 class="heading-2 text-body">{{ t('screenSettings.brightness') }}</h2>
         <div class="setting-item-container">
           <div class="screen-description text-mono">
-            {{ t('Intensité de la luminosité') }}
+            {{ t('screenSettings.brightnessIntensity') }}
           </div>
           <div class="brightness-control">
             <RangeSlider v-model="config.brightness_on" :min="1" :max="10" :step="1" value-unit=""
@@ -20,10 +20,10 @@
     <!-- Mise en veille automatique -->
     <section class="settings-section">
       <div class="screen-group">
-        <h2 class="heading-2 text-body">{{ t('Mise en veille automatique') }}</h2>
+        <h2 class="heading-2 text-body">{{ t('screenSettings.autoSleep') }}</h2>
         <div class="setting-item-container">
           <div class="screen-description text-mono">
-            {{ t('Délai de la mise en veille après :') }}
+            {{ t('screenSettings.sleepDelay') }}
           </div>
           <div class="timeout-buttons">
             <Button v-for="timeout in timeoutPresets" :key="timeout.value" variant="toggle"
@@ -60,12 +60,12 @@ const config = computed(() => ({
 }));
 
 const timeoutPresets = computed(() => [
-  { value: 10, label: t('10 secondes') },
-  { value: 180, label: t('3 minutes') },
-  { value: 900, label: t('15 minutes') },
-  { value: 1800, label: t('30 minutes') },
-  { value: 3600, label: t('1 heure') },
-  { value: 0, label: t('Jamais') }
+  { value: 10, label: t('time.10seconds') },
+  { value: 180, label: t('time.3minutes') },
+  { value: 900, label: t('time.15minutes') },
+  { value: 1800, label: t('time.30minutes') },
+  { value: 3600, label: t('time.1hour') },
+  { value: 0, label: t('time.never') }
 ]);
 
 function isTimeoutActive(value) {

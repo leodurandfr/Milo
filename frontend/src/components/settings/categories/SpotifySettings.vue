@@ -2,10 +2,10 @@
 <template>
   <section class="settings-section">
     <div class="spotify-group">
-      <h2 class="heading-2 text-body">{{ t('Déconnexion automatique') }}</h2>
+      <h2 class="heading-2 text-body">{{ t('spotifySettings.autoDisconnect') }}</h2>
       <div class="setting-item-container">
         <div class="spotify-description text-mono">
-          {{ t('Délai de déconnexion après que la musique soit en pause pendant :') }}
+          {{ t('spotifySettings.disconnectDelay') }}
         </div>
         <div class="disconnect-buttons">
           <Button v-for="delay in disconnectPresets" :key="delay.value" variant="toggle"
@@ -37,12 +37,12 @@ const config = computed(() => ({
 }));
 
 const disconnectPresets = computed(() => [
-  { value: 10, label: t('10 secondes') },
-  { value: 180, label: t('3 minutes') },
-  { value: 900, label: t('15 minutes') },
-  { value: 1800, label: t('30 minutes') },
-  { value: 3600, label: t('1 heure') },
-  { value: 0, label: t('Jamais') }
+  { value: 10, label: t('time.10seconds') },
+  { value: 180, label: t('time.3minutes') },
+  { value: 900, label: t('time.15minutes') },
+  { value: 1800, label: t('time.30minutes') },
+  { value: 3600, label: t('time.1hour') },
+  { value: 0, label: t('time.never') }
 ]);
 
 function isDisconnectActive(value) {

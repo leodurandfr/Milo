@@ -3,65 +3,65 @@
   <div class="settings-modal">
     <!-- Vue Home : Liste des catégories -->
     <div v-if="currentView === 'home'" class="view-home">
-      <ModalHeader :title="t('Configuration de Milō')" />
+      <ModalHeader :title="t('settings.title')" />
 
       <div class="settings-nav-grid">
-        <SettingsCategory icon="languages" :title="t('Langues')" @click="goToView('languages')" />
-        <SettingsCategory icon="applications" :title="t('Applications')" @click="goToView('apps')" />
-        <SettingsCategory icon="volume" :title="t('Volume')" @click="goToView('volume')" />
-        <SettingsCategory icon="display" :title="t('Écran')" @click="goToView('screen')" />
-        <SettingsCategory icon="spotify" title="Spotify" @click="goToView('spotify')" />
-        <SettingsCategory icon="multiroom" title="Multiroom" @click="goToView('multiroom')" />
-        <SettingsCategory icon="dependencies" :title="t('Dépendances')" @click="goToView('dependencies')" />
-        <SettingsCategory icon="information" :title="t('Informations')" @click="goToView('info')" />
+        <SettingsCategory icon="languages" :title="t('settings.languages')" @click="goToView('languages')" />
+        <SettingsCategory icon="applications" :title="t('settings.applications')" @click="goToView('apps')" />
+        <SettingsCategory icon="volume" :title="t('settings.volume')" @click="goToView('volume')" />
+        <SettingsCategory icon="display" :title="t('settings.screen')" @click="goToView('screen')" />
+        <SettingsCategory icon="spotify" :title="t('spotifySettings.title')" @click="goToView('spotify')" />
+        <SettingsCategory icon="multiroom" :title="t('multiroom.title')" @click="goToView('multiroom')" />
+        <SettingsCategory icon="dependencies" :title="t('settings.dependencies')" @click="goToView('dependencies')" />
+        <SettingsCategory icon="information" :title="t('settings.information')" @click="goToView('info')" />
       </div>
     </div>
 
     <!-- Vue Langues -->
     <div v-else-if="currentView === 'languages'" class="view-detail">
-      <ModalHeader :title="t('Langues')" show-back @back="goToHome" />
+      <ModalHeader :title="t('settings.languages')" show-back @back="goToHome" />
       <LanguageSettings />
     </div>
 
     <!-- Vue Applications -->
     <div v-else-if="currentView === 'apps'" class="view-detail">
-      <ModalHeader :title="t('Applications')" show-back @back="goToHome" />
+      <ModalHeader :title="t('settings.applications')" show-back @back="goToHome" />
       <ApplicationsSettings />
     </div>
 
     <!-- Vue Volume -->
     <div v-else-if="currentView === 'volume'" class="view-detail">
-      <ModalHeader :title="t('Volume')" show-back @back="goToHome" />
+      <ModalHeader :title="t('settings.volume')" show-back @back="goToHome" />
       <VolumeSettings />
     </div>
 
     <!-- Vue Écran -->
     <div v-else-if="currentView === 'screen'" class="view-detail">
-      <ModalHeader :title="t('Écran')" show-back @back="goToHome" />
+      <ModalHeader :title="t('settings.screen')" show-back @back="goToHome" />
       <ScreenSettings />
     </div>
 
     <!-- Vue Spotify -->
     <div v-else-if="currentView === 'spotify'" class="view-detail">
-      <ModalHeader title="Spotify" show-back @back="goToHome" />
+      <ModalHeader :title="t('spotifySettings.title')" show-back @back="goToHome" />
       <SpotifySettings />
     </div>
 
     <!-- Vue Multiroom -->
     <div v-else-if="currentView === 'multiroom'" class="view-detail">
-      <ModalHeader title="Multiroom" show-back @back="goToHome" />
+      <ModalHeader :title="t('multiroom.title')" show-back @back="goToHome" />
       <MultiroomSettings />
     </div>
 
     <!-- Vue Dépendances -->
     <div v-else-if="currentView === 'dependencies'" class="view-detail">
-      <ModalHeader :title="t('Dépendances')" show-back @back="goToHome" />
+      <ModalHeader :title="t('settings.dependencies')" show-back @back="goToHome" />
       <UpdateManager />
     </div>
 
     <!-- Vue Informations -->
     <div v-else-if="currentView === 'info'" class="view-detail">
-      <ModalHeader :title="t('Informations')" show-back @back="goToHome" />
+      <ModalHeader :title="t('settings.information')" show-back @back="goToHome" />
       <InfoSettings />
     </div>
   </div>

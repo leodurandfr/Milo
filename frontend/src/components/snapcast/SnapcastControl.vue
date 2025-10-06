@@ -6,7 +6,7 @@
       <Transition name="message">
         <div v-if="showMessage" key="message" class="message-content">
           <Icon name="multiroom" :size="96" color="var(--color-background-glass)" />
-          <p class="text-mono">{{ $t("Le multiroom est désactivé") }}</p>
+          <p class="text-mono">{{ $t("multiroom.disabled") }}</p>
         </div>
       </Transition>
 

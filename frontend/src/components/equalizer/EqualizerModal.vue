@@ -3,7 +3,7 @@
   <div class="equalizer-modal">
     <div class="screen-main">
       <!-- Header avec toggle -->
-      <ModalHeader :title="$t('Égaliseur')">
+      <ModalHeader :title="$t('equalizer.title')">
         <template #actions>
           <IconButton
             v-if="isEqualizerEnabled"
@@ -28,7 +28,7 @@
           <Transition name="message">
             <div v-if="!isEqualizerEnabled" key="message" class="message-content">
               <Icon name="equalizer" :size="96" color="var(--color-background-glass)" />
-              <p class="text-mono">{{ $t('L’égaliseur est désactivé') }}</p>
+              <p class="text-mono">{{ $t('equalizer.disabled') }}</p>
             </div>
           </Transition>
 

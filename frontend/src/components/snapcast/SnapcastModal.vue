@@ -1,7 +1,7 @@
 <!-- frontend/src/components/snapcast/SnapcastModal.vue -->
 <template>
   <div class="snapcast-modal">
-    <ModalHeader :title="$t('Multiroom')">
+    <ModalHeader :title="$t('multiroom.title')">
       <template #actions>
         <Toggle 
           v-model="isMultiroomActive" 

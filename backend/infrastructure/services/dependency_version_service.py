@@ -27,7 +27,7 @@ class DependencyVersionService:
         self.dependencies = {
             "go-librespot": {
                 "name": "go-librespot",
-                "description": "Spotify Connect",
+                "description": "dependencies.spotifyConnect",
                 "commands": {
                     "main": ["sh", "-c", "strings /usr/local/bin/go-librespot | grep 'Bv[0-9]' | sed 's/^.*Bv//' | head -1"]
                 },
@@ -36,7 +36,7 @@ class DependencyVersionService:
             },
             "snapserver": {
                 "name": "Snapserver",
-                "description": "Serveur multiroom",
+                "description": "dependencies.multiroomServer",
                 "commands": {
                     "main": ["snapserver", "--version"]
                 },
@@ -44,8 +44,8 @@ class DependencyVersionService:
                 "version_regex": r"v(\d+\.\d+\.\d+)"
             },
             "snapclient": {
-                "name": "Snapclient", 
-                "description": "Client multiroom",
+                "name": "Snapclient",
+                "description": "dependencies.multiroomClient",
                 "commands": {
                     "main": ["snapclient", "--version"]
                 },
@@ -54,7 +54,7 @@ class DependencyVersionService:
             },
             "bluez-alsa": {
                 "name": "BlueZ ALSA",
-                "description": "Bluetooth audio",
+                "description": "dependencies.bluetoothAudio",
                 "commands": {
                     "main": ["bluealsa", "--version"]
                 },
@@ -63,7 +63,7 @@ class DependencyVersionService:
             },
             "roc-toolkit": {
                 "name": "ROC Streaming",
-                "description": "Streaming audio depuis macOS",
+                "description": "dependencies.macStreaming",
                 "commands": {
                     "recv": ["roc-recv", "--version"]
                 },

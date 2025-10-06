@@ -3,7 +3,7 @@
   <section class="settings-section">
     <!-- Sources audio -->
     <div class="setting-item-container">
-      <p class="app-group-title text-mono">{{ t('Sources audio') }}</p>
+      <p class="app-group-title text-mono">{{ t('audioSources.title') }}</p>
 
       <div class="app-list">
         <div class="app-item">
@@ -27,7 +27,7 @@
         <div class="app-item">
           <div class="app-info">
             <AppIcon name="roc" :size="32" />
-            <span class="app-name text-body">{{ t('macOS') }}</span>
+            <span class="app-name text-body">{{ t('applications.macOS') }}</span>
           </div>
           <Toggle v-model="config.roc" variant="primary" size="compact"
             :disabled="!canDisableAudioSource('roc')" @change="updateDockApps" />
@@ -37,7 +37,7 @@
 
     <!-- Fonctionnalités -->
     <div class="setting-item-container">
-      <p class="app-group-title text-mono">{{ t('Fonctionnalités') }}</p>
+      <p class="app-group-title text-mono">{{ t('applications.features') }}</p>
 
       <div class="app-list">
         <div class="app-item">
@@ -52,7 +52,7 @@
         <div class="app-item">
           <div class="app-info">
             <AppIcon name="equalizer" :size="32" />
-            <span class="app-name text-body">{{ t('Égaliseur') }}</span>
+            <span class="app-name text-body">{{ t('equalizer.title') }}</span>
           </div>
           <Toggle v-model="config.equalizer" variant="primary" size="compact"
             @change="updateDockApps" />
@@ -61,7 +61,7 @@
         <div class="app-item">
           <div class="app-info">
             <AppIcon name="settings" :size="32" />
-            <span class="app-name text-body">{{ t('Paramètres') }}</span>
+            <span class="app-name text-body">{{ t('common.settings') }}</span>
           </div>
           <Toggle v-model="config.settings" variant="primary" size="compact" @change="updateDockApps" />
         </div>
