@@ -15,12 +15,8 @@
         </div>
 
         <div v-else class="clients-list" :style="clientsGridStyle">
-          <div
-            v-for="(client, index) in sortedSnapcastClients"
-            :key="client.id"
-            class="client-config-item"
-            :style="getClientGridStyle(index)"
-          >
+          <div v-for="(client, index) in sortedSnapcastClients" :key="client.id" class="client-config-item"
+            :style="getClientGridStyle(index)">
             <div class="client-info-wrapper">
               <span class="client-hostname text-mono">{{ client.host }}</span>
               <input type="text" v-model="clientNames[client.id]" :placeholder="client.host"
@@ -74,13 +70,13 @@
             </Button>
           </div>
         </div>
-
-        <Button variant="primary" :disabled="loadingServerConfig || applyingServerConfig || !hasServerConfigChanges"
-          @click="applyServerConfig">
-          {{ applyingServerConfig ? t('Redémarrage du multiroom en cours...') : t('Appliquer') }}
-        </Button>
       </div>
     </section>
+
+    <Button v-if="hasServerConfigChanges" variant="primary" class="apply-button-sticky"
+      :disabled="loadingServerConfig || applyingServerConfig" @click="applyServerConfig">
+      {{ applyingServerConfig ? t('Redémarrage du multiroom en cours...') : t('Appliquer') }}
+    </Button>
   </div>
 </template>
 
@@ -425,8 +421,17 @@ onMounted(async () => {
   flex: 1;
 }
 
+.apply-button-sticky {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
+}
+
+
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
+
   .codec-buttons,
   .presets-buttons {
     flex-direction: column;
