@@ -75,7 +75,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
@@ -89,17 +89,24 @@ const { on } = useWebSocket();
 const { updateSetting, debouncedUpdate, clearAllTimers } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
-// Utilisation du store au lieu d'un état local
-const config = computed(() => ({
-  mobile_volume_steps: settingsStore.volumeSteps.mobile_volume_steps,
-  rotary_volume_steps: settingsStore.volumeSteps.rotary_volume_steps,
-  limits: {
-    min: settingsStore.volumeLimits.alsa_min,
-    max: settingsStore.volumeLimits.alsa_max
-  },
-  restore_last_volume: settingsStore.volumeStartup.restore_last_volume,
-  startup_volume: settingsStore.volumeStartup.startup_volume
-}));
+// Refs locales pour une réactivité instantanée
+const config = ref({
+  mobile_volume_steps: 5,
+  rotary_volume_steps: 5,
+  limits: { min: 0, max: 65 },
+  restore_last_volume: false,
+  startup_volume: 50
+});
+
+// Synchroniser les refs locales avec le store au montage
+function syncFromStore() {
+  config.value.mobile_volume_steps = settingsStore.volumeSteps.mobile_volume_steps;
+  config.value.rotary_volume_steps = settingsStore.volumeSteps.rotary_volume_steps;
+  config.value.limits.min = settingsStore.volumeLimits.alsa_min;
+  config.value.limits.max = settingsStore.volumeLimits.alsa_max;
+  config.value.restore_last_volume = settingsStore.volumeStartup.restore_last_volume;
+  config.value.startup_volume = settingsStore.volumeStartup.startup_volume;
+}
 
 function updateVolumeLimits(limits) {
   debouncedUpdate('volume-limits', 'volume-limits', {
@@ -108,7 +115,7 @@ function updateVolumeLimits(limits) {
   });
 }
 
-// WebSocket listeners - mettent à jour le store
+// WebSocket listeners - mettent à jour le store ET les refs locales
 const wsListeners = {
   volume_limits_changed: (msg) => {
     if (msg.data?.limits) {
@@ -116,6 +123,8 @@ const wsListeners = {
         alsa_min: msg.data.limits.alsa_min || 0,
         alsa_max: msg.data.limits.alsa_max || 65
       });
+      config.value.limits.min = msg.data.limits.alsa_min || 0;
+      config.value.limits.max = msg.data.limits.alsa_max || 65;
     }
   },
   volume_startup_changed: (msg) => {
@@ -124,6 +133,8 @@ const wsListeners = {
         restore_last_volume: msg.data.config.restore_last_volume,
         startup_volume: msg.data.config.startup_volume
       });
+      config.value.restore_last_volume = msg.data.config.restore_last_volume;
+      config.value.startup_volume = msg.data.config.startup_volume;
     }
   },
   volume_steps_changed: (msg) => {
@@ -131,6 +142,7 @@ const wsListeners = {
       settingsStore.updateVolumeSteps({
         mobile_volume_steps: msg.data.config.mobile_volume_steps
       });
+      config.value.mobile_volume_steps = msg.data.config.mobile_volume_steps;
     }
   },
   rotary_steps_changed: (msg) => {
@@ -138,12 +150,15 @@ const wsListeners = {
       settingsStore.updateVolumeSteps({
         rotary_volume_steps: msg.data.config.rotary_volume_steps
       });
+      config.value.rotary_volume_steps = msg.data.config.rotary_volume_steps;
     }
   }
 };
 
 onMounted(() => {
-  // Plus besoin de charger les configs, elles sont déjà dans le store
+  // Synchroniser avec le store au montage
+  syncFromStore();
+
   // Register WebSocket listeners
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
     on('settings', eventType, handler);
