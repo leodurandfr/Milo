@@ -6,9 +6,6 @@ import asyncio
 import subprocess
 from typing import Dict, Any
 
-from dbus_next.aio import MessageBus
-from dbus_next.constants import BusType
-
 from backend.infrastructure.plugins.base import UnifiedAudioPlugin
 from backend.domain.audio_state import PluginState
 from backend.infrastructure.plugins.bluetooth.agent import BluetoothAgent
@@ -31,16 +28,20 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         
         # AJOUT: Définir service_name pour la classe de base
         self.service_name = self.bluealsa_service
-        
-        # Composants
-        self.agent = BluetoothAgent()
-        self.monitor = BlueAlsaMonitor()
-        self.playback = BlueAlsaPlayback()
-        
+
         # État - Renommé pour éviter le conflit avec la classe de base
         self.connected_device = None
         self._auto_connecting = False
         self._current_device = "milo_bluetooth"
+
+        # Composants
+        self.agent = BluetoothAgent()
+        self.monitor = BlueAlsaMonitor()
+        self.playback = BlueAlsaPlayback()
+
+        # Surveillance des connexions multiples
+        self._monitoring_task = None
+        self._first_connected_device = None  # Premier appareil connecté
     
     async def _do_initialize(self) -> bool:
         """Initialisation spécifique au plugin Bluetooth"""
@@ -82,23 +83,26 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             for service in [self.bluetooth_service, self.bluealsa_service]:
                 if not await self.control_service(service, "start"):
                     raise RuntimeError(f"Impossible de démarrer {service}")
-            
+
             # 2. Démarrer le service aplay
             if not await self.control_service(self.bluealsa_aplay_service, "start"):
                 raise RuntimeError(f"Impossible de démarrer {self.bluealsa_aplay_service}")
-            
+
             # 3. Configurer l'adaptateur
             if not await self._configure_adapter():
                 self.logger.warning("Erreur configuration adaptateur Bluetooth")
-            
-            # 4. Enregistrer l'agent si demandé
+
+            # 4. Démarrer la surveillance des connexions multiples
+            self._monitoring_task = asyncio.create_task(self._monitor_connections())
+
+            # 5. Enregistrer l'agent si demandé
             if self.auto_agent and not await self.agent.register():
                 self.logger.warning("Erreur enregistrement agent Bluetooth")
-            
-            # 5. Démarrer la surveillance
+
+            # 6. Démarrer la surveillance BlueALSA
             if not await self.monitor.start_monitoring():
                 raise RuntimeError("Erreur démarrage surveillance BlueALSA")
-            
+
             return True
         except Exception as e:
             self.logger.error(f"Erreur démarrage Bluetooth: {e}")
@@ -197,33 +201,118 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL
             )
-            
+
             await proc.communicate(input=commands.encode())
             return proc.returncode == 0
         except Exception as e:
             self.logger.error(f"Erreur commande bluetoothctl: {e}")
+            return False
+
+    async def _monitor_connections(self):
+        """Surveille les connexions Bluetooth et déconnecte les appareils supplémentaires"""
+        self.logger.info("Surveillance des connexions Bluetooth démarrée")
+
+        while True:
+            try:
+                await asyncio.sleep(0.5)  # Vérifier toutes les 500ms
+
+                # Lister les appareils connectés via bluetoothctl
+                proc = await asyncio.create_subprocess_exec(
+                    "bluetoothctl", "devices", "Connected",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL
+                )
+                stdout, _ = await proc.communicate()
+
+                if proc.returncode != 0:
+                    continue
+
+                connected_devices = []
+                for line in stdout.decode().splitlines():
+                    if line.startswith("Device "):
+                        parts = line.split(" ", 2)
+                        if len(parts) >= 3:
+                            address = parts[1]
+                            connected_devices.append(address)
+
+                # Si aucun appareil connecté, réinitialiser
+                if len(connected_devices) == 0:
+                    self._first_connected_device = None
+                    continue
+
+                # Si c'est le premier appareil, l'enregistrer
+                if self._first_connected_device is None and len(connected_devices) == 1:
+                    self._first_connected_device = connected_devices[0]
+                    self.logger.info(f"Premier appareil Bluetooth: {self._first_connected_device}")
+                    continue
+
+                # Si plus d'un appareil connecté, déconnecter tous sauf le premier
+                if len(connected_devices) > 1:
+                    for address in connected_devices:
+                        if address != self._first_connected_device:
+                            self.logger.warning(
+                                f"REFUS: {address} se connecte alors que "
+                                f"{self._first_connected_device} est déjà connecté - déconnexion"
+                            )
+                            await self._disconnect_device(address)
+
+            except asyncio.CancelledError:
+                self.logger.info("Surveillance des connexions arrêtée")
+                break
+            except Exception as e:
+                self.logger.error(f"Erreur surveillance connexions: {e}")
+                await asyncio.sleep(1)
+
+    async def _disconnect_device(self, address: str) -> bool:
+        """Déconnecte un appareil par son adresse"""
+        try:
+            self.logger.info(f"Déconnexion de l'appareil {address}")
+            proc = await asyncio.create_subprocess_exec(
+                "bluetoothctl", "disconnect", address,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await proc.communicate()
+
+            if proc.returncode != 0:
+                self.logger.error(f"Erreur déconnexion {address}: {stderr.decode().strip()}")
+                return False
+
+            self.logger.info(f"Appareil {address} déconnecté avec succès")
+            return True
+        except Exception as e:
+            self.logger.error(f"Erreur déconnexion appareil {address}: {e}")
             return False
     
     async def _cleanup(self) -> None:
         """Nettoie les ressources du plugin"""
         # Arrêter toute lecture audio
         await self.playback.stop_all_playback()
-        
+
         # Arrêter la surveillance
         await self.monitor.stop_monitoring()
-        
+
+        # Arrêter la tâche de surveillance des connexions
+        if self._monitoring_task and not self._monitoring_task.done():
+            self._monitoring_task.cancel()
+            try:
+                await self._monitoring_task
+            except asyncio.CancelledError:
+                pass
+
+        # Réinitialiser l'état
+        self._first_connected_device = None
+
         # Désenregistrer l'agent Bluetooth
         if self.auto_agent:
             await self.agent.unregister()
     
     async def _on_device_connected(self, address: str, name: str) -> None:
         """Callback appelé lors de la connexion d'un appareil"""
-        # Ne rien faire si on est déjà connecté
-        if self.connected_device:
-            return
-            
-        # Enregistrer et connecter l'appareil
-        self.connected_device = {"address": address, "name": name}
+        # La boucle de surveillance s'occupe de bloquer les connexions multiples
+        # Ici on enregistre juste l'appareil
+        if not self.connected_device:
+            self.connected_device = {"address": address, "name": name}
         
         # Notifier l'état et démarrer la lecture
         await self.notify_state_change(

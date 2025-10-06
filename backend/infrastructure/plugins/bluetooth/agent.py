@@ -9,7 +9,7 @@ from dbus_next.constants import BusType
 
 class BluetoothAgent(ServiceInterface):
     """Agent Bluetooth avec mode NoInputNoOutput"""
-    
+
     def __init__(self):
         self.logger = logging.getLogger("plugin.bluetooth.agent")
         self.path = f"/org/milo/agent_{uuid.uuid4().hex[:8]}"
@@ -93,7 +93,7 @@ class BluetoothAgent(ServiceInterface):
     @method()
     def RequestAuthorization(self, device: 'o') -> None:
         pass
-    
+
     @method()
     def AuthorizeService(self, device: 'o', uuid: 's') -> None:
         pass
