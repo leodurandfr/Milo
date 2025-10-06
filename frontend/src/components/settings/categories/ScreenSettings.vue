@@ -90,13 +90,13 @@ function handleBrightnessChange(value) {
   clearTimeout(brightnessInstantTimeout);
   brightnessInstantTimeout = setTimeout(() => {
     axios.post('/api/settings/screen-brightness/apply', { brightness_on: value }).catch(console.error);
-  }, 100);
+  }, 50);
 
   // Save to settings with debounce
   clearTimeout(brightnessDebounceTimeout);
   brightnessDebounceTimeout = setTimeout(() => {
     updateSetting('screen-brightness', { brightness_on: value });
-  }, 1000);
+  }, 50);
 }
 
 function setScreenTimeout(value) {
