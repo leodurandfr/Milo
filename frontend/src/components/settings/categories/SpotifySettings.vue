@@ -19,19 +19,22 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
+import { useSettingsStore } from '@/stores/settingsStore';
 import Button from '@/components/ui/Button.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
-const { updateSetting, loadConfig } = useSettingsAPI();
+const { updateSetting } = useSettingsAPI();
+const settingsStore = useSettingsStore();
 
-const config = ref({
-  auto_disconnect_delay: 10.0
-});
+// Utilisation du store
+const config = computed(() => ({
+  auto_disconnect_delay: settingsStore.spotifyDisconnect.auto_disconnect_delay
+}));
 
 const disconnectPresets = computed(() => [
   { value: 10, label: t('10 secondes') },
@@ -53,20 +56,17 @@ function setSpotifyDisconnect(value) {
   updateSetting('spotify-disconnect', { auto_disconnect_delay: value });
 }
 
-// WebSocket listener
+// WebSocket listener - met à jour le store
 const handleSpotifyDisconnectChanged = (msg) => {
   if (msg.data?.config?.auto_disconnect_delay !== undefined) {
-    config.value.auto_disconnect_delay = msg.data.config.auto_disconnect_delay;
+    settingsStore.updateSpotifyDisconnect({
+      auto_disconnect_delay: msg.data.config.auto_disconnect_delay
+    });
   }
 };
 
-onMounted(async () => {
-  // Load config
-  const response = await loadConfig('spotify-disconnect');
-  if (response.status === 'success') {
-    config.value.auto_disconnect_delay = response.config.auto_disconnect_delay ?? 10.0;
-  }
-
+onMounted(() => {
+  // Plus besoin de charger la config, elle est déjà dans le store
   on('settings', 'spotify_disconnect_changed', handleSpotifyDisconnectChanged);
 });
 </script>

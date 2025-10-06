@@ -18,10 +18,12 @@ import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 const { getAvailableLanguages, getCurrentLanguage } = useI18n();
 const { on } = useWebSocket();
 const { updateSetting } = useSettingsAPI();
+const settingsStore = useSettingsStore();
 
 const availableLanguages = computed(() => getAvailableLanguages());
 const currentLanguage = computed(() => getCurrentLanguage());
@@ -32,10 +34,16 @@ async function selectLanguage(languageCode) {
 
 // WebSocket listener
 const handleLanguageChanged = (msg) => {
-  i18n.handleLanguageChanged(msg.data?.language);
+  const newLanguage = msg.data?.language;
+  if (newLanguage) {
+    i18n.handleLanguageChanged(newLanguage);
+    // Mettre à jour le store
+    settingsStore.updateLanguage(newLanguage);
+  }
 };
 
 onMounted(() => {
+  // Plus besoin de charger la langue, elle est déjà dans le store
   on('settings', 'language_changed', handleLanguageChanged);
 });
 </script>

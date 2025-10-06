@@ -71,6 +71,7 @@
 import { ref, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
+import { useSettingsStore } from '@/stores/settingsStore';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import SettingsCategory from '@/components/settings/SettingsCategory.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
@@ -85,6 +86,7 @@ import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 const emit = defineEmits(['close']);
 
 const { t } = useI18n();
+const settingsStore = useSettingsStore();
 
 // Navigation
 const currentView = ref('home');
@@ -98,7 +100,11 @@ function goToHome() {
 }
 
 onMounted(async () => {
-  await i18n.initializeLanguage();
+  // Pré-chargement de tous les settings en parallèle
+  await Promise.all([
+    i18n.initializeLanguage(),
+    settingsStore.loadAllSettings()
+  ]);
 });
 </script>
 

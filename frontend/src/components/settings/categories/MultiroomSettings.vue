@@ -84,21 +84,22 @@
 import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
+import { useSettingsStore } from '@/stores/settingsStore';
 import axios from 'axios';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
+const settingsStore = useSettingsStore();
 
-// Multiroom - Clients
-const snapcastClients = ref([]);
+// Multiroom - Clients (utilise le store)
 const loadingClients = ref(false);
 const clientNames = ref({});
 
 // Clients triés avec "milo" en premier
 const sortedSnapcastClients = computed(() => {
-  const clients = [...snapcastClients.value];
+  const clients = [...settingsStore.snapcastClients];
   return clients.sort((a, b) => {
     if (a.host === 'milo') return -1;
     if (b.host === 'milo') return 1;
@@ -106,7 +107,7 @@ const sortedSnapcastClients = computed(() => {
   });
 });
 
-// Multiroom - Server config
+// Multiroom - Server config (utilise le store)
 const serverConfig = ref({
   buffer: 1000,
   codec: 'flac',
@@ -212,22 +213,11 @@ function isPresetActive(preset) {
 // === MULTIROOM - CLIENTS ===
 
 async function loadSnapcastClients() {
-  loadingClients.value = true;
-  try {
-    const response = await axios.get('/api/routing/snapcast/clients');
-    if (response.data.clients) {
-      snapcastClients.value = response.data.clients;
-
-      clientNames.value = {};
-      response.data.clients.forEach(client => {
-        clientNames.value[client.id] = client.name || client.host;
-      });
-    }
-  } catch (error) {
-    console.error('Error loading snapcast clients:', error);
-  } finally {
-    loadingClients.value = false;
-  }
+  // Les clients sont déjà dans le store, on initialise juste les noms
+  clientNames.value = {};
+  settingsStore.snapcastClients.forEach(client => {
+    clientNames.value[client.id] = client.name || client.host;
+  });
 }
 
 async function updateClientName(clientId) {
@@ -260,25 +250,9 @@ function selectCodec(codecName) {
 }
 
 async function loadServerConfig() {
-  loadingServerConfig.value = true;
-  try {
-    const response = await axios.get('/api/routing/snapcast/server-config');
-    const fileConfig = response.data.config?.file_config?.parsed_config?.stream || {};
-    const streamConfig = response.data.config?.stream_config || {};
-
-    serverConfig.value = {
-      buffer: parseInt(fileConfig.buffer || streamConfig.buffer_ms || '1000'),
-      codec: fileConfig.codec || streamConfig.codec || 'flac',
-      chunk_ms: parseInt(fileConfig.chunk_ms || streamConfig.chunk_ms) || 20,
-      sampleformat: '48000:16:2'
-    };
-
-    originalServerConfig.value = JSON.parse(JSON.stringify(serverConfig.value));
-  } catch (error) {
-    console.error('Error loading server config:', error);
-  } finally {
-    loadingServerConfig.value = false;
-  }
+  // La config serveur est déjà dans le store
+  serverConfig.value = { ...settingsStore.snapcastServerConfig };
+  originalServerConfig.value = JSON.parse(JSON.stringify(serverConfig.value));
 }
 
 async function applyServerConfig() {
@@ -307,15 +281,14 @@ const handleClientNameChanged = (msg) => {
   if (clientNames.value[client_id] !== undefined) {
     clientNames.value[client_id] = name;
   }
-  const client = snapcastClients.value.find(c => c.id === client_id);
-  if (client) {
-    client.name = name;
-  }
+  // Mettre à jour le store
+  settingsStore.updateSnapcastClientName(client_id, name);
 };
 
-onMounted(async () => {
-  await loadSnapcastClients();
-  await loadServerConfig();
+onMounted(() => {
+  // Les données sont déjà pré-chargées dans le store
+  loadSnapcastClients();
+  loadServerConfig();
 
   on('snapcast', 'client_name_changed', handleClientNameChanged);
 });

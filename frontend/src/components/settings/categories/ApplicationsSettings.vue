@@ -71,25 +71,21 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
+import { useSettingsStore } from '@/stores/settingsStore';
 import Toggle from '@/components/ui/Toggle.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
-const { debouncedUpdate, loadConfig } = useSettingsAPI();
+const { debouncedUpdate } = useSettingsAPI();
+const settingsStore = useSettingsStore();
 
-const config = ref({
-  librespot: true,
-  bluetooth: true,
-  roc: true,
-  multiroom: true,
-  equalizer: true,
-  settings: true
-});
+// Utilisation du store
+const config = computed(() => settingsStore.dockApps);
 
 function canDisableAudioSource(sourceId) {
   const audioSources = ['librespot', 'bluetooth', 'roc'];
@@ -112,26 +108,13 @@ function updateDockApps() {
 const handleDockAppsChanged = (msg) => {
   if (msg.data?.config?.enabled_apps) {
     const enabledApps = msg.data.config.enabled_apps;
-    const appsObj = {};
-    ['librespot', 'bluetooth', 'roc', 'multiroom', 'equalizer', 'settings'].forEach(app => {
-      appsObj[app] = enabledApps.includes(app);
-    });
-    config.value = appsObj;
+    // Mettre à jour le store
+    settingsStore.updateDockApps(enabledApps);
   }
 };
 
-onMounted(async () => {
-  // Load initial config
-  const response = await loadConfig('dock-apps');
-  if (response.status === 'success') {
-    const enabledApps = response.config.enabled_apps || ['librespot', 'bluetooth', 'roc', 'multiroom', 'equalizer', 'settings'];
-    const appsObj = {};
-    ['librespot', 'bluetooth', 'roc', 'multiroom', 'equalizer', 'settings'].forEach(app => {
-      appsObj[app] = enabledApps.includes(app);
-    });
-    config.value = appsObj;
-  }
-
+onMounted(() => {
+  // Plus besoin de charger la config, elle est déjà dans le store
   on('settings', 'dock_apps_changed', handleDockAppsChanged);
 });
 </script>

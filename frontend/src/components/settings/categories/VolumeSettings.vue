@@ -75,25 +75,31 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
+import { useSettingsStore } from '@/stores/settingsStore';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
-const { updateSetting, debouncedUpdate, loadConfig, clearAllTimers } = useSettingsAPI();
+const { updateSetting, debouncedUpdate, clearAllTimers } = useSettingsAPI();
+const settingsStore = useSettingsStore();
 
-const config = ref({
-  mobile_volume_steps: 5,
-  rotary_volume_steps: 2,
-  limits: { min: 0, max: 65 },
-  restore_last_volume: false,
-  startup_volume: 37
-});
+// Utilisation du store au lieu d'un état local
+const config = computed(() => ({
+  mobile_volume_steps: settingsStore.volumeSteps.mobile_volume_steps,
+  rotary_volume_steps: settingsStore.volumeSteps.rotary_volume_steps,
+  limits: {
+    min: settingsStore.volumeLimits.alsa_min,
+    max: settingsStore.volumeLimits.alsa_max
+  },
+  restore_last_volume: settingsStore.volumeStartup.restore_last_volume,
+  startup_volume: settingsStore.volumeStartup.startup_volume
+}));
 
 function updateVolumeLimits(limits) {
   debouncedUpdate('volume-limits', 'volume-limits', {
@@ -102,63 +108,42 @@ function updateVolumeLimits(limits) {
   });
 }
 
-// WebSocket listeners
+// WebSocket listeners - mettent à jour le store
 const wsListeners = {
   volume_limits_changed: (msg) => {
     if (msg.data?.limits) {
-      config.value.limits = {
-        min: msg.data.limits.alsa_min || 0,
-        max: msg.data.limits.alsa_max || 65
-      };
+      settingsStore.updateVolumeLimits({
+        alsa_min: msg.data.limits.alsa_min || 0,
+        alsa_max: msg.data.limits.alsa_max || 65
+      });
     }
   },
   volume_startup_changed: (msg) => {
     if (msg.data?.config) {
-      config.value.restore_last_volume = msg.data.config.restore_last_volume;
-      config.value.startup_volume = msg.data.config.startup_volume;
+      settingsStore.updateVolumeStartup({
+        restore_last_volume: msg.data.config.restore_last_volume,
+        startup_volume: msg.data.config.startup_volume
+      });
     }
   },
   volume_steps_changed: (msg) => {
-    if (msg.data?.config?.mobile_volume_steps) {
-      config.value.mobile_volume_steps = msg.data.config.mobile_volume_steps;
+    if (msg.data?.config?.mobile_volume_steps !== undefined) {
+      settingsStore.updateVolumeSteps({
+        mobile_volume_steps: msg.data.config.mobile_volume_steps
+      });
     }
   },
   rotary_steps_changed: (msg) => {
-    if (msg.data?.config?.rotary_volume_steps) {
-      config.value.rotary_volume_steps = msg.data.config.rotary_volume_steps;
+    if (msg.data?.config?.rotary_volume_steps !== undefined) {
+      settingsStore.updateVolumeSteps({
+        rotary_volume_steps: msg.data.config.rotary_volume_steps
+      });
     }
   }
 };
 
-onMounted(async () => {
-  // Load configs in parallel
-  const [volumeLimits, volumeStartup, volumeSteps, rotarySteps] = await Promise.all([
-    loadConfig('volume-limits'),
-    loadConfig('volume-startup'),
-    loadConfig('volume-steps'),
-    loadConfig('rotary-steps')
-  ]);
-
-  if (volumeLimits.status === 'success') {
-    config.value.limits = {
-      min: volumeLimits.limits.alsa_min || 0,
-      max: volumeLimits.limits.alsa_max || 65
-    };
-  }
-
-  if (volumeStartup.status === 'success') {
-    config.value.restore_last_volume = volumeStartup.config.restore_last_volume || false;
-    config.value.startup_volume = volumeStartup.config.startup_volume || 37;
-  }
-
-  if (volumeSteps.status === 'success') {
-    config.value.mobile_volume_steps = volumeSteps.config.mobile_volume_steps || 5;
-  }
-
-  if (rotarySteps.status === 'success') {
-    config.value.rotary_volume_steps = rotarySteps.config.rotary_volume_steps || 2;
-  }
-
+onMounted(() => {
+  // Plus besoin de charger les configs, elles sont déjà dans le store
   // Register WebSocket listeners
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
     on('settings', eventType, handler);

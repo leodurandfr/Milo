@@ -38,23 +38,26 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
+import { useSettingsStore } from '@/stores/settingsStore';
 import axios from 'axios';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
-const { updateSetting, loadConfig, clearAllTimers } = useSettingsAPI();
+const { updateSetting, clearAllTimers } = useSettingsAPI();
+const settingsStore = useSettingsStore();
 
-const config = ref({
-  brightness_on: 5,
-  timeout_enabled: true,
-  timeout_seconds: 10
-});
+// Utilisation du store
+const config = computed(() => ({
+  brightness_on: settingsStore.screenBrightness.brightness_on,
+  timeout_enabled: settingsStore.screenTimeout.screen_timeout_enabled,
+  timeout_seconds: settingsStore.screenTimeout.screen_timeout_seconds
+}));
 
 const timeoutPresets = computed(() => [
   { value: 10, label: t('10 secondes') },
@@ -96,37 +99,27 @@ function setScreenTimeout(value) {
   });
 }
 
-// WebSocket listeners
+// WebSocket listeners - mettent à jour le store
 const wsListeners = {
   screen_timeout_changed: (msg) => {
     if (msg.data?.config) {
-      config.value.timeout_seconds = msg.data.config.screen_timeout_seconds;
-      config.value.timeout_enabled = config.value.timeout_seconds !== 0;
+      settingsStore.updateScreenTimeout({
+        screen_timeout_seconds: msg.data.config.screen_timeout_seconds,
+        screen_timeout_enabled: msg.data.config.screen_timeout_seconds !== 0
+      });
     }
   },
   screen_brightness_changed: (msg) => {
     if (msg.data?.config?.brightness_on !== undefined) {
-      config.value.brightness_on = msg.data.config.brightness_on;
+      settingsStore.updateScreenBrightness({
+        brightness_on: msg.data.config.brightness_on
+      });
     }
   }
 };
 
-onMounted(async () => {
-  // Load configs
-  const [screenTimeout, brightness] = await Promise.all([
-    loadConfig('screen-timeout'),
-    loadConfig('screen-brightness')
-  ]);
-
-  if (screenTimeout.status === 'success') {
-    config.value.timeout_seconds = screenTimeout.config.screen_timeout_seconds ?? 10;
-    config.value.timeout_enabled = config.value.timeout_seconds !== 0;
-  }
-
-  if (brightness.status === 'success') {
-    config.value.brightness_on = brightness.config.brightness_on || 5;
-  }
-
+onMounted(() => {
+  // Plus besoin de charger les configs, elles sont déjà dans le store
   // Register WebSocket listeners
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
     on('settings', eventType, handler);
