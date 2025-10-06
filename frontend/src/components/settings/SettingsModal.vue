@@ -267,12 +267,17 @@
               <p class="text-mono">{{ t('Chargement des enceintes...') }}</p>
             </div>
 
-            <div v-else-if="snapcastClients.length === 0" class="no-clients-state">
+            <div v-else-if="sortedSnapcastClients.length === 0" class="no-clients-state">
               <p class="text-mono">{{ t('Aucune enceinte connectée') }}</p>
             </div>
 
-            <div v-else class="clients-list">
-              <div v-for="client in snapcastClients" :key="client.id" class="client-config-item">
+            <div v-else class="clients-list" :style="clientsGridStyle">
+              <div
+                v-for="(client, index) in sortedSnapcastClients"
+                :key="client.id"
+                class="client-config-item"
+                :style="getClientGridStyle(index)"
+              >
                 <div class="client-info-wrapper">
                   <span class="client-hostname text-mono">{{ client.host }}</span>
                   <input type="text" v-model="clientNames[client.id]" :placeholder="client.host"
@@ -443,6 +448,16 @@ const snapcastClients = ref([]);
 const loadingClients = ref(false);
 const clientNames = ref({});
 
+// Clients triés avec "milo" en premier
+const sortedSnapcastClients = computed(() => {
+  const clients = [...snapcastClients.value];
+  return clients.sort((a, b) => {
+    if (a.host === 'milo') return -1;
+    if (b.host === 'milo') return 1;
+    return 0;
+  });
+});
+
 // Multiroom - Server config
 const serverConfig = ref({
   buffer: 1000,
@@ -499,6 +514,68 @@ const audioPresets = computed(() => [
 const hasServerConfigChanges = computed(() => {
   return JSON.stringify(serverConfig.value) !== JSON.stringify(originalServerConfig.value);
 });
+
+// Style dynamique pour la grille
+const clientsGridStyle = computed(() => {
+  const count = sortedSnapcastClients.value.length;
+
+  if (count <= 1) {
+    return { display: 'flex', flexDirection: 'column' };
+  }
+
+  if (count <= 3) {
+    return {
+      display: 'flex',
+      gap: 'var(--space-02)'
+    };
+  }
+
+  if (count === 4) {
+    return {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(2, 1fr)',
+      gap: 'var(--space-02)'
+    };
+  }
+
+  // 5+ items : grid 3 colonnes
+  return {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: 'var(--space-02)'
+  };
+});
+
+// Position grid pour chaque item (ligne courte en haut)
+const getClientGridStyle = (index) => {
+  const count = sortedSnapcastClients.value.length;
+
+  // Pas de positionnement spécifique pour 1-4 items
+  if (count <= 4) return {};
+
+  const remainder = count % 3;
+
+  // Si divisible par 3, pas besoin de réorganiser
+  if (remainder === 0) return {};
+
+  // Première ligne : remainder items
+  if (index < remainder) {
+    return {
+      gridRow: 1,
+      gridColumn: index + 1
+    };
+  }
+
+  // Lignes suivantes : groupes de 3
+  const adjustedIndex = index - remainder;
+  const row = Math.floor(adjustedIndex / 3) + 2;
+  const col = (adjustedIndex % 3) + 1;
+
+  return {
+    gridRow: row,
+    gridColumn: col
+  };
+};
 
 function canDisableAudioSource(sourceId) {
   const audioSources = ['librespot', 'bluetooth', 'roc'];
@@ -1034,15 +1111,14 @@ onUnmounted(() => {
 }
 
 .clients-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
+  /* Le style est appliqué dynamiquement via clientsGridStyle */
 }
 
 .client-config-item {
   background: var(--color-background-strong);
   border-radius: var(--radius-04);
-  padding: var(--space-03) var(--space-04);
+  padding: var(--space-03);
+  width: 100%;
 }
 
 .client-info-wrapper {
@@ -1060,9 +1136,12 @@ onUnmounted(() => {
   padding: var(--space-02) var(--space-03);
   border: 2px solid var(--color-background-glass);
   border-radius: var(--radius-03);
-  background: var(--color-background);
+  background: var(--color-background-neutral);
   color: var(--color-text);
   transition: border-color var(--transition-fast);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .client-name-input:focus {
@@ -1175,6 +1254,17 @@ onUnmounted(() => {
   .codec-buttons,
   .presets-buttons {
     flex-direction: column;
+  }
+
+  .clients-list {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: var(--space-02) !important;
+  }
+
+  .client-config-item {
+    grid-row: unset !important;
+    grid-column: unset !important;
   }
 }
 </style>

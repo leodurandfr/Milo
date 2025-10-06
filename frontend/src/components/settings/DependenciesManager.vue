@@ -28,33 +28,17 @@
               <p class="dependency-description text-mono">{{ dep.description }}</p>
             </div>
 
-            <div class="dependency-status">
-              <!-- État de mise à jour en cours -->
-              <div v-if="isLocalUpdating(key)" class="update-progress-badge text-mono">
-                {{ $t('Mise à jour...') }}
-              </div>
-              <!-- Mise à jour terminée -->
-              <div v-else-if="isLocalUpdateCompleted(key)" class="status-badge status-updated text-mono">
-                {{ $t('Mise à jour terminée') }}
-              </div>
-              <!-- Bouton mettre à jour -->
-              <Button v-else-if="dep.update_available && canUpdateLocal(key)" variant="primary" size="small"
-                @click="startLocalUpdate(key)" :disabled="isAnyUpdateInProgress()">
-                {{ $t('Mettre à jour') }}
-              </Button>
-              <!-- Badges d'état -->
-              <div v-else-if="dep.update_available" class="update-badge text-mono">
-                {{ $t('Mise à jour disponible') }}
-              </div>
-              <div v-else-if="getLocalInstallStatus(dep) === 'installed'" class="status-badge status-ok text-mono">
-                {{ $t('À jour') }}
-              </div>
-              <div v-else-if="getLocalInstallStatus(dep) === 'not_installed'" class="status-badge status-error text-mono">
-                {{ $t('Non installé') }}
-              </div>
-              <div v-else class="status-badge status-unknown text-mono">
-                {{ $t('État inconnu') }}
-              </div>
+            <div v-if="dep.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)" class="version-update">
+              <span class="version-update-label text-mono">{{ $t('Dernière ver.') }}</span>
+              <span class="version-update-value text-mono">{{ getLocalLatestVersion(dep) || '...' }}</span>
+            </div>
+
+            <div class="version-info">
+              <span class="version-label text-mono">{{ $t('Installé') }}</span>
+              <span class="version-value text-mono" :class="{ 'version-uptodate': !dep.update_available, 'version-outdated': dep.update_available }">
+                <span v-if="getLocalInstalledVersion(dep)">{{ getLocalInstalledVersion(dep) }}</span>
+                <span v-else class="text-error">{{ $t('Non disponible') }}</span>
+              </span>
             </div>
           </div>
 
@@ -66,24 +50,13 @@
             <p class="progress-message text-mono">{{ getLocalUpdateMessage(key) }}</p>
           </div>
 
-          <div class="dependency-versions">
-            <div class="version-info">
-              <span class="version-label text-mono">{{ $t('Installé') }}</span>
-              <span class="version-value text-mono">
-                <span v-if="getLocalInstalledVersion(dep)">{{ getLocalInstalledVersion(dep) }}</span>
-                <span v-else class="text-error">{{ $t('Non disponible') }}</span>
-              </span>
-            </div>
-
-            <div v-if="dep.update_available" class="version-info">
-              <span class="version-label text-mono">{{ $t('Disponible') }}</span>
-              <span class="version-value text-mono">
-                <span v-if="getLocalLatestVersion(dep)">{{ getLocalLatestVersion(dep) }}</span>
-                <span v-else-if="getLocalGitHubStatus(dep) === 'error'" class="text-error">{{ $t('Erreur API') }}</span>
-                <span v-else>{{ $t('Chargement...') }}</span>
-              </span>
-            </div>
-          </div>
+          <Button v-if="dep.update_available && canUpdateLocal(key) && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)"
+            variant="primary"
+            @click="startLocalUpdate(key)"
+            :disabled="isAnyUpdateInProgress()"
+            class="update-button">
+            {{ $t('Mettre à jour') }}
+          </Button>
 
           <!-- Détails d'erreur si nécessaire -->
           <div v-if="dep.installed?.errors?.length" class="dependency-errors">
@@ -129,30 +102,17 @@
               <p class="dependency-description text-mono">Client multiroom {{ satellite.hostname }}</p>
             </div>
 
-            <div class="dependency-status">
-              <!-- État de mise à jour en cours -->
-              <div v-if="isSatelliteUpdating(satellite.hostname)" class="update-progress-badge text-mono">
-                {{ $t('Mise à jour...') }}
-              </div>
-              <!-- Mise à jour terminée -->
-              <div v-else-if="isSatelliteUpdateCompleted(satellite.hostname)" class="status-badge status-updated text-mono">
-                {{ $t('Mise à jour terminée') }}
-              </div>
-              <!-- Bouton mettre à jour -->
-              <Button v-else-if="satellite.update_available && satellite.online" variant="primary" size="small"
-                @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()">
-                {{ $t('Mettre à jour') }}
-              </Button>
-              <!-- Badges d'état -->
-              <div v-else-if="satellite.update_available" class="update-badge text-mono">
-                {{ $t('Mise à jour disponible') }}
-              </div>
-              <div v-else-if="satellite.online" class="status-badge status-ok text-mono">
-                {{ $t('À jour') }}
-              </div>
-              <div v-else class="status-badge status-error text-mono">
-                {{ $t('Hors ligne') }}
-              </div>
+            <div v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)" class="version-update">
+              <span class="version-update-label text-mono">{{ $t('Dernière ver.') }}</span>
+              <span class="version-update-value text-mono">{{ satellite.latest_version || '...' }}</span>
+            </div>
+
+            <div class="version-info">
+              <span class="version-label text-mono">{{ $t('Installé') }}</span>
+              <span class="version-value text-mono" :class="{ 'version-uptodate': !satellite.update_available, 'version-outdated': satellite.update_available }">
+                <span v-if="satellite.snapclient_version">{{ satellite.snapclient_version }}</span>
+                <span v-else class="text-error">{{ $t('Non disponible') }}</span>
+              </span>
             </div>
           </div>
 
@@ -164,23 +124,13 @@
             <p class="progress-message text-mono">{{ getSatelliteUpdateMessage(satellite.hostname) }}</p>
           </div>
 
-          <div class="dependency-versions">
-            <div class="version-info">
-              <span class="version-label text-mono">{{ $t('Installé') }}</span>
-              <span class="version-value text-mono">
-                <span v-if="satellite.snapclient_version">{{ satellite.snapclient_version }}</span>
-                <span v-else class="text-error">{{ $t('Non disponible') }}</span>
-              </span>
-            </div>
-
-            <div v-if="satellite.update_available" class="version-info">
-              <span class="version-label text-mono">{{ $t('Disponible') }}</span>
-              <span class="version-value text-mono">
-                <span v-if="satellite.latest_version">{{ satellite.latest_version }}</span>
-                <span v-else>{{ $t('Chargement...') }}</span>
-              </span>
-            </div>
-          </div>
+          <Button v-if="satellite.update_available && satellite.online && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)"
+            variant="primary"
+            @click="startSatelliteUpdate(satellite.hostname)"
+            :disabled="isAnyUpdateInProgress()"
+            class="update-button">
+            {{ $t('Mettre à jour') }}
+          </Button>
         </div>
       </div>
     </section>
@@ -488,18 +438,18 @@ onMounted(async () => {
   padding: var(--space-04);
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
+  gap: var(--space-04);
 }
 
 .dependency-header {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
-  gap: var(--space-03);
+  gap: var(--space-05);
 }
 
 .dependency-info {
   flex: 1;
+  min-width: 0;
 }
 
 .dependency-name {
@@ -511,29 +461,20 @@ onMounted(async () => {
   color: var(--color-text-secondary);
 }
 
-.dependency-status {
+.version-update {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
   flex-shrink: 0;
+  text-align: right;
 }
 
-.status-error,
-.status-unknown {
-  color: var(--color-error);
-}
-
-.status-ok {
+.version-update-label {
   color: var(--color-text-secondary);
 }
 
-.status-updated {
-  color: var(--color-brand);
-}
-
-.update-badge {
-  color: var(--color-text-secondary);
-}
-
-.update-progress-badge {
-  color: var(--color-brand);
+.version-update-value {
+  color: var(--color-text);
 }
 
 .update-progress {
@@ -563,16 +504,12 @@ onMounted(async () => {
   text-align: center;
 }
 
-.dependency-versions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-03);
-}
-
 .version-info {
   display: flex;
   flex-direction: column;
   gap: var(--space-01);
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .version-label {
@@ -581,6 +518,18 @@ onMounted(async () => {
 
 .version-value {
   color: var(--color-text);
+}
+
+.version-uptodate {
+  color: var(--color-success);
+}
+
+.version-outdated {
+  color: var(--color-brand);
+}
+
+.update-button {
+  width: 100%;
 }
 
 .dependency-errors {
@@ -615,9 +564,19 @@ onMounted(async () => {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
-  .dependency-versions {
-    grid-template-columns: 1fr;
-    gap: var(--space-02);
+  .dependency-header {
+    flex-wrap: wrap;
+  }
+
+  .dependency-info {
+    flex-basis: 100%;
+  }
+
+  .version-update,
+  .version-info {
+    text-align: left;
+    flex: 1 1 0;
+    min-width: 0;
   }
 }
 </style>
