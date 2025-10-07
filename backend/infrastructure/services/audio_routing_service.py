@@ -1,13 +1,10 @@
 # backend/infrastructure/services/audio_routing_service.py
 """
-Service de routage audio pour Milo - Version avec événements multiroom_enabling et multiroom_disabling
+Service de routage audio pour Milo - Version avec settings unifiés
 """
 import os
-import json
 import logging
 import asyncio
-import aiofiles
-from pathlib import Path
 from typing import Dict, Any, Callable, Optional
 from backend.domain.audio_routing import AudioRoutingState
 from backend.domain.audio_state import AudioSource
@@ -16,30 +13,25 @@ from backend.infrastructure.services.systemd_manager import SystemdServiceManage
 class AudioRoutingService:
     """Service de routage audio avec notifications anticipées d'activation/désactivation"""
 
-    # Constantes pour la persistance
-    STATE_DIR = Path("/var/lib/milo")
-    STATE_FILE = STATE_DIR / "last_routing_state.json"
-
     # Whitelist stricte pour validation des commandes sudo
     ALLOWED_MODES = frozenset(["direct", "multiroom"])
     ALLOWED_EQUALIZER = frozenset(["", "_eq"])
-    
-    def __init__(self, get_plugin_callback: Optional[Callable] = None):
+
+    def __init__(self, get_plugin_callback: Optional[Callable] = None, settings_service=None):
         self.logger = logging.getLogger(__name__)
         self.service_manager = SystemdServiceManager()
         self.state = AudioRoutingState()
         self.get_plugin = get_plugin_callback
+        self.settings_service = settings_service
         self._initial_detection_done = False
-        
+
         self.snapcast_websocket_service = None
         self.snapcast_service = None
         self.state_machine = None
-        
+
         # Services snapcast
         self.snapserver_service = "milo-snapserver-multiroom.service"
         self.snapclient_service = "milo-snapclient-multiroom.service"
-        
-        self._ensure_state_directory()
     
     def set_snapcast_websocket_service(self, service) -> None:
         """Définit la référence vers SnapcastWebSocketService"""
@@ -63,82 +55,39 @@ class AudioRoutingService:
         if not self._initial_detection_done:
             await self._detect_initial_state()
     
-    def _ensure_state_directory(self) -> None:
-        """Crée le répertoire d'état si nécessaire"""
-        try:
-            self.STATE_DIR.mkdir(parents=True, exist_ok=True)
-            self.logger.info(f"State directory ensured: {self.STATE_DIR}")
-        except Exception as e:
-            self.logger.error(f"Failed to create state directory {self.STATE_DIR}: {e}")
-    
-    async def load_last_state(self) -> bool:
-        """Charge le dernier état depuis le fichier JSON"""
-        try:
-            if not self.STATE_FILE.exists():
-                self.logger.info(f"No state file found at {self.STATE_FILE}, using defaults")
-                return False
-            
-            async with aiofiles.open(self.STATE_FILE, 'r') as f:
-                content = await f.read()
-                data = json.loads(content)
-            
-            loaded_state = AudioRoutingState.from_dict(data)
-            self.state = loaded_state
-            
-            self.logger.info(f"Loaded last state: multiroom={self.state.multiroom_enabled}, equalizer={self.state.equalizer_enabled}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to load last state from {self.STATE_FILE}: {e}")
-            return False
-    
-    async def save_current_state(self) -> bool:
-        """Sauvegarde l'état actuel dans le fichier JSON"""
-        try:
-            data = self.state.to_dict()
-            
-            temp_file = self.STATE_FILE.with_suffix('.tmp')
-            
-            async with aiofiles.open(temp_file, 'w') as f:
-                await f.write(json.dumps(data, indent=2))
-            
-            temp_file.replace(self.STATE_FILE)
-            
-            self.logger.debug(f"Saved current state: {data}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to save state to {self.STATE_FILE}: {e}")
-            return False
-    
     async def _detect_initial_state(self):
         """Initialise et détecte l'état initial"""
         try:
             self.logger.info("Initializing routing state with persistence...")
-            
-            state_loaded = await self.load_last_state()
-            
-            if not state_loaded:
-                self.logger.info("Using default values (first run)")
+
+            # Charger l'état depuis SettingsService
+            if self.settings_service:
+                multiroom = self.settings_service.get_setting('routing.multiroom_enabled')
+                equalizer = self.settings_service.get_setting('routing.equalizer_enabled')
+                self.state.multiroom_enabled = multiroom if multiroom is not None else False
+                self.state.equalizer_enabled = equalizer if equalizer is not None else False
+                self.logger.info(f"Loaded state from settings: multiroom={self.state.multiroom_enabled}, equalizer={self.state.equalizer_enabled}")
+            else:
+                self.logger.warning("SettingsService not available, using defaults")
                 self.state.multiroom_enabled = False
                 self.state.equalizer_enabled = False
-            
+
             await self._update_systemd_environment()
             self.logger.info(f"ALSA environment initialized: MULTIROOM={self.state.multiroom_enabled}, EQUALIZER={self.state.equalizer_enabled}")
-            
+
             snapcast_status = await self.get_snapcast_status()
             services_running = snapcast_status.get("multiroom_available", False)
-            
+
             if self.state.multiroom_enabled and not services_running:
                 self.logger.info("Persisted state requires multiroom, starting snapcast services")
                 await self._start_snapcast()
             elif not self.state.multiroom_enabled and services_running:
                 self.logger.info("Persisted state requires direct mode, stopping snapcast services")
                 await self._stop_snapcast()
-            
+
             self._initial_detection_done = True
             self.logger.info(f"Routing initialized with persisted state: multiroom={self.state.multiroom_enabled}, equalizer={self.state.equalizer_enabled}")
-            
+
         except Exception as e:
             self.logger.error(f"Error during initial state detection: {e}")
             self.state.multiroom_enabled = False
@@ -205,10 +154,13 @@ class AudioRoutingService:
                     await self.snapcast_websocket_service.start_connection()
                 else:
                     await self.snapcast_websocket_service.stop_connection()
-            
-            await self.save_current_state()
+
+            # Sauvegarder l'état via SettingsService
+            if self.settings_service:
+                self.settings_service.set_setting('routing.multiroom_enabled', enabled)
+
             self.logger.info(f"Multiroom state changed and saved: {enabled}")
-            
+
             return True
             
         except Exception as e:
@@ -250,10 +202,13 @@ class AudioRoutingService:
                 if plugin:
                     self.logger.info(f"Restarting plugin {active_source.value} with equalizer {'enabled' if enabled else 'disabled'}")
                     await plugin.restart()
-            
-            await self.save_current_state()
+
+            # Sauvegarder l'état via SettingsService
+            if self.settings_service:
+                self.settings_service.set_setting('routing.equalizer_enabled', enabled)
+
             self.logger.info(f"Equalizer state changed and saved: {enabled}")
-            
+
             return True
             
         except Exception as e:

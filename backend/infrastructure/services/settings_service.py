@@ -34,6 +34,10 @@ class SettingsService:
             "spotify": {
                 "auto_disconnect_delay": 10.0
             },
+            "routing": {
+                "multiroom_enabled": False,
+                "equalizer_enabled": False
+            },
             "dock": {
                 "enabled_apps": ["librespot", "bluetooth", "roc", "multiroom", "equalizer", "settings"]
             }
@@ -154,7 +158,14 @@ class SettingsService:
         validated['dock'] = {
             'enabled_apps': filtered_apps if filtered_apps else self.defaults['dock']['enabled_apps'].copy()
         }
-        
+
+        # Routing (multiroom + equalizer)
+        routing_input = settings.get('routing', {})
+        validated['routing'] = {
+            'multiroom_enabled': bool(routing_input.get('multiroom_enabled', False)),
+            'equalizer_enabled': bool(routing_input.get('equalizer_enabled', False))
+        }
+
         return validated
     
     def get_setting(self, key_path: str) -> Any:

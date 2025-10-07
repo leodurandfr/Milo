@@ -45,8 +45,11 @@ class Container(containers.DeclarativeContainer):
         websocket_handler=websocket_event_handler
     )
     
-    # Service de routage audio
-    audio_routing_service = providers.Singleton(AudioRoutingService)
+    # Service de routage audio avec SettingsService
+    audio_routing_service = providers.Singleton(
+        AudioRoutingService,
+        settings_service=settings_service
+    )
     
     # Service WebSocket Snapcast
     snapcast_websocket_service = providers.Singleton(
