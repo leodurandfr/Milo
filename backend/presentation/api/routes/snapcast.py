@@ -3,15 +3,18 @@
 Routes API pour Snapcast - Version simplifiée sans latency
 """
 import time
+import logging
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
 
 def create_snapcast_router(routing_service, snapcast_service, state_machine):
     """Crée le router Snapcast - Version simplifiée"""
     router = APIRouter(prefix="/api/routing/snapcast", tags=["snapcast"])
-    
+
     # === FONCTION UTILITAIRE WEBSOCKET ===
-    
+
     async def _publish_snapcast_update():
         """Publie une notification de mise à jour Snapcast via WebSocket Milo"""
         try:
@@ -20,7 +23,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
                 "source": "snapcast"
             })
         except Exception as e:
-            print(f"Error publishing Snapcast update: {e}")
+            logger.error("Error publishing Snapcast update: %s", e)
     
     def _get_volume_service():
         """Récupère le VolumeService depuis le state_machine"""

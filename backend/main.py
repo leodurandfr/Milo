@@ -10,8 +10,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
 from contextlib import asynccontextmanager
 from time import monotonic
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from backend.config.container import container
 from backend.presentation.api.routes import audio
 from backend.presentation.api.routes.routing import create_routing_router
@@ -23,12 +26,16 @@ from backend.presentation.api.routes.roc import setup_roc_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
 from backend.presentation.api.routes.settings import create_settings_router
 from backend.presentation.api.routes.dependencies import create_dependencies_router
+from backend.presentation.api.routes.health import create_health_router
 from backend.presentation.websockets.server import WebSocketServer
 from backend.domain.audio_state import AudioSource
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Configuration du rate limiter
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 # Configuration des dépendances
 state_machine = container.audio_state_machine()
@@ -51,8 +58,15 @@ async def lifespan(app: FastAPI):
     try:
         # Initialiser les services
         container.initialize_services()
-        logger.info("Services initialized and configured")
-        
+
+        # Attendre que l'initialisation des services soit complète
+        if hasattr(container, '_init_task'):
+            logger.info("Waiting for services initialization to complete...")
+            await container._init_task
+            logger.info("Services initialization completed")
+        else:
+            logger.info("Services initialized and configured")
+
         # Initialiser tous les plugins
         for source, plugin in state_machine.plugins.items():
             if plugin:
@@ -61,9 +75,9 @@ async def lifespan(app: FastAPI):
                     logger.info(f"Plugin {source.value} initialized successfully")
                 except Exception as e:
                     logger.error(f"Plugin {source.value} initialization failed: {e}")
-        
+
         logger.info("Milo backend startup completed with unified settings")
-        
+
     except Exception as e:
         logger.error(f"Application startup failed: {e}")
         raise
@@ -83,13 +97,22 @@ async def lifespan(app: FastAPI):
 # Création de l'application FastAPI
 app = FastAPI(title="Milo API", lifespan=lifespan)
 
-# Configuration CORS
+# Configuration du rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Configuration CORS - Restreint aux origines autorisées
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://milo.local",
+        "https://milo.local",
+        "http://localhost:5173",  # Dev frontend
+        "http://127.0.0.1:5173",  # Dev frontend
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Accept", "Authorization"],
 )
 
 # Routes existantes
@@ -138,6 +161,10 @@ dependencies_router = create_dependencies_router(
     snapcast_service=container.snapcast_service()
 )
 app.include_router(dependencies_router)
+
+# Health check
+health_router = create_health_router(state_machine, routing_service, snapcast_service)
+app.include_router(health_router)
 
 # WebSocket
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)

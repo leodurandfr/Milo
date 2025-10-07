@@ -147,11 +147,14 @@ class Container(containers.DeclarativeContainer):
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
         state_machine.register_plugin(AudioSource.ROC, container.roc_plugin())
         
-        # Initialisation asynchrone simplifiée avec gestion d'erreurs
+        # Initialisation asynchrone avec attente garantie
         import asyncio
-        
+
         async def init_async():
-            """Initialisation asynchrone avec gestion d'erreurs individuelles"""
+            """Initialisation asynchrone avec gestion d'erreurs et garantie d'exécution"""
+            import logging
+            logger = logging.getLogger(__name__)
+
             services = [
                 ("routing_service", routing_service.initialize()),
                 ("volume_service", volume_service.initialize()),
@@ -159,21 +162,42 @@ class Container(containers.DeclarativeContainer):
                 ("screen_controller", screen_controller.initialize()),
                 ("snapcast_websocket_service", snapcast_websocket_service.initialize())
             ]
-            
-            for service_name, init_coroutine in services:
-                try:
-                    await init_coroutine
-                    print(f"✅ {service_name} initialized successfully")
-                except Exception as e:
-                    print(f"❌ {service_name} initialization failed: {e}")
-        
+
+            # Exécuter toutes les initialisations en parallèle avec gather
+            results = await asyncio.gather(
+                *[coro for _, coro in services],
+                return_exceptions=True
+            )
+
+            # Logger les résultats individuellement
+            for (service_name, _), result in zip(services, results):
+                if isinstance(result, Exception):
+                    logger.error("%s initialization failed: %s", service_name, result)
+                else:
+                    logger.info("%s initialized successfully", service_name)
+
+            # Vérifier si des services critiques ont échoué
+            critical_services = ["routing_service", "volume_service"]
+            for i, (service_name, _) in enumerate(services):
+                if service_name in critical_services and isinstance(results[i], Exception):
+                    logger.critical("Critical service %s failed to initialize", service_name)
+                    raise results[i]
+
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                asyncio.create_task(init_async())
+                # Dans le contexte FastAPI, créer une task et l'attendre
+                task = asyncio.create_task(init_async())
+                # Stocker la task pour pouvoir l'attendre au démarrage
+                container._init_task = task
             else:
                 loop.run_until_complete(init_async())
         except RuntimeError:
+            # Fallback : créer une task sans l'attendre (à éviter)
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not guarantee initialization completion - running in background"
+            )
             asyncio.create_task(init_async())
 
 # Création et configuration du conteneur

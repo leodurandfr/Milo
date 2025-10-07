@@ -64,65 +64,88 @@ class UnifiedAudioStateMachine:
         return self.system_state.to_dict()
     
     async def transition_to_source(self, target_source: AudioSource) -> bool:
-        """Effectue une transition vers une nouvelle source"""
+        """Effectue une transition vers une nouvelle source avec timeout"""
         async with self._transition_lock:
-            # 🐛 DEBUG : Log début de transition
-            print(f"🚀 START TRANSITION: {self.system_state.active_source.value} -> {target_source.value}")
-            print(f"🚀 STATE AVANT: active={self.system_state.active_source.value}, plugin_state={self.system_state.plugin_state.value}, transitioning={self.system_state.transitioning}")
-            
+            self.logger.debug(
+                "START TRANSITION: %s -> %s",
+                self.system_state.active_source.value,
+                target_source.value
+            )
+            self.logger.debug(
+                "STATE AVANT: active=%s, plugin_state=%s, transitioning=%s",
+                self.system_state.active_source.value,
+                self.system_state.plugin_state.value,
+                self.system_state.transitioning
+            )
+
             if self.system_state.active_source == target_source and \
             self.system_state.plugin_state != PluginState.ERROR:
                 self.logger.info(f"Already on source {target_source.value}")
                 return True
-            
+
             if target_source != AudioSource.NONE and target_source not in self.plugins:
                 self.logger.error(f"No plugin registered for source: {target_source.value}")
                 return False
-            
+
             try:
-                print(f"🚀 SETTING TRANSITION STATE")
-                self.system_state.transitioning = True
-                self.system_state.target_source = target_source
-                
-                print(f"🚀 BROADCASTING TRANSITION START")
-                await self._broadcast_event("system", "transition_start", {
-                    "from_source": self.system_state.active_source.value,
-                    "to_source": target_source.value,
-                    "source": "system"
-                })
-                
-                print(f"🚀 STOPPING CURRENT SOURCE")
-                await self._stop_current_source()
-                
-                if target_source != AudioSource.NONE:
-                    print(f"🚀 STARTING NEW SOURCE: {target_source.value}")
-                    success = await self._start_new_source(target_source)
-                    print(f"🚀 START NEW SOURCE RESULT: {success}")
-                    if not success:
-                        raise ValueError(f"Failed to start {target_source.value}")
-                else:
-                    print(f"🚀 SETTING TO NONE")
-                    self.system_state.active_source = AudioSource.NONE
-                    self.system_state.plugin_state = PluginState.INACTIVE
-                    self.system_state.metadata = {}
-                
-                print(f"🚀 RESETTING TRANSITION STATE")
+                # Appliquer le timeout sur toute la transition
+                async with asyncio.timeout(self.TRANSITION_TIMEOUT):
+                    self.logger.debug("Setting transition state")
+                    self.system_state.transitioning = True
+                    self.system_state.target_source = target_source
+
+                    self.logger.debug("Broadcasting transition start")
+                    await self._broadcast_event("system", "transition_start", {
+                        "from_source": self.system_state.active_source.value,
+                        "to_source": target_source.value,
+                        "source": "system"
+                    })
+
+                    self.logger.debug("Stopping current source")
+                    await self._stop_current_source()
+
+                    if target_source != AudioSource.NONE:
+                        self.logger.debug("Starting new source: %s", target_source.value)
+                        success = await self._start_new_source(target_source)
+                        self.logger.debug("Start new source result: %s", success)
+                        if not success:
+                            raise ValueError(f"Failed to start {target_source.value}")
+                    else:
+                        self.logger.debug("Setting to NONE")
+                        self.system_state.active_source = AudioSource.NONE
+                        self.system_state.plugin_state = PluginState.INACTIVE
+                        self.system_state.metadata = {}
+
+                    self.logger.debug("Resetting transition state")
+                    self.system_state.transitioning = False
+                    self.system_state.target_source = None
+
+                    self.logger.debug("Broadcasting transition complete")
+                    await self._broadcast_event("system", "transition_complete", {
+                        "active_source": self.system_state.active_source.value,
+                        "plugin_state": self.system_state.plugin_state.value,
+                        "source": "system"
+                    })
+
+                    self.logger.info("Transition completed successfully: %s", target_source.value)
+                    return True
+
+            except asyncio.TimeoutError:
+                self.logger.error("Transition timeout after %s seconds", self.TRANSITION_TIMEOUT)
                 self.system_state.transitioning = False
                 self.system_state.target_source = None
-                
-                print(f"🚀 BROADCASTING TRANSITION COMPLETE")
-                await self._broadcast_event("system", "transition_complete", {
-                    "active_source": self.system_state.active_source.value,
-                    "plugin_state": self.system_state.plugin_state.value,
+                self.system_state.error = "Transition timeout"
+                await self._emergency_stop()
+                await self._broadcast_event("system", "error", {
+                    "error": "timeout",
+                    "message": f"Transition timeout after {self.TRANSITION_TIMEOUT}s",
+                    "attempted_source": target_source.value,
                     "source": "system"
                 })
-                
-                print(f"🚀 TRANSITION SUCCESS")
-                return True
-                
+                return False
+
             except Exception as e:
-                print(f"🚀 TRANSITION ERROR: {str(e)}")
-                self.logger.error(f"Transition error: {str(e)}")
+                self.logger.error("Transition error: %s", str(e))
                 self.system_state.transitioning = False
                 self.system_state.target_source = None
                 self.system_state.error = str(e)
@@ -134,17 +157,20 @@ class UnifiedAudioStateMachine:
                 })
                 return False
     
-    async def update_plugin_state(self, source: AudioSource, new_state: PluginState, 
+    async def update_plugin_state(self, source: AudioSource, new_state: PluginState,
                                metadata: Optional[Dict[str, Any]] = None) -> None:
         """Met à jour l'état d'un plugin"""
         if source != self.system_state.active_source:
-            self.logger.warning(f"Ignoring state update from inactive source: {source.value}")
+            self.logger.warning("Ignoring state update from inactive source: %s", source.value)
             return
-        
-        # ✅ CORRECTION : Ignorer les updates pendant les transitions
+
+        # Ignorer les updates pendant les transitions
         if self.system_state.transitioning:
-            print(f"🚫 IGNORING UPDATE DURING TRANSITION: {source.value} -> {new_state.value}")
-            self.logger.debug(f"Ignoring state update during transition: {source.value} -> {new_state.value}")
+            self.logger.debug(
+                "Ignoring update during transition: %s -> %s",
+                source.value,
+                new_state.value
+            )
             return
         
         old_state = self.system_state.plugin_state
@@ -203,36 +229,34 @@ class UnifiedAudioStateMachine:
                     self.logger.error(f"Error stopping {self.system_state.active_source.value}: {e}")
     
     async def _start_new_source(self, source: AudioSource) -> bool:
-        """Démarre une nouvelle source - VERSION CORRIGÉE"""
+        """Démarre une nouvelle source"""
         plugin = self.plugins.get(source)
         if not plugin:
             return False
-        
+
         try:
             if not getattr(plugin, '_initialized', False):
                 if await plugin.initialize():
                     plugin._initialized = True
                 else:
-                    self.logger.error(f"Échec de l'initialisation du plugin {source.value}")
+                    self.logger.error("Failed to initialize plugin: %s", source.value)
                     return False
-            
-            # ✅ CORRECTION : NE PAS changer active_source avant plugin.start()
-            # self.system_state.active_source = source  ← SUPPRIMÉ
-            
+
             success = await plugin.start()
             if success:
                 self.system_state.active_source = source
-                
-                # ✅ AJOUTER : Force l'état à READY si le plugin n'a pas notifié
+
+                # Force l'état à READY si le plugin n'a pas notifié
                 if self.system_state.plugin_state == PluginState.INACTIVE:
                     self.system_state.plugin_state = PluginState.READY
-                print(f"🚀 ACTIVE SOURCE CHANGED TO: {source.value}")
+
+                self.logger.info("Active source changed to: %s", source.value)
                 return True
             else:
                 return False
-                    
+
         except Exception as e:
-            self.logger.error(f"Error starting {source.value}: {e}")
+            self.logger.error("Error starting %s: %s", source.value, e)
             return False
     
     async def _emergency_stop(self) -> None:
@@ -257,10 +281,17 @@ class UnifiedAudioStateMachine:
         """Publie un événement directement au WebSocket"""
         if not self.websocket_handler:
             return
-        
-        # 🐛 DEBUG : Log tous les broadcasts avec état complet
+
         current_state = self.system_state.to_dict()
-        print(f"🔔 BROADCAST: {category}/{event_type} | active_source:{current_state['active_source']}, plugin_state:{current_state['plugin_state']}, transitioning:{current_state['transitioning']}, target_source:{current_state.get('target_source')}")
+        self.logger.debug(
+            "BROADCAST: %s/%s | active_source:%s, plugin_state:%s, transitioning:%s, target_source:%s",
+            category,
+            event_type,
+            current_state['active_source'],
+            current_state['plugin_state'],
+            current_state['transitioning'],
+            current_state.get('target_source')
+        )
         
         event_data = {
             "category": category,

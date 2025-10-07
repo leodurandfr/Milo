@@ -12,6 +12,8 @@ class WebSocketSingleton {
     this.subscribers = new Set();
     this.lastSystemState = null;
     this.visibilityHandler = null;
+    this.lastPingTime = Date.now();
+    this.pingCheckInterval = null;
   }
 
   addSubscriber(subscriberId) {
@@ -54,7 +56,9 @@ class WebSocketSingleton {
     
     this.socket.onopen = () => {
       this.isConnected.value = true;
+      this.lastPingTime = Date.now();
       this.setupVisibilityListener();
+      this.startPingCheck();
       console.log('WebSocket connected successfully');
     };
     
@@ -91,6 +95,7 @@ class WebSocketSingleton {
     this.isConnected.value = false;
     this.eventHandlers.clear();
     this.lastSystemState = null;
+    this.stopPingCheck();
     this.removeVisibilityListener();
   }
 
@@ -129,14 +134,45 @@ class WebSocketSingleton {
     }
   }
 
+  startPingCheck() {
+    // Vérifier la connexion toutes les 60 secondes
+    if (this.pingCheckInterval) {
+      clearInterval(this.pingCheckInterval);
+    }
+
+    this.pingCheckInterval = setInterval(() => {
+      const timeSinceLastPing = Date.now() - this.lastPingTime;
+
+      // Si pas de ping depuis 90 secondes (3x l'intervalle), reconnect
+      if (timeSinceLastPing > 90000 && !document.hidden) {
+        console.warn('WebSocket ping timeout, reconnecting...');
+        this.closeConnection();
+        this.createConnection();
+      }
+    }, 60000);
+  }
+
+  stopPingCheck() {
+    if (this.pingCheckInterval) {
+      clearInterval(this.pingCheckInterval);
+      this.pingCheckInterval = null;
+    }
+  }
+
   handleMessage(message) {
+    // Détecter les pings
+    if (message.category === 'system' && message.type === 'ping') {
+      this.lastPingTime = Date.now();
+      return; // Ne pas propager les pings aux handlers
+    }
+
     if (message.category === 'system' && message.type === 'state_changed' && message.data?.full_state) {
       this.lastSystemState = message.data.full_state;
     }
-    
+
     const eventKey = `${message.category}.${message.type}`;
     const handlers = this.eventHandlers.get(eventKey);
-    
+
     if (handlers) {
       handlers.forEach(callback => {
         try {

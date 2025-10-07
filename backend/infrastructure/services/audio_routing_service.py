@@ -15,10 +15,14 @@ from backend.infrastructure.services.systemd_manager import SystemdServiceManage
 
 class AudioRoutingService:
     """Service de routage audio avec notifications anticipées d'activation/désactivation"""
-    
+
     # Constantes pour la persistance
     STATE_DIR = Path("/var/lib/milo")
     STATE_FILE = STATE_DIR / "last_routing_state.json"
+
+    # Whitelist stricte pour validation des commandes sudo
+    ALLOWED_MODES = frozenset(["direct", "multiroom"])
+    ALLOWED_EQUALIZER = frozenset(["", "_eq"])
     
     def __init__(self, get_plugin_callback: Optional[Callable] = None):
         self.logger = logging.getLogger(__name__)
@@ -259,28 +263,55 @@ class AudioRoutingService:
             return False
     
     async def _update_systemd_environment(self) -> None:
-        """Met à jour les variables d'environnement ALSA"""
+        """Met à jour les variables d'environnement ALSA avec validation stricte et timeout"""
         try:
             mode_value = "multiroom" if self.state.multiroom_enabled else "direct"
             equalizer_value = "_eq" if self.state.equalizer_enabled else ""
-            
-            proc1 = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "set-environment", f"MILO_MODE={mode_value}"
-            )
-            await proc1.communicate()
-            
-            proc2 = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "set-environment", f"MILO_EQUALIZER={equalizer_value}"
-            )
-            await proc2.communicate()
-            
+
+            # Validation stricte avant sudo
+            if mode_value not in self.ALLOWED_MODES:
+                raise ValueError(f"Invalid mode value: {mode_value}. Allowed: {self.ALLOWED_MODES}")
+
+            if equalizer_value not in self.ALLOWED_EQUALIZER:
+                raise ValueError(f"Invalid equalizer value: {equalizer_value}. Allowed: {self.ALLOWED_EQUALIZER}")
+
+            # Exécution sécurisée des commandes sudo avec timeout de 5 secondes
+            async with asyncio.timeout(5.0):
+                proc1 = await asyncio.create_subprocess_exec(
+                    "sudo", "systemctl", "set-environment", f"MILO_MODE={mode_value}",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout1, stderr1 = await proc1.communicate()
+
+                if proc1.returncode != 0:
+                    raise RuntimeError(f"Failed to set MILO_MODE: {stderr1.decode()}")
+
+                proc2 = await asyncio.create_subprocess_exec(
+                    "sudo", "systemctl", "set-environment", f"MILO_EQUALIZER={equalizer_value}",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout2, stderr2 = await proc2.communicate()
+
+                if proc2.returncode != 0:
+                    raise RuntimeError(f"Failed to set MILO_EQUALIZER: {stderr2.decode()}")
+
+            # Mise à jour locale seulement si sudo a réussi
             os.environ["MILO_MODE"] = mode_value
             os.environ["MILO_EQUALIZER"] = equalizer_value
-            
+
             self.logger.info(f"Updated ALSA environment: MODE={mode_value}, EQUALIZER={equalizer_value}")
-            
+
+        except asyncio.TimeoutError:
+            self.logger.error("Timeout updating systemd environment after 5 seconds")
+            raise RuntimeError("Systemd environment update timeout")
+        except ValueError as e:
+            self.logger.error(f"Validation error: {e}")
+            raise
         except Exception as e:
             self.logger.error(f"Error updating environment: {e}")
+            raise
     
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
         """Transition vers le mode multiroom"""

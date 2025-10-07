@@ -1,13 +1,13 @@
 """
-Routes API pour la gestion du volume - Version volume affiché (0-100%)
+Routes API pour la gestion du volume - Version volume affiché (0-100%) avec validation
 """
 from fastapi import APIRouter, HTTPException
-from typing import Dict, Any
+from backend.presentation.api.models import VolumeSetRequest, VolumeAdjustRequest
 
 def create_volume_router(volume_service):
     """Crée le router volume avec injection de dépendances"""
     router = APIRouter(prefix="/api/volume", tags=["volume"])
-    
+
     @router.get("/status")
     async def get_volume_status():
         """Récupère l'état actuel du volume (en volume affiché)"""
@@ -16,7 +16,7 @@ def create_volume_router(volume_service):
             return {"status": "success", "data": status}
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    
+
     @router.get("/")
     async def get_current_volume():
         """Récupère le volume affiché actuel (0-100%)"""
@@ -25,50 +25,35 @@ def create_volume_router(volume_service):
             return {"status": "success", "volume": volume}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-    
+
     @router.post("/set")
-    async def set_volume(payload: Dict[str, Any]):
-        """Définit le volume affiché (0-100%)"""
+    async def set_volume(request: VolumeSetRequest):
+        """Définit le volume affiché (0-100%) avec validation"""
         try:
-            volume = payload.get("volume")
-            show_bar = payload.get("show_bar", True)
-            
-            if volume is None or not isinstance(volume, (int, float)):
-                raise HTTPException(status_code=400, detail="Invalid volume value")
-            
-            if not (0 <= volume <= 100):
-                raise HTTPException(status_code=400, detail="Volume must be between 0 and 100")
-            
-            success = await volume_service.set_display_volume(int(volume), show_bar=show_bar)
-            
+            success = await volume_service.set_display_volume(request.volume, show_bar=request.show_bar)
+
             if success:
-                return {"status": "success", "volume": int(volume)}
+                return {"status": "success", "volume": request.volume}
             else:
                 raise HTTPException(status_code=500, detail="Failed to set volume")
-                
+
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     
     @router.post("/adjust")
-    async def adjust_volume(payload: Dict[str, Any]):
-        """Ajuste le volume affiché par delta"""
+    async def adjust_volume(request: VolumeAdjustRequest):
+        """Ajuste le volume affiché par delta avec validation"""
         try:
-            delta = payload.get("delta")
-            show_bar = payload.get("show_bar", True)
-            
-            if delta is None or not isinstance(delta, (int, float)):
-                raise HTTPException(status_code=400, detail="Invalid delta value")
-            
-            success = await volume_service.adjust_display_volume(int(delta), show_bar=show_bar)
-            
+            success = await volume_service.adjust_display_volume(request.delta, show_bar=request.show_bar)
+
             if success:
                 current_volume = await volume_service.get_display_volume()
-                return {"status": "success", "volume": current_volume, "delta": int(delta)}
+                return {"status": "success", "volume": current_volume, "delta": request.delta}
             else:
                 raise HTTPException(status_code=500, detail="Failed to adjust volume")
-                
+
         except HTTPException:
             raise
         except Exception as e:
