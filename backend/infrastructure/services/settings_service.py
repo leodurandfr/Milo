@@ -4,6 +4,7 @@ Service de gestion des settings - Version OPTIM avec support valeur 0 pour désa
 """
 import json
 import os
+import fcntl
 import logging
 from typing import Dict, Any
 
@@ -44,11 +45,16 @@ class SettingsService:
         }
     
     def load_settings(self) -> Dict[str, Any]:
-        """Charge et valide les settings"""
+        """Charge et valide les settings avec file locking"""
         try:
             if os.path.exists(self.settings_file):
                 with open(self.settings_file, 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
+                    # Verrouiller en lecture pour éviter lecture partielle pendant écriture
+                    fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                    try:
+                        settings = json.load(f)
+                    finally:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                 
                 # Migration display → screen
                 if 'display' in settings:
@@ -79,18 +85,36 @@ class SettingsService:
             return self._cache
     
     def save_settings(self, settings: Dict[str, Any]) -> bool:
-        """Sauvegarde simple"""
+        """Sauvegarde avec file locking pour éviter corruption"""
         try:
             validated = self._validate_and_merge(settings)
-            
-            with open(self.settings_file, 'w', encoding='utf-8') as f:
-                json.dump(validated, f, ensure_ascii=False, indent=2)
-            
+
+            # Écriture atomique avec file locking
+            temp_file = self.settings_file + '.tmp'
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                # Verrouiller le fichier pendant l'écriture
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    json.dump(validated, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+            # Renommage atomique
+            os.replace(temp_file, self.settings_file)
+
             self._cache = validated
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error saving settings: {e}")
+            # Nettoyer le fichier temporaire si échec
+            try:
+                if os.path.exists(self.settings_file + '.tmp'):
+                    os.remove(self.settings_file + '.tmp')
+            except:
+                pass
             return False
     
     def _validate_and_merge(self, settings: Dict[str, Any]) -> Dict[str, Any]:

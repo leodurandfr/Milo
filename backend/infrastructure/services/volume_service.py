@@ -39,7 +39,7 @@ class VolumeService:
         self._multiroom_volume = 50.0
         self._last_alsa_volume = 0
         self._alsa_cache_time = 0
-        self._is_adjusting = False
+        self._adjustment_counter = 0  # Compteur pour gérer ajustements concurrents
         
         # États display par client
         self._client_display_states = {}
@@ -330,7 +330,7 @@ class VolumeService:
     
     async def sync_client_volume_from_external(self, client_id: str, new_alsa_volume: int) -> None:
         """Sync externe"""
-        if self._is_adjusting:
+        if self._adjustment_counter > 0:
             return
         
         old = self._client_display_states.get(client_id, "unknown")
@@ -450,9 +450,9 @@ class VolumeService:
         """Définit le volume (0-100%)"""
         async with self._volume_lock:
             try:
-                self._is_adjusting = True
+                self._adjustment_counter += 1
                 clamped = self._clamp_display_volume(float(display_volume))
-                
+
                 if self._is_multiroom_enabled():
                     success = await self._set_multiroom_volume_centralized(int(clamped))
                 else:
@@ -460,39 +460,39 @@ class VolumeService:
                     success = await self._apply_alsa_volume_direct(alsa)
                     if success:
                         self._precise_display_volume = clamped
-                
+
                 if success:
                     self._save_last_volume(int(clamped))
                     await self._schedule_broadcast(show_bar)
-                
+
                 asyncio.create_task(self._mark_adjustment_done())
                 return success
             except Exception as e:
                 self.logger.error(f"Error setting volume: {e}")
-                self._is_adjusting = False
+                self._adjustment_counter = max(0, self._adjustment_counter - 1)
                 return False
     
     async def adjust_display_volume(self, delta: int, show_bar: bool = True) -> bool:
         """Ajustement centralisé"""
         async with self._volume_lock:
             try:
-                self._is_adjusting = True
-                
+                self._adjustment_counter += 1
+
                 if self._is_multiroom_enabled():
                     success = await self._adjust_multiroom_volume_centralized(delta)
                 else:
                     success = await self._adjust_volume_direct(delta)
-                
+
                 if success:
                     final = await self.get_display_volume()
                     self._save_last_volume(final)
                     await self._schedule_broadcast(show_bar)
-                
+
                 asyncio.create_task(self._mark_adjustment_done())
                 return success
             except Exception as e:
                 self.logger.error(f"Error adjusting: {e}")
-                self._is_adjusting = False
+                self._adjustment_counter = max(0, self._adjustment_counter - 1)
                 return False
     
     async def _adjust_volume_direct(self, delta: int) -> bool:
@@ -695,8 +695,8 @@ class VolumeService:
     async def _get_amixer_volume_fast(self) -> Optional[int]:
         """Lecture amixer rapide"""
         current_time = time.time()
-        
-        if self._is_adjusting and (current_time - self._alsa_cache_time) < 0.01:
+
+        if self._adjustment_counter > 0 and (current_time - self._alsa_cache_time) < 0.01:
             return self._last_alsa_volume
         
         try:
@@ -759,7 +759,7 @@ class VolumeService:
     async def _mark_adjustment_done(self):
         """Fin ajustement"""
         await asyncio.sleep(0.15)
-        self._is_adjusting = False
+        self._adjustment_counter = max(0, self._adjustment_counter - 1)
     
     async def _set_startup_volume_direct(self, alsa_volume: int) -> bool:
         """Startup direct"""

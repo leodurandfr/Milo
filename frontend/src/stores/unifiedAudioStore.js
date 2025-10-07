@@ -217,16 +217,63 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   // === MISE À JOUR D'ÉTAT ===
   function updateSystemState(newState, source = 'unknown') {
+    // Validation des valeurs reçues du WebSocket
+    const validSources = ['none', 'librespot', 'bluetooth', 'roc'];
+    const validStates = ['inactive', 'ready', 'connected', 'error'];
+
+    // Valider active_source
+    const activeSource = validSources.includes(newState.active_source)
+      ? newState.active_source
+      : 'none';
+
+    // Valider plugin_state
+    const pluginState = validStates.includes(newState.plugin_state)
+      ? newState.plugin_state
+      : 'inactive';
+
+    // Valider transitioning (doit être boolean)
+    const transitioning = typeof newState.transitioning === 'boolean'
+      ? newState.transitioning
+      : false;
+
+    // Valider target_source
+    const targetSource = newState.target_source && validSources.includes(newState.target_source)
+      ? newState.target_source
+      : null;
+
+    // Valider metadata (doit être objet)
+    const metadata = newState.metadata && typeof newState.metadata === 'object' && !Array.isArray(newState.metadata)
+      ? newState.metadata
+      : {};
+
+    // Valider multiroom_enabled et equalizer_enabled (doivent être boolean)
+    const multiroomEnabled = typeof newState.multiroom_enabled === 'boolean'
+      ? newState.multiroom_enabled
+      : systemState.value.multiroom_enabled;
+
+    const equalizerEnabled = typeof newState.equalizer_enabled === 'boolean'
+      ? newState.equalizer_enabled
+      : systemState.value.equalizer_enabled;
+
     systemState.value = {
-      active_source: newState.active_source || 'none',
-      plugin_state: newState.plugin_state || 'inactive',
-      transitioning: newState.transitioning || false,
-      target_source: newState.target_source || null,
-      metadata: newState.metadata || {},
+      active_source: activeSource,
+      plugin_state: pluginState,
+      transitioning: transitioning,
+      target_source: targetSource,
+      metadata: metadata,
       error: newState.error || null,
-      multiroom_enabled: newState.multiroom_enabled !== undefined ? newState.multiroom_enabled : systemState.value.multiroom_enabled,
-      equalizer_enabled: newState.equalizer_enabled !== undefined ? newState.equalizer_enabled : systemState.value.equalizer_enabled
+      multiroom_enabled: multiroomEnabled,
+      equalizer_enabled: equalizerEnabled
     };
+
+    // Log warning si validation a modifié des valeurs
+    if (activeSource !== newState.active_source || pluginState !== newState.plugin_state) {
+      console.warn('⚠️ Invalid WebSocket data received:', {
+        received: { active_source: newState.active_source, plugin_state: newState.plugin_state },
+        corrected: { active_source: activeSource, plugin_state: pluginState },
+        source
+      });
+    }
   }
 
   function updateState(event) {
