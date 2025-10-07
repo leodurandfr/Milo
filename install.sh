@@ -587,59 +587,10 @@ SyslogIdentifier=milo-frontend
 WantedBy=multi-user.target
 EOF
     
-    # milo-kiosk.service
-    sudo tee /etc/systemd/system/milo-kiosk.service > /dev/null << 'EOF'
-[Unit]
-Description=Milo Kiosk Mode (Chromium Fullscreen)
-After=graphical.target milo-frontend.service
-Wants=graphical.target
-Requires=milo-frontend.service
-
-[Service]
-Type=simple
-User=milo
-Group=milo
-Environment=DISPLAY=:0
-Environment=HOME=/home/milo
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-
-ExecStartPre=/bin/sleep 8
-
-ExecStart=/usr/bin/chromium-browser \
-  --kiosk \
-  --incognito \
-  --no-first-run \
-  --disable-infobars \
-  --disable-notifications \
-  --disable-popup-blocking \
-  --disable-session-crashed-bubble \
-  --disable-restore-session-state \
-  --disable-background-timer-throttling \
-  --disable-backgrounding-occluded-windows \
-  --disable-renderer-backgrounding \
-  --disable-translate \
-  --disable-sync \
-  --hide-scrollbars \
-  --disable-background-networking \
-  --autoplay-policy=no-user-gesture-required \
-  --start-fullscreen \
-  --no-sandbox \
-  --disable-dev-shm-usage \
-  --hide-cursor \
-  --touch-events=enabled \
-  --enable-features=TouchpadAndWheelScrollLatching \
-  --force-device-scale-factor=1 \
-  --disable-pinch \
-  --disable-features=VizDisplayCompositor \
-  --app=http://milo.local
-
-Restart=always
-RestartSec=5
-TimeoutStopSec=5
-
-[Install]
-WantedBy=graphical.target
-EOF
+    # milo-kiosk.service - DISABLED: Now using Cage compositor instead
+    # Cage provides a minimal Wayland kiosk environment that launches Chromium directly
+    # Configuration is done via ~/.bash_profile and ~/.config/milo-cage-start.sh
+    # (see configure_cage_kiosk function)
     
     # milo-roc.service
     sudo tee /etc/systemd/system/milo-roc.service > /dev/null << 'EOF'
@@ -1027,9 +978,9 @@ configure_fan_control() {
 }
 
 install_avahi_nginx() {
-   log_info "Installation d'Avahi et Nginx..."
-   sudo apt install -y avahi-daemon avahi-utils nginx chromium-browser
-   log_success "Avahi, Nginx et Chromium installés"
+   log_info "Installation d'Avahi, Nginx, Chromium et Cage..."
+   sudo apt install -y avahi-daemon avahi-utils nginx chromium-browser cage
+   log_success "Avahi, Nginx, Chromium et Cage installés"
 }
 
 configure_avahi() {
@@ -1124,6 +1075,74 @@ EOF
    log_success "Nginx configuré"
 }
 
+configure_cage_kiosk() {
+   log_info "Configuration de Cage pour le mode kiosk..."
+
+   # Create config directory if it doesn't exist
+   sudo -u "$MILO_USER" mkdir -p "$MILO_HOME/.config"
+
+   # Create Cage startup script
+   sudo -u "$MILO_USER" tee "$MILO_HOME/.config/milo-cage-start.sh" > /dev/null << 'EOF'
+#!/bin/bash
+# Milo Kiosk - Launch Cage with Chromium in fullscreen
+
+# Wait for services to be ready
+sleep 8
+
+# Launch Cage with Chromium in kiosk mode
+exec cage -- /usr/bin/chromium-browser \
+  --kiosk \
+  --incognito \
+  --no-first-run \
+  --disable-infobars \
+  --disable-notifications \
+  --disable-popup-blocking \
+  --disable-session-crashed-bubble \
+  --disable-restore-session-state \
+  --disable-background-timer-throttling \
+  --disable-backgrounding-occluded-windows \
+  --disable-renderer-backgrounding \
+  --disable-translate \
+  --disable-sync \
+  --hide-scrollbars \
+  --disable-background-networking \
+  --autoplay-policy=no-user-gesture-required \
+  --start-fullscreen \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --hide-cursor \
+  --touch-events=enabled \
+  --enable-features=TouchpadAndWheelScrollLatching \
+  --force-device-scale-factor=1 \
+  --disable-pinch \
+  --disable-features=VizDisplayCompositor \
+  --app=http://milo.local
+EOF
+
+   # Make script executable
+   sudo chmod +x "$MILO_HOME/.config/milo-cage-start.sh"
+
+   # Create .bash_profile to auto-launch Cage on tty1
+   sudo -u "$MILO_USER" tee "$MILO_HOME/.bash_profile" > /dev/null << 'EOF'
+# ~/.bash_profile - Auto-start Cage on tty1 only
+
+# Source .bashrc if it exists
+if [ -f ~/.bashrc ]; then
+    . ~/.bashrc
+fi
+
+# Launch Cage only on tty1 (physical screen), not on SSH sessions
+if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+    exec ~/.config/milo-cage-start.sh
+fi
+EOF
+
+   # Disable LightDM display manager (it starts the desktop environment)
+   sudo systemctl disable lightdm.service || true
+
+   log_success "Cage kiosk configuré - démarrage direct sans bureau Linux"
+}
+
 # ===============================
 # FONCTION MODIFIÉE POUR L'INSTALLATION DE LA LUMINOSITÉ
 # ===============================
@@ -1181,34 +1200,34 @@ install_screen_brightness_control() {
 
 enable_services() {
    log_info "Démarrage automatique des services..."
-   
+
    sudo systemctl daemon-reload
    sudo systemctl enable milo-backend.service
    sudo systemctl enable milo-frontend.service
-   sudo systemctl enable milo-kiosk.service
+   # milo-kiosk.service NOT enabled - using Cage compositor via .bash_profile instead
    sudo systemctl enable milo-snapclient-multiroom.service
    sudo systemctl enable milo-snapserver-multiroom.service
    sudo systemctl enable milo-bluealsa-aplay.service
    sudo systemctl enable milo-bluealsa.service
    sudo systemctl enable avahi-daemon
    sudo systemctl enable nginx
-   
+
    log_success "Démarrage automatique configuré"
 }
 
 start_services() {
    log_info "Démarrage des services..."
-   
+
    sudo systemctl start milo-backend.service
    sudo systemctl start milo-frontend.service
-   sudo systemctl start milo-kiosk.service
+   # milo-kiosk.service NOT started - Cage will launch automatically on tty1 login
    sudo systemctl start milo-snapclient-multiroom.service
    sudo systemctl start milo-snapserver-multiroom.service
    sudo systemctl start milo-bluealsa-aplay.service
    sudo systemctl start milo-bluealsa.service
    sudo systemctl start avahi-daemon
    sudo systemctl start nginx
-   
+
    log_success "Services démarrés"
 }
 
@@ -1376,7 +1395,8 @@ main() {
    install_avahi_nginx
    configure_avahi
    configure_nginx
-   
+   configure_cage_kiosk
+
    install_screen_brightness_control
 
    enable_services
