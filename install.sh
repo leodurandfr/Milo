@@ -524,9 +524,19 @@ install_snapcast() {
     log_success "Snapcast installé"
 }
 
+configure_journald() {
+    log_info "Configuration des limites de journald..."
+
+    # Configure log retention and size limits
+    sudo sed -i 's/^#RuntimeMaxUse=$/RuntimeMaxUse=100M/' /etc/systemd/journald.conf
+    sudo sed -i 's/^#MaxRetentionSec=$/MaxRetentionSec=7d/' /etc/systemd/journald.conf
+
+    log_success "Journald configuré (100MB max, 7 jours de rétention)"
+}
+
 create_systemd_services() {
     log_info "Création des services systemd..."
-    
+
     # milo-backend.service
     sudo tee /etc/systemd/system/milo-backend.service > /dev/null << 'EOF'
 [Unit]
@@ -1382,9 +1392,10 @@ main() {
    install_roc_toolkit
    install_bluez_alsa
    install_snapcast
-   
+
    create_systemd_services
-   
+   configure_journald
+
    configure_alsa_loopback
    install_alsa_equal
    configure_alsa_complete
