@@ -121,43 +121,108 @@ class Container(containers.DeclarativeContainer):
     # Configuration post-création
     @providers.Callable
     def initialize_services():
-        """Initialise les services après création"""
-        # Récupération des instances
+        """
+        Initialise les services après création - ORDRE CRITIQUE
+
+        ⚠️  ATTENTION: L'ordre d'exécution de cette fonction est CRITIQUE.
+        Ne pas modifier sans comprendre les dépendances circulaires.
+
+        ORDRE D'INITIALISATION:
+
+        1. Récupération des instances depuis le container
+           - Les instances sont créées par dependency-injector en mode Singleton
+           - À ce stade, les dépendances circulaires ne sont PAS résolues
+
+        2. Résolution manuelle des dépendances circulaires
+           - routing_service ↔ state_machine (besoin mutuel)
+           - routing_service ↔ snapcast_websocket_service (besoin mutuel)
+           - state_machine → plugins (via callback)
+
+        3. Enregistrement des plugins dans la state machine
+           - DOIT être fait AVANT l'initialisation asynchrone
+           - Les plugins doivent être disponibles avant que routing_service.initialize() ne s'exécute
+
+        4. Initialisation asynchrone en parallèle
+           - Les services s'initialisent en parallèle via asyncio.gather()
+           - Les services critiques (routing_service, volume_service) provoquent un échec si erreur
+           - Les services non-critiques loggent l'erreur mais ne bloquent pas le démarrage
+
+        DÉPENDANCES CIRCULAIRES:
+
+        state_machine ←→ routing_service
+        - state_machine a besoin de routing_service pour sync l'état multiroom/equalizer
+        - routing_service a besoin de state_machine pour broadcaster les événements et accéder aux plugins
+
+        routing_service ←→ snapcast_websocket_service
+        - routing_service contrôle le démarrage/arrêt de snapcast_websocket_service
+        - snapcast_websocket_service a besoin de routing_service pour connaître l'état multiroom
+
+        MODIFICATION DE CETTE FONCTION:
+        Si vous devez ajouter un nouveau service ou modifier l'ordre:
+        1. Identifiez les dépendances du nouveau service
+        2. Ajoutez-le APRÈS la résolution de ses dépendances circulaires
+        3. Ajoutez-le dans init_async() seulement s'il a une méthode initialize() asynchrone
+        4. Testez le démarrage complet de l'application
+
+        """
+        # ============================================================
+        # ÉTAPE 1: Récupération des instances (ordre non-critique)
+        # ============================================================
         state_machine = container.audio_state_machine()
         routing_service = container.audio_routing_service()
         volume_service = container.volume_service()
         rotary_controller = container.rotary_controller()
         screen_controller = container.screen_controller()
         snapcast_websocket_service = container.snapcast_websocket_service()
-        
-        # Configuration du callback pour que routing_service puisse accéder aux plugins
+
+        # ============================================================
+        # ÉTAPE 2: Résolution des dépendances circulaires (ORDRE CRITIQUE)
+        # ============================================================
+
+        # 2.1 - routing_service → state_machine.get_plugin()
+        #       Permet à routing_service de redémarrer les plugins actifs
         routing_service.set_plugin_callback(lambda source: state_machine.get_plugin(source))
-        
-        # Configuration cross-référence routing_service ↔ snapcast_websocket_service
+
+        # 2.2 - routing_service ↔ snapcast_websocket_service
+        #       Permet le contrôle du cycle de vie du WebSocket Snapcast
         routing_service.set_snapcast_websocket_service(snapcast_websocket_service)
-        
-        # Configuration snapcast_service pour auto-configuration sur "Multiroom"
+
+        # 2.3 - routing_service → snapcast_service
+        #       Permet l'auto-configuration des groupes Snapcast lors de l'activation multiroom
         routing_service.set_snapcast_service(container.snapcast_service())
 
-        # Configuration state_machine pour routing_service
+        # 2.4 - routing_service → state_machine
+        #       Permet à routing_service de broadcaster les événements de routage
         routing_service.set_state_machine(state_machine)
 
-        # Résoudre la référence circulaire state_machine ↔ routing_service
+        # 2.5 - state_machine ← routing_service (référence circulaire)
+        #       Permet à state_machine de synchroniser l'état multiroom/equalizer
         state_machine.routing_service = routing_service
-        
-        # Enregistrement des plugins dans la machine à états
+
+        # ============================================================
+        # ÉTAPE 3: Enregistrement des plugins (DOIT être fait AVANT init_async)
+        # ============================================================
         state_machine.register_plugin(AudioSource.LIBRESPOT, container.librespot_plugin())
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
         state_machine.register_plugin(AudioSource.ROC, container.roc_plugin())
-        
-        # Initialisation asynchrone avec attente garantie
+
+        # ============================================================
+        # ÉTAPE 4: Initialisation asynchrone en parallèle
+        # ============================================================
         import asyncio
 
         async def init_async():
-            """Initialisation asynchrone avec gestion d'erreurs et garantie d'exécution"""
+            """
+            Initialisation asynchrone avec gestion d'erreurs et garantie d'exécution
+
+            Cette fonction s'exécute en parallèle pour optimiser le temps de démarrage.
+            Les services critiques (routing_service, volume_service) provoquent un échec total si erreur.
+            Les services non-critiques loggent l'erreur mais ne bloquent pas le démarrage.
+            """
             import logging
             logger = logging.getLogger(__name__)
 
+            # Liste des services à initialiser (ordre non-critique, s'exécutent en parallèle)
             services = [
                 ("routing_service", routing_service.initialize()),
                 ("volume_service", volume_service.initialize()),

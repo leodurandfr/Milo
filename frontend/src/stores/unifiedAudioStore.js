@@ -127,82 +127,20 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return await adjustVolume(-5);
   }
 
-  // === REFRESH ===
+  // === REFRESH (WebSocket uniquement - pas de polling HTTP) ===
+  // Note: L'état est synchronisé automatiquement via WebSocket.
+  // Cette fonction est conservée uniquement pour compatibilité mais ne fait plus de polling HTTP.
   async function refreshState() {
-    try {
-      if (systemState.value.transitioning) {
-        return true;
-      }
-
-      const now = Date.now();
-      if (lastWebSocketUpdate && (now - lastWebSocketUpdate) < 1000) {
-        return true;
-      }
-
-      // État audio
-      if (systemState.value.active_source === 'librespot') {
-        try {
-          const response = await axios.get('/librespot/fresh-status');
-          if (response.data?.status === 'success') {
-            const freshMetadata = response.data.fresh_metadata || {};
-            systemState.value.metadata = freshMetadata;
-            systemState.value.plugin_state = response.data.device_connected ? 'connected' : 'ready';
-            console.log('✅ Fresh librespot data updated');
-          } else {
-            const audioResponse = await axios.get('/api/audio/state');
-            if (audioResponse.data) {
-              updateSystemState(audioResponse.data, 'http_refresh');
-            }
-          }
-        } catch (freshApiError) {
-          console.warn('⚠️ Fresh-status fallback to main API');
-          const audioResponse = await axios.get('/api/audio/state');
-          if (audioResponse.data) {
-            updateSystemState(audioResponse.data, 'http_fallback');
-          }
-        }
-      } else {
-        const audioResponse = await axios.get('/api/audio/state');
-        if (audioResponse.data) {
-          updateSystemState(audioResponse.data, 'http_refresh');
-        }
-      }
-
-      // État volume
-      const volumeResponse = await axios.get('/api/volume/status');
-      if (volumeResponse.data?.status === 'success') {
-        const data = volumeResponse.data.data;
-        volumeState.value.currentVolume = data.volume || 0;
-      }
-
-      // État routing (multiroom + equalizer)
-      const routingResponse = await axios.get('/api/routing/status');
-      if (routingResponse.data?.routing) {
-        if (routingResponse.data.routing.multiroom_enabled !== undefined) {
-          systemState.value.multiroom_enabled = routingResponse.data.routing.multiroom_enabled;
-        }
-        if (routingResponse.data.routing.equalizer_enabled !== undefined) {
-          systemState.value.equalizer_enabled = routingResponse.data.routing.equalizer_enabled;
-        }
-      }
-
-      return true;
-
-    } catch (error) {
-      console.error('❌ Error refreshing state:', error);
-      return false;
-    }
+    console.log('ℹ️ refreshState called - state synchronized via WebSocket only');
+    return true;
   }
 
   // === GESTION VISIBILITÉ ===
+  // Note: Plus besoin de polling au retour de focus - le WebSocket maintient l'état à jour
   function setupVisibilityListener() {
     const visibilityHandler = () => {
       if (!document.hidden) {
-        setTimeout(() => {
-          if (!systemState.value.transitioning) {
-            refreshState();
-          }
-        }, 1000);
+        console.log('ℹ️ App visible - state already synchronized via WebSocket');
       }
     };
 
@@ -217,7 +155,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   // === MISE À JOUR D'ÉTAT ===
   function updateSystemState(newState, source = 'unknown') {
-    // Validation des valeurs reçues du WebSocket
+    // Validation défensive des valeurs reçues du WebSocket
+    // Note: Cette validation est une mesure de sécurité défensive côté frontend.
+    // Elle ne devrait jamais être nécessaire si le backend fonctionne correctement,
+    // mais protège contre les corruptions de données en transit.
     const validSources = ['none', 'librespot', 'bluetooth', 'roc'];
     const validStates = ['inactive', 'ready', 'connected', 'error'];
 
