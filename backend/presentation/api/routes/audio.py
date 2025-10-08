@@ -32,7 +32,7 @@ def create_router(state_machine):
 
     @router.post("/control/{source_name}")
     @limiter.limit("60/minute")  # Max 60 commandes par minute
-    async def control_source(http_request: Request, source_name: str, request: AudioControlRequest):
+    async def control_source(request: Request, source_name: str, control_request: AudioControlRequest):
         """Envoie une commande à une source spécifique avec validation et rate limiting"""
         try:
             source = AudioSource(source_name)
@@ -41,7 +41,7 @@ def create_router(state_machine):
             if not plugin:
                 raise HTTPException(status_code=404, detail=f"Plugin not found: {source_name}")
 
-            result = await plugin.handle_command(request.command, request.data)
+            result = await plugin.handle_command(control_request.command, control_request.data)
             return {"status": "success" if result.get("success") else "error", "result": result}
 
         except ValueError as e:
