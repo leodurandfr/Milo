@@ -72,7 +72,7 @@
     </section>
 
     <!-- Satellites connectés -->
-    <section class="update-section">
+    <section v-if="isMultiroomEnabled" class="update-section">
       <h1 class="heading-2">{{ $t('dependencies.satellitesTitle') }}</h1>
 
       <div v-if="satellitesLoading" class="loading-state">
@@ -138,14 +138,18 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
 import useWebSocket from '@/services/websocket';
 import Button from '@/components/ui/Button.vue';
 import { useI18n } from '@/services/i18n';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
+const unifiedStore = useUnifiedAudioStore();
+
+const isMultiroomEnabled = computed(() => unifiedStore.multiroomEnabled);
 
 // États locaux
 const localDependencies = ref({});
