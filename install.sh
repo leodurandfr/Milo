@@ -1153,6 +1153,60 @@ EOF
    log_success "Cage kiosk configuré - démarrage direct sans bureau Linux"
 }
 
+configure_plymouth_splash() {
+   log_info "Configuration du splash screen Plymouth personnalisé..."
+
+   # Create Milo Plymouth theme directory
+   sudo mkdir -p /usr/share/plymouth/themes/milo
+
+   # Copy script from pix theme
+   sudo cp /usr/share/plymouth/themes/pix/pix.script /usr/share/plymouth/themes/milo/milo.script
+
+   # Create Milo theme configuration
+   sudo tee /usr/share/plymouth/themes/milo/milo.plymouth > /dev/null << 'EOF'
+[Plymouth Theme]
+Name=Milo
+Description=Milo Audio System Splash Screen
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/milo
+ScriptFile=/usr/share/plymouth/themes/milo/milo.script
+EOF
+
+   # Copy placeholder splash image (user can replace with their own)
+   sudo cp /usr/share/plymouth/themes/pix/splash.png /usr/share/plymouth/themes/milo/splash.png
+
+   # Register and activate Milo theme
+   sudo update-alternatives --install /usr/share/plymouth/themes/default.plymouth default.plymouth /usr/share/plymouth/themes/milo/milo.plymouth 100
+   sudo update-alternatives --set default.plymouth /usr/share/plymouth/themes/milo/milo.plymouth
+   sudo plymouth-set-default-theme milo
+
+   # Update initramfs to apply changes
+   sudo update-initramfs -u
+
+   log_success "Plymouth splash screen configuré - utilisez ./update-splash.sh pour personnaliser"
+}
+
+configure_silent_login() {
+   log_info "Configuration du login silencieux..."
+
+   # Create .hushlogin to suppress login messages
+   sudo -u "$MILO_USER" touch "$MILO_HOME/.hushlogin"
+
+   # Clear /etc/issue and /etc/motd
+   echo "" | sudo tee /etc/issue > /dev/null
+   echo "" | sudo tee /etc/motd > /dev/null
+
+   # Configure getty to suppress login messages
+   local getty_override="/etc/systemd/system/getty@tty1.service.d/autologin.conf"
+   if grep -q "autologin milo --noclear %I" "$getty_override"; then
+       sudo sed -i 's|--autologin milo --noclear %I|--autologin milo --noclear --noissue --skip-login %I|' "$getty_override"
+   fi
+
+   log_success "Login silencieux configuré - aucun message au boot"
+}
+
 # ===============================
 # FONCTION MODIFIÉE POUR L'INSTALLATION DE LA LUMINOSITÉ
 # ===============================
@@ -1407,6 +1461,8 @@ main() {
    configure_avahi
    configure_nginx
    configure_cage_kiosk
+   configure_plymouth_splash
+   configure_silent_login
 
    install_screen_brightness_control
 
