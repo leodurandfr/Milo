@@ -54,4 +54,4 @@ yarn-error.log*
 
 # Ignore Claude doc
 /CLAUDE.md
-TESTS_GUIDE.md
+#TESTS_GUIDE.md
