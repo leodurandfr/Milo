@@ -157,8 +157,7 @@ function initializeBands() {
 async function loadEqualizerData() {
   if (!isEqualizerEnabled.value) return;
 
-  bandsLoaded.value = false;
-
+  // Ne pas masquer les contrôles pendant le chargement - on met à jour les valeurs en douceur
   try {
     const [statusResponse, bandsResponse] = await Promise.all([
       axios.get('/api/equalizer/status'),
@@ -168,7 +167,7 @@ async function loadEqualizerData() {
     if (statusResponse.data.available && bandsResponse.data.bands) {
       const apiBands = bandsResponse.data.bands;
 
-      // Animer vers les vraies valeurs
+      // Mettre à jour vers les vraies valeurs
       bands.value = bands.value.map(band => {
         const apiBand = apiBands.find(b => b.id === band.id);
         return {
@@ -181,12 +180,10 @@ async function loadEqualizerData() {
     }
   } catch (error) {
     console.error('Error loading equalizer data:', error);
-  } finally {
-    // Petit délai pour l'animation CSS
-    setTimeout(() => {
-      bandsLoaded.value = true;
-    }, 50);
   }
+
+  // Assurer que les contrôles sont visibles
+  bandsLoaded.value = true;
 }
 
 // === FETCH INITIAL ===
@@ -345,8 +342,14 @@ const watcherInterval = setInterval(() => {
   if (lastEqualizerState !== isEqualizerEnabled.value) {
     lastEqualizerState = isEqualizerEnabled.value;
     if (isEqualizerEnabled.value) {
+      // Afficher immédiatement avec les valeurs en cache
       initializeBands();
-      loadEqualizerData();
+      bandsLoaded.value = true;
+
+      // Charger les vraies valeurs en arrière-plan
+      nextTick(() => {
+        loadEqualizerData();
+      });
     } else {
       bandsLoaded.value = false;
       bandThrottleMap.forEach(state => {
