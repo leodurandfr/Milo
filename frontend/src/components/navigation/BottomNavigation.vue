@@ -33,25 +33,60 @@
 
       <!-- App Container -->
       <div class="app-container">
-        <!-- Apps dans le dock (toujours 3) -->
-        <button v-for="({ id, icon }, index) in dockApps" :key="id" :ref="el => dockItems[index] = el"
-          @click="() => handleAppClick(id, index)" @touchstart="addPressEffect" @mousedown="addPressEffect"
-          :disabled="unifiedStore.isTransitioning" class="dock-item button-interactive-subtle">
+        <!-- Mobile: 3 premières apps du dock (mix audio + features) -->
+        <button
+          v-for="({ id, icon }, index) in dockApps"
+          :key="`mobile-${id}`"
+          :ref="el => { if (ALL_AUDIO_SOURCES.includes(id)) dockItems[index] = el }"
+          @click="() => handleAppClick(id, index)"
+          @touchstart="addPressEffect"
+          @mousedown="addPressEffect"
+          :disabled="unifiedStore.isTransitioning"
+          :style="{ transitionDelay: `${0.1 + index * 0.05}s` }"
+          class="dock-item button-interactive-subtle mobile-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
-        <!-- Séparateur (seulement si on a des additional apps sur desktop) -->
-        <div v-if="additionalDockApps.length > 0" class="dock-separator desktop-only"></div>
+        <!-- Desktop: Audio Plugins -->
+        <button
+          v-for="({ id, icon }, index) in enabledAudioPlugins"
+          :key="`desktop-audio-${id}`"
+          :ref="el => dockItems[index] = el"
+          @click="() => handleAppClick(id, index)"
+          @touchstart="addPressEffect"
+          @mousedown="addPressEffect"
+          :disabled="unifiedStore.isTransitioning"
+          :style="{ transitionDelay: `${0.1 + index * 0.05}s` }"
+          class="dock-item button-interactive-subtle desktop-only">
+          <AppIcon :name="icon" size="large" class="dock-item-icon" />
+        </button>
 
-        <!-- Toggle Additional Apps - Mobile uniquement (seulement si on a plus de 3 apps) -->
-        <button v-if="additionalDockApps.length > 0" @click="handleToggleClick" @touchstart="addPressEffect"
-          @mousedown="addPressEffect" class="dock-item toggle-btn mobile-only button-interactive">
+        <!-- Séparateur - Desktop uniquement, toujours affiché si on a des features -->
+        <div
+          v-if="enabledFeatures.length > 0"
+          :style="{ transitionDelay: `${0.1 + enabledAudioPlugins.length * 0.05}s` }"
+          class="dock-separator desktop-only">
+        </div>
+
+        <!-- Mobile: Toggle Additional Apps (si plus de 3 apps) -->
+        <button
+          v-if="additionalDockApps.length > 0"
+          @click="handleToggleClick"
+          @touchstart="addPressEffect"
+          @mousedown="addPressEffect"
+          :style="{ transitionDelay: `${0.1 + dockApps.length * 0.05}s` }"
+          class="dock-item toggle-btn mobile-only button-interactive">
           <Icon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
-        <!-- Actions Desktop (toutes les additional apps) -->
-        <button v-for="{ id, icon, handler } in additionalDockApps" :key="`desktop-${id}`" @click="handler"
-          @touchstart="addPressEffect" @mousedown="addPressEffect"
+        <!-- Desktop: Features -->
+        <button
+          v-for="({ id, icon, handler }, index) in enabledFeatures"
+          :key="`desktop-feature-${id}`"
+          @click="handler"
+          @touchstart="addPressEffect"
+          @mousedown="addPressEffect"
+          :style="{ transitionDelay: `${0.1 + (enabledAudioPlugins.length + 1 + index) * 0.05}s` }"
           class="dock-item desktop-only button-interactive-subtle">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
@@ -90,19 +125,24 @@ const ALL_ADDITIONAL_ACTIONS = [
 const enabledApps = ref(["librespot", "bluetooth", "roc", "multiroom", "equalizer"]);
 const mobileVolumeSteps = ref(5);
 
-// Computed pour obtenir toutes les apps activées dans l'ordre
-const allEnabledApps = computed(() => {
-  const audioSources = ALL_AUDIO_SOURCES
+// Computed pour séparer audio plugins et features
+const enabledAudioPlugins = computed(() => {
+  return ALL_AUDIO_SOURCES
     .filter(source => enabledApps.value.includes(source))
     .map(source => ({ id: source, icon: source }));
-    
-  const additionalActions = ALL_ADDITIONAL_ACTIONS
-    .filter(action => enabledApps.value.includes(action.id));
-    
-  return [...audioSources, ...additionalActions];
 });
 
-// Diviser en deux groupes : 3 premières dans le dock, le reste dans additional
+const enabledFeatures = computed(() => {
+  return ALL_ADDITIONAL_ACTIONS
+    .filter(action => enabledApps.value.includes(action.id));
+});
+
+// Toutes les apps activées dans l'ordre (pour mobile)
+const allEnabledApps = computed(() => {
+  return [...enabledAudioPlugins.value, ...enabledFeatures.value];
+});
+
+// Diviser en deux groupes : 3 premières dans le dock, le reste dans additional (pour mobile)
 const dockApps = computed(() => allEnabledApps.value.slice(0, 3));
 const additionalDockApps = computed(() => allEnabledApps.value.slice(3));
 
@@ -155,9 +195,12 @@ const volumePointerType = ref(null);
 let hideTimeout = null, additionalHideTimeout = null, clickTimeout = null, dragGraceTimeout = null;
 
 // === COMPUTED ===
-const activeSourceIndex = computed(() =>
-  dockApps.value.findIndex(app => app.id === unifiedStore.currentSource)
-);
+const activeSourceIndex = computed(() => {
+  // Sur desktop, chercher dans les audio plugins uniquement
+  // Sur mobile, chercher dans les dockApps (3 premières apps)
+  const sourceList = isDesktop() ? enabledAudioPlugins.value : dockApps.value;
+  return sourceList.findIndex(app => app.id === unifiedStore.currentSource);
+});
 
 const indicatorStyle = ref({
   opacity: '0',
@@ -839,43 +882,9 @@ onUnmounted(() => {
   transition-delay: 0.1s;
 }
 
-.dock-container.visible .app-container> :nth-child(1) {
-  transition-delay: 0.1s;
-}
-
-.dock-container.visible .app-container> :nth-child(2) {
-  transition-delay: 0.15s;
-}
-
-.dock-container.visible .app-container> :nth-child(3) {
-  transition-delay: 0.2s;
-}
-
-.dock-container.visible .app-container> :nth-child(4) {
-  transition-delay: 0.225s;
-}
-
-.dock-container.visible .app-container> :nth-child(5) {
-  transition-delay: 0.25s;
-}
-
-.dock-container.visible .app-container> :nth-child(6) {
-  transition-delay: 0.25s;
-}
-
-.dock-container.visible .app-container> :nth-child(7) {
-  transition-delay: 0.3s;
-}
-
-.dock-container.visible .app-container> :nth-child(8) {
-  transition-delay: 0.35s;
-}
-
-
 .dock-container.visible.fully-visible .dock-item,
 .dock-container.visible.fully-visible .dock-separator,
-.dock-container.visible.fully-visible .volume-controls,
-.dock-container.visible.fully-visible .app-container>* {
+.dock-container.visible.fully-visible .volume-controls {
   transition-delay: 0s !important;
 }
 
