@@ -1,26 +1,31 @@
 # backend/infrastructure/services/audio_routing_service.py
 """
-Service de routage audio pour Milo - Version avec settings unifiés
+Service de routage audio pour Milo - Version UNIFIÉE avec SystemAudioState comme source de vérité unique
 """
 import os
 import logging
 import asyncio
 from typing import Dict, Any, Callable, Optional
-from backend.domain.audio_routing import AudioRoutingState
 from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class AudioRoutingService:
-    """Service de routage audio avec notifications anticipées d'activation/désactivation"""
+    """
+    Service de routage audio - Version UNIFIÉE
 
-    # Whitelist stricte pour validation des commandes sudo
+    IMPORTANT: Ce service n'a plus son propre état. Il utilise directement
+    state_machine.system_state comme source de vérité unique pour multiroom_enabled
+    et equalizer_enabled. Cela élimine les risques de désynchronisation.
+    """
+
+    # Whitelist stricte pour validation des commandes
     ALLOWED_MODES = frozenset(["direct", "multiroom"])
     ALLOWED_EQUALIZER = frozenset(["", "_eq"])
 
     def __init__(self, get_plugin_callback: Optional[Callable] = None, settings_service=None):
         self.logger = logging.getLogger(__name__)
         self.service_manager = SystemdServiceManager()
-        self.state = AudioRoutingState()
+        # SUPPRIMÉ: self.state = AudioRoutingState()  # Plus besoin, on utilise state_machine.system_state
         self.get_plugin = get_plugin_callback
         self.settings_service = settings_service
         self._initial_detection_done = False
@@ -44,11 +49,39 @@ class AudioRoutingService:
     def set_state_machine(self, state_machine) -> None:
         """Définit la référence vers StateMachine"""
         self.state_machine = state_machine
-    
+
     def set_plugin_callback(self, callback: Callable) -> None:
         """Définit le callback pour accéder aux plugins"""
         if not self.get_plugin:
             self.get_plugin = callback
+
+    # === Propriétés d'accès à l'état unifié (state_machine.system_state) ===
+
+    @property
+    def multiroom_enabled(self) -> bool:
+        """Accède à l'état multiroom depuis la source de vérité unique"""
+        if not self.state_machine:
+            return False
+        return self.state_machine.system_state.multiroom_enabled
+
+    @multiroom_enabled.setter
+    def multiroom_enabled(self, value: bool) -> None:
+        """Modifie l'état multiroom dans la source de vérité unique"""
+        if self.state_machine:
+            self.state_machine.system_state.multiroom_enabled = value
+
+    @property
+    def equalizer_enabled(self) -> bool:
+        """Accède à l'état equalizer depuis la source de vérité unique"""
+        if not self.state_machine:
+            return False
+        return self.state_machine.system_state.equalizer_enabled
+
+    @equalizer_enabled.setter
+    def equalizer_enabled(self, value: bool) -> None:
+        """Modifie l'état equalizer dans la source de vérité unique"""
+        if self.state_machine:
+            self.state_machine.system_state.equalizer_enabled = value
     
     async def initialize(self) -> None:
         """Initialise l'état du service"""
@@ -64,34 +97,34 @@ class AudioRoutingService:
             if self.settings_service:
                 multiroom = self.settings_service.get_setting('routing.multiroom_enabled')
                 equalizer = self.settings_service.get_setting('routing.equalizer_enabled')
-                self.state.multiroom_enabled = multiroom if multiroom is not None else False
-                self.state.equalizer_enabled = equalizer if equalizer is not None else False
-                self.logger.info(f"Loaded state from settings: multiroom={self.state.multiroom_enabled}, equalizer={self.state.equalizer_enabled}")
+                self.multiroom_enabled = multiroom if multiroom is not None else False
+                self.equalizer_enabled = equalizer if equalizer is not None else False
+                self.logger.info(f"Loaded state from settings: multiroom={self.multiroom_enabled}, equalizer={self.equalizer_enabled}")
             else:
                 self.logger.warning("SettingsService not available, using defaults")
-                self.state.multiroom_enabled = False
-                self.state.equalizer_enabled = False
+                self.multiroom_enabled = False
+                self.equalizer_enabled = False
 
             await self._update_systemd_environment()
-            self.logger.info(f"ALSA environment initialized: MULTIROOM={self.state.multiroom_enabled}, EQUALIZER={self.state.equalizer_enabled}")
+            self.logger.info(f"ALSA environment initialized: MULTIROOM={self.multiroom_enabled}, EQUALIZER={self.equalizer_enabled}")
 
             snapcast_status = await self.get_snapcast_status()
             services_running = snapcast_status.get("multiroom_available", False)
 
-            if self.state.multiroom_enabled and not services_running:
+            if self.multiroom_enabled and not services_running:
                 self.logger.info("Persisted state requires multiroom, starting snapcast services")
                 await self._start_snapcast()
-            elif not self.state.multiroom_enabled and services_running:
+            elif not self.multiroom_enabled and services_running:
                 self.logger.info("Persisted state requires direct mode, stopping snapcast services")
                 await self._stop_snapcast()
 
             self._initial_detection_done = True
-            self.logger.info(f"Routing initialized with persisted state: multiroom={self.state.multiroom_enabled}, equalizer={self.state.equalizer_enabled}")
+            self.logger.info(f"Routing initialized with persisted state: multiroom={self.multiroom_enabled}, equalizer={self.equalizer_enabled}")
 
         except Exception as e:
             self.logger.error(f"Error during initial state detection: {e}")
-            self.state.multiroom_enabled = False
-            self.state.equalizer_enabled = False
+            self.multiroom_enabled = False
+            self.equalizer_enabled = False
             await self._update_systemd_environment()
             self._initial_detection_done = True
     
@@ -100,15 +133,15 @@ class AudioRoutingService:
         if not self._initial_detection_done:
             await self._detect_initial_state()
         
-        if self.state.multiroom_enabled == enabled:
+        if self.multiroom_enabled == enabled:
             self.logger.info(f"Multiroom already {'enabled' if enabled else 'disabled'}")
             return True
         
         try:
-            old_state = self.state.multiroom_enabled
+            old_state = self.multiroom_enabled
             self.logger.info(f"Changing multiroom from {old_state} to {enabled}")
             
-            self.state.multiroom_enabled = enabled
+            self.multiroom_enabled = enabled
             await self._update_systemd_environment()
             
             if enabled:
@@ -141,7 +174,7 @@ class AudioRoutingService:
                 success = await self._transition_to_direct(active_source)
             
             if not success:
-                self.state.multiroom_enabled = old_state
+                self.multiroom_enabled = old_state
                 await self._update_systemd_environment()
                 self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
                 return False
@@ -164,7 +197,7 @@ class AudioRoutingService:
             return True
             
         except Exception as e:
-            self.state.multiroom_enabled = old_state
+            self.multiroom_enabled = old_state
             await self._update_systemd_environment()
             self.logger.error(f"Error changing multiroom state: {e}")
             return False
@@ -186,15 +219,15 @@ class AudioRoutingService:
 
     async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """Active/désactive l'equalizer"""
-        if self.state.equalizer_enabled == enabled:
+        if self.equalizer_enabled == enabled:
             self.logger.info(f"Equalizer already {'enabled' if enabled else 'disabled'}")
             return True
         
         try:
-            old_state = self.state.equalizer_enabled
+            old_state = self.equalizer_enabled
             self.logger.info(f"Changing equalizer from {old_state} to {enabled}")
             
-            self.state.equalizer_enabled = enabled
+            self.equalizer_enabled = enabled
             await self._update_systemd_environment()
             
             if active_source and self.get_plugin:
@@ -212,80 +245,67 @@ class AudioRoutingService:
             return True
             
         except Exception as e:
-            self.state.equalizer_enabled = old_state
+            self.equalizer_enabled = old_state
             await self._update_systemd_environment()
             self.logger.error(f"Error changing equalizer state: {e}")
             return False
     
     async def _update_systemd_environment(self) -> None:
-        """Met à jour les variables d'environnement ALSA avec validation stricte, timeout et retry"""
-        mode_value = "multiroom" if self.state.multiroom_enabled else "direct"
-        equalizer_value = "_eq" if self.state.equalizer_enabled else ""
+        """
+        Met à jour les variables d'environnement ALSA via fichier statique
 
-        # Validation stricte avant sudo
+        NOUVEAU: Plus de sudo runtime ! Les variables sont écrites dans
+        /var/lib/milo/milo_environment qui est lu par les services systemd.
+        """
+        mode_value = "multiroom" if self.multiroom_enabled else "direct"
+        equalizer_value = "_eq" if self.equalizer_enabled else ""
+
+        # Validation stricte
         if mode_value not in self.ALLOWED_MODES:
             raise ValueError(f"Invalid mode value: {mode_value}. Allowed: {self.ALLOWED_MODES}")
 
         if equalizer_value not in self.ALLOWED_EQUALIZER:
             raise ValueError(f"Invalid equalizer value: {equalizer_value}. Allowed: {self.ALLOWED_EQUALIZER}")
 
-        # Retry avec backoff exponentiel (3 tentatives: 0s, 0.5s, 1s)
-        max_retries = 3
-        base_delay = 0.5
+        environment_file = os.path.expanduser("~/milo/var/lib/milo/milo_environment")
 
-        for attempt in range(max_retries):
+        # Fallback si le chemin n'existe pas (pour compatibilité)
+        if not os.path.exists(os.path.dirname(environment_file)):
+            environment_file = "/var/lib/milo/milo_environment"
+
+        try:
+            # Écriture atomique du fichier d'environnement
+            temp_file = environment_file + ".tmp"
+
+            with open(temp_file, 'w') as f:
+                f.write("# Milo Environment Variables\n")
+                f.write("# Ce fichier est modifié automatiquement par Milo backend\n")
+                f.write("# Ne pas éditer manuellement\n\n")
+                f.write(f"# Mode de routage audio : \"direct\" ou \"multiroom\"\n")
+                f.write(f"MILO_MODE={mode_value}\n\n")
+                f.write(f"# Equalizer : \"\" (désactivé) ou \"_eq\" (activé)\n")
+                f.write(f"MILO_EQUALIZER={equalizer_value}\n")
+                f.flush()
+                os.fsync(f.fileno())
+
+            # Renommage atomique
+            os.replace(temp_file, environment_file)
+
+            # Mise à jour locale pour compatibilité
+            os.environ["MILO_MODE"] = mode_value
+            os.environ["MILO_EQUALIZER"] = equalizer_value
+
+            self.logger.info(f"✅ Updated ALSA environment file: MODE={mode_value}, EQUALIZER={equalizer_value}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to update environment file: {e}")
+            # Nettoyer le fichier temporaire si échec
             try:
-                # Exécution sécurisée des commandes sudo avec timeout de 5 secondes
-                async with asyncio.timeout(5.0):
-                    proc1 = await asyncio.create_subprocess_exec(
-                        "sudo", "systemctl", "set-environment", f"MILO_MODE={mode_value}",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    stdout1, stderr1 = await proc1.communicate()
-
-                    if proc1.returncode != 0:
-                        raise RuntimeError(f"Failed to set MILO_MODE: {stderr1.decode()}")
-
-                    proc2 = await asyncio.create_subprocess_exec(
-                        "sudo", "systemctl", "set-environment", f"MILO_EQUALIZER={equalizer_value}",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    stdout2, stderr2 = await proc2.communicate()
-
-                    if proc2.returncode != 0:
-                        raise RuntimeError(f"Failed to set MILO_EQUALIZER: {stderr2.decode()}")
-
-                # Mise à jour locale seulement si sudo a réussi
-                os.environ["MILO_MODE"] = mode_value
-                os.environ["MILO_EQUALIZER"] = equalizer_value
-
-                self.logger.info(f"Updated ALSA environment: MODE={mode_value}, EQUALIZER={equalizer_value}")
-                return  # Succès, sortir
-
-            except asyncio.TimeoutError:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    self.logger.warning(f"Systemd timeout (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
-                    await asyncio.sleep(delay)
-                else:
-                    self.logger.error("Systemd timeout after all retries")
-                    raise RuntimeError("Systemd environment update timeout after retries")
-
-            except RuntimeError as e:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    self.logger.warning(f"Systemd error (attempt {attempt + 1}/{max_retries}): {e}, retrying in {delay}s...")
-                    await asyncio.sleep(delay)
-                else:
-                    self.logger.error(f"Systemd error after all retries: {e}")
-                    raise
-
-            except ValueError as e:
-                # Validation error - pas de retry
-                self.logger.error(f"Validation error: {e}")
-                raise
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+            except:
+                pass
+            raise RuntimeError(f"Failed to update environment file: {e}")
     
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
         """Transition vers le mode multiroom"""
@@ -348,9 +368,16 @@ class AudioRoutingService:
         except Exception as e:
             self.logger.error(f"Error stopping snapcast: {e}")
     
-    def get_state(self) -> AudioRoutingState:
-        """Récupère l'état actuel du routage"""
-        return self.state
+    def get_state(self) -> Dict[str, bool]:
+        """
+        Récupère l'état actuel du routage depuis la source de vérité unique
+
+        NOUVEAU: Retourne un dict au lieu d'AudioRoutingState (qui n'existe plus)
+        """
+        return {
+            "multiroom_enabled": self.multiroom_enabled,
+            "equalizer_enabled": self.equalizer_enabled
+        }
     
     async def get_snapcast_status(self) -> Dict[str, Any]:
         """Récupère l'état des services snapcast"""

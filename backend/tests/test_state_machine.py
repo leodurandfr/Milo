@@ -245,3 +245,141 @@ class TestUnifiedAudioStateMachine:
 
         # L'une devrait réussir, l'autre devrait être no-op (déjà sur la source)
         assert any(results)  # Au moins une réussie
+
+    @pytest.mark.asyncio
+    async def test_buffered_updates_max_capacity(self, state_machine, mock_plugin):
+        """Test que la queue de updates a une capacité maximale"""
+        mock_plugin._initialized = True
+
+        # Simuler un plugin qui prend du temps
+        async def slow_start():
+            await asyncio.sleep(0.3)
+            return True
+
+        mock_plugin.start = slow_start
+        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+
+        # Démarrer une transition
+        transition_task = asyncio.create_task(
+            state_machine.transition_to_source(AudioSource.LIBRESPOT)
+        )
+
+        # Attendre un peu que la transition commence
+        await asyncio.sleep(0.1)
+
+        # Essayer d'envoyer un update pendant la transition
+        await state_machine.update_plugin_state(
+            AudioSource.LIBRESPOT,
+            PluginState.CONNECTED,
+            {"title": "Test Song"}
+        )
+
+        # Vérifier que l'update est bufferisé
+        assert len(state_machine._buffered_updates) == 1
+
+        # Attendre la fin de la transition
+        await transition_task
+
+        # Après la transition, la queue devrait être vide (updates rejoués)
+        assert len(state_machine._buffered_updates) == 0
+
+        # Simuler un plugin qui prend du temps à démarrer
+        async def slow_start():
+            await asyncio.sleep(0.3)
+            return True
+
+        mock_plugin.start = slow_start
+        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+
+        # Démarrer une transition
+        transition_task = asyncio.create_task(
+            state_machine.transition_to_source(AudioSource.LIBRESPOT)
+        )
+
+        # Attendre que la transition commence
+        await asyncio.sleep(0.1)
+
+        # Envoyer des updates pendant la transition
+        await state_machine.update_plugin_state(
+            AudioSource.LIBRESPOT,
+            PluginState.CONNECTED,
+            {"title": "Test Song", "artist": "Test Artist"}
+        )
+
+        # Attendre la fin de la transition
+        await transition_task
+
+        # Vérifier que l'update a été appliqué
+        assert state_machine.system_state.plugin_state == PluginState.CONNECTED
+        assert state_machine.system_state.metadata.get("title") == "Test Song"
+        assert state_machine.system_state.metadata.get("artist") == "Test Artist"
+
+        # Simuler un plugin qui timeout
+        async def timeout_start():
+            await asyncio.sleep(10)  # Plus long que TRANSITION_TIMEOUT
+            return True
+
+        mock_plugin.start = timeout_start
+        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+
+        # Démarrer une transition
+        transition_task = asyncio.create_task(
+            state_machine.transition_to_source(AudioSource.LIBRESPOT)
+        )
+
+        # Attendre que la transition commence
+        await asyncio.sleep(0.1)
+
+        # Envoyer un update pendant la transition
+        await state_machine.update_plugin_state(
+            AudioSource.LIBRESPOT,
+            PluginState.CONNECTED,
+            {"title": "Test Song"}
+        )
+
+        # Vérifier que l'update est bufferisé
+        assert len(state_machine._buffered_updates) == 1
+
+        # Attendre que la transition timeout
+        result = await transition_task
+
+        # La transition devrait échouer
+        assert result is False
+
+        # La queue devrait être vidée
+        assert len(state_machine._buffered_updates) == 0
+
+    @pytest.mark.asyncio
+    async def test_buffered_updates_max_capacity(self, state_machine, mock_plugin):
+        """Test que la queue de updates a une capacité maximale"""
+        mock_plugin._initialized = True
+
+        # Simuler un plugin qui prend du temps
+        async def slow_start():
+            await asyncio.sleep(0.5)
+            return True
+
+        mock_plugin.start = slow_start
+        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+
+        # Démarrer une transition
+        transition_task = asyncio.create_task(
+            state_machine.transition_to_source(AudioSource.LIBRESPOT)
+        )
+
+        # Attendre que la transition commence
+        await asyncio.sleep(0.1)
+
+        # Envoyer plus d'updates que la capacité max
+        for i in range(state_machine.MAX_BUFFERED_UPDATES + 10):
+            await state_machine.update_plugin_state(
+                AudioSource.LIBRESPOT,
+                PluginState.CONNECTED,
+                {"index": i}
+            )
+
+        # La queue ne devrait pas dépasser la capacité max
+        assert len(state_machine._buffered_updates) <= state_machine.MAX_BUFFERED_UPDATES
+
+        # Attendre la fin de la transition
+        await transition_task

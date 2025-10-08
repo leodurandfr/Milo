@@ -34,10 +34,10 @@ class TestAudioRoutingService:
 
     def test_initialization(self, routing_service):
         """Test de l'initialisation du service"""
-        assert routing_service.state is not None
         assert routing_service.snapcast_websocket_service is None
         assert routing_service.snapcast_service is None
         assert routing_service.state_machine is None
+        # Plus de self.state - utilise directement state_machine.system_state
 
     def test_set_plugin_callback(self, routing_service):
         """Test de définition du callback des plugins"""
@@ -68,11 +68,19 @@ class TestAudioRoutingService:
         assert routing_service.state_machine == mock_sm
 
     def test_get_state(self, routing_service):
-        """Test de récupération de l'état"""
+        """Test de récupération de l'état - retourne maintenant un dict"""
+        # Ajouter un state_machine mock
+        mock_sm = Mock()
+        mock_sm.system_state = Mock()
+        mock_sm.system_state.multiroom_enabled = False
+        mock_sm.system_state.equalizer_enabled = False
+        routing_service.set_state_machine(mock_sm)
+
         state = routing_service.get_state()
 
-        assert hasattr(state, 'multiroom_enabled')
-        assert hasattr(state, 'equalizer_enabled')
+        assert isinstance(state, dict)
+        assert 'multiroom_enabled' in state
+        assert 'equalizer_enabled' in state
 
     @pytest.mark.asyncio
     async def test_initialize_with_settings(self, routing_service, mock_settings_service):
@@ -80,16 +88,24 @@ class TestAudioRoutingService:
         # Réinitialiser le flag
         routing_service._initial_detection_done = False
 
+        # Créer un mock state_machine
+        mock_sm = Mock()
+        mock_sm.system_state = Mock()
+        mock_sm.system_state.multiroom_enabled = False
+        mock_sm.system_state.equalizer_enabled = False
+        routing_service.set_state_machine(mock_sm)
+
         mock_settings_service.get_setting = Mock(side_effect=lambda key: {
             'routing.multiroom_enabled': True,
             'routing.equalizer_enabled': False
         }.get(key))
 
         with patch.object(routing_service, '_update_systemd_environment', new_callable=AsyncMock):
-            await routing_service.initialize()
+            with patch.object(routing_service, 'get_snapcast_status', new_callable=AsyncMock, return_value={"multiroom_available": False}):
+                await routing_service.initialize()
 
-        assert routing_service.state.multiroom_enabled is True
-        assert routing_service.state.equalizer_enabled is False
+        assert mock_sm.system_state.multiroom_enabled is True
+        assert mock_sm.system_state.equalizer_enabled is False
 
     @pytest.mark.asyncio
     async def test_initialize_without_settings_service(self):
@@ -101,13 +117,16 @@ class TestAudioRoutingService:
                 await service.initialize()
 
         # Devrait utiliser les valeurs par défaut
-        assert service.state.multiroom_enabled is False
-        assert service.state.equalizer_enabled is False
+        assert service.multiroom_enabled is False
+        assert service.equalizer_enabled is False
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_already_enabled(self, routing_service):
         """Test de set_multiroom_enabled quand déjà dans l'état souhaité (no-op)"""
-        routing_service.state.multiroom_enabled = True
+        mock_sm = Mock()
+        mock_sm.system_state = Mock()
+        mock_sm.system_state.multiroom_enabled = True
+        routing_service.set_state_machine(mock_sm)
 
         result = await routing_service.set_multiroom_enabled(True)
 
@@ -116,9 +135,9 @@ class TestAudioRoutingService:
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_success(self, routing_service, mock_settings_service):
         """Test d'activation réussie du multiroom"""
-        routing_service.state.multiroom_enabled = False
-
         mock_state_machine = Mock()
+        mock_state_machine.system_state = Mock()
+        mock_state_machine.system_state.multiroom_enabled = False
         mock_state_machine.broadcast_event = AsyncMock()
         routing_service.set_state_machine(mock_state_machine)
 
@@ -128,13 +147,17 @@ class TestAudioRoutingService:
                     result = await routing_service.set_multiroom_enabled(True)
 
         assert result is True
-        assert routing_service.state.multiroom_enabled is True
+        assert mock_state_machine.system_state.multiroom_enabled is True
         mock_settings_service.set_setting.assert_called_with('routing.multiroom_enabled', True)
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_failure_rollback(self, routing_service, mock_settings_service):
         """Test d'échec d'activation avec rollback de l'état"""
-        routing_service.state.multiroom_enabled = False
+        mock_sm = Mock()
+        mock_sm.system_state = Mock()
+        mock_sm.system_state.multiroom_enabled = False
+        mock_sm.broadcast_event = AsyncMock()
+        routing_service.set_state_machine(mock_sm)
 
         with patch.object(routing_service, '_update_systemd_environment', new_callable=AsyncMock):
             with patch.object(routing_service, '_transition_to_multiroom', new_callable=AsyncMock, return_value=False):
@@ -142,14 +165,17 @@ class TestAudioRoutingService:
 
         assert result is False
         # L'état devrait être revenu à False
-        assert routing_service.state.multiroom_enabled is False
+        assert mock_sm.system_state.multiroom_enabled is False
         # Ne devrait PAS avoir sauvegardé
         mock_settings_service.set_setting.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_set_equalizer_enabled_already_enabled(self, routing_service):
         """Test de set_equalizer_enabled quand déjà dans l'état souhaité (no-op)"""
-        routing_service.state.equalizer_enabled = True
+        mock_sm = Mock()
+        mock_sm.system_state = Mock()
+        mock_sm.system_state.equalizer_enabled = True
+        routing_service.set_state_machine(mock_sm)
 
         result = await routing_service.set_equalizer_enabled(True)
 
@@ -158,19 +184,25 @@ class TestAudioRoutingService:
     @pytest.mark.asyncio
     async def test_set_equalizer_enabled_success(self, routing_service, mock_settings_service):
         """Test d'activation réussie de l'equalizer"""
-        routing_service.state.equalizer_enabled = False
+        mock_sm = Mock()
+        mock_sm.system_state = Mock()
+        mock_sm.system_state.equalizer_enabled = False
+        routing_service.set_state_machine(mock_sm)
 
         with patch.object(routing_service, '_update_systemd_environment', new_callable=AsyncMock):
             result = await routing_service.set_equalizer_enabled(True)
 
         assert result is True
-        assert routing_service.state.equalizer_enabled is True
+        assert mock_sm.system_state.equalizer_enabled is True
         mock_settings_service.set_setting.assert_called_with('routing.equalizer_enabled', True)
 
     @pytest.mark.asyncio
     async def test_set_equalizer_enabled_with_plugin_restart(self, routing_service, mock_plugin):
         """Test d'activation de l'equalizer avec restart du plugin actif"""
-        routing_service.state.equalizer_enabled = False
+        mock_sm = Mock()
+        mock_sm.system_state = Mock()
+        mock_sm.system_state.equalizer_enabled = False
+        routing_service.set_state_machine(mock_sm)
         routing_service.set_plugin_callback(lambda source: mock_plugin if source == AudioSource.LIBRESPOT else None)
 
         with patch.object(routing_service, '_update_systemd_environment', new_callable=AsyncMock):
@@ -181,50 +213,49 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_update_systemd_environment_validation(self, routing_service):
-        """Test de validation stricte des valeurs systemd"""
-        routing_service.state.multiroom_enabled = True
-        routing_service.state.equalizer_enabled = False
+        """Test d'écriture du fichier d'environnement"""
+        mock_sm = Mock()
+        mock_sm.system_state = Mock()
+        mock_sm.system_state.multiroom_enabled = True
+        mock_sm.system_state.equalizer_enabled = False
+        routing_service.set_state_machine(mock_sm)
 
-        # Test avec des valeurs valides
-        with patch('asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess:
-            mock_proc = Mock()
-            mock_proc.returncode = 0
-            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-            mock_subprocess.return_value = mock_proc
+        # NOUVEAU: teste l'écriture du fichier au lieu de sudo
+        # Utiliser mock_open de unittest.mock qui supporte fileno()
+        from unittest.mock import mock_open as create_mock_open
+        m = create_mock_open()
 
-            await routing_service._update_systemd_environment()
+        with patch('builtins.open', m):
+            with patch('os.replace'):
+                with patch('os.fsync'):  # Mock fsync aussi
+                    await routing_service._update_systemd_environment()
 
-            # Vérifier que les commandes sudo ont été appelées avec les bonnes valeurs
-            assert mock_subprocess.call_count == 2
+                    # Vérifier que le fichier a été ouvert
+                    assert m.called
 
     @pytest.mark.asyncio
-    async def test_update_systemd_environment_retry_on_failure(self, routing_service):
-        """Test de retry automatique en cas d'échec systemd"""
-        routing_service.state.multiroom_enabled = True
-        routing_service.state.equalizer_enabled = False
+    async def test_update_systemd_environment_file_content(self, routing_service):
+        """Test du contenu du fichier d'environnement écrit"""
+        mock_sm = Mock()
+        mock_sm.system_state = Mock()
+        mock_sm.system_state.multiroom_enabled = True
+        mock_sm.system_state.equalizer_enabled = True
+        routing_service.set_state_machine(mock_sm)
 
-        # Simuler des échecs suivis d'un succès (pour tester le retry)
-        mock_proc_fail = Mock()
-        mock_proc_fail.returncode = 1  # Échec
-        mock_proc_fail.communicate = AsyncMock(return_value=(b"", b"error"))
+        # Teste le contenu du fichier
+        from unittest.mock import mock_open as create_mock_open
+        m = create_mock_open()
 
-        mock_proc_success = Mock()
-        mock_proc_success.returncode = 0  # Succès
-        mock_proc_success.communicate = AsyncMock(return_value=(b"", b""))
+        with patch('builtins.open', m):
+            with patch('os.replace'):
+                with patch('os.fsync'):
+                    await routing_service._update_systemd_environment()
 
-        with patch('asyncio.create_subprocess_exec', new_callable=AsyncMock) as mock_subprocess:
-            # Premier appel échoue, deuxième appel réussit (pour MILO_MODE)
-            # Troisième et quatrième pour MILO_EQUALIZER
-            mock_subprocess.side_effect = [
-                mock_proc_fail,   # 1er essai MILO_MODE - échec
-                mock_proc_success, # 2e essai MILO_MODE - succès
-                mock_proc_success, # 1er essai MILO_EQUALIZER - succès
-            ]
-
-            await routing_service._update_systemd_environment()
-
-            # Devrait avoir réessayé et finalement réussi
-            assert mock_subprocess.call_count >= 3
+                    # Vérifier que MILO_MODE=multiroom et MILO_EQUALIZER=_eq sont écrits
+                    handle = m()
+                    calls = [str(call) for call in handle.write.call_args_list]
+                    assert any('MILO_MODE=multiroom' in str(call) for call in calls)
+                    assert any('MILO_EQUALIZER=_eq' in str(call) for call in calls)
 
     @pytest.mark.asyncio
     async def test_get_snapcast_status(self, routing_service, mock_systemd_manager):
