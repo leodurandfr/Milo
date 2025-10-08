@@ -39,7 +39,7 @@ import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 
 const unifiedStore = useUnifiedAudioStore();
-const { on } = useWebSocket();
+const { on, onReconnect } = useWebSocket();
 
 const volumeBar = ref(null);
 const isSnapcastOpen = ref(false);
@@ -88,6 +88,14 @@ onMounted(() => {
       } else {
         console.error('Language_changed event missing language data:', event);
       }
+    })
+  );
+
+  // Reconnexion WebSocket - forcer un refresh complet de l'état
+  cleanupFunctions.push(
+    onReconnect(() => {
+      console.log('WebSocket reconnected - refreshing full state from HTTP API');
+      unifiedStore.refreshState();
     })
   );
 

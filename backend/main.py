@@ -56,12 +56,8 @@ state_machine.snapcast_service = snapcast_service
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie avec SettingsService"""
     try:
-        # Initialiser les services
+        # Initialiser et attendre les services
         container.initialize_services()
-
-        # Attendre que l'initialisation des services soit complète (TOUJOURS présent)
-        if not hasattr(container, '_init_task'):
-            raise RuntimeError("Container initialization failed - no init task created")
 
         logger.info("Waiting for services initialization to complete...")
         await container._init_task

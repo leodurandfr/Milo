@@ -147,8 +147,8 @@ class AudioRoutingService:
                 return False
             
             if enabled and success:
-                asyncio.create_task(self._auto_configure_multiroom())
-            
+                await self._auto_configure_multiroom()
+
             if self.snapcast_websocket_service:
                 if enabled:
                     await self.snapcast_websocket_service.start_connection()
@@ -218,55 +218,74 @@ class AudioRoutingService:
             return False
     
     async def _update_systemd_environment(self) -> None:
-        """Met à jour les variables d'environnement ALSA avec validation stricte et timeout"""
-        try:
-            mode_value = "multiroom" if self.state.multiroom_enabled else "direct"
-            equalizer_value = "_eq" if self.state.equalizer_enabled else ""
+        """Met à jour les variables d'environnement ALSA avec validation stricte, timeout et retry"""
+        mode_value = "multiroom" if self.state.multiroom_enabled else "direct"
+        equalizer_value = "_eq" if self.state.equalizer_enabled else ""
 
-            # Validation stricte avant sudo
-            if mode_value not in self.ALLOWED_MODES:
-                raise ValueError(f"Invalid mode value: {mode_value}. Allowed: {self.ALLOWED_MODES}")
+        # Validation stricte avant sudo
+        if mode_value not in self.ALLOWED_MODES:
+            raise ValueError(f"Invalid mode value: {mode_value}. Allowed: {self.ALLOWED_MODES}")
 
-            if equalizer_value not in self.ALLOWED_EQUALIZER:
-                raise ValueError(f"Invalid equalizer value: {equalizer_value}. Allowed: {self.ALLOWED_EQUALIZER}")
+        if equalizer_value not in self.ALLOWED_EQUALIZER:
+            raise ValueError(f"Invalid equalizer value: {equalizer_value}. Allowed: {self.ALLOWED_EQUALIZER}")
 
-            # Exécution sécurisée des commandes sudo avec timeout de 5 secondes
-            async with asyncio.timeout(5.0):
-                proc1 = await asyncio.create_subprocess_exec(
-                    "sudo", "systemctl", "set-environment", f"MILO_MODE={mode_value}",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout1, stderr1 = await proc1.communicate()
+        # Retry avec backoff exponentiel (3 tentatives: 0s, 0.5s, 1s)
+        max_retries = 3
+        base_delay = 0.5
 
-                if proc1.returncode != 0:
-                    raise RuntimeError(f"Failed to set MILO_MODE: {stderr1.decode()}")
+        for attempt in range(max_retries):
+            try:
+                # Exécution sécurisée des commandes sudo avec timeout de 5 secondes
+                async with asyncio.timeout(5.0):
+                    proc1 = await asyncio.create_subprocess_exec(
+                        "sudo", "systemctl", "set-environment", f"MILO_MODE={mode_value}",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout1, stderr1 = await proc1.communicate()
 
-                proc2 = await asyncio.create_subprocess_exec(
-                    "sudo", "systemctl", "set-environment", f"MILO_EQUALIZER={equalizer_value}",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout2, stderr2 = await proc2.communicate()
+                    if proc1.returncode != 0:
+                        raise RuntimeError(f"Failed to set MILO_MODE: {stderr1.decode()}")
 
-                if proc2.returncode != 0:
-                    raise RuntimeError(f"Failed to set MILO_EQUALIZER: {stderr2.decode()}")
+                    proc2 = await asyncio.create_subprocess_exec(
+                        "sudo", "systemctl", "set-environment", f"MILO_EQUALIZER={equalizer_value}",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout2, stderr2 = await proc2.communicate()
 
-            # Mise à jour locale seulement si sudo a réussi
-            os.environ["MILO_MODE"] = mode_value
-            os.environ["MILO_EQUALIZER"] = equalizer_value
+                    if proc2.returncode != 0:
+                        raise RuntimeError(f"Failed to set MILO_EQUALIZER: {stderr2.decode()}")
 
-            self.logger.info(f"Updated ALSA environment: MODE={mode_value}, EQUALIZER={equalizer_value}")
+                # Mise à jour locale seulement si sudo a réussi
+                os.environ["MILO_MODE"] = mode_value
+                os.environ["MILO_EQUALIZER"] = equalizer_value
 
-        except asyncio.TimeoutError:
-            self.logger.error("Timeout updating systemd environment after 5 seconds")
-            raise RuntimeError("Systemd environment update timeout")
-        except ValueError as e:
-            self.logger.error(f"Validation error: {e}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Error updating environment: {e}")
-            raise
+                self.logger.info(f"Updated ALSA environment: MODE={mode_value}, EQUALIZER={equalizer_value}")
+                return  # Succès, sortir
+
+            except asyncio.TimeoutError:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    self.logger.warning(f"Systemd timeout (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
+                    await asyncio.sleep(delay)
+                else:
+                    self.logger.error("Systemd timeout after all retries")
+                    raise RuntimeError("Systemd environment update timeout after retries")
+
+            except RuntimeError as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    self.logger.warning(f"Systemd error (attempt {attempt + 1}/{max_retries}): {e}, retrying in {delay}s...")
+                    await asyncio.sleep(delay)
+                else:
+                    self.logger.error(f"Systemd error after all retries: {e}")
+                    raise
+
+            except ValueError as e:
+                # Validation error - pas de retry
+                self.logger.error(f"Validation error: {e}")
+                raise
     
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
         """Transition vers le mode multiroom"""

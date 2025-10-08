@@ -186,27 +186,8 @@ class Container(containers.DeclarativeContainer):
                     logger.critical("Critical service %s failed to initialize", service_name)
                     raise results[i]
 
-        # TOUJOURS créer une task pour garantir l'attente dans main.py
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Dans le contexte FastAPI, créer une task et l'attendre
-                task = asyncio.create_task(init_async())
-                container._init_task = task
-            else:
-                # Pas de loop running: exécuter immédiatement et marquer comme complété
-                loop.run_until_complete(init_async())
-                # Créer une task déjà complétée pour compatibilité avec main.py
-                async def completed():
-                    pass
-                container._init_task = asyncio.create_task(completed())
-        except RuntimeError:
-            # Fallback : créer une task ET la stocker pour garantir attente
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning("No event loop during initialization, creating task")
-            task = asyncio.create_task(init_async())
-            container._init_task = task
+        # Créer la task d'initialisation (sera attendue dans main.py lifespan)
+        container._init_task = asyncio.create_task(init_async())
 
 # Création et configuration du conteneur
 container = Container()

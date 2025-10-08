@@ -19,11 +19,12 @@ class UnifiedAudioStateMachine:
         self.websocket_handler = websocket_handler
         self.system_state = SystemAudioState()
         self.plugins: Dict[AudioSource, Optional[AudioSourcePlugin]] = {
-            source: None for source in AudioSource 
+            source: None for source in AudioSource
             if source not in (AudioSource.NONE,)
         }
         self.logger = logging.getLogger(__name__)
         self._transition_lock = asyncio.Lock()
+        self._state_lock = asyncio.Lock()  # Lock pour protéger system_state
 
     
     def _sync_routing_state(self) -> None:
@@ -159,7 +160,7 @@ class UnifiedAudioStateMachine:
     
     async def update_plugin_state(self, source: AudioSource, new_state: PluginState,
                                metadata: Optional[Dict[str, Any]] = None) -> None:
-        """Met à jour l'état d'un plugin"""
+        """Met à jour l'état d'un plugin avec protection thread-safe"""
         if source != self.system_state.active_source:
             self.logger.warning("Ignoring state update from inactive source: %s", source.value)
             return
@@ -172,18 +173,19 @@ class UnifiedAudioStateMachine:
                 new_state.value
             )
             return
-        
-        old_state = self.system_state.plugin_state
-        self.system_state.plugin_state = new_state
-        
-        if metadata:
-            self.system_state.metadata.update(metadata)
-        
-        if new_state == PluginState.ERROR:
-            self.system_state.error = metadata.get("error") if metadata else "Unknown error"
-        else:
-            self.system_state.error = None
-        
+
+        async with self._state_lock:
+            old_state = self.system_state.plugin_state
+            self.system_state.plugin_state = new_state
+
+            if metadata:
+                self.system_state.metadata.update(metadata)
+
+            if new_state == PluginState.ERROR:
+                self.system_state.error = metadata.get("error") if metadata else "Unknown error"
+            else:
+                self.system_state.error = None
+
         await self._broadcast_event("plugin", "state_changed", {
             "source": source.value,
             "old_state": old_state.value,
@@ -278,11 +280,14 @@ class UnifiedAudioStateMachine:
         await self._broadcast_event(category, event_type, data)
     
     async def _broadcast_event(self, category: str, event_type: str, data: Dict[str, Any]) -> None:
-        """Publie un événement directement au WebSocket"""
+        """Publie un événement directement au WebSocket avec lecture thread-safe"""
         if not self.websocket_handler:
             return
 
-        current_state = self.system_state.to_dict()
+        # Lecture thread-safe de l'état
+        async with self._state_lock:
+            current_state = self.system_state.to_dict()
+
         self.logger.debug(
             "BROADCAST: %s/%s | active_source:%s, plugin_state:%s, transitioning:%s, target_source:%s",
             category,
@@ -292,13 +297,13 @@ class UnifiedAudioStateMachine:
             current_state['transitioning'],
             current_state.get('target_source')
         )
-        
+
         event_data = {
             "category": category,
             "type": event_type,
             "source": data.get("source", category),
-            "data": {**data, "full_state": self.system_state.to_dict()},
+            "data": {**data, "full_state": current_state},
             "timestamp": time.time()
         }
-        
+
         await self.websocket_handler.handle_event(event_data)

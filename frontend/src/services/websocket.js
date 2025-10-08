@@ -14,6 +14,7 @@ class WebSocketSingleton {
     this.visibilityHandler = null;
     this.lastPingTime = Date.now();
     this.pingCheckInterval = null;
+    this.reconnectCallbacks = new Set();
   }
 
   addSubscriber(subscriberId) {
@@ -55,11 +56,19 @@ class WebSocketSingleton {
     this.socket = new WebSocket(wsUrl);
     
     this.socket.onopen = () => {
+      const wasReconnecting = this.isConnected.value === false;
       this.isConnected.value = true;
       this.lastPingTime = Date.now();
       this.setupVisibilityListener();
       this.startPingCheck();
-      console.log('WebSocket connected successfully');
+
+      if (wasReconnecting) {
+        console.log('WebSocket reconnected - full state sync incoming');
+        // Notifier les subscribers qu'une reconnexion a eu lieu
+        this.notifyReconnect();
+      } else {
+        console.log('WebSocket connected successfully');
+      }
     };
     
     this.socket.onmessage = (event) => {
@@ -159,6 +168,23 @@ class WebSocketSingleton {
     }
   }
 
+  notifyReconnect() {
+    this.reconnectCallbacks.forEach(callback => {
+      try {
+        callback();
+      } catch (error) {
+        console.error('Reconnect callback error:', error);
+      }
+    });
+  }
+
+  onReconnect(callback) {
+    this.reconnectCallbacks.add(callback);
+    return () => {
+      this.reconnectCallbacks.delete(callback);
+    };
+  }
+
   handleMessage(message) {
     // Détecter les pings
     if (message.category === 'system' && message.type === 'ping') {
@@ -231,9 +257,16 @@ export default function useWebSocket() {
     return cleanup;
   }
 
+  function onReconnect(callback) {
+    const cleanup = wsInstance.onReconnect(callback);
+    cleanupFunctions.push(cleanup);
+    return cleanup;
+  }
+
   return {
     isConnected: computed(() => wsInstance.isConnected.value),
-    on
+    on,
+    onReconnect
   };
 }
 
