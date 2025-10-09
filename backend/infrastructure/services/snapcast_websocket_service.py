@@ -41,7 +41,7 @@ class SnapcastWebSocketService:
             # Vérifier l'état initial du multiroom
             if self.routing_service:
                 routing_state = self.routing_service.get_state()
-                self.should_connect = routing_state.multiroom_enabled
+                self.should_connect = routing_state.get('multiroom_enabled', False)
                 
                 if self.should_connect:
                     self.logger.info("Multiroom already enabled, starting WebSocket connection")

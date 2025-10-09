@@ -433,7 +433,7 @@ class VolumeService:
             if not self.state_machine or not hasattr(self.state_machine, 'routing_service'):
                 return False
             routing_state = self.state_machine.routing_service.get_state()
-            return routing_state.multiroom_enabled
+            return routing_state.get('multiroom_enabled', False)
         except Exception:
             return False
     

@@ -16,7 +16,7 @@ def create_routing_router(routing_service, state_machine):
         snapcast_status = await routing_service.get_snapcast_status()
         
         return {
-            "routing": routing_state.to_dict(),
+            "routing": routing_state,
             "snapcast": snapcast_status
         }
     
@@ -99,7 +99,7 @@ def create_routing_router(routing_service, state_machine):
         """Récupère l'état actuel du multiroom"""
         routing_state = routing_service.get_state()
         return {
-            "multiroom_enabled": routing_state.multiroom_enabled
+            "multiroom_enabled": routing_state.get('multiroom_enabled', False)
         }
     
     @router.get("/equalizer/status")
@@ -107,7 +107,7 @@ def create_routing_router(routing_service, state_machine):
         """Récupère l'état actuel de l'equalizer"""
         routing_state = routing_service.get_state()
         return {
-            "equalizer_enabled": routing_state.equalizer_enabled
+            "equalizer_enabled": routing_state.get('equalizer_enabled', False)
         }
     
     return router

@@ -61,7 +61,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
             return {
                 "available": available,
                 "client_count": len(clients),
-                "multiroom_active": routing_state.multiroom_enabled
+                "multiroom_active": routing_state.get('multiroom_enabled', False)
             }
         except Exception as e:
             return {"available": False, "error": str(e)}
@@ -71,7 +71,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
         """Récupère les clients Snapcast avec volumes convertis"""
         try:
             routing_state = routing_service.get_state()
-            if not routing_state.multiroom_enabled:
+            if not routing_state.get('multiroom_enabled', False):
                 return {"clients": [], "message": "Multiroom not active"}
             
             alsa_clients = await snapcast_service.get_clients()
@@ -144,9 +144,9 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
         """Récupère les informations de monitoring Snapcast"""
         try:
             routing_state = routing_service.get_state()
-            if not routing_state.multiroom_enabled:
+            if not routing_state.get('multiroom_enabled', False):
                 return {
-                    "available": False, 
+                    "available": False,
                     "message": "Multiroom not active",
                     "clients": [],
                     "server_config": {}
