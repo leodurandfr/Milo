@@ -65,7 +65,7 @@ const props = defineProps({
     required: true
   },
   deviceName: {
-    type: String,
+    type: [String, Array],  // Support string ou array pour ROC multi-clients
     default: ''
   },
   isDisconnecting: {
@@ -77,12 +77,27 @@ const props = defineProps({
 // Émissions
 const emit = defineEmits(['disconnect']);
 
-// === FONCTION UTILITAIRE ===
+// === FONCTIONS UTILITAIRES ===
 function cleanDeviceName(deviceName) {
   if (!deviceName) return '';
   return deviceName
     .replace('.local', '')
     .replace(/-/g, ' ');
+}
+
+// Formatte deviceName qui peut être string ou array
+function formatDeviceNames(deviceName) {
+  if (!deviceName) return '';
+
+  // Si c'est un array (ROC multi-clients)
+  if (Array.isArray(deviceName)) {
+    if (deviceName.length === 0) return '';
+    // Joindre avec \n pour saut de ligne (nécessite white-space: pre-line en CSS)
+    return deviceName.map(name => cleanDeviceName(name)).join('\n');
+  }
+
+  // Si c'est un string (cas normal)
+  return cleanDeviceName(deviceName);
 }
 
 // === COMPUTED POUR LE CONTENU AFFICHÉ ===
@@ -125,15 +140,15 @@ const displayedStatusLines = computed(() => {
 
   // État connected : messages avec nom d'appareil
   if (props.pluginState === 'connected' && props.deviceName) {
-    const cleanedDeviceName = cleanDeviceName(props.deviceName);
+    const formattedDeviceNames = formatDeviceNames(props.deviceName);
 
     switch (props.pluginType) {
       case 'bluetooth':
-        return [t('status.connectedTo'), cleanedDeviceName];
+        return [t('status.connectedTo'), formattedDeviceNames];
       case 'roc':
-        return [t('status.connectedToMac'), cleanedDeviceName];
+        return [t('status.connectedToMac'), formattedDeviceNames];
       default:
-        return [t('status.connectedTo'), props.deviceName];
+        return [t('status.connectedTo'), formattedDeviceNames];
     }
   }
 
@@ -255,6 +270,11 @@ function handleDisconnect() {
 .status-line-1 h2,
 .status-line-2 h2 {
   color: var(--color-text);
+}
+
+/* Support des sauts de ligne pour multi-clients ROC */
+.status-line-2 h2 {
+  white-space: pre-line;
 }
 
 /* États spéciaux ligne 1 */

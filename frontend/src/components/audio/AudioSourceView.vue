@@ -127,12 +127,13 @@ const currentPluginState = computed(() => {
 
 const currentDeviceName = computed(() => {
   const metadata = props.metadata || {};
-  
+
   switch (displayedSource.value) {
     case 'bluetooth':
       return metadata.device_name || '';
     case 'roc':
-      return metadata.client_name || '';
+      // Support pour plusieurs clients : retourner l'array ou un string unique
+      return metadata.client_names || metadata.client_name || [];
     default:
       return '';
   }

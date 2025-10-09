@@ -1,10 +1,10 @@
 # backend/infrastructure/plugins/roc/plugin.py
 """
-Plugin ROC pour Milo - Version avec support IPv4/IPv6, mDNS robuste et sniffer RTCP
+Plugin ROC pour Milo - Support multi-clients avec IPv4/IPv6 et mDNS
+Gère plusieurs Mac connectés simultanément en trackant leurs IPs et noms via les logs ROC.
 """
 import asyncio
 import re
-import socket
 import ipaddress
 from typing import Dict, Any, Tuple, Optional
 
@@ -47,43 +47,16 @@ def _normalize_ip_for_storage(ip: Optional[str]) -> Optional[str]:
     return ip.strip('[]')
 
 
-# ------------ Sniffer RTCP (optionnel, partage le port avec ROC) -----------------
-
-class _RtcpSniffer(asyncio.DatagramProtocol):
-    """
-    Petit sniffer RTCP pour obtenir l'IP/port du pair, IPv4/IPv6.
-    Utilisé en parallèle (SO_REUSEPORT) sur le port RTCP du receiver.
-    """
-    def __init__(self, on_peer, logger):
-        self.on_peer = on_peer
-        self.logger = logger
-
-    def datagram_received(self, data, addr):
-        # addr:
-        #   IPv4 -> (ip, port)
-        #   IPv6 -> (ip, port, flowinfo, scopeid)
-        try:
-            if len(addr) == 2:
-                ip, port = addr
-                scope = None
-            else:
-                ip, port, _flow, scopeid = addr
-                try:
-                    scope = socket.if_indextoname(scopeid)
-                except Exception:
-                    scope = None
-
-            # Ajouter %scope pour IPv6 link-local si kernel nous donne scopeid
-            if scope and '%' not in ip and ':' in ip:
-                ip = f"{ip}%{scope}"
-
-            self.on_peer(_normalize_ip_for_storage(ip), port)
-        except Exception as e:
-            self.logger.debug(f"rtcp sniffer parse error: {e}")
-
-
 class RocPlugin(UnifiedAudioPlugin):
-    """Plugin ROC avec surveillance log + sniffer RTCP + résolution mDNS IPv4/IPv6"""
+    """
+    Plugin ROC avec support multi-clients simultanés.
+
+    Features:
+    - Tracking de plusieurs Mac connectés via dict {ip: display_name}
+    - Surveillance des logs (journalctl) pour détection connexion/déconnexion avec IPs
+    - Résolution mDNS (avahi-resolve) pour obtenir les noms des Mac
+    - Support IPv4/IPv6 (incluant link-local avec %scope)
+    """
 
     def __init__(self, config: Dict[str, Any], state_machine=None):
         super().__init__("roc", state_machine)
@@ -100,15 +73,11 @@ class RocPlugin(UnifiedAudioPlugin):
         # Exemple: "wlan0" ou "eth0" — aide la résolution mDNS si pas de %scope
         self.network_interface = config.get("network_interface")
 
-        # État
-        self.has_connections = False
-        self.connected_ip: Optional[str] = None
+        # État - Tracking de plusieurs clients connectés
+        self.connected_clients: Dict[str, str] = {}  # {ip: display_name}
         self.monitor_task: Optional[asyncio.Task] = None
         self._stopping = False
         self._current_device = "milo_roc"
-
-        # Sniffer RTCP (transport/protocol)
-        self._rtcp_sniffer = None
 
     async def _do_initialize(self) -> bool:
         """Initialisation du plugin ROC"""
@@ -143,13 +112,6 @@ class RocPlugin(UnifiedAudioPlugin):
                     self._stopping = False
                     self.monitor_task = asyncio.create_task(self._monitor_events())
 
-                    # Démarrer le sniffer RTCP (fiabilise l'IP/IPv6)
-                    try:
-                        self._rtcp_sniffer = await self._start_rtcp_sniffer()
-                        self.logger.info("RTCP sniffer démarré (SO_REUSEPORT)")
-                    except Exception as e:
-                        self.logger.warning(f"RTCP sniffer non démarré: {e}")
-
                     await self.notify_state_change(PluginState.READY, {
                         "listening": True,
                         "rtp_port": self.rtp_port,
@@ -173,22 +135,11 @@ class RocPlugin(UnifiedAudioPlugin):
             self.monitor_task.cancel()
             self.monitor_task = None
 
-        # Arrêter le sniffer RTCP
-        if getattr(self, "_rtcp_sniffer", None):
-            transport = self._rtcp_sniffer.get("transport")
-            if transport:
-                try:
-                    transport.close()
-                except Exception:
-                    pass
-            self._rtcp_sniffer = None
-
-        # Arrêter le service (sans vérification complexe)
+        # Arrêter le service
         success = await self.control_service(self.service_name, "stop")
 
         # Reset état
-        self.has_connections = False
-        self.connected_ip = None
+        self.connected_clients.clear()
         await self.notify_state_change(PluginState.INACTIVE)
 
         self.logger.info(f"Arrêt ROC terminé: {success}")
@@ -207,42 +158,6 @@ class RocPlugin(UnifiedAudioPlugin):
         except Exception as e:
             self.logger.error(f"Error changing ROC device: {e}")
             return False
-
-    async def _start_rtcp_sniffer(self):
-        """
-        Démarre un listener UDP partagé sur le port RTCP, dual-stack si possible.
-        """
-        loop = asyncio.get_running_loop()
-
-        # Essai dual-stack sur '::' (sur beaucoup de kernels, ça accepte IPv4/IPv6)
-        # On active reuse_port pour partager le port avec roc-toolkit.
-        try:
-            transport, protocol = await loop.create_datagram_endpoint(
-                lambda: _RtcpSniffer(self._on_rtcp_peer, self.logger),
-                local_addr=('::', self.rtcp_port),
-                reuse_port=True
-            )
-            return {"transport": transport, "protocol": protocol}
-        except Exception:
-            # Fallback IPv4 seulement
-            transport, protocol = await loop.create_datagram_endpoint(
-                lambda: _RtcpSniffer(self._on_rtcp_peer, self.logger),
-                local_addr=('0.0.0.0', self.rtcp_port),
-                reuse_port=True
-            )
-            return {"transport": transport, "protocol": protocol}
-
-    def _on_rtcp_peer(self, ip: Optional[str], port: int):
-        """
-        Callback du sniffer RTCP : met à jour l'IP connectée et déclenche un update.
-        """
-        if not ip:
-            return
-        if not self.has_connections:
-            self.has_connections = True
-        if ip != self.connected_ip:
-            self.connected_ip = ip
-            asyncio.create_task(self._update_state())
 
     async def _monitor_events(self):
         """Surveillance événementielle pure avec journalctl -f"""
@@ -285,85 +200,7 @@ class RocPlugin(UnifiedAudioPlugin):
                     pass  # Le processus est déjà terminé
 
     async def _check_initial_state(self):
-        """Vérifie l'état initial rapidement"""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "journalctl", "-u", self.service_name, "-n", "50", "--no-pager",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await proc.communicate()
-
-            if proc.returncode == 0:
-                lines = stdout.decode().split('\n')
-
-                # Chercher les connexions récentes
-                for line in reversed(lines):  # Plus récent en premier
-                    if line.strip():
-                        await self._process_log_line(line)
-
-                # Si on a trouvé une activité, vérifier qu'il n'y a pas de déconnexion après
-                if self.has_connections:
-                    for line in lines:  # Dans l'ordre chronologique
-                        if ("removing session" in line) or ("session router: removing route" in line):
-                            self.logger.info("Déconnexion détectée dans l'état initial")
-                            self.has_connections = False
-                            self.connected_ip = None
-                            break
-
-        except Exception as e:
-            self.logger.error(f"Erreur état initial: {e}")
-
-    async def _process_log_line(self, line: str):
-        """Traite une ligne de log - Détection connexion ET déconnexion"""
-        try:
-            # DÉCONNEXION - Patterns spécifiques de ROC (priorité)
-            disconnection_patterns = [
-                r"session group: removing session",
-                r"session router: removing route",
-                r"rtcp reporter: removing address"
-            ]
-
-            for pattern in disconnection_patterns:
-                if re.search(pattern, line):
-                    if self.has_connections:
-                        self.logger.info(f"DÉCONNEXION détectée via log: {pattern}")
-                        self.has_connections = False
-                        self.connected_ip = None
-                        await self._update_state()
-                    return  # Important: sortir après détection
-
-            # CONNEXION - Patterns d'activité
-            activity_patterns = [
-                r"depacketizer.*got first packet",
-                r"delayed reader.*queue.*packets=",
-                r"fec reader.*update",
-                r"udp port.*recv=\d+.*send=\d+",
-                r"session group: creating session",   # Nouvelle connexion explicite
-                r"creating.*route.*address="          # Nouvelle route
-            ]
-
-            for pattern in activity_patterns:
-                if re.search(pattern, line):
-                    if not self.has_connections:
-                        self.logger.info(f"CONNEXION détectée via log: {pattern}")
-                        self.has_connections = True
-
-                        # Essayer d'extraire IP/Port (IPv4/IPv6)
-                        ip, _ = _parse_ip_from_line(line)
-                        if ip:
-                            self.connected_ip = _normalize_ip_for_storage(ip)
-                            self.logger.info(f"IP trouvée dans la ligne: {self.connected_ip}")
-                        elif not self.connected_ip:
-                            await self._find_connection_ip()
-
-                        await self._update_state()
-                    return  # Important: sortir après détection
-
-        except Exception as e:
-            self.logger.error(f"Erreur process line: {e}")
-
-    async def _find_connection_ip(self):
-        """Trouve l'IP de connexion dans les logs récents (IPv4/IPv6)"""
+        """Vérifie l'état initial en analysant les derniers logs"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "journalctl", "-u", self.service_name, "-n", "100", "--no-pager",
@@ -372,16 +209,71 @@ class RocPlugin(UnifiedAudioPlugin):
             stdout, _ = await proc.communicate()
 
             if proc.returncode == 0:
-                logs = stdout.decode()
-                m = _IP_PORT_RE.search(logs)
-                if m:
-                    ip = m.group('ip6') or m.group('ip4')
-                    if ip:
-                        self.connected_ip = _normalize_ip_for_storage(ip)
-                        self.logger.info(f"IP trouvée: {self.connected_ip}")
+                lines = stdout.decode().split('\n')
+                # Traiter tous les logs dans l'ordre chronologique
+                for line in lines:
+                    if line.strip():
+                        await self._process_log_line(line)
 
         except Exception as e:
-            self.logger.error(f"Erreur recherche IP: {e}")
+            self.logger.error(f"Erreur état initial: {e}")
+
+    async def _process_log_line(self, line: str):
+        """Traite une ligne de log - Détection connexion ET déconnexion avec IP"""
+        try:
+            # DÉCONNEXION - Extraire l'IP depuis les logs de déconnexion
+            # Pattern: "session router: removing route: ... address=192.168.1.172:54421"
+            # Pattern: "rtcp reporter: removing address: remote_addr=192.168.1.172:54421"
+            if "removing route" in line or "removing address" in line:
+                ip, _ = _parse_ip_from_line(line)
+                if ip:
+                    ip = _normalize_ip_for_storage(ip)
+                    if ip in self.connected_clients:
+                        client_name = self.connected_clients[ip]
+                        self.logger.info(f"DÉCONNEXION détectée: {client_name} ({ip})")
+                        del self.connected_clients[ip]
+                        await self._update_state()
+                else:
+                    # Si on ne trouve pas l'IP, on log un warning
+                    self.logger.warning(f"Déconnexion détectée sans IP: {line[:100]}")
+                return
+
+            # CONNEXION - Pattern: "session group: creating session"
+            if "session group: creating session" in line:
+                # Chercher l'IP dans cette ligne ou les suivantes
+                ip, _ = _parse_ip_from_line(line)
+                if ip:
+                    ip = _normalize_ip_for_storage(ip)
+                    if ip not in self.connected_clients:
+                        self.logger.info(f"CONNEXION détectée: {ip}")
+                        await self._add_client(ip)
+                return
+
+            # CONNEXION via route - Pattern: "creating.*route.*address="
+            if "creating" in line and "route" in line and "address=" in line:
+                ip, _ = _parse_ip_from_line(line)
+                if ip:
+                    ip = _normalize_ip_for_storage(ip)
+                    if ip not in self.connected_clients:
+                        self.logger.info(f"CONNEXION détectée (route): {ip}")
+                        await self._add_client(ip)
+                return
+
+        except Exception as e:
+            self.logger.error(f"Erreur process line: {e}")
+
+    async def _add_client(self, ip: str):
+        """Ajoute un nouveau client au tracking et résout son nom"""
+        if ip in self.connected_clients:
+            return
+
+        # Résoudre le hostname
+        display_name = await self._resolve_hostname(ip)
+        self.connected_clients[ip] = display_name
+        self.logger.info(f"Client ajouté: {display_name} ({ip})")
+
+        # Mettre à jour l'état
+        await self._update_state()
 
     async def _resolve_hostname(self, ip: str) -> str:
         """
@@ -435,40 +327,43 @@ class RocPlugin(UnifiedAudioPlugin):
         return ip
 
     async def _update_state(self):
-        """Met à jour l'état"""
-        if self.has_connections:
-            display_name = await self._resolve_hostname(self.connected_ip)
+        """Met à jour l'état avec la liste des clients connectés"""
+        if self.connected_clients:
+            # Liste des noms de clients
+            client_names = list(self.connected_clients.values())
 
             await self.notify_state_change(PluginState.CONNECTED, {
                 "listening": True,
                 "rtp_port": self.rtp_port,
                 "audio_output": self.audio_output,
                 "connected": True,
-                "client_ip": self.connected_ip,
-                "client_name": display_name
+                "client_names": client_names,  # Liste des noms
+                "client_count": len(client_names)
             })
         else:
             await self.notify_state_change(PluginState.READY, {
                 "listening": True,
                 "rtp_port": self.rtp_port,
                 "audio_output": self.audio_output,
-                "connected": False
+                "connected": False,
+                "client_names": [],
+                "client_count": 0
             })
 
     async def get_status(self) -> Dict[str, Any]:
-        """État actuel"""
+        """État actuel avec liste des clients connectés"""
         try:
             service_status = await self.service_manager.get_status(self.service_name)
-            client_name = await self._resolve_hostname(self.connected_ip) if self.connected_ip else None
+            client_names = list(self.connected_clients.values())
 
             return {
                 "service_active": service_status.get("active", False),
                 "listening": service_status.get("active", False),
                 "rtp_port": self.rtp_port,
                 "audio_output": self.audio_output,
-                "connected": self.has_connections,
-                "client_ip": self.connected_ip,
-                "client_name": client_name,
+                "connected": len(self.connected_clients) > 0,
+                "client_names": client_names,
+                "client_count": len(client_names),
                 "current_device": self._current_device
             }
         except Exception as e:
@@ -488,24 +383,8 @@ class RocPlugin(UnifiedAudioPlugin):
                         except asyncio.CancelledError:
                             pass
 
-                    # Redémarrer le sniffer RTCP
-                    if getattr(self, "_rtcp_sniffer", None):
-                        transport = self._rtcp_sniffer.get("transport")
-                        if transport:
-                            try:
-                                transport.close()
-                            except Exception:
-                                pass
-                        self._rtcp_sniffer = None
-
                     await asyncio.sleep(1)
                     self.monitor_task = asyncio.create_task(self._monitor_events())
-
-                    try:
-                        self._rtcp_sniffer = await self._start_rtcp_sniffer()
-                        self.logger.info("RTCP sniffer redémarré")
-                    except Exception as e:
-                        self.logger.warning(f"RTCP sniffer non redémarré: {e}")
 
                 return format_response(success, "Redémarré" if success else "Échec")
 
