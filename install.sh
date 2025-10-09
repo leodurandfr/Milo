@@ -1099,6 +1099,12 @@ configure_cage_kiosk() {
 # Wait for services to be ready
 sleep 8
 
+# Hide cursor using transparent cursor theme
+export XCURSOR_THEME=transparent-cursor
+export XCURSOR_SIZE=24
+export WLR_XCURSOR_THEME=transparent-cursor
+export WLR_XCURSOR_SIZE=24
+
 # Launch Cage with Chromium in kiosk mode
 exec cage -- /usr/bin/chromium-browser \
   --kiosk \
@@ -1120,7 +1126,6 @@ exec cage -- /usr/bin/chromium-browser \
   --start-fullscreen \
   --no-sandbox \
   --disable-dev-shm-usage \
-  --hide-cursor \
   --touch-events=enabled \
   --enable-features=TouchpadAndWheelScrollLatching \
   --force-device-scale-factor=1 \
@@ -1151,6 +1156,51 @@ EOF
    sudo systemctl disable lightdm.service || true
 
    log_success "Cage kiosk configuré - démarrage direct sans bureau Linux"
+}
+
+install_transparent_cursor() {
+   log_info "Installation du thème de curseur transparent..."
+
+   # Clone transparent cursor theme repository
+   local temp_dir=$(mktemp -d)
+   cd "$temp_dir"
+
+   git clone https://github.com/johnodon/Transparent_Cursor_Theme.git
+
+   # Create user cursor theme directory
+   sudo -u "$MILO_USER" mkdir -p "$MILO_HOME/.icons/transparent-cursor"
+
+   # Copy cursor files to user directory
+   sudo -u "$MILO_USER" cp -r Transparent_Cursor_Theme/Transparent/cursors "$MILO_HOME/.icons/transparent-cursor/"
+
+   # Create index.theme file
+   sudo -u "$MILO_USER" tee "$MILO_HOME/.icons/transparent-cursor/index.theme" > /dev/null << 'EOF'
+[Icon Theme]
+Name=transparent-cursor
+Comment=Invisible cursor for Milo kiosk
+EOF
+
+   cd ~
+   rm -rf "$temp_dir"
+
+   # Backup and replace system cursors
+   log_info "Remplacement des curseurs système..."
+
+   # Backup PiXflat cursors if not already backed up
+   if [[ -d /usr/share/icons/PiXflat/cursors ]] && [[ ! -d /usr/share/icons/PiXflat/cursors.backup ]]; then
+       sudo mv /usr/share/icons/PiXflat/cursors /usr/share/icons/PiXflat/cursors.backup
+   fi
+
+   # Backup Adwaita cursors if not already backed up
+   if [[ -d /usr/share/icons/Adwaita/cursors ]] && [[ ! -d /usr/share/icons/Adwaita/cursors.backup ]]; then
+       sudo mv /usr/share/icons/Adwaita/cursors /usr/share/icons/Adwaita/cursors.backup
+   fi
+
+   # Replace with transparent cursors
+   sudo cp -r "$MILO_HOME/.icons/transparent-cursor/cursors" /usr/share/icons/PiXflat/cursors
+   sudo cp -r "$MILO_HOME/.icons/transparent-cursor/cursors" /usr/share/icons/Adwaita/cursors
+
+   log_success "Curseur transparent installé et configuré"
 }
 
 configure_plymouth_splash() {
@@ -1379,7 +1429,17 @@ uninstall_milo() {
    log_info "Suppression de l'application..."
    sudo rm -rf "$MILO_APP_DIR"
    sudo rm -rf "$MILO_DATA_DIR"
-   
+
+   log_info "Restauration des curseurs système..."
+   if [[ -d /usr/share/icons/PiXflat/cursors.backup ]]; then
+       sudo rm -rf /usr/share/icons/PiXflat/cursors
+       sudo mv /usr/share/icons/PiXflat/cursors.backup /usr/share/icons/PiXflat/cursors
+   fi
+   if [[ -d /usr/share/icons/Adwaita/cursors.backup ]]; then
+       sudo rm -rf /usr/share/icons/Adwaita/cursors
+       sudo mv /usr/share/icons/Adwaita/cursors.backup /usr/share/icons/Adwaita/cursors
+   fi
+
    log_info "Suppression des binaires..."
    sudo rm -f /usr/local/bin/go-librespot
    sudo rm -f /usr/local/bin/milo-brightness-7
@@ -1461,6 +1521,7 @@ main() {
    configure_avahi
    configure_nginx
    configure_cage_kiosk
+   install_transparent_cursor
    configure_plymouth_splash
    configure_silent_login
 
