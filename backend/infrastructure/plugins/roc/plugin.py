@@ -159,6 +159,58 @@ class RocPlugin(UnifiedAudioPlugin):
             self.logger.error(f"Error changing ROC device: {e}")
             return False
 
+    async def _detect_active_connections(self):
+        """
+        Détecte les connexions actives via tcpdump si Mac déjà connecté avant démarrage ROC.
+        Capture brièvement les paquets sur les ports ROC pour extraire les IPs sources.
+        """
+        try:
+            self.logger.info("Lancement tcpdump pour détecter connexions actives...")
+
+            # Lancer tcpdump : capture max 15 paquets ou timeout 3s
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "tcpdump",
+                "-i", "any",           # Toutes les interfaces
+                "-n",                  # Pas de résolution DNS
+                "-l",                  # Line buffered
+                "-c", "15",            # Max 15 paquets
+                f"udp and (port {self.rtp_port} or port {self.rs8m_port} or port {self.rtcp_port})",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+
+            # Timeout de 3 secondes max
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return
+
+            output = stdout.decode('utf-8', errors='ignore')
+
+            # Parser les IPs sources (IPv4 et IPv6)
+            # Format: "21:47:59.614123 IP 192.168.1.172.54421 > ..."
+            # Format IPv6: "21:47:59.614123 IP6 fe80::1.54421 > ..."
+            ip_pattern = re.compile(r'IP6?\s+([0-9a-fA-F:.]+)\.\d+\s+>')
+
+            detected_ips = set()
+            for line in output.split('\n'):
+                match = ip_pattern.search(line)
+                if match:
+                    ip = match.group(1)
+                    detected_ips.add(ip)
+
+            if detected_ips:
+                self.logger.info(f"Connexions actives détectées via tcpdump: {detected_ips}")
+                for ip in detected_ips:
+                    await self._add_client(ip)
+            else:
+                self.logger.info("Aucune connexion active détectée via tcpdump")
+
+        except Exception as e:
+            self.logger.warning(f"Erreur détection tcpdump (non-bloquant): {e}")
+
     async def _monitor_events(self):
         """Surveillance événementielle pure avec journalctl -f"""
         proc = None
@@ -214,6 +266,12 @@ class RocPlugin(UnifiedAudioPlugin):
                 for line in lines:
                     if line.strip():
                         await self._process_log_line(line)
+
+            # Si aucune connexion trouvée dans les logs, utiliser tcpdump
+            # pour détecter les Mac déjà connectés (cas où Mac connecté avant démarrage ROC)
+            if not self.connected_clients:
+                self.logger.info("Aucune connexion dans les logs, recherche active avec tcpdump...")
+                await self._detect_active_connections()
 
         except Exception as e:
             self.logger.error(f"Erreur état initial: {e}")
