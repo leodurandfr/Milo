@@ -37,7 +37,7 @@
         <button
           v-for="({ id, icon }, index) in dockApps"
           :key="`mobile-${id}`"
-          :ref="el => { if (ALL_AUDIO_SOURCES.includes(id)) dockItems[index] = el }"
+          :ref="el => { if (el) mobileDockItems[index] = el }"
           @click="() => handleAppClick(id, index)"
           @touchstart="addPressEffect"
           @mousedown="addPressEffect"
@@ -51,7 +51,7 @@
         <button
           v-for="({ id, icon }, index) in enabledAudioPlugins"
           :key="`desktop-audio-${id}`"
-          :ref="el => dockItems[index] = el"
+          :ref="el => { if (el) desktopDockItems[index] = el }"
           @click="() => handleAppClick(id, index)"
           @touchstart="addPressEffect"
           @mousedown="addPressEffect"
@@ -163,7 +163,8 @@ const dockContainer = ref(null);
 const dock = ref(null);
 const activeIndicator = ref(null);
 const additionalAppsContainer = ref(null);
-const dockItems = ref([]);
+const mobileDockItems = ref([]);
+const desktopDockItems = ref([]);
 
 // === ÉTAT GLOBAL ===
 const isVisible = ref(false);
@@ -197,9 +198,18 @@ let hideTimeout = null, additionalHideTimeout = null, clickTimeout = null, dragG
 // === COMPUTED ===
 const activeSourceIndex = computed(() => {
   // Sur desktop, chercher dans les audio plugins uniquement
-  // Sur mobile, chercher dans les dockApps (3 premières apps)
-  const sourceList = isDesktop() ? enabledAudioPlugins.value : dockApps.value;
-  return sourceList.findIndex(app => app.id === unifiedStore.currentSource);
+  // Sur mobile, chercher uniquement dans les sources audio visibles dans dockApps
+  if (isDesktop()) {
+    return enabledAudioPlugins.value.findIndex(app => app.id === unifiedStore.currentSource);
+  } else {
+    // En mobile: trouver l'index de la source active parmi TOUTES les apps du dock
+    // Mais seulement si c'est une source audio
+    const currentSource = unifiedStore.currentSource;
+    if (!ALL_AUDIO_SOURCES.includes(currentSource)) {
+      return -1; // Pas une source audio, pas d'indicateur
+    }
+    return dockApps.value.findIndex(app => app.id === currentSource);
+  }
 });
 
 const indicatorStyle = ref({
@@ -452,6 +462,8 @@ const handleAppClick = (appId, index) => {
 };
 
 // === INDICATEUR ACTIF ===
+const getDockItems = () => isDesktop() ? desktopDockItems.value : mobileDockItems.value;
+
 const updateActiveIndicator = () => {
   if (!isVisible.value || activeSourceIndex.value === -1) {
     indicatorStyle.value.opacity = '0';
@@ -459,7 +471,8 @@ const updateActiveIndicator = () => {
   }
 
   nextTick(() => {
-    const targetItem = dockItems.value[activeSourceIndex.value];
+    const items = getDockItems();
+    const targetItem = items[activeSourceIndex.value];
     if (!targetItem || !dock.value) return;
 
     const dockRect = dock.value.getBoundingClientRect();
@@ -481,7 +494,8 @@ const updateActiveIndicator = () => {
 const moveIndicatorTo = (index) => {
   if (!isVisible.value) return;
   nextTick(() => {
-    const targetItem = dockItems.value[index];
+    const items = getDockItems();
+    const targetItem = items[index];
     if (!targetItem || !dock.value) return;
     const dockRect = dock.value.getBoundingClientRect();
     const itemRect = targetItem.getBoundingClientRect();
