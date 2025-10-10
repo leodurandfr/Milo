@@ -28,8 +28,11 @@ class Container(containers.DeclarativeContainer):
     # Services centraux
     systemd_manager = providers.Singleton(SystemdServiceManager)
     snapcast_service = providers.Singleton(SnapcastService)
-    equalizer_service = providers.Singleton(EqualizerService)
     settings_service = providers.Singleton(SettingsService)
+    equalizer_service = providers.Singleton(
+        EqualizerService,
+        settings_service=settings_service
+    )
     
     # WebSocket
     websocket_manager = providers.Singleton(WebSocketManager)
@@ -45,10 +48,11 @@ class Container(containers.DeclarativeContainer):
         websocket_handler=websocket_event_handler
     )
     
-    # Service de routage audio avec SettingsService
+    # Service de routage audio avec SettingsService et EqualizerService
     audio_routing_service = providers.Singleton(
         AudioRoutingService,
-        settings_service=settings_service
+        settings_service=settings_service,
+        equalizer_service=equalizer_service
     )
     
     # Service WebSocket Snapcast

@@ -190,6 +190,12 @@ class SettingsService:
             'equalizer_enabled': bool(routing_input.get('equalizer_enabled', False))
         }
 
+        # Equalizer (saved_bands) - Préserver la section equalizer sans validation stricte
+        equalizer_input = settings.get('equalizer', {})
+        if equalizer_input:
+            # Préserver la section equalizer telle quelle (pas de validation stricte)
+            validated['equalizer'] = equalizer_input
+
         return validated
     
     def get_setting(self, key_path: str) -> Any:
@@ -210,23 +216,24 @@ class SettingsService:
         """Définit une setting et invalide le cache"""
         try:
             settings = self.load_settings()
-            
+
             keys = key_path.split('.')
             current = settings
             for key in keys[:-1]:
                 if key not in current:
                     current[key] = {}
                 current = current[key]
-            
+
             current[keys[-1]] = value
+
             success = self.save_settings(settings)
-            
+
             # Invalider le cache pour forcer un reload
             if success:
                 self._cache = None
-                
+
             return success
-            
+
         except Exception as e:
             self.logger.error(f"Error setting {key_path}: {e}")
             return False

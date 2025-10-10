@@ -24,8 +24,9 @@ class EqualizerService:
         {"id": "09", "freq": "16 kHz"}
     ]
     
-    def __init__(self):
+    def __init__(self, settings_service=None):
         self.logger = logging.getLogger(__name__)
+        self.settings_service = settings_service
     
     def _format_frequency_display(self, freq: str) -> str:
         """Formate les fréquences pour un affichage simplifié"""
@@ -160,6 +161,61 @@ class EqualizerService:
             await proc.communicate()
             return proc.returncode == 0
         except:
+            return False
+
+    async def save_current_bands(self) -> bool:
+        """Sauvegarde les valeurs actuelles de l'equalizer dans settings"""
+        try:
+            if not self.settings_service:
+                self.logger.error("SettingsService not available, cannot save bands")
+                return False
+
+            # Récupérer les valeurs actuelles
+            current_bands = await self.get_all_bands()
+            if not current_bands:
+                self.logger.warning("No bands to save")
+                return False
+
+            # Formater pour la sauvegarde (seulement id et value)
+            bands_to_save = [{"id": band["id"], "value": band["value"]} for band in current_bands]
+
+            # Sauvegarder dans settings
+            self.settings_service.set_setting('equalizer.saved_bands', bands_to_save)
+            self.logger.info(f"Saved {len(bands_to_save)} equalizer bands to settings")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error saving bands: {e}")
+            return False
+
+    async def restore_saved_bands(self) -> bool:
+        """Restaure les valeurs de l'equalizer depuis settings"""
+        try:
+            if not self.settings_service:
+                self.logger.error("SettingsService not available, cannot restore bands")
+                return False
+
+            # Récupérer les valeurs sauvegardées
+            saved_bands = self.settings_service.get_setting('equalizer.saved_bands')
+            if not saved_bands:
+                self.logger.info("No saved bands found, skipping restore")
+                return True  # Pas une erreur, juste rien à restaurer
+
+            # Restaurer chaque bande
+            success_count = 0
+            for band_data in saved_bands:
+                band_id = band_data.get("id")
+                value = band_data.get("value")
+
+                if band_id is not None and value is not None:
+                    if await self.set_band_value(band_id, value):
+                        success_count += 1
+
+            self.logger.info(f"Restored {success_count}/{len(saved_bands)} equalizer bands from settings")
+            return success_count == len(saved_bands)
+
+        except Exception as e:
+            self.logger.error(f"Error restoring bands: {e}")
             return False
     
     async def get_equalizer_status(self) -> Dict[str, Any]:

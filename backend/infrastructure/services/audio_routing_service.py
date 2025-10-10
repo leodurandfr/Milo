@@ -22,12 +22,13 @@ class AudioRoutingService:
     ALLOWED_MODES = frozenset(["direct", "multiroom"])
     ALLOWED_EQUALIZER = frozenset(["", "_eq"])
 
-    def __init__(self, get_plugin_callback: Optional[Callable] = None, settings_service=None):
+    def __init__(self, get_plugin_callback: Optional[Callable] = None, settings_service=None, equalizer_service=None):
         self.logger = logging.getLogger(__name__)
         self.service_manager = SystemdServiceManager()
         # SUPPRIMÉ: self.state = AudioRoutingState()  # Plus besoin, on utilise state_machine.system_state
         self.get_plugin = get_plugin_callback
         self.settings_service = settings_service
+        self.equalizer_service = equalizer_service
         self._initial_detection_done = False
 
         self.snapcast_websocket_service = None
@@ -218,18 +219,27 @@ class AudioRoutingService:
             self.logger.error(f"❌ Auto-configure multiroom failed: {e}")
 
     async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
-        """Active/désactive l'equalizer"""
+        """Active/désactive l'equalizer avec sauvegarde/restauration des valeurs"""
         if self.equalizer_enabled == enabled:
             self.logger.info(f"Equalizer already {'enabled' if enabled else 'disabled'}")
             return True
-        
+
         try:
             old_state = self.equalizer_enabled
             self.logger.info(f"Changing equalizer from {old_state} to {enabled}")
-            
+
+            # === DÉSACTIVATION : Sauvegarder puis réinitialiser à 66 ===
+            if not enabled and self.equalizer_service:
+                await self.equalizer_service.save_current_bands()
+                await self.equalizer_service.reset_all_bands(66)
+
             self.equalizer_enabled = enabled
             await self._update_systemd_environment()
-            
+
+            # === ACTIVATION : Restaurer les valeurs AVANT de redémarrer le plugin ===
+            if enabled and self.equalizer_service:
+                await self.equalizer_service.restore_saved_bands()
+
             if active_source and self.get_plugin:
                 plugin = self.get_plugin(active_source)
                 if plugin:
@@ -243,7 +253,7 @@ class AudioRoutingService:
             self.logger.info(f"Equalizer state changed and saved: {enabled}")
 
             return True
-            
+
         except Exception as e:
             self.equalizer_enabled = old_state
             await self._update_systemd_environment()
