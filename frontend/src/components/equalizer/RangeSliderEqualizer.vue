@@ -4,15 +4,18 @@
     <div v-if="label" class="label text-mono">{{ label }}</div>
 
     <RangeSlider :model-value="modelValue" :min="min" :max="max" :step="step" :orientation="orientation"
-      :disabled="disabled" @update:modelValue="$emit('update:modelValue', $event)" @input="$emit('input', $event)"
-      @change="$emit('change', $event)" />
+      :disabled="disabled" :hide-inline-value="true" @update:modelValue="$emit('update:modelValue', $event)" @input="$emit('input', $event)"
+      @change="$emit('change', $event)" @drag-start="isDragging = true" @drag-end="isDragging = false" />
 
-    <div v-if="showValue" class="value text-mono">{{ modelValue }}{{ unit }}</div>
+    <div v-if="showValue" class="value text-mono" :class="{ 'dragging': isDragging }">{{ modelValue }}{{ unit }}</div>
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue';
 import RangeSlider from '../ui/RangeSlider.vue';
+
+const isDragging = ref(false);
 
 defineProps({
   modelValue: { type: Number, required: true },
@@ -49,7 +52,11 @@ defineEmits(['update:modelValue', 'input', 'change']);
 .value {
   color: var(--color-text-secondary);
   width: 40px;
+  transition: color 300ms ease;
+}
 
+.value.dragging {
+  color: var(--color-brand);
 }
 
 /* Responsive */

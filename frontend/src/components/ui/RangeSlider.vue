@@ -5,7 +5,7 @@
       @input="handleInput" @change="handleChange" @pointerdown="handlePointerDown" @pointerup="handlePointerUp"
       :disabled="disabled">
 
-    <div v-if="orientation === 'horizontal'" class="slider-value text-mono" :class="{ dragging: isDragging }">
+    <div v-if="orientation === 'horizontal' && !hideInlineValue" class="slider-value text-mono" :class="{ dragging: isDragging }">
       {{ modelValue }}{{ valueUnit }}
     </div>
   </div>
@@ -21,7 +21,8 @@ const props = defineProps({
   step: { type: Number, default: 1 },
   orientation: { type: String, default: 'horizontal' },
   disabled: { type: Boolean, default: false },
-  valueUnit: { type: String, default: '' }
+  valueUnit: { type: String, default: '' },
+  hideInlineValue: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
