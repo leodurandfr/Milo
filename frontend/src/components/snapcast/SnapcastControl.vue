@@ -100,13 +100,17 @@ const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
 const isTogglingMultiroom = ref(false);
 
 const showMessage = computed(() => {
-  // Pendant le toggling, ne jamais afficher le message
-  if (isTogglingMultiroom.value) {
+  // Si on est en train de désactiver, afficher le message immédiatement
+  if (isTogglingMultiroom.value && isMultiroomDeactivating.value) {
+    return true;
+  }
+
+  // Pendant l'activation, ne pas afficher le message
+  if (isTogglingMultiroom.value || isMultiroomTransitioning.value) {
     return false;
   }
 
-  if (isMultiroomTransitioning.value) return false;
-  return isMultiroomDeactivating.value || !isMultiroomActive.value;
+  return !isMultiroomActive.value;
 });
 
 const showBackground = computed(() => {
@@ -114,18 +118,17 @@ const showBackground = computed(() => {
 });
 
 // Force le mode loading pendant le toggling ou le chargement
+// Mais pas pendant la désactivation (on laisse juste faire le fade-out)
 const shouldShowLoading = computed(() => {
+  if (isTogglingMultiroom.value && isMultiroomDeactivating.value) {
+    return false; // Pas de skeletons lors de la désactivation
+  }
   return isLoadingClients.value || isTogglingMultiroom.value;
 });
 
 const displayClients = computed(() => {
-  // Si on désactive le multiroom, garder les vraies valeurs des clients pendant la transition
-  if (isTogglingMultiroom.value && isMultiroomDeactivating.value) {
-    return clients.value;
-  }
-
   // Si on active le multiroom, afficher des placeholders vides pour les skeletons
-  if (isTogglingMultiroom.value) {
+  if (isTogglingMultiroom.value && !isMultiroomDeactivating.value) {
     return Array.from({ length: lastKnownClientCount.value }, (_, i) => ({
       id: `placeholder-${i}`,
       name: '',
@@ -380,9 +383,7 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
     isMultiroomTransitioning.value = false;
     isTogglingMultiroom.value = false;
   } else if (!newValue && oldValue) {
-    // Attendre la fin de l'animation CSS (300ms) avant de réinitialiser
-    await new Promise(resolve => setTimeout(resolve, 300));
-
+    // Désactivation : réinitialiser immédiatement pour afficher le message
     isMultiroomDeactivating.value = false;
     isTogglingMultiroom.value = false;
   }
