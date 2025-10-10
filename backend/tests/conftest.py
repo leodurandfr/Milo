@@ -56,3 +56,12 @@ def mock_settings_service():
     service.load_settings = Mock(return_value={})
     service.save_settings = Mock(return_value=True)
     return service
+
+
+@pytest.fixture
+def mock_async_lock():
+    """Mock d'asyncio.Lock pour les tests"""
+    lock = AsyncMock()
+    lock.__aenter__ = AsyncMock(return_value=None)
+    lock.__aexit__ = AsyncMock(return_value=None)
+    return lock
