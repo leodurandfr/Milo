@@ -58,31 +58,46 @@ class AudioRoutingService:
 
     # === Propriétés d'accès à l'état unifié (state_machine.system_state) ===
 
+    async def _get_multiroom_enabled(self) -> bool:
+        """Accède à l'état multiroom de manière thread-safe"""
+        if not self.state_machine:
+            return False
+        async with self.state_machine._state_lock:
+            return self.state_machine.system_state.multiroom_enabled
+
+    async def _set_multiroom_state(self, value: bool) -> None:
+        """Modifie l'état multiroom de manière thread-safe (méthode interne)"""
+        if self.state_machine:
+            async with self.state_machine._state_lock:
+                self.state_machine.system_state.multiroom_enabled = value
+
+    async def _get_equalizer_enabled(self) -> bool:
+        """Accède à l'état equalizer de manière thread-safe"""
+        if not self.state_machine:
+            return False
+        async with self.state_machine._state_lock:
+            return self.state_machine.system_state.equalizer_enabled
+
+    async def _set_equalizer_state(self, value: bool) -> None:
+        """Modifie l'état equalizer de manière thread-safe (méthode interne)"""
+        if self.state_machine:
+            async with self.state_machine._state_lock:
+                self.state_machine.system_state.equalizer_enabled = value
+
+    # Propriétés synchrones pour compatibilité (lecture seulement, peut être légèrement désynchronisée)
     @property
     def multiroom_enabled(self) -> bool:
-        """Accède à l'état multiroom depuis la source de vérité unique"""
+        """Accède à l'état multiroom (LECTURE RAPIDE - peut être légèrement désynchronisée)"""
         if not self.state_machine:
             return False
         return self.state_machine.system_state.multiroom_enabled
 
-    @multiroom_enabled.setter
-    def multiroom_enabled(self, value: bool) -> None:
-        """Modifie l'état multiroom dans la source de vérité unique"""
-        if self.state_machine:
-            self.state_machine.system_state.multiroom_enabled = value
-
     @property
     def equalizer_enabled(self) -> bool:
-        """Accède à l'état equalizer depuis la source de vérité unique"""
+        """Accède à l'état equalizer (LECTURE RAPIDE - peut être légèrement désynchronisée)"""
         if not self.state_machine:
             return False
         return self.state_machine.system_state.equalizer_enabled
-
-    @equalizer_enabled.setter
-    def equalizer_enabled(self, value: bool) -> None:
-        """Modifie l'état equalizer dans la source de vérité unique"""
-        if self.state_machine:
-            self.state_machine.system_state.equalizer_enabled = value
     
     async def initialize(self) -> None:
         """Initialise l'état du service"""
@@ -98,13 +113,15 @@ class AudioRoutingService:
             if self.settings_service:
                 multiroom = self.settings_service.get_setting('routing.multiroom_enabled')
                 equalizer = self.settings_service.get_setting('routing.equalizer_enabled')
-                self.multiroom_enabled = multiroom if multiroom is not None else False
-                self.equalizer_enabled = equalizer if equalizer is not None else False
-                self.logger.info(f"Loaded state from settings: multiroom={self.multiroom_enabled}, equalizer={self.equalizer_enabled}")
+                await self._set_multiroom_state(multiroom if multiroom is not None else False)
+                await self._set_equalizer_state(equalizer if equalizer is not None else False)
+                current_multiroom = await self._get_multiroom_enabled()
+                current_equalizer = await self._get_equalizer_enabled()
+                self.logger.info(f"Loaded state from settings: multiroom={current_multiroom}, equalizer={current_equalizer}")
             else:
                 self.logger.warning("SettingsService not available, using defaults")
-                self.multiroom_enabled = False
-                self.equalizer_enabled = False
+                await self._set_multiroom_state(False)
+                await self._set_equalizer_state(False)
 
             await self._update_systemd_environment()
             self.logger.info(f"ALSA environment initialized: MULTIROOM={self.multiroom_enabled}, EQUALIZER={self.equalizer_enabled}")
@@ -120,12 +137,14 @@ class AudioRoutingService:
                 await self._stop_snapcast()
 
             self._initial_detection_done = True
-            self.logger.info(f"Routing initialized with persisted state: multiroom={self.multiroom_enabled}, equalizer={self.equalizer_enabled}")
+            current_multiroom = await self._get_multiroom_enabled()
+            current_equalizer = await self._get_equalizer_enabled()
+            self.logger.info(f"Routing initialized with persisted state: multiroom={current_multiroom}, equalizer={current_equalizer}")
 
         except Exception as e:
             self.logger.error(f"Error during initial state detection: {e}")
-            self.multiroom_enabled = False
-            self.equalizer_enabled = False
+            await self._set_multiroom_state(False)
+            await self._set_equalizer_state(False)
             await self._update_systemd_environment()
             self._initial_detection_done = True
     
@@ -133,16 +152,17 @@ class AudioRoutingService:
         """Active/désactive le mode multiroom avec notification anticipée"""
         if not self._initial_detection_done:
             await self._detect_initial_state()
-        
-        if self.multiroom_enabled == enabled:
+
+        current_state = await self._get_multiroom_enabled()
+        if current_state == enabled:
             self.logger.info(f"Multiroom already {'enabled' if enabled else 'disabled'}")
             return True
-        
+
         try:
-            old_state = self.multiroom_enabled
+            old_state = current_state
             self.logger.info(f"Changing multiroom from {old_state} to {enabled}")
-            
-            self.multiroom_enabled = enabled
+
+            await self._set_multiroom_state(enabled)
             await self._update_systemd_environment()
             
             if enabled:
@@ -175,7 +195,7 @@ class AudioRoutingService:
                 success = await self._transition_to_direct(active_source)
             
             if not success:
-                self.multiroom_enabled = old_state
+                await self._set_multiroom_state(old_state)
                 await self._update_systemd_environment()
                 self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
                 return False
@@ -196,9 +216,9 @@ class AudioRoutingService:
             self.logger.info(f"Multiroom state changed and saved: {enabled}")
 
             return True
-            
+
         except Exception as e:
-            self.multiroom_enabled = old_state
+            await self._set_multiroom_state(old_state)
             await self._update_systemd_environment()
             self.logger.error(f"Error changing multiroom state: {e}")
             return False
@@ -220,12 +240,13 @@ class AudioRoutingService:
 
     async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """Active/désactive l'equalizer avec sauvegarde/restauration des valeurs"""
-        if self.equalizer_enabled == enabled:
+        current_state = await self._get_equalizer_enabled()
+        if current_state == enabled:
             self.logger.info(f"Equalizer already {'enabled' if enabled else 'disabled'}")
             return True
 
         try:
-            old_state = self.equalizer_enabled
+            old_state = current_state
             self.logger.info(f"Changing equalizer from {old_state} to {enabled}")
 
             # === DÉSACTIVATION : Sauvegarder puis réinitialiser à 66 ===
@@ -233,7 +254,7 @@ class AudioRoutingService:
                 await self.equalizer_service.save_current_bands()
                 await self.equalizer_service.reset_all_bands(66)
 
-            self.equalizer_enabled = enabled
+            await self._set_equalizer_state(enabled)
             await self._update_systemd_environment()
 
             # === ACTIVATION : Restaurer les valeurs AVANT de redémarrer le plugin ===
@@ -255,7 +276,7 @@ class AudioRoutingService:
             return True
 
         except Exception as e:
-            self.equalizer_enabled = old_state
+            await self._set_equalizer_state(old_state)
             await self._update_systemd_environment()
             self.logger.error(f"Error changing equalizer state: {e}")
             return False

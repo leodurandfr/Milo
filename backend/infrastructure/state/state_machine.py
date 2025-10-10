@@ -32,6 +32,7 @@ class UnifiedAudioStateMachine:
         self.logger = logging.getLogger(__name__)
         self._transition_lock = asyncio.Lock()
         self._state_lock = asyncio.Lock()  # Lock pour protéger system_state
+        self._buffer_lock = asyncio.Lock()  # Lock pour protéger _buffered_updates
 
         # NOUVEAU: Queue FIFO pour buffer les updates pendant les transitions
         self._buffered_updates: deque[Tuple[AudioSource, PluginState, Optional[Dict[str, Any]]]] = deque(maxlen=self.MAX_BUFFERED_UPDATES)
@@ -161,7 +162,7 @@ class UnifiedAudioStateMachine:
                     self.system_state.error = "Transition timeout"
 
                 # Vider la queue des updates bufferisés (obsolètes après un échec)
-                self._clear_buffered_updates()
+                await self._clear_buffered_updates()
 
                 await self._emergency_stop()
                 await self._broadcast_event("system", "error", {
@@ -180,7 +181,7 @@ class UnifiedAudioStateMachine:
                     self.system_state.error = str(e)
 
                 # Vider la queue des updates bufferisés (obsolètes après un échec)
-                self._clear_buffered_updates()
+                await self._clear_buffered_updates()
 
                 await self._emergency_stop()
                 await self._broadcast_event("system", "error", {
@@ -198,26 +199,33 @@ class UnifiedAudioStateMachine:
         NOUVEAU: Les updates qui arrivent pendant une transition sont maintenant bufferisés
         et rejoués après la transition au lieu d'être ignorés.
         """
-        if source != self.system_state.active_source:
+        # CRITIQUE: Lecture thread-safe de active_source et transitioning
+        async with self._state_lock:
+            current_active_source = self.system_state.active_source
+            is_transitioning = self.system_state.transitioning
+
+        if source != current_active_source:
             self.logger.warning("Ignoring state update from inactive source: %s", source.value)
             return
 
         # NOUVEAU: Buffer les updates pendant les transitions au lieu de les ignorer
-        if self.system_state.transitioning:
-            self.logger.info(
-                "🔄 Buffering update during transition: %s -> %s (queue size: %d)",
-                source.value,
-                new_state.value,
-                len(self._buffered_updates)
-            )
-            self._buffered_updates.append((source, new_state, metadata))
-
-            # Log warning si la queue est presque pleine
-            if len(self._buffered_updates) > self.MAX_BUFFERED_UPDATES * 0.8:
-                self.logger.warning(
-                    "⚠️ Buffered updates queue is %d%% full",
-                    int(len(self._buffered_updates) / self.MAX_BUFFERED_UPDATES * 100)
+        if is_transitioning:
+            async with self._buffer_lock:
+                queue_size = len(self._buffered_updates)
+                self.logger.info(
+                    "🔄 Buffering update during transition: %s -> %s (queue size: %d)",
+                    source.value,
+                    new_state.value,
+                    queue_size
                 )
+                self._buffered_updates.append((source, new_state, metadata))
+
+                # Log warning si la queue est presque pleine (60% au lieu de 80%)
+                if len(self._buffered_updates) > self.MAX_BUFFERED_UPDATES * 0.6:
+                    self.logger.warning(
+                        "⚠️ Buffered updates queue is %d%% full",
+                        int(len(self._buffered_updates) / self.MAX_BUFFERED_UPDATES * 100)
+                    )
             return
 
         # Appliquer l'update normalement
@@ -339,49 +347,54 @@ class UnifiedAudioStateMachine:
         NOUVEAU: Cette méthode est appelée après chaque transition réussie pour
         appliquer les updates qui sont arrivés pendant la transition.
         """
-        if not self._buffered_updates:
-            return
+        async with self._buffer_lock:
+            if not self._buffered_updates:
+                return
 
-        buffered_count = len(self._buffered_updates)
-        self.logger.info("📤 Replaying %d buffered update(s) after transition", buffered_count)
+            buffered_count = len(self._buffered_updates)
+            self.logger.info("📤 Replaying %d buffered update(s) after transition", buffered_count)
 
-        # Traiter tous les updates bufferisés dans l'ordre FIFO
-        while self._buffered_updates:
-            source, new_state, metadata = self._buffered_updates.popleft()
+            # Traiter tous les updates bufferisés dans l'ordre FIFO
+            while self._buffered_updates:
+                source, new_state, metadata = self._buffered_updates.popleft()
 
-            # Vérifier que la source est toujours active
-            if source == self.system_state.active_source:
-                try:
-                    await self._apply_plugin_state_update(source, new_state, metadata)
+                # Vérifier que la source est toujours active
+                async with self._state_lock:
+                    current_active_source = self.system_state.active_source
+
+                if source == current_active_source:
+                    try:
+                        await self._apply_plugin_state_update(source, new_state, metadata)
+                        self.logger.debug(
+                            "✅ Replayed buffered update: %s -> %s",
+                            source.value,
+                            new_state.value
+                        )
+                    except Exception as e:
+                        self.logger.error(
+                            "❌ Failed to replay buffered update: %s -> %s: %s",
+                            source.value,
+                            new_state.value,
+                            e
+                        )
+                else:
                     self.logger.debug(
-                        "✅ Replayed buffered update: %s -> %s",
-                        source.value,
-                        new_state.value
+                        "⏭️ Skipping buffered update from inactive source: %s",
+                        source.value
                     )
-                except Exception as e:
-                    self.logger.error(
-                        "❌ Failed to replay buffered update: %s -> %s: %s",
-                        source.value,
-                        new_state.value,
-                        e
-                    )
-            else:
-                self.logger.debug(
-                    "⏭️ Skipping buffered update from inactive source: %s",
-                    source.value
-                )
 
         self.logger.info("✅ Finished replaying buffered updates")
 
-    def _clear_buffered_updates(self) -> None:
+    async def _clear_buffered_updates(self) -> None:
         """Vide la queue des updates bufferisés"""
-        if self._buffered_updates:
-            discarded_count = len(self._buffered_updates)
-            self._buffered_updates.clear()
-            self.logger.warning(
-                "🗑️ Cleared %d buffered update(s) after transition failure",
-                discarded_count
-            )
+        async with self._buffer_lock:
+            if self._buffered_updates:
+                discarded_count = len(self._buffered_updates)
+                self._buffered_updates.clear()
+                self.logger.warning(
+                    "🗑️ Cleared %d buffered update(s) after transition failure",
+                    discarded_count
+                )
     
     async def broadcast_event(self, category: str, event_type: str, data: Dict[str, Any]) -> None:
         """Publie un événement directement au WebSocket - Méthode publique pour les routes"""
