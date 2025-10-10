@@ -49,7 +49,16 @@
 
     <!-- Vue Multiroom -->
     <div v-else-if="currentView === 'multiroom'" class="view-detail">
-      <ModalHeader :title="t('multiroom.title')" show-back @back="goToHome" />
+      <ModalHeader :title="t('multiroom.title')" show-back @back="goToHome">
+        <template #actions>
+          <Toggle
+            v-model="isMultiroomActive"
+            variant="primary"
+            :disabled="unifiedStore.isTransitioning || isMultiroomToggling"
+            @change="handleMultiroomToggle"
+          />
+        </template>
+      </ModalHeader>
       <MultiroomSettings />
     </div>
 
@@ -68,11 +77,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
+import Toggle from '@/components/ui/Toggle.vue';
 import SettingsCategory from '@/components/settings/SettingsCategory.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
 import ApplicationsSettings from '@/components/settings/categories/ApplicationsSettings.vue';
@@ -86,7 +98,9 @@ import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 const emit = defineEmits(['close']);
 
 const { t } = useI18n();
+const { on } = useWebSocket();
 const settingsStore = useSettingsStore();
+const unifiedStore = useUnifiedAudioStore();
 
 // Navigation
 const currentView = ref('home');
@@ -99,12 +113,50 @@ function goToHome() {
   currentView.value = 'home';
 }
 
+// Multiroom toggle
+const isMultiroomToggling = ref(false);
+const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
+
+async function handleMultiroomToggle(enabled) {
+  await unifiedStore.setMultiroomEnabled(enabled);
+}
+
+function handleMultiroomEnabling() {
+  isMultiroomToggling.value = true;
+}
+
+function handleMultiroomDisabling() {
+  isMultiroomToggling.value = true;
+}
+
+// Watcher multiroom state (similar to SnapcastModal.vue)
+let lastMultiroomState = isMultiroomActive.value;
+const watcherInterval = setInterval(() => {
+  if (lastMultiroomState !== isMultiroomActive.value) {
+    lastMultiroomState = isMultiroomActive.value;
+    // Réinitialiser le toggling quand le changement d'état est terminé
+    isMultiroomToggling.value = false;
+  }
+}, 100);
+
 onMounted(async () => {
   // Pré-chargement de tous les settings en parallèle
   await Promise.all([
     i18n.initializeLanguage(),
     settingsStore.loadAllSettings()
   ]);
+
+  // Charger les settings snapcast si le multiroom est déjà activé
+  if (isMultiroomActive.value) {
+    await settingsStore.loadSnapcastSettings();
+  }
+
+  on('routing', 'multiroom_enabling', handleMultiroomEnabling);
+  on('routing', 'multiroom_disabling', handleMultiroomDisabling);
+});
+
+onUnmounted(() => {
+  clearInterval(watcherInterval);
 });
 </script>
 

@@ -65,7 +65,7 @@ export const useSettingsStore = defineStore('settings', () => {
   // === ACTIONS ===
 
   /**
-   * Charge tous les settings en parallèle
+   * Charge tous les settings en parallèle (sauf snapcast)
    */
   async function loadAllSettings() {
     if (isLoading.value) return;
@@ -81,9 +81,7 @@ export const useSettingsStore = defineStore('settings', () => {
         dockAppsResponse,
         spotifyResponse,
         screenTimeoutResponse,
-        screenBrightnessResponse,
-        snapcastClientsResponse,
-        snapcastServerResponse
+        screenBrightnessResponse
       ] = await Promise.all([
         axios.get('/api/settings/language').catch(() => ({ data: { language: 'french' } })),
         axios.get('/api/settings/volume-limits').catch(() => ({ data: { limits: { alsa_min: 0, alsa_max: 65, limits_enabled: true } } })),
@@ -93,9 +91,7 @@ export const useSettingsStore = defineStore('settings', () => {
         axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['librespot', 'bluetooth', 'roc', 'multiroom', 'equalizer', 'settings'] } } })),
         axios.get('/api/settings/spotify-disconnect').catch(() => ({ data: { config: { auto_disconnect_delay: 10.0 } } })),
         axios.get('/api/settings/screen-timeout').catch(() => ({ data: { config: { screen_timeout_enabled: true, screen_timeout_seconds: 10 } } })),
-        axios.get('/api/settings/screen-brightness').catch(() => ({ data: { config: { brightness_on: 5 } } })),
-        axios.get('/api/routing/snapcast/clients').catch(() => ({ data: { clients: [] } })),
-        axios.get('/api/routing/snapcast/server-config').catch(() => ({ data: { config: {} } }))
+        axios.get('/api/settings/screen-brightness').catch(() => ({ data: { config: { brightness_on: 5 } } }))
       ]);
 
       // Language
@@ -165,6 +161,27 @@ export const useSettingsStore = defineStore('settings', () => {
         };
       }
 
+      hasLoaded.value = true;
+      console.log('✅ All settings loaded successfully');
+
+    } catch (error) {
+      console.error('❌ Error loading settings:', error);
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  /**
+   * Charge les settings Snapcast (clients + server config)
+   * À appeler uniquement si le multiroom est activé
+   */
+  async function loadSnapcastSettings() {
+    try {
+      const [snapcastClientsResponse, snapcastServerResponse] = await Promise.all([
+        axios.get('/api/routing/snapcast/clients'),
+        axios.get('/api/routing/snapcast/server-config')
+      ]);
+
       // Snapcast clients
       if (snapcastClientsResponse.data.clients) {
         snapcastClients.value = snapcastClientsResponse.data.clients;
@@ -183,13 +200,9 @@ export const useSettingsStore = defineStore('settings', () => {
         };
       }
 
-      hasLoaded.value = true;
-      console.log('✅ All settings loaded successfully');
-
+      console.log('✅ Snapcast settings loaded successfully');
     } catch (error) {
-      console.error('❌ Error loading settings:', error);
-    } finally {
-      isLoading.value = false;
+      console.error('❌ Error loading snapcast settings:', error);
     }
   }
 
@@ -297,6 +310,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
     // Actions
     loadAllSettings,
+    loadSnapcastSettings,
     updateLanguage,
     updateVolumeLimits,
     updateVolumeStartup,

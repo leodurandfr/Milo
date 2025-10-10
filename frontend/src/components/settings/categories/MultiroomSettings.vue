@@ -1,8 +1,22 @@
 <!-- frontend/src/components/settings/categories/MultiroomSettings.vue -->
 <template>
-  <div class="settings-container">
-    <!-- Enceintes multiroom -->
-    <section class="settings-section">
+  <div class="multiroom-settings">
+    <!-- Contenu principal avec hauteur animée -->
+    <div class="content-container" :style="{ height: containerHeight }">
+      <div class="content-wrapper" ref="contentWrapperRef" :class="{ 'with-background': !isMultiroomActive }">
+        <!-- MESSAGE : Multiroom désactivé -->
+        <Transition name="message">
+          <div v-if="!isMultiroomActive" key="message" class="message-content">
+            <Icon name="multiroom" :size="96" color="var(--color-background-glass)" />
+            <p class="text-mono">{{ t("multiroom.disabled") }}</p>
+          </div>
+        </Transition>
+
+        <!-- SETTINGS : Sections visibles uniquement si multiroom activé -->
+        <Transition name="settings">
+          <div v-if="isMultiroomActive" key="settings" class="settings-container">
+        <!-- Enceintes multiroom -->
+        <section class="settings-section">
       <div class="multiroom-group">
         <h2 class="heading-2 text-body">{{ t('multiroom.speakers') }}</h2>
 
@@ -73,25 +87,41 @@
       </div>
     </section>
 
-    <Button v-if="hasServerConfigChanges" variant="primary" class="apply-button-sticky"
-      :disabled="loadingServerConfig || applyingServerConfig" @click="applyServerConfig">
-      {{ applyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
-    </Button>
+            <Button v-if="hasServerConfigChanges" variant="primary" class="apply-button-sticky"
+              :disabled="loadingServerConfig || applyingServerConfig" @click="applyServerConfig">
+              {{ applyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
+            </Button>
+          </div>
+        </Transition>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import axios from 'axios';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
+import Icon from '@/components/ui/Icon.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
 const settingsStore = useSettingsStore();
+const unifiedStore = useUnifiedAudioStore();
+
+// Multiroom state
+const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
+
+// ResizeObserver pour animer la hauteur
+const contentWrapperRef = ref(null);
+const containerHeight = ref('auto');
+let resizeObserver = null;
+let isFirstResize = true;
 
 // Multiroom - Clients (utilise le store)
 const loadingClients = ref(false);
@@ -212,8 +242,11 @@ function isPresetActive(preset) {
 
 // === MULTIROOM - CLIENTS ===
 
-async function loadSnapcastClients() {
-  // Les clients sont déjà dans le store, on initialise juste les noms
+async function loadSnapcastData() {
+  // Charger les données snapcast depuis le store
+  await settingsStore.loadSnapcastSettings();
+
+  // Initialiser les noms locaux
   clientNames.value = {};
   settingsStore.snapcastClients.forEach(client => {
     clientNames.value[client.id] = client.name || client.host;
@@ -249,8 +282,8 @@ function selectCodec(codecName) {
   serverConfig.value.codec = codecName;
 }
 
-async function loadServerConfig() {
-  // La config serveur est déjà dans le store
+function syncServerConfigFromStore() {
+  // Synchroniser depuis le store
   serverConfig.value = { ...settingsStore.snapcastServerConfig };
   originalServerConfig.value = JSON.parse(JSON.stringify(serverConfig.value));
 }
@@ -275,6 +308,36 @@ async function applyServerConfig() {
   }
 }
 
+// === RESIZE OBSERVER ===
+function setupResizeObserver() {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
+
+  resizeObserver = new ResizeObserver(entries => {
+    if (entries[0]) {
+      const newHeight = entries[0].contentRect.height;
+
+      // Première fois : initialiser sans transition
+      if (isFirstResize) {
+        containerHeight.value = `${newHeight}px`;
+        isFirstResize = false;
+        return;
+      }
+
+      const currentHeight = parseFloat(containerHeight.value);
+
+      if (Math.abs(newHeight - currentHeight) > 2) {
+        containerHeight.value = `${newHeight}px`;
+      }
+    }
+  });
+
+  if (contentWrapperRef.value) {
+    resizeObserver.observe(contentWrapperRef.value);
+  }
+}
+
 // WebSocket listener
 const handleClientNameChanged = (msg) => {
   const { client_id, name } = msg.data;
@@ -285,16 +348,76 @@ const handleClientNameChanged = (msg) => {
   settingsStore.updateSnapcastClientName(client_id, name);
 };
 
-onMounted(() => {
-  // Les données sont déjà pré-chargées dans le store
-  loadSnapcastClients();
-  loadServerConfig();
+// Watcher pour charger les données quand multiroom est activé
+watch(isMultiroomActive, async (newValue, oldValue) => {
+  if (newValue && !oldValue) {
+    // Multiroom vient d'être activé, charger les données
+    await loadSnapcastData();
+    syncServerConfigFromStore();
+  }
+});
+
+onMounted(async () => {
+  // Ne charger que si multiroom est activé
+  if (isMultiroomActive.value) {
+    await loadSnapcastData();
+    syncServerConfigFromStore();
+  }
+
+  // Setup ResizeObserver après le prochain tick pour que la ref soit disponible
+  await nextTick();
+  setupResizeObserver();
 
   on('snapcast', 'client_name_changed', handleClientNameChanged);
+});
+
+onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
 });
 </script>
 
 <style scoped>
+.multiroom-settings {
+  display: flex;
+  flex-direction: column;
+}
+
+.content-container {
+  transition: height var(--transition-spring);
+  overflow: visible;
+  position: relative;
+}
+
+.content-wrapper {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  border-radius: var(--radius-04);
+  transition: background 400ms ease;
+  position: relative;
+}
+
+.content-wrapper.with-background {
+  background: var(--color-background-neutral);
+}
+
+.message-content {
+  display: flex;
+  min-height: 232px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-04);
+  padding: var(--space-05);
+}
+
+.message-content .text-mono {
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
 .settings-container {
   display: flex;
   flex-direction: column;
@@ -402,6 +525,52 @@ onMounted(() => {
 }
 
 
+/* Transitions pour message */
+.message-enter-active {
+  transition: opacity 300ms ease, transform 300ms ease;
+}
+
+.message-leave-active {
+  transition: opacity 300ms ease, transform 300ms ease;
+  position: absolute;
+  width: 100%;
+  top: 0;
+  left: 0;
+}
+
+.message-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.message-leave-to {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+
+/* Transitions pour settings */
+.settings-enter-active {
+  transition: opacity 300ms ease 100ms, transform 300ms ease 100ms;
+}
+
+.settings-leave-active {
+  transition: opacity 300ms ease, transform 300ms ease;
+  position: absolute;
+  width: 100%;
+  top: 0;
+  left: 0;
+}
+
+.settings-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.settings-leave-to {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
 
@@ -419,6 +588,10 @@ onMounted(() => {
   .client-config-item {
     grid-row: unset !important;
     grid-column: unset !important;
+  }
+
+  .message-content {
+    min-height: 364px;
   }
 }
 </style>
