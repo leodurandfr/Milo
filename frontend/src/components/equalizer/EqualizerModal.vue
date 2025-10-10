@@ -348,9 +348,30 @@ function handleEqualizerDisabling() {
   isEqualizerToggling.value = true;
 }
 
+// Watcher pour détecter quand le store est en transition (appel API en cours)
+function watchTransition() {
+  const currentTransitioning = unifiedStore.isTransitioning;
+  const currentEqualizerState = isEqualizerEnabled.value;
+
+  // Début de transition détecté
+  if (currentTransitioning && !isEqualizerToggling.value) {
+    isEqualizerToggling.value = true;
+
+    if (currentEqualizerState) {
+      // On est en train de désactiver : rien à préparer, on laisse disparaître
+    } else {
+      // On est en train d'activer : afficher immédiatement en mode loading
+      initializeBands();
+      bandsLoaded.value = false; // Opacité 0.5
+    }
+  }
+}
+
 // Watcher equalizer state
 let lastEqualizerState = isEqualizerEnabled.value;
 const watcherInterval = setInterval(() => {
+  watchTransition();
+
   if (lastEqualizerState !== isEqualizerEnabled.value) {
     lastEqualizerState = isEqualizerEnabled.value;
 
@@ -358,13 +379,10 @@ const watcherInterval = setInterval(() => {
     isEqualizerToggling.value = false;
 
     if (isEqualizerEnabled.value) {
-      // Afficher immédiatement avec les valeurs en cache
-      initializeBands();
-      bandsLoaded.value = true;
-
-      // Charger les vraies valeurs en arrière-plan
-      nextTick(() => {
-        loadEqualizerData();
+      // Charger les vraies valeurs et passer à opacité 1
+      nextTick(async () => {
+        await loadEqualizerData();
+        bandsLoaded.value = true;
       });
     } else {
       bandsLoaded.value = false;
@@ -518,13 +536,13 @@ onUnmounted(() => {
 }
 
 /* Animation de chargement des sliders */
-.slider-loading {
-  opacity: 0.5;
-  transition: opacity 200ms ease-out;
+.equalizer-controls :deep(.range-slider) {
+  opacity: 1;
+  transition: opacity 300ms ease;
 }
 
-.slider-loading:not(.slider-loading) {
-  opacity: 1;
+.equalizer-controls .slider-loading :deep(.range-slider) {
+  opacity: 0.5;
 }
 
 @media (max-aspect-ratio: 4/3) {
