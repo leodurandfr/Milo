@@ -174,7 +174,7 @@ class RocPlugin(UnifiedAudioPlugin):
                 "-n",                  # Pas de résolution DNS
                 "-l",                  # Line buffered
                 "-c", "15",            # Max 15 paquets
-                f"udp and (port {self.rtp_port} or port {self.rs8m_port} or port {self.rtcp_port})",
+                f"udp and dst port ({self.rtp_port} or {self.rs8m_port} or {self.rtcp_port})",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL
             )
