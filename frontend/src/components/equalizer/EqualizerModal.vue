@@ -15,7 +15,7 @@
           <Toggle
             v-model="isEqualizerEnabled"
             variant="primary"
-            :disabled="unifiedStore.isTransitioning"
+            :disabled="unifiedStore.isTransitioning || isEqualizerToggling"
             @change="handleEqualizerToggle"
           />
         </template>
@@ -72,6 +72,9 @@ import Icon from '@/components/ui/Icon.vue';
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
+// État local pour le toggling
+const isEqualizerToggling = ref(false);
+
 // === CONSTANTES ===
 const STATIC_BANDS = [
   { id: "00", freq: "31 Hz", display_name: "31" },
@@ -92,6 +95,7 @@ const CACHE_KEY = 'equalizer_bands_cache';
 // État local
 const updating = ref(false);
 const resetting = ref(false);
+const isToggling = ref(false);
 const bands = ref([]);
 const bandsLoaded = ref(false);
 const isMobile = ref(false);
@@ -336,11 +340,23 @@ function handleEqualizerUpdate(event) {
   }
 }
 
+function handleEqualizerEnabling() {
+  isEqualizerToggling.value = true;
+}
+
+function handleEqualizerDisabling() {
+  isEqualizerToggling.value = true;
+}
+
 // Watcher equalizer state
 let lastEqualizerState = isEqualizerEnabled.value;
 const watcherInterval = setInterval(() => {
   if (lastEqualizerState !== isEqualizerEnabled.value) {
     lastEqualizerState = isEqualizerEnabled.value;
+
+    // Réinitialiser le toggling quand le changement d'état est terminé
+    isEqualizerToggling.value = false;
+
     if (isEqualizerEnabled.value) {
       // Afficher immédiatement avec les valeurs en cache
       initializeBands();
@@ -377,7 +393,9 @@ onMounted(async () => {
 
   unsubscribeFunctions.push(
     on('equalizer', 'band_changed', handleEqualizerUpdate),
-    on('equalizer', 'reset', handleEqualizerUpdate)
+    on('equalizer', 'reset', handleEqualizerUpdate),
+    on('routing', 'equalizer_enabling', handleEqualizerEnabling),
+    on('routing', 'equalizer_disabling', handleEqualizerDisabling)
   );
 });
 

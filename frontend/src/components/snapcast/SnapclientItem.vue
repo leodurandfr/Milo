@@ -1,43 +1,75 @@
 <!-- frontend/src/components/snapcast/SnapclientItem.vue -->
 <template>
   <div class="snapclient-item">
-    <div 
-      class="client-name heading-2" 
-      :class="{ 
-        'skeleton-shimmer': isLoading,
-        'muted': client.muted
-      }"
-    >
-      <span>{{ isLoading ? '' : client.name }}</span>
+    <!-- CLIENT NAME -->
+    <div class="client-name-wrapper">
+      <!-- Skeleton shimmer -->
+      <div
+        class="client-name-skeleton heading-2"
+        :class="{ 'visible': isLoading }"
+      ></div>
+
+      <!-- Contenu réel -->
+      <div
+        class="client-name heading-2"
+        :class="{
+          'visible': !isLoading,
+          'muted': client.muted
+        }"
+      >
+        <span>{{ client.name }}</span>
+      </div>
     </div>
-    
-    <div 
-      class="volume-control" 
-      :class="{ 
-        'skeleton-shimmer': isLoading,
-        'muted': client.muted
-      }"
-    >
-      <RangeSlider 
-        :model-value="displayVolume" 
-        :min="0" 
-        :max="100" 
-        :step="1"
-        :disabled="client.muted || isLoading"
-        show-value
-        value-unit="%"
-        @input="handleVolumeInput" 
-        @change="handleVolumeChange" 
-      />
+
+    <!-- VOLUME CONTROL -->
+    <div class="volume-wrapper">
+      <!-- Skeleton shimmer -->
+      <div
+        class="volume-skeleton"
+        :class="{ 'visible': isLoading }"
+      ></div>
+
+      <!-- Contenu réel -->
+      <div
+        class="volume-control"
+        :class="{
+          'visible': !isLoading,
+          'muted': client.muted
+        }"
+      >
+        <RangeSlider
+          :model-value="displayVolume"
+          :min="0"
+          :max="100"
+          :step="1"
+          :disabled="client.muted || isLoading"
+          show-value
+          value-unit="%"
+          @input="handleVolumeInput"
+          @change="handleVolumeChange"
+        />
+      </div>
     </div>
-    
-    <div class="control-toggle" :class="{ 'skeleton-shimmer': isLoading }">
-      <Toggle 
-        :model-value="!client.muted" 
-        variant="secondary" 
-        @change="handleMuteToggle"
-        :style="{ opacity: isLoading ? 0 : 1 }"
-      />
+
+    <!-- TOGGLE CONTROL -->
+    <div class="toggle-wrapper">
+      <!-- Skeleton shimmer -->
+      <div
+        class="toggle-skeleton"
+        :class="{ 'visible': isLoading }"
+      ></div>
+
+      <!-- Contenu réel -->
+      <div
+        class="control-toggle"
+        :class="{ 'visible': !isLoading }"
+      >
+        <Toggle
+          :model-value="!client.muted"
+          variant="secondary"
+          @change="handleMuteToggle"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -125,28 +157,74 @@ onUnmounted(() => {
   background: var(--color-background-neutral);
 }
 
-.client-name {
+/* === CLIENT NAME WRAPPER === */
+.client-name-wrapper {
   min-width: 112px;
   max-width: 112px;
+  height: 28px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Skeleton pour le nom */
+.client-name-skeleton {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    var(--color-background-strong) 0%,
+    var(--color-background-glass) 50%,
+    var(--color-background-strong) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  opacity: 0;
+  transition: opacity 300ms ease 0ms;
+  pointer-events: none;
+}
+
+.client-name-skeleton.visible {
+  opacity: 1;
+  transition: opacity 300ms ease 0ms;
+}
+
+/* Contenu réel du nom */
+.client-name {
+  position: absolute;
+  inset: 0;
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  height: 28px;
-  position: relative;
-  transition: color 300ms ease;
+  opacity: 0;
+  transition: opacity 300ms ease 0ms, color 300ms ease;
+}
+
+.client-name.visible {
+  opacity: 1;
+  transition: opacity 300ms ease 0ms, color 300ms ease;
 }
 
 .client-name.muted {
   color: var(--color-text-light);
 }
 
-.client-name::before {
-  content: '';
+/* === VOLUME WRAPPER === */
+.volume-wrapper {
+  flex: 1;
+  height: 40px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Skeleton pour le volume */
+.volume-skeleton {
   position: absolute;
   inset: 0;
   border-radius: var(--radius-full);
-  height: 28px;
   background: linear-gradient(
     90deg,
     var(--color-background-strong) 0%,
@@ -156,80 +234,49 @@ onUnmounted(() => {
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   opacity: 0;
-  transition: opacity 400ms ease;
+  transition: opacity 300ms ease 0ms;
   pointer-events: none;
 }
 
-.client-name.skeleton-shimmer::before {
+.volume-skeleton.visible {
   opacity: 1;
+  transition: opacity 300ms ease 0ms;
 }
 
-.client-name span {
-  opacity: 1;
-  transition: opacity 400ms ease;
-  position: relative;
-  z-index: 1;
-}
-
-.client-name.skeleton-shimmer span {
-  opacity: 0;
-}
-
+/* Contenu réel du volume */
 .volume-control {
-  flex: 1;
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
-  position: relative;
+  opacity: 0;
+  transition: opacity 300ms ease 0ms;
+}
+
+.volume-control.visible {
+  opacity: 1;
+  transition: opacity 300ms ease 0ms;
 }
 
 .volume-control.muted :deep(.slider-value) {
   color: var(--color-text-light);
 }
 
-.volume-control::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: var(--radius-full);
-  background: linear-gradient(
-    90deg,
-    var(--color-background-strong) 0%,
-    var(--color-background-glass) 50%,
-    var(--color-background-strong) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  opacity: 0;
-  transition: opacity 400ms ease;
-  pointer-events: none;
-}
-
-.volume-control.skeleton-shimmer::before {
-  opacity: 1;
-}
-
-.volume-control > * {
-  opacity: 1;
-  transition: opacity 400ms ease;
+/* === TOGGLE WRAPPER === */
+.toggle-wrapper {
+  width: 70px;
+  height: 40px;
   position: relative;
-  z-index: 1;
-}
-
-.volume-control.skeleton-shimmer > * {
-  opacity: 0;
-}
-
-.control-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
 }
 
-.control-toggle::before {
-  content: '';
+/* Skeleton pour le toggle */
+.toggle-skeleton {
   position: absolute;
-  inset: 0;
+  width: 70px;
+  height: 40px;
   border-radius: var(--radius-full);
   background: linear-gradient(
     90deg,
@@ -240,23 +287,28 @@ onUnmounted(() => {
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   opacity: 0;
-  transition: opacity 400ms ease;
+  transition: opacity 300ms ease 0ms;
   pointer-events: none;
 }
 
-.control-toggle.skeleton-shimmer::before {
+.toggle-skeleton.visible {
   opacity: 1;
+  transition: opacity 300ms ease 0ms;
 }
 
-.control-toggle > * {
-  opacity: 1;
-  transition: opacity 400ms ease;
-  position: relative;
-  z-index: 1;
-}
-
-.control-toggle.skeleton-shimmer > * {
+/* Contenu réel du toggle */
+.control-toggle {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0;
+  transition: opacity 300ms ease 0ms;
+}
+
+.control-toggle.visible {
+  opacity: 1;
+  transition: opacity 300ms ease 0ms;
 }
 
 @keyframes shimmer {
@@ -272,18 +324,26 @@ onUnmounted(() => {
     gap: var(--space-03);
   }
 
-  .client-name {
+  .client-name-wrapper {
     flex: 1;
     order: 1;
     min-width: 0;
+    height: 24px;
   }
 
-  .control-toggle {
+  .toggle-wrapper {
     order: 2;
     margin-left: auto;
+    width: 56px;
+    height: 32px;
   }
 
-  .volume-control {
+  .toggle-skeleton {
+    width: 56px;
+    height: 32px;
+  }
+
+  .volume-wrapper {
     order: 3;
     width: 100%;
     flex-basis: 100%;

@@ -3,11 +3,11 @@
   <div class="snapcast-modal">
     <ModalHeader :title="$t('multiroom.title')">
       <template #actions>
-        <Toggle 
-          v-model="isMultiroomActive" 
-          variant="primary" 
-          :disabled="unifiedStore.isTransitioning"
-          @change="handleMultiroomToggle" 
+        <Toggle
+          v-model="isMultiroomActive"
+          variant="primary"
+          :disabled="unifiedStore.isTransitioning || isMultiroomToggling"
+          @change="handleMultiroomToggle"
         />
       </template>
     </ModalHeader>
@@ -19,19 +19,58 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SnapcastControl from './SnapcastControl.vue';
 
 const unifiedStore = useUnifiedAudioStore();
+const { on } = useWebSocket();
+
+// État local pour le toggling
+const isMultiroomToggling = ref(false);
 
 const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
 
 async function handleMultiroomToggle(enabled) {
   await unifiedStore.setMultiroomEnabled(enabled);
 }
+
+// === WEBSOCKET HANDLERS ===
+function handleMultiroomEnabling() {
+  isMultiroomToggling.value = true;
+}
+
+function handleMultiroomDisabling() {
+  isMultiroomToggling.value = true;
+}
+
+// Watcher multiroom state
+let lastMultiroomState = isMultiroomActive.value;
+const watcherInterval = setInterval(() => {
+  if (lastMultiroomState !== isMultiroomActive.value) {
+    lastMultiroomState = isMultiroomActive.value;
+    // Réinitialiser le toggling quand le changement d'état est terminé
+    isMultiroomToggling.value = false;
+  }
+}, 100);
+
+let unsubscribeFunctions = [];
+
+// === LIFECYCLE ===
+onMounted(() => {
+  unsubscribeFunctions.push(
+    on('routing', 'multiroom_enabling', handleMultiroomEnabling),
+    on('routing', 'multiroom_disabling', handleMultiroomDisabling)
+  );
+});
+
+onUnmounted(() => {
+  unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
+  clearInterval(watcherInterval);
+});
 </script>
 
 <style scoped>

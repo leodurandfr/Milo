@@ -13,8 +13,8 @@
       <!-- CLIENTS : Skeletons OU Items réels -->
       <Transition name="clients">
         <div v-if="!showMessage" key="clients" class="clients-wrapper">
-          <SnapclientItem v-for="client in displayClients" :key="client.id" :client="client"
-            :is-loading="isLoadingClients" @volume-change="handleVolumeChange" @mute-toggle="handleMuteToggle" />
+          <SnapclientItem v-for="(client, index) in displayClients" :key="index" :client="client"
+            :is-loading="shouldShowLoading" @volume-change="handleVolumeChange" @mute-toggle="handleMuteToggle" />
         </div>
       </Transition>
     </div>
@@ -96,7 +96,15 @@ function sortClients(clientsList) {
 // === COMPUTED ===
 const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
 
+// État local pour le toggling
+const isTogglingMultiroom = ref(false);
+
 const showMessage = computed(() => {
+  // Pendant le toggling, ne jamais afficher le message
+  if (isTogglingMultiroom.value) {
+    return false;
+  }
+
   if (isMultiroomTransitioning.value) return false;
   return isMultiroomDeactivating.value || !isMultiroomActive.value;
 });
@@ -105,9 +113,29 @@ const showBackground = computed(() => {
   return showMessage.value;
 });
 
+// Force le mode loading pendant le toggling ou le chargement
+const shouldShowLoading = computed(() => {
+  return isLoadingClients.value || isTogglingMultiroom.value;
+});
+
 const displayClients = computed(() => {
+  // Si on désactive le multiroom, garder les vraies valeurs des clients pendant la transition
+  if (isTogglingMultiroom.value && isMultiroomDeactivating.value) {
+    return clients.value;
+  }
+
+  // Si on active le multiroom, afficher des placeholders vides pour les skeletons
+  if (isTogglingMultiroom.value) {
+    return Array.from({ length: lastKnownClientCount.value }, (_, i) => ({
+      id: `placeholder-${i}`,
+      name: '',
+      volume: 0,
+      muted: false
+    }));
+  }
+
   if (clients.value.length === 0 && isLoadingClients.value) {
-    return Array.from({ length: 3 }, (_, i) => ({
+    return Array.from({ length: lastKnownClientCount.value }, (_, i) => ({
       id: `placeholder-${i}`,
       name: '',
       volume: 0,
@@ -269,16 +297,17 @@ function handleSystemStateChanged(event) {
 }
 
 async function handleMultiroomEnabling() {
+  isTogglingMultiroom.value = true;
   isMultiroomTransitioning.value = true;
   isLoadingClients.value = true;
   clearCache();
 }
 
 async function handleMultiroomDisabling() {
+  isTogglingMultiroom.value = true;
   isMultiroomDeactivating.value = true;
-  clients.value = [];
   isLoadingClients.value = false;
-  clearCache();
+  // Les clients seront vidés après la fin du toggling via le watcher
 }
 
 // === LIFECYCLE ===
@@ -320,6 +349,27 @@ onUnmounted(() => {
 });
 
 // === WATCHERS ===
+// Watcher pour détecter quand le store est en transition (appel API en cours)
+watch(() => unifiedStore.isTransitioning, (isTransitioning, wasTransitioning) => {
+  if (isTransitioning && !wasTransitioning) {
+    // Début d'une transition : déclencher immédiatement l'animation
+    const currentMultiroomState = isMultiroomActive.value;
+
+    if (currentMultiroomState) {
+      // On est en train de désactiver le multiroom
+      isTogglingMultiroom.value = true;
+      isMultiroomDeactivating.value = true;
+      isLoadingClients.value = false;
+    } else {
+      // On est en train d'activer le multiroom
+      isTogglingMultiroom.value = true;
+      isMultiroomTransitioning.value = true;
+      isLoadingClients.value = true;
+      clearCache();
+    }
+  }
+});
+
 watch(isMultiroomActive, async (newValue, oldValue) => {
   if (newValue && !oldValue) {
     isMultiroomDeactivating.value = false;
@@ -328,8 +378,22 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
     await loadSnapcastClients(forceNoCache);
 
     isMultiroomTransitioning.value = false;
+    isTogglingMultiroom.value = false;
   } else if (!newValue && oldValue) {
+    // Attendre la fin de l'animation CSS (300ms) avant de réinitialiser
+    await new Promise(resolve => setTimeout(resolve, 300));
+
     isMultiroomDeactivating.value = false;
+    isTogglingMultiroom.value = false;
+  }
+});
+
+// Nettoyer les clients après la fin du toggling de désactivation
+watch(isTogglingMultiroom, (isToggling, wasToggling) => {
+  if (!isToggling && wasToggling && !isMultiroomActive.value) {
+    // Fin du toggling de désactivation : vider les clients
+    clients.value = [];
+    clearCache();
   }
 });
 </script>
