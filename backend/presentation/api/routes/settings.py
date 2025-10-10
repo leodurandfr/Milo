@@ -312,30 +312,58 @@ def create_settings_router(
                     
                     # === MULTIROOM ===
                     elif app == 'multiroom':
-                        # 1. Désactiver le routing
-                        operations_log.append("Disabling multiroom routing")
-                        logger.info("Disabling multiroom routing")
-                        await routing_service.set_multiroom_enabled(False)
-                        
-                        # 2. Arrêter snapserver
+                        # 1. Récupérer la source active pour redémarrer le plugin
+                        current_state = await state_machine.get_current_state()
+                        active_source = None
+                        if current_state["active_source"] != "none":
+                            try:
+                                active_source = AudioSource(current_state["active_source"])
+                            except ValueError:
+                                pass
+
+                        # 2. Désactiver le routing (redémarre automatiquement le plugin en mode direct)
+                        operations_log.append("Disabling multiroom routing and switching to direct mode")
+                        logger.info(f"Disabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
+                        await routing_service.set_multiroom_enabled(False, active_source)
+
+                        # 3. Arrêter snapserver
                         operations_log.append("Stopping milo-snapserver-multiroom.service")
                         logger.info("Stopping milo-snapserver-multiroom.service")
                         success = await systemd_manager.stop("milo-snapserver-multiroom.service")
                         if not success:
                             raise ValueError("Failed to stop milo-snapserver-multiroom.service")
-                        
-                        # 3. Arrêter snapclient
+
+                        # 4. Arrêter snapclient
                         operations_log.append("Stopping milo-snapclient-multiroom.service")
                         logger.info("Stopping milo-snapclient-multiroom.service")
                         success = await systemd_manager.stop("milo-snapclient-multiroom.service")
                         if not success:
                             raise ValueError("Failed to stop milo-snapclient-multiroom.service")
+
+                        # 5. Notifier le frontend via WebSocket
+                        operations_log.append("Broadcasting multiroom state update")
+                        logger.info("Broadcasting multiroom state update to frontend")
+                        await state_machine.update_multiroom_state(False)
                     
                     # === EQUALIZER ===
                     elif app == 'equalizer':
+                        # Récupérer la source active pour redémarrer le plugin
+                        current_state = await state_machine.get_current_state()
+                        active_source = None
+                        if current_state["active_source"] != "none":
+                            try:
+                                active_source = AudioSource(current_state["active_source"])
+                            except ValueError:
+                                pass
+
                         operations_log.append("Disabling equalizer routing")
-                        logger.info("Disabling equalizer routing")
-                        await routing_service.set_equalizer_enabled(False)
+                        logger.info(f"Disabling equalizer for active source: {active_source.value if active_source else 'none'}")
+                        await routing_service.set_equalizer_enabled(False, active_source)
+
+                        # Notifier le frontend via WebSocket
+                        operations_log.append("Broadcasting equalizer state update")
+                        logger.info("Broadcasting equalizer state update to frontend")
+                        await state_machine.update_equalizer_state(False)
                 
                 # === TRAITER LES ACTIVATIONS ===
                 for app in enabled_apps_new:
@@ -348,30 +376,58 @@ def create_settings_router(
                     
                     # === MULTIROOM ===
                     elif app == 'multiroom':
-                        # 1. Activer le routing
-                        operations_log.append("Enabling multiroom routing")
-                        logger.info("Enabling multiroom routing")
-                        await routing_service.set_multiroom_enabled(True)
-                        
-                        # 2. Démarrer snapserver
+                        # 1. Récupérer la source active pour redémarrer le plugin
+                        current_state = await state_machine.get_current_state()
+                        active_source = None
+                        if current_state["active_source"] != "none":
+                            try:
+                                active_source = AudioSource(current_state["active_source"])
+                            except ValueError:
+                                pass
+
+                        # 2. Activer le routing (redémarre automatiquement le plugin en mode multiroom)
+                        operations_log.append("Enabling multiroom routing and switching to multiroom mode")
+                        logger.info(f"Enabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
+                        await routing_service.set_multiroom_enabled(True, active_source)
+
+                        # 3. Démarrer snapserver
                         operations_log.append("Starting milo-snapserver-multiroom.service")
                         logger.info("Starting milo-snapserver-multiroom.service")
                         success = await systemd_manager.start("milo-snapserver-multiroom.service")
                         if not success:
                             raise ValueError("Failed to start milo-snapserver-multiroom.service")
-                        
-                        # 3. Démarrer snapclient
+
+                        # 4. Démarrer snapclient
                         operations_log.append("Starting milo-snapclient-multiroom.service")
                         logger.info("Starting milo-snapclient-multiroom.service")
                         success = await systemd_manager.start("milo-snapclient-multiroom.service")
                         if not success:
                             raise ValueError("Failed to start milo-snapclient-multiroom.service")
+
+                        # 5. Notifier le frontend via WebSocket
+                        operations_log.append("Broadcasting multiroom state update")
+                        logger.info("Broadcasting multiroom state update to frontend")
+                        await state_machine.update_multiroom_state(True)
                     
                     # === EQUALIZER ===
                     elif app == 'equalizer':
+                        # Récupérer la source active pour redémarrer le plugin
+                        current_state = await state_machine.get_current_state()
+                        active_source = None
+                        if current_state["active_source"] != "none":
+                            try:
+                                active_source = AudioSource(current_state["active_source"])
+                            except ValueError:
+                                pass
+
                         operations_log.append("Enabling equalizer routing")
-                        logger.info("Enabling equalizer routing")
-                        await routing_service.set_equalizer_enabled(True)
+                        logger.info(f"Enabling equalizer for active source: {active_source.value if active_source else 'none'}")
+                        await routing_service.set_equalizer_enabled(True, active_source)
+
+                        # Notifier le frontend via WebSocket
+                        operations_log.append("Broadcasting equalizer state update")
+                        logger.info("Broadcasting equalizer state update to frontend")
+                        await state_machine.update_equalizer_state(True)
                 
                 # Toutes les opérations ont réussi → sauvegarder les settings
                 operations_log.append("Saving new settings")

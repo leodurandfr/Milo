@@ -10,8 +10,8 @@
         <SettingsCategory icon="applications" :title="t('settings.applications')" @click="goToView('apps')" />
         <SettingsCategory icon="volume" :title="t('settings.volume')" @click="goToView('volume')" />
         <SettingsCategory icon="display" :title="t('settings.screen')" @click="goToView('screen')" />
-        <SettingsCategory icon="spotify" :title="t('spotifySettings.title')" @click="goToView('spotify')" />
-        <SettingsCategory icon="multiroom" :title="t('multiroom.title')" @click="goToView('multiroom')" />
+        <SettingsCategory v-if="settingsStore.dockApps.librespot" icon="spotify" :title="t('spotifySettings.title')" @click="goToView('spotify')" />
+        <SettingsCategory v-if="settingsStore.dockApps.multiroom" icon="multiroom" :title="t('multiroom.title')" @click="goToView('multiroom')" />
         <SettingsCategory icon="dependencies" :title="t('settings.dependencies')" @click="goToView('dependencies')" />
         <SettingsCategory icon="information" :title="t('settings.information')" @click="goToView('info')" />
       </div>
