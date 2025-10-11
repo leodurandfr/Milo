@@ -53,19 +53,10 @@ export const useSettingsStore = defineStore('settings', () => {
     brightness_on: 5
   });
 
-  // === MULTIROOM ===
-  const snapcastClients = ref([]);
-  const snapcastServerConfig = ref({
-    buffer: 1000,
-    codec: 'flac',
-    chunk_ms: 20,
-    sampleformat: '48000:16:2'
-  });
-
   // === ACTIONS ===
 
   /**
-   * Charge tous les settings en parallèle (sauf snapcast)
+   * Charge tous les settings en parallèle
    */
   async function loadAllSettings() {
     if (isLoading.value) return;
@@ -172,41 +163,6 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
-   * Charge les settings Snapcast (clients + server config)
-   * À appeler uniquement si le multiroom est activé
-   */
-  async function loadSnapcastSettings() {
-    try {
-      const [snapcastClientsResponse, snapcastServerResponse] = await Promise.all([
-        axios.get('/api/routing/snapcast/clients'),
-        axios.get('/api/routing/snapcast/server-config')
-      ]);
-
-      // Snapcast clients
-      if (snapcastClientsResponse.data.clients) {
-        snapcastClients.value = snapcastClientsResponse.data.clients;
-      }
-
-      // Snapcast server config
-      if (snapcastServerResponse.data.config) {
-        const fileConfig = snapcastServerResponse.data.config.file_config?.parsed_config?.stream || {};
-        const streamConfig = snapcastServerResponse.data.config.stream_config || {};
-
-        snapcastServerConfig.value = {
-          buffer: parseInt(fileConfig.buffer || streamConfig.buffer_ms || '1000'),
-          codec: fileConfig.codec || streamConfig.codec || 'flac',
-          chunk_ms: parseInt(fileConfig.chunk_ms || streamConfig.chunk_ms) || 20,
-          sampleformat: '48000:16:2'
-        };
-      }
-
-      console.log('✅ Snapcast settings loaded successfully');
-    } catch (error) {
-      console.error('❌ Error loading snapcast settings:', error);
-    }
-  }
-
-  /**
    * Met à jour la langue
    */
   function updateLanguage(newLanguage) {
@@ -269,30 +225,6 @@ export const useSettingsStore = defineStore('settings', () => {
     screenBrightness.value = { ...screenBrightness.value, ...config };
   }
 
-  /**
-   * Met à jour les clients Snapcast
-   */
-  function updateSnapcastClients(clients) {
-    snapcastClients.value = clients;
-  }
-
-  /**
-   * Met à jour un nom de client Snapcast
-   */
-  function updateSnapcastClientName(clientId, name) {
-    const client = snapcastClients.value.find(c => c.id === clientId);
-    if (client) {
-      client.name = name;
-    }
-  }
-
-  /**
-   * Met à jour la config serveur Snapcast
-   */
-  function updateSnapcastServerConfig(config) {
-    snapcastServerConfig.value = { ...snapcastServerConfig.value, ...config };
-  }
-
   return {
     // State
     isLoading,
@@ -305,12 +237,9 @@ export const useSettingsStore = defineStore('settings', () => {
     spotifyDisconnect,
     screenTimeout,
     screenBrightness,
-    snapcastClients,
-    snapcastServerConfig,
 
     // Actions
     loadAllSettings,
-    loadSnapcastSettings,
     updateLanguage,
     updateVolumeLimits,
     updateVolumeStartup,
@@ -318,9 +247,6 @@ export const useSettingsStore = defineStore('settings', () => {
     updateDockApps,
     updateSpotifyDisconnect,
     updateScreenTimeout,
-    updateScreenBrightness,
-    updateSnapcastClients,
-    updateSnapcastClientName,
-    updateSnapcastServerConfig
+    updateScreenBrightness
   };
 });

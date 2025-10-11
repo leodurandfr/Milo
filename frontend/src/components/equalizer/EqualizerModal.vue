@@ -9,8 +9,8 @@
             v-if="isEqualizerEnabled"
             icon="reset"
             variant="dark"
-            :disabled="resetting"
-            @click="resetAllBands"
+            :disabled="equalizerStore.isResetting"
+            @click="handleResetAllBands"
           />
           <Toggle
             v-model="isEqualizerEnabled"
@@ -36,7 +36,7 @@
           <Transition name="controls">
             <div v-if="isEqualizerEnabled" key="controls" class="equalizer-controls">
               <RangeSliderEqualizer
-                v-for="band in bands"
+                v-for="band in equalizerStore.bands"
                 :key="band.id"
                 v-model="band.value"
                 :label="band.display_name"
@@ -45,8 +45,8 @@
                 :max="100"
                 :step="1"
                 unit="%"
-                :disabled="updating || !bandsLoaded"
-                :class="{ 'slider-loading': !bandsLoaded }"
+                :disabled="equalizerStore.isUpdating || !equalizerStore.bandsLoaded"
+                :class="{ 'slider-loading': !equalizerStore.bandsLoaded }"
                 @input="handleBandInput(band.id, $event)"
                 @change="handleBandChange(band.id, $event)"
               />
@@ -61,8 +61,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useEqualizerStore } from '@/stores/equalizerStore';
 import useWebSocket from '@/services/websocket';
-import axios from 'axios';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -70,42 +70,17 @@ import RangeSliderEqualizer from './RangeSliderEqualizer.vue';
 import Icon from '@/components/ui/Icon.vue';
 
 const unifiedStore = useUnifiedAudioStore();
+const equalizerStore = useEqualizerStore();
 const { on } = useWebSocket();
 
 // État local pour le toggling et l'UI optimiste
 const isEqualizerToggling = ref(false);
 const localEqualizerEnabled = ref(false); // État local pour l'UI instantanée
 
-// === CONSTANTES ===
-const STATIC_BANDS = [
-  { id: "00", freq: "31 Hz", display_name: "31" },
-  { id: "01", freq: "63 Hz", display_name: "63" },
-  { id: "02", freq: "125 Hz", display_name: "125" },
-  { id: "03", freq: "250 Hz", display_name: "250" },
-  { id: "04", freq: "500 Hz", display_name: "500" },
-  { id: "05", freq: "1 kHz", display_name: "1K" },
-  { id: "06", freq: "2 kHz", display_name: "2K" },
-  { id: "07", freq: "4 kHz", display_name: "4K" },
-  { id: "08", freq: "8 kHz", display_name: "8K" },
-  { id: "09", freq: "16 kHz", display_name: "16K" }
-];
-
-const DEFAULT_VALUE = 66;
-
-// État local
-const updating = ref(false);
-const resetting = ref(false);
-const isToggling = ref(false);
-const bands = ref([]);
-const bandsLoaded = ref(false);
+// UI states
 const isMobile = ref(false);
 const contentWrapperRef = ref(null);
 const containerHeight = ref('auto');
-
-// Gestion du throttling
-const bandThrottleMap = new Map();
-const THROTTLE_DELAY = 100;
-const FINAL_DELAY = 300;
 
 let unsubscribeFunctions = [];
 let resizeObserver = null;
@@ -113,65 +88,9 @@ let resizeObserver = null;
 // Computed
 const isEqualizerEnabled = computed({
   get: () => localEqualizerEnabled.value,
-  set: (value) => { localEqualizerEnabled.value = value; } // Permet le v-model sur le Toggle
+  set: (value) => { localEqualizerEnabled.value = value; }
 });
 const sliderOrientation = computed(() => isMobile.value ? 'horizontal' : 'vertical');
-
-// === INITIALISATION DES BANDES ===
-function initializeBands() {
-  // Initialiser avec les valeurs par défaut (seront remplacées par l'API)
-  bands.value = STATIC_BANDS.map(band => ({
-    ...band,
-    value: DEFAULT_VALUE
-  }));
-}
-
-// === LOAD EQUALIZER DATA ===
-async function loadEqualizerData() {
-  // Ne pas vérifier isEqualizerEnabled pour permettre le chargement au mount
-  try {
-    const [statusResponse, bandsResponse] = await Promise.all([
-      axios.get('/api/equalizer/status'),
-      axios.get('/api/equalizer/bands')
-    ]);
-
-    if (statusResponse.data.available && bandsResponse.data.bands) {
-      const apiBands = bandsResponse.data.bands;
-
-      // Mettre à jour vers les vraies valeurs depuis l'API (source de vérité unique)
-      bands.value = bands.value.map(band => {
-        const apiBand = apiBands.find(b => b.id === band.id);
-        return {
-          ...band,
-          value: apiBand ? apiBand.value : band.value
-        };
-      });
-    }
-  } catch (error) {
-    console.error('Error loading equalizer data:', error);
-  }
-
-  // Assurer que les contrôles sont visibles
-  bandsLoaded.value = true;
-}
-
-// === FETCH INITIAL ===
-async function fetchEqualizerState() {
-  try {
-    const routingResponse = await axios.get('/api/routing/status');
-    const routingData = routingResponse.data;
-
-    if (routingData.routing?.equalizer_enabled !== undefined) {
-      unifiedStore.systemState.equalizer_enabled = routingData.routing.equalizer_enabled;
-    }
-
-    if (routingData.routing?.equalizer_enabled) {
-      await loadEqualizerData();
-    }
-  } catch (error) {
-    console.error('Error fetching equalizer state:', error);
-  }
-}
 
 // === DÉTECTION MOBILE ===
 function updateMobileStatus() {
@@ -213,77 +132,15 @@ function setupResizeObserver() {
 
 // === GESTION DES BANDES ===
 function handleBandInput(bandId, value) {
-  const band = bands.value.find(b => b.id === bandId);
-  if (band) band.value = value;
-  handleBandThrottled(bandId, value);
+  equalizerStore.updateBand(bandId, value);
 }
 
 function handleBandChange(bandId, value) {
-  sendBandRequest(bandId, value);
-  clearThrottleForBand(bandId);
-  // Backend est la source de vérité, pas besoin de cache local
+  equalizerStore.finalizeBandUpdate(bandId, value);
 }
 
-function handleBandThrottled(bandId, value) {
-  const now = Date.now();
-  let state = bandThrottleMap.get(bandId) || {};
-
-  if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
-  if (state.finalTimeout) clearTimeout(state.finalTimeout);
-
-  if (!state.lastRequestTime || (now - state.lastRequestTime) >= THROTTLE_DELAY) {
-    sendBandRequest(bandId, value);
-    state.lastRequestTime = now;
-  } else {
-    state.throttleTimeout = setTimeout(() => {
-      sendBandRequest(bandId, value);
-      state.lastRequestTime = Date.now();
-    }, THROTTLE_DELAY - (now - state.lastRequestTime));
-  }
-
-  state.finalTimeout = setTimeout(() => {
-    sendBandRequest(bandId, value);
-    state.lastRequestTime = Date.now();
-  }, FINAL_DELAY);
-
-  bandThrottleMap.set(bandId, state);
-}
-
-async function sendBandRequest(bandId, value) {
-  try {
-    const response = await axios.post(`/api/equalizer/band/${bandId}`, { value });
-    if (response.data.status !== 'success') {
-      console.error('Failed to update band:', response.data.message);
-    }
-  } catch (error) {
-    console.error('Error updating band:', error);
-  }
-}
-
-function clearThrottleForBand(bandId) {
-  const state = bandThrottleMap.get(bandId);
-  if (state) {
-    if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
-    if (state.finalTimeout) clearTimeout(state.finalTimeout);
-    bandThrottleMap.delete(bandId);
-  }
-}
-
-async function resetAllBands() {
-  if (resetting.value) return;
-
-  resetting.value = true;
-  try {
-    const response = await axios.post('/api/equalizer/reset', { value: 66 });
-    if (response.data.status === 'success') {
-      bands.value.forEach(band => { band.value = 66; });
-      // Backend est la source de vérité, pas besoin de cache local
-    }
-  } catch (error) {
-    console.error('Error resetting bands:', error);
-  } finally {
-    resetting.value = false;
-  }
+async function handleResetAllBands() {
+  await equalizerStore.resetAllBands();
 }
 
 async function handleEqualizerToggle(enabled) {
@@ -310,19 +167,10 @@ async function handleEqualizerToggle(enabled) {
   }
 }
 
-// === WEBSOCKET ===
+// === WEBSOCKET HANDLERS ===
 function handleEqualizerUpdate(event) {
-  if (event.data.band_changed) {
-    const { band_id, value } = event.data;
-    const band = bands.value.find(b => b.id === band_id);
-    if (band && bandThrottleMap.size === 0) {
-      band.value = value;
-    }
-  } else if (event.data.reset) {
-    if (bandThrottleMap.size === 0) {
-      bands.value.forEach(band => { band.value = event.data.reset_value; });
-    }
-  }
+  equalizerStore.handleBandChanged(event);
+  equalizerStore.handleReset(event);
 }
 
 function handleEqualizerEnabling() {
@@ -333,6 +181,7 @@ function handleEqualizerDisabling() {
   isEqualizerToggling.value = true;
 }
 
+// === WATCHER POUR SYNCHRONISER AVEC LE BACKEND ===
 // Watcher pour synchroniser avec le backend via WebSocket
 let lastStoreState = null; // Sera initialisé au premier tick
 const watcherInterval = setInterval(() => {
@@ -356,22 +205,17 @@ const watcherInterval = setInterval(() => {
 
     // Gérer les données de l'égaliseur
     if (currentStoreState) {
-      // Activation : garder les bandes existantes, juste recharger les vraies valeurs
-      // (pas de réinitialisation pour éviter le tremblement visuel)
-      bandsLoaded.value = false; // Opacité 0.5 pendant le chargement
+      // Activation : charger les bandes
+      equalizerStore.bandsLoaded = false;
 
       nextTick(async () => {
-        await loadEqualizerData();
-        bandsLoaded.value = true; // Opacité 1 quand chargé
+        await equalizerStore.loadBands();
+        equalizerStore.bandsLoaded = true;
       });
     } else {
       // Désactivation : nettoyer
-      bandsLoaded.value = false;
-      bandThrottleMap.forEach(state => {
-        if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
-        if (state.finalTimeout) clearTimeout(state.finalTimeout);
-      });
-      bandThrottleMap.clear();
+      equalizerStore.bandsLoaded = false;
+      equalizerStore.cleanup();
     }
   }
 }, 100);
@@ -381,29 +225,17 @@ onMounted(async () => {
   updateMobileStatus();
   window.addEventListener('resize', updateMobileStatus);
 
-  // Nettoyer l'ancien cache localStorage (obsolète, backend est la source de vérité)
-  try {
-    localStorage.removeItem('equalizer_bands_cache');
-  } catch (error) {
-    // Ignore si échec
-  }
-
-  // Initialiser l'état local AVANT fetchEqualizerState pour que loadEqualizerData fonctionne
+  // Initialiser l'état local AVANT de charger
   localEqualizerEnabled.value = unifiedStore.equalizerEnabled;
 
   // Initialiser les bandes immédiatement
-  initializeBands();
+  equalizerStore.initializeBands();
 
-  // Si l'égaliseur est déjà activé, marquer comme loading pendant le fetch
+  // Si l'égaliseur est déjà activé, charger les données
   if (localEqualizerEnabled.value) {
-    bandsLoaded.value = false;
-  }
-
-  await fetchEqualizerState();
-
-  // Après le fetch, si égaliseur activé, marquer comme chargé
-  if (localEqualizerEnabled.value) {
-    bandsLoaded.value = true;
+    equalizerStore.bandsLoaded = false;
+    await equalizerStore.loadBands();
+    equalizerStore.bandsLoaded = true;
   }
 
   // Setup ResizeObserver après le prochain tick pour que la ref soit disponible
@@ -427,11 +259,7 @@ onUnmounted(() => {
     resizeObserver.disconnect();
   }
 
-  bandThrottleMap.forEach(state => {
-    if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
-    if (state.finalTimeout) clearTimeout(state.finalTimeout);
-  });
-  bandThrottleMap.clear();
+  equalizerStore.cleanup();
 });
 </script>
 

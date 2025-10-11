@@ -24,25 +24,21 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useSnapcastStore } from '@/stores/snapcastStore';
 import useWebSocket from '@/services/websocket';
-import axios from 'axios';
 import SnapclientItem from './SnapclientItem.vue';
 import Icon from '@/components/ui/Icon.vue';
 
 const unifiedStore = useUnifiedAudioStore();
+const snapcastStore = useSnapcastStore();
 const { on } = useWebSocket();
 
 const clientsListRef = ref(null);
 const containerHeight = ref('0px');
-const clients = ref([]);
-const isLoadingClients = ref(false);
 
 // États locaux pour les transitions multiroom
 const isMultiroomTransitioning = ref(false);
 const isMultiroomDeactivating = ref(false);
-
-// Mémorisation du dernier nombre de clients connus
-const lastKnownClientCount = ref(3); // Défaut : 3 skeletons
 
 // Constantes de hauteur
 const ITEM_HEIGHT_DESKTOP = 72;
@@ -59,38 +55,6 @@ function calculateInitialHeight(clientsCount) {
   const gap = isMobile ? GAP_MOBILE : GAP_DESKTOP;
 
   return (clientsCount * itemHeight) + ((clientsCount - 1) * gap);
-}
-
-// === CACHE ===
-const CACHE_KEY = 'snapcast_clients_cache';
-
-function loadCache() {
-  try {
-    const cached = localStorage.getItem(CACHE_KEY);
-    return cached ? JSON.parse(cached) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveCache(clientsList) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(clientsList));
-  } catch (error) {
-    console.error('Error saving cache:', error);
-  }
-}
-
-function clearCache() {
-  localStorage.removeItem(CACHE_KEY);
-}
-
-function sortClients(clientsList) {
-  return [...clientsList].sort((a, b) => {
-    if (a.host === "milo") return -1;
-    if (b.host === "milo") return 1;
-    return a.name.localeCompare(b.name);
-  });
 }
 
 // === COMPUTED ===
@@ -123,13 +87,13 @@ const shouldShowLoading = computed(() => {
   if (isTogglingMultiroom.value && isMultiroomDeactivating.value) {
     return false; // Pas de skeletons lors de la désactivation
   }
-  return isLoadingClients.value || isTogglingMultiroom.value;
+  return snapcastStore.isLoading || isTogglingMultiroom.value;
 });
 
 const displayClients = computed(() => {
   // Si on active le multiroom, afficher des placeholders vides pour les skeletons
   if (isTogglingMultiroom.value && !isMultiroomDeactivating.value) {
-    return Array.from({ length: lastKnownClientCount.value }, (_, i) => ({
+    return Array.from({ length: snapcastStore.lastKnownClientCount }, (_, i) => ({
       id: `placeholder-${i}`,
       name: '',
       volume: 0,
@@ -137,15 +101,15 @@ const displayClients = computed(() => {
     }));
   }
 
-  if (clients.value.length === 0 && isLoadingClients.value) {
-    return Array.from({ length: lastKnownClientCount.value }, (_, i) => ({
+  if (snapcastStore.clients.length === 0 && snapcastStore.isLoading) {
+    return Array.from({ length: snapcastStore.lastKnownClientCount }, (_, i) => ({
       id: `placeholder-${i}`,
       name: '',
       volume: 0,
       muted: false
     }));
   }
-  return clients.value;
+  return snapcastStore.clients;
 });
 
 // === RESIZE OBSERVER ===
@@ -170,129 +134,38 @@ function setupResizeObserver() {
   }
 }
 
-// === FETCH CLIENTS ===
-async function fetchSnapcastClients() {
-  try {
-    const response = await axios.get('/api/routing/snapcast/clients');
-    return response.data.clients ? sortClients(response.data.clients) : [];
-  } catch (error) {
-    console.error('Error fetching clients:', error);
-    return [];
-  }
-}
-
-async function loadSnapcastClients(forceNoCache = false) {
-  const cache = forceNoCache ? null : loadCache();
-
-  if (cache && cache.length > 0 && !forceNoCache) {
-    lastKnownClientCount.value = cache.length;
-    clients.value = cache;
-    isLoadingClients.value = false;
-    containerHeight.value = `${calculateInitialHeight(lastKnownClientCount.value)}px`;
-
-    const freshClients = await fetchSnapcastClients();
-
-    if (JSON.stringify(freshClients) !== JSON.stringify(cache)) {
-      clients.value = sortClients(freshClients);
-      saveCache(freshClients);
-    }
-
-  } else {
-    const freshClients = await fetchSnapcastClients();
-    const sortedClients = sortClients(freshClients);
-
-    // Mémoriser le nombre de clients (minimum 3 pour les skeletons par défaut)
-    lastKnownClientCount.value = sortedClients.length || 3;
-    containerHeight.value = `${calculateInitialHeight(lastKnownClientCount.value)}px`;
-
-    clients.value = sortedClients.map(client => ({
-      id: client.id,
-      name: '',
-      volume: 0,
-      muted: false
-    }));
-    isLoadingClients.value = true;
-
-    await new Promise(resolve => setTimeout(resolve, 600));
-
-    isLoadingClients.value = false;
-    await nextTick();
-
-    clients.value = sortedClients;
-    saveCache(sortedClients);
-  }
-}
-
 // === HANDLERS ===
 async function handleVolumeChange(clientId, volume) {
-  try {
-    await axios.post(`/api/routing/snapcast/client/${clientId}/volume`, { volume });
-  } catch (error) {
-    console.error('Error updating volume:', error);
-  }
+  await snapcastStore.updateClientVolume(clientId, volume);
 }
 
 async function handleMuteToggle(clientId, muted) {
-  try {
-    await axios.post(`/api/routing/snapcast/client/${clientId}/mute`, { muted });
-  } catch (error) {
-    console.error('Error toggling mute:', error);
-  }
+  await snapcastStore.toggleClientMute(clientId, muted);
 }
 
 // === WEBSOCKET HANDLERS ===
-async function handleClientConnected(event) {
-  const { client_id, client_name, client_host, client_ip, volume, muted } = event.data;
-
-  if (!client_id || isMultiroomDeactivating.value) return;
-  if (clients.value.find(c => c.id === client_id)) return;
-
-  const newClient = {
-    id: client_id,
-    name: client_name || client_host || 'Unknown',
-    host: client_host || 'unknown',
-    volume: volume || 0,
-    muted: muted || false,
-    ip: client_ip || 'Unknown'
-  };
-
-  clients.value = sortClients([...clients.value, newClient]);
-  saveCache(clients.value);
+function handleClientConnected(event) {
+  if (!isMultiroomDeactivating.value) {
+    snapcastStore.handleClientConnected(event);
+  }
 }
 
-async function handleClientDisconnected(event) {
-  if (isMultiroomDeactivating.value) return;
-
-  const clientId = event.data.client_id;
-  clients.value = clients.value.filter(c => c.id !== clientId);
-  saveCache(clients.value);
+function handleClientDisconnected(event) {
+  if (!isMultiroomDeactivating.value) {
+    snapcastStore.handleClientDisconnected(event);
+  }
 }
 
 function handleClientVolumeChanged(event) {
-  const { client_id, volume, muted } = event.data;
-  const client = clients.value.find(c => c.id === client_id);
-  if (client) {
-    client.volume = volume;
-    if (muted !== undefined) client.muted = muted;
-  }
+  snapcastStore.handleClientVolumeChanged(event);
 }
 
 function handleClientNameChanged(event) {
-  const { client_id, name } = event.data;
-  const client = clients.value.find(c => c.id === client_id);
-  if (client) {
-    client.name = name;
-    clients.value = sortClients(clients.value);
-  }
+  snapcastStore.handleClientNameChanged(event);
 }
 
 function handleClientMuteChanged(event) {
-  const { client_id, muted, volume } = event.data;
-  const client = clients.value.find(c => c.id === client_id);
-  if (client) {
-    client.muted = muted;
-    if (volume !== undefined) client.volume = volume;
-  }
+  snapcastStore.handleClientMuteChanged(event);
 }
 
 function handleSystemStateChanged(event) {
@@ -302,14 +175,14 @@ function handleSystemStateChanged(event) {
 async function handleMultiroomEnabling() {
   isTogglingMultiroom.value = true;
   isMultiroomTransitioning.value = true;
-  isLoadingClients.value = true;
-  clearCache();
+  snapcastStore.isLoading = true;
+  snapcastStore.clearCache();
 }
 
 async function handleMultiroomDisabling() {
   isTogglingMultiroom.value = true;
   isMultiroomDeactivating.value = true;
-  isLoadingClients.value = false;
+  snapcastStore.isLoading = false;
   // Les clients seront vidés après la fin du toggling via le watcher
 }
 
@@ -324,9 +197,9 @@ onMounted(async () => {
   }
 
   if (isMultiroomActive.value) {
-    await loadSnapcastClients();
+    await snapcastStore.loadClients();
   } else {
-    containerHeight.value = `${calculateInitialHeight(lastKnownClientCount.value)}px`;
+    containerHeight.value = `${calculateInitialHeight(snapcastStore.lastKnownClientCount)}px`;
   }
 
   await nextTick();
@@ -362,13 +235,13 @@ watch(() => unifiedStore.isTransitioning, (isTransitioning, wasTransitioning) =>
       // On est en train de désactiver le multiroom
       isTogglingMultiroom.value = true;
       isMultiroomDeactivating.value = true;
-      isLoadingClients.value = false;
+      snapcastStore.isLoading = false;
     } else {
       // On est en train d'activer le multiroom
       isTogglingMultiroom.value = true;
       isMultiroomTransitioning.value = true;
-      isLoadingClients.value = true;
-      clearCache();
+      snapcastStore.isLoading = true;
+      snapcastStore.clearCache();
     }
   }
 });
@@ -378,7 +251,7 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
     isMultiroomDeactivating.value = false;
 
     const forceNoCache = isMultiroomTransitioning.value;
-    await loadSnapcastClients(forceNoCache);
+    await snapcastStore.loadClients(forceNoCache);
 
     isMultiroomTransitioning.value = false;
     isTogglingMultiroom.value = false;
@@ -393,8 +266,8 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
 watch(isTogglingMultiroom, (isToggling, wasToggling) => {
   if (!isToggling && wasToggling && !isMultiroomActive.value) {
     // Fin du toggling de désactivation : vider les clients
-    clients.value = [];
-    clearCache();
+    snapcastStore.clients = [];
+    snapcastStore.clearCache();
   }
 });
 </script>

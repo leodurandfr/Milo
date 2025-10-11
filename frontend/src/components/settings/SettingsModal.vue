@@ -146,10 +146,7 @@ onMounted(async () => {
     settingsStore.loadAllSettings()
   ]);
 
-  // Charger les settings snapcast si le multiroom est déjà activé
-  if (isMultiroomActive.value) {
-    await settingsStore.loadSnapcastSettings();
-  }
+  // Note: Les settings snapcast sont maintenant chargés directement par MultiroomSettings.vue via snapcastStore
 
   on('routing', 'multiroom_enabling', handleMultiroomEnabling);
   on('routing', 'multiroom_disabling', handleMultiroomDisabling);

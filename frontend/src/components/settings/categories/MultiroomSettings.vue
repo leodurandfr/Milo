@@ -20,7 +20,7 @@
       <div class="multiroom-group">
         <h2 class="heading-2 text-body">{{ t('multiroom.speakers') }}</h2>
 
-        <div v-if="loadingClients" class="loading-state">
+        <div v-if="snapcastStore.isLoading" class="loading-state">
           <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
         </div>
 
@@ -48,7 +48,7 @@
         <h2 class="heading-2 text-body">{{ t('multiroomSettings.presets') }}</h2>
         <div class="presets-buttons">
           <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle" :active="isPresetActive(preset)"
-            :disabled="applyingServerConfig" @click="applyPreset(preset)">
+            :disabled="snapcastStore.isApplyingServerConfig" @click="applyPreset(preset)">
             {{ preset.name }}
           </Button>
         </div>
@@ -62,24 +62,24 @@
 
         <div class="form-group">
           <label class="text-mono">{{ t('multiroomSettings.globalBuffer') }}</label>
-          <RangeSlider v-model="serverConfig.buffer" :min="100" :max="2000" :step="50" value-unit="ms" />
+          <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50" value-unit="ms" />
         </div>
 
         <div class="form-group">
           <label class="text-mono">{{ t('multiroomSettings.chunkSize') }}</label>
-          <RangeSlider v-model="serverConfig.chunk_ms" :min="10" :max="100" :step="5" value-unit="ms" />
+          <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5" value-unit="ms" />
         </div>
 
         <div class="form-group">
           <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
           <div class="codec-buttons">
-            <Button variant="toggle" :active="serverConfig.codec === 'opus'" @click="selectCodec('opus')">
+            <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'opus'" @click="selectCodec('opus')">
               Opus
             </Button>
-            <Button variant="toggle" :active="serverConfig.codec === 'flac'" @click="selectCodec('flac')">
+            <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'flac'" @click="selectCodec('flac')">
               FLAC
             </Button>
-            <Button variant="toggle" :active="serverConfig.codec === 'pcm'" @click="selectCodec('pcm')">
+            <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'pcm'" @click="selectCodec('pcm')">
               PCM
             </Button>
           </div>
@@ -87,9 +87,9 @@
       </div>
     </section>
 
-            <Button v-if="hasServerConfigChanges" variant="primary" class="apply-button-sticky"
-              :disabled="loadingServerConfig || applyingServerConfig" @click="applyServerConfig">
-              {{ applyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
+            <Button v-if="snapcastStore.hasServerConfigChanges" variant="primary" class="apply-button-sticky"
+              :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
+              {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
             </Button>
           </div>
         </Transition>
@@ -102,16 +102,15 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
-import { useSettingsStore } from '@/stores/settingsStore';
+import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import axios from 'axios';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Icon from '@/components/ui/Icon.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
-const settingsStore = useSettingsStore();
+const snapcastStore = useSnapcastStore();
 const unifiedStore = useUnifiedAudioStore();
 
 // Multiroom state
@@ -123,30 +122,11 @@ const containerHeight = ref('auto');
 let resizeObserver = null;
 let isFirstResize = true;
 
-// Multiroom - Clients (utilise le store)
-const loadingClients = ref(false);
+// Noms des clients (état local pour l'input)
 const clientNames = ref({});
 
 // Clients triés avec "milo" en premier
-const sortedSnapcastClients = computed(() => {
-  const clients = [...settingsStore.snapcastClients];
-  return clients.sort((a, b) => {
-    if (a.host === 'milo') return -1;
-    if (b.host === 'milo') return 1;
-    return 0;
-  });
-});
-
-// Multiroom - Server config (utilise le store)
-const serverConfig = ref({
-  buffer: 1000,
-  codec: 'flac',
-  chunk_ms: 20,
-  sampleformat: '48000:16:2'
-});
-const originalServerConfig = ref({});
-const loadingServerConfig = ref(false);
-const applyingServerConfig = ref(false);
+const sortedSnapcastClients = computed(() => snapcastStore.sortedClients);
 
 const audioPresets = computed(() => [
   {
@@ -165,10 +145,6 @@ const audioPresets = computed(() => [
     config: { buffer: 1500, codec: 'flac', chunk_ms: 40 }
   }
 ]);
-
-const hasServerConfigChanges = computed(() => {
-  return JSON.stringify(serverConfig.value) !== JSON.stringify(originalServerConfig.value);
-});
 
 // Style dynamique pour la grille
 const clientsGridStyle = computed(() => {
@@ -233,7 +209,7 @@ const getClientGridStyle = (index) => {
 };
 
 function isPresetActive(preset) {
-  const current = serverConfig.value;
+  const current = snapcastStore.serverConfig;
   const presetConfig = preset.config;
   return current.buffer === presetConfig.buffer &&
     current.codec === presetConfig.codec &&
@@ -243,12 +219,15 @@ function isPresetActive(preset) {
 // === MULTIROOM - CLIENTS ===
 
 async function loadSnapcastData() {
-  // Charger les données snapcast depuis le store
-  await settingsStore.loadSnapcastSettings();
+  // Charger les clients et la config serveur depuis le store
+  await Promise.all([
+    snapcastStore.loadClients(),
+    snapcastStore.loadServerConfig()
+  ]);
 
   // Initialiser les noms locaux
   clientNames.value = {};
-  settingsStore.snapcastClients.forEach(client => {
+  snapcastStore.clients.forEach(client => {
     clientNames.value[client.id] = client.name || client.host;
   });
 }
@@ -257,55 +236,21 @@ async function updateClientName(clientId) {
   const newName = clientNames.value[clientId]?.trim();
   if (!newName) return;
 
-  try {
-    const response = await axios.post(`/api/routing/snapcast/client/${clientId}/name`, {
-      name: newName
-    });
-
-    if (response.data.status === 'success') {
-      console.log(`Client ${clientId} name updated to: ${newName}`);
-    }
-  } catch (error) {
-    console.error('Error updating client name:', error);
-  }
+  await snapcastStore.updateClientName(clientId, newName);
 }
 
 // === MULTIROOM - SERVER CONFIG ===
 
 function applyPreset(preset) {
-  serverConfig.value.buffer = preset.config.buffer;
-  serverConfig.value.codec = preset.config.codec;
-  serverConfig.value.chunk_ms = preset.config.chunk_ms;
+  snapcastStore.applyPreset(preset);
 }
 
 function selectCodec(codecName) {
-  serverConfig.value.codec = codecName;
-}
-
-function syncServerConfigFromStore() {
-  // Synchroniser depuis le store
-  serverConfig.value = { ...settingsStore.snapcastServerConfig };
-  originalServerConfig.value = JSON.parse(JSON.stringify(serverConfig.value));
+  snapcastStore.selectCodec(codecName);
 }
 
 async function applyServerConfig() {
-  if (!hasServerConfigChanges.value || applyingServerConfig.value) return;
-
-  applyingServerConfig.value = true;
-  try {
-    const response = await axios.post('/api/routing/snapcast/server/config', {
-      config: serverConfig.value
-    });
-
-    if (response.data.status === 'success') {
-      originalServerConfig.value = JSON.parse(JSON.stringify(serverConfig.value));
-      console.log('Server config applied successfully');
-    }
-  } catch (error) {
-    console.error('Error applying server config:', error);
-  } finally {
-    applyingServerConfig.value = false;
-  }
+  await snapcastStore.applyServerConfig();
 }
 
 // === RESIZE OBSERVER ===
@@ -344,8 +289,8 @@ const handleClientNameChanged = (msg) => {
   if (clientNames.value[client_id] !== undefined) {
     clientNames.value[client_id] = name;
   }
-  // Mettre à jour le store
-  settingsStore.updateSnapcastClientName(client_id, name);
+  // Le store se met à jour via son propre handler
+  snapcastStore.handleClientNameChanged(msg);
 };
 
 // Watcher pour charger les données quand multiroom est activé
@@ -353,7 +298,6 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
   if (newValue && !oldValue) {
     // Multiroom vient d'être activé, charger les données
     await loadSnapcastData();
-    syncServerConfigFromStore();
   }
 });
 
@@ -361,7 +305,6 @@ onMounted(async () => {
   // Ne charger que si multiroom est activé
   if (isMultiroomActive.value) {
     await loadSnapcastData();
-    syncServerConfigFromStore();
   }
 
   // Setup ResizeObserver après le prochain tick pour que la ref soit disponible
