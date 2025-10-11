@@ -94,10 +94,41 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   }
 
   // === ACTIONS - CLIENTS ===
+
+  /**
+   * Pré-charge le cache de manière synchrone et met à jour lastKnownClientCount
+   * Retourne le nombre de clients dans le cache (ou la valeur par défaut)
+   */
+  function preloadCache() {
+    const cache = loadCache();
+    if (cache && cache.length > 0) {
+      lastKnownClientCount.value = cache.length;
+      clients.value = cache;
+      return cache.length;
+    }
+    return lastKnownClientCount.value;
+  }
+
   async function loadClients(forceNoCache = false) {
+    // Si les clients sont déjà chargés (via preloadCache), juste rafraîchir
+    if (clients.value.length > 0 && !forceNoCache) {
+      isLoading.value = false;
+
+      // Rafraîchir en arrière-plan
+      const freshClients = await fetchClients();
+      const sortedFresh = sortClients(freshClients);
+
+      if (JSON.stringify(sortedFresh) !== JSON.stringify(clients.value)) {
+        clients.value = sortedFresh;
+        lastKnownClientCount.value = sortedFresh.length;
+        saveCache(sortedFresh);
+      }
+      return;
+    }
+
+    // Sinon, charger normalement avec cache
     const cache = forceNoCache ? null : loadCache();
 
-    // Si cache disponible, charger immédiatement puis rafraîchir en arrière-plan
     if (cache && cache.length > 0 && !forceNoCache) {
       lastKnownClientCount.value = cache.length;
       clients.value = cache;
@@ -281,6 +312,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     hasServerConfigChanges,
 
     // Actions - Clients
+    preloadCache,
     loadClients,
     updateClientVolume,
     toggleClientMute,

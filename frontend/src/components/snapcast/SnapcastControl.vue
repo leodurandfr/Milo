@@ -197,6 +197,11 @@ onMounted(async () => {
   }
 
   if (isMultiroomActive.value) {
+    // Pré-charger le cache de manière synchrone pour obtenir le bon nombre de clients
+    snapcastStore.preloadCache();
+    // Définir la hauteur immédiatement avec le nombre correct de clients
+    containerHeight.value = `${calculateInitialHeight(snapcastStore.clients.length || snapcastStore.lastKnownClientCount)}px`;
+    // Charger les clients frais en arrière-plan
     await snapcastStore.loadClients();
   } else {
     containerHeight.value = `${calculateInitialHeight(snapcastStore.lastKnownClientCount)}px`;
