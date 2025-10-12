@@ -24,37 +24,44 @@ def create_settings_router(
     settings = SettingsService()
     
     async def _handle_setting_update(
-        payload: Dict[str, Any], 
+        payload: Dict[str, Any],
         validator: Callable[[Any], bool],
-        setter: Callable[[], bool],
+        setter: Callable,
         event_type: str,
         event_data: Dict[str, Any],
         reload_callback: Optional[Callable] = None
     ) -> Dict[str, Any]:
-        """Pattern unifié pour toutes les routes settings"""
+        """Pattern unifié pour toutes les routes settings - supporte les setters async"""
         try:
             if not validator(payload):
                 raise HTTPException(status_code=400, detail="Invalid payload")
-            
-            if not setter():
+
+            # Appeler le setter et l'attendre s'il est async
+            setter_result = setter()
+            if asyncio.iscoroutine(setter_result):
+                success = await setter_result
+            else:
+                success = setter_result
+
+            if not success:
                 raise HTTPException(status_code=500, detail="Failed to save")
-            
+
             reload_success = True
             if reload_callback:
                 try:
                     reload_success = await reload_callback()
                 except Exception:
                     reload_success = False
-            
+
             await ws_manager.broadcast_dict({
                 "category": "settings",
                 "type": event_type,
                 "source": "settings",
                 "data": {**event_data, "reload_success": reload_success}
             })
-            
+
             return {"status": "success", **event_data, "reload_success": reload_success}
-            
+
         except HTTPException:
             raise
         except Exception as e:
@@ -72,12 +79,12 @@ def create_settings_router(
     # Language
     @router.get("/language")
     async def get_language():
-        return {"status": "success", "language": settings.get_setting('language') or 'french'}
+        return {"status": "success", "language": await settings.get_setting('language') or 'french'}
     
     @router.post("/language")
     async def set_language(payload: Dict[str, Any]):
         new_language = payload.get('language')
-        
+
         return await _handle_setting_update(
             payload,
             validator=lambda p: p.get('language') in ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german'],
@@ -89,7 +96,7 @@ def create_settings_router(
     # Volume limits
     @router.get("/volume-limits")
     async def get_volume_limits():
-        vol = settings.get_setting('volume') or {}
+        vol = await settings.get_setting('volume') or {}
         return {
             "status": "success",
             "limits": {
@@ -103,7 +110,13 @@ def create_settings_router(
     async def set_volume_limits(payload: Dict[str, Any]):
         alsa_min = payload.get('alsa_min')
         alsa_max = payload.get('alsa_max')
-        
+
+        async def setter():
+            return (
+                await settings.set_setting('volume.alsa_min', alsa_min) and
+                await settings.set_setting('volume.alsa_max', alsa_max)
+            )
+
         return await _handle_setting_update(
             payload,
             validator=lambda p: (
@@ -111,10 +124,7 @@ def create_settings_router(
                 0 <= p['alsa_min'] <= 100 and 0 <= p['alsa_max'] <= 100 and
                 p['alsa_max'] - p['alsa_min'] >= 10
             ),
-            setter=lambda: (
-                settings.set_setting('volume.alsa_min', alsa_min) and
-                settings.set_setting('volume.alsa_max', alsa_max)
-            ),
+            setter=setter,
             event_type="volume_limits_changed",
             event_data={"limits": {"alsa_min": alsa_min, "alsa_max": alsa_max}},
             reload_callback=volume_service.reload_volume_limits
@@ -123,27 +133,30 @@ def create_settings_router(
     @router.post("/volume-limits/toggle")
     async def toggle_volume_limits(payload: Dict[str, Any]):
         enabled = payload.get('enabled')
-        
+
         if enabled:
-            current_min = settings.get_setting('volume.alsa_min') or 0
-            current_max = settings.get_setting('volume.alsa_max') or 65
+            current_min = await settings.get_setting('volume.alsa_min') or 0
+            current_max = await settings.get_setting('volume.alsa_max') or 65
         else:
             current_min = 0
             current_max = 100
-        
+
+        async def setter():
+            return (
+                await settings.set_setting('volume.limits_enabled', enabled) and
+                await settings.set_setting('volume.alsa_min', current_min) and
+                await settings.set_setting('volume.alsa_max', current_max)
+            )
+
         return await _handle_setting_update(
             payload,
             validator=lambda p: isinstance(p.get('enabled'), bool),
-            setter=lambda: (
-                settings.set_setting('volume.limits_enabled', enabled) and
-                settings.set_setting('volume.alsa_min', current_min) and
-                settings.set_setting('volume.alsa_max', current_max)
-            ),
+            setter=setter,
             event_type="volume_limits_toggled",
             event_data={
-                "limits_enabled": enabled, 
+                "limits_enabled": enabled,
                 "limits": {
-                    "alsa_min": current_min, 
+                    "alsa_min": current_min,
                     "alsa_max": current_max
                 }
             },
@@ -153,7 +166,7 @@ def create_settings_router(
     # Volume startup
     @router.get("/volume-startup")
     async def get_volume_startup():
-        vol = settings.get_setting('volume') or {}
+        vol = await settings.get_setting('volume') or {}
         return {
             "status": "success",
             "config": {
@@ -166,17 +179,20 @@ def create_settings_router(
     async def set_volume_startup(payload: Dict[str, Any]):
         startup_volume = payload.get('startup_volume')
         restore_last_volume = payload.get('restore_last_volume')
-        
+
+        async def setter():
+            return (
+                await settings.set_setting('volume.startup_volume', startup_volume) and
+                await settings.set_setting('volume.restore_last_volume', restore_last_volume)
+            )
+
         return await _handle_setting_update(
             payload,
             validator=lambda p: (
                 p.get('startup_volume') is not None and p.get('restore_last_volume') is not None and
                 0 <= p['startup_volume'] <= 100 and isinstance(p['restore_last_volume'], bool)
             ),
-            setter=lambda: (
-                settings.set_setting('volume.startup_volume', startup_volume) and
-                settings.set_setting('volume.restore_last_volume', restore_last_volume)
-            ),
+            setter=setter,
             event_type="volume_startup_changed",
             event_data={"config": {"startup_volume": startup_volume, "restore_last_volume": restore_last_volume}},
             reload_callback=volume_service.reload_startup_config
@@ -185,7 +201,7 @@ def create_settings_router(
     # Volume steps (mobile)
     @router.get("/volume-steps")
     async def get_volume_steps():
-        vol = settings.get_setting('volume') or {}
+        vol = await settings.get_setting('volume') or {}
         return {
             "status": "success",
             "config": {"mobile_volume_steps": vol.get("mobile_volume_steps", 5)}
@@ -207,7 +223,7 @@ def create_settings_router(
     # Rotary steps
     @router.get("/rotary-steps")
     async def get_rotary_steps():
-        vol = settings.get_setting('volume') or {}
+        vol = await settings.get_setting('volume') or {}
         return {
             "status": "success",
             "config": {"rotary_volume_steps": vol.get("rotary_volume_steps", 2)}
@@ -229,7 +245,7 @@ def create_settings_router(
     # Dock apps - VERSION AVEC DÉSACTIVATION DES PROCESSUS
     @router.get("/dock-apps")
     async def get_dock_apps():
-        dock = settings.get_setting('dock') or {}
+        dock = await settings.get_setting('dock') or {}
         enabled_apps = dock.get('enabled_apps', ["librespot", "bluetooth", "roc", "multiroom", "equalizer", "settings"])
         
         return {
@@ -260,7 +276,7 @@ def create_settings_router(
                 raise HTTPException(status_code=400, detail="At least one audio source must be enabled")
             
             # Charger ancienne config
-            old_settings = settings.load_settings()
+            old_settings = await settings.load_settings()
             old_enabled_apps = old_settings.get("dock", {}).get("enabled_apps", [])
             
             # Détection des changements
@@ -269,7 +285,7 @@ def create_settings_router(
             
             if not disabled_apps and not enabled_apps_new:
                 # Aucun changement, juste sauvegarder
-                success = settings.set_setting("dock.enabled_apps", enabled_apps)
+                success = await settings.set_setting("dock.enabled_apps", enabled_apps)
                 if success:
                     await ws_manager.broadcast_dict({
                         "category": "settings",
@@ -432,7 +448,7 @@ def create_settings_router(
                 # Toutes les opérations ont réussi → sauvegarder les settings
                 operations_log.append("Saving new settings")
                 logger.info("All operations successful, saving settings")
-                success = settings.set_setting("dock.enabled_apps", enabled_apps)
+                success = await settings.set_setting("dock.enabled_apps", enabled_apps)
                 if not success:
                     raise ValueError("Failed to save settings")
                 
@@ -472,7 +488,7 @@ def create_settings_router(
     # Spotify
     @router.get("/spotify-disconnect")
     async def get_spotify_disconnect():
-        spotify = settings.get_setting('spotify') or {}
+        spotify = await settings.get_setting('spotify') or {}
         return {
             "status": "success",
             "config": {"auto_disconnect_delay": spotify.get("auto_disconnect_delay", 10.0)}
@@ -507,7 +523,7 @@ def create_settings_router(
     # Screen timeout
     @router.get("/screen-timeout")
     async def get_screen_timeout():
-        screen = settings.get_setting('screen') or {}
+        screen = await settings.get_setting('screen') or {}
         timeout_seconds = screen.get("timeout_seconds", 10)
         
         timeout_enabled = timeout_seconds != 0
@@ -541,7 +557,7 @@ def create_settings_router(
     # Screen brightness
     @router.get("/screen-brightness")
     async def get_screen_brightness():
-        screen = settings.get_setting('screen') or {}
+        screen = await settings.get_setting('screen') or {}
         return {
             "status": "success",
             "config": {"brightness_on": screen.get("brightness_on", 5)}

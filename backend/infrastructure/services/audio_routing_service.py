@@ -111,8 +111,8 @@ class AudioRoutingService:
 
             # Charger l'état depuis SettingsService
             if self.settings_service:
-                multiroom = self.settings_service.get_setting('routing.multiroom_enabled')
-                equalizer = self.settings_service.get_setting('routing.equalizer_enabled')
+                multiroom = await self.settings_service.get_setting('routing.multiroom_enabled')
+                equalizer = await self.settings_service.get_setting('routing.equalizer_enabled')
                 await self._set_multiroom_state(multiroom if multiroom is not None else False)
                 await self._set_equalizer_state(equalizer if equalizer is not None else False)
                 current_multiroom = await self._get_multiroom_enabled()
@@ -211,7 +211,7 @@ class AudioRoutingService:
 
             # Sauvegarder l'état via SettingsService
             if self.settings_service:
-                self.settings_service.set_setting('routing.multiroom_enabled', enabled)
+                await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
 
             self.logger.info(f"Multiroom state changed and saved: {enabled}")
 
@@ -269,7 +269,7 @@ class AudioRoutingService:
 
             # Sauvegarder l'état via SettingsService
             if self.settings_service:
-                self.settings_service.set_setting('routing.equalizer_enabled', enabled)
+                await self.settings_service.set_setting('routing.equalizer_enabled', enabled)
 
             self.logger.info(f"Equalizer state changed and saved: {enabled}")
 

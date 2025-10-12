@@ -37,6 +37,9 @@ class UnifiedAudioStateMachine:
         # NOUVEAU: Queue FIFO pour buffer les updates pendant les transitions
         self._buffered_updates: deque[Tuple[AudioSource, PluginState, Optional[Dict[str, Any]]]] = deque(maxlen=self.MAX_BUFFERED_UPDATES)
 
+        # Cache pour to_dict()
+        self._state_cache: Optional[Dict[str, Any]] = None
+
     
     def _sync_routing_state(self) -> None:
         """
@@ -110,6 +113,7 @@ class UnifiedAudioStateMachine:
                         from_source = self.system_state.active_source.value
                         self.system_state.transitioning = True
                         self.system_state.target_source = target_source
+                        self._state_cache = None  # Invalider le cache
 
                     self.logger.debug("Broadcasting transition start")
                     await self._broadcast_event("system", "transition_start", {
@@ -138,6 +142,7 @@ class UnifiedAudioStateMachine:
                     async with self._state_lock:
                         self.system_state.transitioning = False
                         self.system_state.target_source = None
+                        self._state_cache = None  # Invalider le cache
                         final_source = self.system_state.active_source.value
                         final_state = self.system_state.plugin_state.value
 
@@ -160,6 +165,7 @@ class UnifiedAudioStateMachine:
                     self.system_state.transitioning = False
                     self.system_state.target_source = None
                     self.system_state.error = "Transition timeout"
+                    self._state_cache = None  # Invalider le cache
 
                 # Vider la queue des updates bufferisés (obsolètes après un échec)
                 await self._clear_buffered_updates()
@@ -179,6 +185,7 @@ class UnifiedAudioStateMachine:
                     self.system_state.transitioning = False
                     self.system_state.target_source = None
                     self.system_state.error = str(e)
+                    self._state_cache = None  # Invalider le cache
 
                 # Vider la queue des updates bufferisés (obsolètes après un échec)
                 await self._clear_buffered_updates()
@@ -246,6 +253,9 @@ class UnifiedAudioStateMachine:
             else:
                 self.system_state.error = None
 
+            # Invalider le cache
+            self._state_cache = None
+
         await self._broadcast_event("plugin", "state_changed", {
             "source": source.value,
             "old_state": old_state.value,
@@ -258,6 +268,7 @@ class UnifiedAudioStateMachine:
         async with self._state_lock:
             old_state = self.system_state.multiroom_enabled
             self.system_state.multiroom_enabled = enabled
+            self._state_cache = None  # Invalider le cache
 
         await self._broadcast_event("system", "state_changed", {
             "old_state": old_state,
@@ -272,6 +283,7 @@ class UnifiedAudioStateMachine:
         async with self._state_lock:
             old_state = self.system_state.equalizer_enabled
             self.system_state.equalizer_enabled = enabled
+            self._state_cache = None  # Invalider le cache
 
         await self._broadcast_event("system", "state_changed", {
             "old_state": old_state,
@@ -290,6 +302,7 @@ class UnifiedAudioStateMachine:
                     async with self._state_lock:
                         self.system_state.plugin_state = PluginState.INACTIVE
                         self.system_state.metadata = {}
+                        self._state_cache = None  # Invalider le cache
                 except Exception as e:
                     self.logger.error(f"Error stopping {self.system_state.active_source.value}: {e}")
     
@@ -316,6 +329,9 @@ class UnifiedAudioStateMachine:
                     if self.system_state.plugin_state == PluginState.INACTIVE:
                         self.system_state.plugin_state = PluginState.READY
 
+                    # Invalider le cache
+                    self._state_cache = None
+
                 self.logger.info("Active source changed to: %s", source.value)
                 return True
             else:
@@ -339,6 +355,7 @@ class UnifiedAudioStateMachine:
             self.system_state.plugin_state = PluginState.INACTIVE
             self.system_state.metadata = {}
             self.system_state.error = None
+            self._state_cache = None  # Invalider le cache
 
     async def _replay_buffered_updates(self) -> None:
         """
@@ -401,13 +418,15 @@ class UnifiedAudioStateMachine:
         await self._broadcast_event(category, event_type, data)
     
     async def _broadcast_event(self, category: str, event_type: str, data: Dict[str, Any]) -> None:
-        """Publie un événement directement au WebSocket avec lecture thread-safe"""
+        """Publie un événement directement au WebSocket avec cache optimisé"""
         if not self.websocket_handler:
             return
 
-        # Lecture thread-safe de l'état
+        # Utiliser le cache si disponible, sinon recalculer
         async with self._state_lock:
-            current_state = self.system_state.to_dict()
+            if self._state_cache is None:
+                self._state_cache = self.system_state.to_dict()
+            current_state = self._state_cache
 
         self.logger.debug(
             "BROADCAST: %s/%s | active_source:%s, plugin_state:%s, transitioning:%s, target_source:%s",

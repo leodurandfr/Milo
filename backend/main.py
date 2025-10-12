@@ -84,6 +84,7 @@ async def lifespan(app: FastAPI):
     logger.info("Milo backend shutting down...")
     try:
         await snapcast_websocket_service.cleanup()
+        await volume_service.cleanup()
         rotary_controller.cleanup()
         screen_controller.cleanup()
         logger.info("Cleanup completed")

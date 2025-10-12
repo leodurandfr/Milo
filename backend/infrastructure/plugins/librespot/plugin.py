@@ -83,7 +83,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         """Charge la configuration depuis SettingsService avec support 0 = désactivé"""
         if self.settings_service:
             try:
-                spotify_delay = self.settings_service.get_setting('spotify.auto_disconnect_delay')
+                spotify_delay = await self.settings_service.get_setting('spotify.auto_disconnect_delay')
                 if spotify_delay is not None:
                     # MODIFIÉ : Support 0 = désactivé
                     if spotify_delay == 0.0:
@@ -224,7 +224,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             try:
                 # Sauvegarder 0 si désactivé, sinon la vraie valeur
                 save_value = 0.0 if not self.auto_disconnect_enabled else self.pause_disconnect_delay
-                success = self.settings_service.set_setting('spotify.auto_disconnect_delay', save_value)
+                success = await self.settings_service.set_setting('spotify.auto_disconnect_delay', save_value)
                 if not success:
                     self.logger.error("Failed to save Spotify config to settings")
                     # Restaurer les anciennes valeurs

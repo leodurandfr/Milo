@@ -180,7 +180,7 @@ class EqualizerService:
             bands_to_save = [{"id": band["id"], "value": band["value"]} for band in current_bands]
 
             # Sauvegarder dans settings
-            self.settings_service.set_setting('equalizer.saved_bands', bands_to_save)
+            await self.settings_service.set_setting('equalizer.saved_bands', bands_to_save)
             self.logger.info(f"Saved {len(bands_to_save)} equalizer bands to settings")
             return True
 
@@ -196,7 +196,7 @@ class EqualizerService:
                 return False
 
             # Récupérer les valeurs sauvegardées
-            saved_bands = self.settings_service.get_setting('equalizer.saved_bands')
+            saved_bands = await self.settings_service.get_setting('equalizer.saved_bands')
             if not saved_bands:
                 self.logger.info("No saved bands found, skipping restore")
                 return True  # Pas une erreur, juste rien à restaurer

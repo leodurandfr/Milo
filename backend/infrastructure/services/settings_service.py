@@ -1,20 +1,22 @@
 # backend/infrastructure/services/settings_service.py
 """
-Service de gestion des settings - Version OPTIM avec support valeur 0 pour désactivation
+Service de gestion des settings - Version OPTIM avec I/O async
 """
 import json
 import os
-import fcntl
 import logging
+import aiofiles
+import asyncio
 from typing import Dict, Any
 
 class SettingsService:
     """Gestionnaire de settings simplifié avec support 0 = désactivé"""
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.settings_file = os.path.expanduser('~/milo/milo_settings.json')
         self._cache = None
+        self._file_lock = asyncio.Lock()  # Lock async natif au lieu de fcntl.flock
         
         self.defaults = {
             "language": "french",
@@ -44,65 +46,57 @@ class SettingsService:
             }
         }
     
-    def load_settings(self) -> Dict[str, Any]:
-        """Charge et valide les settings avec file locking"""
+    async def load_settings(self) -> Dict[str, Any]:
+        """Charge et valide les settings avec async lock"""
         try:
             if os.path.exists(self.settings_file):
-                with open(self.settings_file, 'r', encoding='utf-8') as f:
-                    # Verrouiller en lecture pour éviter lecture partielle pendant écriture
-                    fcntl.flock(f.fileno(), fcntl.LOCK_SH)
-                    try:
-                        settings = json.load(f)
-                    finally:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                
-                # Migration display → screen
-                if 'display' in settings:
-                    display_config = settings.pop('display')
-                    if 'screen' not in settings:
-                        settings['screen'] = {
-                            'timeout_seconds': display_config.get('screen_timeout_seconds', 10),
-                            'brightness_on': display_config.get('brightness_on', 5)
-                        }
-                
-                # Fusion avec defaults et validation
-                validated = self._validate_and_merge(settings)
-                
-                # Sauver si changements
-                if validated != settings:
-                    self.save_settings(validated)
-                
-                self._cache = validated
-                return validated
+                async with self._file_lock:  # Lock async natif
+                    async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as f:
+                        content = await f.read()
+                        settings = json.loads(content)
+
+                    # Migration display → screen
+                    if 'display' in settings:
+                        display_config = settings.pop('display')
+                        if 'screen' not in settings:
+                            settings['screen'] = {
+                                'timeout_seconds': display_config.get('screen_timeout_seconds', 10),
+                                'brightness_on': display_config.get('brightness_on', 5)
+                            }
+
+                    # Fusion avec defaults et validation
+                    validated = self._validate_and_merge(settings)
+
+                    # Note: on ne sauvegarde plus automatiquement ici pour éviter le deadlock
+                    self._cache = validated
+                    return validated
             else:
-                self.save_settings(self.defaults)
+                # Créer le fichier avec les defaults
                 self._cache = self.defaults.copy()
+                await self.save_settings(self.defaults)
                 return self._cache
-                
+
         except Exception as e:
             self.logger.error(f"Error loading settings: {e}")
             self._cache = self.defaults.copy()
             return self._cache
     
-    def save_settings(self, settings: Dict[str, Any]) -> bool:
-        """Sauvegarde avec file locking pour éviter corruption"""
+    async def save_settings(self, settings: Dict[str, Any]) -> bool:
+        """Sauvegarde avec async lock pour éviter corruption"""
         try:
             validated = self._validate_and_merge(settings)
 
-            # Écriture atomique avec file locking
-            temp_file = self.settings_file + '.tmp'
-            with open(temp_file, 'w', encoding='utf-8') as f:
-                # Verrouiller le fichier pendant l'écriture
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-                try:
-                    json.dump(validated, f, ensure_ascii=False, indent=2)
-                    f.flush()
+            async with self._file_lock:  # Lock async natif
+                # Écriture atomique
+                temp_file = self.settings_file + '.tmp'
+                async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
+                    content = json.dumps(validated, ensure_ascii=False, indent=2)
+                    await f.write(content)
+                    await f.flush()
                     os.fsync(f.fileno())
-                finally:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
-            # Renommage atomique
-            os.replace(temp_file, self.settings_file)
+                # Renommage atomique
+                os.replace(temp_file, self.settings_file)
 
             self._cache = validated
             return True
@@ -113,8 +107,8 @@ class SettingsService:
             try:
                 if os.path.exists(self.settings_file + '.tmp'):
                     os.remove(self.settings_file + '.tmp')
-            except:
-                pass
+            except Exception as cleanup_error:
+                self.logger.warning(f"Failed to clean up temp file: {cleanup_error}")
             return False
     
     def _validate_and_merge(self, settings: Dict[str, Any]) -> Dict[str, Any]:
@@ -198,11 +192,33 @@ class SettingsService:
 
         return validated
     
-    def get_setting(self, key_path: str) -> Any:
-        """Récupère une setting par chemin"""
+    def get_setting_sync(self, key_path: str) -> Any:
+        """Récupère une setting par chemin (SYNCHRONE - utilise cache ou charge bloquant)"""
         if not self._cache:
-            self._cache = self.load_settings()
-        
+            # Charger de manière synchrone si nécessaire (bloquant mais rare)
+            try:
+                if os.path.exists(self.settings_file):
+                    with open(self.settings_file, 'r', encoding='utf-8') as f:
+                        self._cache = json.load(f)
+                else:
+                    self._cache = self.defaults.copy()
+            except Exception:
+                self._cache = self.defaults.copy()
+
+        try:
+            keys = key_path.split('.')
+            value = self._cache
+            for key in keys:
+                value = value[key]
+            return value
+        except (KeyError, TypeError):
+            return None
+
+    async def get_setting(self, key_path: str) -> Any:
+        """Récupère une setting par chemin (async)"""
+        if not self._cache:
+            self._cache = await self.load_settings()
+
         try:
             keys = key_path.split('.')
             value = self._cache
@@ -212,10 +228,10 @@ class SettingsService:
         except (KeyError, TypeError):
             return None
     
-    def set_setting(self, key_path: str, value: Any) -> bool:
-        """Définit une setting et invalide le cache"""
+    async def set_setting(self, key_path: str, value: Any) -> bool:
+        """Définit une setting et invalide le cache (async)"""
         try:
-            settings = self.load_settings()
+            settings = await self.load_settings()
 
             keys = key_path.split('.')
             current = settings
@@ -226,7 +242,7 @@ class SettingsService:
 
             current[keys[-1]] = value
 
-            success = self.save_settings(settings)
+            success = await self.save_settings(settings)
 
             # Invalider le cache pour forcer un reload
             if success:
@@ -239,8 +255,20 @@ class SettingsService:
             return False
     
     def get_volume_config(self) -> Dict[str, Any]:
-        """Méthode helper pour récupérer la config volume"""
-        volume_settings = self.get_setting('volume') or {}
+        """Méthode helper synchrone (utilise cache uniquement)"""
+        volume_settings = self._cache.get('volume', {}) if self._cache else {}
+        return {
+            "alsa_min": volume_settings.get("alsa_min", 0),
+            "alsa_max": volume_settings.get("alsa_max", 65),
+            "startup_volume": volume_settings.get("startup_volume", 37),
+            "restore_last_volume": volume_settings.get("restore_last_volume", False),
+            "mobile_volume_steps": volume_settings.get("mobile_volume_steps", 5),
+            "rotary_volume_steps": volume_settings.get("rotary_volume_steps", 2)
+        }
+
+    async def get_volume_config_async(self) -> Dict[str, Any]:
+        """Méthode helper async pour récupérer la config volume"""
+        volume_settings = await self.get_setting('volume') or {}
         return {
             "alsa_min": volume_settings.get("alsa_min", 0),
             "alsa_max": volume_settings.get("alsa_max", 65),

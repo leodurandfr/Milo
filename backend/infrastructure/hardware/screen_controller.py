@@ -42,8 +42,8 @@ class ScreenController:
             # Invalider le cache pour forcer reload
             if hasattr(self.settings_service, '_cache'):
                 self.settings_service._cache = None
-            
-            screen_config = self.settings_service.get_setting('screen') or {}
+
+            screen_config = self.settings_service.get_setting_sync('screen') or {}
             self.timeout_seconds = screen_config.get('timeout_seconds', 10)
             self.brightness_on = screen_config.get('brightness_on', 5)
             

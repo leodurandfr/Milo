@@ -1,6 +1,6 @@
 # backend/infrastructure/services/volume_service.py
 """
-Service de gestion du volume pour Milo - Version production OPTIM
+Service de gestion du volume pour Milo - Version production OPTIM avec I/O async
 """
 import asyncio
 import logging
@@ -8,6 +8,7 @@ import alsaaudio
 import re
 import json
 import os
+import aiofiles
 from typing import Optional, Dict, Any, List
 import time
 from pathlib import Path
@@ -55,7 +56,10 @@ class VolumeService:
         self._pending_show_bar = False
         self._broadcast_task = None
         self.BROADCAST_DELAY_MS = 30
-        
+
+        # Task de sauvegarde volume
+        self._save_volume_task = None
+
         self._ensure_data_directory()
     
     def _ensure_data_directory(self) -> None:
@@ -80,21 +84,24 @@ class VolumeService:
             self.logger.error(f"Error loading volume config: {e}")
     
     def _save_last_volume(self, display_volume: int) -> None:
-        """Sauvegarde le dernier volume en arrière-plan"""
+        """Sauvegarde le dernier volume en arrière-plan (vraiment async)"""
         if not self._restore_last_volume:
             return
-            
+
         async def save_async():
             try:
                 data = {"last_volume": display_volume, "timestamp": time.time()}
                 temp_file = self.LAST_VOLUME_FILE.with_suffix('.tmp')
-                with open(temp_file, 'w') as f:
-                    json.dump(data, f)
+                async with aiofiles.open(temp_file, 'w') as f:
+                    content = json.dumps(data)
+                    await f.write(content)
+                    await f.flush()
                 temp_file.replace(self.LAST_VOLUME_FILE)
             except Exception as e:
                 self.logger.error(f"Failed to save last volume: {e}")
-        
-        asyncio.create_task(save_async())
+
+        # Référencer la task pour éviter qu'elle ne se perde
+        self._save_volume_task = asyncio.create_task(save_async())
     
     def _load_last_volume(self) -> Optional[int]:
         """Charge le dernier volume sauvegardé"""
@@ -447,53 +454,63 @@ class VolumeService:
             return self._round_half_up(self._precise_display_volume)
     
     async def set_display_volume(self, display_volume: int, show_bar: bool = True) -> bool:
-        """Définit le volume (0-100%)"""
-        async with self._volume_lock:
-            try:
-                self._adjustment_counter += 1
-                clamped = self._clamp_display_volume(float(display_volume))
+        """Définit le volume (0-100%) avec timeout"""
+        try:
+            async with asyncio.timeout(2.0):  # Timeout de 2 secondes
+                async with self._volume_lock:
+                    try:
+                        self._adjustment_counter += 1
+                        clamped = self._clamp_display_volume(float(display_volume))
 
-                if self._is_multiroom_enabled():
-                    success = await self._set_multiroom_volume_centralized(int(clamped))
-                else:
-                    alsa = self._display_to_alsa(int(clamped))
-                    success = await self._apply_alsa_volume_direct(alsa)
-                    if success:
-                        self._precise_display_volume = clamped
+                        if self._is_multiroom_enabled():
+                            success = await self._set_multiroom_volume_centralized(int(clamped))
+                        else:
+                            alsa = self._display_to_alsa(int(clamped))
+                            success = await self._apply_alsa_volume_direct(alsa)
+                            if success:
+                                self._precise_display_volume = clamped
 
-                if success:
-                    self._save_last_volume(int(clamped))
-                    await self._schedule_broadcast(show_bar)
+                        if success:
+                            self._save_last_volume(int(clamped))
+                            await self._schedule_broadcast(show_bar)
 
-                asyncio.create_task(self._mark_adjustment_done())
-                return success
-            except Exception as e:
-                self.logger.error(f"Error setting volume: {e}")
-                self._adjustment_counter = max(0, self._adjustment_counter - 1)
-                return False
+                        asyncio.create_task(self._mark_adjustment_done())
+                        return success
+                    except Exception as e:
+                        self.logger.error(f"Error setting volume: {e}")
+                        self._adjustment_counter = max(0, self._adjustment_counter - 1)
+                        return False
+        except asyncio.TimeoutError:
+            self.logger.error("Timeout waiting for volume lock (>2s)")
+            return False
     
     async def adjust_display_volume(self, delta: int, show_bar: bool = True) -> bool:
-        """Ajustement centralisé"""
-        async with self._volume_lock:
-            try:
-                self._adjustment_counter += 1
+        """Ajustement centralisé avec timeout"""
+        try:
+            async with asyncio.timeout(2.0):  # Timeout de 2 secondes
+                async with self._volume_lock:
+                    try:
+                        self._adjustment_counter += 1
 
-                if self._is_multiroom_enabled():
-                    success = await self._adjust_multiroom_volume_centralized(delta)
-                else:
-                    success = await self._adjust_volume_direct(delta)
+                        if self._is_multiroom_enabled():
+                            success = await self._adjust_multiroom_volume_centralized(delta)
+                        else:
+                            success = await self._adjust_volume_direct(delta)
 
-                if success:
-                    final = await self.get_display_volume()
-                    self._save_last_volume(final)
-                    await self._schedule_broadcast(show_bar)
+                        if success:
+                            final = await self.get_display_volume()
+                            self._save_last_volume(final)
+                            await self._schedule_broadcast(show_bar)
 
-                asyncio.create_task(self._mark_adjustment_done())
-                return success
-            except Exception as e:
-                self.logger.error(f"Error adjusting: {e}")
-                self._adjustment_counter = max(0, self._adjustment_counter - 1)
-                return False
+                        asyncio.create_task(self._mark_adjustment_done())
+                        return success
+                    except Exception as e:
+                        self.logger.error(f"Error adjusting: {e}")
+                        self._adjustment_counter = max(0, self._adjustment_counter - 1)
+                        return False
+        except asyncio.TimeoutError:
+            self.logger.error("Timeout waiting for volume lock (>2s)")
+            return False
     
     async def _adjust_volume_direct(self, delta: int) -> bool:
         """Ajustement mode direct"""
@@ -830,7 +847,7 @@ class VolumeService:
         try:
             multiroom = self._is_multiroom_enabled()
             volume = await self.get_display_volume()
-            
+
             status = {
                 "volume": volume,
                 "multiroom_enabled": multiroom,
@@ -838,15 +855,15 @@ class VolumeService:
                 "display_volume": True,
                 "config": self.get_volume_config_public()
             }
-            
+
             if multiroom:
                 clients = await self._get_snapcast_clients_cached()
                 details = []
-                
+
                 for client in clients:
                     cid = client["id"]
                     precise = self._client_display_states.get(cid, "not_cached")
-                    
+
                     details.append({
                         "id": cid,
                         "name": client.get("name", "Unknown"),
@@ -855,7 +872,7 @@ class VolumeService:
                         "display_volume_rounded": self._round_half_up(precise) if isinstance(precise, float) else "N/A",
                         "muted": client.get("muted", False)
                     })
-                
+
                 status.update({
                     "mode": "multiroom",
                     "multiroom_volume": self._round_half_up(self._multiroom_volume),
@@ -867,8 +884,23 @@ class VolumeService:
                     "mode": "direct",
                     "precise_display_volume": self._precise_display_volume
                 })
-            
+
             return status
         except Exception as e:
             self.logger.error(f"Error status: {e}")
             return {"volume": 50, "mode": "error", "error": str(e)}
+
+    async def cleanup(self) -> None:
+        """Nettoie et attend la fin des tasks en cours"""
+        try:
+            # Attendre la fin de la task de broadcast si elle existe
+            if self._broadcast_task and not self._broadcast_task.done():
+                await self._broadcast_task
+
+            # Attendre la fin de la task de sauvegarde volume si elle existe
+            if self._save_volume_task and not self._save_volume_task.done():
+                await self._save_volume_task
+
+            self.logger.info("VolumeService cleanup completed")
+        except Exception as e:
+            self.logger.error(f"Error during volume service cleanup: {e}")
