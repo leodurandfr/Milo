@@ -69,17 +69,17 @@ class VolumeService:
         except Exception as e:
             self.logger.error(f"Failed to create data directory: {e}")
     
-    def _load_volume_config(self) -> None:
-        """Charge la configuration volume depuis settings"""
+    async def _load_volume_config(self) -> None:
+        """Charge la configuration volume depuis settings (ASYNC)"""
         try:
-            self.settings_service._cache = None
-            volume_config = self.settings_service.get_volume_config()
-            self._alsa_min_volume = volume_config["alsa_min"]
-            self._alsa_max_volume = volume_config["alsa_max"]
-            self._default_startup_display_volume = volume_config["startup_volume"]
-            self._restore_last_volume = volume_config["restore_last_volume"]
-            self._mobile_volume_steps = volume_config["mobile_volume_steps"]
-            self._rotary_volume_steps = volume_config["rotary_volume_steps"]
+            self.settings_service._cache = None  # Invalider le cache
+            volume_config = await self.settings_service.get_setting('volume') or {}
+            self._alsa_min_volume = volume_config.get("alsa_min", 0)
+            self._alsa_max_volume = volume_config.get("alsa_max", 65)
+            self._default_startup_display_volume = volume_config.get("startup_volume", 37)
+            self._restore_last_volume = volume_config.get("restore_last_volume", False)
+            self._mobile_volume_steps = volume_config.get("mobile_volume_steps", 5)
+            self._rotary_volume_steps = volume_config.get("rotary_volume_steps", 2)
         except Exception as e:
             self.logger.error(f"Error loading volume config: {e}")
     
@@ -138,18 +138,18 @@ class VolumeService:
             old_display_volume = await self.get_display_volume()
             old_alsa_min = self._alsa_min_volume
             old_alsa_max = self._alsa_max_volume
-            
-            self._load_volume_config()
-            
+
+            await self._load_volume_config()  # ✅ AWAIT
+
             if old_alsa_min == self._alsa_min_volume and old_alsa_max == self._alsa_max_volume:
                 return True
-            
+
             self._invalidate_all_caches()
-            
+
             if not self._is_multiroom_enabled():
                 old_alsa_volume = self._display_to_alsa_old_limits(old_display_volume, old_alsa_min, old_alsa_max)
                 new_display_volume = self._alsa_to_display(old_alsa_volume)
-                
+
                 if old_alsa_volume < self._alsa_min_volume or old_alsa_volume > self._alsa_max_volume:
                     center_volume = (self._alsa_min_volume + self._alsa_max_volume) // 2
                     safe_display_volume = self._alsa_to_display(center_volume)
@@ -157,7 +157,7 @@ class VolumeService:
                 else:
                     self._precise_display_volume = float(new_display_volume)
                     await self._schedule_broadcast(show_bar=False)
-            
+
             return True
         except Exception as e:
             self.logger.error(f"Error reloading volume limits: {e}")
@@ -166,9 +166,10 @@ class VolumeService:
     async def reload_startup_config(self) -> bool:
         """Recharge la config de startup"""
         try:
-            volume_config = self.settings_service.get_volume_config()
-            self._default_startup_display_volume = volume_config["startup_volume"]
-            self._restore_last_volume = volume_config["restore_last_volume"]
+            self.settings_service._cache = None  # Invalider le cache
+            volume_config = await self.settings_service.get_setting('volume') or {}
+            self._default_startup_display_volume = volume_config.get("startup_volume", 37)
+            self._restore_last_volume = volume_config.get("restore_last_volume", False)
             return True
         except Exception as e:
             self.logger.error(f"Error reloading startup config: {e}")
@@ -177,9 +178,9 @@ class VolumeService:
     async def reload_volume_steps_config(self) -> bool:
         """Recharge les volume steps"""
         try:
-            self.settings_service._cache = None
-            volume_config = self.settings_service.get_volume_config()
-            self._mobile_volume_steps = volume_config["mobile_volume_steps"]
+            self.settings_service._cache = None  # Invalider le cache
+            volume_config = await self.settings_service.get_setting('volume') or {}
+            self._mobile_volume_steps = volume_config.get("mobile_volume_steps", 5)
             await self._schedule_broadcast(show_bar=False)
             return True
         except Exception as e:
@@ -189,9 +190,9 @@ class VolumeService:
     async def reload_rotary_steps_config(self) -> bool:
         """Recharge les rotary steps"""
         try:
-            self.settings_service._cache = None
-            volume_config = self.settings_service.get_volume_config()
-            self._rotary_volume_steps = volume_config["rotary_volume_steps"]
+            self.settings_service._cache = None  # Invalider le cache
+            volume_config = await self.settings_service.get_setting('volume') or {}
+            self._rotary_volume_steps = volume_config.get("rotary_volume_steps", 2)
             return True
         except Exception as e:
             self.logger.error(f"Error reloading rotary steps: {e}")
@@ -399,27 +400,27 @@ class VolumeService:
     async def initialize(self) -> bool:
         """Initialise le service"""
         try:
-            self._load_volume_config()
-            
+            await self._load_volume_config()  # ✅ AWAIT
+
             try:
                 self.mixer = alsaaudio.Mixer('Digital')
             except Exception as e:
                 self.logger.error(f"Digital mixer not found: {e}")
                 return False
-            
+
             startup_display = self._determine_startup_volume()
             startup_alsa = self._display_to_alsa(startup_display)
-            
+
             if self._is_multiroom_enabled():
                 await self._set_startup_volume_multiroom(startup_alsa)
             else:
                 await self._set_startup_volume_direct(startup_alsa)
-            
+
             self._precise_display_volume = float(startup_display)
             self._multiroom_volume = float(startup_display)
             self._last_alsa_volume = startup_alsa
             self._alsa_cache_time = time.time()
-            
+
             asyncio.create_task(self._delayed_initial_broadcast())
             return True
         except Exception as e:
