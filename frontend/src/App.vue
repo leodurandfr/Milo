@@ -68,6 +68,7 @@ onMounted(() => {
   cleanupFunctions.push(visibilityCleanup);
   
   // Événements WebSocket - Audio
+  console.log('🎯 Registering WebSocket handlers...');
   cleanupFunctions.push(
     on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
@@ -77,6 +78,7 @@ onMounted(() => {
     on('plugin', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('plugin', 'metadata', (event) => unifiedStore.updateState(event))
   );
+  console.log('✅ WebSocket handlers registered');
 
   // Événements WebSocket - i18n
   cleanupFunctions.push(
