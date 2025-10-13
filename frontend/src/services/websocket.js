@@ -29,7 +29,6 @@ class WebSocketSingleton {
     this.subscribers.delete(subscriberId);
 
     if (this.subscribers.size === 0) {
-      console.log('🛑 Last subscriber removed - full cleanup');
       this.closeConnection(true); // Full cleanup car plus de subscribers
     }
   }
@@ -107,12 +106,9 @@ class WebSocketSingleton {
 
     // Ne clear les handlers et l'état que si c'est un cleanup complet (plus de subscribers)
     if (fullCleanup) {
-      console.log('🧹 Full WebSocket cleanup - clearing handlers and state');
       this.eventHandlers.clear();
       this.lastSystemState = null;
       this.removeVisibilityListener();
-    } else {
-      console.log('🔄 WebSocket close - keeping handlers for reconnection');
     }
   }
 
@@ -194,17 +190,6 @@ class WebSocketSingleton {
   }
 
   handleMessage(message) {
-    // Log de tous les messages (sauf les pings)
-    if (!(message.category === 'system' && message.type === 'ping')) {
-      console.log('📨 WebSocket message received:', {
-        category: message.category,
-        type: message.type,
-        has_full_state: !!(message.data?.full_state),
-        timestamp: message.timestamp,
-        data_keys: message.data ? Object.keys(message.data) : []
-      });
-    }
-
     // Détecter les pings
     if (message.category === 'system' && message.type === 'ping') {
       this.lastPingTime = Date.now();
@@ -218,8 +203,6 @@ class WebSocketSingleton {
     const eventKey = `${message.category}.${message.type}`;
     const handlers = this.eventHandlers.get(eventKey);
 
-    console.log(`📢 Broadcasting to ${handlers?.size || 0} handler(s) for: ${eventKey}`);
-
     if (handlers) {
       handlers.forEach(callback => {
         try {
@@ -228,8 +211,6 @@ class WebSocketSingleton {
           console.error(`WebSocket callback error (${eventKey}):`, error);
         }
       });
-    } else {
-      console.warn(`⚠️ No handlers registered for: ${eventKey}`);
     }
   }
 

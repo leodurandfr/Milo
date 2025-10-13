@@ -218,33 +218,9 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   function updateState(event) {
-    console.log('🔵 updateState called:', {
-      category: event.category,
-      type: event.type,
-      has_full_state: !!event.data?.full_state,
-      timestamp: event.timestamp
-    });
-
     if (event.data?.full_state) {
-      console.log('🟢 Processing full_state update:', {
-        active_source: event.data.full_state.active_source,
-        plugin_state: event.data.full_state.plugin_state,
-        transitioning: event.data.full_state.transitioning,
-        has_metadata: !!event.data.full_state.metadata,
-        metadata_keys: event.data.full_state.metadata ? Object.keys(event.data.full_state.metadata) : []
-      });
-
       lastWebSocketUpdate = Date.now();
       updateSystemState(event.data.full_state, 'websocket');
-
-      console.log('✅ State updated. Current store state:', {
-        active_source: systemState.value.active_source,
-        plugin_state: systemState.value.plugin_state,
-        has_metadata: !!systemState.value.metadata,
-        metadata_title: systemState.value.metadata?.title
-      });
-    } else {
-      console.warn('⚠️ updateState called without full_state:', event);
     }
   }
 

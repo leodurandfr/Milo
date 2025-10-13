@@ -68,7 +68,6 @@ onMounted(() => {
   cleanupFunctions.push(visibilityCleanup);
   
   // Événements WebSocket - Audio
-  console.log('🎯 Registering WebSocket handlers...');
   cleanupFunctions.push(
     on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
@@ -78,7 +77,6 @@ onMounted(() => {
     on('plugin', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('plugin', 'metadata', (event) => unifiedStore.updateState(event))
   );
-  console.log('✅ WebSocket handlers registered');
 
   // Événements WebSocket - i18n
   cleanupFunctions.push(
@@ -93,11 +91,10 @@ onMounted(() => {
     })
   );
 
-  // Reconnexion WebSocket - forcer un refresh complet de l'état
+  // Reconnexion WebSocket
   cleanupFunctions.push(
     onReconnect(() => {
-      console.log('WebSocket reconnected - refreshing full state from HTTP API');
-      unifiedStore.refreshState();
+      console.log('WebSocket reconnected - full state sync incoming');
     })
   );
 
