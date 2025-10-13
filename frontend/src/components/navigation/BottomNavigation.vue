@@ -142,9 +142,15 @@ const allEnabledApps = computed(() => {
   return [...enabledAudioPlugins.value, ...enabledFeatures.value];
 });
 
-// Diviser en deux groupes : 3 premières dans le dock, le reste dans additional (pour mobile)
-const dockApps = computed(() => allEnabledApps.value.slice(0, 3));
-const additionalDockApps = computed(() => allEnabledApps.value.slice(3));
+// Diviser en deux groupes : si ≤4 apps, toutes dans le dock, sinon 3 premières dans le dock et le reste dans additional (pour mobile)
+const dockApps = computed(() => {
+  const total = allEnabledApps.value.length;
+  return total <= 4 ? allEnabledApps.value : allEnabledApps.value.slice(0, 3);
+});
+const additionalDockApps = computed(() => {
+  const total = allEnabledApps.value.length;
+  return total <= 4 ? [] : allEnabledApps.value.slice(3);
+});
 
 // === STORE ET CONTRÔLES ===
 const unifiedStore = useUnifiedAudioStore();
