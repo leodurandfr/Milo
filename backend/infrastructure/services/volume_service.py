@@ -19,10 +19,11 @@ class VolumeService:
     
     LAST_VOLUME_FILE = Path("/var/lib/milo/last_volume.json")
     
-    def __init__(self, state_machine, snapcast_service):
+    def __init__(self, state_machine, snapcast_service, settings_service=None):
         self.state_machine = state_machine
         self.snapcast_service = snapcast_service
-        self.settings_service = SettingsService()
+        # Utiliser l'injection ou créer une instance locale en fallback
+        self.settings_service = settings_service if settings_service is not None else SettingsService()
         self.mixer: Optional[alsaaudio.Mixer] = None
         self.logger = logging.getLogger(__name__)
         self._volume_lock = asyncio.Lock()

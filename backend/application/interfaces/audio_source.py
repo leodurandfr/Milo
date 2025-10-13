@@ -31,8 +31,3 @@ class AudioSourcePlugin(ABC):
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Traite une commande spécifique à cette source"""
         pass
-    
-    @abstractmethod
-    async def change_audio_device(self, new_device: str) -> bool:
-        """Change le device audio de sortie"""
-        pass

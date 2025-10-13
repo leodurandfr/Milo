@@ -163,44 +163,30 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         try:
             # Annuler le timer de déconnexion
             self._cancel_pause_timer()
-            
+
             # Arrêter le WebSocket
             await self.ws_manager.stop()
-            
+
             # Fermer la session HTTP
             if self.session:
                 await self.session.close()
                 self.session = None
-            
+
             # Arrêter le service
             await self.control_service(self.service_name, "stop")
-            
+
             # Réinitialiser l'état
             self._ws_connected = False
             self._device_connected = False
             self._is_playing = False
             self._metadata = {}
-            
+
             await self.notify_state_change(PluginState.INACTIVE)
             return True
         except Exception as e:
             self.logger.error(f"Erreur arrêt: {e}")
             return False
-    
-    async def change_audio_device(self, new_device: str) -> bool:
-        """Change le device audio de go-librespot"""
-        if self._current_device == new_device:
-            self.logger.info(f"Librespot device already set to {new_device}")
-            return True
-        
-        try:
-            self.logger.info(f"Changing librespot device from {self._current_device} to {new_device}")
-            self._current_device = new_device
-            return True
-        except Exception as e:
-            self.logger.error(f"Error changing device: {e}")
-            return False
-    
+
     async def set_auto_disconnect_config(self, enabled: bool, delay: float = None, save_to_settings: bool = True) -> bool:
         """Configure la déconnexion automatique avec support 0 = désactivé"""
         old_enabled = self.auto_disconnect_enabled

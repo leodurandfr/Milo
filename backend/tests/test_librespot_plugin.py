@@ -142,25 +142,6 @@ class TestLibrespotPlugin:
         assert plugin.pause_disconnect_delay == 10.0
 
     @pytest.mark.asyncio
-    async def test_change_audio_device_same_device(self, plugin):
-        """Test de changement de device vers le même device (no-op)"""
-        plugin._current_device = "milo_spotify"
-
-        result = await plugin.change_audio_device("milo_spotify")
-
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_change_audio_device_new_device(self, plugin):
-        """Test de changement de device vers un nouveau device"""
-        plugin._current_device = "milo_spotify"
-
-        result = await plugin.change_audio_device("hw:1,0")
-
-        assert result is True
-        assert plugin._current_device == "hw:1,0"
-
-    @pytest.mark.asyncio
     async def test_set_auto_disconnect_config_enable(self, plugin, mock_settings_service):
         """Test de l'activation de l'auto-disconnect"""
         result = await plugin.set_auto_disconnect_config(enabled=True, delay=20.0)

@@ -64,11 +64,12 @@ class Container(containers.DeclarativeContainer):
         port=1780
     )
     
-    # Service Volume avec SettingsService
+    # Service Volume avec SettingsService injecté
     volume_service = providers.Singleton(
         VolumeService,
         state_machine=audio_state_machine,
-        snapcast_service=snapcast_service
+        snapcast_service=snapcast_service,
+        settings_service=settings_service
     )
     
     # Contrôleurs hardware avec SettingsService

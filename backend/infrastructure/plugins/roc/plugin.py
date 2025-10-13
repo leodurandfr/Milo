@@ -145,20 +145,6 @@ class RocPlugin(UnifiedAudioPlugin):
         self.logger.info(f"Arrêt ROC terminé: {success}")
         return success
 
-    async def change_audio_device(self, new_device: str) -> bool:
-        """Change le device audio de ROC - Version simplifiée pour ALSA dynamique"""
-        if self._current_device == new_device:
-            self.logger.info(f"ROC device already set to {new_device}")
-            return True
-
-        try:
-            self.logger.info(f"Changing ROC device from {self._current_device} to {new_device}")
-            self._current_device = new_device
-            return True
-        except Exception as e:
-            self.logger.error(f"Error changing ROC device: {e}")
-            return False
-
     async def _detect_active_connections(self):
         """
         Détecte les connexions actives via tcpdump si Mac déjà connecté avant démarrage ROC.

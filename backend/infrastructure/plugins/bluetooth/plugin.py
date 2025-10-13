@@ -153,45 +153,25 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         """Arrête le plugin Bluetooth"""
         try:
             await self._cleanup()
-            
+
             # Désactiver la découvrabilité
             await self._run_bluetoothctl_command("discoverable off\npairable off\nquit")
-            
+
             # Arrêter les services si configuré
             if self.stop_bluetooth:
                 await self.control_service(self.bluealsa_aplay_service, "stop")
                 for service in [self.bluealsa_service, self.bluetooth_service]:
                     await self.control_service(service, "stop")
-            
+
             # Réinitialiser l'état
             self.connected_device = None
             await self.notify_state_change(PluginState.INACTIVE)
-            
+
             return True
         except Exception as e:
             self.logger.error(f"Erreur arrêt plugin Bluetooth: {e}")
             return False
-    
-    async def change_audio_device(self, new_device: str) -> bool:
-        """Change le device audio de Bluetooth - Version simplifiée pour ALSA dynamique"""
-        if self._current_device == new_device:
-            self.logger.info(f"Bluetooth device already set to {new_device}")
-            return True
-        
-        try:
-            self.logger.info(f"Changing bluetooth device from {self._current_device} to {new_device}")
-            
-            # Mettre à jour juste le device (ALSA se charge du routage dynamique)
-            self._current_device = new_device
-            
-            # Le service bluealsa-aplay utilise toujours "milo_bluetooth"
-            # ALSA se charge de router selon MILO_MODE
-            
-            return True
-        except Exception as e:
-            self.logger.error(f"Error changing bluetooth device: {e}")
-            return False
-    
+
     async def _run_bluetoothctl_command(self, commands) -> bool:
         """Exécute des commandes bluetoothctl"""
         try:

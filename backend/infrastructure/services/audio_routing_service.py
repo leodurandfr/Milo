@@ -35,6 +35,9 @@ class AudioRoutingService:
         self.snapcast_service = None
         self.state_machine = None
 
+        # Lock pour garantir l'atomicité des opérations de routage
+        self._routing_lock = asyncio.Lock()
+
         # Services snapcast
         self.snapserver_service = "milo-snapserver-multiroom.service"
         self.snapclient_service = "milo-snapclient-multiroom.service"
@@ -150,78 +153,79 @@ class AudioRoutingService:
     
     async def set_multiroom_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """Active/désactive le mode multiroom avec notification anticipée"""
-        if not self._initial_detection_done:
-            await self._detect_initial_state()
+        async with self._routing_lock:  # Garantir l'atomicité des opérations de routage
+            if not self._initial_detection_done:
+                await self._detect_initial_state()
 
-        current_state = await self._get_multiroom_enabled()
-        if current_state == enabled:
-            self.logger.info(f"Multiroom already {'enabled' if enabled else 'disabled'}")
-            return True
+            current_state = await self._get_multiroom_enabled()
+            if current_state == enabled:
+                self.logger.info(f"Multiroom already {'enabled' if enabled else 'disabled'}")
+                return True
 
-        try:
-            old_state = current_state
-            self.logger.info(f"Changing multiroom from {old_state} to {enabled}")
+            try:
+                old_state = current_state
+                self.logger.info(f"Changing multiroom from {old_state} to {enabled}")
 
-            await self._set_multiroom_state(enabled)
-            await self._update_systemd_environment()
-            
-            if enabled:
-                # NOUVEAU : Envoyer l'événement AVANT de démarrer les services
-                if self.state_machine:
-                    self.logger.info("📢 Broadcasting multiroom_enabling event")
-                    await self.state_machine.broadcast_event("routing", "multiroom_enabling", {
-                        "reason": "user_action"
-                    })
-                    
-                    # Petit délai pour laisser le frontend réagir
-                    await asyncio.sleep(0.1)
+                await self._set_multiroom_state(enabled)
+                await self._update_systemd_environment()
+
+                if enabled:
+                    # NOUVEAU : Envoyer l'événement AVANT de démarrer les services
+                    if self.state_machine:
+                        self.logger.info("📢 Broadcasting multiroom_enabling event")
+                        await self.state_machine.broadcast_event("routing", "multiroom_enabling", {
+                            "reason": "user_action"
+                        })
+
+                        # Petit délai pour laisser le frontend réagir
+                        await asyncio.sleep(0.1)
+                    else:
+                        self.logger.warning("⚠️ state_machine not available, cannot broadcast event")
+
+                    success = await self._transition_to_multiroom(active_source)
                 else:
-                    self.logger.warning("⚠️ state_machine not available, cannot broadcast event")
-                
-                success = await self._transition_to_multiroom(active_source)
-            else:
-                # Envoyer l'événement AVANT d'arrêter les services
-                if self.state_machine:
-                    self.logger.info("📢 Broadcasting multiroom_disabling event")
-                    await self.state_machine.broadcast_event("routing", "multiroom_disabling", {
-                        "reason": "user_action"
-                    })
-                    
-                    # Petit délai pour laisser le frontend réagir
-                    await asyncio.sleep(0.1)
-                else:
-                    self.logger.warning("⚠️ state_machine not available, cannot broadcast event")
-                
-                success = await self._transition_to_direct(active_source)
-            
-            if not success:
+                    # Envoyer l'événement AVANT d'arrêter les services
+                    if self.state_machine:
+                        self.logger.info("📢 Broadcasting multiroom_disabling event")
+                        await self.state_machine.broadcast_event("routing", "multiroom_disabling", {
+                            "reason": "user_action"
+                        })
+
+                        # Petit délai pour laisser le frontend réagir
+                        await asyncio.sleep(0.1)
+                    else:
+                        self.logger.warning("⚠️ state_machine not available, cannot broadcast event")
+
+                    success = await self._transition_to_direct(active_source)
+
+                if not success:
+                    await self._set_multiroom_state(old_state)
+                    await self._update_systemd_environment()
+                    self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
+                    return False
+
+                if enabled and success:
+                    await self._auto_configure_multiroom()
+
+                if self.snapcast_websocket_service:
+                    if enabled:
+                        await self.snapcast_websocket_service.start_connection()
+                    else:
+                        await self.snapcast_websocket_service.stop_connection()
+
+                # Sauvegarder l'état via SettingsService
+                if self.settings_service:
+                    await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
+
+                self.logger.info(f"Multiroom state changed and saved: {enabled}")
+
+                return True
+
+            except Exception as e:
                 await self._set_multiroom_state(old_state)
                 await self._update_systemd_environment()
-                self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
+                self.logger.error(f"Error changing multiroom state: {e}")
                 return False
-            
-            if enabled and success:
-                await self._auto_configure_multiroom()
-
-            if self.snapcast_websocket_service:
-                if enabled:
-                    await self.snapcast_websocket_service.start_connection()
-                else:
-                    await self.snapcast_websocket_service.stop_connection()
-
-            # Sauvegarder l'état via SettingsService
-            if self.settings_service:
-                await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
-
-            self.logger.info(f"Multiroom state changed and saved: {enabled}")
-
-            return True
-
-        except Exception as e:
-            await self._set_multiroom_state(old_state)
-            await self._update_systemd_environment()
-            self.logger.error(f"Error changing multiroom state: {e}")
-            return False
     
     async def _auto_configure_multiroom(self):
         """Configure automatiquement tous les groupes sur Multiroom"""
@@ -240,46 +244,47 @@ class AudioRoutingService:
 
     async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """Active/désactive l'equalizer avec sauvegarde/restauration des valeurs"""
-        current_state = await self._get_equalizer_enabled()
-        if current_state == enabled:
-            self.logger.info(f"Equalizer already {'enabled' if enabled else 'disabled'}")
-            return True
+        async with self._routing_lock:  # Garantir l'atomicité des opérations de routage
+            current_state = await self._get_equalizer_enabled()
+            if current_state == enabled:
+                self.logger.info(f"Equalizer already {'enabled' if enabled else 'disabled'}")
+                return True
 
-        try:
-            old_state = current_state
-            self.logger.info(f"Changing equalizer from {old_state} to {enabled}")
+            try:
+                old_state = current_state
+                self.logger.info(f"Changing equalizer from {old_state} to {enabled}")
 
-            # === DÉSACTIVATION : Sauvegarder puis réinitialiser à 66 ===
-            if not enabled and self.equalizer_service:
-                await self.equalizer_service.save_current_bands()
-                await self.equalizer_service.reset_all_bands(66)
+                # === DÉSACTIVATION : Sauvegarder puis réinitialiser à 66 ===
+                if not enabled and self.equalizer_service:
+                    await self.equalizer_service.save_current_bands()
+                    await self.equalizer_service.reset_all_bands(66)
 
-            await self._set_equalizer_state(enabled)
-            await self._update_systemd_environment()
+                await self._set_equalizer_state(enabled)
+                await self._update_systemd_environment()
 
-            # === ACTIVATION : Restaurer les valeurs AVANT de redémarrer le plugin ===
-            if enabled and self.equalizer_service:
-                await self.equalizer_service.restore_saved_bands()
+                # === ACTIVATION : Restaurer les valeurs AVANT de redémarrer le plugin ===
+                if enabled and self.equalizer_service:
+                    await self.equalizer_service.restore_saved_bands()
 
-            if active_source and self.get_plugin:
-                plugin = self.get_plugin(active_source)
-                if plugin:
-                    self.logger.info(f"Restarting plugin {active_source.value} with equalizer {'enabled' if enabled else 'disabled'}")
-                    await plugin.restart()
+                if active_source and self.get_plugin:
+                    plugin = self.get_plugin(active_source)
+                    if plugin:
+                        self.logger.info(f"Restarting plugin {active_source.value} with equalizer {'enabled' if enabled else 'disabled'}")
+                        await plugin.restart()
 
-            # Sauvegarder l'état via SettingsService
-            if self.settings_service:
-                await self.settings_service.set_setting('routing.equalizer_enabled', enabled)
+                # Sauvegarder l'état via SettingsService
+                if self.settings_service:
+                    await self.settings_service.set_setting('routing.equalizer_enabled', enabled)
 
-            self.logger.info(f"Equalizer state changed and saved: {enabled}")
+                self.logger.info(f"Equalizer state changed and saved: {enabled}")
 
-            return True
+                return True
 
-        except Exception as e:
-            await self._set_equalizer_state(old_state)
-            await self._update_systemd_environment()
-            self.logger.error(f"Error changing equalizer state: {e}")
-            return False
+            except Exception as e:
+                await self._set_equalizer_state(old_state)
+                await self._update_systemd_environment()
+                self.logger.error(f"Error changing equalizer state: {e}")
+                return False
     
     async def _update_systemd_environment(self) -> None:
         """

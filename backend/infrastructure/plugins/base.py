@@ -165,11 +165,6 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         """Traite une commande pour cette source"""
         pass
 
-    async def change_audio_device(self, new_device: str) -> bool:
-        """Change le device audio de sortie - implémentation par défaut"""
-        self.logger.info(f"Device updated to {new_device} for {self.name}")
-        return True
-
     async def get_initial_state(self) -> Dict[str, Any]:
         """État initial pour les nouvelles connexions WebSocket"""
         return await self.get_status()
