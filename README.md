@@ -48,6 +48,43 @@ chmod +x install.sh
 ./install.sh --uninstall
 ```
 
+## Post-Installation Configuration
+
+### GitHub Token (Recommended)
+
+To enable automatic dependency updates with higher rate limits (5000 req/hour instead of 60), configure a GitHub personal access token:
+
+1. **Create a GitHub token** at https://github.com/settings/tokens
+   - Click "Generate new token (classic)"
+   - Select scope: `public_repo` (read access to public repositories)
+   - Generate and copy the token
+
+2. **Add the token to the backend service:**
+   ```bash
+   sudo nano /etc/systemd/system/milo-backend.service
+   ```
+
+3. **Replace the placeholder:**
+   ```ini
+   Environment="GITHUB_TOKEN=YOUR_GITHUB_TOKEN_HERE"
+   ```
+   With your actual token:
+   ```ini
+   Environment="GITHUB_TOKEN=ghp_YourActualTokenHere"
+   ```
+
+4. **Reload and restart the service:**
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl restart milo-backend
+   ```
+
+5. **Verify the token is detected:**
+   ```bash
+   sudo journalctl -u milo-backend -n 50 | grep "GitHub token"
+   ```
+   You should see: `GitHub token detected - using authenticated API (5000 req/hour)`
+
 ## Installation for Milō Sat
 Enjoy Multiroom by installing Milō Sat on other Raspberry Pi devices with an audio‑amp hat and listen to your music all around your home.
 ```

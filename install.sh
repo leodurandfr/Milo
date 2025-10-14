@@ -550,6 +550,11 @@ Group=milo
 WorkingDirectory=/home/milo/milo
 ExecStart=/home/milo/milo/venv/bin/python3 backend/main.py
 
+# GitHub Token for dependency updates (optional but recommended)
+# Replace YOUR_GITHUB_TOKEN with your personal access token from https://github.com/settings/tokens
+# This increases GitHub API rate limit from 60 to 5000 requests/hour
+Environment="GITHUB_TOKEN=YOUR_GITHUB_TOKEN_HERE"
+
 Restart=always
 RestartSec=5
 TimeoutStopSec=10
