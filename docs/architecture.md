@@ -7,38 +7,33 @@ This document explains the technologies used in Milō and how they work together
 Milō is built around a client-server architecture with real-time synchronization:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Frontend (Vue 3)                        │
-│                Responsive user interface                    │
+┌────────────────────────────────────────────────────────────┐
+│                      Frontend (Vue 3)                      │
+│                 Responsive user interface                  │
 └────────────────────┬───────────────────────────────────────┘
                      │ WebSocket (real-time)
                      │ HTTP REST (actions)
-┌────────────────────▼────────────────────────────────────────┐
-│                  Backend (Python FastAPI)                   │
-│              State machine + Audio routing                  │
-└────────┬───────────┬───────────┬──────────┬────────────────┘
-         │           │           │          │
-    ┌────▼────┐ ┌───▼────┐ ┌────▼───┐ ┌────▼─────┐
-    │ Spotify │ │Bluetooth│ │  Mac  │ │Multiroom │
-    │(librespot)│ │(bluez) │ │ (roc) │ │(snapcast)│
-    └─────────┘ └─────────┘ └────────┘ └──────────┘
-         │           │           │          │
-         └───────────┴───────────┴──────────┘
-                     │
-              ┌──────▼───────┐
-              │  Amplifier   │
-              │  (HiFiBerry) │
-              └──────────────┘
+┌────────────────────▼───────────────────────────────────────┐
+│                  Backend (Python FastAPI)                  │
+│                State machine + Audio routing               │
+└───────┬────────────────┬─────────────┬────────────┬────────┘
+        │                │             │            │
+  ┌─────▼───────┐ ┌──────▼──────┐ ┌────▼────┐ ┌─────▼──────┐
+  │   Spotify   │ │  Bluetooth  │ │   Mac   │ │ Multiroom  │
+  │ (librespot) │ │   (bluez)   │ │  (roc)  │ │ (snapcast) │
+  └─────────────┘ └─────────────┘ └─────────┘ └────────────┘
+         │               │             │            │
+         └───────────────┴─────────────┴────────────┘
+                              │
+                    ┌─────────▼─────────┐
+                    │  Audio Amplifier  │
+                    │    (HiFiBerry)    │
+                    └───────────────────┘
 ```
 
 ## Technologies used
 
 ### Backend: Python + FastAPI
-
-**Why Python?**
-- Excellent ecosystem for audio and embedded systems
-- FastAPI offers high performance with asyncio
-- Easy integration with Linux system services
 
 **Layered architecture:**
 - **Domain**: Data models (audio state, sources, plugins)
@@ -53,11 +48,6 @@ Milō is built around a client-server architecture with real-time synchronizatio
 - `VolumeService`: Unified volume control across all ALSA devices
 
 ### Frontend: Vue 3 + Vite
-
-**Why Vue 3?**
-- Lightweight and performant reactive framework
-- Composition API for clear code organization
-- Excellent TypeScript support (even when using JS)
 
 **Architecture:**
 - **Pinia**: State management (synced with backend via WebSocket)
@@ -76,6 +66,7 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 **What is it?**
 - Open-source implementation of the Spotify Connect protocol
 - Allows any Spotify device to cast to Milō
+- [**Go to go-librespot repository**](https://github.com/devgianlu/go-librespot)
 
 **How does it work?**
 - go-librespot announces itself on the network as "Milō"
@@ -109,9 +100,10 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 **What is it?**
 - Network audio streaming protocol with error correction
 - Automatic clock synchronization + adaptive buffering
+- [**Go to roc-toolkit repository**](https://github.com/roc-streaming/roc-toolkit)
 
 **How does it work?**
-- Mac application (Milō Mac) captures system audio
+- Milō Mac application (using [**rov-vad**](https://github.com/roc-streaming/roc-vad)) captures system audio 
 - Encodes and sends over network (RTP + Reed-Solomon FEC)
 - `roc-recv` on Raspberry Pi decodes and plays to ALSA
 - Latency ~100-200ms (acceptable for daily use)
@@ -127,6 +119,7 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 **What is it?**
 - Multi-room synchronized audio streaming system
 - Server/client architecture (like Sonos but open-source)
+- [**Go to snapcast repository**](https://github.com/badaix/snapcast)
 
 **How does it work?**
 
@@ -173,11 +166,6 @@ Audio source → ALSA Loopback → Snapserver → Network
 31Hz, 63Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz
 ```
 
-**Provided presets:**
-- Flat (no modification)
-- Bass Boost (+6dB bass)
-- Vocal (+3dB mids)
-- Treble (+4dB treble)
 
 ## ALSA audio routing
 
@@ -231,7 +219,7 @@ Each source has its own loopback subdevice:
 **Operation:**
 - GPIO interrupts for rotation detection
 - Software debouncing (10ms)
-- Configurable volume step adjustment (default: 2%)
+- Configurable volume step adjustment
 
 ### Touch screen (optional)
 
@@ -240,7 +228,7 @@ Each source has its own loopback subdevice:
 - Waveshare 8" DSI (1280x800)
 
 **Power management:**
-- Configurable timeout (default: 10s)
+- Configurable timeout
 - Automatic shutoff when inactive
 - Wake on touch
 
