@@ -15,6 +15,8 @@ class WebSocketSingleton {
     this.lastPingTime = Date.now();
     this.pingCheckInterval = null;
     this.reconnectCallbacks = new Set();
+    this.reconnectAttempts = 0;
+    this.maxReconnectDelay = 30000; // 30 secondes max
   }
 
   addSubscriber(subscriberId) {
@@ -41,17 +43,18 @@ class WebSocketSingleton {
     // Configuration automatique de l'URL WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
-    
+
     let wsUrl;
-    if (import.meta.env.DEV && host === 'localhost') {
-      wsUrl = `${protocol}//localhost:5173/ws`;
+    // En mode DEV, se connecter directement au backend sur le port 8000
+    if (import.meta.env.DEV && (host === 'localhost' || host === '127.0.0.1')) {
+      wsUrl = `${protocol}//${host}:8000/ws`;
     } else if (host === 'milo.local' || host.endsWith('.local')) {
       wsUrl = `${protocol}//${host}/ws`;
     } else {
       const port = window.location.port || (window.location.protocol === 'https:' ? 443 : 80);
       wsUrl = `${protocol}//${host}:${port}/ws`;
     }
-    
+
     console.log(`WebSocket connecting to: ${wsUrl}`);
     this.socket = new WebSocket(wsUrl);
     
@@ -59,6 +62,7 @@ class WebSocketSingleton {
       const wasReconnecting = this.isConnected.value === false;
       this.isConnected.value = true;
       this.lastPingTime = Date.now();
+      this.reconnectAttempts = 0; // Reset backoff counter on successful connection
       this.setupVisibilityListener();
       this.startPingCheck();
 
@@ -84,10 +88,17 @@ class WebSocketSingleton {
       this.isConnected.value = false;
       this.socket = null;
       console.log('WebSocket disconnected');
-      
+
       // Reconnexion automatique seulement si l'onglet est visible
       if (this.subscribers.size > 0 && !document.hidden) {
-        setTimeout(() => this.createConnection(), 3000);
+        // Backoff exponentiel: 1s, 2s, 4s, 8s, 16s, jusqu'à 30s max
+        this.reconnectAttempts++;
+        const delay = Math.min(
+          1000 * Math.pow(2, this.reconnectAttempts - 1),
+          this.maxReconnectDelay
+        );
+        console.log(`WebSocket will reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
+        setTimeout(() => this.createConnection(), delay);
       }
     };
     
@@ -114,7 +125,7 @@ class WebSocketSingleton {
 
   setupVisibilityListener() {
     if (this.visibilityHandler) return;
-    
+
     this.visibilityHandler = () => {
       if (document.hidden) {
         // Déconnecter quand l'onglet est caché
@@ -124,11 +135,14 @@ class WebSocketSingleton {
       } else {
         // Reconnecter quand l'onglet redevient visible
         if (this.subscribers.size > 0) {
+          // Reset backoff counter on visibility change (user interaction)
+          this.reconnectAttempts = 0;
+
           // Fermer toute connexion existante
           if (this.socket) {
             this.socket.close();
           }
-          
+
           // Reconnecter après un court délai
           setTimeout(() => {
             this.createConnection();
@@ -136,7 +150,7 @@ class WebSocketSingleton {
         }
       }
     };
-    
+
     document.addEventListener('visibilitychange', this.visibilityHandler);
   }
   
