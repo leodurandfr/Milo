@@ -39,14 +39,17 @@ class ScreenController:
     async def _load_config(self):
         """Charge la config complète depuis settings - timeout_seconds = 0 pour jamais"""
         try:
-            # Utiliser l'API async pour garantir le reload depuis le fichier
-            screen_config = await self.settings_service.get_setting('screen') or {}
+            # FORCER le reload depuis le fichier en invalidant le cache d'abord
+            self.settings_service._cache = None
+
+            # Charger directement toutes les settings depuis le fichier
+            all_settings = await self.settings_service.load_settings()
+            screen_config = all_settings.get('screen', {})
+
             self.timeout_seconds = screen_config.get('timeout_seconds', 10)
             self.brightness_on = screen_config.get('brightness_on', 5)
 
-            # MODIFIÉ : timeout_seconds = 0 signifie jamais (désactivé)
             timeout_enabled = self.timeout_seconds != 0
-
             self.logger.info(f"Screen config loaded: timeout={self.timeout_seconds}s ({'enabled' if timeout_enabled else 'DISABLED'}), brightness={self.brightness_on}")
 
             # Mettre à jour les commandes avec la nouvelle luminosité
@@ -62,7 +65,9 @@ class ScreenController:
     async def reload_timeout_config(self) -> bool:
         """Recharge la config timeout/brightness"""
         try:
+            self.logger.info(f"Reloading screen config (old timeout: {self.timeout_seconds}s)")
             await self._load_config()
+            self.logger.info(f"Screen config reloaded (new timeout: {self.timeout_seconds}s)")
             self.last_activity_time = monotonic()
             return True
         except Exception as e:
@@ -125,36 +130,16 @@ class ScreenController:
         """Surveille le timeout - timeout_seconds = 0 pour jamais"""
         while self.running:
             try:
-                # MODIFIÉ : timeout_seconds = 0 signifie jamais (désactivé)
+                # timeout_seconds = 0 signifie jamais (désactivé)
                 if self.timeout_seconds == 0:
                     await asyncio.sleep(5)
                     continue
 
-                # NOUVEAU : Garder le timer à 0 tant que le plugin est "connected"
+                # Garder le timer à 0 tant que le plugin est "connected"
                 if self.current_plugin_state == "connected":
                     self.last_activity_time = monotonic()
 
                 time_since_activity = monotonic() - self.last_activity_time
-                time_until_off = max(0, self.timeout_seconds - time_since_activity)
-
-                # DEBUG : Broadcaster l'état pour le debug (toutes les secondes)
-                if hasattr(self.state_machine, 'websocket_handler') and self.state_machine.websocket_handler:
-                    try:
-                        await self.state_machine.websocket_handler.handle_event({
-                            "category": "screen",
-                            "type": "debug_update",
-                            "source": "screen",
-                            "data": {
-                                "time_since_activity": round(time_since_activity, 1),
-                                "timeout_seconds": self.timeout_seconds,
-                                "screen_on": self.screen_on,
-                                "current_plugin_state": self.current_plugin_state,
-                                "will_turn_off_in": round(time_until_off, 1)
-                            },
-                            "timestamp": monotonic()
-                        })
-                    except Exception as broadcast_error:
-                        self.logger.debug(f"Debug broadcast error: {broadcast_error}")
 
                 should_turn_off = (
                     self.screen_on and
@@ -163,7 +148,7 @@ class ScreenController:
                 )
 
                 if should_turn_off:
-                    self.logger.info(f"🌙 Screen turning OFF - time_since_activity: {time_since_activity:.1f}s, plugin_state: {self.current_plugin_state}")
+                    self.logger.info(f"Screen turning OFF after {time_since_activity:.1f}s (timeout: {self.timeout_seconds}s)")
                     await self._screen_cmd(self.screen_off_cmd)
 
                 await asyncio.sleep(1)

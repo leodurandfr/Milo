@@ -36,7 +36,7 @@ class WebSocketManager:
         category = event_data.get("category", "unknown")
         event_type = event_data.get("type", "unknown")
 
-        self.logger.info(f"Broadcasting event: {category}.{event_type} to {len(self.active_connections)} clients")
+        # self.logger.info(f"Broadcasting event: {category}.{event_type} to {len(self.active_connections)} clients")
 
         async def send_to_client(connection: WebSocket):
             """Envoie un message à un client avec timeout"""

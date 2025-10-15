@@ -126,33 +126,44 @@ class LibrespotPlugin(UnifiedAudioPlugin):
     async def restart(self) -> bool:
         """Redémarre go-librespot avec reset d'état et reconnexion WebSocket"""
         try:
-            self.logger.info("Restarting librespot with state reset")
-            
+            self.logger.info("Restarting librespot service")
+
             # Annuler le timer de déconnexion
             self._cancel_pause_timer()
-            
+
             # Reset état avant redémarrage
             self._device_connected = False
             self._is_playing = False
             self._metadata = {}
-            await self.notify_state_change(PluginState.READY, {"device_connected": False})
-            
+
             # Arrêter l'ancienne connexion WebSocket
             if self.ws_manager:
                 await self.ws_manager.stop()
-            
+
             # Redémarrer le service
             success = await self.control_service(self.service_name, "restart")
+
             if not success:
+                self.logger.error(f"Failed to restart service {self.service_name}")
                 return False
-            
+
             # Attendre que le nouveau service soit prêt
             await asyncio.sleep(0.5)
-            
+
             # Reconnexion WebSocket au nouveau processus
             if self.session:
                 await self._start_websocket()
-            
+            else:
+                self.logger.warning("No session available, skipping WebSocket reconnection")
+
+            # Notifier le changement d'état APRÈS le restart (sans attendre pour éviter deadlock)
+            async def notify_ready_state():
+                await asyncio.sleep(0.1)
+                await self.notify_state_change(PluginState.READY, {"device_connected": False})
+
+            asyncio.create_task(notify_ready_state())
+
+            self.logger.info("Librespot restart completed")
             return True
         except Exception as e:
             self.logger.error(f"Error restarting librespot: {e}")
@@ -261,8 +272,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             self.logger.debug("Pause disconnect timer cancelled")
     
     def _start_pause_timer(self) -> None:
-        """Démarre le timer de déconnexion automatique après pause avec broadcast debug"""
-        # MODIFIÉ : Vérifier explicitement si activé
+        """Démarre le timer de déconnexion automatique après pause"""
         if not self.auto_disconnect_enabled:
             self.logger.debug("Auto-disconnect disabled, skipping timer")
             return
@@ -270,80 +280,14 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         # Annuler le timer existant s'il y en a un
         self._cancel_pause_timer()
 
-        # Créer un nouveau timer avec broadcast
+        # Créer un nouveau timer
         async def disconnect_after_pause():
             try:
-                import time
-                start_time = time.monotonic()
-
-                # Boucle de monitoring avec broadcast toutes les secondes
-                while True:
-                    elapsed = time.monotonic() - start_time
-                    remaining = self.pause_disconnect_delay - elapsed
-
-                    # DEBUG : Broadcaster le temps restant
-                    if self.state_machine and hasattr(self.state_machine, 'websocket_handler') and self.state_machine.websocket_handler:
-                        try:
-                            await self.state_machine.websocket_handler.handle_event({
-                                "category": "spotify",
-                                "type": "disconnect_timer_update",
-                                "source": "librespot",
-                                "data": {
-                                    "timer_active": True,
-                                    "time_remaining": max(0, round(remaining, 1)),
-                                    "total_delay": self.pause_disconnect_delay
-                                },
-                                "timestamp": time.monotonic()
-                            })
-                        except Exception as broadcast_error:
-                            self.logger.debug(f"Debug broadcast error: {broadcast_error}")
-
-                    # Vérifier si le timer est écoulé
-                    if remaining <= 0:
-                        break
-
-                    # Attendre 1 seconde ou le temps restant (si < 1s)
-                    await asyncio.sleep(min(1, remaining))
-
-                # Timer écoulé, déconnecter
+                await asyncio.sleep(self.pause_disconnect_delay)
                 self.logger.info(f"Auto-disconnecting librespot after {self.pause_disconnect_delay}s of pause")
-
-                # Broadcaster que le timer est terminé
-                if self.state_machine and hasattr(self.state_machine, 'websocket_handler') and self.state_machine.websocket_handler:
-                    try:
-                        await self.state_machine.websocket_handler.handle_event({
-                            "category": "spotify",
-                            "type": "disconnect_timer_update",
-                            "source": "librespot",
-                            "data": {
-                                "timer_active": False,
-                                "time_remaining": 0,
-                                "total_delay": self.pause_disconnect_delay
-                            },
-                            "timestamp": time.monotonic()
-                        })
-                    except Exception:
-                        pass
-
                 await self.restart()
             except asyncio.CancelledError:
                 self.logger.debug("Pause disconnect timer was cancelled")
-                # Broadcaster l'annulation du timer
-                if self.state_machine and hasattr(self.state_machine, 'websocket_handler') and self.state_machine.websocket_handler:
-                    try:
-                        await self.state_machine.websocket_handler.handle_event({
-                            "category": "spotify",
-                            "type": "disconnect_timer_update",
-                            "source": "librespot",
-                            "data": {
-                                "timer_active": False,
-                                "time_remaining": 0,
-                                "total_delay": self.pause_disconnect_delay
-                            },
-                            "timestamp": time.monotonic()
-                        })
-                    except Exception:
-                        pass
             except Exception as e:
                 self.logger.error(f"Error in auto-disconnect: {e}")
 
