@@ -53,6 +53,7 @@ defineEmits(['update:modelValue', 'input', 'change']);
   color: var(--color-text-secondary);
   width: 40px;
   transition: color 300ms ease;
+  text-align: center;
 }
 
 .value.dragging {

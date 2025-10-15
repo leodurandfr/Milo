@@ -618,6 +618,27 @@ def create_settings_router(
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     
+    # Screen debug
+    @router.get("/screen-debug")
+    async def get_screen_debug():
+        """Endpoint de debug pour visualiser l'état du screen controller en temps réel"""
+        from time import monotonic
+
+        time_since_activity = monotonic() - screen_controller.last_activity_time
+        time_until_off = max(0, screen_controller.timeout_seconds - time_since_activity) if screen_controller.timeout_seconds > 0 else None
+
+        return {
+            "status": "success",
+            "debug": {
+                "time_since_activity": round(time_since_activity, 1),
+                "timeout_seconds": screen_controller.timeout_seconds,
+                "screen_on": screen_controller.screen_on,
+                "current_plugin_state": screen_controller.current_plugin_state,
+                "brightness_on": screen_controller.brightness_on,
+                "will_turn_off_in": round(time_until_off, 1) if time_until_off is not None else None
+            }
+        }
+
     # Température système
     @router.get("/system-temperature")
     async def get_system_temperature():
