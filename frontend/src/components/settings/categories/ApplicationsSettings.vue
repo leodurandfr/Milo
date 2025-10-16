@@ -8,7 +8,7 @@
         <p class="app-group-title text-mono">{{ t('audioSources.title') }}</p>
 
         <div class="app-list">
-          <IconButton variant="outlined" :title="t('applications.spotify')">
+          <IconButton variant="outlined" :title="t('applications.spotify')" :class="{ 'active': config.librespot }">
             <template #icon>
               <AppIcon name="librespot" :size="40" />
             </template>
@@ -18,7 +18,7 @@
             </template>
           </IconButton>
 
-          <IconButton variant="outlined" :title="t('applications.bluetooth')">
+          <IconButton variant="outlined" :title="t('applications.bluetooth')" :class="{ 'active': config.bluetooth }">
             <template #icon>
               <AppIcon name="bluetooth" :size="40" />
             </template>
@@ -28,26 +28,23 @@
             </template>
           </IconButton>
 
-          <IconButton variant="outlined" :title="t('applications.macOS')">
+          <IconButton variant="outlined" :title="t('applications.macOS')" :class="{ 'active': config.roc }">
             <template #icon>
               <AppIcon name="roc" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.roc" variant="primary" size="compact"
-                :disabled="!canDisableAudioSource('roc')" @change="updateDockApps" />
+              <Toggle v-model="config.roc" variant="primary" size="compact" :disabled="!canDisableAudioSource('roc')"
+                @change="updateDockApps" />
             </template>
           </IconButton>
         </div>
       </div>
-    </section>
-    <!-- Fonctionnalités -->
-    <section class="settings-section">
-
+      <!-- Fonctionnalités -->
       <div class="setting-item-container">
         <p class="app-group-title text-mono">{{ t('applications.features') }}</p>
 
         <div class="app-list">
-          <IconButton variant="outlined" :title="t('multiroom.title')">
+          <IconButton variant="outlined" :title="t('multiroom.title')" :class="{ 'active': config.multiroom }">
             <template #icon>
               <AppIcon name="multiroom" :size="40" />
             </template>
@@ -56,7 +53,7 @@
             </template>
           </IconButton>
 
-          <IconButton variant="outlined" :title="t('equalizer.title')">
+          <IconButton variant="outlined" :title="t('equalizer.title')" :class="{ 'active': config.equalizer }">
             <template #icon>
               <AppIcon name="equalizer" :size="40" />
             </template>
@@ -65,7 +62,7 @@
             </template>
           </IconButton>
 
-          <IconButton variant="outlined" :title="t('common.settings')">
+          <IconButton variant="outlined" :title="t('common.settings')" :class="{ 'active': config.settings }">
             <template #icon>
               <AppIcon name="settings" :size="40" />
             </template>
@@ -139,10 +136,10 @@ onMounted(() => {
 .settings-section {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
-  padding: var(--space-05);
+  padding: var(--space-05-fixed) var(--space-05);
   display: flex;
   flex-direction: column;
-  gap: var(--space-05);
+  gap: var(--space-05-fixed);
 }
 
 .setting-item-container {
@@ -159,7 +156,13 @@ onMounted(() => {
 .app-list {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-02);
+  gap: var(--space-01);
+}
+
+/* Surcharge : boutons avec toggle gardent le même fond et bordure même si actifs */
+.app-list :deep(.icon-button.active) {
+  background: var(--color-background);
+  box-shadow: inset 0 0 0 1px var(--color-border);
 }
 
 /* Responsive */
@@ -167,7 +170,6 @@ onMounted(() => {
   .app-list {
     display: flex;
     flex-direction: column;
-    gap: var(--space-02);
   }
 }
 </style>

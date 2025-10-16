@@ -224,7 +224,7 @@ onUnmounted(() => {
 .settings-nav-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-02);
+  gap: var(--space-01);
 }
 
 /* Responsive */

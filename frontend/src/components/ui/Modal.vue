@@ -43,11 +43,30 @@ const isAnimating = ref(false);
 
 // Variables pour annuler les timeouts en cours
 let animationTimeouts = [];
+let inactivityTimer = null;
 
 // Fonction utilitaire pour nettoyer tous les timeouts
 function clearAllTimeouts() {
   animationTimeouts.forEach(timeout => clearTimeout(timeout));
   animationTimeouts = [];
+}
+
+// Fonction pour nettoyer le timer d'inactivité
+function clearInactivityTimer() {
+  if (inactivityTimer) {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = null;
+  }
+}
+
+// Fonction pour réinitialiser le timer d'inactivité
+function resetInactivityTimer() {
+  clearInactivityTimer();
+
+  // Démarrer un nouveau timer de 60 secondes
+  inactivityTimer = setTimeout(() => {
+    close();
+  }, 60000); // 60 secondes
 }
 
 const ANIMATION_TIMINGS = {
@@ -151,12 +170,17 @@ async function openModal() {
 
   const finalTimeout = setTimeout(() => {
     isAnimating.value = false;
+    // Ajouter les listeners d'activité et démarrer le timer d'inactivité
+    addActivityListeners();
+    resetInactivityTimer();
   }, totalDuration);
   animationTimeouts.push(finalTimeout);
 }
 
 async function closeModal() {
   clearAllTimeouts();
+  clearInactivityTimer();
+  removeActivityListeners();
 
   isAnimating.value = true;
 
@@ -198,6 +222,11 @@ async function closeModal() {
     isAnimating.value = false;
   }, totalCloseDuration);
   animationTimeouts.push(finalCloseTimeout);
+}
+
+// Gestionnaire d'activité utilisateur
+function handleUserActivity() {
+  resetInactivityTimer();
 }
 
 // Gestion du pointer scroll
@@ -267,6 +296,28 @@ function toggleBodyScroll(isOpen) {
   }
 }
 
+// Ajouter les listeners d'activité utilisateur
+function addActivityListeners() {
+  if (!modalOverlay.value) return;
+
+  modalOverlay.value.addEventListener('pointermove', handleUserActivity);
+  modalOverlay.value.addEventListener('pointerdown', handleUserActivity);
+  modalOverlay.value.addEventListener('wheel', handleUserActivity);
+  modalOverlay.value.addEventListener('touchstart', handleUserActivity);
+  modalOverlay.value.addEventListener('touchmove', handleUserActivity);
+}
+
+// Retirer les listeners d'activité utilisateur
+function removeActivityListeners() {
+  if (!modalOverlay.value) return;
+
+  modalOverlay.value.removeEventListener('pointermove', handleUserActivity);
+  modalOverlay.value.removeEventListener('pointerdown', handleUserActivity);
+  modalOverlay.value.removeEventListener('wheel', handleUserActivity);
+  modalOverlay.value.removeEventListener('touchstart', handleUserActivity);
+  modalOverlay.value.removeEventListener('touchmove', handleUserActivity);
+}
+
 // Watcher pour les animations
 watch(() => props.isOpen, async (newValue) => {
   if (newValue) {
@@ -286,6 +337,8 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown);
   document.body.style.overflow = '';
   clearAllTimeouts();
+  clearInactivityTimer();
+  removeActivityListeners();
 });
 </script>
 

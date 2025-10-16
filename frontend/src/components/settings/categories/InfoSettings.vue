@@ -67,10 +67,10 @@ onUnmounted(() => {
 .settings-section {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
-  padding: var(--space-05);
+  padding: var(--space-05-fixed) var(--space-05);
   display: flex;
   flex-direction: column;
-  gap: var(--space-05);
+  gap: var(--space-05-fixed);
 }
 
 .info-grid {

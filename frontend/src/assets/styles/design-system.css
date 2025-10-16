@@ -44,6 +44,7 @@
     --space-03: 12px;
     --space-04: 16px;
     --space-05: 24px;
+    --space-05-fixed: 24px;
     --space-06: 32px;
     --space-07: 48px;
     --space-08: 64px;
@@ -53,7 +54,7 @@
 
     /* === STYLES DE TEXTE === */
 
-    --font-size-h1: 24px;
+    --font-size-h1: 26px;
     --font-size-h2: 22px;
     --font-size-body: 20px;
     --font-size-mono: 16px;
@@ -61,10 +62,10 @@
     --letter-spacing-sans-serif: 1%;
     --letter-spacing-mono: -2%;
 
-    --line-height-h1: 32px;
-    --line-height-h2: 30px;
-    --line-height-body: 26px;
-    --line-height-mono: 22px;
+    --line-height-h1: 120%;
+    --line-height-h2: 120%;
+    --line-height-body: 120%;
+    --line-height-mono: 140%;
 
 
 
@@ -127,15 +128,15 @@
 
 
         /* === STYLES DE TEXTE (Mobile) === */
-        --font-size-h1: 24px;
+        --font-size-h1: 22px;
         --font-size-h2: 20px;
         --font-size-body: 18px;
         --font-size-mono: 14px;
 
-        --line-height-h1: 28px;
-        --line-height-h2: 26px;
-        --line-height-body: 24px;
-        --line-height-mono: 20px;
+        --line-height-h1: 120%;
+        --line-height-h2: 120%;
+        --line-height-body: 120%;
+        --line-height-mono: 140%;
 
 
     }

@@ -1,10 +1,7 @@
 <!-- frontend/src/components/ui/IconButton.vue -->
 <template>
-  <component
-    :is="clickable ? 'button' : 'div'"
-    :class="['icon-button', `icon-button--${variant}`, { 'icon-button--clickable': clickable }]"
-    @click="handleClick"
-  >
+  <component :is="clickable ? 'button' : 'div'"
+    :class="['icon-button', `icon-button--${variant}`, { 'icon-button--clickable': clickable }]" @click="handleClick">
     <!-- Icône à gauche -->
     <div class="icon-button__icon">
       <slot name="icon"></slot>
