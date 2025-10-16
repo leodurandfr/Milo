@@ -2,7 +2,7 @@
 <template>
   <div class="modal-header" :class="{ 'has-back': showBack }">
     <div v-if="showBack" class="back-modal-header">
-      <IconButton icon="caretLeft" variant="dark" @click="handleBack" />
+      <CircularIcon icon="caretLeft" variant="dark" @click="handleBack" />
       <h2 class="heading-1">{{ title }}</h2>
     </div>
     <h2 v-else class="heading-1">{{ title }}</h2>
@@ -13,7 +13,7 @@
 </template>
 
 <script setup>
-import IconButton from './IconButton.vue';
+import CircularIcon from './CircularIcon.vue';
 
 const props = defineProps({
   title: {

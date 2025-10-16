@@ -57,7 +57,7 @@ function onNext(e) {
 <style scoped>
 .controls {
   background: var(--color-background);
-  border-radius: var(--radius-06);
+  border-radius: var(--radius-07);
   display: flex;
   justify-content: space-evenly;
   align-items: center;

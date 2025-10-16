@@ -66,7 +66,7 @@ onMounted(() => {
   inset: 0;
   padding: 2px;
   background: var(--stroke-glass);
-  border-radius: var(--radius-06);
+  border-radius: var(--radius-07);
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);

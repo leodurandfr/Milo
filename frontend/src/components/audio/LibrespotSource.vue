@@ -232,7 +232,7 @@ onMounted(async () => {
   z-index: 3;
   width: 100%;
   height: 100%;
-  border-radius: var(--radius-06);
+  border-radius: var(--radius-07);
   overflow: hidden;
   box-shadow: 0px 0px 96px 0px #0000000d;
   pointer-events: none;

@@ -21,6 +21,7 @@
     --color-background-contrast-64: #222825A3;
     --color-background-glass: #78787829;
     --color-background-modal: #78787852;
+    --color-border: #16181614;
 
 
 
@@ -72,8 +73,9 @@
     --radius-02: 8px;
     --radius-03: 12px;
     --radius-04: 16px;
-    --radius-05: 24px;
-    --radius-06: 32px;
+    --radius-05: 20px;
+    --radius-06: 24px;
+    --radius-07: 32px;
     --radius-full: 9999px;
 
 

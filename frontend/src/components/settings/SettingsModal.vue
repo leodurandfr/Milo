@@ -6,14 +6,53 @@
       <ModalHeader :title="t('settings.title')" />
 
       <div class="settings-nav-grid">
-        <SettingsCategory icon="languages" :title="t('settings.languages')" @click="goToView('languages')" />
-        <SettingsCategory icon="applications" :title="t('settings.applications')" @click="goToView('apps')" />
-        <SettingsCategory icon="volume" :title="t('settings.volume')" @click="goToView('volume')" />
-        <SettingsCategory icon="display" :title="t('settings.screen')" @click="goToView('screen')" />
-        <SettingsCategory v-if="settingsStore.dockApps.librespot" icon="spotify" :title="t('spotifySettings.title')" @click="goToView('spotify')" />
-        <SettingsCategory v-if="settingsStore.dockApps.multiroom" icon="multiroom" :title="t('multiroom.title')" @click="goToView('multiroom')" />
-        <SettingsCategory icon="dependencies" :title="t('settings.dependencies')" @click="goToView('dependencies')" />
-        <SettingsCategory icon="information" :title="t('settings.information')" @click="goToView('info')" />
+        <IconButton :title="t('settings.languages')" :clickable="true" :show-caret="true" @click="goToView('languages')">
+          <template #icon>
+            <img :src="languagesIcon" alt="Languages" />
+          </template>
+        </IconButton>
+
+        <IconButton :title="t('settings.applications')" :clickable="true" :show-caret="true" @click="goToView('apps')">
+          <template #icon>
+            <img :src="applicationsIcon" alt="Applications" />
+          </template>
+        </IconButton>
+
+        <IconButton :title="t('settings.volume')" :clickable="true" :show-caret="true" @click="goToView('volume')">
+          <template #icon>
+            <img :src="volumeIcon" alt="Volume" />
+          </template>
+        </IconButton>
+
+        <IconButton :title="t('settings.screen')" :clickable="true" :show-caret="true" @click="goToView('screen')">
+          <template #icon>
+            <img :src="displayIcon" alt="Display" />
+          </template>
+        </IconButton>
+
+        <IconButton v-if="settingsStore.dockApps.librespot" :title="t('spotifySettings.title')" :clickable="true" :show-caret="true" @click="goToView('spotify')">
+          <template #icon>
+            <img :src="spotifyIcon" alt="Spotify" />
+          </template>
+        </IconButton>
+
+        <IconButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" :clickable="true" :show-caret="true" @click="goToView('multiroom')">
+          <template #icon>
+            <img :src="multiroomIcon" alt="Multiroom" />
+          </template>
+        </IconButton>
+
+        <IconButton :title="t('settings.dependencies')" :clickable="true" :show-caret="true" @click="goToView('dependencies')">
+          <template #icon>
+            <img :src="dependenciesIcon" alt="Dependencies" />
+          </template>
+        </IconButton>
+
+        <IconButton :title="t('settings.information')" :clickable="true" :show-caret="true" @click="goToView('info')">
+          <template #icon>
+            <img :src="informationIcon" alt="Information" />
+          </template>
+        </IconButton>
       </div>
     </div>
 
@@ -85,8 +124,18 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
-import SettingsCategory from '@/components/settings/SettingsCategory.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
+
+// Import des icônes settings
+import languagesIcon from '@/assets/settings-icons/languages.svg';
+import applicationsIcon from '@/assets/settings-icons/applications.svg';
+import volumeIcon from '@/assets/settings-icons/volume.svg';
+import displayIcon from '@/assets/settings-icons/display.svg';
+import spotifyIcon from '@/assets/settings-icons/spotify.svg';
+import multiroomIcon from '@/assets/settings-icons/multiroom.svg';
+import dependenciesIcon from '@/assets/settings-icons/dependencies.svg';
+import informationIcon from '@/assets/settings-icons/information.svg';
 import ApplicationsSettings from '@/components/settings/categories/ApplicationsSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';

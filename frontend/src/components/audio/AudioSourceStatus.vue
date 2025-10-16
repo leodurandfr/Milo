@@ -193,7 +193,7 @@ function handleDisconnect() {
 /* === STYLES DU COMPOSANT === */
 .plugin-status {
   background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
+  border-radius: var(--radius-07);
   box-shadow: var(--shadow-02);
   width: 364px;
   position: relative;

@@ -8,32 +8,35 @@
         <p class="app-group-title text-mono">{{ t('audioSources.title') }}</p>
 
         <div class="app-list">
-          <div class="app-item">
-            <div class="app-info">
-              <AppIcon name="librespot" :size="32" />
-              <span class="app-name text-body">{{ t('applications.spotify') }}</span>
-            </div>
-            <Toggle v-model="config.librespot" variant="primary" size="compact"
-              :disabled="!canDisableAudioSource('librespot')" @change="updateDockApps" />
-          </div>
+          <IconButton variant="outlined" :title="t('applications.spotify')">
+            <template #icon>
+              <AppIcon name="librespot" :size="40" />
+            </template>
+            <template #action>
+              <Toggle v-model="config.librespot" variant="primary" size="compact"
+                :disabled="!canDisableAudioSource('librespot')" @change="updateDockApps" />
+            </template>
+          </IconButton>
 
-          <div class="app-item">
-            <div class="app-info">
-              <AppIcon name="bluetooth" :size="32" />
-              <span class="app-name text-body">{{ t('applications.bluetooth') }}</span>
-            </div>
-            <Toggle v-model="config.bluetooth" variant="primary" size="compact"
-              :disabled="!canDisableAudioSource('bluetooth')" @change="updateDockApps" />
-          </div>
+          <IconButton variant="outlined" :title="t('applications.bluetooth')">
+            <template #icon>
+              <AppIcon name="bluetooth" :size="40" />
+            </template>
+            <template #action>
+              <Toggle v-model="config.bluetooth" variant="primary" size="compact"
+                :disabled="!canDisableAudioSource('bluetooth')" @change="updateDockApps" />
+            </template>
+          </IconButton>
 
-          <div class="app-item">
-            <div class="app-info">
-              <AppIcon name="roc" :size="32" />
-              <span class="app-name text-body">{{ t('applications.macOS') }}</span>
-            </div>
-            <Toggle v-model="config.roc" variant="primary" size="compact" :disabled="!canDisableAudioSource('roc')"
-              @change="updateDockApps" />
-          </div>
+          <IconButton variant="outlined" :title="t('applications.macOS')">
+            <template #icon>
+              <AppIcon name="roc" :size="40" />
+            </template>
+            <template #action>
+              <Toggle v-model="config.roc" variant="primary" size="compact"
+                :disabled="!canDisableAudioSource('roc')" @change="updateDockApps" />
+            </template>
+          </IconButton>
         </div>
       </div>
     </section>
@@ -44,29 +47,32 @@
         <p class="app-group-title text-mono">{{ t('applications.features') }}</p>
 
         <div class="app-list">
-          <div class="app-item">
-            <div class="app-info">
-              <AppIcon name="multiroom" :size="32" />
-              <span class="app-name text-body">{{ t('multiroom.title') }}</span>
-            </div>
-            <Toggle v-model="config.multiroom" variant="primary" size="compact" @change="updateDockApps" />
-          </div>
+          <IconButton variant="outlined" :title="t('multiroom.title')">
+            <template #icon>
+              <AppIcon name="multiroom" :size="40" />
+            </template>
+            <template #action>
+              <Toggle v-model="config.multiroom" variant="primary" size="compact" @change="updateDockApps" />
+            </template>
+          </IconButton>
 
-          <div class="app-item">
-            <div class="app-info">
-              <AppIcon name="equalizer" :size="32" />
-              <span class="app-name text-body">{{ t('equalizer.title') }}</span>
-            </div>
-            <Toggle v-model="config.equalizer" variant="primary" size="compact" @change="updateDockApps" />
-          </div>
+          <IconButton variant="outlined" :title="t('equalizer.title')">
+            <template #icon>
+              <AppIcon name="equalizer" :size="40" />
+            </template>
+            <template #action>
+              <Toggle v-model="config.equalizer" variant="primary" size="compact" @change="updateDockApps" />
+            </template>
+          </IconButton>
 
-          <div class="app-item">
-            <div class="app-info">
-              <AppIcon name="settings" :size="32" />
-              <span class="app-name text-body">{{ t('common.settings') }}</span>
-            </div>
-            <Toggle v-model="config.settings" variant="primary" size="compact" @change="updateDockApps" />
-          </div>
+          <IconButton variant="outlined" :title="t('common.settings')">
+            <template #icon>
+              <AppIcon name="settings" :size="40" />
+            </template>
+            <template #action>
+              <Toggle v-model="config.settings" variant="primary" size="compact" @change="updateDockApps" />
+            </template>
+          </IconButton>
         </div>
       </div>
     </section>
@@ -79,6 +85,7 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
+import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 
@@ -155,35 +162,12 @@ onMounted(() => {
   gap: var(--space-02);
 }
 
-.app-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-02);
-  background: var(--color-background-strong);
-  border-radius: var(--radius-04);
-}
-
-.app-info {
-  display: flex;
-  align-items: center;
-  gap: var(--space-02);
-}
-
-.app-name {
-  color: var(--color-text);
-}
-
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .app-list {
     display: flex;
     flex-direction: column;
     gap: var(--space-02);
-  }
-
-  .app-item {
-    padding: var(--space-02);
   }
 }
 </style>

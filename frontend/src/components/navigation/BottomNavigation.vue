@@ -710,7 +710,7 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%) translateY(var(--space-06));
   z-index: 998;
-  border-radius: var(--radius-06);
+  border-radius: var(--radius-07);
   padding: var(--space-04);
   background: var(--color-background-glass);
   backdrop-filter: blur(24px);
@@ -783,7 +783,7 @@ onUnmounted(() => {
 
 .dock {
   position: relative;
-  border-radius: var(--radius-06);
+  border-radius: var(--radius-07);
   padding: var(--space-04);
   background: var(--color-background-glass);
   backdrop-filter: blur(24px);
@@ -803,7 +803,7 @@ onUnmounted(() => {
   inset: 0;
   padding: 1.5px;
   background: var(--stroke-glass);
-  border-radius: var(--radius-06);
+  border-radius: var(--radius-07);
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);

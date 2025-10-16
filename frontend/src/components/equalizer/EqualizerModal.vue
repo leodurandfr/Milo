@@ -5,7 +5,7 @@
       <!-- Header avec toggle -->
       <ModalHeader :title="$t('equalizer.title')">
         <template #actions>
-          <IconButton
+          <CircularIcon
             v-if="isEqualizerEnabled"
             icon="reset"
             variant="dark"
@@ -64,7 +64,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
-import IconButton from '@/components/ui/IconButton.vue';
+import CircularIcon from '@/components/ui/CircularIcon.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import RangeSliderEqualizer from './RangeSliderEqualizer.vue';
 import Icon from '@/components/ui/Icon.vue';
