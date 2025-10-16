@@ -3,9 +3,9 @@
   <div class="modal-header" :class="{ 'has-back': showBack }">
     <div v-if="showBack" class="back-modal-header">
       <IconButton icon="caretLeft" variant="dark" @click="handleBack" />
-      <h2 class="heading-2">{{ title }}</h2>
+      <h2 class="heading-1">{{ title }}</h2>
     </div>
-    <h2 v-else class="heading-2">{{ title }}</h2>
+    <h2 v-else class="heading-1">{{ title }}</h2>
     <div v-if="$slots.actions" class="actions-wrapper">
       <slot name="actions"></slot>
     </div>

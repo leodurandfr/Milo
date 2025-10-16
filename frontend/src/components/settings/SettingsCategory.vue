@@ -2,7 +2,7 @@
 <template>
   <button class="settings-category" @click="$emit('click')">
     <img :src="iconPath" :alt="title" width="32" height="32" class="category-icon" />
-    <span class="category-title text-body">{{ title }}</span>
+    <span class="category-title heading-2">{{ title }}</span>
     <Icon name="caretRight" :size="24" color="var(--color-text-light)" />
   </button>
 </template>
