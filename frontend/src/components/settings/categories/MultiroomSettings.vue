@@ -34,8 +34,9 @@
             <div class="client-info-wrapper">
               <span class="client-hostname text-mono">{{ client.host }}</span>
               <input type="text" v-model="clientNames[client.id]" :placeholder="client.host"
-                class="client-name-input text-body" maxlength="50" @blur="updateClientName(client.id)"
-                @keyup.enter="updateClientName(client.id)">
+                class="client-name-input text-body" maxlength="50"
+                @click="openKeyboard(client.id)"
+                readonly>
             </div>
           </div>
         </div>
@@ -95,6 +96,7 @@
         </Transition>
       </div>
     </div>
+
   </div>
 </template>
 
@@ -104,6 +106,7 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Icon from '@/components/ui/Icon.vue';
@@ -112,6 +115,7 @@ const { t } = useI18n();
 const { on } = useWebSocket();
 const snapcastStore = useSnapcastStore();
 const unifiedStore = useUnifiedAudioStore();
+const keyboard = useVirtualKeyboard();
 
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
@@ -251,6 +255,23 @@ function selectCodec(codecName) {
 
 async function applyServerConfig() {
   await snapcastStore.applyServerConfig();
+}
+
+// === VIRTUAL KEYBOARD ===
+
+function openKeyboard(clientId) {
+  const client = sortedSnapcastClients.value.find(c => c.id === clientId);
+
+  keyboard.open({
+    value: clientNames.value[clientId] || '',
+    placeholder: client?.host || '',
+    onSubmit: (newValue) => {
+      // Valider et sauvegarder
+      clientNames.value[clientId] = newValue;
+      updateClientName(clientId);
+    }
+    // Pas de onClose = annulation sans sauvegarde
+  });
 }
 
 // === RESIZE OBSERVER ===

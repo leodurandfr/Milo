@@ -22,6 +22,9 @@
       <SettingsModal />
     </Modal>
 
+    <!-- Global Virtual Keyboard -->
+    <VirtualKeyboard />
+
   </div>
 </template>
 
@@ -33,6 +36,7 @@ import Modal from '@/components/ui/Modal.vue';
 import SnapcastModal from '@/components/snapcast/SnapcastModal.vue';
 import EqualizerModal from '@/components/equalizer/EqualizerModal.vue';
 import SettingsModal from '@/components/settings/SettingsModal.vue';
+import VirtualKeyboard from '@/components/ui/VirtualKeyboard.vue';
 
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { i18n } from '@/services/i18n';
