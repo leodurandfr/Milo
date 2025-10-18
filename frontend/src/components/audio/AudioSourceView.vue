@@ -109,7 +109,7 @@ const shouldShowLibrespot = computed(() => {
 const shouldShowRadio = computed(() => {
   if (showInitialDelay.value) return false;
 
-  return displayedSource.value === 'webradio' &&
+  return displayedSource.value === 'radio' &&
          !props.transitioning;
 });
 

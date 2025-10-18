@@ -254,7 +254,7 @@ function handleImageError(e) {
 
 // Synchroniser avec le WebSocket
 watch(() => unifiedStore.metadata, (newMetadata) => {
-  if (unifiedStore.currentSource === 'webradio' && newMetadata) {
+  if (unifiedStore.currentSource === 'radio' && newMetadata) {
     radioStore.updateFromWebSocket(newMetadata);
   }
 }, { immediate: true, deep: true });

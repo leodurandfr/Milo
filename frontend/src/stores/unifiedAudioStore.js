@@ -159,7 +159,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // Note: Cette validation est une mesure de sécurité défensive côté frontend.
     // Elle ne devrait jamais être nécessaire si le backend fonctionne correctement,
     // mais protège contre les corruptions de données en transit.
-    const validSources = ['none', 'librespot', 'bluetooth', 'roc', 'webradio'];
+    const validSources = ['none', 'librespot', 'bluetooth', 'roc', 'radio'];
     const validStates = ['inactive', 'ready', 'connected', 'error'];
 
     // Valider active_source

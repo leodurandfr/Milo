@@ -13,11 +13,11 @@
     <div v-if="additionalAppsInDOM && additionalDockApps.length > 0" ref="additionalAppsContainer"
       class="additional-apps-container mobile-only" :class="{ visible: showAdditionalApps }">
 
-      <button v-for="({ id, icon, title, handler }, index) in additionalDockApps.slice().reverse()" :key="id"
-        @click="handler" @touchstart="addPressEffect" @mousedown="addPressEffect"
+      <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
+        @click="() => handleAdditionalAppClick(app.id)" @touchstart="addPressEffect" @mousedown="addPressEffect"
         class="additional-app-content button-interactive-subtle">
-        <AppIcon :name="icon" :size="32" />
-        <div class="app-title heading-2">{{ title }}</div>
+        <AppIcon :name="app.icon" :size="32" />
+        <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
       </button>
     </div>
 
@@ -112,17 +112,18 @@ const $t = instance.appContext.config.globalProperties.$t;
 const { on } = useWebSocket();
 
 // === CONFIGURATION STATIQUE ===
-const ALL_AUDIO_SOURCES = ['librespot', 'bluetooth', 'roc', 'webradio'];
+const ALL_AUDIO_SOURCES = ['librespot', 'bluetooth', 'roc', 'radio'];
 
 
-const ALL_ADDITIONAL_ACTIONS = [
-  { id: 'multiroom', icon: 'multiroom', title: computed(() => t('multiroom.title')), handler: () => emit('open-snapcast') },
-  { id: 'equalizer', icon: 'equalizer', title: computed(() => t('equalizer.title')), handler: () => emit('open-equalizer') },
-  { id: 'settings', icon: 'settings', title: computed(() => t('common.settings')), handler: () => emit('open-settings') }
-];
+// Actions avec titres réactifs
+const ALL_ADDITIONAL_ACTIONS = computed(() => [
+  { id: 'multiroom', icon: 'multiroom', title: t('multiroom.title'), handler: () => emit('open-snapcast') },
+  { id: 'equalizer', icon: 'equalizer', title: t('equalizer.title'), handler: () => emit('open-equalizer') },
+  { id: 'settings', icon: 'settings', title: t('common.settings'), handler: () => emit('open-settings') }
+]);
 
 // === CONFIGURATION DYNAMIQUE ===
-const enabledApps = ref(["librespot", "bluetooth", "roc", "webradio", "multiroom", "equalizer"]);
+const enabledApps = ref(["librespot", "bluetooth", "roc", "radio", "multiroom", "equalizer"]);
 const mobileVolumeSteps = ref(5);
 
 // Computed pour séparer audio plugins et features
@@ -133,7 +134,7 @@ const enabledAudioPlugins = computed(() => {
 });
 
 const enabledFeatures = computed(() => {
-  return ALL_ADDITIONAL_ACTIONS
+  return ALL_ADDITIONAL_ACTIONS.value
     .filter(action => enabledApps.value.includes(action.id));
 });
 
@@ -460,11 +461,46 @@ const handleAppClick = (appId, index) => {
     unifiedStore.changeSource(appId);
   } else {
     // Sinon, exécuter le handler de l'action
-    const action = ALL_ADDITIONAL_ACTIONS.find(a => a.id === appId);
+    const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
     if (action && action.handler) {
       action.handler();
     }
   }
+};
+
+const handleAdditionalAppClick = (appId) => {
+  resetHideTimer();
+
+  // Si c'est une source audio, changer la source
+  const isAudioSource = ALL_AUDIO_SOURCES.includes(appId);
+  if (isAudioSource) {
+    unifiedStore.changeSource(appId);
+  } else {
+    // Sinon, exécuter le handler de l'action
+    const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
+    if (action && action.handler) {
+      action.handler();
+    }
+  }
+};
+
+const getAppTitle = (appId) => {
+  // Traductions pour les sources audio
+  const audioSourceTitles = {
+    'librespot': t('applications.spotify'),
+    'bluetooth': t('applications.bluetooth'),
+    'roc': t('applications.macOS'),
+    'radio': t('audioSources.radio')
+  };
+
+  // Si c'est une source audio, retourner la traduction
+  if (ALL_AUDIO_SOURCES.includes(appId)) {
+    return audioSourceTitles[appId] || appId;
+  }
+
+  // Sinon, chercher dans les actions
+  const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
+  return action?.title || appId;
 };
 
 // === INDICATEUR ACTIF ===
@@ -544,6 +580,8 @@ const handleToggleClick = (event) => {
 // === GESTION ADDITIONAL DRAG ===
 const onAdditionalDragStart = (e) => {
   if (!showAdditionalApps.value) return;
+  // Ignorer si le drag commence sur un bouton (permet les clics)
+  if (e.target.closest('button')) return;
   isDraggingAdditional = true;
   additionalDragStartY = getEventY(e);
 };
@@ -578,7 +616,7 @@ const loadDockConfig = async () => {
     const response = await fetch('/api/settings/dock-apps');
     const data = await response.json();
     if (data.status === 'success') {
-      enabledApps.value = data.config.enabled_apps || ["librespot", "bluetooth", "roc", "webradio", "multiroom", "equalizer"];
+      enabledApps.value = data.config.enabled_apps || ["librespot", "bluetooth", "roc", "radio", "multiroom", "equalizer"];
     }
   } catch (error) {
     console.error('Error loading dock config:', error);

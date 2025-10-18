@@ -13,7 +13,7 @@ class AudioSource(Enum):
     LIBRESPOT = "librespot"
     BLUETOOTH = "bluetooth"
     ROC = "roc"
-    WEBRADIO = "webradio"
+    RADIO = "radio"
 
 
 class PluginState(Enum):

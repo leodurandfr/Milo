@@ -49,7 +49,7 @@ const disconnectingStates = ref({
   bluetooth: false,
   roc: false,
   librespot: false,
-  webradio: false
+  radio: false
 });
 
 // === États du logo ===

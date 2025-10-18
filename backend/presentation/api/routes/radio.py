@@ -151,8 +151,8 @@ async def play_station(request: PlayStationRequest):
 
         # Vérifier si le plugin est démarré
         if not await is_plugin_started():
-            # Démarrer via state machine (transition vers WEBRADIO)
-            success = await state_machine.transition_to_source(AudioSource.WEBRADIO)
+            # Démarrer via state machine (transition vers RADIO)
+            success = await state_machine.transition_to_source(AudioSource.RADIO)
             if not success:
                 raise HTTPException(
                     status_code=500,
@@ -387,7 +387,7 @@ async def is_plugin_started() -> bool:
         system_state = state_machine.system_state
 
         return (
-            system_state.active_source == AudioSource.WEBRADIO and
+            system_state.active_source == AudioSource.RADIO and
             system_state.plugin_state.value in ["ready", "connected"]
         )
     except Exception:

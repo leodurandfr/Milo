@@ -43,7 +43,7 @@ class SettingsService:
                 "equalizer_enabled": False
             },
             "dock": {
-                "enabled_apps": ["librespot", "bluetooth", "roc", "webradio", "multiroom", "equalizer", "settings"]
+                "enabled_apps": ["librespot", "bluetooth", "roc", "radio", "multiroom", "equalizer", "settings"]
             }
         }
     
@@ -215,8 +215,8 @@ class SettingsService:
         
         # Dock avec validation au moins une source audio
         dock_input = settings.get('dock', {})
-        all_valid_apps = ["librespot", "bluetooth", "roc", "webradio", "multiroom", "equalizer", "settings"]
-        audio_sources = ["librespot", "bluetooth", "roc", "webradio"]
+        all_valid_apps = ["librespot", "bluetooth", "roc", "radio", "multiroom", "equalizer", "settings"]
+        audio_sources = ["librespot", "bluetooth", "roc", "radio"]
         other_apps = ["multiroom", "equalizer", "settings"]
         
         enabled_apps = dock_input.get('enabled_apps', [])

@@ -10,7 +10,7 @@
               <!-- Icône du plugin -->
               <div class="plugin-icon">
                 <AppIcon :name="displayedIconName" :size="32"
-                    :state="displayedPluginState === 'starting' ? 'loading' : 'normal'" />
+                  :state="displayedPluginState === 'starting' ? 'loading' : 'normal'" />
               </div>
 
               <!-- Statut textuel -->
@@ -58,7 +58,7 @@ const props = defineProps({
   pluginType: {
     type: String,
     required: true,
-    validator: (value) => ['librespot', 'bluetooth', 'roc'].includes(value)
+    validator: (value) => ['librespot', 'bluetooth', 'roc', 'radio'].includes(value)
   },
   pluginState: {
     type: String,
@@ -100,7 +100,7 @@ function formatDeviceNames(deviceName) {
   return cleanDeviceName(deviceName);
 }
 
-// === COMPUTED POUR LE CONTENU AFFICHÉ ===
+// === COMPUTED POUR LE CONTENU AFFICHÉ === (À quoi sert cette partie ? uniquement pour renomber les "librespsot" à "spotify" ? - Semble complexe inutilement)
 const displayedIconName = computed(() => {
   return props.pluginType === 'librespot' ? 'spotify' : props.pluginType;
 });
@@ -119,6 +119,8 @@ const displayedStatusLines = computed(() => {
         return [t('status.loadingOfMasculine'), t('audioSources.macReceiver')];
       case 'librespot':
         return [t('status.loadingOf'), t('audioSources.spotify')];
+      case 'radio':
+        return [t('status.loadingOf'), t('audioSources.radio')];
       default:
         return [t('status.loading')];
     }
@@ -133,6 +135,8 @@ const displayedStatusLines = computed(() => {
         return [t('audioSources.macReceiver'), t('status.readyToStream')];
       case 'librespot':
         return [t('audioSources.spotify'), t('status.ready')];
+      case 'radio':
+        return [t('audioSources.radio'), t('status.readyToStream')];
       default:
         return [t('status.ready')];
     }

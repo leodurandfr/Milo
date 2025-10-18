@@ -28,7 +28,7 @@ class RadioPlugin(UnifiedAudioPlugin):
     """
 
     def __init__(self, config: Dict[str, Any], state_machine=None, settings_service=None):
-        super().__init__("webradio", state_machine)
+        super().__init__("radio", state_machine)
 
         self.config = config
         self.service_name = config.get("service_name", "milo-radio.service")
