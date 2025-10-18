@@ -8,14 +8,11 @@ export const useRadioStore = defineStore('radio', () => {
   const stations = ref([]);
   const favorites = ref([]);
   const currentStation = ref(null);
-  const isPlaying = ref(false);
+  // SUPPRIMÉ: isPlaying local - utiliser unifiedAudioStore.metadata.is_playing à la place
   const loading = ref(false);
   const searchQuery = ref('');
   const countryFilter = ref('');
   const genreFilter = ref('');
-
-  // Flag pour ignorer temporairement les updates WebSocket après une action locale
-  let ignoreWebSocketUntil = 0;
 
   // === GETTERS ===
   const filteredStations = computed(() => {
@@ -83,35 +80,10 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function playStation(stationId) {
     try {
-      // Optimistic update immédiate
-      const station = stations.value.find(s => s.id === stationId);
-      if (!station && currentStation.value?.id === stationId) {
-        // Utiliser currentStation si pas dans la liste
-        isPlaying.value = true;
-        // Ignorer WebSocket pendant 2 secondes après action locale
-        ignoreWebSocketUntil = Date.now() + 2000;
-        return true;
-      }
-
-      if (station) {
-        currentStation.value = station;
-        isPlaying.value = true;
-        // Ignorer WebSocket pendant 2 secondes après action locale
-        ignoreWebSocketUntil = Date.now() + 2000;
-      }
-
-      // Appeler le backend en arrière-plan (non bloquant)
-      axios.post('/api/radio/play', { station_id: stationId })
-        .then(response => {
-          if (!response.data.success) {
-            console.warn('Backend play failed, but keeping local state');
-          }
-        })
-        .catch(error => {
-          console.warn('Backend play error (ignored):', error.message);
-        });
-
-      return true;
+      // SIMPLIFIÉ: Pas d'optimistic update - faire confiance au backend
+      // L'état sera synchronisé via WebSocket
+      const response = await axios.post('/api/radio/play', { station_id: stationId });
+      return response.data.success;
     } catch (error) {
       console.error('Error playing station:', error);
       return false;
@@ -120,23 +92,10 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function stopPlayback() {
     try {
-      // Optimistic update immédiate
-      isPlaying.value = false;
-      // Ignorer WebSocket pendant 2 secondes après action locale
-      ignoreWebSocketUntil = Date.now() + 2000;
-
-      // Appeler le backend en arrière-plan (non bloquant)
-      axios.post('/api/radio/stop')
-        .then(response => {
-          if (!response.data.success) {
-            console.warn('Backend stop failed, but keeping local state');
-          }
-        })
-        .catch(error => {
-          console.warn('Backend stop error (ignored):', error.message);
-        });
-
-      return true;
+      // SIMPLIFIÉ: Pas d'optimistic update - faire confiance au backend
+      // L'état sera synchronisé via WebSocket
+      const response = await axios.post('/api/radio/stop');
+      return response.data.success;
     } catch (error) {
       console.error('Error stopping playback:', error);
       return false;
@@ -145,24 +104,9 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function addFavorite(stationId) {
     try {
+      // SIMPLIFIÉ: L'état sera synchronisé via WebSocket
       const response = await axios.post('/api/radio/favorites/add', { station_id: stationId });
-
-      if (response.data.success) {
-        // Mettre à jour dans la liste des stations
-        const station = stations.value.find(s => s.id === stationId);
-        if (station) {
-          station.is_favorite = true;
-        }
-
-        // Mettre à jour currentStation si c'est celle-ci
-        if (currentStation.value?.id === stationId) {
-          currentStation.value.is_favorite = true;
-        }
-
-        await loadFavorites();
-        return true;
-      }
-      return false;
+      return response.data.success;
     } catch (error) {
       console.error('Error adding favorite:', error);
       return false;
@@ -171,24 +115,9 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function removeFavorite(stationId) {
     try {
+      // SIMPLIFIÉ: L'état sera synchronisé via WebSocket
       const response = await axios.post('/api/radio/favorites/remove', { station_id: stationId });
-
-      if (response.data.success) {
-        // Mettre à jour dans la liste des stations
-        const station = stations.value.find(s => s.id === stationId);
-        if (station) {
-          station.is_favorite = false;
-        }
-
-        // Mettre à jour currentStation si c'est celle-ci
-        if (currentStation.value?.id === stationId) {
-          currentStation.value.is_favorite = false;
-        }
-
-        await loadFavorites();
-        return true;
-      }
-      return false;
+      return response.data.success;
     } catch (error) {
       console.error('Error removing favorite:', error);
       return false;
@@ -247,14 +176,8 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   function updateFromWebSocket(metadata) {
-    // Vérifier si on doit ignorer temporairement le WebSocket
-    const now = Date.now();
-    const shouldIgnore = now < ignoreWebSocketUntil;
-
-    if (shouldIgnore) {
-      console.log('⏭️ Ignoring WebSocket update (recent user action)');
-      return;
-    }
+    // SIMPLIFIÉ: Synchronisation directe depuis le backend (source de vérité)
+    // Plus d'optimistic updates à gérer
 
     // Mise à jour depuis le WebSocket (via unifiedAudioStore)
     if (metadata.station_id) {
@@ -272,13 +195,32 @@ export const useRadioStore = defineStore('radio', () => {
           is_favorite: metadata.is_favorite || false
         };
       }
+    } else {
+      // Pas de station en cours (plugin en mode READY)
+      currentStation.value = null;
     }
 
-    // Synchroniser isPlaying depuis le WebSocket (sauf si action locale récente)
-    if (metadata.is_playing !== undefined) {
-      isPlaying.value = metadata.is_playing;
-      console.log('🔄 WebSocket sync: isPlaying =', metadata.is_playing);
+    // NOTE: isPlaying est maintenant géré par unifiedAudioStore.metadata.is_playing
+    // Ce store ne maintient plus d'état local pour isPlaying
+  }
+
+  function handleFavoriteEvent(stationId, isFavorite) {
+    // Synchroniser le statut favori depuis le backend (source de vérité)
+    console.log(`🔄 Syncing favorite status: ${stationId} = ${isFavorite}`);
+
+    // Mettre à jour dans la liste des stations
+    const station = stations.value.find(s => s.id === stationId);
+    if (station) {
+      station.is_favorite = isFavorite;
     }
+
+    // Mettre à jour currentStation si c'est celle-ci
+    if (currentStation.value?.id === stationId) {
+      currentStation.value.is_favorite = isFavorite;
+    }
+
+    // Recharger la liste des favoris
+    loadFavorites();
   }
 
   return {
@@ -286,7 +228,7 @@ export const useRadioStore = defineStore('radio', () => {
     stations,
     favorites,
     currentStation,
-    isPlaying,
+    // SUPPRIMÉ: isPlaying - utiliser unifiedAudioStore.metadata.is_playing
     loading,
     searchQuery,
     countryFilter,
@@ -306,6 +248,7 @@ export const useRadioStore = defineStore('radio', () => {
     toggleFavorite,
     markBroken,
     resetBrokenStations,
-    updateFromWebSocket
+    updateFromWebSocket,
+    handleFavoriteEvent
   };
 });

@@ -110,11 +110,13 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useRadioStore } from '@/stores/radioStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 
 const radioStore = useRadioStore();
 const unifiedStore = useUnifiedAudioStore();
+const { on } = useWebSocket();
 
 const isSearchMode = ref(false);
 const displayLimit = ref(20);
@@ -124,9 +126,14 @@ const searchDebounceTimer = ref(null);
 const radioContainer = ref(null);
 const radioContent = ref(null);
 
-// État de lecture - TOUJOURS utiliser le store local (source de vérité)
+// État de lecture - Utiliser unifiedStore.metadata.is_playing (source de vérité backend)
 const isCurrentlyPlaying = computed(() => {
-  return radioStore.isPlaying;
+  // Vérifier que la source active est bien Radio
+  if (unifiedStore.currentSource !== 'radio') {
+    return false;
+  }
+  // Utiliser l'état du backend via WebSocket
+  return unifiedStore.metadata.is_playing || false;
 });
 
 // Stations affichées avec limite - favoris ou toutes selon le mode
@@ -300,17 +307,41 @@ function handlePointerUp(event) {
 }
 
 // === SYNCHRONISATION WEBSOCKET ===
+// Écouter les mises à jour de métadonnées
 watch(() => unifiedStore.metadata, (newMetadata) => {
   if (unifiedStore.currentSource === 'radio' && newMetadata) {
     radioStore.updateFromWebSocket(newMetadata);
   }
 }, { immediate: true, deep: true });
 
+// Écouter les événements de favoris
+on('radio', 'favorite_added', (event) => {
+  console.log('📻 Favorite added event:', event);
+  if (event.data?.station_id) {
+    radioStore.handleFavoriteEvent(event.data.station_id, true);
+  }
+});
+
+on('radio', 'favorite_removed', (event) => {
+  console.log('📻 Favorite removed event:', event);
+  if (event.data?.station_id) {
+    radioStore.handleFavoriteEvent(event.data.station_id, false);
+  }
+});
+
 // === LIFECYCLE ===
 onMounted(async () => {
   console.log('📻 RadioSource mounted');
   await radioStore.loadStations();
   await radioStore.loadFavorites();
+
+  // IMPORTANT: Synchroniser currentStation depuis l'état actuel du backend
+  // au cas où une station est déjà en cours de lecture
+  if (unifiedStore.currentSource === 'radio' && unifiedStore.metadata) {
+    console.log('📻 Syncing currentStation from existing state on mount');
+    radioStore.updateFromWebSocket(unifiedStore.metadata);
+  }
+
   animateIn();
 });
 </script>
@@ -537,6 +568,7 @@ onMounted(async () => {
   cursor: pointer;
   transition: transform 0.2s;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 2;
 }
 
 .favorite-btn:hover {

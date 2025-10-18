@@ -38,7 +38,7 @@ class RadioPlugin(UnifiedAudioPlugin):
         # Composants
         self.mpv = MpvController(self.ipc_socket_path)
         self.radio_api = RadioBrowserAPI(cache_duration_minutes=60)
-        self.station_manager = StationManager(settings_service)
+        self.station_manager = StationManager(settings_service, state_machine)
 
         # État actuel
         self.current_station: Optional[Dict[str, Any]] = None
@@ -279,11 +279,10 @@ class RadioPlugin(UnifiedAudioPlugin):
                     if self.current_station:
                         await self._update_metadata()
 
-                        # Ne notifier que si l'état de lecture a changé de manière significative
-                        if state_changed:
-                            # Toujours envoyer CONNECTED si une station est sélectionnée
-                            # L'état de lecture réel est dans metadata.is_playing
-                            await self.notify_state_change(PluginState.CONNECTED, self._metadata)
+                        # MODIFIÉ: Broadcast à chaque update pour synchroniser tous les clients
+                        # Pas seulement quand state_changed, car les métadonnées peuvent changer
+                        # et tous les clients doivent être synchronisés en temps réel
+                        await self.notify_state_change(PluginState.CONNECTED, self._metadata)
 
                     await asyncio.sleep(2)  # Vérifier toutes les 2 secondes
 

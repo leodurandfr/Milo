@@ -18,9 +18,10 @@ class StationManager:
     }
     """
 
-    def __init__(self, settings_service=None):
+    def __init__(self, settings_service=None, state_machine=None):
         self.logger = logging.getLogger(__name__)
         self.settings_service = settings_service
+        self.state_machine = state_machine
 
         # Cache local
         self._favorites: Set[str] = set()
@@ -109,7 +110,18 @@ class StationManager:
 
         self._favorites.add(station_id)
         self.logger.info(f"Added station {station_id} to favorites")
-        return await self._save_favorites()
+
+        success = await self._save_favorites()
+
+        # Broadcast l'événement à tous les clients
+        if success and self.state_machine:
+            await self.state_machine.broadcast_event("radio", "favorite_added", {
+                "station_id": station_id,
+                "favorites": list(self._favorites),
+                "source": "radio"
+            })
+
+        return success
 
     async def remove_favorite(self, station_id: str) -> bool:
         """
@@ -130,7 +142,18 @@ class StationManager:
 
         self._favorites.discard(station_id)
         self.logger.info(f"Removed station {station_id} from favorites")
-        return await self._save_favorites()
+
+        success = await self._save_favorites()
+
+        # Broadcast l'événement à tous les clients
+        if success and self.state_machine:
+            await self.state_machine.broadcast_event("radio", "favorite_removed", {
+                "station_id": station_id,
+                "favorites": list(self._favorites),
+                "source": "radio"
+            })
+
+        return success
 
     def is_favorite(self, station_id: str) -> bool:
         """
