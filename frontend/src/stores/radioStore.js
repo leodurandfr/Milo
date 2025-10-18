@@ -14,6 +14,9 @@ export const useRadioStore = defineStore('radio', () => {
   const countryFilter = ref('');
   const genreFilter = ref('');
 
+  // Flag pour ignorer temporairement les updates WebSocket après une action locale
+  let ignoreWebSocketUntil = 0;
+
   // === GETTERS ===
   const filteredStations = computed(() => {
     let result = stations.value;
@@ -85,12 +88,16 @@ export const useRadioStore = defineStore('radio', () => {
       if (!station && currentStation.value?.id === stationId) {
         // Utiliser currentStation si pas dans la liste
         isPlaying.value = true;
+        // Ignorer WebSocket pendant 2 secondes après action locale
+        ignoreWebSocketUntil = Date.now() + 2000;
         return true;
       }
 
       if (station) {
         currentStation.value = station;
         isPlaying.value = true;
+        // Ignorer WebSocket pendant 2 secondes après action locale
+        ignoreWebSocketUntil = Date.now() + 2000;
       }
 
       // Appeler le backend en arrière-plan (non bloquant)
@@ -115,6 +122,8 @@ export const useRadioStore = defineStore('radio', () => {
     try {
       // Optimistic update immédiate
       isPlaying.value = false;
+      // Ignorer WebSocket pendant 2 secondes après action locale
+      ignoreWebSocketUntil = Date.now() + 2000;
 
       // Appeler le backend en arrière-plan (non bloquant)
       axios.post('/api/radio/stop')
@@ -238,6 +247,15 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   function updateFromWebSocket(metadata) {
+    // Vérifier si on doit ignorer temporairement le WebSocket
+    const now = Date.now();
+    const shouldIgnore = now < ignoreWebSocketUntil;
+
+    if (shouldIgnore) {
+      console.log('⏭️ Ignoring WebSocket update (recent user action)');
+      return;
+    }
+
     // Mise à jour depuis le WebSocket (via unifiedAudioStore)
     if (metadata.station_id) {
       const station = stations.value.find(s => s.id === metadata.station_id);
@@ -256,8 +274,11 @@ export const useRadioStore = defineStore('radio', () => {
       }
     }
 
-    // NE PAS écraser isPlaying - géré localement pour réactivité immédiate
-    // isPlaying.value = metadata.is_playing || false;
+    // Synchroniser isPlaying depuis le WebSocket (sauf si action locale récente)
+    if (metadata.is_playing !== undefined) {
+      isPlaying.value = metadata.is_playing;
+      console.log('🔄 WebSocket sync: isPlaying =', metadata.is_playing);
+    }
   }
 
   return {

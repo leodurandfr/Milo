@@ -423,8 +423,14 @@ class RadioPlugin(UnifiedAudioPlugin):
             # (cas où on appelle stop() alors qu'on est déjà arrêté)
             self.current_station = None
             self._is_playing = False
-            self._metadata = {}
-            await self.notify_state_change(PluginState.READY, {"ready": True})
+
+            # Créer des métadonnées avec is_playing: false pour notifier le frontend
+            self._metadata = {
+                "is_playing": False,
+                "ready": True
+            }
+
+            await self.notify_state_change(PluginState.READY, self._metadata)
 
             return self.format_response(
                 True,
