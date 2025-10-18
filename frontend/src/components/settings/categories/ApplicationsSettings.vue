@@ -37,6 +37,16 @@
                 @change="updateDockApps" />
             </template>
           </IconButton>
+
+          <IconButton variant="outlined" :title="t('audioSources.radio')" :class="{ 'active': config.webradio }">
+            <template #icon>
+              <AppIcon name="webradio" :size="40" />
+            </template>
+            <template #action>
+              <Toggle v-model="config.webradio" variant="primary" size="compact" :disabled="!canDisableAudioSource('webradio')"
+                @change="updateDockApps" />
+            </template>
+          </IconButton>
         </div>
       </div>
       <!-- Fonctionnalités -->
@@ -95,7 +105,7 @@ const settingsStore = useSettingsStore();
 const config = computed(() => settingsStore.dockApps);
 
 function canDisableAudioSource(sourceId) {
-  const audioSources = ['librespot', 'bluetooth', 'roc'];
+  const audioSources = ['librespot', 'bluetooth', 'roc', 'webradio'];
   const enabledAudioSources = audioSources.filter(source =>
     config.value[source] && source !== sourceId
   );

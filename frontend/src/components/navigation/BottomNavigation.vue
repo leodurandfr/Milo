@@ -112,7 +112,7 @@ const $t = instance.appContext.config.globalProperties.$t;
 const { on } = useWebSocket();
 
 // === CONFIGURATION STATIQUE ===
-const ALL_AUDIO_SOURCES = ['librespot', 'bluetooth', 'roc'];
+const ALL_AUDIO_SOURCES = ['librespot', 'bluetooth', 'roc', 'webradio'];
 
 
 const ALL_ADDITIONAL_ACTIONS = [
@@ -122,7 +122,7 @@ const ALL_ADDITIONAL_ACTIONS = [
 ];
 
 // === CONFIGURATION DYNAMIQUE ===
-const enabledApps = ref(["librespot", "bluetooth", "roc", "multiroom", "equalizer"]);
+const enabledApps = ref(["librespot", "bluetooth", "roc", "webradio", "multiroom", "equalizer"]);
 const mobileVolumeSteps = ref(5);
 
 // Computed pour séparer audio plugins et features
@@ -578,7 +578,7 @@ const loadDockConfig = async () => {
     const response = await fetch('/api/settings/dock-apps');
     const data = await response.json();
     if (data.status === 'success') {
-      enabledApps.value = data.config.enabled_apps || ["librespot", "bluetooth", "roc", "multiroom", "equalizer"];
+      enabledApps.value = data.config.enabled_apps || ["librespot", "bluetooth", "roc", "webradio", "multiroom", "equalizer"];
     }
   } catch (error) {
     console.error('Error loading dock config:', error);

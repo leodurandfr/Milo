@@ -7,6 +7,7 @@ from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
 from backend.infrastructure.plugins.librespot import LibrespotPlugin
 from backend.infrastructure.plugins.roc import RocPlugin
 from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
+from backend.infrastructure.plugins.radio import RadioPlugin
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 from backend.infrastructure.services.audio_routing_service import AudioRoutingService
 from backend.infrastructure.services.snapcast_service import SnapcastService
@@ -122,7 +123,17 @@ class Container(containers.DeclarativeContainer):
         }),
         state_machine=audio_state_machine
     )
-    
+
+    radio_plugin = providers.Singleton(
+        RadioPlugin,
+        config=providers.Dict({
+            "service_name": "milo-radio.service",
+            "ipc_socket": "/run/milo/radio-ipc.sock"
+        }),
+        state_machine=audio_state_machine,
+        settings_service=settings_service
+    )
+
     # Configuration post-création
     @providers.Callable
     def initialize_services():
@@ -210,6 +221,7 @@ class Container(containers.DeclarativeContainer):
         state_machine.register_plugin(AudioSource.LIBRESPOT, container.librespot_plugin())
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
         state_machine.register_plugin(AudioSource.ROC, container.roc_plugin())
+        state_machine.register_plugin(AudioSource.WEBRADIO, container.radio_plugin())
 
         # ============================================================
         # ÉTAPE 4: Initialisation asynchrone en parallèle

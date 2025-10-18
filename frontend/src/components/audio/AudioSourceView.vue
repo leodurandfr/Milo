@@ -5,12 +5,21 @@
     <Transition name="audio-content" mode="out-in">
       
       <!-- LibrespotView avec key forcée -->
-      <div 
+      <div
         v-if="shouldShowLibrespot"
         :key="librespotKey"
         class="librespot-container"
       >
-      <LibrespotSource />
+        <LibrespotSource />
+      </div>
+
+      <!-- RadioView -->
+      <div
+        v-else-if="shouldShowRadio"
+        :key="radioKey"
+        class="radio-container"
+      >
+        <RadioSource />
       </div>
 
       <!-- PluginStatus -->
@@ -35,6 +44,7 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue';
 import LibrespotSource from './LibrespotSource.vue';
+import RadioSource from './RadioSource.vue';
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
 // Props
@@ -89,27 +99,34 @@ const hasCompleteTrackInfo = computed(() => {
 
 const shouldShowLibrespot = computed(() => {
   if (showInitialDelay.value) return false;
-  
-  return displayedSource.value === 'librespot' && 
-         props.pluginState === 'connected' && 
+
+  return displayedSource.value === 'librespot' &&
+         props.pluginState === 'connected' &&
          hasCompleteTrackInfo.value &&
+         !props.transitioning;
+});
+
+const shouldShowRadio = computed(() => {
+  if (showInitialDelay.value) return false;
+
+  return displayedSource.value === 'webradio' &&
          !props.transitioning;
 });
 
 const shouldShowPluginStatus = computed(() => {
   if (showInitialDelay.value) return false;
-  
+
   // Transition en cours
   if (props.transitioning) return true;
-  
+
   // Sources bluetooth/roc
   if (['bluetooth', 'roc'].includes(displayedSource.value)) return true;
-  
+
   // Librespot sans conditions complètes
   if (displayedSource.value === 'librespot') {
     return !hasCompleteTrackInfo.value || props.pluginState !== 'connected';
   }
-  
+
   return false;
 });
 
@@ -150,6 +167,11 @@ const librespotKey = computed(() => {
   return shouldShowLibrespot.value ? 'librespot-connected' : 'librespot-hidden';
 });
 
+// Key spécifique pour RadioView
+const radioKey = computed(() => {
+  return shouldShowRadio.value ? 'radio-active' : 'radio-hidden';
+});
+
 // === LIFECYCLE ===
 onMounted(() => {
   // console.log('🚀 AudioSourceView mounted - SIMPLIFIED');
@@ -174,6 +196,12 @@ onMounted(() => {
 
 /* LibrespotView : plein écran naturel */
 .librespot-container {
+  width: 100%;
+  height: 100%;
+}
+
+/* RadioView : plein écran naturel */
+.radio-container {
   width: 100%;
   height: 100%;
 }

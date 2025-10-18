@@ -24,6 +24,7 @@ from backend.presentation.api.routes.volume import create_volume_router
 from backend.presentation.api.routes.librespot import setup_librespot_routes
 from backend.presentation.api.routes.roc import setup_roc_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
+from backend.presentation.api.routes.radio import router as radio_router
 from backend.presentation.api.routes.settings import create_settings_router
 from backend.presentation.api.routes.dependencies import create_dependencies_router
 from backend.presentation.api.routes.health import create_health_router
@@ -142,6 +143,8 @@ bluetooth_router = setup_bluetooth_routes(
     lambda: state_machine.plugins.get(AudioSource.BLUETOOTH)
 )
 app.include_router(bluetooth_router)
+
+app.include_router(radio_router, prefix="/api")
 
 settings_router = create_settings_router(
     ws_manager, 

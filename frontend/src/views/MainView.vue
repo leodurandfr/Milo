@@ -48,7 +48,8 @@ const unifiedStore = useUnifiedAudioStore();
 const disconnectingStates = ref({
   bluetooth: false,
   roc: false,
-  librespot: false
+  librespot: false,
+  webradio: false
 });
 
 // === États du logo ===

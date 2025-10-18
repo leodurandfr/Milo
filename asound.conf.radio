@@ -1,0 +1,194 @@
+# Configuration ALSA pour Milo avec support Radio
+# À copier dans /etc/asound.conf : sudo cp asound.conf.radio /etc/asound.conf
+
+pcm.!default {
+    type plug
+    slave.pcm {
+        type hw
+        card sndrpihifiberry
+        device 0
+    }
+}
+
+ ctl.!default {
+    type hw
+    card sndrpihifiberry
+}
+
+# === Aliases dynamiques (avec variables d'environnement MILO_MODE et MILO_EQUALIZER) ===
+
+pcm.milo_spotify {
+    @func concat
+    strings [
+        "pcm.milo_spotify_"
+        { @func getenv vars [ MILO_MODE ] default "direct" }
+        { @func getenv vars [ MILO_EQUALIZER ] default "" }
+    ]
+}
+
+pcm.milo_bluetooth {
+    @func concat
+    strings [
+        "pcm.milo_bluetooth_"
+        { @func getenv vars [ MILO_MODE ] default "direct" }
+        { @func getenv vars [ MILO_EQUALIZER ] default "" }
+    ]
+}
+
+pcm.milo_roc {
+    @func concat
+    strings [
+        "pcm.milo_roc_"
+        { @func getenv vars [ MILO_MODE ] default "direct" }
+        { @func getenv vars [ MILO_EQUALIZER ] default "" }
+    ]
+}
+
+pcm.milo_radio {
+    @func concat
+    strings [
+        "pcm.milo_radio_"
+        { @func getenv vars [ MILO_MODE ] default "direct" }
+        { @func getenv vars [ MILO_EQUALIZER ] default "" }
+    ]
+}
+
+# === Mode Multiroom (via snapcast) ===
+
+pcm.milo_spotify_multiroom {
+    type plug
+    slave.pcm {
+        type hw
+        card 1
+        device 0
+        subdevice 2
+    }
+}
+
+pcm.milo_bluetooth_multiroom {
+    type plug
+    slave.pcm {
+        type hw
+        card 1
+        device 0
+        subdevice 0
+    }
+}
+
+pcm.milo_roc_multiroom {
+    type plug
+    slave.pcm {
+        type hw
+        card 1
+        device 0
+        subdevice 1
+    }
+}
+
+pcm.milo_radio_multiroom {
+    type plug
+    slave.pcm {
+        type hw
+        card 1
+        device 0
+        subdevice 3
+    }
+}
+
+# === Mode Multiroom avec Equalizer ===
+
+pcm.milo_spotify_multiroom_eq {
+    type plug
+    slave.pcm "equal_multiroom"
+}
+
+pcm.milo_bluetooth_multiroom_eq {
+    type plug
+    slave.pcm "equal_multiroom"
+}
+
+pcm.milo_roc_multiroom_eq {
+    type plug
+    slave.pcm "equal_multiroom"
+}
+
+pcm.milo_radio_multiroom_eq {
+    type plug
+    slave.pcm "equal_multiroom"
+}
+
+# === Mode Direct (vers hardware) ===
+
+pcm.milo_spotify_direct {
+    type plug
+    slave.pcm {
+        type hw
+        card sndrpihifiberry
+        device 0
+    }
+}
+
+pcm.milo_bluetooth_direct {
+    type plug
+    slave.pcm {
+        type hw
+        card sndrpihifiberry
+        device 0
+    }
+}
+
+pcm.milo_roc_direct {
+    type plug
+    slave.pcm {
+        type hw
+        card sndrpihifiberry
+        device 0
+    }
+}
+
+pcm.milo_radio_direct {
+    type plug
+    slave.pcm {
+        type hw
+        card sndrpihifiberry
+        device 0
+    }
+}
+
+# === Mode Direct avec Equalizer ===
+
+pcm.milo_spotify_direct_eq {
+    type plug
+    slave.pcm "equal"
+}
+
+pcm.milo_bluetooth_direct_eq {
+    type plug
+    slave.pcm "equal"
+}
+
+pcm.milo_roc_direct_eq {
+    type plug
+    slave.pcm "equal"
+}
+
+pcm.milo_radio_direct_eq {
+    type plug
+    slave.pcm "equal"
+}
+
+# === Equalizer devices ===
+
+pcm.equal {
+    type equal
+    slave.pcm "plughw:sndrpihifiberry"
+}
+
+pcm.equal_multiroom {
+    type equal
+    slave.pcm "plughw:1,0"
+}
+
+ctl.equal {
+    type equal
+}

@@ -1,0 +1,394 @@
+"""
+Routes API pour le plugin Radio
+"""
+from fastapi import APIRouter, HTTPException, Query
+from typing import List, Optional
+from pydantic import BaseModel
+
+from backend.config.container import container
+from backend.domain.audio_state import AudioSource
+
+
+router = APIRouter(prefix="/radio", tags=["radio"])
+
+
+# === Modèles Pydantic pour validation ===
+
+class PlayStationRequest(BaseModel):
+    """Requête pour jouer une station"""
+    station_id: str
+
+
+class FavoriteRequest(BaseModel):
+    """Requête pour gérer les favoris"""
+    station_id: str
+
+
+class MarkBrokenRequest(BaseModel):
+    """Requête pour marquer une station comme cassée"""
+    station_id: str
+
+
+# === Routes ===
+
+@router.get("/stations")
+async def search_stations(
+    query: str = Query("", description="Terme de recherche"),
+    country: str = Query("", description="Filtre pays"),
+    genre: str = Query("", description="Filtre genre"),
+    limit: int = Query(100, ge=1, le=500, description="Nombre max de résultats"),
+    favorites_only: bool = Query(False, description="Seulement les favoris")
+):
+    """
+    Recherche des stations radio
+
+    Args:
+        query: Terme de recherche (nom de station ou genre)
+        country: Filtre par pays (ex: "France")
+        genre: Filtre par genre (ex: "Rock")
+        limit: Nombre max de résultats (1-500)
+        favorites_only: Si True, retourne seulement les favoris
+
+    Returns:
+        Liste des stations avec métadonnées
+    """
+    try:
+        plugin = container.radio_plugin()
+
+        if favorites_only:
+            # Récupérer les favoris
+            favorite_ids = plugin.station_manager.get_favorites()
+            if not favorite_ids:
+                return []
+
+            # Charger les stations complètes
+            stations = []
+            for station_id in favorite_ids:
+                station = await plugin.radio_api.get_station_by_id(station_id)
+                if station:
+                    stations.append(station)
+
+            # Filtrer si nécessaire
+            if query:
+                query_lower = query.lower()
+                stations = [
+                    s for s in stations
+                    if query_lower in s['name'].lower() or query_lower in s['genre'].lower()
+                ]
+
+            if country:
+                country_lower = country.lower()
+                stations = [s for s in stations if country_lower in s['country'].lower()]
+
+            if genre:
+                genre_lower = genre.lower()
+                stations = [s for s in stations if genre_lower in s['genre'].lower()]
+
+            # Enrichir avec statut favori
+            return plugin.station_manager.enrich_with_favorite_status(stations[:limit])
+
+        else:
+            # Recherche dans toutes les stations
+            stations = await plugin.radio_api.search_stations(
+                query=query,
+                country=country,
+                genre=genre,
+                limit=limit
+            )
+
+            # Filtrer stations cassées
+            stations = plugin.station_manager.filter_broken_stations(stations)
+
+            # Enrichir avec statut favori
+            return plugin.station_manager.enrich_with_favorite_status(stations)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur recherche stations: {str(e)}")
+
+
+@router.get("/station/{station_id}")
+async def get_station(station_id: str):
+    """
+    Récupère les détails d'une station par son ID
+
+    Args:
+        station_id: UUID de la station
+
+    Returns:
+        Détails de la station
+    """
+    try:
+        plugin = container.radio_plugin()
+        station = await plugin.radio_api.get_station_by_id(station_id)
+
+        if not station:
+            raise HTTPException(status_code=404, detail="Station introuvable")
+
+        # Enrichir avec statut favori
+        enriched = plugin.station_manager.enrich_with_favorite_status([station])
+        return enriched[0]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur récupération station: {str(e)}")
+
+
+@router.post("/play")
+async def play_station(request: PlayStationRequest):
+    """
+    Joue une station radio
+
+    Args:
+        request: Requête avec station_id
+
+    Returns:
+        Résultat de la commande
+    """
+    try:
+        state_machine = container.audio_state_machine()
+        plugin = container.radio_plugin()
+
+        # Vérifier si le plugin est démarré
+        if not await is_plugin_started():
+            # Démarrer via state machine (transition vers WEBRADIO)
+            success = await state_machine.transition_to_source(AudioSource.WEBRADIO)
+            if not success:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Impossible de démarrer le plugin Radio"
+                )
+
+        # Envoyer la commande play_station
+        result = await plugin.handle_command("play_station", {"station_id": request.station_id})
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Échec lecture station")
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lecture: {str(e)}")
+
+
+@router.post("/stop")
+async def stop_playback():
+    """
+    Arrête la lecture en cours
+
+    Returns:
+        Résultat de la commande
+    """
+    try:
+        plugin = container.radio_plugin()
+        result = await plugin.handle_command("stop_playback", {})
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Échec arrêt lecture")
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur arrêt: {str(e)}")
+
+
+@router.post("/favorites/add")
+async def add_favorite(request: FavoriteRequest):
+    """
+    Ajoute une station aux favoris
+
+    Args:
+        request: Requête avec station_id
+
+    Returns:
+        Résultat de l'opération
+    """
+    try:
+        plugin = container.radio_plugin()
+        result = await plugin.handle_command("add_favorite", {"station_id": request.station_id})
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Échec ajout favori")
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur ajout favori: {str(e)}")
+
+
+@router.post("/favorites/remove")
+async def remove_favorite(request: FavoriteRequest):
+    """
+    Retire une station des favoris
+
+    Args:
+        request: Requête avec station_id
+
+    Returns:
+        Résultat de l'opération
+    """
+    try:
+        plugin = container.radio_plugin()
+        result = await plugin.handle_command("remove_favorite", {"station_id": request.station_id})
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Échec retrait favori")
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur retrait favori: {str(e)}")
+
+
+@router.get("/favorites")
+async def get_favorites():
+    """
+    Récupère la liste des stations favorites
+
+    Returns:
+        Liste des stations favorites avec détails
+    """
+    try:
+        plugin = container.radio_plugin()
+        favorite_ids = plugin.station_manager.get_favorites()
+
+        if not favorite_ids:
+            return []
+
+        # Charger les détails des stations
+        stations = []
+        for station_id in favorite_ids:
+            station = await plugin.radio_api.get_station_by_id(station_id)
+            if station:
+                station['is_favorite'] = True
+                stations.append(station)
+
+        return stations
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur récupération favoris: {str(e)}")
+
+
+@router.post("/broken/mark")
+async def mark_broken(request: MarkBrokenRequest):
+    """
+    Marque une station comme cassée
+
+    Args:
+        request: Requête avec station_id
+
+    Returns:
+        Résultat de l'opération
+    """
+    try:
+        plugin = container.radio_plugin()
+        result = await plugin.handle_command("mark_broken", {"station_id": request.station_id})
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Échec marquage station")
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur marquage: {str(e)}")
+
+
+@router.post("/broken/reset")
+async def reset_broken_stations():
+    """
+    Réinitialise la liste des stations cassées
+
+    Returns:
+        Résultat de l'opération
+    """
+    try:
+        plugin = container.radio_plugin()
+        result = await plugin.handle_command("reset_broken", {})
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Échec reset stations")
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur reset: {str(e)}")
+
+
+@router.get("/status")
+async def get_status():
+    """
+    Récupère le status du plugin Radio
+
+    Returns:
+        État actuel du plugin (service, lecture en cours, station actuelle, etc.)
+    """
+    try:
+        plugin = container.radio_plugin()
+        status = await plugin.get_status()
+        return status
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur status: {str(e)}")
+
+
+@router.get("/stats")
+async def get_stats():
+    """
+    Récupère les statistiques (nombre de favoris, stations cassées, etc.)
+
+    Returns:
+        Statistiques du plugin
+    """
+    try:
+        plugin = container.radio_plugin()
+        stats = plugin.station_manager.get_stats()
+        return stats
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur stats: {str(e)}")
+
+
+# === Helpers ===
+
+async def is_plugin_started() -> bool:
+    """Vérifie si le plugin Radio est démarré"""
+    try:
+        state_machine = container.audio_state_machine()
+        system_state = state_machine.system_state
+
+        return (
+            system_state.active_source == AudioSource.WEBRADIO and
+            system_state.plugin_state.value in ["ready", "connected"]
+        )
+    except Exception:
+        return False

@@ -75,7 +75,8 @@ def create_settings_router(
         services_map = {
             'librespot': ['milo-go-librespot.service'],
             'roc': ['milo-roc.service'],
-            'bluetooth': ['milo-bluealsa-aplay.service', 'milo-bluealsa.service']
+            'bluetooth': ['milo-bluealsa-aplay.service', 'milo-bluealsa.service'],
+            'webradio': ['milo-radio.service']
         }
         return services_map.get(source, [])
     
@@ -249,8 +250,8 @@ def create_settings_router(
     @router.get("/dock-apps")
     async def get_dock_apps():
         dock = await settings.get_setting('dock') or {}
-        enabled_apps = dock.get('enabled_apps', ["librespot", "bluetooth", "roc", "multiroom", "equalizer", "settings"])
-        
+        enabled_apps = dock.get('enabled_apps', ["librespot", "bluetooth", "roc", "webradio", "multiroom", "equalizer", "settings"])
+
         return {
             "status": "success",
             "config": {"enabled_apps": enabled_apps}
@@ -268,12 +269,12 @@ def create_settings_router(
             enabled_apps = payload.get('enabled_apps', [])
             
             # Validation basique
-            valid_apps = ["librespot", "bluetooth", "roc", "multiroom", "equalizer", "settings"]
+            valid_apps = ["librespot", "bluetooth", "roc", "webradio", "multiroom", "equalizer", "settings"]
             if not isinstance(enabled_apps, list) or not all(app in valid_apps for app in enabled_apps):
                 raise HTTPException(status_code=400, detail="Invalid enabled_apps list")
-            
+
             # Au moins une source audio doit être activée
-            audio_sources = ["librespot", "bluetooth", "roc"]
+            audio_sources = ["librespot", "bluetooth", "roc", "webradio"]
             enabled_audio_sources = [app for app in enabled_apps if app in audio_sources]
             if not enabled_audio_sources:
                 raise HTTPException(status_code=400, detail="At least one audio source must be enabled")
@@ -309,7 +310,7 @@ def create_settings_router(
                     logger.info(f"Processing disable for app: {app}")
                     
                     # === SOURCES AUDIO ===
-                    if app in ['librespot', 'bluetooth', 'roc']:
+                    if app in ['librespot', 'bluetooth', 'roc', 'webradio']:
                         current_source = state_machine.system_state.active_source.value
                         
                         if app == current_source:
@@ -389,7 +390,7 @@ def create_settings_router(
                     logger.info(f"Processing enable for app: {app}")
                     
                     # === SOURCES AUDIO : NE RIEN FAIRE ===
-                    if app in ['librespot', 'bluetooth', 'roc']:
+                    if app in ['librespot', 'bluetooth', 'roc', 'webradio']:
                         operations_log.append(f"App {app} enabled (no service start needed)")
                         logger.info(f"App {app} enabled in dock (services will start on source change)")
                     
