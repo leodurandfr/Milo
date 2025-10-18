@@ -258,6 +258,13 @@ function handleStationImageError(e) {
   }
 }
 
+// Synchroniser avec le WebSocket pour restaurer l'état au démarrage
+watch(() => unifiedStore.metadata, (newMetadata) => {
+  if (unifiedStore.currentSource === 'radio' && newMetadata) {
+    radioStore.updateFromWebSocket(newMetadata);
+  }
+}, { immediate: true, deep: true });
+
 // Lifecycle
 onMounted(async () => {
   console.log('📻 RadioSource mounted');
