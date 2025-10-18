@@ -5,22 +5,22 @@
         @pointerup="handlePointerUp" @pointercancel="handlePointerUp">
 
         <!-- ModalHeader : Vue Favoris -->
-        <ModalHeader v-if="!isSearchMode" title="Radios préférées">
+        <ModalHeader v-if="!isSearchMode" title="Radios préférées" variant="neutral">
           <template #actions>
-            <CircularIcon icon="search" variant="dark" @click="openSearch" />
+            <CircularIcon icon="search" variant="light" @click="openSearch" />
           </template>
         </ModalHeader>
 
         <!-- ModalHeader : Vue Recherche -->
-        <ModalHeader v-else title="Découvrir des radios" :show-back="true" @back="closeSearch">
+        <ModalHeader v-else title="Découvrir des radios" :show-back="true" variant="neutral" @back="closeSearch">
         </ModalHeader>
 
         <!-- Recherche et filtres (visible uniquement en mode recherche) -->
         <div v-if="isSearchMode" class="search-section">
           <div class="filters">
-            <input v-model="radioStore.searchQuery" type="text" class="filter-input search-input"
+            <input v-model="radioStore.searchQuery" type="text" class="filter-input search-input text-body-small"
               placeholder="Rechercher..." @input="handleSearch" />
-            <select v-model="radioStore.countryFilter" class="filter-input filter-select" @change="handleSearch">
+            <select v-model="radioStore.countryFilter" class="filter-input filter-select text-body-small" @change="handleSearch">
               <option value="">Tous les pays</option>
               <option value="France">France</option>
               <option value="United Kingdom">Royaume-Uni</option>
@@ -30,7 +30,7 @@
               <option value="Italy">Italie</option>
             </select>
 
-            <select v-model="radioStore.genreFilter" class="filter-input filter-select" @change="handleSearch">
+            <select v-model="radioStore.genreFilter" class="filter-input filter-select text-body-small" @change="handleSearch">
               <option value="">Tous les genres</option>
               <option value="pop">Pop</option>
               <option value="rock">Rock</option>
@@ -53,15 +53,21 @@
             <p class="heading-2">{{ isSearchMode ? 'Aucune station trouvée' : 'Aucune radio favorite' }}</p>
           </div>
 
-          <div v-else class="stations-grid">
+          <div v-else class="stations-grid" :class="{ 'favorites-mode': !isSearchMode, 'search-mode': isSearchMode }">
             <!-- Mode Favoris : affichage image seule -->
             <div v-if="!isSearchMode" v-for="station in displayedStations" :key="`fav-${station.id}`" :class="['station-image', {
               active: radioStore.currentStation?.id === station.id,
-              playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying
+              playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying,
+              loading: bufferingStationId === station.id
             }]" @click="playStation(station.id)">
               <img v-if="station.favicon" :src="station.favicon" alt="" class="station-img"
                 @error="handleStationImageError" />
               <span class="image-placeholder" :class="{ visible: !station.favicon }">📻</span>
+
+              <!-- Loading overlay -->
+              <div v-if="bufferingStationId === station.id" class="loading-overlay">
+                <div class="loading-spinner"></div>
+              </div>
             </div>
 
             <!-- Mode Recherche : affichage avec informations -->
@@ -73,7 +79,8 @@
                 'station-card',
                 {
                   active: radioStore.currentStation?.id === station.id,
-                  playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying
+                  playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying,
+                  loading: bufferingStationId === station.id
                 }
               ]"
               @click="playStation(station.id)"
@@ -89,8 +96,12 @@
                 <p class="station-subtitle text-mono">{{ station.genre }}</p>
               </div>
 
+              <!-- Loading spinner -->
+              <div v-if="bufferingStationId === station.id" class="loading-spinner-small"></div>
+
+              <!-- Stop button -->
               <button
-                v-if="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
+                v-else-if="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
                 class="stop-btn"
                 @click.stop="playStation(station.id)"
               >
@@ -165,11 +176,29 @@ const radioContent = ref(null);
 // État de lecture - Utiliser unifiedStore.metadata.is_playing (source de vérité backend)
 const isCurrentlyPlaying = computed(() => {
   // Vérifier que la source active est bien Radio
-  if (unifiedStore.currentSource !== 'radio') {
+  if (unifiedStore.systemState.active_source !== 'radio') {
     return false;
   }
   // Utiliser l'état du backend via WebSocket
-  return unifiedStore.metadata.is_playing || false;
+  return unifiedStore.systemState.metadata.is_playing || false;
+});
+
+// État de buffering - Utiliser unifiedStore.metadata.buffering (source de vérité backend)
+const isBuffering = computed(() => {
+  // Vérifier que la source active est bien Radio
+  if (unifiedStore.systemState.active_source !== 'radio') {
+    return false;
+  }
+  // Utiliser l'état du backend via WebSocket
+  return unifiedStore.systemState.metadata.buffering || false;
+});
+
+// ID de la station en buffering (pour afficher le spinner sur la bonne station)
+const bufferingStationId = computed(() => {
+  if (!isBuffering.value) {
+    return null;
+  }
+  return unifiedStore.systemState.metadata.station_id || null;
 });
 
 // Stations affichées avec limite - favoris ou toutes selon le mode
@@ -344,8 +373,8 @@ function handlePointerUp(event) {
 
 // === SYNCHRONISATION WEBSOCKET ===
 // Écouter les mises à jour de métadonnées
-watch(() => unifiedStore.metadata, (newMetadata) => {
-  if (unifiedStore.currentSource === 'radio' && newMetadata) {
+watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
+  if (unifiedStore.systemState.active_source === 'radio' && newMetadata) {
     radioStore.updateFromWebSocket(newMetadata);
   }
 }, { immediate: true, deep: true });
@@ -369,13 +398,12 @@ on('radio', 'favorite_removed', (event) => {
 onMounted(async () => {
   console.log('📻 RadioSource mounted');
   await radioStore.loadStations(true); // Charger uniquement les favoris au démarrage
-  await radioStore.loadFavorites();
 
   // IMPORTANT: Synchroniser currentStation depuis l'état actuel du backend
   // au cas où une station est déjà en cours de lecture
-  if (unifiedStore.currentSource === 'radio' && unifiedStore.metadata) {
+  if (unifiedStore.systemState.active_source === 'radio' && unifiedStore.systemState.metadata) {
     console.log('📻 Syncing currentStation from existing state on mount');
-    radioStore.updateFromWebSocket(unifiedStore.metadata);
+    radioStore.updateFromWebSocket(unifiedStore.systemState.metadata);
   }
 
   animateIn();
@@ -469,6 +497,7 @@ onMounted(async () => {
 .filters {
   display: flex;
   gap: var(--space-03);
+  color: var(--color-text-secondary);
 }
 
 .filter-input {
@@ -477,9 +506,8 @@ onMounted(async () => {
   padding: var(--space-03) var(--space-04);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-04);
+  color: var(--color-text-secondary);
   background: var(--color-background-neutral);
-  color: var(--color-text);
-  font-size: var(--font-size-body);
   transition: border-color var(--transition-fast);
 }
 
@@ -488,13 +516,13 @@ onMounted(async () => {
   border-color: var(--color-brand);
 }
 
+.search-input {
+  color: var(--color-text);
+}
 .search-input::placeholder {
-  color: var(--color-text-light);
+  color: var(--color-text-secondary);
 }
 
-.filter-select {
-  font-size: var(--font-size-body);
-}
 
 /* === STATIONS LIST === */
 .stations-list {
@@ -525,15 +553,24 @@ onMounted(async () => {
 
 .stations-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-01);
+}
+
+/* Mode Recherche : 2 colonnes */
+.stations-grid.search-mode {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Mode Favoris : 3 colonnes */
+.stations-grid.favorites-mode {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 /* === STATION IMAGE (Mode Favoris - Image seule) === */
 .station-image {
   aspect-ratio: 1 / 1;
   width: 100%;
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-05);
   overflow: hidden;
   cursor: pointer;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
@@ -657,7 +694,7 @@ onMounted(async () => {
 
 .station-title {
   margin: 0;
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-body-small);
   font-weight: 500;
   color: var(--color-text);
   white-space: nowrap;
@@ -998,6 +1035,54 @@ onMounted(async () => {
   }
 }
 
+/* === LOADING STATES === */
+
+/* Loading overlay pour les stations en mode favoris */
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-05);
+  z-index: 10;
+}
+
+/* Spinner pour mode favoris (overlay) */
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--color-brand);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Spinner pour mode recherche (petit, à la place du bouton) */
+.loading-spinner-small {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-brand);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Réduire légèrement l'opacité des stations en loading */
+.station-image.loading,
+.station-card.loading {
+  opacity: 0.9;
+}
+
 /* === RESPONSIVE === */
 @media (max-aspect-ratio: 4/3) {
   .radio-overlay {
@@ -1009,12 +1094,12 @@ onMounted(async () => {
   }
 
   /* Mode Favoris : rester en grille 3 colonnes sur mobile */
-  .stations-grid:has(.station-image) {
+  .stations-grid.favorites-mode {
     grid-template-columns: repeat(3, 1fr);
   }
 
   /* Mode Recherche : 1 colonne sur mobile */
-  .stations-grid:has(.station-card) {
+  .stations-grid.search-mode {
     grid-template-columns: 1fr;
   }
 

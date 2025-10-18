@@ -6,7 +6,7 @@
         <Toggle
           v-model="isMultiroomActive"
           variant="primary"
-          :disabled="unifiedStore.isTransitioning || isMultiroomToggling"
+          :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling"
           @change="handleMultiroomToggle"
         />
       </template>
@@ -32,7 +32,7 @@ const { on } = useWebSocket();
 // État local pour le toggling
 const isMultiroomToggling = ref(false);
 
-const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
+const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 async function handleMultiroomToggle(enabled) {
   await unifiedStore.setMultiroomEnabled(enabled);

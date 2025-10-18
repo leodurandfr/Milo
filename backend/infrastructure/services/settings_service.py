@@ -1,13 +1,12 @@
 # backend/infrastructure/services/settings_service.py
 """
-Service de gestion des settings - Version OPTIM avec I/O async + CHECKSUM
+Service de gestion des settings - Version OPTIM avec I/O async
 """
 import json
 import os
 import logging
 import aiofiles
 import asyncio
-import hashlib
 from typing import Dict, Any
 
 class SettingsService:
@@ -48,45 +47,14 @@ class SettingsService:
         }
     
     async def load_settings(self) -> Dict[str, Any]:
-        """Charge et valide les settings avec async lock + vérification checksum"""
+        """Charge et valide les settings avec async lock"""
         try:
             if os.path.exists(self.settings_file):
-                async with self._file_lock:  # Lock async natif
+                async with self._file_lock:
                     async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as f:
                         content = await f.read()
 
-                    # Vérifier et extraire le checksum
-                    if '\n# SHA256:' in content:
-                        # Séparer le JSON et le checksum
-                        parts = content.rsplit('\n# SHA256:', 1)
-                        json_content = parts[0]
-                        expected_checksum = parts[1].strip()
-
-                        # Calculer le checksum actuel
-                        actual_checksum = hashlib.sha256(json_content.encode('utf-8')).hexdigest()
-
-                        # Vérifier l'intégrité
-                        if actual_checksum != expected_checksum:
-                            self.logger.error(
-                                f"⚠️ Settings file corrupted! Checksum mismatch. "
-                                f"Expected: {expected_checksum[:8]}..., Got: {actual_checksum[:8]}..."
-                            )
-                            # Sauvegarder le fichier corrompu pour investigation
-                            backup_corrupted = self.settings_file + '.corrupted'
-                            async with aiofiles.open(backup_corrupted, 'w', encoding='utf-8') as bf:
-                                await bf.write(content)
-                            self.logger.warning(f"Corrupted file saved to: {backup_corrupted}")
-
-                            # Utiliser les defaults
-                            self._cache = self.defaults.copy()
-                            await self.save_settings(self.defaults)
-                            return self._cache
-
-                        settings = json.loads(json_content)
-                    else:
-                        # Ancien format sans checksum - migrer
-                        self.logger.info("Migrating settings file to checksummed format")
-                        settings = json.loads(content)
+                    settings = json.loads(content)
 
                     # Migration display → screen
                     if 'display' in settings:
@@ -100,7 +68,6 @@ class SettingsService:
                     # Fusion avec defaults et validation
                     validated = self._validate_and_merge(settings)
 
-                    # Note: on ne sauvegarde plus automatiquement ici pour éviter le deadlock
                     self._cache = validated
                     return validated
             else:
@@ -128,24 +95,21 @@ class SettingsService:
             return self._cache
     
     async def save_settings(self, settings: Dict[str, Any]) -> bool:
-        """Sauvegarde avec async lock + checksum SHA256"""
+        """Sauvegarde avec async lock et écriture atomique"""
         try:
             validated = self._validate_and_merge(settings)
 
-            async with self._file_lock:  # Lock async natif
-                # Écriture atomique avec checksum
+            async with self._file_lock:
+                # Écriture atomique via fichier temporaire
                 temp_file = self.settings_file + '.tmp'
 
                 # Générer le JSON
                 json_content = json.dumps(validated, ensure_ascii=False, indent=2)
 
-                # Calculer le checksum SHA256
-                checksum = hashlib.sha256(json_content.encode('utf-8')).hexdigest()
-
-                # Écrire le contenu avec le checksum en commentaire
+                # Écrire le contenu
                 async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
                     await f.write(json_content)
-                    await f.write(f'\n# SHA256:{checksum}\n')
+                    await f.write('\n')
                     await f.flush()
                     os.fsync(f.fileno())
 
@@ -153,7 +117,7 @@ class SettingsService:
                 os.replace(temp_file, self.settings_file)
 
             self._cache = validated
-            self.logger.debug(f"Settings saved with checksum: {checksum[:8]}...")
+            self.logger.debug("Settings saved successfully")
             return True
 
         except Exception as e:
@@ -244,6 +208,12 @@ class SettingsService:
         if equalizer_input:
             # Préserver la section equalizer telle quelle (pas de validation stricte)
             validated['equalizer'] = equalizer_input
+
+        # Radio (favorites + broken_stations) - Préserver la section radio sans validation stricte
+        radio_input = settings.get('radio', {})
+        if radio_input:
+            # Préserver la section radio telle quelle (pas de validation stricte)
+            validated['radio'] = radio_input
 
         return validated
     

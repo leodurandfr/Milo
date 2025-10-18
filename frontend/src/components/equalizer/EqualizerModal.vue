@@ -15,7 +15,7 @@
           <Toggle
             v-model="isEqualizerEnabled"
             variant="primary"
-            :disabled="unifiedStore.isTransitioning || isEqualizerToggling"
+            :disabled="unifiedStore.systemState.transitioning || isEqualizerToggling"
             @change="handleEqualizerToggle"
           />
         </template>
@@ -185,7 +185,7 @@ function handleEqualizerDisabling() {
 // Watcher pour synchroniser avec le backend via WebSocket
 let lastStoreState = null; // Sera initialisé au premier tick
 const watcherInterval = setInterval(() => {
-  const currentStoreState = unifiedStore.equalizerEnabled;
+  const currentStoreState = unifiedStore.systemState.equalizer_enabled;
 
   // Initialiser lastStoreState au premier passage
   if (lastStoreState === null) {
@@ -226,7 +226,7 @@ onMounted(async () => {
   window.addEventListener('resize', updateMobileStatus);
 
   // Initialiser l'état local AVANT de charger
-  localEqualizerEnabled.value = unifiedStore.equalizerEnabled;
+  localEqualizerEnabled.value = unifiedStore.systemState.equalizer_enabled;
 
   // Initialiser les bandes immédiatement
   equalizerStore.initializeBands();

@@ -118,7 +118,7 @@ const unifiedStore = useUnifiedAudioStore();
 const keyboard = useVirtualKeyboard();
 
 // Multiroom state
-const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
+const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 // ResizeObserver pour animer la hauteur
 const contentWrapperRef = ref(null);

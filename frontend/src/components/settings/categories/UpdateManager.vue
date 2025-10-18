@@ -149,7 +149,7 @@ const { t } = useI18n();
 const { on } = useWebSocket();
 const unifiedStore = useUnifiedAudioStore();
 
-const isMultiroomEnabled = computed(() => unifiedStore.multiroomEnabled);
+const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 // États locaux
 const localDependencies = ref({});

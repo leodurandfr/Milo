@@ -43,17 +43,13 @@ class RadioPlugin(UnifiedAudioPlugin):
         # État actuel
         self.current_station: Optional[Dict[str, Any]] = None
         self._is_playing = False
+        self._is_buffering = False
         self._metadata = {}
         self._current_device = "milo_radio"
 
         # Monitoring task
         self._monitor_task: Optional[asyncio.Task] = None
         self._stopping = False
-
-        # Debouncing pour éviter les changements d'état trop rapides
-        self._stable_state_count = 0
-        self._last_detected_state = False
-        self._state_stability_threshold = 4  # Nombre de vérifications consécutives avant changement (8 secondes)
 
     async def _do_initialize(self) -> bool:
         """Initialisation du plugin Radio"""
@@ -160,9 +156,8 @@ class RadioPlugin(UnifiedAudioPlugin):
             # Reset état
             self.current_station = None
             self._is_playing = False
+            self._is_buffering = False
             self._metadata = {}
-            self._stable_state_count = 0
-            self._last_detected_state = False
 
             # Redémarrer le service
             success = await self.control_service(self.service_name, "restart")
@@ -227,9 +222,8 @@ class RadioPlugin(UnifiedAudioPlugin):
             # Reset état
             self.current_station = None
             self._is_playing = False
+            self._is_buffering = False
             self._metadata = {}
-            self._stable_state_count = 0
-            self._last_detected_state = False
 
             await self.notify_state_change(PluginState.INACTIVE)
             self.logger.info("Plugin Radio arrêté")
@@ -243,8 +237,7 @@ class RadioPlugin(UnifiedAudioPlugin):
         """
         Surveille l'état de lecture de mpv
 
-        Vérifie périodiquement l'état et les métadonnées avec debouncing
-        pour éviter les changements d'état trop rapides
+        Vérifie périodiquement l'état et les métadonnées
         """
         try:
             while not self._stopping:
@@ -252,39 +245,31 @@ class RadioPlugin(UnifiedAudioPlugin):
                     # Vérifier l'état de lecture
                     is_playing = await self.mpv.is_playing()
 
-                    # Debouncing: compter les détections stables
-                    if is_playing == self._last_detected_state:
-                        self._stable_state_count += 1
-                    else:
-                        # État a changé, reset le compteur
-                        self._last_detected_state = is_playing
-                        self._stable_state_count = 1
+                    # DEBUG: Logger l'état brut de mpv (seulement pendant buffering)
+                    if self.current_station and self._is_buffering:
+                        playback_time = await self.mpv.get_property("playback-time")
+                        self.logger.info(f"🔍 Monitor: is_playing={is_playing}, playback_time={playback_time}")
 
-                    # Mettre à jour l'état de lecture si stable
-                    state_changed = False
-                    if self._stable_state_count >= self._state_stability_threshold:
-                        if is_playing != self._is_playing:
-                            # Si une station est chargée et qu'on détecte "stopped",
-                            # c'est probablement du buffering, pas un arrêt réel
-                            # On ignore ce changement sauf si current_station est None
-                            if not is_playing and self.current_station:
-                                self.logger.debug("Pause temporaire détectée (buffering), ignorée")
-                            else:
-                                self._is_playing = is_playing
-                                state_changed = True
-                                self.logger.info(f"État lecture changé: {'playing' if is_playing else 'stopped'}")
+                    # Mettre à jour l'état immédiatement (pas de debouncing avec core-idle)
+                    if is_playing != self._is_playing:
+                        self._is_playing = is_playing
+                        self.logger.info(f"État lecture changé: {'playing' if is_playing else 'stopped'}")
+
+                        # Si on passe à playing et qu'on était en buffering, terminer le buffering
+                        if is_playing and self._is_buffering:
+                            self._is_buffering = False
+                            self.logger.info("✅ Buffering terminé, stream en lecture")
 
                     # Le plugin_state est CONNECTED tant qu'une station est chargée
                     # isPlaying dans les métadonnées indique l'état réel de lecture
                     if self.current_station:
                         await self._update_metadata()
 
-                        # MODIFIÉ: Broadcast à chaque update pour synchroniser tous les clients
-                        # Pas seulement quand state_changed, car les métadonnées peuvent changer
-                        # et tous les clients doivent être synchronisés en temps réel
+                        # Broadcast à chaque update pour synchroniser tous les clients
                         await self.notify_state_change(PluginState.CONNECTED, self._metadata)
 
-                    await asyncio.sleep(2)  # Vérifier toutes les 2 secondes
+                    # Polling rapide pour détecter rapidement le début de la lecture
+                    await asyncio.sleep(0.5)  # Vérifier toutes les 0.5 secondes
 
                 except Exception as e:
                     self.logger.error(f"Erreur surveillance lecture: {e}")
@@ -305,9 +290,6 @@ class RadioPlugin(UnifiedAudioPlugin):
                 self._metadata = {}
                 return
 
-            media_title = await self.mpv.get_media_title()
-            mpv_metadata = await self.mpv.get_metadata()
-
             self._metadata = {
                 "station_id": self.current_station.get('id') if self.current_station else None,
                 "station_name": self.current_station.get('name') if self.current_station else None,
@@ -321,8 +303,7 @@ class RadioPlugin(UnifiedAudioPlugin):
                     self.current_station.get('id')
                 ) if self.current_station else False,
                 "is_playing": self._is_playing,
-                "media_title": media_title,  # Titre du morceau en cours (icy-title)
-                "mpv_metadata": mpv_metadata
+                "buffering": self._is_buffering
             }
 
         except Exception as e:
@@ -380,36 +361,40 @@ class RadioPlugin(UnifiedAudioPlugin):
             # Incrémenter compteur Radio Browser
             asyncio.create_task(self.radio_api.increment_station_clicks(station_id))
 
+            # Mettre à jour l'état : buffering en cours
+            self.current_station = station
+            self._is_playing = False
+            self._is_buffering = True
+            await self._update_metadata()
+
+            # Notifier immédiatement l'état de buffering
+            await self.notify_state_change(PluginState.CONNECTED, self._metadata)
+
             # Charger le stream dans mpv
             success = await self.mpv.load_stream(station['url'])
 
             if not success:
-                # Marquer comme cassée
+                # Marquer comme cassée et reset buffering
+                self._is_buffering = False
+                self.current_station = None
                 await self.station_manager.mark_as_broken(station_id)
                 return self.format_response(
                     False,
                     error=f"Impossible de charger le stream {station['name']}"
                 )
 
-            # Mettre à jour l'état
-            self.current_station = station
-            self._is_playing = True
-
-            # Attendre un peu pour avoir les métadonnées
-            await asyncio.sleep(0.5)
-            await self._update_metadata()
-
-            # Notifier changement d'état
-            await self.notify_state_change(PluginState.CONNECTED, self._metadata)
+            # Le buffering continuera jusqu'à ce que _monitor_playback détecte is_playing=true
+            # On ne met pas _is_playing = True ici, on laisse _monitor_playback le faire
 
             return self.format_response(
                 True,
-                message=f"Lecture de {station['name']}",
+                message=f"Chargement de {station['name']}",
                 station=station
             )
 
         except Exception as e:
             self.logger.error(f"Erreur lecture station: {e}")
+            self._is_buffering = False
             return self.format_response(False, error=str(e))
 
     async def _handle_stop_playback(self) -> Dict[str, Any]:
@@ -422,10 +407,12 @@ class RadioPlugin(UnifiedAudioPlugin):
             # (cas où on appelle stop() alors qu'on est déjà arrêté)
             self.current_station = None
             self._is_playing = False
+            self._is_buffering = False
 
             # Créer des métadonnées avec is_playing: false pour notifier le frontend
             self._metadata = {
                 "is_playing": False,
+                "buffering": False,
                 "ready": True
             }
 

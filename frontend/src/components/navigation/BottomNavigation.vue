@@ -41,7 +41,7 @@
           @click="() => handleAppClick(id, index)"
           @touchstart="addPressEffect"
           @mousedown="addPressEffect"
-          :disabled="unifiedStore.isTransitioning"
+          :disabled="unifiedStore.systemState.transitioning"
           :style="{ transitionDelay: `${0.1 + index * 0.05}s` }"
           class="dock-item button-interactive-subtle mobile-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
@@ -55,7 +55,7 @@
           @click="() => handleAppClick(id, index)"
           @touchstart="addPressEffect"
           @mousedown="addPressEffect"
-          :disabled="unifiedStore.isTransitioning"
+          :disabled="unifiedStore.systemState.transitioning"
           :style="{ transitionDelay: `${0.1 + index * 0.05}s` }"
           class="dock-item button-interactive-subtle desktop-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
@@ -207,11 +207,11 @@ const activeSourceIndex = computed(() => {
   // Sur desktop, chercher dans les audio plugins uniquement
   // Sur mobile, chercher uniquement dans les sources audio visibles dans dockApps
   if (isDesktop()) {
-    return enabledAudioPlugins.value.findIndex(app => app.id === unifiedStore.currentSource);
+    return enabledAudioPlugins.value.findIndex(app => app.id === unifiedStore.systemState.active_source);
   } else {
     // En mobile: trouver l'index de la source active parmi TOUTES les apps du dock
     // Mais seulement si c'est une source audio
-    const currentSource = unifiedStore.currentSource;
+    const currentSource = unifiedStore.systemState.active_source;
     if (!ALL_AUDIO_SOURCES.includes(currentSource)) {
       return -1; // Pas une source audio, pas d'indicateur
     }
@@ -700,7 +700,7 @@ const removeDragEvents = () => {
 };
 
 // === LIFECYCLE ===
-watch(() => unifiedStore.currentSource, updateActiveIndicator);
+watch(() => unifiedStore.systemState.active_source, updateActiveIndicator);
 
 onMounted(async () => {
   setupDragEvents();

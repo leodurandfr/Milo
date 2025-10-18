@@ -112,17 +112,31 @@ class MpvController:
             self.writer.write(command_json.encode('utf-8'))
             await self.writer.drain()
 
-            # Lire la réponse (avec timeout)
+            # Lire la réponse en matchant le request_id (avec timeout)
             try:
-                response_line = await asyncio.wait_for(self.reader.readline(), timeout=2.0)
-                response = json.loads(response_line.decode('utf-8'))
+                # Lire jusqu'à 10 lignes max pour trouver la bonne réponse
+                for _ in range(10):
+                    response_line = await asyncio.wait_for(self.reader.readline(), timeout=2.0)
+                    if not response_line:
+                        break
 
-                error = response.get('error')
-                # Ne logger que les vraies erreurs, pas les erreurs transitoires
-                if error not in ('success', None, 'null', 'property unavailable'):
-                    self.logger.warning(f"mpv command error: {error}")
+                    response = json.loads(response_line.decode('utf-8'))
 
-                return response
+                    # Ignorer les événements mpv (pas de request_id)
+                    if 'event' in response:
+                        continue
+
+                    # Si c'est la réponse à notre requête, la retourner
+                    if response.get('request_id') == self._command_id:
+                        error = response.get('error')
+                        # Ne logger que les vraies erreurs, pas les erreurs transitoires
+                        if error not in ('success', None, 'null', 'property unavailable'):
+                            self.logger.warning(f"mpv command error: {error}")
+                        return response
+
+                # Aucune réponse correspondante trouvée
+                self.logger.warning(f"No matching response for request {self._command_id}")
+                return None
 
             except asyncio.TimeoutError:
                 self.logger.warning(f"Timeout waiting for mpv response to: {command}")
@@ -204,77 +218,15 @@ class MpvController:
 
     async def is_playing(self) -> bool:
         """
-        Vérifie si mpv est en cours de lecture
+        Vérifie si mpv est en cours de lecture via playback-time
 
         Returns:
-            True si en lecture (pas en pause, pas arrêté)
+            True si en lecture (playback-time existe)
         """
-        # Vérifier d'abord si mpv est idle (pas de fichier chargé)
-        idle = await self.get_property("idle-active")
-        if idle is None or idle is True:
-            return False
+        # playback-time est la propriété la plus fiable pour les streams
+        # Elle existe dès que mpv commence à décoder, et disparaît quand on arrête
+        playback_time = await self.get_property("playback-time")
 
-        # Si un fichier est chargé, vérifier qu'il n'est pas en pause
-        pause = await self.get_property("pause")
-        if pause is None:
-            # Si on ne peut pas lire la propriété pause mais qu'un fichier est chargé,
-            # considérer qu'on est en lecture (utile pendant le buffering)
-            return True
+        # Si playback-time est un nombre (même 0), le stream joue
+        return isinstance(playback_time, (int, float))
 
-        return not pause
-
-    async def get_metadata(self) -> Optional[Dict[str, Any]]:
-        """
-        Récupère les métadonnées du stream en cours
-
-        Returns:
-            Dict avec métadonnées (icy-title, etc.) ou None
-        """
-        metadata = await self.get_property("metadata")
-        return metadata if metadata else {}
-
-    async def get_media_title(self) -> Optional[str]:
-        """
-        Récupère le titre actuel (icy-title pour les streams radio)
-
-        Returns:
-            Titre du stream ou None
-        """
-        media_title = await self.get_property("media-title")
-
-        # Fallback sur icy-title si media-title n'est pas disponible
-        if not media_title:
-            metadata = await self.get_metadata()
-            if metadata:
-                media_title = metadata.get("icy-title")
-
-        return media_title
-
-    async def get_status(self) -> Dict[str, Any]:
-        """
-        Récupère le status complet de mpv
-
-        Returns:
-            Dict avec état de lecture, métadonnées, etc.
-        """
-        try:
-            is_paused = await self.get_property("pause")
-            media_title = await self.get_media_title()
-            metadata = await self.get_metadata()
-
-            return {
-                "connected": self.is_connected,
-                "playing": is_paused is not None and not is_paused,
-                "paused": is_paused if is_paused is not None else False,
-                "media_title": media_title,
-                "metadata": metadata or {}
-            }
-        except Exception as e:
-            self.logger.error(f"Error getting status: {e}")
-            return {
-                "connected": False,
-                "playing": False,
-                "paused": False,
-                "media_title": None,
-                "metadata": {}
-            }

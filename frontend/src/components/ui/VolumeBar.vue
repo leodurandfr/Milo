@@ -3,7 +3,7 @@
   <div class="volume-bar" :class="{ visible: isVisible }">
     <div class="volume-slider">
       <div class="volume-fill" :style="volumeFillStyle"></div>
-      <div class="text-mono">{{ unifiedStore.currentVolume }} %</div>
+      <div class="text-mono">{{ unifiedStore.volumeState.currentVolume }} %</div>
     </div>
   </div>
 </template>
@@ -19,7 +19,7 @@ let hideTimer = null;
 
 // Computed simplifié pour le style de la barre
 const volumeFillStyle = computed(() => {
-  const volume = unifiedStore.currentVolume;
+  const volume = unifiedStore.volumeState.currentVolume;
   return {
     width: '100%',
     transform: `translateX(${volume - 100}%)`

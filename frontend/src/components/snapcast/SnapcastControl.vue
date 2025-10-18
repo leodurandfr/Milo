@@ -58,7 +58,7 @@ function calculateInitialHeight(clientsCount) {
 }
 
 // === COMPUTED ===
-const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
+const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 // État local pour le toggling
 const isTogglingMultiroom = ref(false);
@@ -231,7 +231,7 @@ onUnmounted(() => {
 
 // === WATCHERS ===
 // Watcher pour détecter quand le store est en transition (appel API en cours)
-watch(() => unifiedStore.isTransitioning, (isTransitioning, wasTransitioning) => {
+watch(() => unifiedStore.systemState.transitioning, (isTransitioning, wasTransitioning) => {
   if (isTransitioning && !wasTransitioning) {
     // Début d'une transition : déclencher immédiatement l'animation
     const currentMultiroomState = isMultiroomActive.value;

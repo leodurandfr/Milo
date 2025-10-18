@@ -1,8 +1,8 @@
 <!-- frontend/src/components/ui/ModalHeader.vue -->
 <template>
-  <div class="modal-header" :class="{ 'has-back': showBack }">
+  <div class="modal-header" :class="{ 'has-back': showBack, 'variant-neutral': variant === 'neutral' }">
     <div v-if="showBack" class="back-modal-header">
-      <CircularIcon icon="caretLeft" variant="dark" @click="handleBack" />
+      <CircularIcon icon="caretLeft" :variant="variant === 'neutral' ? 'light' : 'dark'" @click="handleBack" />
       <h2 class="heading-1">{{ title }}</h2>
     </div>
     <h2 v-else class="heading-1">{{ title }}</h2>
@@ -23,6 +23,11 @@ const props = defineProps({
   showBack: {
     type: Boolean,
     default: false
+  },
+  variant: {
+    type: String,
+    default: 'contrast', // 'contrast' ou 'neutral'
+    validator: (value) => ['contrast', 'neutral'].includes(value)
   }
 });
 
@@ -39,9 +44,17 @@ function handleBack() {
   background: var(--color-background-contrast);
   border-radius: var(--radius-04);
   padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05);
-    min-height: 72px;
+  min-height: 72px;
   align-items: center;
   justify-content: space-between;
+}
+
+.modal-header.variant-neutral {
+  background: var(--color-background-neutral);
+}
+
+.modal-header.variant-neutral h2 {
+  color: var(--color-text);
 }
 
 .modal-header.has-back {

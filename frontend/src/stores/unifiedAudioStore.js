@@ -25,22 +25,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   let lastWebSocketUpdate = 0;
 
   // === GETTERS ===
-  const currentSource = computed(() => systemState.value.active_source);
-  const pluginState = computed(() => systemState.value.plugin_state);
-  const isTransitioning = computed(() => systemState.value.transitioning);
-  const metadata = computed(() => systemState.value.metadata || {});
-  const error = computed(() => systemState.value.error);
-  const multiroomEnabled = computed(() => systemState.value.multiroom_enabled);
-  const equalizerEnabled = computed(() => systemState.value.equalizer_enabled);
-
-  const displayedSource = computed(() => {
-    if (systemState.value.transitioning && systemState.value.target_source) {
-      return systemState.value.target_source;
-    }
-    return systemState.value.active_source;
-  });
-
-  const currentVolume = computed(() => volumeState.value.currentVolume);
+  // Note: Tous les getters ont été supprimés car ils étaient de simples alias.
+  // Utilisez directement systemState.active_source, systemState.metadata, etc.
 
   // === ACTIONS AUDIO ===
   async function changeSource(source) {
@@ -246,17 +232,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // État
     systemState,
     volumeState,
-
-    // Getters
-    currentSource,
-    pluginState,
-    isTransitioning,
-    metadata,
-    error,
-    multiroomEnabled,
-    equalizerEnabled,
-    displayedSource,
-    currentVolume,
 
     // Actions
     changeSource,

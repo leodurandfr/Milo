@@ -6,9 +6,9 @@ import axios from 'axios';
 export const useRadioStore = defineStore('radio', () => {
   // === ÉTAT ===
   const stations = ref([]);
-  const favorites = ref([]);
   const currentStation = ref(null);
   // SUPPRIMÉ: isPlaying local - utiliser unifiedAudioStore.metadata.is_playing à la place
+  // SUPPRIMÉ: loadingStationId local - utiliser unifiedAudioStore.metadata.buffering à la place
   const loading = ref(false);
   const searchQuery = ref('');
   const countryFilter = ref('');
@@ -67,21 +67,11 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
-  async function loadFavorites() {
-    try {
-      const response = await axios.get('/api/radio/favorites');
-      favorites.value = response.data;
-      return true;
-    } catch (error) {
-      console.error('Error loading favorites:', error);
-      return false;
-    }
-  }
 
   async function playStation(stationId) {
     try {
       // SIMPLIFIÉ: Pas d'optimistic update - faire confiance au backend
-      // L'état sera synchronisé via WebSocket
+      // L'état de buffering sera synchronisé via WebSocket (metadata.buffering)
       const response = await axios.post('/api/radio/play', { station_id: stationId });
       return response.data.success;
     } catch (error) {
@@ -201,7 +191,8 @@ export const useRadioStore = defineStore('radio', () => {
     }
 
     // NOTE: isPlaying est maintenant géré par unifiedAudioStore.metadata.is_playing
-    // Ce store ne maintient plus d'état local pour isPlaying
+    // NOTE: buffering est maintenant géré par unifiedAudioStore.metadata.buffering
+    // Ce store ne maintient plus d'état local pour ces propriétés
   }
 
   async function handleFavoriteEvent(stationId, isFavorite) {
@@ -224,28 +215,24 @@ export const useRadioStore = defineStore('radio', () => {
       currentStation.value.is_favorite = isFavorite;
     }
 
-    // Recharger la liste des favoris
-    await loadFavorites();
+    // Note: favoriteStations getter se met à jour automatiquement quand stations change
   }
 
   return {
     // État
     stations,
-    favorites,
     currentStation,
-    // SUPPRIMÉ: isPlaying - utiliser unifiedAudioStore.metadata.is_playing
     loading,
     searchQuery,
     countryFilter,
     genreFilter,
 
-    // Getters
+    // Getters (valeurs calculées)
     filteredStations,
     favoriteStations,
 
     // Actions
     loadStations,
-    loadFavorites,
     playStation,
     stopPlayback,
     addFavorite,

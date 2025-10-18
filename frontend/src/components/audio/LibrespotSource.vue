@@ -40,8 +40,8 @@
       </div>
     </div>
 
-    <div v-if="unifiedStore.error && unifiedStore.currentSource === 'librespot'" class="error-message">
-      {{ unifiedStore.error }}
+    <div v-if="unifiedStore.systemState.error && unifiedStore.systemState.active_source === 'librespot'" class="error-message">
+      {{ unifiedStore.systemState.error }}
     </div>
   </div>
 </template>
@@ -69,7 +69,7 @@ const lastValidMetadata = ref({
 });
 
 const persistentMetadata = computed(() => {
-  const currentMetadata = unifiedStore.metadata || {};
+  const currentMetadata = unifiedStore.systemState.metadata || {};
   
   // Si on a des métadonnées valides actuellement, les utiliser et les sauvegarder
   if (currentMetadata.title && currentMetadata.artist) {
@@ -87,7 +87,7 @@ const persistentMetadata = computed(() => {
 });
 
 // === WATCHERS ===
-watch(() => unifiedStore.metadata, (newMetadata) => {
+watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
   if (newMetadata?.position !== undefined) {
     // La synchronisation est gérée dans usePlaybackProgress
   }

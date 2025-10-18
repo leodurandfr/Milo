@@ -59,6 +59,7 @@
     --font-size-h1: 26px;
     --font-size-h2: 22px;
     --font-size-body: 20px;
+    --font-size-body-small: 18px;
     --font-size-mono: 16px;
 
     --letter-spacing-sans-serif: 1%;
@@ -133,6 +134,7 @@
         --font-size-h1: 22px;
         --font-size-h2: 20px;
         --font-size-body: 18px;
+        --font-size-body-small: 16px;
         --font-size-mono: 14px;
 
         --line-height-h1: 120%;
@@ -182,6 +184,14 @@
 .text-body {
     font-family: 'Neue Montreal Medium';
     font-size: var(--font-size-body);
+    line-height: var(--line-height-body);
+    letter-spacing: var(--letter-spacing-sans-serif);
+    font-weight: 500;
+}
+
+.text-body-small {
+    font-family: 'Neue Montreal Medium';
+    font-size: var(--font-size-body-small);
     line-height: var(--line-height-body);
     letter-spacing: var(--letter-spacing-sans-serif);
     font-weight: 500;

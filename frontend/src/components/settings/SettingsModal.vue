@@ -93,7 +93,7 @@
           <Toggle
             v-model="isMultiroomActive"
             variant="primary"
-            :disabled="unifiedStore.isTransitioning || isMultiroomToggling"
+            :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling"
             @change="handleMultiroomToggle"
           />
         </template>
@@ -164,7 +164,7 @@ function goToHome() {
 
 // Multiroom toggle
 const isMultiroomToggling = ref(false);
-const isMultiroomActive = computed(() => unifiedStore.multiroomEnabled);
+const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 async function handleMultiroomToggle(enabled) {
   await unifiedStore.setMultiroomEnabled(enabled);

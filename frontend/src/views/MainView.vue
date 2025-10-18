@@ -7,12 +7,12 @@
     <!-- Contenu principal -->
     <div class="content-container">
       <AudioSourceView
-        :active-source="unifiedStore.currentSource"
-        :plugin-state="unifiedStore.pluginState"
-        :transitioning="unifiedStore.isTransitioning"
+        :active-source="unifiedStore.systemState.active_source"
+        :plugin-state="unifiedStore.systemState.plugin_state"
+        :transitioning="unifiedStore.systemState.transitioning"
         :target-source="unifiedStore.systemState.target_source"
-        :metadata="unifiedStore.metadata"
-        :is-disconnecting="disconnectingStates[unifiedStore.currentSource]"
+        :metadata="unifiedStore.systemState.metadata"
+        :is-disconnecting="disconnectingStates[unifiedStore.systemState.active_source]"
         @disconnect="handleDisconnect"
       />
     </div>
@@ -64,27 +64,27 @@ let logoTimeout = null;
 // === COMPUTED POUR LES ÉTATS CIBLES ===
 const isLibrespotFullScreen = computed(() => {
   const hasCompleteTrackInfo = !!(
-    unifiedStore.pluginState === 'connected' &&
-    unifiedStore.metadata?.title &&
-    unifiedStore.metadata?.artist
+    unifiedStore.systemState.plugin_state === 'connected' &&
+    unifiedStore.systemState.metadata?.title &&
+    unifiedStore.systemState.metadata?.artist
   );
 
-  return unifiedStore.currentSource === 'librespot' &&
-    unifiedStore.pluginState === 'connected' &&
+  return unifiedStore.systemState.active_source === 'librespot' &&
+    unifiedStore.systemState.plugin_state === 'connected' &&
     hasCompleteTrackInfo &&
-    !unifiedStore.isTransitioning;
+    !unifiedStore.systemState.transitioning;
 });
 
 const shouldShowLogo = computed(() => {
   // Masquer le logo pour librespot ET radio
-  if (unifiedStore.currentSource === 'radio') {
+  if (unifiedStore.systemState.active_source === 'radio') {
     return false;
   }
   return !isLibrespotFullScreen.value;
 });
 
 const targetPosition = computed(() => {
-  if (unifiedStore.currentSource === 'none' && !unifiedStore.isTransitioning) {
+  if (unifiedStore.systemState.active_source === 'none' && !unifiedStore.systemState.transitioning) {
     return 'center';
   }
   return 'top';
@@ -159,7 +159,7 @@ onMounted(() => {
 
 // === GESTION DES ACTIONS ===
 async function handleDisconnect() {
-  const currentSource = unifiedStore.currentSource;
+  const currentSource = unifiedStore.systemState.active_source;
   if (!currentSource || currentSource === 'none') return;
 
   disconnectingStates.value[currentSource] = true;
