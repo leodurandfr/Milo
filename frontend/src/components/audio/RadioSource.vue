@@ -54,7 +54,18 @@
           </div>
 
           <div v-else class="stations-grid">
-            <div v-for="station in displayedStations" :key="station.id" :class="['station-card', {
+            <!-- Mode Favoris : affichage image seule -->
+            <div v-if="!isSearchMode" v-for="station in displayedStations" :key="station.id" :class="['station-image', {
+              active: radioStore.currentStation?.id === station.id,
+              playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying
+            }]" @click="playStation(station.id)">
+              <img v-if="station.favicon" :src="station.favicon" alt="" class="station-img"
+                @error="handleStationImageError" />
+              <span class="image-placeholder" :class="{ visible: !station.favicon }">📻</span>
+            </div>
+
+            <!-- Mode Recherche : affichage avec informations -->
+            <div v-else v-for="station in displayedStations" :key="station.id" :class="['station-card', {
               active: radioStore.currentStation?.id === station.id,
               playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying
             }]" @click="playStation(station.id)">
@@ -86,7 +97,7 @@
       </div>
     </div>
 
-    <!-- Now Playing : Player sticky en bas (en dehors du container pour éviter l'effet de l'animation) -->
+    <!-- Now Playing : Desktop - à droite du container, Mobile - sticky en bas -->
     <div v-if="radioStore.currentStation" class="now-playing">
       <div class="station-art">
         <img v-if="radioStore.currentStation.favicon" :src="radioStore.currentStation.favicon" alt="Station logo"
@@ -98,6 +109,11 @@
         <h3 class="station-name">{{ radioStore.currentStation.name }}</h3>
         <p class="station-meta">{{ radioStore.currentStation.country }} • {{ radioStore.currentStation.genre }}</p>
       </div>
+
+      <button class="favorite-btn" :class="{ active: radioStore.currentStation.is_favorite }"
+        @click.stop="toggleFavorite(radioStore.currentStation.id)">
+        {{ radioStore.currentStation.is_favorite ? '❤️' : '🤍' }}
+      </button>
 
       <button class="control-btn play-btn" @click="togglePlayback">
         {{ isCurrentlyPlaying ? '⏸' : '▶' }}
@@ -332,7 +348,7 @@ on('radio', 'favorite_removed', (event) => {
 // === LIFECYCLE ===
 onMounted(async () => {
   console.log('📻 RadioSource mounted');
-  await radioStore.loadStations();
+  await radioStore.loadStations(true); // Charger uniquement les favoris au démarrage
   await radioStore.loadFavorites();
 
   // IMPORTANT: Synchroniser currentStation depuis l'état actuel du backend
@@ -358,13 +374,13 @@ onMounted(async () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(32px);
+  background: var(--color-background);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   z-index: 900;
-  padding: 48px var(--space-04) var(--space-07) var(--space-04);
+  padding: var(--space-07);
+  gap: var(--space-04);
 }
 
 .radio-container {
@@ -377,7 +393,15 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   opacity: 0;
+  transition: max-width var(--transition-normal);
 }
+
+/* Desktop : réduire la largeur du container quand now-playing est visible */
+/* @media (min-aspect-ratio: 4/3) {
+  .radio-container {
+    max-width: calc(768px - 320px - var(--space-04));
+  }
+} */
 
 .radio-container::before {
   content: '';
@@ -406,8 +430,13 @@ onMounted(async () => {
   flex: 1;
   border-radius: var(--radius-07);
   touch-action: pan-y;
-  padding-bottom: calc(var(--space-04) + 80px);
-  /* Espace pour le player sticky */
+}
+
+/* Mobile : espace pour le player sticky en bas */
+@media (max-aspect-ratio: 4/3) {
+  .radio-content {
+    padding-bottom: calc(var(--space-04) + 80px);
+  }
 }
 
 /* === SEARCH SECTION === */
@@ -427,9 +456,15 @@ onMounted(async () => {
   padding: var(--space-03) var(--space-04);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-04);
-  background: var(--color-background);
+  background: var(--color-background-neutral);
   color: var(--color-text);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body);
+  transition: border-color var(--transition-fast);
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: var(--color-brand);
 }
 
 .search-input::placeholder {
@@ -437,7 +472,7 @@ onMounted(async () => {
 }
 
 .filter-select {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body);
 }
 
 /* === STATIONS LIST === */
@@ -458,7 +493,7 @@ onMounted(async () => {
   justify-content: center;
   padding: var(--space-07);
   gap: var(--space-04);
-  color: var(--color-text-light);
+  color: var(--color-text-secondary);
   text-align: center;
 }
 
@@ -473,33 +508,85 @@ onMounted(async () => {
   gap: var(--space-03);
 }
 
+/* === STATION IMAGE (Mode Favoris - Image seule) === */
+.station-image {
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: var(--radius-04);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  position: relative;
+  background: var(--color-background-neutral);
+  border: 2px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.station-image:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-02);
+}
+
+.station-image.active {
+  border-color: var(--color-brand);
+}
+
+.station-image.playing {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 4px rgba(239, 100, 46, 0.2);
+}
+
+.station-image .station-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+}
+
+.station-image .image-placeholder {
+  font-size: 48px;
+  display: none;
+  z-index: 0;
+}
+
+.station-image .image-placeholder.visible {
+  display: flex;
+}
+
+/* === STATION CARD (Mode Recherche - Avec informations) === */
 .station-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-03);
   padding: var(--space-04);
-  background: var(--color-background);
-  border: 1px solid var(--color-border);
+  background: var(--color-background-neutral);
+  border: 2px solid var(--color-border);
   border-radius: var(--radius-04);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
   position: relative;
 }
 
 .station-card:hover {
-  background: var(--color-background-subtle);
+  background: var(--color-background);
   transform: translateY(-2px);
+  box-shadow: var(--shadow-02);
 }
 
 .station-card.active {
-  border-color: var(--color-primary);
-  background: var(--color-background-subtle);
+  border-color: var(--color-brand);
 }
 
 .station-card.playing {
-  border-color: var(--color-primary);
-  background: var(--color-primary-light);
+  border-color: var(--color-brand);
+  background: var(--color-background);
+  box-shadow: 0 0 0 4px rgba(239, 100, 46, 0.2);
 }
 
 .station-logo {
@@ -507,7 +594,7 @@ onMounted(async () => {
   aspect-ratio: 1;
   border-radius: var(--radius-03);
   overflow: hidden;
-  background: var(--color-background-subtle);
+  background: var(--color-background);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -542,8 +629,8 @@ onMounted(async () => {
 
 .station-title {
   margin: 0;
-  font-size: var(--font-size-base);
-  font-weight: 600;
+  font-size: var(--font-size-body);
+  font-weight: 500;
   color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
@@ -552,27 +639,31 @@ onMounted(async () => {
 
 .station-subtitle {
   margin: var(--space-01) 0 0 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-light);
+  font-size: var(--font-size-body);
+  color: var(--color-text-secondary);
 }
 
-.favorite-btn {
+.station-card .favorite-btn {
   position: absolute;
   top: var(--space-02);
   right: var(--space-02);
   padding: var(--space-02);
-  background: var(--color-background);
+  background: var(--color-background-neutral);
   border: none;
   border-radius: var(--radius-full);
   font-size: 20px;
   cursor: pointer;
-  transition: transform 0.2s;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  z-index: 2;
+  transition: transform var(--transition-fast);
+  box-shadow: var(--shadow-02);
+  z-index: 3;
 }
 
-.favorite-btn:hover {
+.station-card .favorite-btn:hover {
   transform: scale(1.2);
+}
+
+.station-card .favorite-btn:active {
+  transform: scale(0.95);
 }
 
 .load-more {
@@ -582,117 +673,282 @@ onMounted(async () => {
 
 .load-more-btn {
   padding: var(--space-03) var(--space-05);
-  background: var(--color-background);
+  background: var(--color-background-neutral);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-04);
   color: var(--color-text);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-body);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .load-more-btn:hover {
-  background: var(--color-background-subtle);
-}
-
-/* === NOW PLAYING STICKY PLAYER === */
-.now-playing {
-  position: fixed;
-  bottom: var(--space-04);
-  left: 50%;
-  transform: translateX(-50%);
-  width: calc(100% - var(--space-04) * 2);
-  max-width: 728px;
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-03);
-  background: var(--color-background-neutral-50);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-05);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(16px);
-  z-index: 1000;
-}
-
-.now-playing .station-art {
-  flex-shrink: 0;
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-03);
-  overflow: hidden;
   background: var(--color-background);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
+  transform: translateY(-2px);
 }
 
-.now-playing .station-art .current-station-favicon {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
+/* === NOW PLAYING === */
+
+/* Desktop : Panel à droite avec image en haut */
+@media (min-aspect-ratio: 4/3) {
+  .now-playing {
+    position: relative;
+    width: 310px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-04);
+    padding: var(--space-04);
+    background: var(--color-background-neutral-50);
+    border-radius: var(--radius-07);
+    box-shadow: 0 var(--space-04) var(--space-07) rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(16px);
+  }
+
+  .now-playing::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: 2px;
+    opacity: 0.8;
+    background: var(--stroke-glass);
+    border-radius: var(--radius-07);
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .now-playing .station-art {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: var(--radius-05);
+    overflow: hidden;
+    background: var(--color-background-neutral);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  .now-playing .station-art .current-station-favicon {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+  }
+
+  .now-playing .placeholder-logo {
+    font-size: 64px;
+    display: none;
+    z-index: 1;
+  }
+
+  .now-playing .placeholder-logo.visible {
+    display: flex;
+  }
+
+  .now-playing .station-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-02);
+    text-align: center;
+  }
+
+  .now-playing .station-name {
+    margin: 0;
+    font-size: var(--font-size-h2);
+    font-weight: 500;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .now-playing .station-meta {
+    margin: 0;
+    font-size: var(--font-size-body);
+    color: var(--color-text-secondary);
+  }
+
+  .now-playing .favorite-btn {
+    width: 56px;
+    height: 56px;
+    border: none;
+    background: var(--color-background-neutral);
+    border-radius: var(--radius-full);
+    font-size: 24px;
+    cursor: pointer;
+    transition: transform var(--transition-fast);
+    box-shadow: var(--shadow-02);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .now-playing .favorite-btn:hover {
+    transform: scale(1.1);
+  }
+
+  .now-playing .favorite-btn:active {
+    transform: scale(0.95);
+  }
+
+  .now-playing .control-btn {
+    width: 100%;
+    height: 56px;
+    border: none;
+    background: var(--color-brand);
+    border-radius: var(--radius-05);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-size: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .now-playing .control-btn:hover {
+    transform: scale(1.02);
+  }
+
+  .now-playing .control-btn:active {
+    transform: scale(0.98);
+  }
 }
 
-.now-playing .placeholder-logo {
-  font-size: 32px;
-  display: none;
-  z-index: 1;
-}
+/* Mobile : Player sticky en bas (layout horizontal) */
+@media (max-aspect-ratio: 4/3) {
+  .now-playing {
+    position: fixed;
+    bottom: var(--space-02);
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - var(--space-02) * 2);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-03);
+    padding: var(--space-03);
+    background: var(--color-background-neutral-50);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-05);
+    box-shadow: 0 var(--space-04) var(--space-07) rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(16px);
+    z-index: 1000;
+  }
 
-.now-playing .placeholder-logo.visible {
-  display: flex;
-}
+  .now-playing .station-art {
+    flex-shrink: 0;
+    width: 56px;
+    height: 56px;
+    border-radius: var(--radius-03);
+    overflow: hidden;
+    background: var(--color-background-neutral);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
 
-.now-playing .station-info {
-  flex: 1;
-  min-width: 0;
-}
+  .now-playing .station-art .current-station-favicon {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+  }
 
-.now-playing .station-name {
-  margin: 0;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+  .now-playing .placeholder-logo {
+    font-size: 32px;
+    display: none;
+    z-index: 1;
+  }
 
-.now-playing .station-meta {
-  margin: var(--space-01) 0 0 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-light);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+  .now-playing .placeholder-logo.visible {
+    display: flex;
+  }
 
-.now-playing .control-btn {
-  flex-shrink: 0;
-  border: none;
-  background: var(--color-primary);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: all 0.2s;
-  font-size: 24px;
-  width: 56px;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+  .now-playing .station-info {
+    flex: 1;
+    min-width: 0;
+  }
 
-.now-playing .control-btn:hover {
-  transform: scale(1.05);
-}
+  .now-playing .station-name {
+    margin: 0;
+    font-size: var(--font-size-body);
+    font-weight: 500;
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
-.now-playing .control-btn:active {
-  transform: scale(0.95);
+  .now-playing .station-meta {
+    margin: var(--space-01) 0 0 0;
+    font-size: var(--font-size-body);
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .now-playing .favorite-btn {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    border: none;
+    background: var(--color-background-neutral);
+    border-radius: var(--radius-full);
+    font-size: 20px;
+    cursor: pointer;
+    transition: transform var(--transition-fast);
+    box-shadow: var(--shadow-02);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .now-playing .favorite-btn:hover {
+    transform: scale(1.1);
+  }
+
+  .now-playing .favorite-btn:active {
+    transform: scale(0.95);
+  }
+
+  .now-playing .control-btn {
+    flex-shrink: 0;
+    border: none;
+    background: var(--color-brand);
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-size: 24px;
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .now-playing .control-btn:hover {
+    transform: scale(1.05);
+  }
+
+  .now-playing .control-btn:active {
+    transform: scale(0.95);
+  }
 }
 
 /* === RESPONSIVE === */
@@ -705,21 +961,12 @@ onMounted(async () => {
     max-width: none;
   }
 
-  .radio-content {
-    padding-bottom: calc(var(--space-04) + 88px);
-  }
-
   .stations-grid {
     grid-template-columns: 1fr;
   }
 
   .filters {
     flex-direction: column;
-  }
-
-  .now-playing {
-    bottom: var(--space-02);
-    width: calc(100% - var(--space-02) * 2);
   }
 }
 </style>
