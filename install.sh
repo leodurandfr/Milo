@@ -330,7 +330,7 @@ install_dependencies() {
     sudo apt install -y \
         git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
         cmake build-essential pkg-config nodejs npm wget unzip \
-        fonts-noto-color-emoji fontconfig
+        fonts-noto-color-emoji fontconfig mpv
     
     log_info "Mise à jour de Node.js et npm..."
     sudo npm install -g n
@@ -354,6 +354,11 @@ create_milo_user() {
     
     sudo mkdir -p "$MILO_DATA_DIR"
     sudo chown -R "$MILO_USER:audio" "$MILO_DATA_DIR"
+
+    # Créer le répertoire /run/milo pour les sockets IPC (runtime directory)
+    sudo mkdir -p /run/milo
+    sudo chown "$MILO_USER:$MILO_USER" /run/milo
+    sudo chmod 755 /run/milo
 }
 
 install_milo_application() {
@@ -714,7 +719,63 @@ PrivateDevices=false
 [Install]
 WantedBy=multi-user.target
 EOF
-    
+
+    # milo-radio.service
+    sudo tee /etc/systemd/system/milo-radio.service > /dev/null << 'EOF'
+[Unit]
+Description=Milo Radio Player (mpv)
+Documentation=https://mpv.io/manual/stable/
+After=sound.target milo-backend.service
+Requires=sound.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+
+# Charger les variables d'environnement Milo (MILO_MODE et MILO_EQUALIZER)
+EnvironmentFile=/var/lib/milo/milo_environment
+
+# Le device ALSA milo_radio se route automatiquement vers le bon device
+# en fonction de MILO_MODE (direct/multiroom) et MILO_EQUALIZER (vide/_eq)
+ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE} MILO_EQUALIZER=${MILO_EQUALIZER}"'
+
+# Lancer mpv en mode daemon avec IPC socket
+ExecStart=/usr/bin/mpv \
+    --no-video \
+    --audio-device=alsa/milo_radio \
+    --input-ipc-server=/run/milo/radio-ipc.sock \
+    --idle=yes \
+    --msg-level=all=info \
+    --no-config \
+    --no-terminal \
+    --really-quiet
+
+# Nettoyage du socket IPC à l'arrêt
+ExecStopPost=/bin/rm -f /run/milo/radio-ipc.sock
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Limites de ressources
+CPUQuota=50%
+MemoryMax=256M
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-radio
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
     # milo-snapserver-multiroom.service
     sudo tee /etc/systemd/system/milo-snapserver-multiroom.service > /dev/null << 'EOF'
 [Unit]
@@ -820,6 +881,15 @@ pcm.milo_roc {
     ]
 }
 
+pcm.milo_radio {
+    @func concat
+    strings [
+        "pcm.milo_radio_"
+        { @func getenv vars [ MILO_MODE ] default "direct" }
+        { @func getenv vars [ MILO_EQUALIZER ] default "" }
+    ]
+}
+
 pcm.milo_spotify_multiroom {
     type plug
     slave.pcm {
@@ -850,6 +920,16 @@ pcm.milo_roc_multiroom {
     }
 }
 
+pcm.milo_radio_multiroom {
+    type plug
+    slave.pcm {
+        type hw
+        card 1
+        device 0
+        subdevice 3
+    }
+}
+
 pcm.milo_spotify_multiroom_eq {
     type plug
     slave.pcm "equal_multiroom"
@@ -861,6 +941,11 @@ pcm.milo_bluetooth_multiroom_eq {
 }
 
 pcm.milo_roc_multiroom_eq {
+    type plug
+    slave.pcm "equal_multiroom"
+}
+
+pcm.milo_radio_multiroom_eq {
     type plug
     slave.pcm "equal_multiroom"
 }
@@ -892,6 +977,15 @@ pcm.milo_roc_direct {
     }
 }
 
+pcm.milo_radio_direct {
+    type plug
+    slave.pcm {
+        type hw
+        card sndrpihifiberry
+        device 0
+    }
+}
+
 pcm.milo_spotify_direct_eq {
     type plug
     slave.pcm "equal"
@@ -903,6 +997,11 @@ pcm.milo_bluetooth_direct_eq {
 }
 
 pcm.milo_roc_direct_eq {
+    type plug
+    slave.pcm "equal"
+}
+
+pcm.milo_radio_direct_eq {
     type plug
     slave.pcm "equal"
 }
@@ -937,11 +1036,12 @@ codec = pcm
 chunk_ms = 20
 sampleformat = 48000:16:2
 
-source = meta:///Bluetooth/ROC/Spotify?name=Multiroom
+source = meta:///Bluetooth/ROC/Spotify/Radio?name=Multiroom
 
 source = alsa:///?name=Bluetooth&device=hw:1,1,0
 source = alsa:///?name=ROC&device=hw:1,1,1
 source = alsa:///?name=Spotify&device=hw:1,1,2
+source = alsa:///?name=Radio&device=hw:1,1,3
 
 [http]
 enabled = true
