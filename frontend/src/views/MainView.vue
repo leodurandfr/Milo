@@ -76,6 +76,10 @@ const isLibrespotFullScreen = computed(() => {
 });
 
 const shouldShowLogo = computed(() => {
+  // Masquer le logo pour librespot ET radio
+  if (unifiedStore.currentSource === 'radio') {
+    return false;
+  }
   return !isLibrespotFullScreen.value;
 });
 
