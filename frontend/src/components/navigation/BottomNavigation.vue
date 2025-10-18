@@ -802,6 +802,14 @@ onUnmounted(() => {
   transition-delay: 0.175s;
 }
 
+.additional-apps-container.visible .additional-app-content:nth-child(4) {
+  transition-delay: 0.212s;
+}
+
+.additional-apps-container.visible .additional-app-content:nth-child(5) {
+  transition-delay: 0.250s;
+}
+
 .app-title {
   color: var(--color-text);
 }
