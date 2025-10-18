@@ -84,24 +84,24 @@
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Now Playing : Player sticky en bas -->
-      <div v-if="radioStore.currentStation" class="now-playing">
-        <div class="station-art">
-          <img v-if="radioStore.currentStation.favicon" :src="radioStore.currentStation.favicon" alt="Station logo"
-            class="current-station-favicon" @error="handleCurrentStationImageError" />
-          <div class="placeholder-logo" :class="{ visible: !radioStore.currentStation.favicon }">📻</div>
-        </div>
-
-        <div class="station-info">
-          <h3 class="station-name">{{ radioStore.currentStation.name }}</h3>
-          <p class="station-meta">{{ radioStore.currentStation.country }} • {{ radioStore.currentStation.genre }}</p>
-        </div>
-
-        <button class="control-btn play-btn" @click="togglePlayback">
-          {{ isCurrentlyPlaying ? '⏸' : '▶' }}
-        </button>
+    <!-- Now Playing : Player sticky en bas (en dehors du container pour éviter l'effet de l'animation) -->
+    <div v-if="radioStore.currentStation" class="now-playing">
+      <div class="station-art">
+        <img v-if="radioStore.currentStation.favicon" :src="radioStore.currentStation.favicon" alt="Station logo"
+          class="current-station-favicon" @error="handleCurrentStationImageError" />
+        <div class="placeholder-logo" :class="{ visible: !radioStore.currentStation.favicon }">📻</div>
       </div>
+
+      <div class="station-info">
+        <h3 class="station-name">{{ radioStore.currentStation.name }}</h3>
+        <p class="station-meta">{{ radioStore.currentStation.country }} • {{ radioStore.currentStation.genre }}</p>
+      </div>
+
+      <button class="control-btn play-btn" @click="togglePlayback">
+        {{ isCurrentlyPlaying ? '⏸' : '▶' }}
+      </button>
     </div>
   </div>
 </template>

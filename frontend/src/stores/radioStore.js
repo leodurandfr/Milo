@@ -204,7 +204,7 @@ export const useRadioStore = defineStore('radio', () => {
     // Ce store ne maintient plus d'état local pour isPlaying
   }
 
-  function handleFavoriteEvent(stationId, isFavorite) {
+  async function handleFavoriteEvent(stationId, isFavorite) {
     // Synchroniser le statut favori depuis le backend (source de vérité)
     console.log(`🔄 Syncing favorite status: ${stationId} = ${isFavorite}`);
 
@@ -212,6 +212,11 @@ export const useRadioStore = defineStore('radio', () => {
     const station = stations.value.find(s => s.id === stationId);
     if (station) {
       station.is_favorite = isFavorite;
+    } else if (isFavorite) {
+      // Si la station n'est pas dans la liste et qu'elle vient d'être ajoutée aux favoris
+      // (cas d'un ajout depuis un autre device), recharger les stations en mode favoris
+      console.log('📻 Station not found locally, reloading favorites from backend');
+      await loadStations(true);
     }
 
     // Mettre à jour currentStation si c'est celle-ci
@@ -220,7 +225,7 @@ export const useRadioStore = defineStore('radio', () => {
     }
 
     // Recharger la liste des favoris
-    loadFavorites();
+    await loadFavorites();
   }
 
   return {
