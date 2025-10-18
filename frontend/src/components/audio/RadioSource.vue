@@ -19,7 +19,7 @@
         <div v-if="isSearchMode" class="search-section">
           <div class="filters">
             <input v-model="radioStore.searchQuery" type="text" class="filter-input search-input"
-              placeholder="Rechercher une station..." @input="handleSearch" />
+              placeholder="Rechercher..." @input="handleSearch" />
             <select v-model="radioStore.countryFilter" class="filter-input filter-select" @change="handleSearch">
               <option value="">Tous les pays</option>
               <option value="France">France</option>
@@ -55,7 +55,7 @@
 
           <div v-else class="stations-grid">
             <!-- Mode Favoris : affichage image seule -->
-            <div v-if="!isSearchMode" v-for="station in displayedStations" :key="station.id" :class="['station-image', {
+            <div v-if="!isSearchMode" v-for="station in displayedStations" :key="`fav-${station.id}`" :class="['station-image', {
               active: radioStore.currentStation?.id === station.id,
               playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying
             }]" @click="playStation(station.id)">
@@ -65,10 +65,19 @@
             </div>
 
             <!-- Mode Recherche : affichage avec informations -->
-            <div v-else v-for="station in displayedStations" :key="station.id" :class="['station-card', {
-              active: radioStore.currentStation?.id === station.id,
-              playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying
-            }]" @click="playStation(station.id)">
+            <div
+              v-else
+              v-for="station in displayedStations"
+              :key="`search-${station.id}`"
+              :class="[
+                'station-card',
+                {
+                  active: radioStore.currentStation?.id === station.id,
+                  playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying
+                }
+              ]"
+              @click="playStation(station.id)"
+            >
               <div class="station-logo">
                 <img v-if="station.favicon" :src="station.favicon" alt="" class="station-favicon"
                   @error="handleStationImageError" />
@@ -76,14 +85,25 @@
               </div>
 
               <div class="station-details">
-                <h3 class="station-title">{{ station.name }}</h3>
-                <p class="station-subtitle">{{ station.country }} • {{ station.genre }}</p>
+                <p class="station-title text-body">{{ station.name }}</p>
+                <p class="station-subtitle text-mono">{{ station.genre }}</p>
               </div>
 
-              <button class="favorite-btn" :class="{ active: station.is_favorite }"
-                @click.stop="toggleFavorite(station.id)">
-                {{ station.is_favorite ? '❤️' : '🤍' }}
+              <button
+                v-if="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
+                class="stop-btn"
+                @click.stop="playStation(station.id)"
+              >
+                ⏸
               </button>
+              <!-- <button
+                v-else
+                class="favorite-btn"
+                :class="{ active: station.is_favorite }"
+                @click.stop="toggleFavorite(station.id)"
+              >
+                {{ station.is_favorite ? '❤️' : '🤍' }}
+              </button> -->
             </div>
           </div>
 
@@ -374,7 +394,7 @@ onMounted(async () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--color-background);
+  background: var(--color-background-radio);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -452,6 +472,7 @@ onMounted(async () => {
 }
 
 .filter-input {
+  width: 100%;
   flex: 1;
   padding: var(--space-03) var(--space-04);
   border: 1px solid var(--color-border);
@@ -504,13 +525,13 @@ onMounted(async () => {
 
 .stations-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-03);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-01);
 }
 
 /* === STATION IMAGE (Mode Favoris - Image seule) === */
 .station-image {
-  aspect-ratio: 1;
+  aspect-ratio: 1 / 1;
   width: 100%;
   border-radius: var(--radius-04);
   overflow: hidden;
@@ -542,10 +563,12 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
   position: absolute;
   top: 0;
   left: 0;
   z-index: 1;
+  display: block;
 }
 
 .station-image .image-placeholder {
@@ -561,10 +584,10 @@ onMounted(async () => {
 /* === STATION CARD (Mode Recherche - Avec informations) === */
 .station-card {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-04);
+  gap: var(--space-02);
+  padding: var(--space-02);
   background: var(--color-background-neutral);
   border: 2px solid var(--color-border);
   border-radius: var(--radius-04);
@@ -590,31 +613,33 @@ onMounted(async () => {
 }
 
 .station-logo {
-  width: 100%;
-  aspect-ratio: 1;
-  border-radius: var(--radius-03);
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  position: relative;
+  border-radius: var(--radius-02);
   overflow: hidden;
   background: var(--color-background);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
 }
 
 .station-logo .station-favicon {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
 }
 
 .logo-placeholder {
-  font-size: 48px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 32px;
   display: none;
-  z-index: 1;
 }
 
 .logo-placeholder.visible {
@@ -623,8 +648,11 @@ onMounted(async () => {
 
 .station-details {
   flex: 1;
-  width: 100%;
-  text-align: center;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-01);
 }
 
 .station-title {
@@ -638,16 +666,20 @@ onMounted(async () => {
 }
 
 .station-subtitle {
-  margin: var(--space-01) 0 0 0;
-  font-size: var(--font-size-body);
-  color: var(--color-text-secondary);
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: var(--color-text-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.station-card .favorite-btn {
-  position: absolute;
-  top: var(--space-02);
-  right: var(--space-02);
-  padding: var(--space-02);
+.station-card .favorite-btn,
+.station-card .stop-btn {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   background: var(--color-background-neutral);
   border: none;
   border-radius: var(--radius-full);
@@ -655,14 +687,23 @@ onMounted(async () => {
   cursor: pointer;
   transition: transform var(--transition-fast);
   box-shadow: var(--shadow-02);
-  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.station-card .favorite-btn:hover {
-  transform: scale(1.2);
+.station-card .stop-btn {
+  background: var(--color-brand);
+  font-size: 18px;
 }
 
-.station-card .favorite-btn:active {
+.station-card .favorite-btn:hover,
+.station-card .stop-btn:hover {
+  transform: scale(1.1);
+}
+
+.station-card .favorite-btn:active,
+.station-card .stop-btn:active {
   transform: scale(0.95);
 }
 
@@ -724,7 +765,7 @@ onMounted(async () => {
 
   .now-playing .station-art {
     width: 100%;
-    aspect-ratio: 1;
+    aspect-ratio: 1 / 1;
     border-radius: var(--radius-05);
     overflow: hidden;
     background: var(--color-background-neutral);
@@ -732,16 +773,19 @@ onMounted(async () => {
     align-items: center;
     justify-content: center;
     position: relative;
+    flex-shrink: 0;
   }
 
   .now-playing .station-art .current-station-favicon {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center;
     position: absolute;
     top: 0;
     left: 0;
     z-index: 2;
+    display: block;
   }
 
   .now-playing .placeholder-logo {
@@ -850,6 +894,7 @@ onMounted(async () => {
     flex-shrink: 0;
     width: 56px;
     height: 56px;
+    aspect-ratio: 1 / 1;
     border-radius: var(--radius-03);
     overflow: hidden;
     background: var(--color-background-neutral);
@@ -863,10 +908,12 @@ onMounted(async () => {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center;
     position: absolute;
     top: 0;
     left: 0;
     z-index: 2;
+    display: block;
   }
 
   .now-playing .placeholder-logo {
@@ -961,7 +1008,13 @@ onMounted(async () => {
     max-width: none;
   }
 
-  .stations-grid {
+  /* Mode Favoris : rester en grille 3 colonnes sur mobile */
+  .stations-grid:has(.station-image) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  /* Mode Recherche : 1 colonne sur mobile */
+  .stations-grid:has(.station-card) {
     grid-template-columns: 1fr;
   }
 
