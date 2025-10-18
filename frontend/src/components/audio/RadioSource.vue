@@ -1017,10 +1017,11 @@ onMounted(async () => {
 @media (max-aspect-ratio: 4/3) {
   .now-playing {
     position: fixed;
-    bottom: var(--space-07);
+    bottom: var(--space-08);
     left: 50%;
     transform: translateX(-50%);
     width: calc(100% - var(--space-02) * 2);
+    height: auto;
     flex-direction: row;
     align-items: center;
     gap: var(--space-03);
