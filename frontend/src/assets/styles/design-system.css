@@ -22,7 +22,6 @@
     --color-background-glass: #78787829;
     --color-background-modal: #78787852;
     --color-background-radio: #EEEADC;
-
     --color-border: #1618160a;
 
 
@@ -56,6 +55,7 @@
 
     /* === STYLES DE TEXTE === */
 
+    --font-size-d1: 30px;
     --font-size-h1: 26px;
     --font-size-h2: 22px;
     --font-size-body: 20px;
@@ -65,8 +65,8 @@
     --letter-spacing-sans-serif: 1%;
     --letter-spacing-mono: -2%;
 
-    --line-height-h1: 120%;
-    --line-height-h2: 120%;
+    --line-height-heading: 120%;
+    --line-height-display: 120%;
     --line-height-body: 120%;
     --line-height-mono: 140%;
 
@@ -131,16 +131,12 @@
 
 
         /* === STYLES DE TEXTE (Mobile) === */
+        --font-size-d1: 24px;
         --font-size-h1: 22px;
         --font-size-h2: 20px;
         --font-size-body: 18px;
         --font-size-body-small: 16px;
         --font-size-mono: 14px;
-
-        --line-height-h1: 120%;
-        --line-height-h2: 120%;
-        --line-height-body: 120%;
-        --line-height-mono: 140%;
 
 
     }
@@ -164,19 +160,26 @@
 
 /* === CLASSES UTILITAIRES === */
 
+.display-1 {
+    font-family: 'Neue Montreal Medium';
+    font-size: var(--font-size-d1);
+    line-height: var(--line-height-display);
+    letter-spacing: var(--letter-spacing-sans-serif);
+    font-weight: 500;
+}
+
 .heading-1 {
     font-family: 'Neue Montreal Medium';
     font-size: var(--font-size-h1);
-    line-height: var(--line-height-h1);
+    line-height: var(--line-height-heading);
     letter-spacing: var(--letter-spacing-sans-serif);
     font-weight: 500;
-
 }
 
 .heading-2 {
     font-family: 'Neue Montreal Medium';
     font-size: var(--font-size-h2);
-    line-height: var(--line-height-h2);
+    line-height: var(--line-height-heading);
     letter-spacing: var(--letter-spacing-sans-serif);
     font-weight: 500;
 }
