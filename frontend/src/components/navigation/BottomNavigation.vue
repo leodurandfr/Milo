@@ -189,7 +189,7 @@ const MOVE_THRESHOLD = 10;
 // Variables de drag
 let dragStartY = 0, dragCurrentY = 0, dragStartTime = 0;
 let dragActionTaken = ref(false);
-let isDraggingAdditional = false, additionalDragStartY = 0;
+let isDraggingAdditional = false, additionalDragStartY = 0, additionalDragMoved = false;
 
 // === GESTION VOLUME HOLD ===
 const volumeStartTimer = ref(null);
@@ -361,9 +361,17 @@ const onDragStart = (e) => {
 const onDragMove = (e) => {
   if (isDraggingAdditional) {
     const deltaY = getEventY(e) - additionalDragStartY;
-    if (Math.abs(deltaY) >= 30 && deltaY > 0) {
+    // Marquer qu'un mouvement a été détecté
+    if (Math.abs(deltaY) > 5) {
+      additionalDragMoved = true;
+      e.preventDefault();
+    }
+    // Détecter mouvement significatif pour fermer
+    if (Math.abs(deltaY) >= 20 && deltaY > 0) {
+      e.preventDefault(); // Empêcher le scroll
       closeAdditionalApps();
       isDraggingAdditional = false;
+      additionalDragMoved = false;
     }
     return;
   }
@@ -417,6 +425,7 @@ const onDragEnd = () => {
   clearTimeout(clickTimeout);
   if (isDraggingAdditional) {
     isDraggingAdditional = false;
+    additionalDragMoved = false;
     return;
   }
 
@@ -469,6 +478,12 @@ const handleAppClick = (appId, index) => {
 };
 
 const handleAdditionalAppClick = (appId) => {
+  // Ignorer le clic si un drag vient d'avoir lieu
+  if (additionalDragMoved) {
+    additionalDragMoved = false;
+    return;
+  }
+
   resetHideTimer();
 
   // Si c'est une source audio, changer la source
@@ -580,9 +595,8 @@ const handleToggleClick = (event) => {
 // === GESTION ADDITIONAL DRAG ===
 const onAdditionalDragStart = (e) => {
   if (!showAdditionalApps.value) return;
-  // Ignorer si le drag commence sur un bouton (permet les clics)
-  if (e.target.closest('button')) return;
   isDraggingAdditional = true;
+  additionalDragMoved = false;
   additionalDragStartY = getEventY(e);
 };
 
