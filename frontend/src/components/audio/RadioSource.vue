@@ -9,8 +9,9 @@
             <img v-if="radioStore.currentStation.favicon"
                  :src="radioStore.currentStation.favicon"
                  alt="Station logo"
-                 @error="handleImageError" />
-            <div v-else class="placeholder-logo">📻</div>
+                 class="current-station-favicon"
+                 @error="handleCurrentStationImageError" />
+            <div class="placeholder-logo" :class="{ visible: !radioStore.currentStation.favicon }">📻</div>
           </div>
         </div>
       </div>
@@ -20,10 +21,6 @@
           <h1 class="station-name heading-1">{{ radioStore.currentStation.name }}</h1>
           <p class="station-meta heading-2">
             {{ radioStore.currentStation.country }} • {{ radioStore.currentStation.genre }}
-          </p>
-
-          <p v-if="currentMetadata.media_title" class="now-playing-text">
-            {{ currentMetadata.media_title }}
           </p>
         </div>
 
@@ -118,8 +115,9 @@
             <img v-if="station.favicon"
                  :src="station.favicon"
                  alt=""
-                 @error="(e) => e.target.style.display = 'none'" />
-            <span v-else class="logo-placeholder">📻</span>
+                 class="station-favicon"
+                 @error="handleStationImageError" />
+            <span class="logo-placeholder" :class="{ visible: !station.favicon }">📻</span>
           </div>
 
           <div class="station-details">
@@ -158,9 +156,6 @@ const unifiedStore = useUnifiedAudioStore();
 const activeTab = ref('all');
 const displayLimit = ref(20);
 const searchDebounceTimer = ref(null);
-
-// Métadonnées depuis le WebSocket
-const currentMetadata = computed(() => unifiedStore.metadata || {});
 
 // État de lecture - TOUJOURS utiliser le store local (source de vérité)
 // Le WebSocket est ignoré pour éviter les conflits avec les actions utilisateur
@@ -245,16 +240,23 @@ async function toggleFavorite(stationId) {
   await radioStore.toggleFavorite(stationId);
 }
 
-function handleImageError(e) {
+function handleCurrentStationImageError(e) {
+  // Cache l'image de la station en cours et affiche le placeholder
   e.target.style.display = 'none';
+  const placeholder = e.target.nextElementSibling;
+  if (placeholder) {
+    placeholder.classList.add('visible');
+  }
 }
 
-// Synchroniser avec le WebSocket
-watch(() => unifiedStore.metadata, (newMetadata) => {
-  if (unifiedStore.currentSource === 'radio' && newMetadata) {
-    radioStore.updateFromWebSocket(newMetadata);
+function handleStationImageError(e) {
+  // Cache l'image de la station et affiche le placeholder
+  e.target.style.display = 'none';
+  const placeholder = e.target.nextElementSibling;
+  if (placeholder) {
+    placeholder.classList.add('visible');
   }
-}, { immediate: true, deep: true });
+}
 
 // Lifecycle
 onMounted(async () => {
@@ -333,16 +335,27 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
-.station-art img {
+.station-art .current-station-favicon {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
 }
 
 .placeholder-logo {
   font-size: 48px;
+  display: none;
+  z-index: 1;
+}
+
+.placeholder-logo.visible {
+  display: flex;
 }
 
 .content-section {
@@ -368,13 +381,6 @@ onMounted(async () => {
 .station-meta {
   color: var(--color-text-light);
   margin: 0;
-}
-
-.now-playing-text {
-  color: var(--color-text);
-  margin: var(--space-02) 0 0 0;
-  font-size: var(--font-size-sm);
-  opacity: 0.8;
 }
 
 .controls-section {
@@ -550,16 +556,27 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
-.station-logo img {
+.station-logo .station-favicon {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
 }
 
 .logo-placeholder {
   font-size: 24px;
+  display: none;
+  z-index: 1;
+}
+
+.logo-placeholder.visible {
+  display: flex;
 }
 
 .station-details {

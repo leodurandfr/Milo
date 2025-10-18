@@ -135,7 +135,19 @@ class RadioBrowserAPI:
                 stations_map[station_key] = normalized
             else:
                 existing = stations_map[station_key]
+
+                # Toujours mettre à jour le favicon si le nouveau est de meilleure qualité
+                new_favicon_quality = self._get_favicon_quality(normalized.get('favicon', ''))
+                existing_favicon_quality = self._get_favicon_quality(existing.get('favicon', ''))
+
+                if new_favicon_quality > existing_favicon_quality:
+                    existing['favicon'] = normalized['favicon']
+
+                # Remplacer la station entière si meilleure qualité globale
                 if self._compare_station_quality(normalized, existing) > 0:
+                    # Garder le meilleur favicon déjà trouvé
+                    best_favicon = existing['favicon'] if existing_favicon_quality > new_favicon_quality else normalized['favicon']
+                    normalized['favicon'] = best_favicon
                     stations_map[station_key] = normalized
 
         # Trier par popularité (votes + clics)
@@ -169,6 +181,62 @@ class RadioBrowserAPI:
             station.get('name')
         )
 
+    def _get_favicon_quality(self, url: str) -> int:
+        """
+        Évalue la qualité d'un favicon pour prioriser les meilleures sources
+
+        Args:
+            url: URL du favicon
+
+        Returns:
+            Score de qualité (plus élevé = meilleur)
+        """
+        if not url:
+            return -1
+
+        url_lower = url.lower()
+
+        # Rejeter les URLs qui causent des problèmes CORS ou sont temporaires
+        problematic_domains = [
+            'facebook.com', 'fbcdn.net', 'dropbox.com',
+            'googledrive.com', 'onedrive.com', 'sharepoint.com',
+            'syncusercontent.com'
+        ]
+
+        if any(domain in url_lower for domain in problematic_domains):
+            return 0  # Très mauvaise qualité
+
+        # Rejeter les URLs avec tokens/timestamps (souvent temporaires)
+        if any(param in url_lower for param in ['?timestamp=', '?token=', '?signature=']):
+            return 0
+
+        # Rejeter les pages Wikipedia (pas des images directes)
+        if 'wikipedia.org/wiki/' in url_lower or '#/media/' in url_lower:
+            return 5  # Très mauvaise qualité (page web, pas image)
+
+        # favicon.ico = faible qualité
+        if 'favicon.ico' in url_lower:
+            return 10
+
+        # Préférer les images directes de sources fiables
+        quality = 50
+
+        # Bonus pour Wikimedia (images directes, pas Wikipedia pages)
+        if 'upload.wikimedia.org' in url_lower:
+            quality += 100
+
+        # Bonus pour les formats d'image
+        if '.svg' in url_lower:
+            quality += 30
+        elif '.png' in url_lower:
+            quality += 20
+        elif '.webp' in url_lower:
+            quality += 20
+        elif '.jpg' in url_lower or '.jpeg' in url_lower:
+            quality += 15
+
+        return quality
+
     def _normalize_station(self, station: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalise une station depuis le format API vers format Milo
@@ -182,9 +250,8 @@ class RadioBrowserAPI:
         # Nettoyer le favicon (éviter CORS issues)
         favicon = station.get('favicon', '')
         if favicon:
-            # Filtrer les domaines problématiques
-            blocked_domains = ['facebook.com', 'fbcdn.net', 'dropbox.com', 'googledrive.com']
-            if any(domain in favicon.lower() for domain in blocked_domains):
+            # Filtrer les favicons de mauvaise qualité
+            if self._get_favicon_quality(favicon) <= 10:
                 favicon = ''
 
         return {
