@@ -138,7 +138,7 @@
       <div class="station-info">
         <p class="station-name display-1">{{ radioStore.currentStation.name }}</p>
         <p class="station-meta text-mono">{{ radioStore.currentStation.country }} • {{ radioStore.currentStation.genre
-          }}
+        }}
         </p>
       </div>
       <div class="controls-wraper">
@@ -757,14 +757,7 @@ onMounted(async () => {
   transform: translateY(-2px);
 }
 
-/* === NOW PLAYING === */
-
-/* Styles communs (Desktop + Mobile) */
-.now-playing {
-  position: relative;
-  display: flex;
-  overflow: hidden;
-}
+/* === NOW PLAYING === 
 
 /* Background image - très zoomée et blurrée (commun Desktop + Mobile) */
 .now-playing .station-art-background {
@@ -871,7 +864,12 @@ onMounted(async () => {
 }
 
 .now-playing {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  overflow: hidden;
   width: 310px;
+  height: 100%;
   flex-shrink: 0;
   flex-direction: column;
   gap: var(--space-04);
@@ -914,6 +912,7 @@ onMounted(async () => {
 
 .now-playing .station-info {
   display: flex;
+  height: 100%;
   flex-direction: column;
   gap: var(--space-02);
 }

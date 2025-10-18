@@ -37,8 +37,9 @@ class RadioPlugin(UnifiedAudioPlugin):
 
         # Composants
         self.mpv = MpvController(self.ipc_socket_path)
-        self.radio_api = RadioBrowserAPI(cache_duration_minutes=60)
         self.station_manager = StationManager(settings_service, state_machine)
+        # Note: station_manager est passé à RadioBrowserAPI pour fusionner stations personnalisées
+        self.radio_api = RadioBrowserAPI(cache_duration_minutes=60, station_manager=self.station_manager)
 
         # État actuel
         self.current_station: Optional[Dict[str, Any]] = None

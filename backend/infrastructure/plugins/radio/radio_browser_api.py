@@ -28,10 +28,11 @@ class RadioBrowserAPI:
         "Italy": "IT"
     }
 
-    def __init__(self, cache_duration_minutes: int = 60):
+    def __init__(self, cache_duration_minutes: int = 60, station_manager=None):
         self.logger = logging.getLogger(__name__)
         self.session: Optional[aiohttp.ClientSession] = None
         self.cache_duration = timedelta(minutes=cache_duration_minutes)
+        self.station_manager = station_manager
 
         # Cache avec timestamp
         self._stations_cache: Dict[str, Any] = {}
@@ -302,7 +303,7 @@ class RadioBrowserAPI:
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """
-        Recherche des stations avec filtres
+        Recherche des stations avec filtres (inclut les stations personnalisées)
 
         Args:
             query: Terme de recherche (nom de station)
@@ -315,6 +316,12 @@ class RadioBrowserAPI:
         """
         # Charger toutes les stations (depuis cache si possible)
         all_stations = await self.load_all_stations()
+
+        # Ajouter les stations personnalisées
+        if self.station_manager:
+            custom_stations = self.station_manager.get_custom_stations()
+            # Les stations personnalisées sont ajoutées en premier (priorité)
+            all_stations = custom_stations + all_stations
 
         # Filtrer localement
         results = all_stations
@@ -339,7 +346,7 @@ class RadioBrowserAPI:
 
     async def get_station_by_id(self, station_id: str) -> Optional[Dict[str, Any]]:
         """
-        Récupère une station par son ID
+        Récupère une station par son ID (inclut les stations personnalisées)
 
         Args:
             station_id: UUID de la station
@@ -347,6 +354,12 @@ class RadioBrowserAPI:
         Returns:
             Station ou None si introuvable
         """
+        # Vérifier d'abord si c'est une station personnalisée
+        if station_id.startswith("custom_") and self.station_manager:
+            custom_station = self.station_manager.get_custom_station_by_id(station_id)
+            if custom_station:
+                return custom_station
+
         # Chercher dans le cache d'abord
         if self._is_cache_valid() and station_id in self._stations_cache:
             return self._stations_cache[station_id]
