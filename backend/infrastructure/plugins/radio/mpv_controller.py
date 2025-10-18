@@ -152,9 +152,10 @@ class MpvController:
             return False
 
         error = response.get('error')
-        # Accepter 'success' ET les erreurs transitoires (None, null)
+        # Accepter 'success' ET les erreurs transitoires (None, null, property unavailable)
+        # "property unavailable" arrive quand on change rapidement de station
         # Seules les vraies erreurs ("file not found", etc.) font échouer
-        if error == 'success' or error is None or error == 'null':
+        if error in ('success', None, 'null', 'property unavailable'):
             return True
 
         # Log pour les vraies erreurs uniquement

@@ -299,13 +299,15 @@ class RadioPlugin(UnifiedAudioPlugin):
     async def _update_metadata(self) -> None:
         """Met à jour les métadonnées depuis mpv"""
         try:
+            # Vérifier que current_station est un dict AVANT d'accéder aux propriétés
+            if self.current_station and not isinstance(self.current_station, dict):
+                self.logger.error(f"current_station n'est pas un dict: {type(self.current_station)}, valeur: {self.current_station}")
+                self.current_station = None
+                self._metadata = {}
+                return
+
             media_title = await self.mpv.get_media_title()
             mpv_metadata = await self.mpv.get_metadata()
-
-            # Vérifier que current_station est un dict
-            if self.current_station and not isinstance(self.current_station, dict):
-                self.logger.warning(f"current_station n'est pas un dict: {type(self.current_station)}")
-                self.current_station = None
 
             self._metadata = {
                 "station_id": self.current_station.get('id') if self.current_station else None,
@@ -325,7 +327,7 @@ class RadioPlugin(UnifiedAudioPlugin):
             }
 
         except Exception as e:
-            self.logger.error(f"Erreur mise à jour métadonnées: {e}")
+            self.logger.error(f"Erreur mise à jour métadonnées: {e}", exc_info=True)
 
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -414,17 +416,19 @@ class RadioPlugin(UnifiedAudioPlugin):
     async def _handle_stop_playback(self) -> Dict[str, Any]:
         """Arrête la lecture"""
         try:
-            success = await self.mpv.stop()
+            # Toujours arrêter mpv (ignore l'erreur si déjà arrêté)
+            await self.mpv.stop()
 
-            if success:
-                self.current_station = None
-                self._is_playing = False
-                self._metadata = {}
-                await self.notify_state_change(PluginState.READY, {"ready": True})
+            # Toujours reset l'état, même si mpv retourne une erreur
+            # (cas où on appelle stop() alors qu'on est déjà arrêté)
+            self.current_station = None
+            self._is_playing = False
+            self._metadata = {}
+            await self.notify_state_change(PluginState.READY, {"ready": True})
 
             return self.format_response(
-                success,
-                message="Lecture arrêtée" if success else "Échec arrêt lecture"
+                True,
+                message="Lecture arrêtée"
             )
 
         except Exception as e:

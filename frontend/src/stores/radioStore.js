@@ -80,17 +80,31 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function playStation(stationId) {
     try {
-      const response = await axios.post('/api/radio/play', { station_id: stationId });
-
-      if (response.data.success) {
-        const station = stations.value.find(s => s.id === stationId);
-        if (station) {
-          currentStation.value = station;
-          isPlaying.value = true;
-        }
+      // Optimistic update immédiate
+      const station = stations.value.find(s => s.id === stationId);
+      if (!station && currentStation.value?.id === stationId) {
+        // Utiliser currentStation si pas dans la liste
+        isPlaying.value = true;
         return true;
       }
-      return false;
+
+      if (station) {
+        currentStation.value = station;
+        isPlaying.value = true;
+      }
+
+      // Appeler le backend en arrière-plan (non bloquant)
+      axios.post('/api/radio/play', { station_id: stationId })
+        .then(response => {
+          if (!response.data.success) {
+            console.warn('Backend play failed, but keeping local state');
+          }
+        })
+        .catch(error => {
+          console.warn('Backend play error (ignored):', error.message);
+        });
+
+      return true;
     } catch (error) {
       console.error('Error playing station:', error);
       return false;
@@ -99,12 +113,21 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function stopPlayback() {
     try {
-      const response = await axios.post('/api/radio/stop');
-      if (response.data.success) {
-        isPlaying.value = false;
-        return true;
-      }
-      return false;
+      // Optimistic update immédiate
+      isPlaying.value = false;
+
+      // Appeler le backend en arrière-plan (non bloquant)
+      axios.post('/api/radio/stop')
+        .then(response => {
+          if (!response.data.success) {
+            console.warn('Backend stop failed, but keeping local state');
+          }
+        })
+        .catch(error => {
+          console.warn('Backend stop error (ignored):', error.message);
+        });
+
+      return true;
     } catch (error) {
       console.error('Error stopping playback:', error);
       return false;
@@ -116,11 +139,17 @@ export const useRadioStore = defineStore('radio', () => {
       const response = await axios.post('/api/radio/favorites/add', { station_id: stationId });
 
       if (response.data.success) {
-        // Mettre à jour localement
+        // Mettre à jour dans la liste des stations
         const station = stations.value.find(s => s.id === stationId);
         if (station) {
           station.is_favorite = true;
         }
+
+        // Mettre à jour currentStation si c'est celle-ci
+        if (currentStation.value?.id === stationId) {
+          currentStation.value.is_favorite = true;
+        }
+
         await loadFavorites();
         return true;
       }
@@ -136,11 +165,17 @@ export const useRadioStore = defineStore('radio', () => {
       const response = await axios.post('/api/radio/favorites/remove', { station_id: stationId });
 
       if (response.data.success) {
-        // Mettre à jour localement
+        // Mettre à jour dans la liste des stations
         const station = stations.value.find(s => s.id === stationId);
         if (station) {
           station.is_favorite = false;
         }
+
+        // Mettre à jour currentStation si c'est celle-ci
+        if (currentStation.value?.id === stationId) {
+          currentStation.value.is_favorite = false;
+        }
+
         await loadFavorites();
         return true;
       }
@@ -152,8 +187,18 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   async function toggleFavorite(stationId) {
-    const station = stations.value.find(s => s.id === stationId);
-    if (!station) return false;
+    // Chercher d'abord dans la liste des stations
+    let station = stations.value.find(s => s.id === stationId);
+
+    // Si pas trouvée, utiliser currentStation si c'est la bonne
+    if (!station && currentStation.value?.id === stationId) {
+      station = currentStation.value;
+    }
+
+    if (!station) {
+      console.warn('toggleFavorite: station not found', stationId);
+      return false;
+    }
 
     if (station.is_favorite) {
       return await removeFavorite(stationId);
@@ -211,7 +256,8 @@ export const useRadioStore = defineStore('radio', () => {
       }
     }
 
-    isPlaying.value = metadata.is_playing || false;
+    // NE PAS écraser isPlaying - géré localement pour réactivité immédiate
+    // isPlaying.value = metadata.is_playing || false;
   }
 
   return {

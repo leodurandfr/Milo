@@ -22,18 +22,6 @@
             {{ radioStore.currentStation.country }} • {{ radioStore.currentStation.genre }}
           </p>
 
-          <!-- Bouton play/pause compact -->
-          <button
-            class="play-pause-btn"
-            @click="togglePlayback"
-            :aria-label="radioStore.isPlaying ? 'Pause' : 'Play'"
-          >
-            {{ radioStore.isPlaying ? '⏸' : '▶' }}
-            <span class="play-pause-text">
-              {{ radioStore.isPlaying ? 'Pause' : 'Lecture' }}
-            </span>
-          </button>
-
           <p v-if="currentMetadata.media_title" class="now-playing-text">
             {{ currentMetadata.media_title }}
           </p>
@@ -41,17 +29,12 @@
 
         <div class="controls-section stagger-3">
           <div class="radio-controls">
-            <IconButton
-              :icon="radioStore.isPlaying ? 'pause' : 'play'"
-              variant="primary"
-              size="large"
-              @click="togglePlayback"
-            />
-            <IconButton
-              :icon="radioStore.currentStation.is_favorite ? 'heart-filled' : 'heart'"
-              variant="secondary"
-              @click="toggleFavorite(radioStore.currentStation.id)"
-            />
+            <button class="control-btn play-btn" @click="togglePlayback">
+              {{ isCurrentlyPlaying ? '⏸' : '▶' }}
+            </button>
+            <button class="control-btn fav-btn" @click="toggleFavorite(radioStore.currentStation.id)">
+              {{ radioStore.currentStation.is_favorite ? '❤️' : '🤍' }}
+            </button>
           </div>
         </div>
       </div>
@@ -127,7 +110,7 @@
           :key="station.id"
           :class="['station-card', {
             active: radioStore.currentStation?.id === station.id,
-            playing: radioStore.currentStation?.id === station.id && radioStore.isPlaying
+            playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying
           }]"
           @click="playStation(station.id)"
         >
@@ -168,7 +151,6 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRadioStore } from '@/stores/radioStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import IconButton from '@/components/ui/IconButton.vue';
 
 const radioStore = useRadioStore();
 const unifiedStore = useUnifiedAudioStore();
@@ -179,6 +161,12 @@ const searchDebounceTimer = ref(null);
 
 // Métadonnées depuis le WebSocket
 const currentMetadata = computed(() => unifiedStore.metadata || {});
+
+// État de lecture - TOUJOURS utiliser le store local (source de vérité)
+// Le WebSocket est ignoré pour éviter les conflits avec les actions utilisateur
+const isCurrentlyPlaying = computed(() => {
+  return radioStore.isPlaying;
+});
 
 // Stations affichées avec limite
 const displayedStations = computed(() => {
@@ -229,7 +217,7 @@ function handleSearch() {
 
 async function playStation(stationId) {
   // Si la station est déjà en cours et qu'on clique dessus, toggle play/pause
-  if (radioStore.currentStation?.id === stationId && radioStore.isPlaying) {
+  if (radioStore.currentStation?.id === stationId && isCurrentlyPlaying.value) {
     await radioStore.stopPlayback();
   } else {
     await radioStore.playStation(stationId);
@@ -237,10 +225,19 @@ async function playStation(stationId) {
 }
 
 async function togglePlayback() {
-  if (radioStore.isPlaying) {
+  console.log('🎵 togglePlayback - isPlaying:', isCurrentlyPlaying.value, 'currentStation:', radioStore.currentStation);
+
+  if (isCurrentlyPlaying.value) {
+    // Arrêter la lecture
+    console.log('🛑 Stopping playback...');
     await radioStore.stopPlayback();
   } else if (radioStore.currentStation) {
+    // Relancer la station (même si on vient de l'arrêter)
+    // Le endpoint /play gérera le démarrage du plugin si nécessaire
+    console.log('▶️ Starting playback for station:', radioStore.currentStation.id);
     await radioStore.playStation(radioStore.currentStation.id);
+  } else {
+    console.warn('⚠️ No current station to play');
   }
 }
 
@@ -373,33 +370,6 @@ onMounted(async () => {
   margin: 0;
 }
 
-.play-pause-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-02);
-  margin-top: var(--space-03);
-  padding: var(--space-02) var(--space-03);
-  background: var(--color-primary);
-  border: none;
-  border-radius: var(--radius-03);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.play-pause-btn:hover {
-  background: var(--color-primary-dark);
-  transform: translateY(-1px);
-}
-
-.play-pause-btn:active {
-  transform: translateY(0);
-}
-
-.play-pause-text {
-  font-weight: 500;
-}
-
 .now-playing-text {
   color: var(--color-text);
   margin: var(--space-02) 0 0 0;
@@ -415,6 +385,36 @@ onMounted(async () => {
   display: flex;
   gap: var(--space-03);
   align-items: center;
+}
+
+.control-btn {
+  border: none;
+  background: var(--color-background);
+  border-radius: var(--radius-05);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 32px;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.control-btn:hover {
+  transform: scale(1.05);
+}
+
+.control-btn:active {
+  transform: scale(0.95);
+}
+
+.play-btn {
+  background: var(--color-primary);
+}
+
+.fav-btn {
+  background: var(--color-background-subtle);
 }
 
 /* Empty state */
