@@ -1,7 +1,7 @@
 <!-- LibrespotView.vue - Version avec stagger automatique -->
 <template>
   <div class="librespot-player">
-    <div class="now-playing">
+    <div class="now-playing-spotify">
       <!-- Partie gauche : Image de couverture avec staggering CSS -->
       <div class="album-art-section stagger-1">
         <div class="album-art-container">
@@ -176,7 +176,7 @@ onMounted(async () => {
   position: relative;
 }
 
-.now-playing {
+.now-playing-spotify {
   display: flex;
   height: 100%;
   padding: var(--space-05);
@@ -278,7 +278,7 @@ onMounted(async () => {
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .now-playing {
+  .now-playing-spotify {
     padding: var(--space-05) var(--space-05) 0 var(--space-05);
     flex-direction: column;
     gap: 0;
@@ -298,7 +298,7 @@ onMounted(async () => {
 }
 
 /* iOS */
-.ios-app .now-playing {
+.ios-app .now-playing-spotify {
   padding: var(--space-08) var(--space-05) 0 var(--space-05);
 }
 

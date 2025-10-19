@@ -29,6 +29,22 @@ class MarkBrokenRequest(BaseModel):
     station_id: str
 
 
+class AddCustomStationRequest(BaseModel):
+    """Requête pour ajouter une station personnalisée"""
+    name: str
+    url: str
+    country: str = "France"
+    genre: str = "Variety"
+    favicon: str = ""
+    bitrate: int = 128
+    codec: str = "MP3"
+
+
+class RemoveCustomStationRequest(BaseModel):
+    """Requête pour supprimer une station personnalisée"""
+    station_id: str
+
+
 # === Routes ===
 
 @router.get("/stations")
@@ -376,6 +392,91 @@ async def get_stats():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur stats: {str(e)}")
+
+
+@router.post("/custom/add")
+async def add_custom_station(request: AddCustomStationRequest):
+    """
+    Ajoute une station personnalisée
+
+    Args:
+        request: Détails de la station à ajouter
+
+    Returns:
+        La station créée avec son ID
+    """
+    try:
+        plugin = container.radio_plugin()
+        result = await plugin.station_manager.add_custom_station(
+            name=request.name,
+            url=request.url,
+            country=request.country,
+            genre=request.genre,
+            favicon=request.favicon,
+            bitrate=request.bitrate,
+            codec=request.codec
+        )
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Échec ajout station personnalisée")
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur ajout station personnalisée: {str(e)}")
+
+
+@router.post("/custom/remove")
+async def remove_custom_station(request: RemoveCustomStationRequest):
+    """
+    Supprime une station personnalisée
+
+    Args:
+        request: Requête avec station_id
+
+    Returns:
+        Résultat de l'opération
+    """
+    try:
+        plugin = container.radio_plugin()
+        success = await plugin.station_manager.remove_custom_station(request.station_id)
+
+        if not success:
+            raise HTTPException(
+                status_code=400,
+                detail="Échec suppression station personnalisée"
+            )
+
+        return {"success": True, "message": "Station personnalisée supprimée"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur suppression station personnalisée: {str(e)}")
+
+
+@router.get("/custom")
+async def get_custom_stations():
+    """
+    Récupère toutes les stations personnalisées
+
+    Returns:
+        Liste des stations personnalisées
+    """
+    try:
+        plugin = container.radio_plugin()
+        custom_stations = plugin.station_manager.get_custom_stations()
+
+        # Enrichir avec statut favori
+        return plugin.station_manager.enrich_with_favorite_status(custom_stations)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur récupération stations personnalisées: {str(e)}")
 
 
 # === Helpers ===

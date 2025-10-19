@@ -691,9 +691,6 @@ onMounted(async () => {
   font-size: var(--font-size-body-small);
   font-weight: 500;
   color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .station-subtitle {
