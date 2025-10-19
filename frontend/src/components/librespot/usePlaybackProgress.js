@@ -10,22 +10,22 @@ export function usePlaybackProgress() {
   let isApiSyncing = false;
   
   // Computed properties
-  const duration = computed(() => unifiedStore.metadata?.duration || 0);
+  const duration = computed(() => unifiedStore.systemState.metadata?.duration || 0);
   const currentPosition = computed(() => localPosition.value);
   const progressPercentage = computed(() => {
     if (!duration.value || duration.value === 0) return 0;
     return (currentPosition.value / duration.value) * 100;
   });
-  
+
   // 🎯 SIMPLIFIÉ : Synchronisation directe avec les métadonnées du store
-  watch(() => unifiedStore.metadata?.position, (newPosition) => {
+  watch(() => unifiedStore.systemState.metadata?.position, (newPosition) => {
     if (newPosition !== undefined && !isApiSyncing) {
       localPosition.value = newPosition;
     }
   }, { immediate: true });
-  
+
   // Animation locale pendant la lecture
-  watch(() => unifiedStore.metadata?.is_playing, (isPlaying) => {
+  watch(() => unifiedStore.systemState.metadata?.is_playing, (isPlaying) => {
     stopProgressTimer();
     if (isPlaying) {
       startProgressTimer();
@@ -35,7 +35,7 @@ export function usePlaybackProgress() {
   function startProgressTimer() {
     if (!intervalId) {
       intervalId = setInterval(() => {
-        if (unifiedStore.metadata?.is_playing && localPosition.value < duration.value) {
+        if (unifiedStore.systemState.metadata?.is_playing && localPosition.value < duration.value) {
           localPosition.value += 100;
         }
       }, 100);

@@ -20,7 +20,7 @@ export function useLibrespotControl() {
   }
 
   async function togglePlayPause() {
-    const isPlaying = unifiedStore.metadata?.is_playing;
+    const isPlaying = unifiedStore.systemState.metadata?.is_playing;
     await executeCommand(isPlaying ? 'pause' : 'resume');
   }
 

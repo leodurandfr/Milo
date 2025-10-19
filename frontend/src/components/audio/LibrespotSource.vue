@@ -33,7 +33,7 @@
               :progressPercentage="progressPercentage" @seek="seekTo" />
           </div>
           <div class="controls-wrapper stagger-5">
-            <PlaybackControls :isPlaying="persistentMetadata.is_playing" @play-pause="togglePlayPause"
+            <PlaybackControls :isPlaying="isPlaying" @play-pause="togglePlayPause"
               @previous="previousTrack" @next="nextTrack" />
           </div>
         </div>
@@ -64,27 +64,28 @@ const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackPro
 const lastValidMetadata = ref({
   title: '',
   artist: '',
-  album_art_url: '',
-  is_playing: false
+  album_art_url: ''
 });
 
 const persistentMetadata = computed(() => {
   const currentMetadata = unifiedStore.systemState.metadata || {};
-  
+
   // Si on a des métadonnées valides actuellement, les utiliser et les sauvegarder
   if (currentMetadata.title && currentMetadata.artist) {
     lastValidMetadata.value = {
       title: currentMetadata.title,
       artist: currentMetadata.artist,
-      album_art_url: currentMetadata.album_art_url || '',
-      is_playing: currentMetadata.is_playing || false
+      album_art_url: currentMetadata.album_art_url || ''
     };
     return lastValidMetadata.value;
   }
-  
+
   // Sinon, utiliser les dernières métadonnées valides sauvegardées
   return lastValidMetadata.value;
 });
+
+// État de lecture en temps réel (non persisté)
+const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);
 
 // === WATCHERS ===
 watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
