@@ -1,11 +1,21 @@
 <!-- frontend/src/components/ui/ModalHeader.vue -->
 <template>
-  <div class="modal-header" :class="{ 'has-back': showBack, 'variant-neutral': variant === 'neutral' }">
+  <div class="modal-header" :class="{
+    'has-back': showBack,
+    'variant-neutral': variant === 'neutral',
+    'has-icon': icon
+  }">
     <div v-if="showBack" class="back-modal-header">
       <CircularIcon icon="caretLeft" :variant="variant === 'neutral' ? 'light' : 'dark'" @click="handleBack" />
       <h2 class="heading-1">{{ title }}</h2>
     </div>
-    <h2 v-else class="heading-1">{{ title }}</h2>
+    <template v-else>
+      <div v-if="icon" class="title-with-icon">
+        <AppIcon :name="icon" :size="48" class="header-icon" />
+        <h2 class="heading-1">{{ title }}</h2>
+      </div>
+      <h2 v-else class="heading-1">{{ title }}</h2>
+    </template>
     <div v-if="$slots.actions" class="actions-wrapper">
       <slot name="actions"></slot>
     </div>
@@ -14,6 +24,7 @@
 
 <script setup>
 import CircularIcon from './CircularIcon.vue';
+import AppIcon from './AppIcon.vue';
 
 const props = defineProps({
   title: {
@@ -28,6 +39,10 @@ const props = defineProps({
     type: String,
     default: 'contrast', // 'contrast' ou 'neutral'
     validator: (value) => ['contrast', 'neutral'].includes(value)
+  },
+  icon: {
+    type: String,
+    default: null
   }
 });
 
@@ -61,6 +76,11 @@ function handleBack() {
   padding: var(--space-04);
 }
 
+/* Padding quand icône présente (desktop) */
+.modal-header.has-icon {
+  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
+}
+
 .modal-header h2 {
   color: var(--color-text-contrast);
   flex: 1;
@@ -69,8 +89,19 @@ function handleBack() {
 .back-modal-header {
   display: flex;
   align-items: center;
+  gap: var(--space-04);
+  flex: 1;
+}
+
+.title-with-icon {
+  display: flex;
+  align-items: center;
   gap: var(--space-03);
   flex: 1;
+}
+
+.header-icon {
+  flex-shrink: 0;
 }
 
 .actions-wrapper {
@@ -78,9 +109,22 @@ function handleBack() {
   align-items: center;
   gap: 12px;
 }
+
 @media (max-aspect-ratio: 4/3) {
-    .modal-header {
-        min-height: 64px;
-    }
+  .modal-header {
+    min-height: 64px;
+  }
+
+  /* Padding quand icône présente (mobile) */
+  .modal-header.has-icon {
+    padding: var(--space-03);
+  }
+
+  /* Taille de l'icône en mobile : 40x40px */
+  .header-icon {
+    width: 40px !important;
+    height: 40px !important;
+    --icon-size: 40px;
+  }
 }
 </style>

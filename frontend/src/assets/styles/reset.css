@@ -65,6 +65,7 @@ img {
   margin: 0;
   padding: 0;
   border: none;
+  pointer-events: none;
 }
 
 /* Style pour pour corriger l'affichage de l'écran du raspberry 7" */
@@ -84,13 +85,13 @@ img {
     z-index: 9999;
   }
 
-    /* Center components */
+  /* Center components */
 
-  .now-playing-spotify{
-    padding-bottom: calc(var(--space-05) + 8px) !important; 
+  .now-playing-spotify {
+    padding-bottom: calc(var(--space-05) + 8px) !important;
   }
 
   .modal-container {
     margin-left: -20px;
-}
+  }
 }

@@ -27,6 +27,9 @@ import caretRightIcon from '@/assets/icons/caret-right.svg?raw';
 import multiroomIcon from '@/assets/icons/multiroom.svg?raw';
 import equalizerIcon from '@/assets/icons/equalizer.svg?raw';
 import searchIcon from '@/assets/icons/search.svg?raw';
+import stopIcon from '@/assets/icons/stop.svg?raw';
+import heartIcon from '@/assets/icons/heart.svg?raw';
+import heartOffIcon from '@/assets/icons/heart-off.svg?raw';
 
 
 const icons = {
@@ -46,7 +49,10 @@ const icons = {
   caretRight : caretRightIcon,
   multiroom : multiroomIcon,
   equalizer : equalizerIcon,
-  search : searchIcon
+  search : searchIcon, 
+  stop : stopIcon,
+  heart : heartIcon,
+  heartOff : heartOffIcon
 
 };
 

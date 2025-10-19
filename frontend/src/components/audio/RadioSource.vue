@@ -5,7 +5,7 @@
         @pointerup="handlePointerUp" @pointercancel="handlePointerUp">
 
         <!-- ModalHeader : Vue Favoris -->
-        <ModalHeader v-if="!isSearchMode" title="Radios préférées" variant="neutral">
+        <ModalHeader v-if="!isSearchMode" title="Radios préférées" variant="neutral" icon="radio">
           <template #actions>
             <CircularIcon icon="search" variant="light" @click="openSearch" />
           </template>
@@ -13,9 +13,6 @@
 
         <!-- ModalHeader : Vue Recherche -->
         <ModalHeader v-else title="Découvrir des radios" :show-back="true" variant="neutral" @back="closeSearch">
-          <template #actions>
-            <CircularIcon icon="add" variant="light" @click="showAddStationModal = true" />
-          </template>
         </ModalHeader>
 
         <!-- Recherche et filtres (visible uniquement en mode recherche) -->
@@ -103,14 +100,6 @@
                 @click.stop="playStation(station.id)">
                 ⏸
               </button>
-              <!-- <button
-                v-else
-                class="favorite-btn"
-                :class="{ active: station.is_favorite }"
-                @click.stop="toggleFavorite(station.id)"
-              >
-                {{ station.is_favorite ? '❤️' : '🤍' }}
-              </button> -->
             </div>
           </div>
 
@@ -141,24 +130,23 @@
       <div class="station-info">
         <p class="station-name display-1">{{ radioStore.currentStation.name }}</p>
         <p class="station-meta text-mono">{{ radioStore.currentStation.country }} • {{ radioStore.currentStation.genre
-        }}
+          }}
         </p>
       </div>
-      <div class="controls-wraper">
-        <button class="favorite-btn" :class="{ active: radioStore.currentStation.is_favorite }"
-          @click.stop="toggleFavorite(radioStore.currentStation.id)">
-          {{ radioStore.currentStation.is_favorite ? '❤️' : '🤍' }}
-        </button>
-
-        <button class="control-btn play-btn" @click="togglePlayback">
-          {{ isCurrentlyPlaying ? '⏸' : '▶' }}
-        </button>
+      <div class="controls-wrapper">
+        <CircularIcon
+          :icon="radioStore.currentStation.is_favorite ? 'heart' : 'heartOff'"
+          variant="overlay"
+          @click="handleFavorite"
+        />
+        <CircularIcon
+          :icon="isCurrentlyPlaying ? 'stop' : 'play'"
+          variant="overlay"
+          @click="handlePlayPause"
+        />
       </div>
 
     </div>
-
-    <!-- Add Station Modal -->
-    <AddStationModal v-if="showAddStationModal" @close="showAddStationModal = false" @success="handleStationAdded" />
   </div>
 </template>
 
@@ -176,7 +164,6 @@ const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
 const isSearchMode = ref(false);
-const showAddStationModal = ref(false);
 const displayLimit = ref(80);
 const searchDebounceTimer = ref(null);
 
@@ -313,6 +300,20 @@ async function togglePlayback() {
 
 async function toggleFavorite(stationId) {
   await radioStore.toggleFavorite(stationId);
+}
+
+async function handlePlayPause() {
+  if (isCurrentlyPlaying.value) {
+    await radioStore.stopPlayback();
+  } else if (radioStore.currentStation) {
+    await radioStore.playStation(radioStore.currentStation.id);
+  }
+}
+
+async function handleFavorite() {
+  if (radioStore.currentStation) {
+    await radioStore.toggleFavorite(radioStore.currentStation.id);
+  }
 }
 
 function handleStationAdded(station) {
@@ -893,7 +894,7 @@ onMounted(async () => {
 
 .now-playing .station-art-background .background-station-favicon {
   filter: blur(60px);
-  opacity: 0.6;
+  opacity: 0.72;
 }
 
 .now-playing::before {
@@ -948,11 +949,13 @@ onMounted(async () => {
   font-size: 20px;
 }
 
-.controls-wraper {
+.controls-wrapper {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
+  gap: var(--space-02);
   justify-content: space-between;
+  z-index:1;
 }
 
 .now-playing .control-btn {

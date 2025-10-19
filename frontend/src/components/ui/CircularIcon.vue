@@ -26,7 +26,7 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'light',
-    validator: (value) => ['light', 'dark'].includes(value)
+    validator: (value) => ['light', 'dark', 'overlay'].includes(value)
   },
   disabled: {
     type: Boolean,
@@ -68,6 +68,14 @@ function handleClick() {
 
 .circular-icon--dark {
   background: var(--color-background-neutral-12);
+}
+
+.circular-icon--overlay {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.circular-icon--overlay .circular-icon__icon {
+  color: var(--color-text-contrast);
 }
 
 .circular-icon:disabled {
