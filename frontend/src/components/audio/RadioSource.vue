@@ -105,9 +105,9 @@
 
           <!-- Bouton "Charger plus" -->
           <div v-if="hasMoreStations" class="load-more">
-            <button class="load-more-btn" @click="loadMore">
+            <Button variant="toggle" :active="false" @click="loadMore">
               Charger plus ({{ remainingStations }} restantes)
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -134,16 +134,9 @@
         </p>
       </div>
       <div class="controls-wrapper">
-        <CircularIcon
-          :icon="radioStore.currentStation.is_favorite ? 'heart' : 'heartOff'"
-          variant="overlay"
-          @click="handleFavorite"
-        />
-        <CircularIcon
-          :icon="isCurrentlyPlaying ? 'stop' : 'play'"
-          variant="overlay"
-          @click="handlePlayPause"
-        />
+        <CircularIcon :icon="radioStore.currentStation.is_favorite ? 'heart' : 'heartOff'" variant="overlay"
+          @click="handleFavorite" />
+        <CircularIcon :icon="isCurrentlyPlaying ? 'stop' : 'play'" variant="overlay" @click="handlePlayPause" />
       </div>
 
     </div>
@@ -158,6 +151,7 @@ import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 import AddStationModal from '@/components/audio/AddStationModal.vue';
+import Button from '@/components/ui/Button.vue';
 
 const radioStore = useRadioStore();
 const unifiedStore = useUnifiedAudioStore();
@@ -546,7 +540,6 @@ onMounted(async () => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
 }
 
 .loading-state,
@@ -568,17 +561,18 @@ onMounted(async () => {
 
 .stations-grid {
   display: grid;
+  padding-bottom: var(--space-04);
 }
 
 /* Mode Recherche */
 .stations-grid.search-mode {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: var(--space-01);
+  gap: var(--space-01);
 }
 
 /* Mode Favoris */
 .stations-grid.favorites-mode {
-    gap: var(--space-03);
+  gap: var(--space-03);
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
@@ -751,24 +745,8 @@ onMounted(async () => {
 }
 
 .load-more {
-  padding: var(--space-04);
+  padding-bottom: var(--space-06);
   text-align: center;
-}
-
-.load-more-btn {
-  padding: var(--space-03) var(--space-05);
-  background: var(--color-background-neutral);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-04);
-  color: var(--color-text);
-  font-size: var(--font-size-body);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.load-more-btn:hover {
-  background: var(--color-background);
-  transform: translateY(-2px);
 }
 
 /* === NOW PLAYING === 
@@ -956,7 +934,7 @@ onMounted(async () => {
   flex-wrap: nowrap;
   gap: var(--space-02);
   justify-content: space-between;
-  z-index:1;
+  z-index: 1;
 }
 
 .now-playing .control-btn {
