@@ -341,6 +341,10 @@ class RadioBrowserAPI:
             genre_lower = genre.lower()
             results = [s for s in results if genre_lower in s['genre'].lower()]
 
+        # Enrichir avec les images personnalisées
+        if self.station_manager:
+            results = self.station_manager.enrich_with_custom_images(results)
+
         # Limiter résultats
         return results[:limit]
 
@@ -362,12 +366,18 @@ class RadioBrowserAPI:
 
         # Chercher dans le cache d'abord
         if self._is_cache_valid() and station_id in self._stations_cache:
-            return self._stations_cache[station_id]
+            station = self._stations_cache[station_id]
+        else:
+            # Sinon, recharger toutes les stations
+            await self.load_all_stations()
+            station = self._stations_cache.get(station_id)
 
-        # Sinon, recharger toutes les stations
-        await self.load_all_stations()
+        # Enrichir avec les images personnalisées si la station existe
+        if station and self.station_manager:
+            # Appliquer l'image personnalisée si elle existe
+            station = self.station_manager.enrich_with_custom_images([station])[0]
 
-        return self._stations_cache.get(station_id)
+        return station
 
     async def increment_station_clicks(self, station_id: str) -> bool:
         """

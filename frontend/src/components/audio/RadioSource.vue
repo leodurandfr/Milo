@@ -13,6 +13,9 @@
 
         <!-- ModalHeader : Vue Recherche -->
         <ModalHeader v-else title="Découvrir des radios" :show-back="true" variant="neutral" @back="closeSearch">
+          <template #actions>
+            <CircularIcon icon="add" variant="light" @click="showAddStationModal = true" />
+          </template>
         </ModalHeader>
 
         <!-- Recherche et filtres (visible uniquement en mode recherche) -->
@@ -153,6 +156,9 @@
       </div>
 
     </div>
+
+    <!-- Add Station Modal -->
+    <AddStationModal v-if="showAddStationModal" @close="showAddStationModal = false" @success="handleStationAdded" />
   </div>
 </template>
 
@@ -163,13 +169,15 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
+import AddStationModal from '@/components/audio/AddStationModal.vue';
 
 const radioStore = useRadioStore();
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
 const isSearchMode = ref(false);
-const displayLimit = ref(20);
+const showAddStationModal = ref(false);
+const displayLimit = ref(80);
 const searchDebounceTimer = ref(null);
 
 // Références pour animations
@@ -255,13 +263,13 @@ async function animateIn() {
 // === NAVIGATION ===
 function openSearch() {
   isSearchMode.value = true;
-  displayLimit.value = 20;
+  displayLimit.value = 40;
   radioStore.loadStations(false); // Charger toutes les stations
 }
 
 function closeSearch() {
   isSearchMode.value = false;
-  displayLimit.value = 20;
+  displayLimit.value = 80;
   // Retour au mode favoris - réinitialiser les filtres
   radioStore.searchQuery = '';
   radioStore.countryFilter = '';
@@ -271,7 +279,7 @@ function closeSearch() {
 
 // === ACTIONS ===
 function loadMore() {
-  displayLimit.value += 20;
+  displayLimit.value += 40;
 }
 
 function handleSearch() {
@@ -281,7 +289,7 @@ function handleSearch() {
   }
 
   searchDebounceTimer.value = setTimeout(async () => {
-    displayLimit.value = 20;
+    displayLimit.value = 40;
     await radioStore.loadStations(false);
   }, 300);
 }
@@ -305,6 +313,13 @@ async function togglePlayback() {
 
 async function toggleFavorite(stationId) {
   await radioStore.toggleFavorite(stationId);
+}
+
+function handleStationAdded(station) {
+  console.log('✅ Station ajoutée:', station);
+  // La station a été ajoutée au store, elle apparaîtra automatiquement dans la liste
+  // On peut optionnellement recharger les stations pour être sûr
+  radioStore.loadStations(false);
 }
 
 function handleCurrentStationImageError(e) {
@@ -552,7 +567,7 @@ onMounted(async () => {
 
 .stations-grid {
   display: grid;
-  gap: var(--space-01);
+  gap: var(--space-03);
 }
 
 /* Mode Recherche : 2 colonnes */
@@ -562,7 +577,7 @@ onMounted(async () => {
 
 /* Mode Favoris : 3 colonnes */
 .stations-grid.favorites-mode {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 /* === STATION IMAGE (Mode Favoris - Image seule) === */
@@ -575,7 +590,6 @@ onMounted(async () => {
   transition: transform var(--transition-fast);
   position: relative;
   background: var(--color-background-neutral);
-  border: 2px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -585,12 +599,13 @@ onMounted(async () => {
   transform: scale(1.02);
 }
 
-.station-image.active {
-  border-color: var(--color-brand);
-}
+/* .station-image.active {
+  border: 2px solid var(--color-brand);
+} */
 
 .station-image.playing {
-  border-color: var(--color-brand);
+  outline: 3px solid hsla(0, 0%, 0%, 0.08);
+  outline-offset: -3px;
 }
 
 .station-image .station-img {
@@ -598,10 +613,10 @@ onMounted(async () => {
   height: 100%;
   object-fit: cover;
   object-position: center;
-  position: absolute;
+  /* position: absolute; */
   top: 0;
   left: 0;
-  z-index: 1;
+  /* z-index: 1; */
   display: block;
 }
 
@@ -776,10 +791,10 @@ onMounted(async () => {
   max-height: none;
   width: auto;
   height: auto;
-  min-width: 125%;
-  min-height: 125%;
+  min-width: 200%;
+  min-height: 200%;
   object-fit: contain;
-  transform: scale(1.25);
+  transform: scale(2);
 }
 
 .now-playing .station-art {
@@ -1029,9 +1044,9 @@ onMounted(async () => {
   }
 
   /* Background blur spécifique Mobile */
-  .now-playing .station-art-background .background-station-favicon {
+  /* .now-playing .station-art-background .background-station-favicon {
     filter: blur(40px);
-  }
+  } */
 
   .now-playing .station-art {
     width: 48px;

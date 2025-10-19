@@ -42,6 +42,12 @@
           </template>
         </IconButton>
 
+        <IconButton v-if="settingsStore.dockApps.radio" title="Radio" :clickable="true" :show-caret="true" @click="goToView('radio')">
+          <template #icon>
+            <img :src="applicationsIcon" alt="Radio" />
+          </template>
+        </IconButton>
+
         <IconButton :title="t('settings.dependencies')" :clickable="true" :show-caret="true" @click="goToView('dependencies')">
           <template #icon>
             <img :src="dependenciesIcon" alt="Dependencies" />
@@ -101,6 +107,12 @@
       <MultiroomSettings />
     </div>
 
+    <!-- Vue Radio -->
+    <div v-else-if="currentView === 'radio'" class="view-detail">
+      <ModalHeader title="Radio" show-back @back="goToHome" />
+      <RadioSettings />
+    </div>
+
     <!-- Vue Dépendances -->
     <div v-else-if="currentView === 'dependencies'" class="view-detail">
       <ModalHeader :title="t('settings.dependencies')" show-back @back="goToHome" />
@@ -141,6 +153,7 @@ import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue'
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
 import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
 import MultiroomSettings from '@/components/settings/categories/MultiroomSettings.vue';
+import RadioSettings from '@/components/settings/categories/RadioSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 

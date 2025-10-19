@@ -230,3 +230,15 @@ class MpvController:
         # Si playback-time est un nombre (même 0), le stream joue
         return isinstance(playback_time, (int, float))
 
+    async def get_status(self) -> Dict[str, Any]:
+        """
+        Récupère l'état actuel de mpv
+
+        Returns:
+            Dict avec l'état de connexion et de lecture
+        """
+        return {
+            "connected": self.is_connected,
+            "playing": await self.is_playing() if self.is_connected else False
+        }
+

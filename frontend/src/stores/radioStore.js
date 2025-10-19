@@ -40,7 +40,9 @@ export const useRadioStore = defineStore('radio', () => {
   });
 
   const favoriteStations = computed(() => {
-    return stations.value.filter(s => s.is_favorite);
+    return stations.value
+      .filter(s => s.is_favorite)
+      .sort((a, b) => a.name.localeCompare(b.name));
   });
 
   // === ACTIONS ===
@@ -165,6 +167,111 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  async function addCustomStation(stationData) {
+    /**
+     * Ajoute une station personnalisée avec upload d'image
+     *
+     * @param {Object} stationData - Données de la station
+     * @param {string} stationData.name - Nom de la station
+     * @param {string} stationData.url - URL du flux audio
+     * @param {string} stationData.country - Pays (défaut: "France")
+     * @param {string} stationData.genre - Genre (défaut: "Variety")
+     * @param {File} stationData.image - Fichier image (optionnel)
+     * @param {number} stationData.bitrate - Bitrate (défaut: 128)
+     * @param {string} stationData.codec - Codec (défaut: "MP3")
+     * @returns {Promise<{success: boolean, station?: Object, error?: string}>}
+     */
+    try {
+      // Créer un FormData pour l'upload multipart/form-data
+      const formData = new FormData();
+      formData.append('name', stationData.name);
+      formData.append('url', stationData.url);
+      formData.append('country', stationData.country || 'France');
+      formData.append('genre', stationData.genre || 'Variety');
+      formData.append('bitrate', stationData.bitrate || 128);
+      formData.append('codec', stationData.codec || 'MP3');
+
+      // Ajouter l'image si fournie
+      if (stationData.image) {
+        formData.append('image', stationData.image);
+      }
+
+      const response = await axios.post('/api/radio/custom/add', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      if (response.data.success) {
+        // Ajouter la nouvelle station à la liste
+        const newStation = response.data.station;
+        stations.value.unshift(newStation); // Ajouter au début
+        console.log('📻 Station personnalisée ajoutée:', newStation);
+        return { success: true, station: newStation };
+      } else {
+        return { success: false, error: response.data.error || 'Échec ajout station' };
+      }
+    } catch (error) {
+      console.error('Error adding custom station:', error);
+      const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  async function removeCustomStation(stationId) {
+    try {
+      const response = await axios.post('/api/radio/custom/remove', { station_id: stationId });
+
+      if (response.data.success) {
+        // Retirer de la liste
+        stations.value = stations.value.filter(s => s.id !== stationId);
+        console.log('📻 Station personnalisée supprimée:', stationId);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error removing custom station:', error);
+      return false;
+    }
+  }
+
+  async function removeStationImage(stationId) {
+    /**
+     * Supprime l'image importée d'une station
+     *
+     * @param {string} stationId - ID de la station
+     * @returns {Promise<{success: boolean, station?: Object, error?: string}>}
+     */
+    try {
+      const formData = new FormData();
+      formData.append('station_id', stationId);
+
+      const response = await axios.post('/api/radio/custom/remove-image', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      if (response.data.success) {
+        // Mettre à jour la station dans la liste
+        const updatedStation = response.data.station;
+        const index = stations.value.findIndex(s => s.id === stationId);
+        if (index !== -1) {
+          stations.value[index] = updatedStation;
+        }
+
+        console.log('🖼️ Image supprimée:', stationId);
+        return { success: true, station: updatedStation };
+      } else {
+        return { success: false, error: response.data.error || 'Échec suppression image' };
+      }
+    } catch (error) {
+      console.error('Error removing station image:', error);
+      const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+      return { success: false, error: errorMessage };
+    }
+  }
+
   function updateFromWebSocket(metadata) {
     // SIMPLIFIÉ: Synchronisation directe depuis le backend (source de vérité)
     // Plus d'optimistic updates à gérer
@@ -240,6 +347,9 @@ export const useRadioStore = defineStore('radio', () => {
     toggleFavorite,
     markBroken,
     resetBrokenStations,
+    addCustomStation,
+    removeCustomStation,
+    removeStationImage,
     updateFromWebSocket,
     handleFavoriteEvent
   };
