@@ -139,16 +139,21 @@
 
         <!-- Liste des stations -->
         <div class="stations-list">
-          <div v-if="radioStore.loading" class="loading-state">
+          <div v-if="transitionState === 'loading'" class="loading-state">
             <p>Chargement des stations...</p>
           </div>
 
-          <div v-else-if="displayedStations.length === 0" class="empty-list">
+          <div v-else-if="displayedStations.length === 0 && transitionState === 'idle'" class="empty-list">
             <div class="empty-icon">📻</div>
             <p class="heading-2">{{ isSearchMode ? 'Aucune station trouvée' : 'Aucune radio favorite' }}</p>
           </div>
 
-          <div v-else class="stations-grid" :class="{ 'favorites-mode': !isSearchMode, 'search-mode': isSearchMode }">
+          <div v-else-if="transitionState !== 'loading'" class="stations-grid" :class="{
+            'favorites-mode': !isSearchMode,
+            'search-mode': isSearchMode,
+            'transition-fading-out': transitionState === 'fading-out',
+            'transition-fading-in': transitionState === 'fading-in'
+          }">
             <!-- Mode Favoris : affichage image seule -->
             <div v-if="!isSearchMode" v-for="station in displayedStations" :key="`fav-${station.id}`" :class="['station-image', {
               active: radioStore.currentStation?.id === station.id,
@@ -215,15 +220,15 @@
       </div>
 
       <div class="station-art">
-        <img v-if="radioStore.currentStation.favicon" :src="getFaviconUrl(radioStore.currentStation.favicon)" alt="Station logo"
-          class="current-station-favicon" @error="handleCurrentStationImageError" />
+        <img v-if="radioStore.currentStation.favicon" :src="getFaviconUrl(radioStore.currentStation.favicon)"
+          alt="Station logo" class="current-station-favicon" @error="handleCurrentStationImageError" />
         <div class="placeholder-logo" :class="{ visible: !radioStore.currentStation.favicon }">📻</div>
       </div>
 
       <div class="station-info">
         <p class="station-name display-1">{{ radioStore.currentStation.name }}</p>
         <p class="station-meta text-mono">{{ radioStore.currentStation.country }} • {{ radioStore.currentStation.genre
-          }}
+        }}
         </p>
       </div>
       <div class="controls-wrapper">
@@ -254,6 +259,7 @@ const { on } = useWebSocket();
 const isSearchMode = ref(false);
 const searchDebounceTimer = ref(null);
 const availableCountries = ref([]); // Liste dynamique des pays disponibles
+const transitionState = ref('idle'); // États: 'idle', 'fading-out', 'loading', 'fading-in'
 
 // Références pour animations et scroll
 const radioContainer = ref(null);
@@ -366,6 +372,37 @@ function loadMore() {
   radioStore.loadMore();
 }
 
+// === TRANSITION ANIMATIONS ===
+async function performTransition() {
+  // Si la liste est vide, pas besoin d'animation de sortie
+  if (displayedStations.value.length === 0) {
+    transitionState.value = 'loading';
+    await radioStore.loadStations(false);
+    transitionState.value = 'fading-in';
+    await new Promise(resolve => setTimeout(resolve, 400));
+    transitionState.value = 'idle';
+    return;
+  }
+
+  // Séquence complète d'animations
+  // 1. Fade out vers le haut (300ms)
+  transitionState.value = 'fading-out';
+  await new Promise(resolve => setTimeout(resolve, 300));
+
+  // 2. Afficher le message de chargement
+  transitionState.value = 'loading';
+
+  // 3. Charger les nouvelles stations
+  await radioStore.loadStations(false);
+
+  // 4. Fade in depuis le bas (400ms)
+  transitionState.value = 'fading-in';
+  await new Promise(resolve => setTimeout(resolve, 400));
+
+  // 5. Retour à l'état normal
+  transitionState.value = 'idle';
+}
+
 function handleSearch() {
   // Debounce pour éviter trop d'appels API
   if (searchDebounceTimer.value) {
@@ -373,8 +410,8 @@ function handleSearch() {
   }
 
   searchDebounceTimer.value = setTimeout(async () => {
-    // Charger les stations (visibleStations sera automatiquement réinitialisé)
-    await radioStore.loadStations(false);
+    // Utiliser la nouvelle fonction de transition
+    await performTransition();
   }, 300);
 }
 
@@ -708,6 +745,7 @@ onBeforeUnmount(() => {
 .loading-state,
 .empty-list {
   display: flex;
+  height: 100%;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -865,6 +903,9 @@ onBeforeUnmount(() => {
   font-size: var(--font-size-body-small);
   font-weight: 500;
   color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .station-subtitle {
@@ -1163,6 +1204,38 @@ onBeforeUnmount(() => {
 .station-image.loading,
 .station-card.loading {
   opacity: 0.9;
+}
+
+/* === TRANSITION ANIMATIONS === */
+@keyframes fadeOutUp {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Appliquer les animations selon l'état de transition */
+.stations-grid.transition-fading-out {
+  animation: fadeOutUp 300ms ease-out forwards;
+}
+
+.stations-grid.transition-fading-in {
+  animation: fadeInUp 400ms ease-out forwards;
 }
 
 
