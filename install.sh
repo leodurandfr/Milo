@@ -734,6 +734,10 @@ Type=simple
 User=milo
 Group=milo
 
+# Créer automatiquement /run/milo/ pour le socket IPC
+RuntimeDirectory=milo
+RuntimeDirectoryMode=0755
+
 # Charger les variables d'environnement Milo (MILO_MODE et MILO_EQUALIZER)
 EnvironmentFile=/var/lib/milo/milo_environment
 
@@ -751,9 +755,6 @@ ExecStart=/usr/bin/mpv \
     --no-config \
     --no-terminal \
     --really-quiet
-
-# Nettoyage du socket IPC à l'arrêt
-ExecStopPost=/bin/rm -f /run/milo/radio-ipc.sock
 
 # Restart policy
 Restart=on-failure
