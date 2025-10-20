@@ -122,49 +122,21 @@ class RadioBrowserAPI:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Fusionner et dédupliquer
+        # Fusionner les résultats
         all_stations = []
         for result in results:
             if isinstance(result, list):
                 all_stations.extend(result)
 
         # Filtrer et normaliser
-        stations_map = {}
+        valid_stations = []
         for station in all_stations:
-            # Filtrer les stations invalides
-            if not self._is_valid_station(station):
-                continue
+            if self._is_valid_station(station):
+                normalized = self._normalize_station(station)
+                valid_stations.append(normalized)
 
-            # Normaliser et dédupliquer par nom
-            normalized = self._normalize_station(station)
-            station_key = normalized['name'].lower().strip()
-
-            # Garder la meilleure version si doublon
-            if station_key not in stations_map:
-                stations_map[station_key] = normalized
-            else:
-                existing = stations_map[station_key]
-
-                # Toujours mettre à jour le favicon si le nouveau est de meilleure qualité
-                new_favicon_quality = self._get_favicon_quality(normalized.get('favicon', ''))
-                existing_favicon_quality = self._get_favicon_quality(existing.get('favicon', ''))
-
-                if new_favicon_quality > existing_favicon_quality:
-                    existing['favicon'] = normalized['favicon']
-
-                # Remplacer la station entière si meilleure qualité globale
-                if self._compare_station_quality(normalized, existing) > 0:
-                    # Garder le meilleur favicon déjà trouvé
-                    best_favicon = existing['favicon'] if existing_favicon_quality > new_favicon_quality else normalized['favicon']
-                    normalized['favicon'] = best_favicon
-                    stations_map[station_key] = normalized
-
-        # Trier par popularité (votes + clics)
-        sorted_stations = sorted(
-            stations_map.values(),
-            key=lambda s: s.get('score', 0),
-            reverse=True
-        )
+        # Dédupliquer et trier
+        sorted_stations = self._deduplicate_stations(valid_stations)
 
         # Mettre en cache
         self._stations_cache = {s['id']: s for s in sorted_stations}
@@ -303,6 +275,51 @@ class RadioBrowserAPI:
         bitrate2 = station2.get('bitrate', 0)
 
         return bitrate1 - bitrate2
+
+    def _deduplicate_stations(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Déduplique une liste de stations par nom (case-insensitive)
+        Garde la meilleure version basée sur score et bitrate
+
+        Args:
+            stations: Liste de stations normalisées
+
+        Returns:
+            Liste de stations dédupliquées et triées par score
+        """
+        stations_map = {}
+
+        for station in stations:
+            station_key = station['name'].lower().strip()
+
+            # Garder la meilleure version si doublon
+            if station_key not in stations_map:
+                stations_map[station_key] = station
+            else:
+                existing = stations_map[station_key]
+
+                # Toujours mettre à jour le favicon si le nouveau est de meilleure qualité
+                new_favicon_quality = self._get_favicon_quality(station.get('favicon', ''))
+                existing_favicon_quality = self._get_favicon_quality(existing.get('favicon', ''))
+
+                if new_favicon_quality > existing_favicon_quality:
+                    existing['favicon'] = station['favicon']
+
+                # Remplacer la station entière si meilleure qualité globale
+                if self._compare_station_quality(station, existing) > 0:
+                    # Garder le meilleur favicon déjà trouvé
+                    best_favicon = existing['favicon'] if existing_favicon_quality > new_favicon_quality else station['favicon']
+                    station['favicon'] = best_favicon
+                    stations_map[station_key] = station
+
+        # Trier par popularité (votes + clics)
+        sorted_stations = sorted(
+            stations_map.values(),
+            key=lambda s: s.get('score', 0),
+            reverse=True
+        )
+
+        return sorted_stations
 
     async def search_stations(
         self,
@@ -464,10 +481,12 @@ class RadioBrowserAPI:
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Trier par score
-                valid_stations.sort(key=lambda s: s.get('score', 0), reverse=True)
+                # Dédupliquer et trier par score
+                deduplicated_stations = self._deduplicate_stations(valid_stations)
 
-                return valid_stations
+                self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for {country_name}")
+
+                return deduplicated_stations
 
         except asyncio.TimeoutError:
             self.logger.error(f"Timeout fetching stations for {country_name}")
