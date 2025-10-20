@@ -820,11 +820,20 @@ class VolumeService:
             return False
     
     # === API PUBLIQUE ===
-    
+
+    def update_client_display_volume(self, client_id: str, display_volume: int) -> None:
+        """Met à jour le volume display d'un client (appelé depuis les routes API)"""
+        try:
+            clamped = self._clamp_display_volume(float(display_volume))
+            self._client_display_states[client_id] = clamped
+            self.logger.debug(f"Updated client {client_id} display volume to {display_volume}%")
+        except Exception as e:
+            self.logger.error(f"Error updating client volume: {e}")
+
     def convert_alsa_to_display(self, alsa_volume: int) -> int:
         """ALSA → Display"""
         return self._alsa_to_display(alsa_volume)
-    
+
     def convert_display_to_alsa(self, display_volume: int) -> int:
         """Display → ALSA"""
         return self._display_to_alsa(display_volume)

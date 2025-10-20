@@ -333,28 +333,35 @@ class SnapcastWebSocketService:
             if not volume_service:
                 self.logger.warning("VolumeService not available for delegation")
                 return
-            
+
             client_id = params.get("id")
             if not client_id:
                 return
-            
+
             volume_data = params.get("volume", {})
             alsa_volume = volume_data.get("percent", 0)
             muted = volume_data.get("muted", False)
-            
+
             # Déléguer la synchronisation au VolumeService
             await volume_service.sync_client_volume_from_external(client_id, alsa_volume)
-            
-            # 🆕 TOUJOURS broadcaster le statut mute (pour Client.OnVolumeChanged ET Client.OnMute)
+
+            # Diffuser le bon type d'événement selon la notification
             display_volume = volume_service.convert_alsa_to_display(alsa_volume)
-            await self._broadcast_snapcast_event("client_mute_changed", {
-                "client_id": client_id,
-                "volume": display_volume,
-                "muted": muted
-            })
-            
-            self.logger.debug(f"Delegated {method} to VolumeService for client {client_id} (muted={muted})")
-            
+            if method == "Client.OnVolumeChanged":
+                await self._broadcast_snapcast_event("client_volume_changed", {
+                    "client_id": client_id,
+                    "volume": display_volume,
+                    "muted": muted
+                })
+            elif method == "Client.OnMute":
+                await self._broadcast_snapcast_event("client_mute_changed", {
+                    "client_id": client_id,
+                    "volume": display_volume,
+                    "muted": muted
+                })
+
+            self.logger.debug(f"Delegated {method} to VolumeService for client {client_id} (volume={display_volume}, muted={muted})")
+
         except Exception as e:
             self.logger.error(f"Error delegating to VolumeService: {e}")
     
