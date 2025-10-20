@@ -495,15 +495,12 @@ class RadioBrowserAPI:
         # Cache expiré ou absent, essayer de fetch
         await self._ensure_session()
 
-        # Tenter 3 fois avec retry (timeout plus long pour le premier appel)
+        # Tenter 3 fois avec retry
         for attempt in range(1, 4):
             try:
-                # Premier appel: timeout 20s (API peut être lente au démarrage)
-                # Appels suivants: timeout 10s
-                timeout_seconds = 20 if attempt == 1 else 10
-                self.logger.info(f"Attempt {attempt}/3 fetching countries from Radio Browser API (timeout: {timeout_seconds}s)...")
+                self.logger.info(f"Attempt {attempt}/3 fetching countries from Radio Browser API...")
                 url = f"{self.BASE_URL}/countries"
-                async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=timeout_seconds)) as resp:
+                async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status != 200:
                         self.logger.warning(f"API error fetching countries (attempt {attempt}): HTTP {resp.status}")
                         if attempt < 3:
@@ -552,14 +549,6 @@ class RadioBrowserAPI:
             self.logger.warning(f"⚠️ API unreachable, using stale cache ({len(self._countries_cache)} countries, age: {cache_age})")
             return self._countries_cache
 
-        # Pas de cache, retourner fallback par défaut
-        fallback_countries = [
-            {"name": "United States", "stationcount": 0},
-            {"name": "Germany", "stationcount": 0},
-            {"name": "France", "stationcount": 0},
-            {"name": "United Kingdom", "stationcount": 0},
-            {"name": "Spain", "stationcount": 0},
-            {"name": "Italy", "stationcount": 0}
-        ]
-        self.logger.warning(f"⚠️ API unreachable and no cache, returning fallback ({len(fallback_countries)} countries)")
-        return fallback_countries
+        # Pas de cache, retourner liste vide
+        self.logger.error("❌ API unreachable and no cache available, returning empty list")
+        return []

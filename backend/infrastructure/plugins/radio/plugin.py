@@ -91,20 +91,13 @@ class RadioPlugin(UnifiedAudioPlugin):
             return False
 
     async def _preload_stations(self) -> None:
-        """Précharge les stations et les pays en arrière-plan"""
+        """Précharge les stations en arrière-plan"""
         try:
-            self.logger.info("Préchargement des stations et pays en arrière-plan...")
-
-            # Lancer les deux chargements en parallèle
-            await asyncio.gather(
-                self.radio_api.load_all_stations(),
-                self.radio_api.get_available_countries(),
-                return_exceptions=True
-            )
-
-            self.logger.info("✅ Stations et pays préchargés avec succès")
+            self.logger.info("Préchargement des stations...")
+            await self.radio_api.load_all_stations()
+            self.logger.info("Stations préchargées avec succès")
         except Exception as e:
-            self.logger.error(f"Erreur préchargement stations/pays: {e}")
+            self.logger.error(f"Erreur préchargement stations: {e}")
 
     async def _do_start(self) -> bool:
         """Démarrage du service Radio"""
