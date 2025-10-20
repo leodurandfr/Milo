@@ -44,7 +44,7 @@ defineEmits(['click']);
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
-  z-index: 1001;
+  z-index: 5001;
 }
 
 /* Gradient stroke avec technique mask */

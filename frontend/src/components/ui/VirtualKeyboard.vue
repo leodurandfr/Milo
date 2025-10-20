@@ -221,7 +221,7 @@ function handleSubmit() {
   inset: 0;
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(8px);
-  z-index: 9999;
+  z-index: 6000;
   display: flex;
   align-items: flex-end;
   justify-content: center;

@@ -639,7 +639,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  z-index: 50;
+  z-index: 1;
   padding: var(--space-07);
   gap: var(--space-04);
 }

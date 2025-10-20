@@ -359,7 +359,7 @@ onUnmounted(() => {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  z-index: 1000;
+  z-index: 5000;
   padding: 48px var(--space-04) var(--space-07) var(--space-04);
   opacity: 0;
 }

@@ -224,7 +224,7 @@ async function handleSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 5001;
   padding: var(--space-04);
 }
 

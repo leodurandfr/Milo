@@ -746,7 +746,7 @@ onUnmounted(() => {
   transform: translateX(-50%);
   height: 12%;
   opacity: 0.2;
-  z-index: 999;
+  z-index: 3999;
   cursor: grab;
   user-select: none;
 }
@@ -761,7 +761,7 @@ onUnmounted(() => {
   margin-bottom: var(--space-03);
   left: 50%;
   transform: translateX(-50%) translateY(var(--space-06));
-  z-index: 998;
+  z-index: 3998;
   border-radius: var(--radius-07);
   padding: var(--space-04);
   background: var(--color-background-glass);
@@ -833,7 +833,7 @@ onUnmounted(() => {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%) translateY(148px) scale(0.85);
-  z-index: 9999;
+  z-index: 4000;
   transition: transform var(--transition-spring);
 }
 
