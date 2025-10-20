@@ -547,6 +547,90 @@ class RadioBrowserAPI:
 
         return station
 
+    async def get_stations_by_ids(self, station_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Récupère plusieurs stations par leurs IDs en batch (inclut les stations personnalisées)
+        Pour les stations avec favicons manquants/mauvais, fait une recherche par nom
+        pour trouver de meilleures versions. Applique la déduplication finale.
+
+        Args:
+            station_ids: Liste des UUIDs de stations
+
+        Returns:
+            Liste des stations trouvées avec favicons améliorés
+        """
+        if not station_ids:
+            return []
+
+        stations = []
+        stations_needing_better_favicon = []
+
+        # Séparer les stations custom des stations normales
+        custom_ids = [sid for sid in station_ids if sid.startswith("custom_")]
+        regular_ids = [sid for sid in station_ids if not sid.startswith("custom_")]
+
+        # Récupérer les stations custom
+        if custom_ids and self.station_manager:
+            for station_id in custom_ids:
+                custom_station = self.station_manager.get_custom_station_by_id(station_id)
+                if custom_station:
+                    stations.append(custom_station)
+
+        # Récupérer les stations normales
+        for station_id in regular_ids:
+            # Chercher dans le cache d'abord
+            if self._is_cache_valid() and station_id in self._stations_cache:
+                station = self._stations_cache[station_id]
+            else:
+                # Sinon, récupérer depuis l'API
+                station = await self._fetch_station_by_id(station_id)
+                # Mettre en cache si trouvée
+                if station:
+                    self._stations_cache[station_id] = station
+
+            if station:
+                stations.append(station)
+
+                # Si le favicon est vide ou de mauvaise qualité, on essaiera de trouver une meilleure version
+                favicon_quality = self._get_favicon_quality(station.get('favicon', ''))
+                if favicon_quality < 20:  # Seuil bas = pas de favicon ou de mauvaise qualité
+                    stations_needing_better_favicon.append(station)
+
+        # Pour les stations avec favicons manquants/mauvais, chercher de meilleures versions par nom
+        if stations_needing_better_favicon:
+            self.logger.info(f"Searching better favicons for {len(stations_needing_better_favicon)} stations")
+
+            additional_stations = []
+            for station in stations_needing_better_favicon:
+                station_name = station.get('name', '')
+                if station_name:
+                    # Faire une recherche par nom pour trouver d'autres versions de cette station
+                    search_results = await self._fetch_stations_by_query(station_name)
+
+                    # Garder seulement les résultats qui correspondent au même nom (case-insensitive)
+                    # pour éviter d'ajouter des stations non pertinentes
+                    matching_results = [
+                        s for s in search_results
+                        if s.get('name', '').lower().strip() == station_name.lower().strip()
+                    ]
+
+                    additional_stations.extend(matching_results)
+
+            # Ajouter les versions alternatives trouvées
+            stations.extend(additional_stations)
+            self.logger.info(f"Found {len(additional_stations)} alternative versions with better favicons")
+
+        # IMPORTANT : Appliquer la déduplication pour fusionner les versions et garder les meilleurs favicons
+        # La déduplication va comparer toutes les versions de chaque station (ID + alternatives par nom)
+        # et garder le meilleur favicon pour chaque station unique
+        deduplicated_stations = self._deduplicate_stations(stations)
+
+        # Enrichir avec les images personnalisées
+        if deduplicated_stations and self.station_manager:
+            deduplicated_stations = self.station_manager.enrich_with_custom_images(deduplicated_stations)
+
+        return deduplicated_stations
+
     async def increment_station_clicks(self, station_id: str) -> bool:
         """
         Incrémente le compteur de clicks pour une station

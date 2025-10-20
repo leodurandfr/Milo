@@ -460,13 +460,14 @@ install_roc_toolkit() {
 
 install_bluez_alsa() {
     log_info "Installation de bluez-alsa..."
-    
+
     sudo apt install -y \
       libasound2-dev \
       libbluetooth-dev \
       libdbus-1-dev \
       libglib2.0-dev \
       libsbc-dev \
+      libsystemd-dev \
       bluez \
       bluez-tools \
       pkg-config \

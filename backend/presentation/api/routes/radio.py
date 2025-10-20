@@ -89,12 +89,8 @@ async def search_stations(
             if not favorite_ids:
                 return {"stations": [], "total": 0}
 
-            # Charger les stations complètes
-            stations = []
-            for station_id in favorite_ids:
-                station = await plugin.radio_api.get_station_by_id(station_id)
-                if station:
-                    stations.append(station)
+            # Charger les stations complètes en batch (avec déduplication pour améliorer les favicons)
+            stations = await plugin.radio_api.get_stations_by_ids(favorite_ids)
 
             # Filtrer si nécessaire
             if query:
