@@ -833,7 +833,7 @@ onUnmounted(() => {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%) translateY(148px) scale(0.85);
-  z-index: 1000;
+  z-index: 9999;
   transition: transform var(--transition-spring);
 }
 

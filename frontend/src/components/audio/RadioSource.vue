@@ -25,7 +25,7 @@
               <option value="">Tous les pays</option>
               <option v-if="availableCountries.length === 0" disabled>Chargement des pays...</option>
               <option v-for="country in availableCountries" :key="country.name" :value="country.name">
-                {{ country.name }} ({{ country.stationcount }})
+                {{ country.name }}
               </option>
             </select>
 
@@ -237,7 +237,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import axios from 'axios';
 import { useRadioStore } from '@/stores/radioStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
@@ -252,11 +252,10 @@ const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
 const isSearchMode = ref(false);
-const displayLimit = ref(80);
 const searchDebounceTimer = ref(null);
 const availableCountries = ref([]); // Liste dynamique des pays disponibles
 
-// Références pour animations
+// Références pour animations et scroll
 const radioContainer = ref(null);
 const radioContent = ref(null);
 
@@ -288,29 +287,28 @@ const bufferingStationId = computed(() => {
   return unifiedStore.systemState.metadata.station_id || null;
 });
 
-// Stations affichées avec limite - favoris ou toutes selon le mode
+// Stations affichées - favoris ou résultats de recherche selon le mode
 const displayedStations = computed(() => {
-  const stations = isSearchMode.value
-    ? radioStore.filteredStations
-    : radioStore.favoriteStations;
-
-  return stations.slice(0, displayLimit.value);
+  if (isSearchMode.value) {
+    return radioStore.displayedStations;
+  } else {
+    // Mode favoris : afficher tous les favoris (pas de pagination)
+    return radioStore.favoriteStations;
+  }
 });
 
 const hasMoreStations = computed(() => {
-  const total = isSearchMode.value
-    ? radioStore.filteredStations.length
-    : radioStore.favoriteStations.length;
-
-  return total > displayLimit.value;
+  if (isSearchMode.value) {
+    return radioStore.hasMoreStations;
+  }
+  return false; // Pas de pagination pour les favoris
 });
 
 const remainingStations = computed(() => {
-  const total = isSearchMode.value
-    ? radioStore.filteredStations.length
-    : radioStore.favoriteStations.length;
-
-  return total - displayLimit.value;
+  if (isSearchMode.value) {
+    return radioStore.remainingStations;
+  }
+  return 0;
 });
 
 // === ANIMATIONS ===
@@ -340,29 +338,32 @@ async function animateIn() {
 async function openSearch() {
   console.log('🔍 Opening search mode. Available countries:', availableCountries.value.length);
   isSearchMode.value = true;
-  displayLimit.value = 40;
 
   // Charger les pays si pas encore chargés
   if (availableCountries.value.length === 0) {
     await loadAvailableCountries();
   }
 
-  radioStore.loadStations(false); // Charger toutes les stations
+  // Charger les stations top 500 (utilise le cache si déjà chargé)
+  radioStore.loadStations(false);
 }
 
 function closeSearch() {
   isSearchMode.value = false;
-  displayLimit.value = 80;
   // Retour au mode favoris - réinitialiser les filtres
   radioStore.searchQuery = '';
   radioStore.countryFilter = '';
   radioStore.genreFilter = '';
-  radioStore.loadStations(true); // Charger les favoris
+
+  // Ne recharger les favoris que s'ils ne sont pas déjà en cache
+  if (radioStore.favoriteStations.length === 0) {
+    radioStore.loadStations(true);
+  }
 }
 
 // === ACTIONS ===
 function loadMore() {
-  displayLimit.value += 40;
+  radioStore.loadMore();
 }
 
 function handleSearch() {
@@ -372,9 +373,23 @@ function handleSearch() {
   }
 
   searchDebounceTimer.value = setTimeout(async () => {
-    displayLimit.value = 40;
+    // Charger les stations (visibleStations sera automatiquement réinitialisé)
     await radioStore.loadStations(false);
   }, 300);
+}
+
+// === SCROLL INFINI ===
+function handleScroll() {
+  if (!radioContent.value || !isSearchMode.value) return;
+
+  const { scrollTop, scrollHeight, clientHeight } = radioContent.value;
+  const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
+
+  // Charger plus quand on atteint 80% du scroll
+  if (scrollPercentage > 0.8 && hasMoreStations.value && !radioStore.loading) {
+    console.log('📻 Scroll threshold reached, loading more...');
+    loadMore();
+  }
 }
 
 async function playStation(stationId) {
@@ -536,16 +551,9 @@ async function loadAvailableCountries() {
   } catch (error) {
     console.error('❌ Error loading countries:', error);
     console.error('❌ Error details:', error.response?.data || error.message);
-    // Fallback sur une liste de base si l'API échoue
-    availableCountries.value = [
-      { name: 'France', stationcount: 0 },
-      { name: 'United Kingdom', stationcount: 0 },
-      { name: 'United States', stationcount: 0 },
-      { name: 'Germany', stationcount: 0 },
-      { name: 'Spain', stationcount: 0 },
-      { name: 'Italy', stationcount: 0 }
-    ];
-    console.log('📍 Using fallback countries:', availableCountries.value.length);
+    // Pas de fallback : liste vide si l'API échoue
+    availableCountries.value = [];
+    console.log('📍 Could not load countries from API');
   }
 }
 
@@ -562,7 +570,19 @@ onMounted(async () => {
     radioStore.updateFromWebSocket(unifiedStore.systemState.metadata);
   }
 
+  // Ajouter l'écouteur de scroll pour le scroll infini
+  if (radioContent.value) {
+    radioContent.value.addEventListener('scroll', handleScroll);
+  }
+
   animateIn();
+});
+
+// Nettoyer l'écouteur au démontage
+onBeforeUnmount(() => {
+  if (radioContent.value) {
+    radioContent.value.removeEventListener('scroll', handleScroll);
+  }
 });
 </script>
 
@@ -582,7 +602,7 @@ onMounted(async () => {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  z-index: 900;
+  z-index: 50;
   padding: var(--space-07);
   gap: var(--space-04);
 }

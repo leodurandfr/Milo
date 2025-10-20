@@ -57,7 +57,7 @@ onMounted(() => {
   background: var(--color-background-glass);
   backdrop-filter: blur(12px);
   transition: all var(--transition-spring);
-  z-index: 120;
+  z-index: 9999;
 }
 
 .volume-bar::before {

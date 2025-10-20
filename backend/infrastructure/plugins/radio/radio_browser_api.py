@@ -18,16 +18,6 @@ class RadioBrowserAPI:
 
     BASE_URL = "https://all.api.radio-browser.info/json"
 
-    # Codes pays pour filtrage
-    COUNTRY_CODES = {
-        "France": "FR",
-        "United Kingdom": "GB",
-        "United States": "US",
-        "Germany": "DE",
-        "Spain": "ES",
-        "Italy": "IT"
-    }
-
     def __init__(self, cache_duration_minutes: int = 60, station_manager=None):
         self.logger = logging.getLogger(__name__)
         self.session: Optional[aiohttp.ClientSession] = None
@@ -97,53 +87,139 @@ class RadioBrowserAPI:
             self.logger.error(f"Error fetching stations for {country_code}: {e}")
             return []
 
-    async def load_all_stations(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
+    async def _fetch_stations_by_query(self, query: str) -> List[Dict[str, Any]]:
         """
-        Charge toutes les stations des pays supportés avec cache
+        Récupère toutes les stations correspondant à une recherche via l'API
+        Recherche globale parmi toutes les stations de tous les pays
 
         Args:
-            force_refresh: Force le rechargement même si cache valide
+            query: Terme de recherche (nom de station)
 
         Returns:
-            Liste de toutes les stations filtrées et dédupliquées
+            Liste des stations normalisées et filtrées
         """
-        # Utiliser le cache si valide
-        if not force_refresh and self._is_cache_valid():
-            self.logger.debug("Returning cached stations")
-            return list(self._stations_cache.values())
+        await self._ensure_session()
 
-        self.logger.info("Loading stations from Radio Browser API...")
+        try:
+            # Utiliser l'endpoint de recherche global
+            url = f"{self.BASE_URL}/stations/search"
+            params = {"name": query, "limit": 10000}  # Limite haute pour obtenir tous les résultats
 
-        # Fetch toutes les stations en parallèle
-        tasks = [
-            self._fetch_stations_by_country(code)
-            for code in self.COUNTRY_CODES.values()
-        ]
+            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    self.logger.warning(f"API error for query '{query}': {resp.status}")
+                    return []
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+                stations = await resp.json()
+                self.logger.debug(f"Fetched {len(stations)} stations for query '{query}'")
 
-        # Fusionner les résultats
-        all_stations = []
-        for result in results:
-            if isinstance(result, list):
-                all_stations.extend(result)
+                # Filtrer et normaliser
+                valid_stations = []
+                for station in stations:
+                    if self._is_valid_station(station):
+                        normalized = self._normalize_station(station)
+                        valid_stations.append(normalized)
 
-        # Filtrer et normaliser
-        valid_stations = []
-        for station in all_stations:
-            if self._is_valid_station(station):
-                normalized = self._normalize_station(station)
-                valid_stations.append(normalized)
+                # Dédupliquer et trier par score
+                deduplicated_stations = self._deduplicate_stations(valid_stations)
 
-        # Dédupliquer et trier
-        sorted_stations = self._deduplicate_stations(valid_stations)
+                self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}'")
 
-        # Mettre en cache
-        self._stations_cache = {s['id']: s for s in sorted_stations}
-        self._cache_timestamp = datetime.now()
+                return deduplicated_stations
 
-        self.logger.info(f"Loaded and cached {len(sorted_stations)} unique stations")
-        return sorted_stations
+        except asyncio.TimeoutError:
+            self.logger.error(f"Timeout fetching stations for query '{query}'")
+            return []
+        except Exception as e:
+            self.logger.error(f"Error fetching stations for query '{query}': {e}")
+            return []
+
+    async def _fetch_station_by_id(self, station_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Récupère une station par son ID via l'API
+
+        Args:
+            station_id: UUID de la station
+
+        Returns:
+            Station normalisée ou None si introuvable
+        """
+        await self._ensure_session()
+
+        try:
+            url = f"{self.BASE_URL}/stations/byuuid/{station_id}"
+            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    self.logger.warning(f"API error for station {station_id}: {resp.status}")
+                    return None
+
+                stations = await resp.json()
+                if not stations or len(stations) == 0:
+                    self.logger.debug(f"Station {station_id} not found")
+                    return None
+
+                station = stations[0]  # L'API retourne une liste avec 1 élément
+
+                if self._is_valid_station(station):
+                    normalized = self._normalize_station(station)
+                    self.logger.debug(f"Fetched station {station_id}: {normalized['name']}")
+                    return normalized
+                else:
+                    self.logger.debug(f"Station {station_id} is not valid")
+                    return None
+
+        except asyncio.TimeoutError:
+            self.logger.error(f"Timeout fetching station {station_id}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Error fetching station {station_id}: {e}")
+            return None
+
+    async def _fetch_top_stations(self, limit: int = 500) -> List[Dict[str, Any]]:
+        """
+        Récupère les stations les plus populaires via l'API
+        (basé sur les votes)
+
+        Args:
+            limit: Nombre de stations à récupérer (défaut: 500)
+
+        Returns:
+            Liste des stations normalisées et filtrées
+        """
+        await self._ensure_session()
+
+        try:
+            # Utiliser l'endpoint topvote pour les stations les plus votées
+            url = f"{self.BASE_URL}/stations/topvote/{limit}"
+
+            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    self.logger.warning(f"API error for top stations: {resp.status}")
+                    return []
+
+                stations = await resp.json()
+                self.logger.debug(f"Fetched {len(stations)} top stations")
+
+                # Filtrer et normaliser
+                valid_stations = []
+                for station in stations:
+                    if self._is_valid_station(station):
+                        normalized = self._normalize_station(station)
+                        valid_stations.append(normalized)
+
+                # Dédupliquer (au cas où)
+                deduplicated_stations = self._deduplicate_stations(valid_stations)
+
+                self.logger.info(f"Returning {len(deduplicated_stations)} top stations")
+
+                return deduplicated_stations
+
+        except asyncio.TimeoutError:
+            self.logger.error("Timeout fetching top stations")
+            return []
+        except Exception as e:
+            self.logger.error(f"Error fetching top stations: {e}")
+            return []
 
     def _is_valid_station(self, station: Dict[str, Any]) -> bool:
         """
@@ -327,7 +403,7 @@ class RadioBrowserAPI:
         country: str = "",
         genre: str = "",
         limit: int = 10000
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         Recherche des stations avec filtres (inclut les stations personnalisées)
 
@@ -338,32 +414,83 @@ class RadioBrowserAPI:
             limit: Nombre max de résultats
 
         Returns:
-            Liste des stations matchant les critères
+            Dict avec stations et total: {stations: [...], total: int}
         """
         all_stations = []
 
-        # Si un filtre country est spécifié, chercher spécifiquement ce pays
-        if country:
-            # Vérifier le cache par pays
+        # Déterminer quelle méthode de fetch utiliser selon les filtres actifs
+        # Les genres sont maintenant cherchés via l'API (paramètre tag) au lieu de filtrer localement
+
+        if country and genre and query:
+            # Tous les filtres : country + genre + query
+            # Note: L'API Radio Browser ne supporte pas les 3 en même temps
+            # On fait country + genre, puis on filtre localement par query
+            self.logger.info(f"Fetching stations for country: {country}, genre: {genre}, query: {query}")
+            all_stations = await self._fetch_stations_by_country_and_genre(country, genre)
+            # Filtrage local par query
+            query_lower = query.lower()
+            all_stations = [
+                s for s in all_stations
+                if query_lower in s['name'].lower() or query_lower in s['genre'].lower()
+            ]
+        elif country and genre:
+            # Pays + Genre
+            self.logger.info(f"Fetching stations for country: {country}, genre: {genre}")
+            all_stations = await self._fetch_stations_by_country_and_genre(country, genre)
+        elif country and query:
+            # Pays + Recherche (déjà supporté nativement par l'API)
+            self.logger.info(f"Fetching stations for country: {country}, query: {query}")
+            # Vérifier cache par pays
             country_lower = country.lower()
             if country_lower in self._country_cache:
                 timestamp, cached_stations = self._country_cache[country_lower]
-                # Vérifier si le cache est encore valide
                 if datetime.now() - timestamp < self.cache_duration:
                     self.logger.debug(f"Using cached stations for country: {country}")
                     all_stations = cached_stations
                 else:
-                    # Cache expiré, recharger
                     all_stations = await self._fetch_stations_by_country_name(country)
                     self._country_cache[country_lower] = (datetime.now(), all_stations)
             else:
-                # Pas en cache, faire la requête
+                all_stations = await self._fetch_stations_by_country_name(country)
+                self._country_cache[country_lower] = (datetime.now(), all_stations)
+
+            # Filtrage local par query
+            query_lower = query.lower()
+            all_stations = [
+                s for s in all_stations
+                if query_lower in s['name'].lower() or query_lower in s['genre'].lower()
+            ]
+        elif genre and query:
+            # Genre + Recherche
+            self.logger.info(f"Fetching stations for genre: {genre}, query: {query}")
+            all_stations = await self._fetch_stations_by_query_and_genre(query, genre)
+        elif country:
+            # Pays seul
+            country_lower = country.lower()
+            if country_lower in self._country_cache:
+                timestamp, cached_stations = self._country_cache[country_lower]
+                if datetime.now() - timestamp < self.cache_duration:
+                    self.logger.debug(f"Using cached stations for country: {country}")
+                    all_stations = cached_stations
+                else:
+                    all_stations = await self._fetch_stations_by_country_name(country)
+                    self._country_cache[country_lower] = (datetime.now(), all_stations)
+            else:
                 self.logger.info(f"Fetching stations for country: {country}")
                 all_stations = await self._fetch_stations_by_country_name(country)
                 self._country_cache[country_lower] = (datetime.now(), all_stations)
+        elif genre:
+            # Genre seul (maintenant cherché via l'API au lieu de filtrer localement)
+            self.logger.info(f"Fetching stations for genre: {genre}")
+            all_stations = await self._fetch_stations_by_genre(genre)
+        elif query:
+            # Recherche seule
+            self.logger.info(f"Global search for query: {query}")
+            all_stations = await self._fetch_stations_by_query(query)
         else:
-            # Pas de filtre pays, charger les pays par défaut
-            all_stations = await self.load_all_stations()
+            # Aucun filtre : top 500 stations
+            self.logger.debug("No filters, loading top 500 stations")
+            all_stations = await self._fetch_top_stations(limit=500)
 
         # Ajouter les stations personnalisées
         if self.station_manager:
@@ -371,26 +498,20 @@ class RadioBrowserAPI:
             # Les stations personnalisées sont ajoutées en premier (priorité)
             all_stations = custom_stations + all_stations
 
-        # Filtrer localement par query
-        results = all_stations
-        if query:
-            query_lower = query.lower()
-            results = [
-                s for s in results
-                if query_lower in s['name'].lower() or query_lower in s['genre'].lower()
-            ]
-
-        # Filtrer par genre
-        if genre:
-            genre_lower = genre.lower()
-            results = [s for s in results if genre_lower in s['genre'].lower()]
-
         # Enrichir avec les images personnalisées
         if self.station_manager:
-            results = self.station_manager.enrich_with_custom_images(results)
+            all_stations = self.station_manager.enrich_with_custom_images(all_stations)
+
+        # Total avant limitation
+        total = len(all_stations)
 
         # Limiter résultats
-        return results[:limit]
+        limited_results = all_stations[:limit]
+
+        return {
+            "stations": limited_results,
+            "total": total
+        }
 
     async def get_station_by_id(self, station_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -412,9 +533,12 @@ class RadioBrowserAPI:
         if self._is_cache_valid() and station_id in self._stations_cache:
             station = self._stations_cache[station_id]
         else:
-            # Sinon, recharger toutes les stations
-            await self.load_all_stations()
-            station = self._stations_cache.get(station_id)
+            # Sinon, récupérer directement depuis l'API
+            station = await self._fetch_station_by_id(station_id)
+
+            # Mettre en cache si trouvée
+            if station:
+                self._stations_cache[station_id] = station
 
         # Enrichir avec les images personnalisées si la station existe
         if station and self.station_manager:
@@ -493,6 +617,143 @@ class RadioBrowserAPI:
             return []
         except Exception as e:
             self.logger.error(f"Error fetching stations for {country_name}: {e}")
+            return []
+
+    async def _fetch_stations_by_genre(self, genre: str) -> List[Dict[str, Any]]:
+        """
+        Récupère toutes les stations d'un genre via l'API
+
+        Args:
+            genre: Genre musical (ex: "pop", "rock", "jazz")
+
+        Returns:
+            Liste des stations normalisées et filtrées
+        """
+        await self._ensure_session()
+
+        try:
+            url = f"{self.BASE_URL}/stations/search"
+            params = {"tag": genre, "limit": 10000}
+
+            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    self.logger.warning(f"API error for genre {genre}: {resp.status}")
+                    return []
+
+                stations = await resp.json()
+                self.logger.debug(f"Fetched {len(stations)} stations for genre {genre}")
+
+                # Filtrer et normaliser
+                valid_stations = []
+                for station in stations:
+                    if self._is_valid_station(station):
+                        normalized = self._normalize_station(station)
+                        valid_stations.append(normalized)
+
+                # Dédupliquer et trier par score
+                deduplicated_stations = self._deduplicate_stations(valid_stations)
+
+                self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for genre {genre}")
+
+                return deduplicated_stations
+
+        except asyncio.TimeoutError:
+            self.logger.error(f"Timeout fetching stations for genre {genre}")
+            return []
+        except Exception as e:
+            self.logger.error(f"Error fetching stations for genre {genre}: {e}")
+            return []
+
+    async def _fetch_stations_by_country_and_genre(self, country_name: str, genre: str) -> List[Dict[str, Any]]:
+        """
+        Récupère les stations d'un pays ET d'un genre via l'API
+
+        Args:
+            country_name: Nom du pays (ex: "France", "Japan")
+            genre: Genre musical (ex: "pop", "rock")
+
+        Returns:
+            Liste des stations normalisées et filtrées
+        """
+        await self._ensure_session()
+
+        try:
+            url = f"{self.BASE_URL}/stations/search"
+            params = {"country": country_name, "tag": genre, "limit": 10000}
+
+            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    self.logger.warning(f"API error for {country_name} + {genre}: {resp.status}")
+                    return []
+
+                stations = await resp.json()
+                self.logger.debug(f"Fetched {len(stations)} stations from {country_name} with genre {genre}")
+
+                # Filtrer et normaliser
+                valid_stations = []
+                for station in stations:
+                    if self._is_valid_station(station):
+                        normalized = self._normalize_station(station)
+                        valid_stations.append(normalized)
+
+                # Dédupliquer et trier par score
+                deduplicated_stations = self._deduplicate_stations(valid_stations)
+
+                self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for {country_name} + {genre}")
+
+                return deduplicated_stations
+
+        except asyncio.TimeoutError:
+            self.logger.error(f"Timeout fetching stations for {country_name} + {genre}")
+            return []
+        except Exception as e:
+            self.logger.error(f"Error fetching stations for {country_name} + {genre}: {e}")
+            return []
+
+    async def _fetch_stations_by_query_and_genre(self, query: str, genre: str) -> List[Dict[str, Any]]:
+        """
+        Récupère les stations correspondant à une recherche ET un genre via l'API
+
+        Args:
+            query: Terme de recherche (nom de station)
+            genre: Genre musical (ex: "pop", "rock")
+
+        Returns:
+            Liste des stations normalisées et filtrées
+        """
+        await self._ensure_session()
+
+        try:
+            url = f"{self.BASE_URL}/stations/search"
+            params = {"name": query, "tag": genre, "limit": 10000}
+
+            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    self.logger.warning(f"API error for query '{query}' + genre {genre}: {resp.status}")
+                    return []
+
+                stations = await resp.json()
+                self.logger.debug(f"Fetched {len(stations)} stations for query '{query}' with genre {genre}")
+
+                # Filtrer et normaliser
+                valid_stations = []
+                for station in stations:
+                    if self._is_valid_station(station):
+                        normalized = self._normalize_station(station)
+                        valid_stations.append(normalized)
+
+                # Dédupliquer et trier par score
+                deduplicated_stations = self._deduplicate_stations(valid_stations)
+
+                self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}' + genre {genre}")
+
+                return deduplicated_stations
+
+        except asyncio.TimeoutError:
+            self.logger.error(f"Timeout fetching stations for query '{query}' + genre {genre}")
+            return []
+        except Exception as e:
+            self.logger.error(f"Error fetching stations for query '{query}' + genre {genre}: {e}")
             return []
 
     async def get_available_countries(self) -> List[Dict[str, Any]]:

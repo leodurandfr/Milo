@@ -80,24 +80,12 @@ class RadioPlugin(UnifiedAudioPlugin):
             # Initialiser les composants
             await self.station_manager.initialize()
 
-            # Précharger les stations en arrière-plan (non-bloquant)
-            asyncio.create_task(self._preload_stations())
-
             self.logger.info("Plugin Radio initialisé")
             return True
 
         except Exception as e:
             self.logger.error(f"Erreur initialisation Radio: {e}")
             return False
-
-    async def _preload_stations(self) -> None:
-        """Précharge les stations en arrière-plan"""
-        try:
-            self.logger.info("Préchargement des stations...")
-            await self.radio_api.load_all_stations()
-            self.logger.info("Stations préchargées avec succès")
-        except Exception as e:
-            self.logger.error(f"Erreur préchargement stations: {e}")
 
     async def _do_start(self) -> bool:
         """Démarrage du service Radio"""

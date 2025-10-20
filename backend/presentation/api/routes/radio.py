@@ -74,11 +74,11 @@ async def search_stations(
         query: Terme de recherche (nom de station ou genre)
         country: Filtre par pays (ex: "France")
         genre: Filtre par genre (ex: "Rock")
-        limit: Nombre max de résultats (1-500)
+        limit: Nombre max de résultats (1-10000)
         favorites_only: Si True, retourne seulement les favoris
 
     Returns:
-        Liste des stations avec métadonnées
+        Dict avec stations et total: {stations: [...], total: int}
     """
     try:
         plugin = container.radio_plugin()
@@ -87,7 +87,7 @@ async def search_stations(
             # Récupérer les favoris
             favorite_ids = plugin.station_manager.get_favorites()
             if not favorite_ids:
-                return []
+                return {"stations": [], "total": 0}
 
             # Charger les stations complètes
             stations = []
@@ -113,11 +113,16 @@ async def search_stations(
                 stations = [s for s in stations if genre_lower in s['genre'].lower()]
 
             # Enrichir avec statut favori
-            return plugin.station_manager.enrich_with_favorite_status(stations[:limit])
+            enriched_stations = plugin.station_manager.enrich_with_favorite_status(stations[:limit])
+
+            return {
+                "stations": enriched_stations,
+                "total": len(stations)
+            }
 
         else:
             # Recherche dans toutes les stations
-            stations = await plugin.radio_api.search_stations(
+            result = await plugin.radio_api.search_stations(
                 query=query,
                 country=country,
                 genre=genre,
@@ -125,10 +130,15 @@ async def search_stations(
             )
 
             # Filtrer stations cassées
-            stations = plugin.station_manager.filter_broken_stations(stations)
+            filtered_stations = plugin.station_manager.filter_broken_stations(result["stations"])
 
             # Enrichir avec statut favori
-            return plugin.station_manager.enrich_with_favorite_status(stations)
+            enriched_stations = plugin.station_manager.enrich_with_favorite_status(filtered_stations)
+
+            return {
+                "stations": enriched_stations,
+                "total": result["total"]
+            }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur recherche stations: {str(e)}")

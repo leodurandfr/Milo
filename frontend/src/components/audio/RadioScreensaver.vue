@@ -104,11 +104,12 @@ watch(() => props.isVisible, (visible) => {
   right: 0;
   bottom: 0;
   background: #000000;
-  z-index: 2000;
+  z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  z-index: 100;
 
   /* Animation fade-in de l'overlay */
   animation: fadeIn 400ms ease-out;
