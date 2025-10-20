@@ -329,7 +329,7 @@ install_dependencies() {
     log_info "Installation des dépendances de base..."
     sudo apt install -y \
         git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
-        cmake build-essential pkg-config nodejs npm wget unzip \
+        cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
         fonts-noto-color-emoji fontconfig mpv
     
     log_info "Mise à jour de Node.js et npm..."
@@ -507,25 +507,18 @@ install_bluez_alsa() {
 
 install_snapcast() {
     log_info "Installation de Snapcast..."
-    
-    local temp_dir=$(mktemp -d)
-    cd "$temp_dir"
-    
-    wget https://github.com/badaix/snapcast/releases/download/v0.31.0/snapserver_0.31.0-1_arm64_bookworm.deb
-    wget https://github.com/badaix/snapcast/releases/download/v0.31.0/snapclient_0.31.0-1_arm64_bookworm.deb
-    
-    sudo apt install -y ./snapserver_0.31.0-1_arm64_bookworm.deb
-    sudo apt install -y ./snapclient_0.31.0-1_arm64_bookworm.deb
-    
-    cd ~
-    rm -rf "$temp_dir"
-    
+
+    # Installer snapserver et snapclient depuis les dépôts Debian
+    # Cela résout automatiquement les dépendances selon la version de Debian
+    export DEBIAN_FRONTEND=noninteractive
+    sudo apt install -y snapserver snapclient
+
     snapserver --version
     snapclient --version
-    
+
     sudo systemctl stop snapserver.service snapclient.service || true
     sudo systemctl disable snapserver.service snapclient.service || true
-    
+
     log_success "Snapcast installé"
 }
 

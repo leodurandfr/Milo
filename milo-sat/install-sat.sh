@@ -239,21 +239,15 @@ create_milo_sat_user() {
 
 install_snapclient() {
     log_info "Installation de Snapclient..."
-    
-    local temp_dir=$(mktemp -d)
-    cd "$temp_dir"
-    
-    wget https://github.com/badaix/snapcast/releases/download/v0.31.0/snapclient_0.31.0-1_arm64_bookworm.deb
-    
+
+    # Installer snapclient depuis les dépôts Debian
+    # Cela résout automatiquement les dépendances selon la version de Debian
     export DEBIAN_FRONTEND=noninteractive
-    sudo apt install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confnew" ./snapclient_0.31.0-1_arm64_bookworm.deb
-    
-    cd ~
-    rm -rf "$temp_dir"
-    
+    sudo apt install -y snapclient
+
     sudo systemctl stop snapclient.service || true
     sudo systemctl disable snapclient.service || true
-    
+
     log_success "Snapclient installé"
 }
 
