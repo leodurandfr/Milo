@@ -91,13 +91,20 @@ class RadioPlugin(UnifiedAudioPlugin):
             return False
 
     async def _preload_stations(self) -> None:
-        """Précharge les stations en arrière-plan"""
+        """Précharge les stations et les pays en arrière-plan"""
         try:
-            self.logger.info("Préchargement des stations...")
-            await self.radio_api.load_all_stations()
-            self.logger.info("Stations préchargées avec succès")
+            self.logger.info("Préchargement des stations et pays en arrière-plan...")
+
+            # Lancer les deux chargements en parallèle
+            await asyncio.gather(
+                self.radio_api.load_all_stations(),
+                self.radio_api.get_available_countries(),
+                return_exceptions=True
+            )
+
+            self.logger.info("✅ Stations et pays préchargés avec succès")
         except Exception as e:
-            self.logger.error(f"Erreur préchargement stations: {e}")
+            self.logger.error(f"Erreur préchargement stations/pays: {e}")
 
     async def _do_start(self) -> bool:
         """Démarrage du service Radio"""
@@ -351,13 +358,17 @@ class RadioPlugin(UnifiedAudioPlugin):
         """Joue une station radio"""
         station_id = data.get('station_id')
         if not station_id:
+            self.logger.error("❌ Commande play_station sans station_id")
             return self.format_response(False, error="station_id requis")
 
         try:
             # Récupérer la station
             station = await self.radio_api.get_station_by_id(station_id)
             if not station:
+                self.logger.error(f"❌ Station introuvable: {station_id}")
                 return self.format_response(False, error=f"Station {station_id} introuvable")
+
+            self.logger.info(f"📻 Lecture de la station: {station['name']} (URL: {station['url']})")
 
             # Incrémenter compteur Radio Browser
             asyncio.create_task(self.radio_api.increment_station_clicks(station_id))
@@ -379,6 +390,7 @@ class RadioPlugin(UnifiedAudioPlugin):
                 self._is_buffering = False
                 self.current_station = None
                 await self.station_manager.mark_as_broken(station_id)
+                self.logger.error(f"❌ Impossible de charger le stream: {station['name']} ({station['url']})")
                 return self.format_response(
                     False,
                     error=f"Impossible de charger le stream {station['name']}"

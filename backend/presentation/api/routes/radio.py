@@ -2,12 +2,23 @@
 Routes API pour le plugin Radio
 """
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from typing import List, Optional
 from pydantic import BaseModel
+import aiohttp
+import asyncio
+import base64
+import logging
 
 from backend.config.container import container
 from backend.domain.audio_state import AudioSource
+
+# PNG transparent 1x1 pixel pour fallback favicons
+TRANSPARENT_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/radio", tags=["radio"])
@@ -53,7 +64,7 @@ async def search_stations(
     query: str = Query("", description="Terme de recherche"),
     country: str = Query("", description="Filtre pays"),
     genre: str = Query("", description="Filtre genre"),
-    limit: int = Query(100, ge=1, le=500, description="Nombre max de résultats"),
+    limit: int = Query(10000, ge=1, le=10000, description="Nombre max de résultats"),
     favorites_only: bool = Query(False, description="Seulement les favoris")
 ):
     """
@@ -393,6 +404,24 @@ async def get_stats():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur stats: {str(e)}")
+
+
+@router.get("/countries")
+async def get_countries():
+    """
+    Récupère la liste de tous les pays disponibles depuis Radio Browser API
+
+    Returns:
+        Liste des pays avec nom et nombre de stations
+        Format: [{"name": "France", "stationcount": 2345}, ...]
+    """
+    try:
+        plugin = container.radio_plugin()
+        countries = await plugin.radio_api.get_available_countries()
+        return countries
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur récupération pays: {str(e)}")
 
 
 @router.post("/custom/add")
@@ -740,6 +769,84 @@ async def get_station_image(filename: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur récupération image: {str(e)}")
+
+
+@router.get("/favicon")
+async def get_favicon_proxy(url: str = Query(..., description="URL du favicon à proxifier")):
+    """
+    Proxy pour les favicons de stations radio
+
+    Résout les problèmes CORS et gère automatiquement les redirections HTTP→HTTPS
+    Retourne une image transparente 1x1 en cas d'erreur (évite les erreurs 404 côté frontend)
+
+    Args:
+        url: URL du favicon original
+
+    Returns:
+        Image favicon avec headers CORS appropriés, ou PNG transparent si indisponible
+    """
+    try:
+        # Valider que l'URL commence par http:// ou https://
+        if not url.startswith(('http://', 'https://')):
+            logger.warning(f"URL favicon invalide: {url}")
+            return _return_transparent_png()
+
+        # Télécharger le favicon avec gestion des redirections
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url,
+                timeout=aiohttp.ClientTimeout(total=5),
+                allow_redirects=True,  # Suit automatiquement les redirections HTTP→HTTPS
+                headers={'User-Agent': 'Milo/1.0'}
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"Favicon non disponible (HTTP {resp.status}): {url}")
+                    return _return_transparent_png()
+
+                # Lire le contenu
+                content = await resp.read()
+
+                # Vérifier que le contenu n'est pas vide
+                if not content or len(content) == 0:
+                    logger.debug(f"Favicon vide: {url}")
+                    return _return_transparent_png()
+
+                # Déterminer le content-type
+                content_type = resp.headers.get('Content-Type', 'image/x-icon')
+
+                # Retourner l'image avec headers CORS et cache
+                return Response(
+                    content=content,
+                    media_type=content_type,
+                    headers={
+                        "Cache-Control": "public, max-age=86400",  # Cache 24h
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Methods": "GET"
+                    }
+                )
+
+    except asyncio.TimeoutError:
+        logger.debug(f"Timeout téléchargement favicon: {url}")
+        return _return_transparent_png()
+    except aiohttp.ClientError as e:
+        logger.debug(f"Erreur téléchargement favicon {url}: {e}")
+        return _return_transparent_png()
+    except Exception as e:
+        logger.warning(f"Erreur proxy favicon {url}: {e}")
+        return _return_transparent_png()
+
+
+def _return_transparent_png() -> Response:
+    """Retourne une image PNG transparente 1x1 pixel"""
+    return Response(
+        content=TRANSPARENT_PNG,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "public, max-age=3600",  # Cache 1h (moins que succès)
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET"
+        }
+    )
 
 
 # === Helpers ===

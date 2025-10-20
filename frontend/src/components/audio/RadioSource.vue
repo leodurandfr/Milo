@@ -23,12 +23,10 @@
             <select v-model="radioStore.countryFilter" class="filter-input filter-select text-body-small"
               @change="handleSearch">
               <option value="">Tous les pays</option>
-              <option value="France">France</option>
-              <option value="United Kingdom">Royaume-Uni</option>
-              <option value="United States">États-Unis</option>
-              <option value="Germany">Allemagne</option>
-              <option value="Spain">Espagne</option>
-              <option value="Italy">Italie</option>
+              <option v-if="availableCountries.length === 0" disabled>Chargement des pays...</option>
+              <option v-for="country in availableCountries" :key="country.name" :value="country.name">
+                {{ country.name }} ({{ country.stationcount }})
+              </option>
             </select>
 
             <select v-model="radioStore.genreFilter" class="filter-input filter-select text-body-small"
@@ -36,10 +34,105 @@
               <option value="">Tous les genres</option>
               <option value="pop">Pop</option>
               <option value="rock">Rock</option>
-              <option value="jazz">Jazz</option>
-              <option value="classical">Classique</option>
-              <option value="electronic">Electronic</option>
               <option value="news">News</option>
+              <option value="classical">Classical</option>
+              <option value="talk">Talk</option>
+              <option value="dance">Dance</option>
+              <option value="oldies">Oldies</option>
+              <option value="80s">80s</option>
+              <option value="jazz">Jazz</option>
+              <option value="90s">90s</option>
+              <option value="electronic">Electronic</option>
+              <option value="classic rock">Classic Rock</option>
+              <option value="country">Country</option>
+              <option value="pop rock">Pop Rock</option>
+              <option value="house">House</option>
+              <option value="alternative">Alternative</option>
+              <option value="metal">Metal</option>
+              <option value="soul">Soul</option>
+              <option value="indie">Indie</option>
+              <option value="chillout">Chillout</option>
+              <option value="techno">Techno</option>
+              <option value="folk">Folk</option>
+              <option value="disco">Disco</option>
+              <option value="ambient">Ambient</option>
+              <option value="blues">Blues</option>
+              <option value="alternative rock">Alternative Rock</option>
+              <option value="rap">Rap</option>
+              <option value="hiphop">HipHop</option>
+              <option value="lounge">Lounge</option>
+              <option value="trance">Trance</option>
+              <option value="latin pop">Latin Pop</option>
+              <option value="60s">60s</option>
+              <option value="edm">EDM</option>
+              <option value="smooth jazz">Smooth Jazz</option>
+              <option value="reggaeton">Reggaeton</option>
+              <option value="tropical">Tropical</option>
+              <option value="hard rock">Hard Rock</option>
+              <option value="reggae">Reggae</option>
+              <option value="rnb">RnB</option>
+              <option value="hip-hop">Hip-Hop</option>
+              <option value="deep house">Deep House</option>
+              <option value="schlager">Schlager</option>
+              <option value="70s">70s</option>
+              <option value="punk">Punk</option>
+              <option value="urban">Urban</option>
+              <option value="latin">Latin</option>
+              <option value="latin music">Latin Music</option>
+              <option value="r&b">R&B</option>
+              <option value="eurodance">Eurodance</option>
+              <option value="2010s">2010s</option>
+              <option value="1990s">1990s</option>
+              <option value="merengue">Merengue</option>
+              <option value="new wave">New Wave</option>
+              <option value="pop dance">Pop Dance</option>
+              <option value="classic jazz">Classic Jazz</option>
+              <option value="funk">Funk</option>
+              <option value="grunge">Grunge</option>
+              <option value="minimal">Minimal</option>
+              <option value="ska">Ska</option>
+              <option value="italo disco">Italo Disco</option>
+              <option value="singer-songwriter">Singer-Songwriter</option>
+              <option value="opera">Opera</option>
+              <option value="americana">Americana</option>
+              <option value="darkwave">Darkwave</option>
+              <option value="afrobeats">Afrobeats</option>
+              <option value="bossa nova">Bossa Nova</option>
+              <option value="celtic">Celtic</option>
+              <option value="lo-fi">Lo-Fi</option>
+              <option value="nu disco">Nu Disco</option>
+              <option value="acoustic">Acoustic</option>
+              <option value="folk rock">Folk Rock</option>
+              <option value="progressive rock">Progressive Rock</option>
+              <option value="art rock">Art Rock</option>
+              <option value="psychedelic rock">Psychedelic Rock</option>
+              <option value="britpop">Britpop</option>
+              <option value="drum and bass">Drum And Bass</option>
+              <option value="dubstep">Dubstep</option>
+              <option value="trap">Trap</option>
+              <option value="tech house">Tech House</option>
+              <option value="jazz fusion">Jazz Fusion</option>
+              <option value="downtempo">Downtempo</option>
+              <option value="chill">Chill</option>
+              <option value="new age">New Age</option>
+              <option value="world music">World Music</option>
+              <option value="garage">Garage</option>
+              <option value="progressive house">Progressive House</option>
+              <option value="trip-hop">Trip-Hop</option>
+              <option value="minimal techno">Minimal Techno</option>
+              <option value="psychedelic">Psychedelic</option>
+              <option value="power metal">Power Metal</option>
+              <option value="thrash metal">Thrash Metal</option>
+              <option value="death metal">Death Metal</option>
+              <option value="hardcore">Hardcore</option>
+              <option value="stoner rock">Stoner Rock</option>
+              <option value="synthwave">Synthwave</option>
+              <option value="smooth lounge">Smooth Lounge</option>
+              <option value="dancehall">Dancehall</option>
+              <option value="dub">Dub</option>
+              <option value="roots">Roots</option>
+              <option value="salsa">Salsa</option>
+              <option value="bachata">Bachata</option>
             </select>
           </div>
         </div>
@@ -62,7 +155,7 @@
               playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying,
               loading: bufferingStationId === station.id
             }]" @click="playStation(station.id)">
-              <img v-if="station.favicon" :src="station.favicon" alt="" class="station-img"
+              <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-img"
                 @error="handleStationImageError" />
               <span class="image-placeholder" :class="{ visible: !station.favicon }">📻</span>
 
@@ -82,7 +175,7 @@
               }
             ]" @click="playStation(station.id)">
               <div class="station-logo">
-                <img v-if="station.favicon" :src="station.favicon" alt="" class="station-favicon"
+                <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-favicon"
                   @error="handleStationImageError" />
                 <span class="logo-placeholder" :class="{ visible: !station.favicon }">📻</span>
               </div>
@@ -117,12 +210,12 @@
     <div v-if="radioStore.currentStation" class="now-playing">
       <!-- Background image - très zoomée et blurrée -->
       <div class="station-art-background">
-        <img v-if="radioStore.currentStation.favicon" :src="radioStore.currentStation.favicon" alt=""
+        <img v-if="radioStore.currentStation.favicon" :src="getFaviconUrl(radioStore.currentStation.favicon)" alt=""
           class="background-station-favicon" />
       </div>
 
       <div class="station-art">
-        <img v-if="radioStore.currentStation.favicon" :src="radioStore.currentStation.favicon" alt="Station logo"
+        <img v-if="radioStore.currentStation.favicon" :src="getFaviconUrl(radioStore.currentStation.favicon)" alt="Station logo"
           class="current-station-favicon" @error="handleCurrentStationImageError" />
         <div class="placeholder-logo" :class="{ visible: !radioStore.currentStation.favicon }">📻</div>
       </div>
@@ -145,6 +238,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import axios from 'axios';
 import { useRadioStore } from '@/stores/radioStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
@@ -160,6 +254,7 @@ const { on } = useWebSocket();
 const isSearchMode = ref(false);
 const displayLimit = ref(80);
 const searchDebounceTimer = ref(null);
+const availableCountries = ref([]); // Liste dynamique des pays disponibles
 
 // Références pour animations
 const radioContainer = ref(null);
@@ -242,9 +337,16 @@ async function animateIn() {
 }
 
 // === NAVIGATION ===
-function openSearch() {
+async function openSearch() {
+  console.log('🔍 Opening search mode. Available countries:', availableCountries.value.length);
   isSearchMode.value = true;
   displayLimit.value = 40;
+
+  // Charger les pays si pas encore chargés
+  if (availableCountries.value.length === 0) {
+    await loadAvailableCountries();
+  }
+
   radioStore.loadStations(false); // Charger toutes les stations
 }
 
@@ -384,6 +486,22 @@ function handlePointerUp(event) {
   }
 }
 
+// === FAVICON PROXY ===
+function getFaviconUrl(faviconUrl) {
+  // Pas de favicon
+  if (!faviconUrl) {
+    return '';
+  }
+
+  // Image locale déjà hébergée par le backend
+  if (faviconUrl.startsWith('/api/radio/images/')) {
+    return faviconUrl;
+  }
+
+  // Image externe : utiliser le proxy backend pour éviter CORS
+  return `/api/radio/favicon?url=${encodeURIComponent(faviconUrl)}`;
+}
+
 // === SYNCHRONISATION WEBSOCKET ===
 // Écouter les mises à jour de métadonnées
 watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
@@ -407,9 +525,34 @@ on('radio', 'favorite_removed', (event) => {
   }
 });
 
+// === PAYS DISPONIBLES ===
+async function loadAvailableCountries() {
+  console.log('📍 Loading countries from API...');
+  try {
+    const response = await axios.get('/api/radio/countries');
+    availableCountries.value = response.data;
+    console.log(`📍 Loaded ${availableCountries.value.length} countries successfully`);
+    console.log('📍 First 5 countries:', availableCountries.value.slice(0, 5));
+  } catch (error) {
+    console.error('❌ Error loading countries:', error);
+    console.error('❌ Error details:', error.response?.data || error.message);
+    // Fallback sur une liste de base si l'API échoue
+    availableCountries.value = [
+      { name: 'France', stationcount: 0 },
+      { name: 'United Kingdom', stationcount: 0 },
+      { name: 'United States', stationcount: 0 },
+      { name: 'Germany', stationcount: 0 },
+      { name: 'Spain', stationcount: 0 },
+      { name: 'Italy', stationcount: 0 }
+    ];
+    console.log('📍 Using fallback countries:', availableCountries.value.length);
+  }
+}
+
 // === LIFECYCLE ===
 onMounted(async () => {
   console.log('📻 RadioSource mounted');
+
   await radioStore.loadStations(true); // Charger uniquement les favoris au démarrage
 
   // IMPORTANT: Synchroniser currentStation depuis l'état actuel du backend

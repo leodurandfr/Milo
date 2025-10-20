@@ -50,7 +50,7 @@ export const useRadioStore = defineStore('radio', () => {
     loading.value = true;
     try {
       const params = {
-        limit: 100,
+        limit: 10000, // Limite très élevée pour récupérer toutes les stations d'un pays
         favorites_only: favoritesOnly
       };
 

@@ -38,6 +38,14 @@ class RadioBrowserAPI:
         self._stations_cache: Dict[str, Any] = {}
         self._cache_timestamp: Optional[datetime] = None
 
+        # Cache par pays pour recherches dynamiques (country_name -> (timestamp, stations))
+        self._country_cache: Dict[str, tuple[datetime, List[Dict[str, Any]]]] = {}
+
+        # Cache pour la liste des pays disponibles (valide 24h)
+        self._countries_cache: List[Dict[str, Any]] = []
+        self._countries_cache_timestamp: Optional[datetime] = None
+        self._countries_cache_duration = timedelta(hours=24)
+
     async def _ensure_session(self) -> None:
         """Crée la session aiohttp si nécessaire"""
         if self.session is None or self.session.closed:
@@ -248,12 +256,13 @@ class RadioBrowserAPI:
         Returns:
             Station normalisée
         """
-        # Nettoyer le favicon (éviter CORS issues)
+        # Nettoyer le favicon (éviter les URLs problématiques)
         favicon = station.get('favicon', '')
         if favicon:
             # Filtrer les favicons de mauvaise qualité
-            if self._get_favicon_quality(favicon) <= 10:
+            if self._get_favicon_quality(favicon) < 10:
                 favicon = ''
+            # Note: Pas de conversion HTTP→HTTPS, le proxy backend gérera les redirections
 
         return {
             'id': station.get('stationuuid'),
@@ -300,7 +309,7 @@ class RadioBrowserAPI:
         query: str = "",
         country: str = "",
         genre: str = "",
-        limit: int = 100
+        limit: int = 10000
     ) -> List[Dict[str, Any]]:
         """
         Recherche des stations avec filtres (inclut les stations personnalisées)
@@ -314,8 +323,30 @@ class RadioBrowserAPI:
         Returns:
             Liste des stations matchant les critères
         """
-        # Charger toutes les stations (depuis cache si possible)
-        all_stations = await self.load_all_stations()
+        all_stations = []
+
+        # Si un filtre country est spécifié, chercher spécifiquement ce pays
+        if country:
+            # Vérifier le cache par pays
+            country_lower = country.lower()
+            if country_lower in self._country_cache:
+                timestamp, cached_stations = self._country_cache[country_lower]
+                # Vérifier si le cache est encore valide
+                if datetime.now() - timestamp < self.cache_duration:
+                    self.logger.debug(f"Using cached stations for country: {country}")
+                    all_stations = cached_stations
+                else:
+                    # Cache expiré, recharger
+                    all_stations = await self._fetch_stations_by_country_name(country)
+                    self._country_cache[country_lower] = (datetime.now(), all_stations)
+            else:
+                # Pas en cache, faire la requête
+                self.logger.info(f"Fetching stations for country: {country}")
+                all_stations = await self._fetch_stations_by_country_name(country)
+                self._country_cache[country_lower] = (datetime.now(), all_stations)
+        else:
+            # Pas de filtre pays, charger les pays par défaut
+            all_stations = await self.load_all_stations()
 
         # Ajouter les stations personnalisées
         if self.station_manager:
@@ -323,9 +354,8 @@ class RadioBrowserAPI:
             # Les stations personnalisées sont ajoutées en premier (priorité)
             all_stations = custom_stations + all_stations
 
-        # Filtrer localement
+        # Filtrer localement par query
         results = all_stations
-
         if query:
             query_lower = query.lower()
             results = [
@@ -333,10 +363,7 @@ class RadioBrowserAPI:
                 if query_lower in s['name'].lower() or query_lower in s['genre'].lower()
             ]
 
-        if country:
-            country_lower = country.lower()
-            results = [s for s in results if country_lower in s['country'].lower()]
-
+        # Filtrer par genre
         if genre:
             genre_lower = genre.lower()
             results = [s for s in results if genre_lower in s['genre'].lower()]
@@ -404,3 +431,135 @@ class RadioBrowserAPI:
         except Exception as e:
             self.logger.warning(f"Failed to increment clicks for {station_id}: {e}")
             return False
+
+    async def _fetch_stations_by_country_name(self, country_name: str) -> List[Dict[str, Any]]:
+        """
+        Récupère toutes les stations d'un pays via l'API (par nom de pays)
+
+        Args:
+            country_name: Nom du pays (ex: "France", "Japan")
+
+        Returns:
+            Liste des stations normalisées et filtrées
+        """
+        await self._ensure_session()
+
+        try:
+            # Utiliser l'endpoint de recherche avec filtre country
+            url = f"{self.BASE_URL}/stations/search"
+            params = {"country": country_name, "limit": 10000}  # Limite haute pour obtenir toutes les stations
+
+            async with self.session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    self.logger.warning(f"API error for country {country_name}: {resp.status}")
+                    return []
+
+                stations = await resp.json()
+                self.logger.debug(f"Fetched {len(stations)} stations from {country_name}")
+
+                # Filtrer et normaliser
+                valid_stations = []
+                for station in stations:
+                    if self._is_valid_station(station):
+                        normalized = self._normalize_station(station)
+                        valid_stations.append(normalized)
+
+                # Trier par score
+                valid_stations.sort(key=lambda s: s.get('score', 0), reverse=True)
+
+                return valid_stations
+
+        except asyncio.TimeoutError:
+            self.logger.error(f"Timeout fetching stations for {country_name}")
+            return []
+        except Exception as e:
+            self.logger.error(f"Error fetching stations for {country_name}: {e}")
+            return []
+
+    async def get_available_countries(self) -> List[Dict[str, Any]]:
+        """
+        Récupère la liste de tous les pays disponibles depuis Radio Browser API
+        Avec cache 24h + retry logic + fallback
+
+        Returns:
+            Liste des pays avec nom et nombre de stations
+            Format: [{"name": "France", "stationcount": 2345}, ...]
+        """
+        # Vérifier le cache d'abord
+        if self._countries_cache and self._countries_cache_timestamp:
+            cache_age = datetime.now() - self._countries_cache_timestamp
+            if cache_age < self._countries_cache_duration:
+                self.logger.debug(f"Using cached countries ({len(self._countries_cache)} countries, age: {cache_age})")
+                return self._countries_cache
+
+        # Cache expiré ou absent, essayer de fetch
+        await self._ensure_session()
+
+        # Tenter 3 fois avec retry (timeout plus long pour le premier appel)
+        for attempt in range(1, 4):
+            try:
+                # Premier appel: timeout 20s (API peut être lente au démarrage)
+                # Appels suivants: timeout 10s
+                timeout_seconds = 20 if attempt == 1 else 10
+                self.logger.info(f"Attempt {attempt}/3 fetching countries from Radio Browser API (timeout: {timeout_seconds}s)...")
+                url = f"{self.BASE_URL}/countries"
+                async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=timeout_seconds)) as resp:
+                    if resp.status != 200:
+                        self.logger.warning(f"API error fetching countries (attempt {attempt}): HTTP {resp.status}")
+                        if attempt < 3:
+                            await asyncio.sleep(2)  # Attendre 2s avant retry
+                            continue
+                        # Dernière tentative échouée, utiliser fallback
+                        break
+
+                    countries = await resp.json()
+                    # Filtrer les pays avec au moins 80 stations
+                    filtered_countries = [
+                        {"name": c.get("name", ""), "stationcount": c.get("stationcount", 0)}
+                        for c in countries
+                        if c.get("stationcount", 0) >= 80 and c.get("name")
+                    ]
+
+                    # Trier par nombre de stations (décroissant)
+                    sorted_countries = sorted(
+                        filtered_countries,
+                        key=lambda c: c["stationcount"],
+                        reverse=True
+                    )
+
+                    # Mettre en cache
+                    self._countries_cache = sorted_countries
+                    self._countries_cache_timestamp = datetime.now()
+
+                    self.logger.info(f"✅ Fetched and cached {len(sorted_countries)} countries from Radio Browser API")
+                    return sorted_countries
+
+            except asyncio.TimeoutError:
+                self.logger.warning(f"Timeout fetching countries list (attempt {attempt}/3)")
+                if attempt < 3:
+                    await asyncio.sleep(2)  # Attendre 2s avant retry
+                    continue
+            except Exception as e:
+                self.logger.warning(f"Error fetching countries (attempt {attempt}/3): {e}")
+                if attempt < 3:
+                    await asyncio.sleep(2)  # Attendre 2s avant retry
+                    continue
+
+        # Toutes les tentatives ont échoué
+        # Utiliser le cache périmé s'il existe
+        if self._countries_cache:
+            cache_age = datetime.now() - self._countries_cache_timestamp if self._countries_cache_timestamp else None
+            self.logger.warning(f"⚠️ API unreachable, using stale cache ({len(self._countries_cache)} countries, age: {cache_age})")
+            return self._countries_cache
+
+        # Pas de cache, retourner fallback par défaut
+        fallback_countries = [
+            {"name": "United States", "stationcount": 0},
+            {"name": "Germany", "stationcount": 0},
+            {"name": "France", "stationcount": 0},
+            {"name": "United Kingdom", "stationcount": 0},
+            {"name": "Spain", "stationcount": 0},
+            {"name": "Italy", "stationcount": 0}
+        ]
+        self.logger.warning(f"⚠️ API unreachable and no cache, returning fallback ({len(fallback_countries)} countries)")
+        return fallback_countries

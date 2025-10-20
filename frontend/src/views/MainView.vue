@@ -29,6 +29,9 @@
     <Modal :is-open="isSettingsOpen" @close="closeSettings" height-mode="auto">
       <SettingsModal @close="closeSettings" />
     </Modal>
+
+    <!-- Radio Screensaver -->
+    <RadioScreensaver :is-visible="isScreensaverVisible" @close="closeScreensaver" />
   </div>
 </template>
 
@@ -41,6 +44,7 @@ import Logo from '@/components/ui/Logo.vue';
 
 import Modal from '@/components/ui/Modal.vue';
 import SettingsModal from '@/components/settings/SettingsModal.vue';
+import RadioScreensaver from '@/components/audio/RadioScreensaver.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 
@@ -51,6 +55,81 @@ const disconnectingStates = ref({
   librespot: false,
   radio: false
 });
+
+// === Radio Screensaver ===
+const isScreensaverVisible = ref(false);
+let inactivityTimer = null;
+const SCREENSAVER_DELAY = 15000; // 15 secondes
+
+// Vérifie si le screensaver doit être actif
+const shouldMonitorInactivity = computed(() => {
+  return unifiedStore.systemState.active_source === 'radio' &&
+         unifiedStore.systemState.plugin_state === 'connected';
+});
+
+// Réinitialise le timer d'inactivité
+function resetInactivityTimer() {
+  clearInactivityTimer();
+
+  if (!shouldMonitorInactivity.value || isScreensaverVisible.value) {
+    return;
+  }
+
+  inactivityTimer = setTimeout(() => {
+    isScreensaverVisible.value = true;
+  }, SCREENSAVER_DELAY);
+}
+
+// Nettoie le timer d'inactivité
+function clearInactivityTimer() {
+  if (inactivityTimer) {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = null;
+  }
+}
+
+// Gestionnaire d'activité utilisateur
+function handleUserActivity() {
+  if (!isScreensaverVisible.value) {
+    resetInactivityTimer();
+  }
+}
+
+// Ajoute les listeners d'activité
+function addActivityListeners() {
+  document.addEventListener('pointermove', handleUserActivity);
+  document.addEventListener('pointerdown', handleUserActivity);
+  document.addEventListener('wheel', handleUserActivity);
+  document.addEventListener('touchstart', handleUserActivity);
+  document.addEventListener('touchmove', handleUserActivity);
+}
+
+// Retire les listeners d'activité
+function removeActivityListeners() {
+  document.removeEventListener('pointermove', handleUserActivity);
+  document.removeEventListener('pointerdown', handleUserActivity);
+  document.removeEventListener('wheel', handleUserActivity);
+  document.removeEventListener('touchstart', handleUserActivity);
+  document.removeEventListener('touchmove', handleUserActivity);
+}
+
+// Ferme le screensaver
+function closeScreensaver() {
+  isScreensaverVisible.value = false;
+  resetInactivityTimer();
+}
+
+// Surveille l'état du plugin radio pour démarrer/arrêter le monitoring
+watch(shouldMonitorInactivity, (shouldMonitor) => {
+  if (shouldMonitor) {
+    addActivityListeners();
+    resetInactivityTimer();
+  } else {
+    removeActivityListeners();
+    clearInactivityTimer();
+    isScreensaverVisible.value = false;
+  }
+}, { immediate: true });
 
 // === États du logo ===
 const logoPosition = ref('center');  // 'center' | 'top'
@@ -244,6 +323,10 @@ onUnmounted(() => {
   // Nettoyage si on quitte la vue
   if (clickWindowTimer) clearTimeout(clickWindowTimer);
   if (logoTimeout) clearTimeout(logoTimeout);
+
+  // Nettoyage du screensaver
+  removeActivityListeners();
+  clearInactivityTimer();
 });
 </script>
 
