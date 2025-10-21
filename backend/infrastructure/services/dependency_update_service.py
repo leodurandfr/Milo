@@ -273,21 +273,49 @@ class DependencyUpdateService(DependencyVersionService):
             return {"success": False, "error": str(e)}
         
         
-    async def _download_snapcast_component(self, component_key: str, version: str) -> Dict[str, Any]:
-        """Télécharge un composant snapcast (.deb)"""
+    async def _get_debian_codename(self) -> str:
+        """Détecte la version Debian du système (bookworm, trixie, etc.)"""
         try:
+            proc = await asyncio.create_subprocess_exec(
+                "bash", "-c", "source /etc/os-release && echo $VERSION_CODENAME",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            stdout, _ = await proc.communicate()
+            codename = stdout.decode().strip()
+
+            if codename:
+                self.update_logger.info(f"Detected Debian codename: {codename}")
+                return codename
+            else:
+                self.update_logger.warning("Could not detect Debian codename, using 'bookworm' as fallback")
+                return "bookworm"
+
+        except Exception as e:
+            self.update_logger.error(f"Error detecting Debian codename: {e}, using 'bookworm' as fallback")
+            return "bookworm"
+
+    async def _download_snapcast_component(self, component_key: str, version: str) -> Dict[str, Any]:
+        """Télécharge un composant snapcast (.deb) avec détection auto de Debian"""
+        try:
+            # Détecter la version Debian
+            debian_codename = await self._get_debian_codename()
+
             temp_dir = tempfile.mkdtemp()
-            
+
             # Déterminer le nom du package selon le composant
             if component_key == "snapserver":
-                package_name = f"snapserver_{version}-1_arm64_bookworm.deb"
+                package_name = f"snapserver_{version}-1_arm64_{debian_codename}.deb"
             elif component_key == "snapclient":
-                package_name = f"snapclient_{version}-1_arm64_bookworm.deb"
+                package_name = f"snapclient_{version}-1_arm64_{debian_codename}.deb"
             else:
                 return {"success": False, "error": f"Unknown component: {component_key}"}
-            
+
             # URL de téléchargement
             url = f"https://github.com/badaix/snapcast/releases/download/v{version}/{package_name}"
+
+            self.update_logger.info(f"Downloading {package_name} from GitHub (Debian {debian_codename})...")
             
             # Télécharger
             async with aiohttp.ClientSession() as session:
@@ -380,29 +408,44 @@ class DependencyUpdateService(DependencyVersionService):
             return {"success": False, "error": str(e)}
     
     async def _install_deb_package(self, deb_path: str) -> Dict[str, Any]:
-        """Installe un package .deb avec options non-interactives"""
+        """Installe un package .deb avec apt install (résout automatiquement les dépendances)"""
         try:
-            # Variables d'environnement pour installation non-interactive
             env = {
                 "DEBIAN_FRONTEND": "noninteractive",
                 "DEBCONF_NONINTERACTIVE_SEEN": "true",
                 "APT_LISTCHANGES_FRONTEND": "none"
             }
-            
+
+            # Étape 1 : Mettre à jour la liste des paquets
+            self.update_logger.info("Updating APT package list...")
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "-E", "apt", "install", "-y", "-o", "Dpkg::Options::=--force-confdef", 
-                "-o", "Dpkg::Options::=--force-confnew", deb_path,
+                "sudo", "-E", "apt", "update",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env={**os.environ, **env}
             )
+            await proc.communicate()
+
+            # Étape 2 : Installer le .deb avec apt install (résout automatiquement les dépendances)
+            self.update_logger.info(f"Installing {Path(deb_path).name} with automatic dependency resolution...")
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "-E", "apt", "install", "-y", deb_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, **env}
+            )
+
             stdout, stderr = await proc.communicate()
-            
-            if proc.returncode != 0:
-                return {"success": False, "error": f"APT install failed: {stderr.decode()}"}
-            
-            return {"success": True}
-            
+
+            if proc.returncode == 0:
+                self.update_logger.info("Package installed successfully with all dependencies resolved")
+                return {"success": True}
+            else:
+                return {
+                    "success": False,
+                    "error": f"APT install failed: {stderr.decode()}"
+                }
+
         except Exception as e:
             return {"success": False, "error": str(e)}
     

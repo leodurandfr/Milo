@@ -93,6 +93,29 @@ class SnapclientManager:
             self.logger.error(f"Error getting latest version from GitHub: {e}")
             return None
 
+    async def _get_debian_codename(self) -> str:
+        """Détecte la version Debian du système (bookworm, trixie, etc.)"""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "bash", "-c", "source /etc/os-release && echo $VERSION_CODENAME",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            stdout, _ = await proc.communicate()
+            codename = stdout.decode().strip()
+
+            if codename:
+                self.logger.info(f"Detected Debian codename: {codename}")
+                return codename
+            else:
+                self.logger.warning("Could not detect Debian codename, using 'bookworm' as fallback")
+                return "bookworm"
+
+        except Exception as e:
+            self.logger.error(f"Error detecting Debian codename: {e}, using 'bookworm' as fallback")
+            return "bookworm"
+
     async def is_service_running(self) -> bool:
         """Vérifie si le service snapclient est en cours d'exécution"""
         try:
@@ -172,15 +195,18 @@ class SnapclientManager:
                 shutil.rmtree(download_result["temp_dir"], ignore_errors=True)
 
     async def _download_snapclient_deb(self, version: str) -> Dict[str, Any]:
-        """Télécharge le package .deb snapclient depuis GitHub"""
+        """Télécharge le package .deb snapclient depuis GitHub avec détection auto de Debian"""
         try:
+            # Détecter la version Debian
+            debian_codename = await self._get_debian_codename()
+
             temp_dir = tempfile.mkdtemp()
-            package_name = f"snapclient_{version}-1_arm64_bookworm.deb"
+            package_name = f"snapclient_{version}-1_arm64_{debian_codename}.deb"
             url = f"https://github.com/{GITHUB_REPO}/releases/download/v{version}/{package_name}"
 
             deb_path = Path(temp_dir) / package_name
 
-            self.logger.info(f"Downloading {package_name} from GitHub...")
+            self.logger.info(f"Downloading {package_name} from GitHub (Debian {debian_codename})...")
 
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as response:
@@ -204,7 +230,7 @@ class SnapclientManager:
             return {"success": False, "error": str(e)}
 
     async def _install_deb_with_apt(self, deb_path: str) -> Dict[str, Any]:
-        """Installe un package .deb en utilisant dpkg + apt-get -f (méthode officielle Snapcast)"""
+        """Installe un package .deb avec apt install (résout automatiquement les dépendances)"""
         try:
             env = {
                 "DEBIAN_FRONTEND": "noninteractive",
@@ -222,28 +248,10 @@ class SnapclientManager:
             )
             await proc.communicate()
 
-            # Étape 2 : Installer le .deb avec dpkg (peut échouer sur dépendances manquantes)
-            self.logger.info("Installing .deb package with dpkg...")
+            # Étape 2 : Installer le .deb avec apt install (résout automatiquement les dépendances)
+            self.logger.info(f"Installing {Path(deb_path).name} with automatic dependency resolution...")
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "-E", "dpkg", "-i",
-                "--force-confdef",
-                "--force-confnew",
-                deb_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **env}
-            )
-
-            stdout, stderr = await proc.communicate()
-
-            # Note: dpkg peut retourner une erreur si des dépendances manquent, c'est normal
-            if proc.returncode != 0:
-                self.logger.warning(f"dpkg returned error (expected if dependencies missing): {stderr.decode()[:200]}")
-
-            # Étape 3 : Résoudre les dépendances manquantes avec apt-get -f install
-            self.logger.info("Fixing dependencies with apt-get -f install...")
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "-E", "apt-get", "-f", "install", "-y",
+                "sudo", "-E", "apt", "install", "-y", deb_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env={**os.environ, **env}
@@ -252,12 +260,12 @@ class SnapclientManager:
             stdout, stderr = await proc.communicate()
 
             if proc.returncode == 0:
-                self.logger.info("Package installed successfully with dependencies resolved")
+                self.logger.info("Package installed successfully with all dependencies resolved")
                 return {"success": True}
             else:
                 return {
                     "success": False,
-                    "error": f"apt-get -f install failed: {stderr.decode()}"
+                    "error": f"APT install failed: {stderr.decode()}"
                 }
 
         except Exception as e:
