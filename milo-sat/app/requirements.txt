@@ -1,11 +1,17 @@
 # Milo Sat - Python Dependencies
-# Version: 1.2 - Simplified dependencies (using APT for updates)
+# Version: 1.3 - Hybrid approach (GitHub .deb + APT dependency resolution)
 
 # Web framework
 fastapi>=0.115.0
 
 # ASGI server
 uvicorn[standard]>=0.32.0
+
+# HTTP client for async requests (GitHub API + downloads)
+aiohttp>=3.11.0
+
+# Async file operations (for downloading .deb files)
+aiofiles>=24.0.0
 
 # Type checking (optional but recommended)
 pydantic>=2.10.0
