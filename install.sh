@@ -42,6 +42,48 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+wait_for_apt_lock() {
+    log_info "Vérification des locks dpkg..."
+
+    local max_wait=300  # 5 minutes maximum
+    local waited=0
+    local lock_files=(
+        "/var/lib/dpkg/lock"
+        "/var/lib/dpkg/lock-frontend"
+        "/var/lib/apt/lists/lock"
+        "/var/cache/apt/archives/lock"
+    )
+
+    while [ $waited -lt $max_wait ]; do
+        local locks_held=0
+
+        # Vérifier si des processus détiennent les locks
+        for lock_file in "${lock_files[@]}"; do
+            if sudo lsof "$lock_file" >/dev/null 2>&1; then
+                locks_held=1
+                break
+            fi
+        done
+
+        # Si aucun lock n'est détenu, on peut continuer
+        if [ $locks_held -eq 0 ]; then
+            log_success "Locks dpkg libérés"
+            return 0
+        fi
+
+        # Afficher un message toutes les 10 secondes
+        if [ $((waited % 10)) -eq 0 ]; then
+            log_warning "En attente de la libération des locks dpkg... (${waited}s)"
+        fi
+
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    log_error "Timeout: les locks dpkg n'ont pas été libérés après ${max_wait}s"
+    return 1
+}
+
 show_banner() {
     echo -e "${BLUE}"
     echo "  __  __ _ _       "
@@ -314,19 +356,21 @@ configure_screen_hardware() {
 
 install_dependencies() {
     log_info "Mise à jour du système..."
-    
+
     export DEBIAN_FRONTEND=noninteractive
     export DEBCONF_NONINTERACTIVE_SEEN=true
-    
+
     echo 'Dpkg::Options {
        "--force-confdef";
        "--force-confnew";
     }' | sudo tee /etc/apt/apt.conf.d/local >/dev/null
-    
+
+    wait_for_apt_lock
     sudo apt update
     sudo apt upgrade -y
-    
+
     log_info "Installation des dépendances de base..."
+    wait_for_apt_lock
     sudo apt install -y \
         git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
         cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
@@ -388,14 +432,17 @@ install_milo_application() {
 
 suppress_pulseaudio() {
     log_info "Suppression de PulseAudio/PipeWire..."
+    wait_for_apt_lock
     sudo apt remove -y pulseaudio pipewire || true
+    wait_for_apt_lock
     sudo apt autoremove -y
     log_success "PulseAudio/PipeWire supprimés"
 }
 
 install_go_librespot() {
     log_info "Installation de go-librespot..."
-    
+
+    wait_for_apt_lock
     sudo apt-get install -y libogg-dev libvorbis-dev libasound2-dev
     
     local temp_dir=$(mktemp -d)
@@ -436,7 +483,8 @@ EOF
 
 install_roc_toolkit() {
     log_info "Installation de roc-toolkit..."
-    
+
+    wait_for_apt_lock
     sudo apt install -y g++ pkg-config scons ragel gengetopt libuv1-dev \
       libspeexdsp-dev libunwind-dev libsox-dev libsndfile1-dev libssl-dev libasound2-dev \
       libtool intltool autoconf automake make cmake avahi-utils libpulse-dev
@@ -461,6 +509,7 @@ install_roc_toolkit() {
 install_bluez_alsa() {
     log_info "Installation de bluez-alsa..."
 
+    wait_for_apt_lock
     sudo apt install -y \
       libasound2-dev \
       libbluetooth-dev \
@@ -512,6 +561,7 @@ install_snapcast() {
     # Installer snapserver et snapclient depuis les dépôts Debian
     # Cela résout automatiquement les dépendances selon la version de Debian
     export DEBIAN_FRONTEND=noninteractive
+    wait_for_apt_lock
     sudo apt install -y snapserver snapclient
 
     snapserver --version
@@ -827,6 +877,7 @@ EOF
 
 install_alsa_equal() {
     log_info "Installation d'ALSA Equal..."
+    wait_for_apt_lock
     sudo apt-get install -y libasound2-plugin-equal
     log_success "ALSA Equal installé"
 }
@@ -1087,11 +1138,12 @@ configure_fan_control() {
    log_success "Contrôle du ventilateur configuré"
 }
 
-install_avahi_nginx() {
-   log_info "Installation d'Avahi, Nginx, Chromium et Cage..."
-   sudo apt install -y avahi-daemon avahi-utils nginx chromium-browser cage
-   log_success "Avahi, Nginx, Chromium et Cage installés"
-}
+  install_avahi_nginx() {
+     log_info "Installation d'Avahi, Nginx, Chromium, Cage et thèmes..."
+     wait_for_apt_lock
+     sudo apt install -y avahi-daemon avahi-utils nginx chromium cage pixflat-theme pixflat-icons
+     log_success "Avahi, Nginx, Chromium, Cage et thèmes installés"
+  }
 
 configure_avahi() {
    log_info "Configuration d'Avahi..."
@@ -1206,7 +1258,7 @@ export WLR_XCURSOR_THEME=transparent-cursor
 export WLR_XCURSOR_SIZE=24
 
 # Launch Cage with Chromium in kiosk mode
-exec cage -- /usr/bin/chromium-browser \
+exec cage -- /usr/bin/chromium \
   --kiosk \
   --incognito \
   --no-first-run \
@@ -1543,8 +1595,9 @@ uninstall_milo() {
    log_info "Suppression des binaires..."
    sudo rm -f /usr/local/bin/go-librespot
    sudo rm -f /usr/local/bin/milo-brightness-7
-   
+
    log_info "Nettoyage des packages..."
+   wait_for_apt_lock
    sudo apt autoremove -y
    
    read -p "Restaurer l'hostname par défaut 'raspberrypi' ? (o/N): " restore_hostname
