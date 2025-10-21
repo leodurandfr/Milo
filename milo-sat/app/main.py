@@ -204,7 +204,7 @@ class SnapclientManager:
             return {"success": False, "error": str(e)}
 
     async def _install_deb_with_apt(self, deb_path: str) -> Dict[str, Any]:
-        """Installe un package .deb en utilisant APT pour résoudre les dépendances"""
+        """Installe un package .deb en utilisant dpkg + apt-get -f (méthode officielle Snapcast)"""
         try:
             env = {
                 "DEBIAN_FRONTEND": "noninteractive",
@@ -212,7 +212,7 @@ class SnapclientManager:
                 "APT_LISTCHANGES_FRONTEND": "none"
             }
 
-            # D'abord, mettre à jour la liste des paquets
+            # Étape 1 : Mettre à jour la liste des paquets
             self.logger.info("Updating APT package list...")
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "-E", "apt", "update",
@@ -222,12 +222,12 @@ class SnapclientManager:
             )
             await proc.communicate()
 
-            # Installer le .deb avec APT (qui va automatiquement résoudre les dépendances)
-            self.logger.info("Installing .deb package with dependency resolution...")
+            # Étape 2 : Installer le .deb avec dpkg (peut échouer sur dépendances manquantes)
+            self.logger.info("Installing .deb package with dpkg...")
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "-E", "apt", "install", "-y",
-                "-o", "Dpkg::Options::=--force-confdef",
-                "-o", "Dpkg::Options::=--force-confnew",
+                "sudo", "-E", "dpkg", "-i",
+                "--force-confdef",
+                "--force-confnew",
                 deb_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -236,12 +236,28 @@ class SnapclientManager:
 
             stdout, stderr = await proc.communicate()
 
+            # Note: dpkg peut retourner une erreur si des dépendances manquent, c'est normal
+            if proc.returncode != 0:
+                self.logger.warning(f"dpkg returned error (expected if dependencies missing): {stderr.decode()[:200]}")
+
+            # Étape 3 : Résoudre les dépendances manquantes avec apt-get -f install
+            self.logger.info("Fixing dependencies with apt-get -f install...")
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "-E", "apt-get", "-f", "install", "-y",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, **env}
+            )
+
+            stdout, stderr = await proc.communicate()
+
             if proc.returncode == 0:
+                self.logger.info("Package installed successfully with dependencies resolved")
                 return {"success": True}
             else:
                 return {
                     "success": False,
-                    "error": f"APT install failed: {stderr.decode()}"
+                    "error": f"apt-get -f install failed: {stderr.decode()}"
                 }
 
         except Exception as e:
