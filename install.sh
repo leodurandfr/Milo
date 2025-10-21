@@ -517,6 +517,7 @@ install_bluez_alsa() {
       libglib2.0-dev \
       libsbc-dev \
       libsystemd-dev \
+      libbsd-dev \
       bluez \
       bluez-tools \
       pkg-config \
