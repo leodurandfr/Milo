@@ -421,12 +421,37 @@ class RadioPlugin(UnifiedAudioPlugin):
             return self.format_response(False, error=str(e))
 
     async def _handle_add_favorite(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Ajoute une station aux favoris"""
+        """Ajoute une station aux favoris et sauvegarde ses métadonnées pour le cache"""
         station_id = data.get('station_id')
         if not station_id:
             return self.format_response(False, error="station_id requis")
 
+        # Ajouter aux favoris
         success = await self.station_manager.add_favorite(station_id)
+
+        if success:
+            # OPTIMISATION: Enrichir le cache avec les métadonnées de la station
+            # pour éviter les appels API futurs lors du chargement des favoris
+            try:
+                # Récupérer les métadonnées complètes de la station
+                station = await self.radio_api.get_station_by_id(station_id)
+
+                if station and not station_id.startswith("custom_"):
+                    # Sauvegarder dans station_images pour le cache
+                    # (les custom stations sont déjà dans custom_stations)
+                    # Utiliser cache_station_metadata() qui accepte les favicons externes
+                    await self.station_manager.cache_station_metadata(
+                        station_id=station_id,
+                        station_name=station.get('name', ''),
+                        favicon=station.get('favicon', ''),  # Favicon externe OK
+                        country=station.get('country', ''),
+                        genre=station.get('genre', '')
+                    )
+                    self.logger.info(f"✅ Métadonnées cachées pour {station.get('name')} ({station_id})")
+            except Exception as e:
+                # Ne pas faire échouer l'ajout du favori si le cache échoue
+                self.logger.warning(f"⚠️ Impossible de cacher métadonnées pour {station_id}: {e}")
+
         return self.format_response(
             success,
             message="Station ajoutée aux favoris" if success else "Échec ajout favori"

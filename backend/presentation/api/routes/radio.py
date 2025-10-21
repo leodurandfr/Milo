@@ -84,13 +84,26 @@ async def search_stations(
         plugin = container.radio_plugin()
 
         if favorites_only:
-            # Récupérer les favoris
-            favorite_ids = plugin.station_manager.get_favorites()
-            if not favorite_ids:
+            # OPTIMISATION: Charger d'abord depuis le cache local (milo_settings.json)
+            # pour éviter les appels API inutiles
+            cache_result = plugin.station_manager.get_favorites_with_cached_metadata()
+            cached_stations = cache_result['stations']
+            missing_ids = cache_result['missing_ids']
+
+            # Si aucun favori, retourner liste vide
+            if not cached_stations and not missing_ids:
                 return {"stations": [], "total": 0}
 
-            # Charger les stations complètes en batch (avec déduplication pour améliorer les favicons)
-            stations = await plugin.radio_api.get_stations_by_ids(favorite_ids)
+            # Fetcher seulement les stations manquantes depuis l'API RadioBrowser
+            fetched_stations = []
+            if missing_ids:
+                logger.info(f"📡 Fetching {len(missing_ids)} missing stations from RadioBrowser API")
+                fetched_stations = await plugin.radio_api.get_stations_by_ids(missing_ids)
+            else:
+                logger.info("✅ All favorites loaded from cache (0 API calls)")
+
+            # Merger les stations (cache + API)
+            stations = cached_stations + fetched_stations
 
             # Filtrer si nécessaire
             if query:
@@ -108,7 +121,7 @@ async def search_stations(
                 genre_lower = genre.lower()
                 stations = [s for s in stations if genre_lower in s['genre'].lower()]
 
-            # Enrichir avec statut favori
+            # Enrichir avec statut favori (déjà fait pour cached_stations, mais nécessaire pour fetched)
             enriched_stations = plugin.station_manager.enrich_with_favorite_status(stations[:limit])
 
             return {

@@ -207,6 +207,67 @@ class StationManager:
         """
         return list(self._favorites)
 
+    def get_favorites_with_cached_metadata(self) -> Dict[str, Any]:
+        """
+        Récupère les stations favorites avec leurs métadonnées depuis le cache local
+        (station_images + custom_stations) sans faire d'appels API externes.
+
+        Returns:
+            Dict avec:
+            - 'stations': List[Dict] des stations avec métadonnées complètes
+            - 'missing_ids': List[str] des IDs sans métadonnées (à fetcher depuis API)
+        """
+        cached_stations = []
+        missing_ids = []
+
+        for station_id in self._favorites:
+            # Cas 1: Station personnalisée (custom_)
+            if station_id.startswith("custom_"):
+                custom_station = self.get_custom_station_by_id(station_id)
+                if custom_station:
+                    # Ajouter is_favorite explicitement
+                    custom_station['is_favorite'] = True
+                    cached_stations.append(custom_station)
+                    continue
+                # Si custom station non trouvée, la considérer comme manquante
+                missing_ids.append(station_id)
+                continue
+
+            # Cas 2: Station avec métadonnées dans station_images
+            if station_id in self._station_images:
+                image_info = self._station_images[station_id]
+                # Reconstruire la station depuis les métadonnées cachées
+                station = {
+                    'id': station_id,
+                    'name': image_info.get('name', 'Station inconnue'),
+                    'country': image_info.get('country', ''),
+                    'genre': image_info.get('genre', ''),
+                    'favicon': image_info.get('favicon', ''),
+                    'image_filename': image_info.get('image_filename', ''),
+                    'url': '',  # URL sera remplie par l'API si besoin
+                    'bitrate': 0,
+                    'codec': 'Unknown',
+                    'votes': 0,
+                    'clickcount': 0,
+                    'score': 0,
+                    'is_favorite': True
+                }
+                cached_stations.append(station)
+                continue
+
+            # Cas 3: Aucune métadonnée - doit être fetchée depuis l'API
+            missing_ids.append(station_id)
+
+        self.logger.info(
+            f"📻 Favorites cache: {len(cached_stations)} from cache, "
+            f"{len(missing_ids)} missing (need API fetch)"
+        )
+
+        return {
+            'stations': cached_stations,
+            'missing_ids': missing_ids
+        }
+
     async def mark_as_broken(self, station_id: str) -> bool:
         """
         Marque une station comme cassée
@@ -510,6 +571,42 @@ class StationManager:
             self.logger.error(f"Error saving station images: {e}")
             return False
 
+    async def cache_station_metadata(
+        self,
+        station_id: str,
+        station_name: str,
+        favicon: str = "",
+        country: str = "",
+        genre: str = ""
+    ) -> bool:
+        """
+        Cache les métadonnées d'une station pour chargement rapide des favoris
+        (accepte les favicons externes sans fichier local)
+
+        Args:
+            station_id: ID de la station
+            station_name: Nom de la station
+            favicon: URL du favicon (externe RadioBrowser ou local /api/radio/images/...)
+            country: Pays de la station (optionnel)
+            genre: Genre de la station (optionnel)
+
+        Returns:
+            True si enregistrement réussi
+        """
+        if not station_id or not station_name:
+            return False
+
+        self._station_images[station_id] = {
+            "name": station_name,
+            "image_filename": "",  # Vide pour les stations RadioBrowser normales
+            "country": country,
+            "genre": genre,
+            "favicon": favicon  # Peut être une URL externe ou locale
+        }
+
+        self.logger.debug(f"Cached metadata for {station_name} ({station_id})")
+        return await self._save_station_images()
+
     async def add_station_image(
         self,
         station_id: str,
@@ -519,12 +616,13 @@ class StationManager:
         genre: str = ""
     ) -> bool:
         """
-        Enregistre qu'une station a une image modifiée
+        Enregistre qu'une station a une image uploadée localement
+        (nécessite un fichier image local)
 
         Args:
             station_id: ID de la station
             station_name: Nom de la station
-            image_filename: Nom du fichier image
+            image_filename: Nom du fichier image LOCAL (ex: "abc123.jpg")
             country: Pays de la station (optionnel)
             genre: Genre de la station (optionnel)
 

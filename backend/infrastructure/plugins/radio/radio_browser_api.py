@@ -4,6 +4,7 @@ Client API Radio Browser avec cache pour limiter les appels
 import asyncio
 import aiohttp
 import logging
+import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
@@ -35,6 +36,9 @@ class RadioBrowserAPI:
         self._countries_cache: List[Dict[str, Any]] = []
         self._countries_cache_timestamp: Optional[datetime] = None
         self._countries_cache_duration = timedelta(hours=24)
+
+        # Cache des évaluations de favicons (url -> (quality_score, file_size, timestamp))
+        self._favicon_quality_cache: Dict[str, tuple[int, int, datetime]] = {}
 
     async def _ensure_session(self) -> None:
         """Crée la session aiohttp si nécessaire"""
@@ -121,7 +125,7 @@ class RadioBrowserAPI:
                         valid_stations.append(normalized)
 
                 # Dédupliquer et trier par score
-                deduplicated_stations = self._deduplicate_stations(valid_stations)
+                deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}'")
 
@@ -208,7 +212,7 @@ class RadioBrowserAPI:
                         valid_stations.append(normalized)
 
                 # Dédupliquer (au cas où)
-                deduplicated_stations = self._deduplicate_stations(valid_stations)
+                deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Returning {len(deduplicated_stations)} top stations")
 
@@ -282,17 +286,128 @@ class RadioBrowserAPI:
         if 'upload.wikimedia.org' in url_lower:
             quality += 100
 
-        # Bonus pour les formats d'image
+        # Détecter si le nom contient "favicon" (ex: cropped-favicon.png)
+        # Pénaliser ces images car généralement de moins bonne qualité que les images "officielles"
+        contains_favicon = 'favicon' in url_lower and 'favicon.ico' not in url_lower
+
+        # Bonus pour les formats d'image (réduit si le nom contient "favicon")
         if '.svg' in url_lower:
-            quality += 30
+            quality += 30 if not contains_favicon else 30
         elif '.png' in url_lower:
-            quality += 20
+            quality += 20 if not contains_favicon else -50
         elif '.webp' in url_lower:
-            quality += 20
+            quality += 20 if not contains_favicon else -50
         elif '.jpg' in url_lower or '.jpeg' in url_lower:
-            quality += 15
+            quality += 15 if not contains_favicon else -50
+
+        # Bonus pour la résolution détectée dans l'URL (ex: 1260x1260, 180x180)
+        # Chercher toutes les occurrences de pattern widthxheight
+        resolution_matches = re.findall(r'(\d+)x(\d+)', url_lower)
+        if resolution_matches:
+            # Prendre la DERNIÈRE occurrence (ex: image-400x400-resized-180x180.png → 180x180)
+            width, height = map(int, resolution_matches[-1])
+            # Bonus = dimension minimale (fonctionne pour carrés et rectangles)
+            resolution_bonus = min(width, height)
+            quality += resolution_bonus
 
         return quality
+
+    async def _evaluate_favicon_with_head(self, favicon_url: str) -> tuple[int, int]:
+        """
+        Évalue la qualité d'un favicon via requête HTTP HEAD (légère, sans télécharger l'image)
+
+        Vérifie :
+        - Disponibilité (status 200)
+        - Type MIME valide (image/*)
+        - Taille du fichier (Content-Length)
+
+        Args:
+            favicon_url: URL du favicon à évaluer
+
+        Returns:
+            (quality_score, file_size_bytes)
+            - quality_score = -1 si erreur/404/pas une image
+            - quality_score = file_size + bonus selon Content-Type
+            - file_size = taille en octets (0 si non disponible)
+        """
+        if not favicon_url:
+            return (-1, 0)
+
+        # Vérifier le cache d'abord
+        if favicon_url in self._favicon_quality_cache:
+            cached_score, cached_size, cached_time = self._favicon_quality_cache[favicon_url]
+            # Cache valide pendant la durée du cache des stations
+            if datetime.now() - cached_time < self.cache_duration:
+                return (cached_score, cached_size)
+
+        # Vérifier d'abord la qualité de l'URL (filtre rapide)
+        url_quality = self._get_favicon_quality(favicon_url)
+        if url_quality < 10:
+            # URL problématique, ne pas faire de requête
+            self._favicon_quality_cache[favicon_url] = (-1, 0, datetime.now())
+            return (-1, 0)
+
+        await self._ensure_session()
+
+        try:
+            # Requête HEAD uniquement (pas de téléchargement)
+            async with self.session.head(
+                favicon_url,
+                timeout=aiohttp.ClientTimeout(total=3),
+                allow_redirects=True
+            ) as resp:
+                # Vérifier status code
+                if resp.status != 200:
+                    self.logger.debug(f"Favicon HEAD failed (HTTP {resp.status}): {favicon_url}")
+                    self._favicon_quality_cache[favicon_url] = (-1, 0, datetime.now())
+                    return (-1, 0)
+
+                # Vérifier Content-Type
+                content_type = resp.headers.get('Content-Type', '').lower()
+                if not content_type.startswith('image/'):
+                    self.logger.debug(f"Favicon not an image (Content-Type: {content_type}): {favicon_url}")
+                    self._favicon_quality_cache[favicon_url] = (-1, 0, datetime.now())
+                    return (-1, 0)
+
+                # Récupérer la taille
+                file_size = 0
+                content_length = resp.headers.get('Content-Length')
+                if content_length:
+                    try:
+                        file_size = int(content_length)
+                    except ValueError:
+                        file_size = 0
+
+                # Calculer le score de qualité basé sur la taille + type MIME
+                quality_score = file_size
+
+                # Bonus selon le type MIME (élevés pour surpasser les ICO même sans Content-Length)
+                if 'svg' in content_type:
+                    quality_score += 100000  # SVG = vectoriel, excellente qualité
+                elif 'png' in content_type or 'webp' in content_type:
+                    quality_score += 50000  # PNG/WEBP = bonne qualité (priorité sur ICO)
+                elif 'jpeg' in content_type or 'jpg' in content_type:
+                    quality_score += 20000   # JPEG = qualité moyenne
+                # else: image/x-icon ou autre = pas de bonus (file_size uniquement)
+
+                # Mettre en cache
+                self._favicon_quality_cache[favicon_url] = (quality_score, file_size, datetime.now())
+
+                self.logger.debug(
+                    f"✅ Favicon evaluated: {favicon_url[:50]}... "
+                    f"(score={quality_score}, size={file_size}, type={content_type})"
+                )
+
+                return (quality_score, file_size)
+
+        except asyncio.TimeoutError:
+            self.logger.debug(f"Favicon HEAD timeout: {favicon_url}")
+            self._favicon_quality_cache[favicon_url] = (-1, 0, datetime.now())
+            return (-1, 0)
+        except Exception as e:
+            self.logger.debug(f"Favicon HEAD error for {favicon_url}: {e}")
+            self._favicon_quality_cache[favicon_url] = (-1, 0, datetime.now())
+            return (-1, 0)
 
     def _normalize_station(self, station: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -352,10 +467,16 @@ class RadioBrowserAPI:
 
         return bitrate1 - bitrate2
 
-    def _deduplicate_stations(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def _deduplicate_stations(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Déduplique une liste de stations par nom (case-insensitive)
-        Garde la meilleure version basée sur score et bitrate
+        Pour chaque groupe de doublons, fusionne la meilleure URL audio avec la meilleure image
+
+        Stratégie :
+        1. Groupe toutes les versions d'une même station par nom
+        2. Choisit la version avec le meilleur flux audio (score + bitrate le plus élevé)
+        3. Évalue tous les favicons via requêtes HEAD pour trouver le meilleur (disponible + plus lourd)
+        4. Fusionne les deux pour créer la station optimale
 
         Args:
             stations: Liste de stations normalisées
@@ -363,34 +484,99 @@ class RadioBrowserAPI:
         Returns:
             Liste de stations dédupliquées et triées par score
         """
-        stations_map = {}
+        # Grouper toutes les versions de chaque station par nom
+        stations_by_name = {}
 
         for station in stations:
             station_key = station['name'].lower().strip()
 
-            # Garder la meilleure version si doublon
-            if station_key not in stations_map:
-                stations_map[station_key] = station
+            if station_key not in stations_by_name:
+                stations_by_name[station_key] = []
+
+            stations_by_name[station_key].append(station)
+
+        # Pour chaque groupe de doublons, créer une station fusionnée
+        deduplicated = []
+
+        for station_name, versions in stations_by_name.items():
+            if len(versions) == 1:
+                # Pas de doublons, garder telle quelle
+                deduplicated.append(versions[0])
             else:
-                existing = stations_map[station_key]
+                # Plusieurs versions : fusionner meilleur audio + meilleure image
 
-                # Toujours mettre à jour le favicon si le nouveau est de meilleure qualité
-                new_favicon_quality = self._get_favicon_quality(station.get('favicon', ''))
-                existing_favicon_quality = self._get_favicon_quality(existing.get('favicon', ''))
+                # 1. Trouver la version avec le meilleur flux audio (score + bitrate)
+                best_audio = max(
+                    versions,
+                    key=lambda s: (s.get('score', 0), s.get('bitrate', 0))
+                )
 
-                if new_favicon_quality > existing_favicon_quality:
-                    existing['favicon'] = station['favicon']
+                # 2. Évaluer tous les favicons candidats via requêtes HEAD
+                # Collecter tous les favicons non vides avec leur URL quality
+                favicon_candidates = []
+                for version in versions:
+                    favicon = version.get('favicon', '')
+                    if favicon and favicon not in [f for f, _, _ in favicon_candidates]:
+                        # Éviter les doublons d'URL
+                        url_quality = self._get_favicon_quality(favicon)
+                        favicon_candidates.append((favicon, version, url_quality))
 
-                # Remplacer la station entière si meilleure qualité globale
-                if self._compare_station_quality(station, existing) > 0:
-                    # Garder le meilleur favicon déjà trouvé
-                    best_favicon = existing['favicon'] if existing_favicon_quality > new_favicon_quality else station['favicon']
-                    station['favicon'] = best_favicon
-                    stations_map[station_key] = station
+                # Trier par URL quality décroissant (meilleur en premier)
+                # PNG > WEBP > JPG > ICO
+                favicon_candidates.sort(key=lambda x: x[2], reverse=True)
+
+                # Tester séquentiellement dans l'ordre de qualité
+                # Dès qu'un HEAD réussit (status 200 + image/*), on le prend
+                best_favicon = ""
+                best_favicon_score = -1
+                best_favicon_size = 0
+
+                if favicon_candidates:
+                    for favicon_url, version, url_quality in favicon_candidates:
+                        # Tester ce favicon avec HEAD
+                        score, size = await self._evaluate_favicon_with_head(favicon_url)
+
+                        if score > 0:  # HEAD a réussi (200 + Content-Type: image/*)
+                            best_favicon = favicon_url
+                            best_favicon_score = score
+                            best_favicon_size = size
+                            self.logger.info(
+                                f"✅ Selected favicon for '{versions[0]['name']}' "
+                                f"(url_quality={url_quality}, size={size}B): {favicon_url}"
+                            )
+                            break  # On s'arrête dès qu'on trouve un qui marche
+                        else:
+                            self.logger.debug(
+                                f"❌ Favicon HEAD failed for '{versions[0]['name']}' "
+                                f"(url_quality={url_quality}): {favicon_url}"
+                            )
+
+                    # Fallback : si tous les HEAD ont échoué, utiliser le meilleur selon URL quality
+                    if best_favicon_score < 0 and favicon_candidates:
+                        best_favicon = favicon_candidates[0][0]
+                        best_url_quality = favicon_candidates[0][2]
+                        self.logger.info(
+                            f"⚠️ All HEAD requests failed for '{versions[0]['name']}', "
+                            f"using best URL quality favicon (quality={best_url_quality}): {best_favicon}"
+                        )
+
+                # 3. Créer la station fusionnée (meilleur audio + meilleure image)
+                merged_station = best_audio.copy()
+                merged_station['favicon'] = best_favicon
+
+                deduplicated.append(merged_station)
+
+                # Log détaillé pour debug (seulement si doublons fusionnés)
+                if len(versions) > 1:
+                    self.logger.info(
+                        f"🔀 Merged {len(versions)} versions of '{versions[0]['name']}': "
+                        f"best_audio(score={best_audio.get('score', 0)}, bitrate={best_audio.get('bitrate', 0)})"
+                    )
+                    # Note: L'URL complète du favicon est déjà loggée ci-dessus avec ✅ ou ⚠️
 
         # Trier par popularité (votes + clics)
         sorted_stations = sorted(
-            stations_map.values(),
+            deduplicated,
             key=lambda s: s.get('score', 0),
             reverse=True
         )
@@ -623,7 +809,7 @@ class RadioBrowserAPI:
         # IMPORTANT : Appliquer la déduplication pour fusionner les versions et garder les meilleurs favicons
         # La déduplication va comparer toutes les versions de chaque station (ID + alternatives par nom)
         # et garder le meilleur favicon pour chaque station unique
-        deduplicated_stations = self._deduplicate_stations(stations)
+        deduplicated_stations = await self._deduplicate_stations(stations)
 
         # Enrichir avec les images personnalisées
         if deduplicated_stations and self.station_manager:
@@ -690,7 +876,7 @@ class RadioBrowserAPI:
                         valid_stations.append(normalized)
 
                 # Dédupliquer et trier par score
-                deduplicated_stations = self._deduplicate_stations(valid_stations)
+                deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for {country_name}")
 
@@ -735,7 +921,7 @@ class RadioBrowserAPI:
                         valid_stations.append(normalized)
 
                 # Dédupliquer et trier par score
-                deduplicated_stations = self._deduplicate_stations(valid_stations)
+                deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for genre {genre}")
 
@@ -781,7 +967,7 @@ class RadioBrowserAPI:
                         valid_stations.append(normalized)
 
                 # Dédupliquer et trier par score
-                deduplicated_stations = self._deduplicate_stations(valid_stations)
+                deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for {country_name} + {genre}")
 
@@ -827,7 +1013,7 @@ class RadioBrowserAPI:
                         valid_stations.append(normalized)
 
                 # Dédupliquer et trier par score
-                deduplicated_stations = self._deduplicate_stations(valid_stations)
+                deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}' + genre {genre}")
 

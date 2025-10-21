@@ -171,4 +171,11 @@ app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run(
+        "backend.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False,
+        access_log=False,     # ⬅️ coupe les "GET / ..." répétitifs
+        # log_level="warning",  # ⬅️ (optionnel) réduit le bruit de uvicorn.error
+    )

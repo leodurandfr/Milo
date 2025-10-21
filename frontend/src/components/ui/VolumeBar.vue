@@ -94,8 +94,8 @@ onMounted(() => {
   content: '';
   position: absolute;
   top: 0;
-  left: 4px;
-  right: 4px;
+  left: 0.5px;
+  right: 0.5px;
   height: 100%;
   background: var(--color-background-neutral);
   border-radius: var(--radius-full);
