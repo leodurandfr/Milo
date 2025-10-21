@@ -15,7 +15,7 @@ This guide is for developers who want to contribute to or fork the Milō project
 
 ```bash
 # Clone the repository
-git clone https://github.com/Leshauts/Milo.git
+git clone https://github.com/leodurandfr/Milo.git
 cd Milo
 
 # Python backend
@@ -657,5 +657,5 @@ settings['volume']['alsa_max'] = 80
 
 ## Contact
 
-- **GitHub Issues:** https://github.com/Leshauts/Milo/issues
-- **Discussions:** https://github.com/Leshauts/Milo/discussions
+- **GitHub Issues:** https://github.com/leodurandfr/Milo/issues
+- **Discussions:** https://github.com/leodurandfr/Milo/discussions

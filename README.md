@@ -20,9 +20,9 @@ Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, 
 
 ## 🎛️ Companion apps
 
-- [**Milō Mac**](https://github.com/Leshauts/Milo-Mac) - Add "Milō" in your mac audio output and let you control Milō from the Menu Bar app.
-- [**Milō iOS**](https://github.com/Leshauts/Milo-iOS) - iOS app (fullscreen web interface)
-- [**Milō Android**](https://github.com/Leshauts/Milo-Android) - Android app (fullscreen web interface)
+- [**Milō Mac**](https://github.com/leodurandfr/Milo-Mac) - Add "Milō" in your mac audio output and let you control Milō from the Menu Bar app.
+- [**Milō iOS**](https://github.com/leodurandfr/Milo-iOS) - iOS app (fullscreen web interface)
+- [**Milō Android**](https://github.com/leodurandfr/Milo-Android) - Android app (fullscreen web interface)
 
 ## 🔧 Hardware requirements
 
@@ -36,7 +36,7 @@ Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, 
 ### Milō (main installation)
 
 ```bash
-wget https://raw.githubusercontent.com/Leshauts/Milo/main/install.sh
+wget https://raw.githubusercontent.com/leodurandfr/Milo/main/install.sh
 chmod +x install.sh
 ./install.sh
 ```
@@ -51,7 +51,7 @@ The script will guide you through:
 - Web interface: **http://milo.local**
 - Spotify Connect: Select **"Milō"** in the Spotify app
 - Bluetooth: Connect to **"Milō · Bluetooth"**
-- Mac audio: After installing [**Milō Mac**](https://github.com/Leshauts/Milo-Mac), select **"Milo"** in your mac audio output.
+- Mac audio: After installing [**Milō Mac**](https://github.com/leodurandfr/Milo-Mac), select **"Milo"** in your mac audio output.
 
 **Uninstall:**
 ```bash
@@ -63,7 +63,7 @@ The script will guide you through:
 Install Milō Sat on other Raspberry Pis to create a synchronized multiroom system.
 
 ```bash
-wget https://raw.githubusercontent.com/Leshauts/Milo/main/milo-sat/install-sat.sh
+wget https://raw.githubusercontent.com/leodurandfr/Milo/main/milo-sat/install-sat.sh
 chmod +x install-sat.sh
 ./install-sat.sh
 ```

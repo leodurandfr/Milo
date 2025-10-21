@@ -102,7 +102,7 @@ usb_max_current_enable=1
 
     ```bash
     cd ~
-    git clone https://github.com/Leshauts/Milo.git
+    git clone https://github.com/leodurandfr/Milo.git
     cd Milo
     ```
     

@@ -7,7 +7,7 @@ MILO_SAT_USER="milo-sat"
 MILO_SAT_HOME="/home/$MILO_SAT_USER"
 MILO_SAT_APP_DIR="$MILO_SAT_HOME/milo-sat"
 MILO_SAT_DATA_DIR="/var/lib/milo-sat"
-MILO_SAT_REPO_BASE="https://raw.githubusercontent.com/Leshauts/Milo/main/milo-sat"
+MILO_SAT_REPO_BASE="https://raw.githubusercontent.com/leodurandfr/Milo/main/milo-sat"
 REBOOT_REQUIRED=false
 
 # Variables pour stocker les choix utilisateur
