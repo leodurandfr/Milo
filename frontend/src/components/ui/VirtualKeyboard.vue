@@ -113,9 +113,29 @@ const isUppercase = ref(false);
 const screenWidth = ref(window.innerWidth);
 const screenHeight = ref(window.innerHeight);
 
-// Detect if we should show keyboard (1024x600 resolution - Raspberry Pi only)
+// Detect if we should show keyboard
+// 1. Check for 1024x600 resolution (Raspberry Pi default)
+// 2. Check for touchscreen capability as fallback
+// 3. Allow forcing via URL parameter ?virtualKeyboard=true for testing
 const shouldShowKeyboard = computed(() => {
-  return screenWidth.value === 1024 && screenHeight.value === 600;
+  // Force mode via URL parameter (for testing)
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('virtualKeyboard') === 'true') {
+    return true;
+  }
+
+  // Primary detection: Raspberry Pi resolution
+  const isRaspberryPi = screenWidth.value === 1024 && screenHeight.value === 600;
+  if (isRaspberryPi) {
+    return true;
+  }
+
+  // Secondary detection: touchscreen device
+  const hasTouchScreen = 'maxTouchPoints' in navigator && navigator.maxTouchPoints > 0;
+  const isSmallScreen = screenWidth.value <= 1280 && screenHeight.value <= 800;
+
+  // Show keyboard on touchscreen devices with small screens
+  return hasTouchScreen && isSmallScreen;
 });
 
 // Update screen size on resize

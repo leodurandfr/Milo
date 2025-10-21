@@ -35,8 +35,8 @@
               <span class="client-hostname text-mono">{{ client.host }}</span>
               <input type="text" v-model="clientNames[client.id]" :placeholder="client.host"
                 class="client-name-input text-body" maxlength="50"
-                @click="openKeyboard(client.id)"
-                readonly>
+                @focus="handleInputFocus(client.id, $event)"
+                @blur="handleInputBlur(client.id)">
             </div>
           </div>
         </div>
@@ -116,6 +116,11 @@ const { on } = useWebSocket();
 const snapcastStore = useSnapcastStore();
 const unifiedStore = useUnifiedAudioStore();
 const keyboard = useVirtualKeyboard();
+
+// Détection de l'écran tactile (1024x600 = Raspberry Pi)
+const isTouchScreen = computed(() => {
+  return window.innerWidth === 1024 && window.innerHeight === 600;
+});
 
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -258,6 +263,22 @@ async function applyServerConfig() {
 }
 
 // === VIRTUAL KEYBOARD ===
+
+function handleInputFocus(clientId, event) {
+  // Sur écran tactile : ouvrir le clavier virtuel et blur l'input natif
+  if (isTouchScreen.value) {
+    event.target.blur(); // Empêcher le clavier natif
+    openKeyboard(clientId);
+  }
+  // Sur desktop : laisser l'édition normale (pas de action supplémentaire)
+}
+
+function handleInputBlur(clientId) {
+  // Sauvegarder les changements quand l'utilisateur quitte le champ (desktop uniquement)
+  if (!isTouchScreen.value) {
+    updateClientName(clientId);
+  }
+}
 
 function openKeyboard(clientId) {
   const client = sortedSnapcastClients.value.find(c => c.id === clientId);
