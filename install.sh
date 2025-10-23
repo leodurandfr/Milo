@@ -1229,8 +1229,6 @@ configure_cage_kiosk() {
     
     # Chromium est déjà installé via install_avahi_nginx()
     
-    sudo mkdir -p /run/user/1000
-    sudo chown -R "$MILO_USER:$MILO_USER" /run/user/1000
     
     sudo tee -a "$MILO_HOME/.bash_profile" > /dev/null << 'EOF'
 
