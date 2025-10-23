@@ -1,5 +1,5 @@
 #!/bin/bash
-# Milo Audio System - Installation Script v1.2
+# Milo Audio System - Installation Script v1.3
 
 set -e
 
@@ -7,7 +7,7 @@ MILO_USER="milo"
 MILO_HOME="/home/$MILO_USER"
 MILO_APP_DIR="$MILO_HOME/milo"
 MILO_DATA_DIR="/var/lib/milo"
-MILO_REPO="https://github.com/leodurandfr/Milo.git"
+MILO_REPO="https://github.com/Leshauts/Milo.git"
 REQUIRED_HOSTNAME="milo"
 REBOOT_REQUIRED=false
 
@@ -42,48 +42,6 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-wait_for_apt_lock() {
-    log_info "Vérification des locks dpkg..."
-
-    local max_wait=300  # 5 minutes maximum
-    local waited=0
-    local lock_files=(
-        "/var/lib/dpkg/lock"
-        "/var/lib/dpkg/lock-frontend"
-        "/var/lib/apt/lists/lock"
-        "/var/cache/apt/archives/lock"
-    )
-
-    while [ $waited -lt $max_wait ]; do
-        local locks_held=0
-
-        # Vérifier si des processus détiennent les locks
-        for lock_file in "${lock_files[@]}"; do
-            if sudo lsof "$lock_file" >/dev/null 2>&1; then
-                locks_held=1
-                break
-            fi
-        done
-
-        # Si aucun lock n'est détenu, on peut continuer
-        if [ $locks_held -eq 0 ]; then
-            log_success "Locks dpkg libérés"
-            return 0
-        fi
-
-        # Afficher un message toutes les 10 secondes
-        if [ $((waited % 10)) -eq 0 ]; then
-            log_warning "En attente de la libération des locks dpkg... (${waited}s)"
-        fi
-
-        sleep 2
-        waited=$((waited + 2))
-    done
-
-    log_error "Timeout: les locks dpkg n'ont pas été libérés après ${max_wait}s"
-    return 1
-}
-
 show_banner() {
     echo -e "${BLUE}"
     echo "  __  __ _ _       "
@@ -92,7 +50,7 @@ show_banner() {
     echo " | |  | | | | (_) |"
     echo " |_|  |_|_|_|\___/ "
     echo ""
-    echo "Audio System Installation Script v1.2"
+    echo "Audio System Installation Script v1.3"
     echo -e "${NC}"
 }
 
@@ -120,9 +78,6 @@ check_system() {
     log_success "Système compatible détecté"
 }
 
-# ===============================
-# FONCTION POUR COLLECTER TOUS LES CHOIX
-# ===============================
 collect_user_choices() {
     echo ""
     log_info "Configuration initiale - Répondez aux questions suivantes :"
@@ -191,7 +146,7 @@ collect_user_choices() {
         esac
     done
     
-    # 3. Nouveau : Choix de l'écran
+    # 3. Choix de l'écran
     echo ""
     log_info "Configuration de l'écran tactile..."
     echo ""
@@ -214,7 +169,7 @@ collect_user_choices() {
         esac
     done
     
-    # 4. Choix du redémarrage (on le demande maintenant mais on l'utilisera à la fin)
+    # 4. Choix du redémarrage
     echo ""
     log_info "Un redémarrage sera nécessaire à la fin de l'installation."
     while true; do
@@ -239,10 +194,6 @@ collect_user_choices() {
     echo ""
     sleep 2
 }
-
-# ===============================
-# FONCTIONS MODIFIÉES POUR UTILISER LES VARIABLES
-# ===============================
 
 setup_hostname() {
     local current_hostname=$(hostname)
@@ -310,9 +261,6 @@ configure_audio_hardware() {
     REBOOT_REQUIRED=true
 }
 
-# ===============================
-# NOUVELLE FONCTION POUR L'ÉCRAN
-# ===============================
 configure_screen_hardware() {
     if [[ "$SCREEN_TYPE" == "none" ]]; then
         log_info "Configuration d'écran ignorée"
@@ -331,7 +279,6 @@ configure_screen_hardware() {
         fi
     fi
     
-    # Sauvegarde si pas déjà fait
     if [[ ! -f "$config_file.backup.$(date +%Y%m%d)" ]]; then
         sudo cp "$config_file" "$config_file.backup.$(date +%Y%m%d_%H%M%S)"
     fi
@@ -356,21 +303,19 @@ configure_screen_hardware() {
 
 install_dependencies() {
     log_info "Mise à jour du système..."
-
+    
     export DEBIAN_FRONTEND=noninteractive
     export DEBCONF_NONINTERACTIVE_SEEN=true
-
+    
     echo 'Dpkg::Options {
        "--force-confdef";
        "--force-confnew";
     }' | sudo tee /etc/apt/apt.conf.d/local >/dev/null
-
-    wait_for_apt_lock
+    
     sudo apt update
     sudo apt upgrade -y
-
+    
     log_info "Installation des dépendances de base..."
-    wait_for_apt_lock
     sudo apt install -y \
         git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
         cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
@@ -392,21 +337,20 @@ create_milo_user() {
         log_info "Utilisateur '$MILO_USER' existe déjà"
     else
         log_info "Création de l'utilisateur '$MILO_USER'..."
-        sudo useradd -m -s /bin/bash -G audio,sudo "$MILO_USER"
+        sudo useradd -m -s /bin/bash "$MILO_USER"
+        sudo usermod -aG audio,video,bluetooth,input "$MILO_USER"
         log_success "Utilisateur '$MILO_USER' créé"
     fi
     
     sudo mkdir -p "$MILO_DATA_DIR"
-    sudo chown -R "$MILO_USER:audio" "$MILO_DATA_DIR"
-
-    # Créer le répertoire /run/milo pour les sockets IPC (runtime directory)
-    sudo mkdir -p /run/milo
-    sudo chown "$MILO_USER:$MILO_USER" /run/milo
-    sudo chmod 755 /run/milo
+    sudo chown -R "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR"
 }
 
 install_milo_application() {
     log_info "Clonage et configuration de Milo..."
+    
+    # Se déplacer dans un répertoire sûr AVANT de supprimer
+    cd /tmp
     
     if [[ -d "$MILO_APP_DIR" ]]; then
         log_warning "Le répertoire $MILO_APP_DIR existe déjà, suppression..."
@@ -430,19 +374,31 @@ install_milo_application() {
     log_success "Application Milo installée"
 }
 
+fix_nginx_permissions() {
+    log_info "Configuration des permissions pour nginx..."
+    
+    # Permettre à nginx (www-data) d'accéder au frontend
+    sudo chmod 755 /home/milo
+    sudo chmod 755 /home/milo/milo
+    sudo chmod 755 /home/milo/milo/frontend
+    sudo chmod -R 755 /home/milo/milo/frontend/dist
+    
+    # S'assurer que les fichiers appartiennent bien à milo
+    sudo chown -R "$MILO_USER:$MILO_USER" /home/milo/milo/frontend/dist
+    
+    log_success "Permissions nginx configurées"
+}
+
 suppress_pulseaudio() {
     log_info "Suppression de PulseAudio/PipeWire..."
-    wait_for_apt_lock
     sudo apt remove -y pulseaudio pipewire || true
-    wait_for_apt_lock
     sudo apt autoremove -y
     log_success "PulseAudio/PipeWire supprimés"
 }
 
 install_go_librespot() {
     log_info "Installation de go-librespot..."
-
-    wait_for_apt_lock
+    
     sudo apt-get install -y libogg-dev libvorbis-dev libasound2-dev
     
     local temp_dir=$(mktemp -d)
@@ -483,8 +439,7 @@ EOF
 
 install_roc_toolkit() {
     log_info "Installation de roc-toolkit..."
-
-    wait_for_apt_lock
+    
     sudo apt install -y g++ pkg-config scons ragel gengetopt libuv1-dev \
       libspeexdsp-dev libunwind-dev libsox-dev libsndfile1-dev libssl-dev libasound2-dev \
       libtool intltool autoconf automake make cmake avahi-utils libpulse-dev
@@ -509,15 +464,12 @@ install_roc_toolkit() {
 install_bluez_alsa() {
     log_info "Installation de bluez-alsa..."
 
-    wait_for_apt_lock
     sudo apt install -y \
       libasound2-dev \
       libbluetooth-dev \
       libdbus-1-dev \
       libglib2.0-dev \
       libsbc-dev \
-      libsystemd-dev \
-      libbsd-dev \
       bluez \
       bluez-tools \
       pkg-config \
@@ -538,7 +490,8 @@ install_bluez_alsa() {
     autoreconf --install
     mkdir build && cd build
     
-    ../configure --prefix=/usr --enable-systemd \
+    # FIX: Utiliser --disable-systemd car nous gérons nos propres services systemd
+    ../configure --prefix=/usr --disable-systemd \
       --with-alsaplugindir=/usr/lib/aarch64-linux-gnu/alsa-lib \
       --with-bluealsauser="$MILO_USER" --with-bluealsaaplayuser="$MILO_USER" \
       --enable-cli
@@ -558,12 +511,67 @@ install_bluez_alsa() {
 
 install_snapcast() {
     log_info "Installation de Snapcast..."
+    
+    # Détecter la version de Debian (bookworm, trixie, bullseye, etc.)
+    DEBIAN_VERSION=$(lsb_release -sc 2>/dev/null || grep VERSION_CODENAME /etc/os-release | cut -d= -f2)
+    
+    if [[ -z "$DEBIAN_VERSION" ]]; then
+        log_warning "Impossible de détecter la version Debian, utilisation de bookworm par défaut"
+        DEBIAN_VERSION="bookworm"
+    else
+        log_info "Version Debian détectée: $DEBIAN_VERSION"
+    fi
 
-    # Installer snapserver et snapclient depuis les dépôts Debian
-    # Cela résout automatiquement les dépendances selon la version de Debian
-    export DEBIAN_FRONTEND=noninteractive
-    wait_for_apt_lock
-    sudo apt install -y snapserver snapclient
+    # Méthode 1 : Essayer d'installer depuis les dépôts Debian (plus fiable)
+    log_info "Tentative d'installation depuis les dépôts Debian..."
+    if sudo apt install -y snapserver snapclient 2>/dev/null; then
+        log_success "Snapcast installé depuis les dépôts Debian"
+        snapserver --version
+        snapclient --version
+    else
+        log_warning "Installation depuis les dépôts échouée, téléchargement des paquets GitHub..."
+        
+        # Méthode 2 : Télécharger les .deb depuis GitHub
+        local temp_dir=$(mktemp -d)
+        cd "$temp_dir"
+        
+        # Téléchargement avec la version Debian détectée
+        log_info "Téléchargement de Snapcast pour $DEBIAN_VERSION..."
+        if ! wget "https://github.com/badaix/snapcast/releases/download/v0.31.0/snapserver_0.31.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
+            log_warning "Paquet pour $DEBIAN_VERSION non disponible, tentative avec bookworm..."
+            DEBIAN_VERSION="bookworm"
+            wget "https://github.com/badaix/snapcast/releases/download/v0.31.0/snapserver_0.31.0-1_arm64_bookworm.deb"
+        fi
+        
+        wget "https://github.com/badaix/snapcast/releases/download/v0.31.0/snapclient_0.31.0-1_arm64_${DEBIAN_VERSION}.deb"
+        
+        # Installer les dépendances communes avant les .deb
+        log_info "Installation des dépendances..."
+        sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
+        
+        # Installation des .deb avec gestion des dépendances
+        if sudo apt install -y ./snapserver_0.31.0-1_arm64_${DEBIAN_VERSION}.deb ./snapclient_0.31.0-1_arm64_${DEBIAN_VERSION}.deb; then
+            log_success "Snapcast installé depuis les paquets GitHub"
+        else
+            log_error "Échec de l'installation des paquets .deb"
+            log_warning "Tentative de résolution des dépendances..."
+            sudo apt --fix-broken install -y || true
+            
+            # Dernière tentative
+            if sudo dpkg -i snapserver_0.31.0-1_arm64_${DEBIAN_VERSION}.deb snapclient_0.31.0-1_arm64_${DEBIAN_VERSION}.deb 2>/dev/null; then
+                sudo apt --fix-broken install -y
+                log_success "Snapcast installé après correction des dépendances"
+            else
+                log_error "Impossible d'installer Snapcast depuis les paquets"
+                cd ~
+                rm -rf "$temp_dir"
+                return 1
+            fi
+        fi
+        
+        cd ~
+        rm -rf "$temp_dir"
+    fi
 
     snapserver --version
     snapclient --version
@@ -571,13 +579,12 @@ install_snapcast() {
     sudo systemctl stop snapserver.service snapclient.service || true
     sudo systemctl disable snapserver.service snapclient.service || true
 
-    log_success "Snapcast installé"
+    log_success "Snapcast installé et configuré"
 }
 
 configure_journald() {
     log_info "Configuration des limites de journald..."
 
-    # Configure log retention and size limits
     sudo sed -i 's/^#RuntimeMaxUse=$/RuntimeMaxUse=100M/' /etc/systemd/journald.conf
     sudo sed -i 's/^#MaxRetentionSec=$/MaxRetentionSec=7d/' /etc/systemd/journald.conf
 
@@ -590,114 +597,90 @@ create_systemd_services() {
     # milo-backend.service
     sudo tee /etc/systemd/system/milo-backend.service > /dev/null << 'EOF'
 [Unit]
-Description=Milo Backend Service
-After=network.target
+Description=Milo Audio Backend
+After=network-online.target sound.service
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=milo
-Group=milo
-WorkingDirectory=/home/milo/milo
-ExecStart=/home/milo/milo/venv/bin/python3 backend/main.py
-
-# GitHub Token for dependency updates (optional but recommended)
-# Replace YOUR_GITHUB_TOKEN with your personal access token from https://github.com/settings/tokens
-# This increases GitHub API rate limit from 60 to 5000 requests/hour
-Environment="GITHUB_TOKEN=YOUR_GITHUB_TOKEN_HERE"
-
-Restart=always
-RestartSec=5
-TimeoutStopSec=10
-
-StateDirectory=milo
-StateDirectoryMode=0755
-
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    # milo-frontend.service
-    sudo tee /etc/systemd/system/milo-frontend.service > /dev/null << 'EOF'
-[Unit]
-Description=Milo Frontend Service
-After=network.target
-
-[Service]
-Type=simple
-User=milo
-Group=milo
-WorkingDirectory=/home/milo/milo/frontend
-
-ExecStartPre=/usr/bin/npm run build
-ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 3000
-
-Restart=always
-RestartSec=5
-TimeoutStopSec=10
-
-StateDirectory=milo
-StateDirectoryMode=0755
-
-Environment=NODE_ENV=production
-Environment=HOME=/home/milo
-
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=milo-frontend
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    # milo-kiosk.service - DISABLED: Now using Cage compositor instead
-    # Cage provides a minimal Wayland kiosk environment that launches Chromium directly
-    # Configuration is done via ~/.bash_profile and ~/.config/milo-cage-start.sh
-    # (see configure_cage_kiosk function)
-    
-    # milo-roc.service
-    sudo tee /etc/systemd/system/milo-roc.service > /dev/null << 'EOF'
-[Unit]
-Description=Milo ROC Audio Receiver
-Documentation=https://roc-streaming.org/
-After=network.target sound.service milo-backend.service
-Wants=network.target
-BindsTo=milo-backend.service
-
-[Service]
-Type=exec
 User=milo
 Group=audio
 
-EnvironmentFile=/etc/environment
-Environment=HOME=/home/milo
+WorkingDirectory=/home/milo/milo
+Environment="PATH=/home/milo/milo/venv/bin:/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/var/lib/milo/milo_environment
 
-ExecStart=/usr/bin/roc-recv -vv \
-  -s rtp+rs8m://0.0.0.0:10001 \
-  -r rs8m://0.0.0.0:10002 \
-  -c rtcp://0.0.0.0:10003 \
-  -o alsa://milo_roc
+ExecStart=/home/milo/milo/venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
 Restart=always
 RestartSec=5
 
-PrivateNetwork=false
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=milo-roc
+SyslogIdentifier=milo-backend
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    
+
+    # milo-frontend.service
+    sudo tee /etc/systemd/system/milo-frontend.service > /dev/null << 'EOF'
+[Unit]
+Description=Milo Frontend Watcher
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=milo
+WorkingDirectory=/home/milo/milo/frontend
+ExecStart=/bin/bash -c 'npm run build'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # milo-kiosk.service
+    sudo tee /etc/systemd/system/milo-kiosk.service > /dev/null << 'EOF'
+[Unit]
+Description=Milo Kiosk Mode (Chromium Wayland + Cage)
+After=network-online.target graphical.target milo-backend.service
+Wants=graphical.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WAYLAND_DISPLAY=wayland-1
+
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/cage -- /usr/bin/chromium \
+    --kiosk \
+    --noerrdialogs \
+    --disable-infobars \
+    --disable-session-crashed-bubble \
+    --check-for-update-interval=31536000 \
+    --disable-features=TranslateUI \
+    --disable-pinch \
+    --overscroll-history-navigation=0 \
+    http://localhost
+
+Restart=always
+RestartSec=5
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target
+EOF
+
     # milo-go-librespot.service
     sudo tee /etc/systemd/system/milo-go-librespot.service > /dev/null << 'EOF'
 [Unit]
-Description=Milo Spotify Connect via go-librespot
+Description=Milo Spotify Connect (go-librespot)
 After=network-online.target sound.service milo-backend.service
 Wants=network-online.target
 BindsTo=milo-backend.service
@@ -765,6 +748,43 @@ PrivateDevices=false
 WantedBy=multi-user.target
 EOF
 
+    # milo-roc.service
+    sudo tee /etc/systemd/system/milo-roc.service > /dev/null << 'EOF'
+[Unit]
+Description=Milo ROC Audio Receiver
+Documentation=https://roc-streaming.org/
+After=network.target sound.service milo-backend.service
+Wants=network.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=exec
+User=milo
+Group=audio
+
+EnvironmentFile=/var/lib/milo/milo_environment
+Environment=HOME=/home/milo
+
+ExecStart=/usr/local/bin/roc-recv -vv \
+  -s rtp+rs8m://0.0.0.0:10001 \
+  -r rs8m://0.0.0.0:10002 \
+  -c rtcp://0.0.0.0:10003 \
+  -o alsa:milo_roc
+
+Restart=always
+RestartSec=5
+
+PrivateNetwork=false
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-roc
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
     # milo-radio.service
     sudo tee /etc/systemd/system/milo-radio.service > /dev/null << 'EOF'
 [Unit]
@@ -779,18 +799,13 @@ Type=simple
 User=milo
 Group=milo
 
-# Créer automatiquement /run/milo/ pour le socket IPC
 RuntimeDirectory=milo
 RuntimeDirectoryMode=0755
 
-# Charger les variables d'environnement Milo (MILO_MODE et MILO_EQUALIZER)
 EnvironmentFile=/var/lib/milo/milo_environment
 
-# Le device ALSA milo_radio se route automatiquement vers le bon device
-# en fonction de MILO_MODE (direct/multiroom) et MILO_EQUALIZER (vide/_eq)
 ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE} MILO_EQUALIZER=${MILO_EQUALIZER}"'
 
-# Lancer mpv en mode daemon avec IPC socket
 ExecStart=/usr/bin/mpv \
     --no-video \
     --audio-device=alsa/milo_radio \
@@ -801,19 +816,15 @@ ExecStart=/usr/bin/mpv \
     --no-terminal \
     --really-quiet
 
-# Restart policy
 Restart=on-failure
 RestartSec=5s
 
-# Limites de ressources
 CPUQuota=50%
 MemoryMax=256M
 
-# Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
 
-# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=milo-radio
@@ -831,277 +842,259 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/snapserver -c /etc/snapserver.conf
 User=milo
 Group=audio
+ExecStart=/usr/bin/snapserver -c /etc/snapserver.conf
 Restart=on-failure
 RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-snapserver
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    
+
     # milo-snapclient-multiroom.service
     sudo tee /etc/systemd/system/milo-snapclient-multiroom.service > /dev/null << 'EOF'
 [Unit]
 Description=Snapcast Client for Milo Multiroom
-After=network-online.target milo-snapserver-multiroom.service
-Wants=network-online.target
+After=milo-snapserver-multiroom.service
+Wants=milo-snapserver-multiroom.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard default:CARD=sndrpihifiberry --mixer hardware:'Digital'
 User=milo
 Group=audio
+EnvironmentFile=/var/lib/milo/milo_environment
+ExecStart=/usr/bin/snapclient -h 127.0.0.1 --hostID milo --player alsa:buffer_time=60
 Restart=on-failure
 RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-snapclient
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    
+
     log_success "Services systemd créés"
 }
 
 configure_alsa_loopback() {
-    log_info "Configuration ALSA Loopback..."
+    log_info "Configuration du loopback ALSA..."
     
-    echo "snd_aloop" | sudo tee /etc/modules-load.d/snd-aloop.conf
+    echo "snd-aloop" | sudo tee /etc/modules-load.d/snd-aloop.conf
+    echo "options snd-aloop pcm_substreams=4" | sudo tee /etc/modprobe.d/snd-aloop.conf
     
-    sudo tee /etc/modprobe.d/snd-aloop.conf > /dev/null << 'EOF'
-options snd-aloop index=1 enable=1
-EOF
+    sudo modprobe snd-aloop || true
     
-    REBOOT_REQUIRED=true
-    log_success "Module loopback ALSA configuré"
+    log_success "Loopback ALSA configuré"
 }
 
 install_alsa_equal() {
-    log_info "Installation d'ALSA Equal..."
-    wait_for_apt_lock
-    sudo apt-get install -y libasound2-plugin-equal
-    log_success "ALSA Equal installé"
+    log_info "Installation de alsaequal..."
+    
+    sudo apt install -y libasound2-plugin-equal caps
+    
+    log_success "alsaequal installé"
 }
 
 configure_alsa_complete() {
-    log_info "Configuration ALSA complète..."
+    log_info "Configuration complète d'ALSA..."
     
     sudo tee /etc/asound.conf > /dev/null << 'EOF'
-pcm.!default {
-    type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
-}
-
-ctl.!default {
+pcm.physical {
     type hw
-    card sndrpihifiberry
+    card 0
+    device 0
 }
 
-pcm.milo_spotify {
-    @func concat
-    strings [
-        "pcm.milo_spotify_"
-        { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
-    ]
-}
-
-pcm.milo_bluetooth {
-    @func concat
-    strings [
-        "pcm.milo_bluetooth_"
-        { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
-    ]
-}
-
-pcm.milo_roc {
-    @func concat
-    strings [
-        "pcm.milo_roc_"
-        { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
-    ]
-}
-
-pcm.milo_radio {
-    @func concat
-    strings [
-        "pcm.milo_radio_"
-        { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
-    ]
-}
-
-pcm.milo_spotify_multiroom {
+pcm.loopback_spotify {
     type plug
-    slave.pcm {
-        type hw
-        card 1
-        device 0
-        subdevice 2
-    }
+    slave.pcm "hw:Loopback,0,0"
 }
 
-pcm.milo_bluetooth_multiroom {
+pcm.loopback_bluetooth {
     type plug
-    slave.pcm {
-        type hw
-        card 1
-        device 0
-        subdevice 0
-    }
+    slave.pcm "hw:Loopback,0,1"
 }
 
-pcm.milo_roc_multiroom {
+pcm.loopback_roc {
     type plug
-    slave.pcm {
-        type hw
-        card 1
-        device 0
-        subdevice 1
-    }
+    slave.pcm "hw:Loopback,0,2"
 }
 
-pcm.milo_radio_multiroom {
+pcm.loopback_radio {
     type plug
-    slave.pcm {
-        type hw
-        card 1
-        device 0
-        subdevice 3
-    }
+    slave.pcm "hw:Loopback,0,3"
 }
 
-pcm.milo_spotify_multiroom_eq {
-    type plug
-    slave.pcm "equal_multiroom"
-}
-
-pcm.milo_bluetooth_multiroom_eq {
-    type plug
-    slave.pcm "equal_multiroom"
-}
-
-pcm.milo_roc_multiroom_eq {
-    type plug
-    slave.pcm "equal_multiroom"
-}
-
-pcm.milo_radio_multiroom_eq {
-    type plug
-    slave.pcm "equal_multiroom"
-}
-
-pcm.milo_spotify_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
-}
-
-pcm.milo_bluetooth_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
-}
-
-pcm.milo_roc_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
-}
-
-pcm.milo_radio_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
-}
-
-pcm.milo_spotify_direct_eq {
-    type plug
-    slave.pcm "equal"
-}
-
-pcm.milo_bluetooth_direct_eq {
-    type plug
-    slave.pcm "equal"
-}
-
-pcm.milo_roc_direct_eq {
-    type plug
-    slave.pcm "equal"
-}
-
-pcm.milo_radio_direct_eq {
-    type plug
-    slave.pcm "equal"
-}
-
-pcm.equal {
-    type equal
-    slave.pcm "plughw:sndrpihifiberry"
-}
-
-pcm.equal_multiroom {
-    type equal
-    slave.pcm "plughw:1,0"
+pcm.snapserver {
+    type file
+    slave.pcm null
+    file "/tmp/snapfifo"
+    format "S16_LE"
 }
 
 ctl.equal {
     type equal
 }
+
+pcm.plugequal {
+    type equal
+    slave.pcm "physical"
+}
+
+pcm.equal {
+    type plug
+    slave.pcm plugequal
+}
+
+pcm.direct {
+    type plug
+    slave.pcm "physical"
+}
+
+pcm.direct_eq {
+    type plug
+    slave.pcm "equal"
+}
+
+pcm.multiroom {
+    type plug
+    slave.pcm "snapserver"
+}
+
+pcm.multiroom_eq {
+    type plug
+    slave.pcm "snapserver"
+}
+
+pcm.milo_spotify {
+    @func refer
+    name { @func concat
+        strings [ "pcm."
+            { @func getenv
+                vars [ MILO_MODE ]
+                default "direct"
+            }
+            { @func getenv
+                vars [ MILO_EQUALIZER ]
+                default ""
+            }
+        ]
+    }
+}
+
+pcm.milo_bluetooth {
+    @func refer
+    name { @func concat
+        strings [ "pcm."
+            { @func getenv
+                vars [ MILO_MODE ]
+                default "direct"
+            }
+            { @func getenv
+                vars [ MILO_EQUALIZER ]
+                default ""
+            }
+        ]
+    }
+}
+
+pcm.milo_roc {
+    @func refer
+    name { @func concat
+        strings [ "pcm."
+            { @func getenv
+                vars [ MILO_MODE ]
+                default "direct"
+            }
+            { @func getenv
+                vars [ MILO_EQUALIZER ]
+                default ""
+            }
+        ]
+    }
+}
+
+pcm.milo_radio {
+    @func refer
+    name { @func concat
+        strings [ "pcm."
+            { @func getenv
+                vars [ MILO_MODE ]
+                default "direct"
+            }
+            { @func getenv
+                vars [ MILO_EQUALIZER ]
+                default ""
+            }
+        ]
+    }
+}
+
+pcm.dmixed {
+    type dmix
+    ipc_key 1024
+    slave {
+        pcm "physical"
+        rate 48000
+        channels 2
+        period_size 1024
+        buffer_size 8192
+    }
+}
+
+pcm.!default {
+    type plug
+    slave.pcm dmixed
+}
+
+ctl.!default {
+    type hw
+    card 0
+}
 EOF
+
+    sudo tee /var/lib/milo/milo_environment > /dev/null << 'EOF'
+MILO_MODE=direct
+MILO_EQUALIZER=
+EOF
+
+    sudo chown "$MILO_USER:$MILO_USER" /var/lib/milo/milo_environment
     
     log_success "Configuration ALSA complète terminée"
 }
 
 configure_snapserver() {
-    log_info "Configuration du serveur snapcast..."
+    log_info "Configuration de Snapserver..."
     
     sudo tee /etc/snapserver.conf > /dev/null << 'EOF'
-[stream]
-default = Multiroom
-
-buffer = 1000
-codec = pcm
-chunk_ms = 20
-sampleformat = 48000:16:2
-
-source = meta:///Bluetooth/ROC/Spotify/Radio?name=Multiroom
-
-source = alsa:///?name=Bluetooth&device=hw:1,1,0
-source = alsa:///?name=ROC&device=hw:1,1,1
-source = alsa:///?name=Spotify&device=hw:1,1,2
-source = alsa:///?name=Radio&device=hw:1,1,3
+[server]
+threads = 4
 
 [http]
 enabled = true
-bind_to_address = 0.0.0.0
 port = 1780
-doc_root = /usr/share/snapserver/snapweb/
+doc_root = /usr/share/snapserver/snapweb
 
-[server]
-threads = -1
-
-[logging]
+[tcp]
 enabled = true
+port = 1705
+
+[stream]
+sampleformat = 48000:16:2
+codec = flac
+source = pipe:///tmp/snapfifo?name=Milo&mode=create
+buffer = 1000
 EOF
+
+    sudo mkfifo /tmp/snapfifo || true
+    sudo chown "$MILO_USER:audio" /tmp/snapfifo
     
     log_success "Snapserver configuré"
 }
@@ -1113,311 +1106,224 @@ configure_fan_control() {
     
     if [[ ! -f "$config_file" ]]; then
         config_file="/boot/config.txt"
+        if [[ ! -f "$config_file" ]]; then
+            log_warning "Fichier config.txt non trouvé, ventilateur non configuré"
+            return
+        fi
     fi
     
-    if ! grep -q "cooling_fan=on" "$config_file"; then
+    if ! grep -q "dtoverlay=gpio-fan" "$config_file"; then
         echo "" | sudo tee -a "$config_file"
-        echo "# Milo - Fan PWM Control" | sudo tee -a "$config_file"
-        echo "dtparam=cooling_fan=on" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp0=55000" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp0_hyst=2500" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp0_speed=50" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp1=60000" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp1_hyst=2500" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp1_speed=100" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp2=65000" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp2_hyst=2500" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp2_speed=150" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp3=70000" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp3_hyst=2500" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp3_speed=200" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp4=75000" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp4_hyst=2500" | sudo tee -a "$config_file"
-        echo "dtparam=fan_temp4_speed=255" | sudo tee -a "$config_file"
+        echo "# Fan control" | sudo tee -a "$config_file"
+        echo "dtoverlay=gpio-fan,gpiopin=14,temp=60000" | sudo tee -a "$config_file"
     fi
-   
-   log_success "Contrôle du ventilateur configuré"
+    
+    log_success "Contrôle du ventilateur configuré"
+    REBOOT_REQUIRED=true
 }
 
-  install_avahi_nginx() {
-     log_info "Installation d'Avahi, Nginx, Chromium, Cage et thèmes..."
-     wait_for_apt_lock
-     sudo apt install -y avahi-daemon avahi-utils nginx chromium cage pixflat-theme pixflat-icons
-     log_success "Avahi, Nginx, Chromium, Cage et thèmes installés"
-  }
+install_avahi_nginx() {
+    log_info "Installation d'Avahi, Nginx et Chromium..."
+    
+    sudo apt install -y avahi-daemon avahi-utils nginx
+    
+    # Installer Chromium (gère les 2 noms de paquets)
+    if ! sudo apt install -y chromium 2>/dev/null; then
+        log_info "Tentative avec chromium-browser..."
+        sudo apt install -y chromium-browser
+    fi
+    
+    log_success "Avahi, Nginx et Chromium installés"
+}
 
 configure_avahi() {
-   log_info "Configuration d'Avahi..."
-   
-   # Avahi settings
-   sudo tee /etc/avahi/avahi-daemon.conf > /dev/null << 'EOF'
-[server]
-host-name=milo
-domain-name=local
-use-ipv4=yes
-use-ipv6=no
-#allow-interfaces=wlan0,eth0
-deny-interfaces=docker0,lo
-ratelimit-interval-usec=1000000
-ratelimit-burst=1000
-
-[wide-area]
-enable-wide-area=no
-
-[publish]
-publish-hinfo=no
-publish-workstation=yes
-publish-domain=yes
-publish-addresses=yes
-publish-aaaa-on-ipv4=no
-publish-a-on-ipv6=no
-EOF
-
-   # Discovery on network
-   sudo tee /etc/avahi/services/milo.service > /dev/null << 'EOF'
+    log_info "Configuration d'Avahi (mDNS)..."
+    
+    sudo systemctl enable avahi-daemon
+    sudo systemctl start avahi-daemon
+    
+    sudo tee /etc/avahi/services/milo.service > /dev/null << 'EOF'
 <?xml version="1.0" standalone='no'?>
 <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
 <service-group>
-  <name replace-wildcards="yes">Milo Audio System on %h</name>
+  <name replace-wildcards="yes">Milo Audio System on %h</n>
   <service>
     <type>_http._tcp</type>
     <port>80</port>
     <txt-record>path=/</txt-record>
-    <txt-record>description=Milo Audio Control Interface</txt-record>
+  </service>
+  <service>
+    <type>_snapcast._tcp</type>
+    <port>1705</port>
   </service>
 </service-group>
 EOF
-   
-   log_success "Avahi configuré"
+
+    sudo systemctl restart avahi-daemon
+    
+    log_success "Avahi configuré (accès via milo.local)"
 }
 
 configure_nginx() {
-   log_info "Configuration de Nginx..."
-   
-   sudo tee /etc/nginx/sites-available/milo > /dev/null << 'EOF'
+    log_info "Configuration de Nginx..."
+    
+    sudo tee /etc/nginx/sites-available/milo > /dev/null << 'EOF'
+upstream milo_backend {
+    server 127.0.0.1:8000;
+}
+
 server {
-   listen 80;
-   server_name milo.local;
-   
-   location / {
-       proxy_pass http://127.0.0.1:3000;
-       proxy_set_header Host $host;
-       proxy_set_header X-Real-IP $remote_addr;
-       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-       proxy_set_header X-Forwarded-Proto $scheme;
-   }
-   
-   location /api/ {
-       proxy_pass http://127.0.0.1:8000;
-       proxy_set_header Host $host;
-       proxy_set_header X-Real-IP $remote_addr;
-       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-       proxy_set_header X-Forwarded-Proto $scheme;
-   }
-   
-   location /ws {
-       proxy_pass http://127.0.0.1:8000;
-       proxy_http_version 1.1;
-       proxy_set_header Upgrade $http_upgrade;
-       proxy_set_header Connection "upgrade";
-       proxy_set_header Host $host;
-       proxy_set_header X-Real-IP $remote_addr;
-       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-       proxy_set_header X-Forwarded-Proto $scheme;
-       proxy_read_timeout 86400;
-       proxy_send_timeout 86400;
-       proxy_buffering off;
-   }
+    listen 80;
+    server_name milo.local localhost _;
+    
+    root /home/milo/milo/frontend/dist;
+    index index.html;
+    
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+        expires 1y;
+        add_header Cache-Control "public, max-age=31536000";
+    }
+    
+    location /api/ {
+        proxy_pass http://milo_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    location /ws {
+        proxy_pass http://milo_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        
+        proxy_read_timeout 86400;
+        proxy_buffering off;
+    }
+    
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
 }
 EOF
-   
-   sudo ln -s /etc/nginx/sites-available/milo /etc/nginx/sites-enabled/
-   sudo rm -f /etc/nginx/sites-enabled/default
-   sudo nginx -t
-   
-   log_success "Nginx configuré"
+
+    sudo ln -sf /etc/nginx/sites-available/milo /etc/nginx/sites-enabled/milo
+    sudo rm -f /etc/nginx/sites-enabled/default
+    
+    sudo nginx -t
+    sudo systemctl reload nginx
+    
+    log_success "Nginx configuré"
 }
 
 configure_cage_kiosk() {
-   log_info "Configuration de Cage pour le mode kiosk..."
+    log_info "Configuration du mode kiosk avec Cage..."
+    
+    # Installer Cage et les outils nécessaires
+    sudo apt install -y cage x11-xserver-utils
+    
+    # Chromium est déjà installé via install_avahi_nginx()
+    
+    sudo mkdir -p /run/user/1000
+    sudo chown -R "$MILO_USER:$MILO_USER" /run/user/1000
+    
+    sudo tee -a "$MILO_HOME/.bash_profile" > /dev/null << 'EOF'
 
-   # Create config directory if it doesn't exist
-   sudo -u "$MILO_USER" mkdir -p "$MILO_HOME/.config"
-
-   # Create Cage startup script
-   sudo -u "$MILO_USER" tee "$MILO_HOME/.config/milo-cage-start.sh" > /dev/null << 'EOF'
-#!/bin/bash
-# Milo Kiosk - Launch Cage with Chromium in fullscreen
-
-# Wait for services to be ready
-sleep 8
-
-# Hide cursor using transparent cursor theme
-export XCURSOR_THEME=transparent-cursor
-export XCURSOR_SIZE=24
-export WLR_XCURSOR_THEME=transparent-cursor
-export WLR_XCURSOR_SIZE=24
-
-# Launch Cage with Chromium in kiosk mode
-exec cage -- /usr/bin/chromium \
-  --kiosk \
-  --incognito \
-  --no-first-run \
-  --disable-infobars \
-  --disable-notifications \
-  --disable-popup-blocking \
-  --disable-session-crashed-bubble \
-  --disable-restore-session-state \
-  --disable-background-timer-throttling \
-  --disable-backgrounding-occluded-windows \
-  --disable-renderer-backgrounding \
-  --disable-translate \
-  --disable-sync \
-  --hide-scrollbars \
-  --disable-background-networking \
-  --autoplay-policy=no-user-gesture-required \
-  --start-fullscreen \
-  --no-sandbox \
-  --disable-dev-shm-usage \
-  --touch-events=enabled \
-  --enable-features=TouchpadAndWheelScrollLatching \
-  --force-device-scale-factor=1 \
-  --disable-pinch \
-  --disable-features=VizDisplayCompositor \
-  --app=http://milo.local
-EOF
-
-   # Make script executable
-   sudo chmod +x "$MILO_HOME/.config/milo-cage-start.sh"
-
-   # Create .bash_profile to auto-launch Cage on tty1
-   sudo -u "$MILO_USER" tee "$MILO_HOME/.bash_profile" > /dev/null << 'EOF'
-# ~/.bash_profile - Auto-start Cage on tty1 only
-
-# Source .bashrc if it exists
-if [ -f ~/.bashrc ]; then
-    . ~/.bashrc
-fi
-
-# Launch Cage only on tty1 (physical screen), not on SSH sessions
-if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
-    exec ~/.config/milo-cage-start.sh
+# Auto-start Cage compositor on tty1
+if [[ -z $DISPLAY ]] && [[ $(tty) = /dev/tty1 ]]; then
+    export XDG_RUNTIME_DIR=/run/user/1000
+    export WAYLAND_DISPLAY=wayland-1
+    
+    # Wait for backend to be ready
+    sleep 5
+    
+    exec cage -- chromium \
+        --kiosk \
+        --noerrdialogs \
+        --disable-infobars \
+        --disable-session-crashed-bubble \
+        --check-for-update-interval=31536000 \
+        --disable-features=TranslateUI \
+        --disable-pinch \
+        --overscroll-history-navigation=0 \
+        http://localhost
 fi
 EOF
 
-   # Disable LightDM display manager (it starts the desktop environment)
-   sudo systemctl disable lightdm.service || true
-
-   log_success "Cage kiosk configuré - démarrage direct sans bureau Linux"
+    sudo chown "$MILO_USER:$MILO_USER" "$MILO_HOME/.bash_profile"
+    
+    log_success "Mode kiosk configuré avec Cage"
 }
 
 install_transparent_cursor() {
-   log_info "Installation du thème de curseur transparent..."
+    log_info "Installation du curseur transparent..."
+    
+    if [[ -d /usr/share/icons/PiXflat/cursors ]]; then
+        sudo mv /usr/share/icons/PiXflat/cursors /usr/share/icons/PiXflat/cursors.backup
+    fi
+    if [[ -d /usr/share/icons/Adwaita/cursors ]]; then
+        sudo mv /usr/share/icons/Adwaita/cursors /usr/share/icons/Adwaita/cursors.backup
+    fi
 
-   # Clone transparent cursor theme repository
-   local temp_dir=$(mktemp -d)
-   cd "$temp_dir"
+    sudo mkdir -p /usr/share/icons/PiXflat/cursors
+    sudo mkdir -p /usr/share/icons/Adwaita/cursors
 
-   git clone https://github.com/johnodon/Transparent_Cursor_Theme.git
-
-   # Create user cursor theme directory
-   sudo -u "$MILO_USER" mkdir -p "$MILO_HOME/.icons/transparent-cursor"
-
-   # Copy cursor files to user directory
-   sudo -u "$MILO_USER" cp -r Transparent_Cursor_Theme/Transparent/cursors "$MILO_HOME/.icons/transparent-cursor/"
-
-   # Create index.theme file
-   sudo -u "$MILO_USER" tee "$MILO_HOME/.icons/transparent-cursor/index.theme" > /dev/null << 'EOF'
-[Icon Theme]
-Name=transparent-cursor
-Comment=Invisible cursor for Milo kiosk
-EOF
-
-   cd ~
-   rm -rf "$temp_dir"
-
-   # Backup and replace system cursors
-   log_info "Remplacement des curseurs système..."
-
-   # Backup PiXflat cursors if not already backed up
-   if [[ -d /usr/share/icons/PiXflat/cursors ]] && [[ ! -d /usr/share/icons/PiXflat/cursors.backup ]]; then
-       sudo mv /usr/share/icons/PiXflat/cursors /usr/share/icons/PiXflat/cursors.backup
-   fi
-
-   # Backup Adwaita cursors if not already backed up
-   if [[ -d /usr/share/icons/Adwaita/cursors ]] && [[ ! -d /usr/share/icons/Adwaita/cursors.backup ]]; then
-       sudo mv /usr/share/icons/Adwaita/cursors /usr/share/icons/Adwaita/cursors.backup
-   fi
-
-   # Replace with transparent cursors
-   sudo cp -r "$MILO_HOME/.icons/transparent-cursor/cursors" /usr/share/icons/PiXflat/cursors
-   sudo cp -r "$MILO_HOME/.icons/transparent-cursor/cursors" /usr/share/icons/Adwaita/cursors
-
-   log_success "Curseur transparent installé et configuré"
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+    
+    wget https://github.com/KDE/breeze/raw/master/cursors/Breeze/Breeze/cursors/left_ptr
+    sudo cp left_ptr /usr/share/icons/PiXflat/cursors/
+    sudo cp left_ptr /usr/share/icons/Adwaita/cursors/
+    
+    cd ~
+    rm -rf "$temp_dir"
+    
+    log_success "Curseur transparent installé"
 }
 
 configure_plymouth_splash() {
-   log_info "Configuration du splash screen Plymouth personnalisé..."
-
-   # Create Milo Plymouth theme directory
-   sudo mkdir -p /usr/share/plymouth/themes/milo
-
-   # Copy script from pix theme
-   sudo cp /usr/share/plymouth/themes/pix/pix.script /usr/share/plymouth/themes/milo/milo.script
-
-   # Create Milo theme configuration
-   sudo tee /usr/share/plymouth/themes/milo/milo.plymouth > /dev/null << 'EOF'
-[Plymouth Theme]
-Name=Milo
-Description=Milo Audio System Splash Screen
-ModuleName=script
-
-[script]
-ImageDir=/usr/share/plymouth/themes/milo
-ScriptFile=/usr/share/plymouth/themes/milo/milo.script
-EOF
-
-   # Copy placeholder splash image (user can replace with their own)
-   sudo cp /usr/share/plymouth/themes/pix/splash.png /usr/share/plymouth/themes/milo/splash.png
-
-   # Register and activate Milo theme
-   sudo update-alternatives --install /usr/share/plymouth/themes/default.plymouth default.plymouth /usr/share/plymouth/themes/milo/milo.plymouth 100
-   sudo update-alternatives --set default.plymouth /usr/share/plymouth/themes/milo/milo.plymouth
-   sudo plymouth-set-default-theme milo
-
-   # Update initramfs to apply changes
-   sudo update-initramfs -u
-
-   log_success "Plymouth splash screen configuré - utilisez ./update-splash.sh pour personnaliser"
+    log_info "Configuration de l'écran de démarrage..."
+    
+    sudo apt install -y plymouth plymouth-themes
+    
+    sudo sed -i 's/console=serial0,115200//' /boot/firmware/cmdline.txt 2>/dev/null || \
+    sudo sed -i 's/console=serial0,115200//' /boot/cmdline.txt 2>/dev/null || true
+    
+    if ! grep -q "plymouth.ignore-serial-consoles" /boot/firmware/cmdline.txt 2>/dev/null && \
+       ! grep -q "plymouth.ignore-serial-consoles" /boot/cmdline.txt 2>/dev/null; then
+        sudo sed -i '$ s/$/ quiet splash plymouth.ignore-serial-consoles/' /boot/firmware/cmdline.txt 2>/dev/null || \
+        sudo sed -i '$ s/$/ quiet splash plymouth.ignore-serial-consoles/' /boot/cmdline.txt 2>/dev/null
+    fi
+    
+    log_success "Écran de démarrage configuré"
+    REBOOT_REQUIRED=true
 }
 
 configure_silent_login() {
-   log_info "Configuration du login silencieux..."
+    log_info "Configuration de la connexion automatique silencieuse..."
+    
+    sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
+    sudo tee /etc/systemd/system/getty@tty1.service.d/autologin.conf > /dev/null << EOF
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin $MILO_USER --noclear %I \$TERM
+EOF
 
-   # Create .hushlogin to suppress login messages
-   sudo -u "$MILO_USER" touch "$MILO_HOME/.hushlogin"
-
-   # Clear /etc/issue and /etc/motd
-   echo "" | sudo tee /etc/issue > /dev/null
-   echo "" | sudo tee /etc/motd > /dev/null
-
-   # Configure getty to suppress login messages
-   local getty_override="/etc/systemd/system/getty@tty1.service.d/autologin.conf"
-   if grep -q "autologin milo --noclear %I" "$getty_override"; then
-       sudo sed -i 's|--autologin milo --noclear %I|--autologin milo --noclear --noissue --skip-login %I|' "$getty_override"
-   fi
-
-   log_success "Login silencieux configuré - aucun message au boot"
+    sudo systemctl daemon-reload
+    
+    log_success "Connexion automatique configurée pour $MILO_USER sur tty1"
 }
 
-# ===============================
-# FONCTION MODIFIÉE POUR L'INSTALLATION DE LA LUMINOSITÉ
-# ===============================
 install_screen_brightness_control() {
     if [[ "$SCREEN_TYPE" == "none" ]]; then
-        log_info "Installation du contrôle de luminosité ignorée"
+        log_info "Pas de contrôle de luminosité à installer"
         return
     fi
+    
+    log_info "Installation du contrôle de luminosité..."
     
     case $SCREEN_TYPE in
         "waveshare_7_usb")
@@ -1426,12 +1332,13 @@ install_screen_brightness_control() {
             local temp_dir=$(mktemp -d)
             cd "$temp_dir"
             
-            git clone https://github.com/waveshare/RPi-USB-Brightness
+            wget https://github.com/Loxodromics/RPi-USB-Brightness/archive/refs/heads/main.zip
+            unzip main.zip
+            cd RPi-USB-Brightness-main
             cd RPi-USB-Brightness/64/lite
             sudo chmod +x Raspi_USB_Backlight_nogui
             ./Raspi_USB_Backlight_nogui -b 6
             
-            # Copier l'utilitaire dans un emplacement accessible
             sudo cp Raspi_USB_Backlight_nogui /usr/local/bin/milo-brightness-7
             sudo chmod +x /usr/local/bin/milo-brightness-7
             
@@ -1453,7 +1360,6 @@ install_screen_brightness_control() {
             sudo chmod +x install.sh
             ./install.sh
             
-            # Test de la luminosité (valeur par défaut à 100)
             echo 100 | sudo tee /sys/class/backlight/*/brightness > /dev/null 2>&1 || true
             
             cd ~
@@ -1471,7 +1377,6 @@ enable_services() {
    sudo systemctl daemon-reload
    sudo systemctl enable milo-backend.service
    sudo systemctl enable milo-frontend.service
-   # milo-kiosk.service NOT enabled - using Cage compositor via .bash_profile instead
    sudo systemctl enable milo-snapclient-multiroom.service
    sudo systemctl enable milo-snapserver-multiroom.service
    sudo systemctl enable milo-bluealsa-aplay.service
@@ -1487,7 +1392,6 @@ start_services() {
 
    sudo systemctl start milo-backend.service
    sudo systemctl start milo-frontend.service
-   # milo-kiosk.service NOT started - Cage will launch automatically on tty1 login
    sudo systemctl start milo-snapclient-multiroom.service
    sudo systemctl start milo-snapserver-multiroom.service
    sudo systemctl start milo-bluealsa-aplay.service
@@ -1523,7 +1427,7 @@ finalize_installation() {
    echo ""
    echo -e "${BLUE}Accès :${NC}"
    echo "  • Interface web: http://milo.local"
-   echo "  • Spotify Connect: 'Milo'"
+   echo "  • Spotify Connect: 'Milō'"
    echo "  • Bluetooth: 'Milo · Bluetooth'"
    echo "  • Snapserver: http://milo.local:1780"
    echo ""
@@ -1596,9 +1500,8 @@ uninstall_milo() {
    log_info "Suppression des binaires..."
    sudo rm -f /usr/local/bin/go-librespot
    sudo rm -f /usr/local/bin/milo-brightness-7
-
+   
    log_info "Nettoyage des packages..."
-   wait_for_apt_lock
    sudo apt autoremove -y
    
    read -p "Restaurer l'hostname par défaut 'raspberrypi' ? (o/N): " restore_hostname
@@ -1625,9 +1528,6 @@ uninstall_milo() {
    esac
 }
 
-# ===============================
-# FONCTION PRINCIPALE MODIFIÉE
-# ===============================
 main() {
    show_banner
    
@@ -1643,10 +1543,8 @@ main() {
    
    check_system
    
-   # COLLECTE DE TOUS LES CHOIX UTILISATEUR EN DÉBUT D'INSTALLATION
    collect_user_choices
    
-   # INSTALLATION AUTOMATIQUE SANS INTERACTION
    install_dependencies
    setup_hostname
    configure_audio_hardware
@@ -1654,6 +1552,7 @@ main() {
    
    create_milo_user
    install_milo_application
+   fix_nginx_permissions
    suppress_pulseaudio
    
    install_go_librespot
