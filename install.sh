@@ -692,6 +692,7 @@ Group=audio
 
 ExecStart=/usr/local/bin/go-librespot --config_dir /var/lib/milo/go-librespot
 Environment=HOME=/home/milo
+EnvironmentFile=/var/lib/milo/milo_environment
 WorkingDirectory=/var/lib/milo
 Restart=always
 RestartSec=5
@@ -734,6 +735,7 @@ After=milo-bluealsa.service milo-backend.service
 BindsTo=milo-backend.service milo-bluealsa.service
 
 [Service]
+EnvironmentFile=/var/lib/milo/milo_environment
 Type=simple
 User=milo
 
@@ -754,7 +756,7 @@ EOF
 Description=Milo ROC Audio Receiver
 Documentation=https://roc-streaming.org/
 After=network.target sound.service milo-backend.service
-Wants=network.target
+Wants=network.target milo-backend.service
 BindsTo=milo-backend.service
 
 [Service]
@@ -762,14 +764,15 @@ Type=exec
 User=milo
 Group=audio
 
+EnvironmentFile=/etc/environment
 EnvironmentFile=/var/lib/milo/milo_environment
 Environment=HOME=/home/milo
 
-ExecStart=/usr/local/bin/roc-recv -vv \
+ExecStart=/usr/bin/roc-recv -vvv \
   -s rtp+rs8m://0.0.0.0:10001 \
   -r rs8m://0.0.0.0:10002 \
   -c rtcp://0.0.0.0:10003 \
-  -o alsa:milo_roc
+  -o alsa://milo_roc
 
 Restart=always
 RestartSec=5
@@ -790,9 +793,8 @@ EOF
 [Unit]
 Description=Milo Radio Player (mpv)
 Documentation=https://mpv.io/manual/stable/
-After=sound.target milo-backend.service
+After=sound.target
 Requires=sound.target
-BindsTo=milo-backend.service
 
 [Service]
 Type=simple
