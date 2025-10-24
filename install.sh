@@ -597,27 +597,28 @@ create_systemd_services() {
     # milo-backend.service
     sudo tee /etc/systemd/system/milo-backend.service > /dev/null << 'EOF'
 [Unit]
-Description=Milo Audio Backend
-After=network-online.target sound.service
-Wants=network-online.target
+Description=Milo Backend Service
+After=network.target
 
 [Service]
 Type=simple
 User=milo
-Group=audio
-
+Group=milo
 WorkingDirectory=/home/milo/milo
-Environment="PATH=/home/milo/milo/venv/bin:/usr/local/bin:/usr/bin:/bin"
-EnvironmentFile=/var/lib/milo/milo_environment
+ExecStart=/home/milo/milo/venv/bin/python3 backend/main.py
 
-ExecStart=/home/milo/milo/venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+# Token Github to check dependencies updates
+Environment="GITHUB_TOKEN=ADD_TOKEN_HERE"
 
 Restart=always
 RestartSec=5
+TimeoutStopSec=10
+
+StateDirectory=milo
+StateDirectoryMode=0755
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=milo-backend
 
 [Install]
 WantedBy=multi-user.target
@@ -626,14 +627,45 @@ EOF
     # milo-frontend.service
     sudo tee /etc/systemd/system/milo-frontend.service > /dev/null << 'EOF'
 [Unit]
-Description=Milo Frontend Watcher
-After=network-online.target
+Description=Milo Frontend Service
+After=network.target
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+WorkingDirectory=/home/milo/milo/frontend
+
+ExecStartPre=/usr/bin/npm run build
+ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 3000
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+
+StateDirectory=milo
+StateDirectoryMode=0755
+
+Environment=NODE_ENV=production
+Environment=HOME=/home/milo
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-frontend
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # milo-disable-wifi-power-management.service
+    sudo tee /etc/systemd/system/milo-disable-wifi-power-management.service > /dev/null << 'EOF'
+[Unit]
+Description=Disable WiFi Power Management
+After=multi-user.target
 
 [Service]
 Type=oneshot
-User=milo
-WorkingDirectory=/home/milo/milo/frontend
-ExecStart=/bin/bash -c 'npm run build'
+ExecStart=/sbin/iw dev wlan0 set power_save off
 RemainAfterExit=yes
 
 [Install]
@@ -680,7 +712,7 @@ EOF
     # milo-go-librespot.service
     sudo tee /etc/systemd/system/milo-go-librespot.service > /dev/null << 'EOF'
 [Unit]
-Description=Milo Spotify Connect (go-librespot)
+Description=Milo Spotify Connect via go-librespot
 After=network-online.target sound.service milo-backend.service
 Wants=network-online.target
 BindsTo=milo-backend.service
@@ -772,6 +804,11 @@ ExecStart=/usr/bin/roc-recv -vvv \
   -s rtp+rs8m://0.0.0.0:10001 \
   -r rs8m://0.0.0.0:10002 \
   -c rtcp://0.0.0.0:10003 \
+#  --target-latency=30ms \
+#  --latency-profile=responsive \
+#  --resampler-backend=builtin \
+#  --resampler-profile=high \
+#  --frame-len=6ms \
   -o alsa://milo_roc
 
 Restart=always
@@ -794,6 +831,7 @@ EOF
 Description=Milo Radio Player (mpv)
 Documentation=https://mpv.io/manual/stable/
 After=sound.target
+# Dépend de l'environnement ALSA configuré par Milo
 Requires=sound.target
 
 [Service]
@@ -801,13 +839,18 @@ Type=simple
 User=milo
 Group=milo
 
+# Créer automatiquement /run/milo/ pour le socket IPC
 RuntimeDirectory=milo
 RuntimeDirectoryMode=0755
 
+# Charger les variables d'environnement Milo (MILO_MODE et MILO_EQUALIZER)
 EnvironmentFile=/var/lib/milo/milo_environment
 
+# Le device ALSA milo_radio se route automatiquement vers le bon device
+# en fonction de MILO_MODE (direct/multiroom) et MILO_EQUALIZER (vide/_eq)
 ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE} MILO_EQUALIZER=${MILO_EQUALIZER}"'
 
+# Lancer mpv en mode daemon avec IPC socket
 ExecStart=/usr/bin/mpv \
     --no-video \
     --audio-device=alsa/milo_radio \
@@ -818,15 +861,19 @@ ExecStart=/usr/bin/mpv \
     --no-terminal \
     --really-quiet
 
+# Restart policy
 Restart=on-failure
 RestartSec=5s
 
+# Limites de ressources
 CPUQuota=50%
 MemoryMax=256M
 
+# Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
 
+# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=milo-radio
@@ -844,15 +891,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+ExecStart=/usr/bin/snapserver -c /etc/snapserver.conf
 User=milo
 Group=audio
-ExecStart=/usr/bin/snapserver -c /etc/snapserver.conf
 Restart=on-failure
 RestartSec=5
-
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=milo-snapserver
 
 [Install]
 WantedBy=multi-user.target
@@ -862,21 +905,16 @@ EOF
     sudo tee /etc/systemd/system/milo-snapclient-multiroom.service > /dev/null << 'EOF'
 [Unit]
 Description=Snapcast Client for Milo Multiroom
-After=milo-snapserver-multiroom.service
-Wants=milo-snapserver-multiroom.service
+After=network-online.target milo-snapserver-multiroom.service
+Wants=network-online.target
 
 [Service]
 Type=simple
+ExecStart=/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard default:CARD=sndrpihifiberry --mixer hardware:'Digital'
 User=milo
 Group=audio
-EnvironmentFile=/var/lib/milo/milo_environment
-ExecStart=/usr/bin/snapclient -h 127.0.0.1 --hostID milo --player alsa:buffer_time=60
 Restart=on-failure
 RestartSec=5
-
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=milo-snapclient
 
 [Install]
 WantedBy=multi-user.target
@@ -1417,14 +1455,23 @@ enable_services() {
    log_info "Démarrage automatique des services..."
 
    sudo systemctl daemon-reload
+
+   # Services qui doivent être enabled au démarrage
    sudo systemctl enable milo-backend.service
    sudo systemctl enable milo-frontend.service
-   sudo systemctl enable milo-snapclient-multiroom.service
-   sudo systemctl enable milo-snapserver-multiroom.service
-   sudo systemctl enable milo-bluealsa-aplay.service
    sudo systemctl enable milo-bluealsa.service
+   sudo systemctl enable milo-bluealsa-aplay.service
+   sudo systemctl enable milo-disable-wifi-power-management.service
    sudo systemctl enable avahi-daemon
    sudo systemctl enable nginx
+
+   # Note: Les services suivants sont gérés dynamiquement par le backend Milo:
+   # - milo-go-librespot.service
+   # - milo-roc.service
+   # - milo-radio.service
+   # - milo-snapserver-multiroom.service
+   # - milo-snapclient-multiroom.service
+   # Ces services ne doivent PAS être "enabled" au démarrage
 
    log_success "Démarrage automatique configuré"
 }
@@ -1432,14 +1479,17 @@ enable_services() {
 start_services() {
    log_info "Démarrage des services..."
 
+   # Démarrage uniquement des services enabled
    sudo systemctl start milo-backend.service
    sudo systemctl start milo-frontend.service
-   sudo systemctl start milo-snapclient-multiroom.service
-   sudo systemctl start milo-snapserver-multiroom.service
-   sudo systemctl start milo-bluealsa-aplay.service
    sudo systemctl start milo-bluealsa.service
+   sudo systemctl start milo-bluealsa-aplay.service
+   sudo systemctl start milo-disable-wifi-power-management.service
    sudo systemctl start avahi-daemon
    sudo systemctl start nginx
+
+   # Note: Les services audio (go-librespot, roc, radio, snapcast)
+   # seront démarrés automatiquement par le backend Milo selon les besoins
 
    log_success "Services démarrés"
 }
