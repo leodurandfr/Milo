@@ -1303,38 +1303,79 @@ EOF
 
 configure_cage_kiosk() {
     log_info "Configuration du mode kiosk avec Cage..."
-    
+
     # Installer Cage et les outils nécessaires
     sudo apt install -y cage x11-xserver-utils
-    
-    # Chromium est déjà installé via install_avahi_nginx()
-    
-    
-    sudo tee -a "$MILO_HOME/.bash_profile" > /dev/null << 'EOF'
 
-# Auto-start Cage compositor on tty1
-if [[ -z $DISPLAY ]] && [[ $(tty) = /dev/tty1 ]]; then
-    export XDG_RUNTIME_DIR=/run/user/1000
-    export WAYLAND_DISPLAY=wayland-1
-    
-    # Wait for backend to be ready
-    sleep 5
-    
-    exec cage -- chromium \
-        --kiosk \
-        --noerrdialogs \
-        --disable-infobars \
-        --disable-session-crashed-bubble \
-        --check-for-update-interval=31536000 \
-        --disable-features=TranslateUI \
-        --disable-pinch \
-        --overscroll-history-navigation=0 \
-        http://localhost
+    # Chromium est déjà installé via install_avahi_nginx()
+
+    # Créer le répertoire .config si nécessaire
+    sudo -u "$MILO_USER" mkdir -p "$MILO_HOME/.config"
+
+    # Créer le script de lancement Cage
+    sudo -u "$MILO_USER" tee "$MILO_HOME/.config/milo-cage-start.sh" > /dev/null << 'EOF'
+#!/bin/bash
+# Milo Kiosk - Launch Cage with Chromium in fullscreen
+
+# Wait for services to be ready
+sleep 8
+
+# Hide cursor using transparent cursor theme
+export XCURSOR_THEME=transparent-cursor
+export XCURSOR_SIZE=24
+export WLR_XCURSOR_THEME=transparent-cursor
+export WLR_XCURSOR_SIZE=24
+
+# Launch Cage with Chromium in kiosk mode
+exec cage -- /usr/bin/chromium-browser \
+  --kiosk \
+  --incognito \
+  --no-first-run \
+  --disable-infobars \
+  --disable-notifications \
+  --disable-popup-blocking \
+  --disable-session-crashed-bubble \
+  --disable-restore-session-state \
+  --disable-background-timer-throttling \
+  --disable-backgrounding-occluded-windows \
+  --disable-renderer-backgrounding \
+  --disable-translate \
+  --disable-sync \
+  --hide-scrollbars \
+  --disable-background-networking \
+  --autoplay-policy=no-user-gesture-required \
+  --start-fullscreen \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --touch-events=enabled \
+  --enable-features=TouchpadAndWheelScrollLatching \
+  --force-device-scale-factor=1 \
+  --disable-pinch \
+  --disable-features=VizDisplayCompositor \
+  --app=http://milo.local
+EOF
+
+    # Rendre le script exécutable
+    sudo chmod +x "$MILO_HOME/.config/milo-cage-start.sh"
+    sudo chown "$MILO_USER:$MILO_USER" "$MILO_HOME/.config/milo-cage-start.sh"
+
+    # Créer .bash_profile
+    sudo -u "$MILO_USER" tee "$MILO_HOME/.bash_profile" > /dev/null << 'EOF'
+# ~/.bash_profile - Auto-start Cage on tty1 only
+
+# Source .bashrc if it exists
+if [ -f ~/.bashrc ]; then
+    . ~/.bashrc
+fi
+
+# Launch Cage only on tty1 (physical screen), not on SSH sessions
+if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+    exec ~/.config/milo-cage-start.sh
 fi
 EOF
 
     sudo chown "$MILO_USER:$MILO_USER" "$MILO_HOME/.bash_profile"
-    
+
     log_success "Mode kiosk configuré avec Cage"
 }
 
