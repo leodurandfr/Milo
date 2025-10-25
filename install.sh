@@ -1320,16 +1320,17 @@ configure_cage_kiosk() {
 # Wait for services to be ready
 sleep 8
 
-# Hide cursor using Adwaita theme with transparent cursors
-export XCURSOR_THEME=Adwaita
+# Hide cursor using Milo theme with transparent cursors
+export XCURSOR_THEME=Milo
 export XCURSOR_SIZE=24
-export WLR_XCURSOR_THEME=Adwaita
+export WLR_XCURSOR_THEME=Milo
 export WLR_XCURSOR_SIZE=24
 
 # Launch Cage with Chromium in kiosk mode
 exec cage -- /usr/bin/chromium \
   --kiosk \
   --incognito \
+  --password-store=basic \
   --no-first-run \
   --disable-infobars \
   --disable-notifications \
@@ -1379,26 +1380,33 @@ EOF
     log_success "Mode kiosk configuré avec Cage"
 }
 
-install_transparent_cursor() {
-    log_info "Installation du curseur transparent dans le thème Adwaita..."
+install_milo_cursor_theme() {
+    log_info "Installation du thème de curseurs Milo (curseur transparent)..."
 
-    # Sauvegarder les curseurs Adwaita existants
-    if [[ -d /usr/share/icons/Adwaita/cursors ]]; then
-        sudo mv /usr/share/icons/Adwaita/cursors /usr/share/icons/Adwaita/cursors.backup
-    fi
+    # Créer le répertoire du thème de curseurs Milo
+    sudo mkdir -p /usr/share/icons/Milo/cursors
 
-    # Créer le répertoire des curseurs
-    sudo mkdir -p /usr/share/icons/Adwaita/cursors
+    # Générer le fichier index.theme
+    log_info "Création du fichier index.theme..."
+    sudo tee /usr/share/icons/Milo/index.theme > /dev/null << 'EOF'
+[Icon Theme]
+Name=Milo
+Comment=Transparent cursor theme for Milo Audio System
+Inherits=Adwaita
+
+[Cursor]
+Size=24
+EOF
 
     # Créer le fichier du curseur transparent (68 octets, curseur invisible 1x1 pixel)
-    # Base64 du curseur X11 transparent du système actuel
+    # Base64 du curseur X11 transparent
     local cursor_base64="WGN1chAAAAAAAAEAAQAAAAIA/f8YAAAAHAAAACQAAAACAP3/GAAAAAEAAAABAAAAAQAAAAAAAAAA
 AAAAMgAAAAAAAAA="
 
     # Créer le fichier curseur temporaire
     echo "$cursor_base64" | base64 -d > /tmp/transparent_cursor
 
-    # Liste complète des noms de curseurs à créer (55 curseurs)
+    # Liste complète des noms de curseurs à créer (55 curseurs standards)
     local cursor_names=(
         "all-scroll" "bd_double_arrow" "bottom_left_corner" "bottom_right_corner"
         "bottom_side" "bottom_tee" "cell" "circle" "context-menu" "copy" "cross"
@@ -1414,31 +1422,147 @@ AAAAMgAAAAAAAAA="
 
     # Copier le curseur transparent pour tous les noms de curseurs
     for cursor_name in "${cursor_names[@]}"; do
-        sudo cp /tmp/transparent_cursor "/usr/share/icons/Adwaita/cursors/$cursor_name"
+        sudo cp /tmp/transparent_cursor "/usr/share/icons/Milo/cursors/$cursor_name"
     done
 
     # Nettoyer
     rm -f /tmp/transparent_cursor
 
-    log_success "Curseur transparent installé dans Adwaita (55 curseurs)"
+    log_success "Thème de curseurs Milo installé dans /usr/share/icons/Milo/ (55 curseurs transparents)"
 }
 
 configure_plymouth_splash() {
-    log_info "Configuration de l'écran de démarrage..."
-    
+    log_info "Configuration de l'écran de démarrage avec thème Milo..."
+
+    # Installer Plymouth
     sudo apt install -y plymouth plymouth-themes
-    
+
+    # Créer le répertoire du thème Milo
+    sudo mkdir -p /usr/share/plymouth/themes/milo
+
+    # Générer milo.plymouth
+    log_info "Création du fichier de configuration Plymouth..."
+    sudo tee /usr/share/plymouth/themes/milo/milo.plymouth > /dev/null << 'EOF'
+[Plymouth Theme]
+Name=Milo
+Description=Milo Audio System Splash Screen
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/milo
+ScriptFile=/usr/share/plymouth/themes/milo/milo.script
+EOF
+
+    # Générer milo.script
+    log_info "Création du script Plymouth..."
+    sudo tee /usr/share/plymouth/themes/milo/milo.script > /dev/null << 'EOF'
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+theme_image = Image("splash.png");
+image_width = theme_image.GetWidth();
+image_height = theme_image.GetHeight();
+
+scale_x = image_width / screen_width;
+scale_y = image_height / screen_height;
+
+flag = 1;
+
+if (scale_x > 1 || scale_y > 1)
+{
+	if (scale_x > scale_y)
+	{
+		resized_image = theme_image.Scale (screen_width, image_height / scale_x);
+		image_x = 0;
+		image_y = (screen_height - ((image_height  * screen_width) / image_width)) / 2;
+	}
+	else
+	{
+		resized_image = theme_image.Scale (image_width / scale_y, screen_height);
+		image_x = (screen_width - ((image_width  * screen_height) / image_height)) / 2;
+		image_y = 0;
+	}
+}
+else
+{
+	resized_image = theme_image.Scale (image_width, image_height);
+	image_x = (screen_width - image_width) / 2;
+	image_y = (screen_height - image_height) / 2;
+}
+
+if (Plymouth.GetMode() != "shutdown")
+{
+	sprite = Sprite (resized_image);
+	sprite.SetPosition (image_x, image_y, -100);
+}
+
+message_sprite = Sprite();
+message_sprite.SetPosition(screen_width * 0.1, screen_height * 0.9, 10000);
+
+fun message_callback (text) {
+	my_image = Image.Text(text, 1, 1, 1);
+	message_sprite.SetImage(my_image);
+	sprite.SetImage (resized_image);
+}
+
+Plymouth.SetUpdateStatusFunction(message_callback);
+EOF
+
+    # Copier l'image splash depuis assets/
+    if [[ -f "$MILO_APP_DIR/assets/splash.png" ]]; then
+        log_info "Copie de l'image splash.png..."
+        sudo cp "$MILO_APP_DIR/assets/splash.png" /usr/share/plymouth/themes/milo/splash.png
+    else
+        log_error "Image splash.png non trouvée dans $MILO_APP_DIR/assets/"
+        return 1
+    fi
+
+    # Définir le thème Milo par défaut
+    sudo plymouth-set-default-theme milo
+
+    # Mettre à jour initramfs pour appliquer le thème
+    sudo update-initramfs -u
+
+    # Supprimer les messages console série
     sudo sed -i 's/console=serial0,115200//' /boot/firmware/cmdline.txt 2>/dev/null || \
     sudo sed -i 's/console=serial0,115200//' /boot/cmdline.txt 2>/dev/null || true
-    
+
+    # Ajouter les paramètres kernel pour un boot silencieux avec splash
     if ! grep -q "plymouth.ignore-serial-consoles" /boot/firmware/cmdline.txt 2>/dev/null && \
        ! grep -q "plymouth.ignore-serial-consoles" /boot/cmdline.txt 2>/dev/null; then
         sudo sed -i '$ s/$/ quiet splash plymouth.ignore-serial-consoles/' /boot/firmware/cmdline.txt 2>/dev/null || \
         sudo sed -i '$ s/$/ quiet splash plymouth.ignore-serial-consoles/' /boot/cmdline.txt 2>/dev/null
     fi
-    
-    log_success "Écran de démarrage configuré"
+
+    log_success "Écran de démarrage configuré avec thème Milo"
     REBOOT_REQUIRED=true
+}
+
+disable_lightdm() {
+    log_info "Désactivation de lightdm (Milo utilise autologin + Cage)..."
+
+    # Arrêter et désactiver lightdm s'il est actif
+    if systemctl is-active --quiet lightdm.service 2>/dev/null; then
+        log_info "Arrêt de lightdm..."
+        sudo systemctl stop lightdm.service || true
+    fi
+
+    if systemctl is-enabled --quiet lightdm.service 2>/dev/null; then
+        log_info "Désactivation de lightdm..."
+        sudo systemctl disable lightdm.service || true
+    fi
+
+    # Masquer le service pour empêcher son activation
+    sudo systemctl mask lightdm.service 2>/dev/null || true
+
+    # Supprimer le paquet lightdm s'il est installé
+    if dpkg -l | grep -q "^ii.*lightdm"; then
+        log_info "Suppression du paquet lightdm..."
+        sudo apt remove -y lightdm 2>/dev/null || true
+        sudo apt autoremove -y || true
+    fi
+
+    log_success "lightdm désactivé (Milo utilise getty@tty1 + autologin + Cage)"
 }
 
 configure_silent_login() {
@@ -1638,11 +1762,9 @@ uninstall_milo() {
    sudo rm -rf "$MILO_APP_DIR"
    sudo rm -rf "$MILO_DATA_DIR"
 
-   log_info "Restauration des curseurs système..."
-   if [[ -d /usr/share/icons/Adwaita/cursors.backup ]]; then
-       sudo rm -rf /usr/share/icons/Adwaita/cursors
-       sudo mv /usr/share/icons/Adwaita/cursors.backup /usr/share/icons/Adwaita/cursors
-   fi
+   log_info "Suppression des thèmes Milo..."
+   sudo rm -rf /usr/share/icons/Milo
+   sudo rm -rf /usr/share/plymouth/themes/milo
 
    log_info "Suppression des binaires..."
    sudo rm -f /usr/local/bin/go-librespot
@@ -1721,8 +1843,9 @@ main() {
    configure_avahi
    configure_nginx
    configure_cage_kiosk
-   install_transparent_cursor
+   install_milo_cursor_theme
    configure_plymouth_splash
+   disable_lightdm
    configure_silent_login
 
    install_screen_brightness_control
