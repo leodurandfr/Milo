@@ -1381,54 +1381,39 @@ EOF
 }
 
 install_milo_cursor_theme() {
-    log_info "Installation du thème de curseurs Milo (curseur transparent)..."
+    log_info "Installation des curseurs transparents (modification d'Adwaita)..."
 
-    # Créer le répertoire du thème de curseurs Milo
-    sudo mkdir -p /usr/share/icons/Milo/cursors
+    # Sauvegarder les curseurs Adwaita originaux (si pas déjà fait)
+    if [[ ! -d /usr/share/icons/Adwaita/cursors.backup ]]; then
+        log_info "Sauvegarde des curseurs Adwaita originaux..."
+        sudo cp -r /usr/share/icons/Adwaita/cursors /usr/share/icons/Adwaita/cursors.backup
+    else
+        log_info "Curseurs Adwaita déjà sauvegardés, conservation de la sauvegarde existante"
+    fi
 
-    # Générer le fichier index.theme
-    log_info "Création du fichier index.theme..."
-    sudo tee /usr/share/icons/Milo/index.theme > /dev/null << 'EOF'
-[Icon Theme]
-Name=Milo
-Comment=Transparent cursor theme for Milo Audio System
-Inherits=Adwaita
+    # Fichier Xcursor transparent complet encodé en base64 (68 bytes)
+    # Format Xcursor avec un pixel 1x1 totalement transparent (ARGB = 00 00 00 00)
+    log_info "Création du curseur transparent..."
+    local xcursor_base64="WGN1chAAAAAAAAEAAQAAAAIA/f8YAAAAHAAAACQAAAACAP3/GAAAAAEAAAABAAAAAQAAAAAAAAAAAAAAMgAAAAAAAAA="
+    echo "$xcursor_base64" | base64 -d > /tmp/transparent_cursor
 
-[Cursor]
-Size=24
-EOF
+    # Remplacer tous les curseurs Adwaita par le curseur transparent
+    log_info "Remplacement de tous les curseurs Adwaita par des curseurs transparents..."
 
-    # Créer le fichier du curseur transparent (68 octets, curseur invisible 1x1 pixel)
-    # Base64 du curseur X11 transparent
-    local cursor_base64="WGN1chAAAAAAAAEAAQAAAAIA/f8YAAAAHAAAACQAAAACAP3/GAAAAAEAAAABAAAAAQAAAAAAAAAA
-AAAAMgAAAAAAAAA="
-
-    # Créer le fichier curseur temporaire
-    echo "$cursor_base64" | base64 -d > /tmp/transparent_cursor
-
-    # Liste complète des noms de curseurs à créer (55 curseurs standards)
-    local cursor_names=(
-        "all-scroll" "bd_double_arrow" "bottom_left_corner" "bottom_right_corner"
-        "bottom_side" "bottom_tee" "cell" "circle" "context-menu" "copy" "cross"
-        "dnd-ask" "dnd-copy" "dnd-link" "dnd-no-drop" "dnd-none" "dotbox"
-        "fd_double_arrow" "grabbing" "hand1" "hand2" "left_ptr" "left_ptr_watch"
-        "left_side" "left_tee" "link" "ll_angle" "lr_angle" "move" "pencil" "plus"
-        "pointer-move" "question_arrow" "right_ptr" "right_side" "right_tee"
-        "sb_down_arrow" "sb_h_double_arrow" "sb_left_arrow" "sb_right_arrow"
-        "sb_up_arrow" "sb_v_double_arrow" "tcross" "top_left_corner"
-        "top_right_corner" "top_side" "top_tee" "ul_angle" "ur_angle"
-        "vertical-text" "watch" "X_cursor" "xterm" "zoom-in" "zoom-out"
-    )
-
-    # Copier le curseur transparent pour tous les noms de curseurs
-    for cursor_name in "${cursor_names[@]}"; do
-        sudo cp /tmp/transparent_cursor "/usr/share/icons/Milo/cursors/$cursor_name"
+    # Trouver tous les fichiers dans le répertoire cursors (pas les liens symboliques)
+    for cursor_file in /usr/share/icons/Adwaita/cursors/*; do
+        # Ignorer les sauvegardes
+        if [[ "$cursor_file" != *.backup ]]; then
+            # Remplacer chaque fichier ou lien par notre curseur transparent
+            sudo cp /tmp/transparent_cursor "$cursor_file"
+        fi
     done
 
     # Nettoyer
     rm -f /tmp/transparent_cursor
 
-    log_success "Thème de curseurs Milo installé dans /usr/share/icons/Milo/ (55 curseurs transparents)"
+    log_success "Curseurs Adwaita remplacés par des curseurs transparents"
+    log_info "Pour restaurer les curseurs originaux : sudo rm -rf /usr/share/icons/Adwaita/cursors && sudo mv /usr/share/icons/Adwaita/cursors.backup /usr/share/icons/Adwaita/cursors"
 }
 
 configure_plymouth_splash() {
