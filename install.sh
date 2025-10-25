@@ -1320,14 +1320,14 @@ configure_cage_kiosk() {
 # Wait for services to be ready
 sleep 8
 
-# Hide cursor using transparent cursor theme
-export XCURSOR_THEME=transparent-cursor
+# Hide cursor using Adwaita theme with transparent cursors
+export XCURSOR_THEME=Adwaita
 export XCURSOR_SIZE=24
-export WLR_XCURSOR_THEME=transparent-cursor
+export WLR_XCURSOR_THEME=Adwaita
 export WLR_XCURSOR_SIZE=24
 
 # Launch Cage with Chromium in kiosk mode
-exec cage -- /usr/bin/chromium-browser \
+exec cage -- /usr/bin/chromium \
   --kiosk \
   --incognito \
   --no-first-run \
@@ -1380,29 +1380,47 @@ EOF
 }
 
 install_transparent_cursor() {
-    log_info "Installation du curseur transparent..."
-    
-    if [[ -d /usr/share/icons/PiXflat/cursors ]]; then
-        sudo mv /usr/share/icons/PiXflat/cursors /usr/share/icons/PiXflat/cursors.backup
-    fi
+    log_info "Installation du curseur transparent dans le thème Adwaita..."
+
+    # Sauvegarder les curseurs Adwaita existants
     if [[ -d /usr/share/icons/Adwaita/cursors ]]; then
         sudo mv /usr/share/icons/Adwaita/cursors /usr/share/icons/Adwaita/cursors.backup
     fi
 
-    sudo mkdir -p /usr/share/icons/PiXflat/cursors
+    # Créer le répertoire des curseurs
     sudo mkdir -p /usr/share/icons/Adwaita/cursors
 
-    local temp_dir=$(mktemp -d)
-    cd "$temp_dir"
-    
-    wget https://github.com/KDE/breeze/raw/master/cursors/Breeze/Breeze/cursors/left_ptr
-    sudo cp left_ptr /usr/share/icons/PiXflat/cursors/
-    sudo cp left_ptr /usr/share/icons/Adwaita/cursors/
-    
-    cd ~
-    rm -rf "$temp_dir"
-    
-    log_success "Curseur transparent installé"
+    # Créer le fichier du curseur transparent (68 octets, curseur invisible 1x1 pixel)
+    # Base64 du curseur X11 transparent du système actuel
+    local cursor_base64="WGN1chAAAAAAAAEAAQAAAAIA/f8YAAAAHAAAACQAAAACAP3/GAAAAAEAAAABAAAAAQAAAAAAAAAA
+AAAAMgAAAAAAAAA="
+
+    # Créer le fichier curseur temporaire
+    echo "$cursor_base64" | base64 -d > /tmp/transparent_cursor
+
+    # Liste complète des noms de curseurs à créer (55 curseurs)
+    local cursor_names=(
+        "all-scroll" "bd_double_arrow" "bottom_left_corner" "bottom_right_corner"
+        "bottom_side" "bottom_tee" "cell" "circle" "context-menu" "copy" "cross"
+        "dnd-ask" "dnd-copy" "dnd-link" "dnd-no-drop" "dnd-none" "dotbox"
+        "fd_double_arrow" "grabbing" "hand1" "hand2" "left_ptr" "left_ptr_watch"
+        "left_side" "left_tee" "link" "ll_angle" "lr_angle" "move" "pencil" "plus"
+        "pointer-move" "question_arrow" "right_ptr" "right_side" "right_tee"
+        "sb_down_arrow" "sb_h_double_arrow" "sb_left_arrow" "sb_right_arrow"
+        "sb_up_arrow" "sb_v_double_arrow" "tcross" "top_left_corner"
+        "top_right_corner" "top_side" "top_tee" "ul_angle" "ur_angle"
+        "vertical-text" "watch" "X_cursor" "xterm" "zoom-in" "zoom-out"
+    )
+
+    # Copier le curseur transparent pour tous les noms de curseurs
+    for cursor_name in "${cursor_names[@]}"; do
+        sudo cp /tmp/transparent_cursor "/usr/share/icons/Adwaita/cursors/$cursor_name"
+    done
+
+    # Nettoyer
+    rm -f /tmp/transparent_cursor
+
+    log_success "Curseur transparent installé dans Adwaita (55 curseurs)"
 }
 
 configure_plymouth_splash() {
@@ -1621,10 +1639,6 @@ uninstall_milo() {
    sudo rm -rf "$MILO_DATA_DIR"
 
    log_info "Restauration des curseurs système..."
-   if [[ -d /usr/share/icons/PiXflat/cursors.backup ]]; then
-       sudo rm -rf /usr/share/icons/PiXflat/cursors
-       sudo mv /usr/share/icons/PiXflat/cursors.backup /usr/share/icons/PiXflat/cursors
-   fi
    if [[ -d /usr/share/icons/Adwaita/cursors.backup ]]; then
        sudo rm -rf /usr/share/icons/Adwaita/cursors
        sudo mv /usr/share/icons/Adwaita/cursors.backup /usr/share/icons/Adwaita/cursors
