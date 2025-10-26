@@ -635,8 +635,6 @@ Type=simple
 User=milo
 Group=milo
 WorkingDirectory=/home/milo/milo/frontend
-
-ExecStartPre=/usr/bin/npm run build
 ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 3000
 
 Restart=always
@@ -673,41 +671,41 @@ WantedBy=multi-user.target
 EOF
 
     # milo-kiosk.service
-    sudo tee /etc/systemd/system/milo-kiosk.service > /dev/null << 'EOF'
-[Unit]
-Description=Milo Kiosk Mode (Chromium Wayland + Cage)
-After=network-online.target graphical.target milo-backend.service
-Wants=graphical.target
-BindsTo=milo-backend.service
+#     sudo tee /etc/systemd/system/milo-kiosk.service > /dev/null << 'EOF'
+# [Unit]
+# Description=Milo Kiosk Mode (Chromium Wayland + Cage)
+# After=network-online.target graphical.target milo-backend.service
+# Wants=graphical.target
+# BindsTo=milo-backend.service
 
-[Service]
-Type=simple
-User=milo
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-Environment=WAYLAND_DISPLAY=wayland-1
+# [Service]
+# Type=simple
+# User=milo
+# Environment=XDG_RUNTIME_DIR=/run/user/1000
+# Environment=WAYLAND_DISPLAY=wayland-1
 
-ExecStartPre=/bin/sleep 5
-ExecStart=/usr/bin/cage -- /usr/bin/chromium \
-    --kiosk \
-    --noerrdialogs \
-    --disable-infobars \
-    --disable-session-crashed-bubble \
-    --check-for-update-interval=31536000 \
-    --disable-features=TranslateUI \
-    --disable-pinch \
-    --overscroll-history-navigation=0 \
-    http://localhost
+# ExecStartPre=/bin/sleep 5
+# ExecStart=/usr/bin/cage -- /usr/bin/chromium \
+#     --kiosk \
+#     --noerrdialogs \
+#     --disable-infobars \
+#     --disable-session-crashed-bubble \
+#     --check-for-update-interval=31536000 \
+#     --disable-features=TranslateUI \
+#     --disable-pinch \
+#     --overscroll-history-navigation=0 \
+#     http://localhost
 
-Restart=always
-RestartSec=5
-TTYPath=/dev/tty1
-StandardInput=tty
-StandardOutput=journal
-StandardError=journal
+# Restart=always
+# RestartSec=5
+# TTYPath=/dev/tty1
+# StandardInput=tty
+# StandardOutput=journal
+# StandardError=journal
 
-[Install]
-WantedBy=graphical.target
-EOF
+# [Install]
+# WantedBy=graphical.target
+# EOF
 
     # milo-go-librespot.service
     sudo tee /etc/systemd/system/milo-go-librespot.service > /dev/null << 'EOF'
@@ -1317,8 +1315,32 @@ configure_cage_kiosk() {
 #!/bin/bash
 # Milo Kiosk - Launch Cage with Chromium in fullscreen
 
-# Wait for services to be ready
-sleep 8
+# Wait for backend API to be ready
+echo "Waiting for backend..."
+MAX_WAIT=60
+ELAPSED=0
+until curl -sf http://localhost:8000/api/ping > /dev/null 2>&1; do
+    if [ $ELAPSED -ge $MAX_WAIT ]; then
+        echo "Backend timeout after ${MAX_WAIT}s, launching anyway..."
+        break
+    fi
+    sleep 0.5
+    ELAPSED=$((ELAPSED + 1))
+done
+
+# Wait for frontend (nginx) to be ready
+echo "Waiting for frontend..."
+ELAPSED=0
+until curl -sf http://localhost > /dev/null 2>&1; do
+    if [ $ELAPSED -ge $MAX_WAIT ]; then
+        echo "Frontend timeout after ${MAX_WAIT}s, launching anyway..."
+        break
+    fi
+    sleep 0.5
+    ELAPSED=$((ELAPSED + 1))
+done
+
+echo "Services ready, launching Cage..."
 
 # Hide cursor using Milo theme with transparent cursors
 export XCURSOR_THEME=Milo
