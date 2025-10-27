@@ -591,6 +591,26 @@ configure_journald() {
     log_success "Journald configuré (100MB max, 7 jours de rétention)"
 }
 
+install_readiness_script() {
+    log_info "Installation du script de readiness..."
+
+    # Copier le script de readiness vers /usr/local/bin/
+    sudo cp "$MILO_APP_DIR/assets/milo-wait-ready.sh" /usr/local/bin/milo-wait-ready.sh
+    sudo chmod +x /usr/local/bin/milo-wait-ready.sh
+
+    log_success "Script de readiness installé dans /usr/local/bin/"
+}
+
+install_seatd() {
+    log_info "Installation de seatd (requis pour Wayland/Cage)..."
+
+    # seatd permet à milo-kiosk.service d'accéder aux VT sans permissions root
+    sudo apt install -y seatd
+    sudo systemctl enable seatd.service
+
+    log_success "seatd installé et activé"
+}
+
 create_systemd_services() {
     log_info "Création des services systemd..."
 
@@ -624,36 +644,63 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-    # milo-frontend.service
-    sudo tee /etc/systemd/system/milo-frontend.service > /dev/null << 'EOF'
+    # milo-readiness.service
+    sudo tee /etc/systemd/system/milo-readiness.service > /dev/null << 'EOF'
 [Unit]
-Description=Milo Frontend Service
-After=network.target
+Description=Milo Readiness Check (waits for backend and frontend before quitting Plymouth)
+After=milo-backend.service nginx.service
+Requires=milo-backend.service nginx.service
+Before=getty@tty1.service
 
 [Service]
-Type=simple
-User=milo
-Group=milo
-WorkingDirectory=/home/milo/milo/frontend
-ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 3000
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/milo-wait-ready.sh
 
-Restart=always
-RestartSec=5
-TimeoutStopSec=10
-
-StateDirectory=milo
-StateDirectoryMode=0755
-
-Environment=NODE_ENV=production
-Environment=HOME=/home/milo
+# Timeout after 90s if services don't start
+TimeoutStartSec=90
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=milo-frontend
+SyslogIdentifier=milo-readiness
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    # milo-frontend.service - DISABLED (nginx serves /dist directly)
+    # No longer needed as nginx serves the static files from /home/milo/milo/frontend/dist
+    # This saves ~150MB RAM and one Node.js process
+
+    # sudo tee /etc/systemd/system/milo-frontend.service > /dev/null << 'EOF'
+# [Unit]
+# Description=Milo Frontend Service (DEPRECATED - nginx serves /dist directly)
+# After=network.target
+#
+# [Service]
+# Type=simple
+# User=milo
+# Group=milo
+# WorkingDirectory=/home/milo/milo/frontend
+# ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 3000
+#
+# Restart=always
+# RestartSec=5
+# TimeoutStopSec=10
+#
+# StateDirectory=milo
+# StateDirectoryMode=0755
+#
+# Environment=NODE_ENV=production
+# Environment=HOME=/home/milo
+#
+# StandardOutput=journal
+# StandardError=journal
+# SyslogIdentifier=milo-frontend
+#
+# [Install]
+# WantedBy=multi-user.target
+# EOF
 
     # milo-disable-wifi-power-management.service
     sudo tee /etc/systemd/system/milo-disable-wifi-power-management.service > /dev/null << 'EOF'
@@ -671,41 +718,76 @@ WantedBy=multi-user.target
 EOF
 
     # milo-kiosk.service
-#     sudo tee /etc/systemd/system/milo-kiosk.service > /dev/null << 'EOF'
-# [Unit]
-# Description=Milo Kiosk Mode (Chromium Wayland + Cage)
-# After=network-online.target graphical.target milo-backend.service
-# Wants=graphical.target
-# BindsTo=milo-backend.service
+    sudo tee /etc/systemd/system/milo-kiosk.service > /dev/null << 'EOF'
+[Unit]
+Description=Milo Kiosk Mode (Cage + Chromium)
+After=milo-readiness.service seatd.service
+Requires=milo-readiness.service seatd.service
+Conflicts=getty@tty1.service
 
-# [Service]
-# Type=simple
-# User=milo
-# Environment=XDG_RUNTIME_DIR=/run/user/1000
-# Environment=WAYLAND_DISPLAY=wayland-1
+[Service]
+Type=simple
+User=milo
+Group=milo
 
-# ExecStartPre=/bin/sleep 5
-# ExecStart=/usr/bin/cage -- /usr/bin/chromium \
-#     --kiosk \
-#     --noerrdialogs \
-#     --disable-infobars \
-#     --disable-session-crashed-bubble \
-#     --check-for-update-interval=31536000 \
-#     --disable-features=TranslateUI \
-#     --disable-pinch \
-#     --overscroll-history-navigation=0 \
-#     http://localhost
+# Create /run/user/1000 for XDG_RUNTIME_DIR
+RuntimeDirectory=user/1000
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
 
-# Restart=always
-# RestartSec=5
-# TTYPath=/dev/tty1
-# StandardInput=tty
-# StandardOutput=journal
-# StandardError=journal
+# Supplementary groups for seatd access
+SupplementaryGroups=video
 
-# [Install]
-# WantedBy=graphical.target
-# EOF
+# Take control of tty1
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables for Wayland/Cage
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=XCURSOR_THEME=Adwaita
+Environment=XCURSOR_SIZE=24
+Environment=WLR_XCURSOR_THEME=Adwaita
+Environment=WLR_XCURSOR_SIZE=24
+
+# Launch Cage with Chromium in kiosk mode
+ExecStart=/usr/bin/cage -- /usr/bin/chromium \
+  --kiosk \
+  --incognito \
+  --password-store=basic \
+  --no-first-run \
+  --disable-infobars \
+  --disable-notifications \
+  --disable-popup-blocking \
+  --disable-session-crashed-bubble \
+  --disable-restore-session-state \
+  --disable-background-timer-throttling \
+  --disable-backgrounding-occluded-windows \
+  --disable-renderer-backgrounding \
+  --disable-translate \
+  --disable-sync \
+  --hide-scrollbars \
+  --disable-background-networking \
+  --autoplay-policy=no-user-gesture-required \
+  --start-fullscreen \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --touch-events=enabled \
+  --enable-features=TouchpadAndWheelScrollLatching \
+  --force-device-scale-factor=1 \
+  --disable-pinch \
+  --disable-features=VizDisplayCompositor \
+  --app=http://milo.local
+
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target
+EOF
 
     # milo-go-librespot.service
     sudo tee /etc/systemd/system/milo-go-librespot.service > /dev/null << 'EOF'
@@ -1246,7 +1328,7 @@ EOF
 
 configure_nginx() {
     log_info "Configuration de Nginx..."
-    
+
     sudo tee /etc/nginx/sites-available/milo > /dev/null << 'EOF'
 upstream milo_backend {
     server 127.0.0.1:8000;
@@ -1255,23 +1337,31 @@ upstream milo_backend {
 server {
     listen 80;
     server_name milo.local localhost _;
-    
+
+    # Serve frontend static files directly from /dist
     root /home/milo/milo/frontend/dist;
     index index.html;
-    
-    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+
+    # Cache static assets for better performance
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
         expires 1y;
-        add_header Cache-Control "public, max-age=31536000";
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
     }
-    
+
+    # Backend API endpoints
     location /api/ {
         proxy_pass http://milo_backend;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Disable buffering for real-time API responses
+        proxy_buffering off;
     }
-    
+
+    # WebSocket endpoint for real-time updates
     location /ws {
         proxy_pass http://milo_backend;
         proxy_http_version 1.1;
@@ -1279,24 +1369,28 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        
+
+        # Long timeout for WebSocket connections
         proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
         proxy_buffering off;
     }
-    
+
+    # Serve index.html for all other routes (SPA routing)
     location / {
         try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
     }
 }
 EOF
 
     sudo ln -sf /etc/nginx/sites-available/milo /etc/nginx/sites-enabled/milo
     sudo rm -f /etc/nginx/sites-enabled/default
-    
+
     sudo nginx -t
     sudo systemctl reload nginx
-    
-    log_success "Nginx configuré"
+
+    log_success "Nginx configuré pour servir directement le frontend depuis /dist"
 }
 
 configure_cage_kiosk() {
@@ -1310,96 +1404,26 @@ configure_cage_kiosk() {
     # Créer le répertoire .config si nécessaire
     sudo -u "$MILO_USER" mkdir -p "$MILO_HOME/.config"
 
-    # Créer le script de lancement Cage
-    sudo -u "$MILO_USER" tee "$MILO_HOME/.config/milo-cage-start.sh" > /dev/null << 'EOF'
-#!/bin/bash
-# Milo Kiosk - Launch Cage with Chromium in fullscreen
-
-# Wait for backend API to be ready
-echo "Waiting for backend..."
-MAX_WAIT=60
-ELAPSED=0
-until curl -sf http://localhost:8000/api/ping > /dev/null 2>&1; do
-    if [ $ELAPSED -ge $MAX_WAIT ]; then
-        echo "Backend timeout after ${MAX_WAIT}s, launching anyway..."
-        break
+    # Copier le script de lancement Cage depuis assets/
+    if [[ ! -f "$MILO_APP_DIR/assets/milo-cage-start.sh" ]]; then
+        log_error "Fichier milo-cage-start.sh non trouvé dans $MILO_APP_DIR/assets/"
+        return 1
     fi
-    sleep 0.5
-    ELAPSED=$((ELAPSED + 1))
-done
 
-# Wait for frontend (nginx) to be ready
-echo "Waiting for frontend..."
-ELAPSED=0
-until curl -sf http://localhost > /dev/null 2>&1; do
-    if [ $ELAPSED -ge $MAX_WAIT ]; then
-        echo "Frontend timeout after ${MAX_WAIT}s, launching anyway..."
-        break
-    fi
-    sleep 0.5
-    ELAPSED=$((ELAPSED + 1))
-done
-
-echo "Services ready, launching Cage..."
-
-# Hide cursor using Milo theme with transparent cursors
-export XCURSOR_THEME=Milo
-export XCURSOR_SIZE=24
-export WLR_XCURSOR_THEME=Milo
-export WLR_XCURSOR_SIZE=24
-
-# Launch Cage with Chromium in kiosk mode
-exec cage -- /usr/bin/chromium \
-  --kiosk \
-  --incognito \
-  --password-store=basic \
-  --no-first-run \
-  --disable-infobars \
-  --disable-notifications \
-  --disable-popup-blocking \
-  --disable-session-crashed-bubble \
-  --disable-restore-session-state \
-  --disable-background-timer-throttling \
-  --disable-backgrounding-occluded-windows \
-  --disable-renderer-backgrounding \
-  --disable-translate \
-  --disable-sync \
-  --hide-scrollbars \
-  --disable-background-networking \
-  --autoplay-policy=no-user-gesture-required \
-  --start-fullscreen \
-  --no-sandbox \
-  --disable-dev-shm-usage \
-  --touch-events=enabled \
-  --enable-features=TouchpadAndWheelScrollLatching \
-  --force-device-scale-factor=1 \
-  --disable-pinch \
-  --disable-features=VizDisplayCompositor \
-  --app=http://milo.local
-EOF
-
-    # Rendre le script exécutable
+    sudo cp "$MILO_APP_DIR/assets/milo-cage-start.sh" "$MILO_HOME/.config/milo-cage-start.sh"
     sudo chmod +x "$MILO_HOME/.config/milo-cage-start.sh"
     sudo chown "$MILO_USER:$MILO_USER" "$MILO_HOME/.config/milo-cage-start.sh"
 
-    # Créer .bash_profile
-    sudo -u "$MILO_USER" tee "$MILO_HOME/.bash_profile" > /dev/null << 'EOF'
-# ~/.bash_profile - Auto-start Cage on tty1 only
+    # Copier .bash_profile depuis assets/
+    if [[ ! -f "$MILO_APP_DIR/assets/bash_profile.template" ]]; then
+        log_error "Fichier bash_profile.template non trouvé dans $MILO_APP_DIR/assets/"
+        return 1
+    fi
 
-# Source .bashrc if it exists
-if [ -f ~/.bashrc ]; then
-    . ~/.bashrc
-fi
-
-# Launch Cage only on tty1 (physical screen), not on SSH sessions
-if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
-    exec ~/.config/milo-cage-start.sh
-fi
-EOF
-
+    sudo cp "$MILO_APP_DIR/assets/bash_profile.template" "$MILO_HOME/.bash_profile"
     sudo chown "$MILO_USER:$MILO_USER" "$MILO_HOME/.bash_profile"
 
-    log_success "Mode kiosk configuré avec Cage"
+    log_success "Mode kiosk configuré avec Cage (scripts copiés depuis assets/)"
 }
 
 install_milo_cursor_theme() {
@@ -1541,7 +1565,25 @@ EOF
         sudo sed -i '$ s/$/ quiet splash plymouth.ignore-serial-consoles/' /boot/cmdline.txt 2>/dev/null
     fi
 
-    log_success "Écran de démarrage configuré avec thème Milo"
+    # Rediriger console kernel vers tty3 et réduire verbosité
+    sudo sed -i 's/console=tty1/console=tty3 loglevel=3/' /boot/firmware/cmdline.txt 2>/dev/null || \
+    sudo sed -i 's/console=tty1/console=tty3 loglevel=3/' /boot/cmdline.txt 2>/dev/null || true
+
+    # Vider /etc/issue pour cacher les messages getty
+    sudo cp /etc/issue /etc/issue.backup 2>/dev/null || true
+    echo "" | sudo tee /etc/issue > /dev/null
+
+    # Supprimer IP.issue si existe
+    sudo rm -f /etc/issue.d/IP.issue
+
+    # Masquer plymouth-quit services (milo-readiness gère le quit manuellement)
+    sudo systemctl mask plymouth-quit.service plymouth-quit-wait.service
+
+    # Désactiver cloud-init (économie ~20s au boot)
+    sudo touch /etc/cloud/cloud-init.disabled
+    sudo systemctl disable cloud-init.service cloud-config.service cloud-final.service cloud-init-local.service 2>/dev/null || true
+
+    log_success "Écran de démarrage configuré avec thème Milo, Plymouth reste actif jusqu'au quit manuel"
     REBOOT_REQUIRED=true
 }
 
@@ -1573,18 +1615,25 @@ disable_lightdm() {
 }
 
 configure_silent_login() {
-    log_info "Configuration de la connexion automatique silencieuse..."
-    
-    sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
-    sudo tee /etc/systemd/system/getty@tty1.service.d/autologin.conf > /dev/null << EOF
-[Service]
-ExecStart=
-ExecStart=-/sbin/agetty --autologin $MILO_USER --noclear %I \$TERM
-EOF
+    log_info "Désactivation de getty@tty1 (Cage prend le contrôle via milo-kiosk.service)..."
+
+    # Masquer getty@tty1 car milo-kiosk.service prend le contrôle de tty1
+    sudo systemctl mask getty@tty1.service
 
     sudo systemctl daemon-reload
-    
-    log_success "Connexion automatique configurée pour $MILO_USER sur tty1"
+
+    log_success "getty@tty1 masqué (milo-kiosk.service gère tty1)"
+}
+
+optimize_boot_performance() {
+    log_info "Optimisation des performances de démarrage..."
+
+    # Masquer NetworkManager-wait-online (économie de ~13.5s)
+    # Ce service attend que la connexion réseau soit complète, mais Milo n'en a pas besoin
+    sudo systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
+    sudo systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
+
+    log_success "NetworkManager-wait-online.service masqué (gain ~13s au boot)"
 }
 
 install_screen_brightness_control() {
@@ -1648,12 +1697,16 @@ enable_services() {
 
    # Services qui doivent être enabled au démarrage
    sudo systemctl enable milo-backend.service
-   sudo systemctl enable milo-frontend.service
+   sudo systemctl enable milo-readiness.service
+   sudo systemctl enable milo-kiosk.service
    sudo systemctl enable milo-bluealsa.service
    sudo systemctl enable milo-bluealsa-aplay.service
    sudo systemctl enable milo-disable-wifi-power-management.service
    sudo systemctl enable avahi-daemon
    sudo systemctl enable nginx
+
+   # Note: milo-frontend.service is no longer used (nginx serves /dist directly)
+   # Note: getty@tty1 is masked (milo-kiosk.service takes control of tty1)
 
    # Note: Les services suivants sont gérés dynamiquement par le backend Milo:
    # - milo-go-librespot.service
@@ -1671,12 +1724,14 @@ start_services() {
 
    # Démarrage uniquement des services enabled
    sudo systemctl start milo-backend.service
-   sudo systemctl start milo-frontend.service
+   sudo systemctl start milo-readiness.service
    sudo systemctl start milo-bluealsa.service
    sudo systemctl start milo-bluealsa-aplay.service
    sudo systemctl start milo-disable-wifi-power-management.service
    sudo systemctl start avahi-daemon
    sudo systemctl start nginx
+
+   # Note: milo-frontend.service is no longer used (nginx serves /dist directly)
 
    # Note: Les services audio (go-librespot, roc, radio, snapcast)
    # seront démarrés automatiquement par le backend Milo selon les besoins
@@ -1836,6 +1891,7 @@ main() {
    install_bluez_alsa
    install_snapcast
 
+   install_readiness_script
    create_systemd_services
    configure_journald
 
@@ -1845,15 +1901,17 @@ main() {
    configure_snapserver
    
    configure_fan_control
-   
+
+   install_seatd
    install_avahi_nginx
    configure_avahi
    configure_nginx
-   configure_cage_kiosk
+   # configure_cage_kiosk - No longer needed (milo-kiosk.service handles Cage directly)
    install_milo_cursor_theme
    configure_plymouth_splash
    disable_lightdm
    configure_silent_login
+   optimize_boot_performance
 
    install_screen_brightness_control
 
