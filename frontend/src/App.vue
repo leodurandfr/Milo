@@ -41,9 +41,13 @@ import VirtualKeyboard from '@/components/ui/VirtualKeyboard.vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
+import { useScreenActivity } from '@/composables/useScreenActivity';
 
 const unifiedStore = useUnifiedAudioStore();
 const { on, onReconnect } = useWebSocket();
+
+// Activer la détection d'activité écran (touch, souris, clavier)
+useScreenActivity();
 
 const volumeBar = ref(null);
 const isSnapcastOpen = ref(false);

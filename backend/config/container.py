@@ -15,6 +15,7 @@ from backend.infrastructure.services.snapcast_websocket_service import SnapcastW
 from backend.infrastructure.services.equalizer_service import EqualizerService
 from backend.infrastructure.services.volume_service import VolumeService
 from backend.infrastructure.services.settings_service import SettingsService
+from backend.infrastructure.services.hardware_service import HardwareService
 from backend.infrastructure.hardware.rotary_volume_controller import RotaryVolumeController
 from backend.infrastructure.hardware.screen_controller import ScreenController
 from backend.presentation.websockets.manager import WebSocketManager
@@ -30,6 +31,7 @@ class Container(containers.DeclarativeContainer):
     systemd_manager = providers.Singleton(SystemdServiceManager)
     snapcast_service = providers.Singleton(SnapcastService)
     settings_service = providers.Singleton(SettingsService)
+    hardware_service = providers.Singleton(HardwareService)
     equalizer_service = providers.Singleton(
         EqualizerService,
         settings_service=settings_service
@@ -82,11 +84,12 @@ class Container(containers.DeclarativeContainer):
         sw_pin=23
     )
     
-    # MODIFIÉ : Injection SettingsService dans ScreenController
+    # MODIFIÉ : Injection SettingsService et HardwareService dans ScreenController
     screen_controller = providers.Singleton(
         ScreenController,
         state_machine=audio_state_machine,
-        settings_service=settings_service
+        settings_service=settings_service,
+        hardware_service=hardware_service
     )
     
     # MODIFIÉ : Plugins audio avec SettingsService au lieu de config statique

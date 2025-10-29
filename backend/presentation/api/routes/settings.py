@@ -585,43 +585,43 @@ def create_settings_router(
         """Application instantanée de luminosité + restart timeout"""
         try:
             brightness_on = payload.get('brightness_on')
-            
+
             if not brightness_on or not (1 <= brightness_on <= 10):
                 raise HTTPException(status_code=400, detail="brightness_on must be between 1 and 10")
-            
-            import os
-            
-            backlight_binary = os.path.expanduser("~/RPi-USB-Brightness/64/lite/Raspi_USB_Backlight_nogui -b")
-            cmd = f"sudo {backlight_binary} {brightness_on}"
-            
-            process = await asyncio.create_subprocess_shell(
-                cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode == 0:
-                from time import monotonic
-                screen_controller.last_activity_time = monotonic()
-                screen_controller.screen_on = True
-                
-                return {
-                    "status": "success",
-                    "brightness_applied": brightness_on,
-                    "command_output": stdout.decode().strip(),
-                    "timeout_restarted": True
-                }
-            else:
-                return {
-                    "status": "error",
-                    "message": f"Command failed: {stderr.decode().strip()}"
-                }
-            
+
+            # Utiliser screen_controller qui gère les différents types d'écrans
+            screen_controller.brightness_on = brightness_on
+            screen_controller._update_screen_commands()
+
+            # Exécuter la commande adaptée au type d'écran
+            await screen_controller._screen_cmd(screen_controller.screen_on_cmd)
+
+            # Réinitialiser le timer d'inactivité
+            from time import monotonic
+            screen_controller.last_activity_time = monotonic()
+            screen_controller.screen_on = True
+
+            return {
+                "status": "success",
+                "brightness_applied": brightness_on,
+                "screen_type": screen_controller.screen_type,
+                "timeout_restarted": True
+            }
+
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-    
+
+    @router.post("/screen-activity")
+    async def notify_screen_activity():
+        """Endpoint pour notifier l'activité écran depuis le frontend (touch, souris, clavier)"""
+        try:
+            await screen_controller.on_touch_detected()
+            return {"status": "success", "activity_time_reset": True}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
     # Screen debug
     @router.get("/screen-debug")
     async def get_screen_debug():

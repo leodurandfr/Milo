@@ -3,7 +3,7 @@
 <img style="pointer-events:none" src="https://leodurand.com/_autres/cover-milo-github@2x.png" />
 </picture>
 
-# Milō
+# Milō (🚧 WIP 🚧)
 
 Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Bluetooth, and network streaming. Responsive touch interface with real-time synchronization.
 

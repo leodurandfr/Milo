@@ -316,10 +316,10 @@ install_dependencies() {
     sudo apt upgrade -y
     
     log_info "Installation des dépendances de base..."
-    sudo apt install -y \
-        git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
-        cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
-        fonts-noto-color-emoji fontconfig mpv
+		sudo apt install -y \
+				git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
+				cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
+				fonts-noto-color-emoji fontconfig mpv libinput-tools
     
     log_info "Mise à jour de Node.js et npm..."
     sudo npm install -g n
@@ -628,7 +628,7 @@ WorkingDirectory=/home/milo/milo
 ExecStart=/home/milo/milo/venv/bin/python3 backend/main.py
 
 # Token Github to check dependencies updates
-Environment="GITHUB_TOKEN=ADD_TOKEN_HERE"
+#Environment="GITHUB_TOKEN=ADD_TOKEN_HERE"
 
 Restart=always
 RestartSec=5
@@ -1007,7 +1007,7 @@ configure_alsa_loopback() {
     log_info "Configuration du loopback ALSA..."
     
     echo "snd-aloop" | sudo tee /etc/modules-load.d/snd-aloop.conf
-    echo "options snd-aloop pcm_substreams=4" | sudo tee /etc/modprobe.d/snd-aloop.conf
+    echo "options snd-aloop index=1 enable=1 pcm_substreams=8" | sudo tee /etc/modprobe.d/snd-aloop.conf
     
     sudo modprobe snd-aloop || true
     
@@ -1236,30 +1236,37 @@ configure_snapserver() {
     log_info "Configuration de Snapserver..."
     
     sudo tee /etc/snapserver.conf > /dev/null << 'EOF'
-[server]
-threads = 4
+
+[stream]
+default = Multiroom
+
+buffer = 150
+codec = opus
+chunk_ms = 10
+sampleformat = 48000:16:2
+
+source = meta:///Bluetooth/ROC/Spotify/Radio?name=Multiroom
+
+source = alsa:///?name=Bluetooth&device=hw:1,1,0
+source = alsa:///?name=ROC&device=hw:1,1,1
+source = alsa:///?name=Spotify&device=hw:1,1,2
+source = alsa:///?name=Radio&device=hw:1,1,3
 
 [http]
 enabled = true
+bind_to_address = 0.0.0.0
 port = 1780
-doc_root = /usr/share/snapserver/snapweb
+doc_root = /usr/share/snapserver/snapweb/
 
-[tcp]
+[server]
+threads = 4
+
+[logging]
 enabled = true
-port = 1705
-
-[stream]
-sampleformat = 48000:16:2
-codec = flac
-source = pipe:///tmp/snapfifo?name=Milo&mode=create
-buffer = 1000
 EOF
-
-    sudo mkfifo /tmp/snapfifo || true
-    sudo chown "$MILO_USER:audio" /tmp/snapfifo
-    
     log_success "Snapserver configuré"
 }
+
 
 configure_fan_control() {
     log_info "Configuration du contrôle du ventilateur..."
@@ -1268,20 +1275,30 @@ configure_fan_control() {
     
     if [[ ! -f "$config_file" ]]; then
         config_file="/boot/config.txt"
-        if [[ ! -f "$config_file" ]]; then
-            log_warning "Fichier config.txt non trouvé, ventilateur non configuré"
-            return
-        fi
     fi
     
-    if ! grep -q "dtoverlay=gpio-fan" "$config_file"; then
+    if ! grep -q "cooling_fan=on" "$config_file"; then
         echo "" | sudo tee -a "$config_file"
-        echo "# Fan control" | sudo tee -a "$config_file"
-        echo "dtoverlay=gpio-fan,gpiopin=14,temp=60000" | sudo tee -a "$config_file"
+        echo "# Milo - Fan PWM Control" | sudo tee -a "$config_file"
+        echo "dtparam=cooling_fan=on" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp0=55000" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp0_hyst=2500" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp0_speed=50" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp1=60000" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp1_hyst=2500" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp1_speed=100" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp2=65000" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp2_hyst=2500" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp2_speed=150" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp3=70000" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp3_hyst=2500" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp3_speed=200" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp4=75000" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp4_hyst=2500" | sudo tee -a "$config_file"
+        echo "dtparam=fan_temp4_speed=255" | sudo tee -a "$config_file"
     fi
-    
-    log_success "Contrôle du ventilateur configuré"
-    REBOOT_REQUIRED=true
+   
+   log_success "Contrôle du ventilateur configuré"
 }
 
 install_avahi_nginx() {
@@ -1639,55 +1656,87 @@ optimize_boot_performance() {
 install_screen_brightness_control() {
     if [[ "$SCREEN_TYPE" == "none" ]]; then
         log_info "Pas de contrôle de luminosité à installer"
+        # Sauvegarder quand même le type "none" dans milo_hardware.json
+        sudo tee "$MILO_DATA_DIR/milo_hardware.json" > /dev/null << EOF
+{
+  "screen": {
+    "type": "none"
+  }
+}
+EOF
+        sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/milo_hardware.json"
         return
     fi
-    
+
     log_info "Installation du contrôle de luminosité..."
-    
-    case $SCREEN_TYPE in
+
+        case $SCREEN_TYPE in
         "waveshare_7_usb")
             log_info "Installation du contrôle de luminosité pour Waveshare 7\" USB..."
-            
+
             local temp_dir=$(mktemp -d)
             cd "$temp_dir"
-            
-            wget https://github.com/Loxodromics/RPi-USB-Brightness/archive/refs/heads/main.zip
-            unzip main.zip
-            cd RPi-USB-Brightness-main
+
+            git clone https://github.com/waveshare/RPi-USB-Brightness
             cd RPi-USB-Brightness/64/lite
             sudo chmod +x Raspi_USB_Backlight_nogui
             ./Raspi_USB_Backlight_nogui -b 6
-            
+
+            # Copier l'utilitaire dans un emplacement accessible
             sudo cp Raspi_USB_Backlight_nogui /usr/local/bin/milo-brightness-7
             sudo chmod +x /usr/local/bin/milo-brightness-7
-            
+
             cd ~
             rm -rf "$temp_dir"
-            
+
             log_success "Contrôle de luminosité 7\" USB installé"
             ;;
-            
+
         "waveshare_8_dsi")
             log_info "Installation du contrôle de luminosité pour Waveshare 8\" DSI..."
-            
+
             local temp_dir=$(mktemp -d)
             cd "$temp_dir"
-            
+
             wget https://files.waveshare.com/wiki/common/Brightness.zip
             unzip Brightness.zip
             cd Brightness
             sudo chmod +x install.sh
             ./install.sh
-            
+
+            # Test de la luminosité (valeur par défaut à 100)
             echo 100 | sudo tee /sys/class/backlight/*/brightness > /dev/null 2>&1 || true
-            
+
             cd ~
             rm -rf "$temp_dir"
-            
+
+            # Créer la règle udev pour les permissions du backlight
+            log_info "Configuration des permissions backlight (règle udev)..."
+            sudo tee /etc/udev/rules.d/99-backlight.rules > /dev/null << 'EOF'
+SUBSYSTEM=="backlight", RUN+="/bin/chmod 0666 /sys/class/backlight/%k/brightness"
+EOF
+
+            # Recharger les règles udev
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger
+
             log_success "Contrôle de luminosité 8\" DSI installé"
+            log_info "Règle udev créée pour les permissions backlight"
             log_info "Utilisez: echo VALUE | sudo tee /sys/class/backlight/*/brightness (VALUE: 0-255)"
             ;;
     esac
+
+    # Sauvegarder le type d'écran dans milo_hardware.json
+    log_info "Sauvegarde du type d'écran dans $MILO_DATA_DIR/milo_hardware.json..."
+    sudo tee "$MILO_DATA_DIR/milo_hardware.json" > /dev/null << EOF
+{
+  "screen": {
+    "type": "$SCREEN_TYPE"
+  }
+}
+EOF
+    sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/milo_hardware.json"
+    log_success "Type d'écran '$SCREEN_TYPE' sauvegardé"
 }
 
 enable_services() {
@@ -1906,7 +1955,7 @@ main() {
    install_avahi_nginx
    configure_avahi
    configure_nginx
-   # configure_cage_kiosk - No longer needed (milo-kiosk.service handles Cage directly)
+   configure_cage_kiosk
    install_milo_cursor_theme
    configure_plymouth_splash
    disable_lightdm
