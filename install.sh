@@ -1353,6 +1353,7 @@ upstream milo_backend {
 
 server {
     listen 80;
+    listen [::]:80;
     server_name milo.local localhost _;
 
     # Serve frontend static files directly from /dist
