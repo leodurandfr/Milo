@@ -97,15 +97,9 @@ class SnapcastWebSocketService:
             await self.websocket.close()
             self.websocket = None
 
-        # Vider le cache des clients connus
-        self._known_client_ids.clear()
-        self.logger.info("Cleared known clients cache")
-
-        # Vider aussi le cache dans VolumeService
-        volume_service = getattr(self.state_machine, 'volume_service', None)
-        if volume_service:
-            volume_service.invalidate_client_caches()
-            self.logger.info("Cleared VolumeService client cache")
+        # Ne PLUS vider les caches - on garde la mémoire des clients existants
+        # pour éviter de réinitialiser leurs volumes lors de la réactivation du multiroom
+        # (snapserver persiste déjà correctement les volumes dans server.json)
     
     async def cleanup(self) -> None:
         """Nettoie les ressources"""
@@ -213,22 +207,15 @@ class SnapcastWebSocketService:
 
                     # Vérifier si c'est un nouveau client
                     if client_id not in self._known_client_ids:
-                        self.logger.info(f"🟢 EXISTING CLIENT at startup: {client_id}")
+                        self.logger.info(f"🟢 CLIENT at startup: {client_id}")
                         self._known_client_ids.add(client_id)
 
-                        # Distinguer client existant (avec volume) vs vraiment nouveau
+                        # TOUJOURS synchroniser depuis snapserver (pas d'heuristique)
+                        # Snapserver est la source de vérité pour les volumes des clients
+                        # Ne JAMAIS écraser les volumes persistés dans server.json
                         snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
-
-                        # Heuristique : volume < 5 ou = 100 = probablement nouveau/par défaut
-                        # Volume entre 5-95 = probablement un volume persisté valide
-                        if 5 <= snapcast_volume <= 95:
-                            # Client existant avec volume persisté - juste synchroniser
-                            self.logger.info(f"  Client has persisted volume: {snapcast_volume}% - syncing without overwrite")
-                            await self._sync_existing_client_volume(client_id, client)
-                        else:
-                            # Vraiment nouveau (volume par défaut) - initialiser
-                            self.logger.info(f"  Client appears NEW (volume={snapcast_volume}%) - initializing")
-                            await self._notify_volume_service_client_connected(client_id, client)
+                        self.logger.info(f"  Syncing client volume from snapserver: {snapcast_volume}%")
+                        await self._sync_existing_client_volume(client_id, client)
                     else:
                         self.logger.debug(f"Client {client_id} already known")
 
