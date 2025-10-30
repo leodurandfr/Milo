@@ -164,6 +164,7 @@ class AudioSource(str, Enum):
     LIBRESPOT = "librespot"
     BLUETOOTH = "bluetooth"
     ROC = "roc"
+    RADIO = "radio"
     MY_SOURCE = "my_source"  # ← Add here
 ```
 
@@ -335,6 +336,32 @@ async function play() {
 ```
 
 Add to `MainView.vue` or main layout.
+
+### Reference implementation: Radio plugin
+
+The Radio plugin (`backend/infrastructure/plugins/radio/`) is a complete, production-ready reference implementation that demonstrates advanced plugin architecture:
+
+**Multi-component architecture:**
+- `plugin.py` - Main plugin class (AudioSourcePlugin implementation)
+- `mpv_controller.py` - IPC communication with mpv media player
+- `radio_browser_api.py` - External API integration with caching (60min TTL)
+- `station_manager.py` - Favorites, custom stations, broken stations management
+- `image_manager.py` - File upload handling (JPG, PNG, WEBP, GIF, up to 10MB)
+
+**Key features demonstrated:**
+- External API integration (Radio Browser API)
+- Service lifecycle management (systemd + IPC socket)
+- Complex data persistence (favorites, custom stations, images in milo_settings.json)
+- File uploads (station images with validation and storage)
+- Caching strategy (API responses cached for performance)
+- Error handling (broken station detection and filtering)
+- Frontend integration (search, filters, modals, screensaver)
+
+**API routes:** 25+ endpoints including search, favorites, custom stations, image uploads
+**Frontend components:** RadioSource.vue, RadioScreensaver.vue, AddStationModal.vue, ChangeImageModal.vue, RadioSettings.vue
+**Store:** radioStore.js (Pinia) with full state management
+
+This is an excellent reference for building a complex audio source plugin with external dependencies, data persistence, and rich UI interactions.
 
 ## Testing
 

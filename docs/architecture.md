@@ -7,20 +7,20 @@ This document explains the technologies used in Milō and how they work together
 Milō is built around a client-server architecture with real-time synchronization:
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│                      Frontend (Vue 3)                      │
-│                 Responsive user interface                  │
-└────────────────────┬───────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                      Frontend (Vue 3)                           │
+│                 Responsive user interface                       │
+└────────────────────┬────────────────────────────────────────────┘
                      │ WebSocket (real-time)
                      │ HTTP REST (actions)
-┌────────────────────▼───────────────────────────────────────┐
-│                  Backend (Python FastAPI)                  │
-│                State machine + Audio routing               │
-└───────┬────────────────┬─────────────┬────────────┬────────┘
+┌────────────────────▼────────────────────────────────────────────┐
+│                  Backend (Python FastAPI)                       │
+│                State machine + Audio routing                    │
+└───────┬────────────────┬─────────────┬────────────┬────────────┘
         │                │             │            │
   ┌─────▼───────┐ ┌──────▼──────┐ ┌────▼────┐ ┌─────▼──────┐
-  │   Spotify   │ │  Bluetooth  │ │   Mac   │ │ Multiroom  │
-  │ (librespot) │ │   (bluez)   │ │  (roc)  │ │ (snapcast) │
+  │   Spotify   │ │  Bluetooth  │ │   Mac   │ │   Radio    │
+  │ (librespot) │ │   (bluez)   │ │  (roc)  │ │   (mpv)    │
   └─────────────┘ └─────────────┘ └─────────┘ └────────────┘
          │               │             │            │
          └───────────────┴─────────────┴────────────┘
@@ -114,6 +114,36 @@ User Action → API Call → Backend Update → WebSocket Event → Store Update
 - Control port: 10003
 - Audio output: ALSA (milo_roc)
 
+### 4. Internet Radio (mpv + Radio Browser API)
+
+**What is it?**
+- Web radio streaming via mpv media player
+- Station discovery via Radio Browser API (community-driven database)
+- 50,000+ stations from around the world
+- [**Go to Radio Browser API**](https://www.radio-browser.info/)
+
+**How does it work?**
+- Radio Browser API provides searchable database of internet radio stations
+- mpv plays HLS/MP3/AAC streams with automatic codec detection
+- Backend manages favorites, custom stations, and metadata caching
+- Image upload support for custom station branding
+
+**Features:**
+- Search by station name, country, or genre
+- Favorite stations with fast cached loading
+- Custom station creation (add your own stream URLs)
+- Broken station detection (auto-hide non-working streams)
+- Station image customization (upload custom logos)
+- Metadata display (bitrate, codec, country, genre)
+
+**Configuration:**
+- Service: milo-radio.service (mpv)
+- IPC Socket: /run/milo/radio-ipc.sock
+- Audio output: ALSA (milo_radio)
+- API Endpoint: https://all.api.radio-browser.info/json
+- Cache duration: 60 minutes
+- Max image size: 10MB (JPG, PNG, WEBP, GIF)
+
 ## Multiroom (Snapcast)
 
 **What is it?**
@@ -206,6 +236,7 @@ Each source has its own loopback subdevice:
 - Bluetooth: subdevice 0
 - ROC: subdevice 1
 - Spotify: subdevice 2
+- Radio: subdevice 3
 
 ## Hardware control
 
@@ -311,6 +342,7 @@ milo-go-librespot         # Spotify Connect
 milo-bluealsa             # Bluetooth daemon
 milo-bluealsa-aplay       # Bluetooth player
 milo-roc                  # ROC receiver
+milo-radio                # Radio player (mpv)
 milo-snapserver-multiroom # Snapcast server
 milo-snapclient-multiroom # Local snapcast client
 ```

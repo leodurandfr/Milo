@@ -13,7 +13,9 @@ Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, 
   - 🎵 Spotify Connect (playback control, metadata)
   - 📱 Bluetooth (quick connect/disconnect)
   - 💻 Mac streaming (system audio over network)
+  - 📻 Internet Radio (50,000+ stations worldwide)
 - **Synchronized multiroom** (snapcast)
+- **Settings** to manage Milō entirely
 - **10-band equalizer** with presets
 - **Unified volume control** (touch + rotary encoder)
 - **Responsive interface** (8 supported languages)
