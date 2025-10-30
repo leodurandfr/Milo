@@ -720,13 +720,53 @@ def create_settings_router(
             
             result["throttling"] = throttle_status
             return result
-            
+
         except Exception as e:
             return {
-                "status": "error", 
+                "status": "error",
                 "message": str(e),
                 "temperature": None,
                 "throttling": {"code": "error", "current": [], "past": [], "severity": "error"}
             }
-    
+
+    # Network info (IP address)
+    @router.get("/network-info")
+    async def get_network_info():
+        """Récupère l'adresse IP locale principale du Raspberry Pi"""
+        try:
+            process = await asyncio.create_subprocess_shell(
+                "hostname -I",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            stdout, stderr = await process.communicate()
+
+            if process.returncode == 0:
+                output = stdout.decode().strip()
+                # hostname -I retourne toutes les IPs séparées par des espaces
+                # On prend la première qui est généralement l'IP principale IPv4
+                ips = output.split()
+                if ips:
+                    # Filtrer pour ne garder que l'IPv4 (format x.x.x.x)
+                    ipv4_ips = [ip for ip in ips if ip.count('.') == 3]
+                    if ipv4_ips:
+                        return {
+                            "status": "success",
+                            "ip": ipv4_ips[0]
+                        }
+
+            return {
+                "status": "error",
+                "message": "Unable to retrieve IP address",
+                "ip": None
+            }
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": str(e),
+                "ip": None
+            }
+
     return router

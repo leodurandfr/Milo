@@ -105,7 +105,8 @@
   "info": {
     "title": "信息",
     "miloVersion": "Milō 版本",
-    "temperature": "温度"
+    "temperature": "温度",
+    "ipAddress": "Milō IP"
   },
   "applications": {
     "title": "应用程序",

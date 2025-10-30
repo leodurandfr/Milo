@@ -105,7 +105,8 @@
   "info": {
     "title": "Informações",
     "miloVersion": "Versão do Milō",
-    "temperature": "Temperatura"
+    "temperature": "Temperatura",
+    "ipAddress": "IP do Milō"
   },
   "applications": {
     "title": "Aplicações",

@@ -105,7 +105,8 @@
   "info": {
     "title": "जानकारी",
     "miloVersion": "Milō संस्करण",
-    "temperature": "तापमान"
+    "temperature": "तापमान",
+    "ipAddress": "Milō आईपी"
   },
   "applications": {
     "title": "एप्लिकेशन",

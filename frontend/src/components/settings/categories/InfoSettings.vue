@@ -15,6 +15,15 @@
           <span v-else class="text-error">{{ t('dependencies.notAvailable') }}</span>
         </span>
       </div>
+
+      <div class="info-item">
+        <span class="info-label text-mono">{{ t('info.ipAddress') }}</span>
+        <span class="info-value text-mono">
+          <span v-if="ipLoading && ipAddress === null">...</span>
+          <span v-else-if="ipAddress !== null">{{ ipAddress }}</span>
+          <span v-else class="text-error">{{ t('dependencies.notAvailable') }}</span>
+        </span>
+      </div>
     </div>
   </section>
 </template>
@@ -28,6 +37,8 @@ const { t } = useI18n();
 
 const systemTemperature = ref(null);
 const temperatureLoading = ref(false);
+const ipAddress = ref(null);
+const ipLoading = ref(false);
 
 async function loadSystemTemperature() {
   if (temperatureLoading.value) return;
@@ -49,10 +60,31 @@ async function loadSystemTemperature() {
   }
 }
 
+async function loadNetworkInfo() {
+  if (ipLoading.value) return;
+
+  try {
+    ipLoading.value = true;
+    const response = await axios.get('/api/settings/network-info');
+
+    if (response.data.status === 'success' && response.data.ip !== null) {
+      ipAddress.value = response.data.ip;
+    } else {
+      ipAddress.value = null;
+    }
+  } catch (error) {
+    console.error('Error loading network info:', error);
+    ipAddress.value = null;
+  } finally {
+    ipLoading.value = false;
+  }
+}
+
 let temperatureInterval = null;
 
 onMounted(async () => {
   await loadSystemTemperature();
+  await loadNetworkInfo();
   temperatureInterval = setInterval(loadSystemTemperature, 5000);
 });
 
