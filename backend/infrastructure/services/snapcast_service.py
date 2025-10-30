@@ -268,7 +268,11 @@ class SnapcastService:
             return bool(result)
         except:
             return False
-    
+
+    async def get_server_status(self) -> dict:
+        """Récupère le statut complet du serveur Snapcast"""
+        return await self._request("Server.GetStatus")
+
     # === CONFIGURATION SERVEUR ===
     
     async def get_server_config(self) -> Dict[str, Any]:

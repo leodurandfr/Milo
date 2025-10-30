@@ -252,7 +252,11 @@ class SettingsService:
             return value
         except (KeyError, TypeError):
             return None
-    
+
+    def invalidate_cache(self) -> None:
+        """Invalide le cache pour forcer un rechargement"""
+        self._cache = None
+
     async def set_setting(self, key_path: str, value: Any) -> bool:
         """Définit une setting et invalide le cache (async)"""
         try:

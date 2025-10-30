@@ -41,8 +41,17 @@ class SnapcastWebSocketService:
             # Vérifier l'état initial du multiroom
             if self.routing_service:
                 routing_state = self.routing_service.get_state()
-                self.should_connect = routing_state.get('multiroom_enabled', False)
-                
+                multiroom_state = routing_state.get('multiroom_enabled', False)
+
+                # Fallback: routing_service peut ne pas être initialisé, vérifier systemd
+                if not multiroom_state:
+                    snapcast_status = await self.routing_service.get_snapcast_status()
+                    multiroom_state = snapcast_status.get("multiroom_available", False)
+                    if multiroom_state:
+                        self.logger.info("Multiroom detected from systemd services (fallback)")
+
+                self.should_connect = multiroom_state
+
                 if self.should_connect:
                     self.logger.info("Multiroom already enabled, starting WebSocket connection")
                     self.reconnect_task = asyncio.create_task(self._connection_loop())
@@ -70,10 +79,10 @@ class SnapcastWebSocketService:
         """Arrête la connexion WebSocket quand le multiroom est désactivé"""
         if not self.should_connect:
             return  # Déjà arrêté
-            
+
         self.logger.info("Stopping Snapcast WebSocket connection (multiroom disabled)")
         self.should_connect = False
-        
+
         # Annuler la tâche de reconnexion
         if self.reconnect_task:
             self.reconnect_task.cancel()
@@ -82,11 +91,21 @@ class SnapcastWebSocketService:
             except asyncio.CancelledError:
                 pass
             self.reconnect_task = None
-        
+
         # Fermer la connexion WebSocket actuelle
         if self.websocket:
             await self.websocket.close()
             self.websocket = None
+
+        # Vider le cache des clients connus
+        self._known_client_ids.clear()
+        self.logger.info("Cleared known clients cache")
+
+        # Vider aussi le cache dans VolumeService
+        volume_service = getattr(self.state_machine, 'volume_service', None)
+        if volume_service:
+            volume_service.invalidate_client_caches()
+            self.logger.info("Cleared VolumeService client cache")
     
     async def cleanup(self) -> None:
         """Nettoie les ressources"""
@@ -141,7 +160,10 @@ class SnapcastWebSocketService:
             
             # Envoyer un ping initial pour vérifier la connexion
             await self._send_request("Server.GetRPCVersion")
-            
+
+            # Initialiser les clients déjà connectés
+            await self._initialize_existing_clients()
+
             # Écouter les messages
             async for msg in self.websocket:
                 if msg.type == aiohttp.WSMsgType.TEXT:
@@ -164,6 +186,57 @@ class SnapcastWebSocketService:
         finally:
             self.websocket = None
     
+    async def _initialize_existing_clients(self) -> None:
+        """Initialise les clients déjà connectés au moment de la connexion WebSocket"""
+        try:
+            self.logger.info("Initializing existing Snapcast clients...")
+
+            # Récupérer le statut du serveur
+            snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
+            if not snapcast_service:
+                self.logger.warning("SnapcastService not available")
+                return
+
+            status = await snapcast_service.get_server_status()
+            if not status:
+                self.logger.warning("Could not get Snapcast status")
+                return
+
+            groups = status.get('server', {}).get('groups', [])
+
+            for group in groups:
+                for client in group.get('clients', []):
+                    if not client.get('connected'):
+                        continue
+
+                    client_id = client.get('id')
+
+                    # Vérifier si c'est un nouveau client
+                    if client_id not in self._known_client_ids:
+                        self.logger.info(f"🟢 EXISTING CLIENT at startup: {client_id}")
+                        self._known_client_ids.add(client_id)
+
+                        # Distinguer client existant (avec volume) vs vraiment nouveau
+                        snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
+
+                        # Heuristique : volume < 5 ou = 100 = probablement nouveau/par défaut
+                        # Volume entre 5-95 = probablement un volume persisté valide
+                        if 5 <= snapcast_volume <= 95:
+                            # Client existant avec volume persisté - juste synchroniser
+                            self.logger.info(f"  Client has persisted volume: {snapcast_volume}% - syncing without overwrite")
+                            await self._sync_existing_client_volume(client_id, client)
+                        else:
+                            # Vraiment nouveau (volume par défaut) - initialiser
+                            self.logger.info(f"  Client appears NEW (volume={snapcast_volume}%) - initializing")
+                            await self._notify_volume_service_client_connected(client_id, client)
+                    else:
+                        self.logger.debug(f"Client {client_id} already known")
+
+            self.logger.info(f"Initialization complete. Known clients: {len(self._known_client_ids)}")
+
+        except Exception as e:
+            self.logger.error(f"Error initializing existing clients: {e}", exc_info=True)
+
     async def _send_request(self, method: str, params: Optional[Dict] = None) -> None:
         """Envoie une requête JSON-RPC"""
         if not self.websocket:
@@ -392,8 +465,33 @@ class SnapcastWebSocketService:
             
         except Exception as e:
             self.logger.error(f"❌ Error initializing new client: {e}", exc_info=True)
-            
-        
+
+    async def _sync_existing_client_volume(self, client_id: str, client: Dict[str, Any]) -> None:
+        """Synchronise le volume d'un client existant depuis Snapcast"""
+        try:
+            self.logger.info(f"🔄 _sync_existing_client_volume for {client_id}")
+
+            volume_service = getattr(self.state_machine, 'volume_service', None)
+            snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
+
+            if not volume_service:
+                self.logger.warning("⚠️ VolumeService not available")
+                return
+
+            snapcast_alsa_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
+            self.logger.info(f"  - Client ALSA volume from Snapcast: {snapcast_alsa_volume}")
+
+            # Synchroniser le volume existant sans le modifier
+            await volume_service.sync_existing_client_from_snapcast(client_id, snapcast_alsa_volume)
+
+            # Basculer le groupe sur Multiroom (nécessaire même pour clients existants)
+            if snapcast_service:
+                self.logger.info(f"  - Setting client group to Multiroom...")
+                await snapcast_service.set_client_group_to_multiroom(client_id)
+
+        except Exception as e:
+            self.logger.error(f"❌ Error syncing existing client {client_id}: {e}", exc_info=True)
+
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """Diffuse un événement Snapcast via le système WebSocket Milo"""
         if self.state_machine:

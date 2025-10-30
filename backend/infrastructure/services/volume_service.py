@@ -73,7 +73,7 @@ class VolumeService:
     async def _load_volume_config(self) -> None:
         """Charge la configuration volume depuis settings (ASYNC)"""
         try:
-            self.settings_service._cache = None  # Invalider le cache
+            self.settings_service.invalidate_cache()  # Invalider le cache
             volume_config = await self.settings_service.get_setting('volume') or {}
             self._alsa_min_volume = volume_config.get("alsa_min", 0)
             self._alsa_max_volume = volume_config.get("alsa_max", 65)
@@ -163,14 +163,18 @@ class VolumeService:
         except Exception as e:
             self.logger.error(f"Error reloading volume limits: {e}")
             return False
-    
+
+    async def _reload_volume_setting(self, setting_key: str, default_value: Any) -> Any:
+        """Helper pour recharger une config volume spécifique"""
+        self.settings_service.invalidate_cache()
+        volume_config = await self.settings_service.get_setting('volume') or {}
+        return volume_config.get(setting_key, default_value)
+
     async def reload_startup_config(self) -> bool:
         """Recharge la config de startup"""
         try:
-            self.settings_service._cache = None  # Invalider le cache
-            volume_config = await self.settings_service.get_setting('volume') or {}
-            self._default_startup_display_volume = volume_config.get("startup_volume", 37)
-            self._restore_last_volume = volume_config.get("restore_last_volume", False)
+            self._default_startup_display_volume = await self._reload_volume_setting("startup_volume", 37)
+            self._restore_last_volume = await self._reload_volume_setting("restore_last_volume", False)
             return True
         except Exception as e:
             self.logger.error(f"Error reloading startup config: {e}")
@@ -179,9 +183,7 @@ class VolumeService:
     async def reload_volume_steps_config(self) -> bool:
         """Recharge les volume steps"""
         try:
-            self.settings_service._cache = None  # Invalider le cache
-            volume_config = await self.settings_service.get_setting('volume') or {}
-            self._mobile_volume_steps = volume_config.get("mobile_volume_steps", 5)
+            self._mobile_volume_steps = await self._reload_volume_setting("mobile_volume_steps", 5)
             await self._schedule_broadcast(show_bar=False)
             return True
         except Exception as e:
@@ -191,9 +193,7 @@ class VolumeService:
     async def reload_rotary_steps_config(self) -> bool:
         """Recharge les rotary steps"""
         try:
-            self.settings_service._cache = None  # Invalider le cache
-            volume_config = await self.settings_service.get_setting('volume') or {}
-            self._rotary_volume_steps = volume_config.get("rotary_volume_steps", 2)
+            self._rotary_volume_steps = await self._reload_volume_setting("rotary_volume_steps", 2)
             return True
         except Exception as e:
             self.logger.error(f"Error reloading rotary steps: {e}")
@@ -240,7 +240,11 @@ class VolumeService:
         self._client_states_initialized = False
         self._snapcast_clients_cache = []
         self._snapcast_cache_time = 0
-    
+
+    def invalidate_client_caches(self) -> None:
+        """Invalide les caches clients (appelé lors toggle multiroom)"""
+        self._invalidate_all_caches()
+
     # === GESTION CLIENT VOLUME ===
     
     async def initialize_new_client_volume(self, client_id: str, client_alsa_volume: int) -> bool:
@@ -256,13 +260,22 @@ class VolumeService:
                 return True
             
             self.logger.info(f"🟢 Client {client_id} is NEW")
-            
+
             is_multiroom = self._is_multiroom_enabled()
             self.logger.info(f"  is_multiroom: {is_multiroom}")
             self.logger.info(f"  _multiroom_volume: {self._multiroom_volume}")
-            
+
             if is_multiroom:
-                target_display = self._multiroom_volume
+                # Calculate target volume from EXISTING clients only (exclude the new one)
+                if len(self._client_display_states) > 0:
+                    existing_volumes = list(self._client_display_states.values())
+                    target_display = sum(existing_volumes) / len(existing_volumes)
+                    self.logger.info(f"  Calculated average from {len(existing_volumes)} existing clients: {target_display}%")
+                else:
+                    # No existing clients, use configured startup volume
+                    target_display = self._determine_startup_volume()
+                    self.logger.info(f"  No existing clients, using startup volume: {target_display}%")
+
                 self.logger.info(f"  target_display: {target_display}")
                 
                 target_alsa = self._display_to_alsa_precise(target_display)
@@ -306,7 +319,18 @@ class VolumeService:
         except Exception as e:
             self.logger.error(f"❌ Error initializing client: {e}", exc_info=True)
             return False
-    
+
+    async def sync_existing_client_from_snapcast(self, client_id: str, snapcast_alsa_volume: int) -> bool:
+        """Synchronise un client existant depuis Snapcast SANS modifier son volume"""
+        try:
+            display_volume = self._alsa_to_display(snapcast_alsa_volume)
+            self._client_display_states[client_id] = float(display_volume)
+            self.logger.info(f"✅ Synced existing client {client_id}: {self._round_half_up(display_volume)}% (from Snapcast)")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error syncing existing client {client_id}: {e}")
+            return False
+
     async def _initialize_client_display_states(self) -> None:
         """Initialise les états display"""
         if self._client_states_initialized:
