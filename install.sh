@@ -1265,7 +1265,7 @@ source = alsa:///?name=Spotify&device=hw:1,1,2
 source = alsa:///?name=Radio&device=hw:1,1,3
 
 [streaming_client]
-initial_volume = 28
+initial_volume = 16
 
 [http]
 enabled = true
