@@ -22,6 +22,12 @@ class DependencyUpdateService(DependencyVersionService):
         
         # Configuration spécifique aux mises à jour (snapserver et snapclient séparés)
         self.update_config = {
+            "milo": {
+                "git_path": "/home/milo/milo",
+                "git_branch": "main",
+                "service_name": "milo-backend.service",
+                "backup_path": "/var/lib/milo/backups/milo-app"
+            },
             "go-librespot": {
                 "binary_path": "/usr/local/bin/go-librespot",
                 "config_path": "/var/lib/milo/go-librespot/config.yml",
@@ -56,7 +62,9 @@ class DependencyUpdateService(DependencyVersionService):
                 await progress_callback("Initializing update...", 0)
             
             # Dispatcher vers la méthode spécifique
-            if dependency_key == "go-librespot":
+            if dependency_key == "milo":
+                return await self._update_milo_app(status, progress_callback)
+            elif dependency_key == "go-librespot":
                 return await self._update_go_librespot(status, progress_callback)
             elif dependency_key in ["snapserver", "snapclient"]:
                 return await self._update_snapcast_component(dependency_key, status, progress_callback)
@@ -67,6 +75,101 @@ class DependencyUpdateService(DependencyVersionService):
             self.update_logger.error(f"Update failed for {dependency_key}: {e}")
             return {"success": False, "error": str(e)}
     
+    async def _update_milo_app(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+        """Met à jour l'application Milo via git pull"""
+        config = self.update_config["milo"]
+        latest_version = status["latest"]["version"]
+
+        try:
+            if progress_callback:
+                await progress_callback("Checking git repository status...", 10)
+
+            # 1. Vérifier que le répertoire est bien un dépôt git
+            git_dir = Path(config["git_path"]) / ".git"
+            if not git_dir.exists():
+                return {"success": False, "error": "Not a git repository"}
+
+            if progress_callback:
+                await progress_callback("Fetching updates from GitHub...", 20)
+
+            # 2. Faire un git fetch pour récupérer les dernières infos
+            proc = await asyncio.create_subprocess_exec(
+                "git", "-C", config["git_path"], "fetch", "origin", config["git_branch"],
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+
+            if proc.returncode != 0:
+                return {"success": False, "error": f"Git fetch failed: {stderr.decode()}"}
+
+            if progress_callback:
+                await progress_callback("Checking for local changes...", 30)
+
+            # 3. Vérifier s'il y a des modifications locales non commitées
+            proc = await asyncio.create_subprocess_exec(
+                "git", "-C", config["git_path"], "status", "--porcelain",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+
+            if stdout.decode().strip():
+                return {"success": False, "error": "Local changes detected. Please commit or stash them first."}
+
+            if progress_callback:
+                await progress_callback("Pulling latest changes...", 50)
+
+            # 4. Faire le git pull
+            proc = await asyncio.create_subprocess_exec(
+                "git", "-C", config["git_path"], "pull", "origin", config["git_branch"],
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+
+            if proc.returncode != 0:
+                return {"success": False, "error": f"Git pull failed: {stderr.decode()}"}
+
+            if progress_callback:
+                await progress_callback("Installing Python dependencies...", 70)
+
+            # 5. Installer les dépendances Python si requirements.txt existe
+            requirements_file = Path(config["git_path"]) / "backend" / "requirements.txt"
+            if requirements_file.exists():
+                proc = await asyncio.create_subprocess_exec(
+                    "pip3", "install", "-r", str(requirements_file),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await proc.communicate()
+
+            if progress_callback:
+                await progress_callback("Restarting backend service...", 85)
+
+            # 6. Redémarrer le service backend (le frontend sera rechargé automatiquement par le navigateur)
+            restart_result = await self._restart_service(config["service_name"])
+            if not restart_result:
+                return {"success": False, "error": "Failed to restart backend service"}
+
+            if progress_callback:
+                await progress_callback("Update completed!", 100)
+
+            # 7. Récupérer la nouvelle version
+            new_status = await self.get_installed_version("milo")
+            new_version = list(new_status.get("versions", {}).values())[0] if new_status.get("versions") else "unknown"
+
+            return {
+                "success": True,
+                "message": f"Milo application updated successfully",
+                "old_version": status["installed"]["versions"].get("main", "unknown"),
+                "new_version": new_version
+            }
+
+        except Exception as e:
+            self.update_logger.error(f"Milo app update failed: {e}")
+            return {"success": False, "error": str(e)}
+
     async def _update_go_librespot(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Met à jour go-librespot"""
         config = self.update_config["go-librespot"]
@@ -491,13 +594,13 @@ class DependencyUpdateService(DependencyVersionService):
                 stderr=asyncio.subprocess.PIPE
             )
             _, stderr = await proc.communicate()
-            
+
             if proc.returncode != 0:
                 return False
-            
+
             # Attendre que le service soit vraiment démarré
             await asyncio.sleep(2)
-            
+
             # Vérifier l'état
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "is-active", service_name,
@@ -505,11 +608,42 @@ class DependencyUpdateService(DependencyVersionService):
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, _ = await proc.communicate()
-            
+
             return stdout.decode().strip() == "active"
-            
+
         except Exception as e:
             self.update_logger.error(f"Failed to start {service_name}: {e}")
+            return False
+
+    async def _restart_service(self, service_name: str) -> bool:
+        """Redémarre un service systemd"""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "restart", service_name,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await proc.communicate()
+
+            if proc.returncode != 0:
+                self.update_logger.error(f"Failed to restart {service_name}: {stderr.decode()}")
+                return False
+
+            # Attendre que le service soit vraiment démarré
+            await asyncio.sleep(2)
+
+            # Vérifier l'état
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "is-active", service_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await proc.communicate()
+
+            return stdout.decode().strip() == "active"
+
+        except Exception as e:
+            self.update_logger.error(f"Failed to restart {service_name}: {e}")
             return False
     
     async def _verify_go_librespot_update(self, expected_version: str) -> Dict[str, Any]:

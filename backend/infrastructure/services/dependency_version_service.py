@@ -25,6 +25,16 @@ class DependencyVersionService:
         
         # Configuration des dépendances (snapserver et snapclient séparés)
         self.dependencies = {
+            "milo": {
+                "name": "Milo Application",
+                "description": "dependencies.miloApp",
+                "commands": {
+                    "main": ["git", "-C", "/home/milo/milo", "describe", "--tags", "--always"]
+                },
+                "repo": "Leshauts/Milo",
+                "version_regex": r"v?(\d+\.\d+\.\d+)",
+                "git_path": "/home/milo/milo"
+            },
             "go-librespot": {
                 "name": "go-librespot",
                 "description": "dependencies.spotifyConnect",

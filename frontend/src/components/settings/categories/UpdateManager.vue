@@ -167,7 +167,7 @@ const localCompletedUpdates = ref(new Set());
 const satelliteUpdateStates = ref({});
 const satelliteCompletedUpdates = ref(new Set());
 
-const supportedLocalUpdates = ['go-librespot', 'snapserver', 'snapclient'];
+const supportedLocalUpdates = ['milo', 'go-librespot', 'snapserver', 'snapclient'];
 
 // === DÉPENDANCES LOCALES ===
 
