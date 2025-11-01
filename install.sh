@@ -330,10 +330,11 @@ install_dependencies() {
     
     log_info "Installation des dépendances de base..."
 		# Configuration optimisée pour Raspberry Pi OS Lite
-		sudo apt install -y \
-				git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
-				cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
-				fonts-noto-color-emoji fontconfig mpv libinput-tools
+        sudo apt install -y \
+            git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
+            cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
+            fontconfig mpv libinput-tools \
+            fonts-noto fonts-noto-cjk fonts-lohit-deva fonts-noto-color-emoji
     
     log_info "Mise à jour de Node.js et npm..."
     sudo npm install -g n
