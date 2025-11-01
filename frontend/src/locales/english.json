@@ -5,7 +5,7 @@
     "applications": "Applications",
     "volume": "Volume",
     "screen": "Screen",
-    "dependencies": "Dependencies",
+    "updates": "Updates",
     "information": "Information"
   },
   "audioSources": {
@@ -78,12 +78,12 @@
     "serverName": "Server name",
     "apply": "Apply"
   },
-  "dependencies": {
-    "title": "Dependencies",
-    "miloTitle": "Milō Dependencies",
-    "satellitesTitle": "Connected satellite dependencies",
+  "updates": {
+    "title": "Updates",
+    "miloTitle": "Milō Programs",
+    "satellitesTitle": "Connected satellite programs",
     "checking": "Checking versions...",
-    "error": "Error loading dependencies",
+    "error": "Error loading updates",
     "retry": "Retry",
     "latestVersion": "Latest ver.",
     "installed": "Installed",
@@ -95,7 +95,7 @@
     "noSatellites": "No satellite detected on the network",
     "snapclientOf": "Snapclient of",
     "updatingInit": "Initializing update...",
-    "miloApp": "Milō Application",
+    "miloApp": "Operating System",
     "spotifyConnect": "Spotify Connect",
     "multiroomServer": "Multiroom server",
     "multiroomClient": "Multiroom client",

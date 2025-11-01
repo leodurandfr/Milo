@@ -48,9 +48,9 @@
           </template>
         </IconButton>
 
-        <IconButton :title="t('settings.dependencies')" :clickable="true" :show-caret="true" @click="goToView('dependencies')">
+        <IconButton :title="t('settings.updates')" :clickable="true" :show-caret="true" @click="goToView('updates')">
           <template #icon>
-            <img :src="dependenciesIcon" alt="Dependencies" />
+            <img :src="updatesIcon" alt="Updates" />
           </template>
         </IconButton>
 
@@ -113,9 +113,9 @@
       <RadioSettings />
     </div>
 
-    <!-- Vue Dépendances -->
-    <div v-else-if="currentView === 'dependencies'" class="view-detail">
-      <ModalHeader :title="t('settings.dependencies')" show-back @back="goToHome" />
+    <!-- Vue Mises à jour -->
+    <div v-else-if="currentView === 'updates'" class="view-detail">
+      <ModalHeader :title="t('settings.updates')" show-back @back="goToHome" />
       <UpdateManager />
     </div>
 
@@ -146,7 +146,7 @@ import volumeIcon from '@/assets/settings-icons/volume.svg';
 import displayIcon from '@/assets/settings-icons/display.svg';
 import spotifyIcon from '@/assets/settings-icons/spotify.svg';
 import multiroomIcon from '@/assets/settings-icons/multiroom.svg';
-import dependenciesIcon from '@/assets/settings-icons/dependencies.svg';
+import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
 import ApplicationsSettings from '@/components/settings/categories/ApplicationsSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';

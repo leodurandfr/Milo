@@ -1,22 +1,22 @@
 <!-- frontend/src/components/settings/categories/UpdateManager.vue -->
 <template>
   <div class="update-manager">
-    <!-- Dépendances locales (Milo principal) -->
+    <!-- Programmes locaux (Milo principal) -->
     <section class="update-section">
-      <h1 class="heading-2">{{ $t('dependencies.miloTitle') }}</h1>
+      <h1 class="heading-2">{{ $t('updates.miloTitle') }}</h1>
 
       <div v-if="localDependenciesLoading" class="loading-state">
         <div class="loading-message text-mono">
-          {{ $t('dependencies.checking') }}
+          {{ $t('updates.checking') }}
         </div>
       </div>
 
       <div v-else-if="localDependenciesError" class="error-state">
         <div class="error-message text-mono">
-          {{ $t('dependencies.error') }}
+          {{ $t('updates.error') }}
         </div>
         <Button variant="secondary" @click="loadLocalDependencies">
-          {{ $t('dependencies.retry') }}
+          {{ $t('updates.retry') }}
         </Button>
       </div>
 
@@ -29,15 +29,15 @@
             </div>
 
             <div v-if="dep.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)" class="version-update">
-              <span class="version-update-label text-mono">{{ $t('dependencies.latestVersion') }}</span>
+              <span class="version-update-label text-mono">{{ $t('updates.latestVersion') }}</span>
               <span class="version-update-value text-mono">{{ getLocalLatestVersion(dep) || '...' }}</span>
             </div>
 
             <div class="version-info">
-              <span class="version-label text-mono">{{ $t('dependencies.installed') }}</span>
+              <span class="version-label text-mono">{{ $t('updates.installed') }}</span>
               <span class="version-value text-mono" :class="{ 'version-uptodate': !dep.update_available, 'version-outdated': dep.update_available }">
                 <span v-if="getLocalInstalledVersion(dep)">{{ getLocalInstalledVersion(dep) }}</span>
-                <span v-else class="text-error">{{ $t('dependencies.notAvailable') }}</span>
+                <span v-else class="text-error">{{ $t('updates.notAvailable') }}</span>
               </span>
             </div>
           </div>
@@ -55,13 +55,13 @@
             @click="startLocalUpdate(key)"
             :disabled="isAnyUpdateInProgress()"
             class="update-button">
-            {{ $t('dependencies.update') }}
+            {{ $t('updates.update') }}
           </Button>
 
           <!-- Détails d'erreur si nécessaire -->
           <div v-if="dep.installed?.errors?.length" class="dependency-errors">
             <details class="error-details">
-              <summary class="text-mono">{{ $t('dependencies.errorDetails') }}</summary>
+              <summary class="text-mono">{{ $t('updates.errorDetails') }}</summary>
               <ul class="error-list">
                 <li v-for="error in dep.installed.errors" :key="error" class="text-mono">{{ error }}</li>
               </ul>
@@ -73,45 +73,45 @@
 
     <!-- Satellites connectés -->
     <section v-if="isMultiroomEnabled" class="update-section">
-      <h1 class="heading-2">{{ $t('dependencies.satellitesTitle') }}</h1>
+      <h1 class="heading-2">{{ $t('updates.satellitesTitle') }}</h1>
 
       <div v-if="satellitesLoading" class="loading-state">
         <div class="loading-message text-mono">
-          {{ $t('dependencies.searchingSatellites') }}
+          {{ $t('updates.searchingSatellites') }}
         </div>
       </div>
 
       <div v-else-if="satellitesError" class="error-state">
         <div class="error-message text-mono">
-          {{ $t('dependencies.errorDetectingSatellites') }}
+          {{ $t('updates.errorDetectingSatellites') }}
         </div>
         <Button variant="secondary" @click="loadSatellites">
-          {{ $t('dependencies.retry') }}
+          {{ $t('updates.retry') }}
         </Button>
       </div>
 
       <div v-else-if="satellites.length === 0" class="empty-state">
-        <p class="text-mono">{{ $t('dependencies.noSatellites') }}</p>
+        <p class="text-mono">{{ $t('updates.noSatellites') }}</p>
       </div>
 
       <div v-else class="dependencies-list">
         <div v-for="satellite in satellites" :key="satellite.hostname" class="dependency-item">
           <div class="dependency-header">
             <div class="dependency-info">
-              <h3 class="dependency-name text-body">{{ $t('dependencies.snapclientOf') }} {{ satellite.display_name }}</h3>
-              <p class="dependency-description text-mono">{{ $t('dependencies.multiroomClient') }} {{ satellite.hostname }}</p>
+              <h3 class="dependency-name text-body">{{ $t('updates.snapclientOf') }} {{ satellite.display_name }}</h3>
+              <p class="dependency-description text-mono">{{ $t('updates.multiroomClient') }} {{ satellite.hostname }}</p>
             </div>
 
             <div v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)" class="version-update">
-              <span class="version-update-label text-mono">{{ $t('dependencies.latestVersion') }}</span>
+              <span class="version-update-label text-mono">{{ $t('updates.latestVersion') }}</span>
               <span class="version-update-value text-mono">{{ satellite.latest_version || '...' }}</span>
             </div>
 
             <div class="version-info">
-              <span class="version-label text-mono">{{ $t('dependencies.installed') }}</span>
+              <span class="version-label text-mono">{{ $t('updates.installed') }}</span>
               <span class="version-value text-mono" :class="{ 'version-uptodate': !satellite.update_available, 'version-outdated': satellite.update_available }">
                 <span v-if="satellite.snapclient_version">{{ satellite.snapclient_version }}</span>
-                <span v-else class="text-error">{{ $t('dependencies.notAvailable') }}</span>
+                <span v-else class="text-error">{{ $t('updates.notAvailable') }}</span>
               </span>
             </div>
           </div>
@@ -129,7 +129,7 @@
             @click="startSatelliteUpdate(satellite.hostname)"
             :disabled="isAnyUpdateInProgress()"
             class="update-button">
-            {{ $t('dependencies.update') }}
+            {{ $t('updates.update') }}
           </Button>
         </div>
       </div>
@@ -169,7 +169,7 @@ const satelliteCompletedUpdates = ref(new Set());
 
 const supportedLocalUpdates = ['milo', 'go-librespot', 'snapserver', 'snapclient'];
 
-// === DÉPENDANCES LOCALES ===
+// === PROGRAMMES LOCAUX ===
 
 async function loadLocalDependencies() {
   if (localDependenciesLoading.value) return;
@@ -239,7 +239,7 @@ async function startLocalUpdate(depKey) {
     localUpdateStates.value[depKey] = {
       updating: true,
       progress: 0,
-      message: t('dependencies.updatingInit')
+      message: t('updates.updatingInit')
     };
 
     const response = await axios.post(`/api/dependencies/${depKey}/update`);
@@ -304,7 +304,7 @@ async function startSatelliteUpdate(hostname) {
     satelliteUpdateStates.value[hostname] = {
       updating: true,
       progress: 0,
-      message: t('dependencies.updatingInit')
+      message: t('updates.updatingInit')
     };
 
     const response = await axios.post(`/api/dependencies/satellites/${hostname}/update`);

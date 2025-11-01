@@ -26,8 +26,8 @@ class DependencyVersionService:
         # Configuration des dépendances (snapserver et snapclient séparés)
         self.dependencies = {
             "milo": {
-                "name": "Milo Application",
-                "description": "dependencies.miloApp",
+                "name": "Milō",
+                "description": "updates.miloApp",
                 "commands": {
                     "main": ["git", "-C", "/home/milo/milo", "describe", "--tags", "--always"]
                 },
@@ -37,7 +37,7 @@ class DependencyVersionService:
             },
             "go-librespot": {
                 "name": "go-librespot",
-                "description": "dependencies.spotifyConnect",
+                "description": "updates.spotifyConnect",
                 "commands": {
                     "main": ["sh", "-c", "strings /usr/local/bin/go-librespot | grep 'Bv[0-9]' | sed 's/^.*Bv//' | head -1"]
                 },
@@ -46,7 +46,7 @@ class DependencyVersionService:
             },
             "snapserver": {
                 "name": "Snapserver",
-                "description": "dependencies.multiroomServer",
+                "description": "updates.multiroomServer",
                 "commands": {
                     "main": ["snapserver", "--version"]
                 },
@@ -55,7 +55,7 @@ class DependencyVersionService:
             },
             "snapclient": {
                 "name": "Snapclient",
-                "description": "dependencies.multiroomClient",
+                "description": "updates.multiroomClient",
                 "commands": {
                     "main": ["snapclient", "--version"]
                 },
@@ -64,7 +64,7 @@ class DependencyVersionService:
             },
             "bluez-alsa": {
                 "name": "BlueZ ALSA",
-                "description": "dependencies.bluetoothAudio",
+                "description": "updates.bluetoothAudio",
                 "commands": {
                     "main": ["bluealsa", "--version"]
                 },
@@ -73,7 +73,7 @@ class DependencyVersionService:
             },
             "roc-toolkit": {
                 "name": "ROC Streaming",
-                "description": "dependencies.macStreaming",
+                "description": "updates.macStreaming",
                 "commands": {
                     "recv": ["roc-recv", "--version"]
                 },
