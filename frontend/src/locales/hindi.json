@@ -5,7 +5,7 @@
     "applications": "एप्लिकेशन",
     "volume": "वॉल्यूम",
     "screen": "स्क्रीन",
-    "dependencies": "निर्भरताएं",
+    "updates": "अपडेट",
     "information": "जानकारी"
   },
   "audioSources": {
@@ -79,12 +79,12 @@
     "serverName": "सर्वर नाम",
     "apply": "लागू करें"
   },
-  "dependencies": {
-    "title": "निर्भरताएं",
-    "miloTitle": "Milō निर्भरताएं",
-    "satellitesTitle": "कनेक्टेड सैटेलाइट निर्भरताएं",
+  "updates": {
+    "title": "अपडेट",
+    "miloTitle": "Milō प्रोग्राम",
+    "satellitesTitle": "कनेक्टेड सैटेलाइट प्रोग्राम",
     "checking": "संस्करण जांचे जा रहे हैं...",
-    "error": "निर्भरताएं लोड करने में त्रुटि",
+    "error": "अपडेट लोड करने में त्रुटि",
     "retry": "पुनः प्रयास करें",
     "latestVersion": "नवीनतम संस्करण",
     "installed": "इंस्टॉल किया गया",
@@ -96,6 +96,7 @@
     "noSatellites": "नेटवर्क पर कोई सैटेलाइट का पता नहीं चला",
     "snapclientOf": "का Snapclient",
     "updatingInit": "अपडेट प्रारंभ हो रहा है...",
+    "miloApp": "ऑपरेटिंग सिस्टम",
     "spotifyConnect": "Spotify Connect",
     "multiroomServer": "मल्टीरूम सर्वर",
     "multiroomClient": "मल्टीरूम क्लाइंट",

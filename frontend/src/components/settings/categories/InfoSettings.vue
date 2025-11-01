@@ -12,7 +12,7 @@
         <span class="info-value text-mono">
           <span v-if="temperatureLoading && systemTemperature === null">...</span>
           <span v-else-if="systemTemperature !== null">{{ systemTemperature.toFixed(1) }}°C</span>
-          <span v-else class="text-error">{{ t('dependencies.notAvailable') }}</span>
+          <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
         </span>
       </div>
 
@@ -21,7 +21,7 @@
         <span class="info-value text-mono">
           <span v-if="ipLoading && ipAddress === null">...</span>
           <span v-else-if="ipAddress !== null">{{ ipAddress }}</span>
-          <span v-else class="text-error">{{ t('dependencies.notAvailable') }}</span>
+          <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
         </span>
       </div>
     </div>

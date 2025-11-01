@@ -18,7 +18,7 @@ import volumeIcon from '@/assets/settings-icons/volume.svg';
 import displayIcon from '@/assets/settings-icons/display.svg';
 import spotifyIcon from '@/assets/settings-icons/spotify.svg';
 import multiroomIcon from '@/assets/settings-icons/multiroom.svg';
-import dependenciesIcon from '@/assets/settings-icons/dependencies.svg';
+import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
 
 const icons = {
@@ -28,7 +28,7 @@ const icons = {
   display: displayIcon,
   spotify: spotifyIcon,
   multiroom: multiroomIcon,
-  dependencies: dependenciesIcon,
+  updates: updatesIcon,
   information: informationIcon
 };
 

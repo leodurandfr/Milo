@@ -5,7 +5,7 @@
     "applications": "应用程序",
     "volume": "音量",
     "screen": "屏幕",
-    "dependencies": "依赖项",
+    "updates": "更新",
     "information": "信息"
   },
   "audioSources": {
@@ -79,12 +79,12 @@
     "serverName": "服务器名称",
     "apply": "应用"
   },
-  "dependencies": {
-    "title": "依赖项",
-    "miloTitle": "Milō 依赖项",
-    "satellitesTitle": "已连接卫星依赖项",
+  "updates": {
+    "title": "更新",
+    "miloTitle": "Milō 程序",
+    "satellitesTitle": "已连接卫星程序",
     "checking": "正在检查版本...",
-    "error": "加载依赖项时出错",
+    "error": "加载更新时出错",
     "retry": "重试",
     "latestVersion": "最新版本",
     "installed": "已安装",
@@ -96,6 +96,7 @@
     "noSatellites": "网络上未检测到卫星",
     "snapclientOf": "的 Snapclient",
     "updatingInit": "正在初始化更新...",
+    "miloApp": "操作系统",
     "spotifyConnect": "Spotify Connect",
     "multiroomServer": "多房间服务器",
     "multiroomClient": "多房间客户端",
