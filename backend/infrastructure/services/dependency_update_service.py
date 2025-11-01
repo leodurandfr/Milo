@@ -408,7 +408,7 @@ class DependencyUpdateService(DependencyVersionService):
             return {"success": False, "error": str(e)}
     
     async def _install_deb_package(self, deb_path: str) -> Dict[str, Any]:
-        """Installe un package .deb avec apt install (résout automatiquement les dépendances)"""
+        """Installe un package .deb avec dpkg + apt-get -f (méthode officielle snapcast)"""
         try:
             env = {
                 "DEBIAN_FRONTEND": "noninteractive",
@@ -426,10 +426,27 @@ class DependencyUpdateService(DependencyVersionService):
             )
             await proc.communicate()
 
-            # Étape 2 : Installer le .deb avec apt install (résout automatiquement les dépendances)
-            self.update_logger.info(f"Installing {Path(deb_path).name} with automatic dependency resolution...")
+            # Étape 2a : Installer le .deb avec dpkg (peut échouer si dépendances manquantes - c'est normal)
+            # --force-confdef --force-confold : garde automatiquement les anciennes configs sans prompt
+            self.update_logger.info(f"Installing {Path(deb_path).name} with dpkg...")
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "-E", "apt", "install", "-y", deb_path,
+                "sudo", "-E", "dpkg", "-i", "--force-confdef", "--force-confold", deb_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, **env}
+            )
+
+            dpkg_stdout, dpkg_stderr = await proc.communicate()
+
+            # Note: dpkg peut retourner une erreur si des dépendances manquent, c'est prévu
+            if proc.returncode != 0:
+                self.update_logger.info(f"dpkg returned non-zero (expected if dependencies missing): {dpkg_stderr.decode()}")
+
+            # Étape 2b : Résoudre les dépendances avec apt-get -f install
+            # C'est cette étape qui détermine le succès ou l'échec final
+            self.update_logger.info("Resolving dependencies with apt-get -f install...")
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "-E", "apt-get", "-f", "install", "-y",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env={**os.environ, **env}
@@ -443,7 +460,7 @@ class DependencyUpdateService(DependencyVersionService):
             else:
                 return {
                     "success": False,
-                    "error": f"APT install failed: {stderr.decode()}"
+                    "error": f"Dependency resolution failed: {stderr.decode()}"
                 }
 
         except Exception as e:
