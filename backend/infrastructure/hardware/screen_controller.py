@@ -154,7 +154,9 @@ class ScreenController:
             )
             await process.communicate()
 
-            self.screen_on = str(self.brightness_on) in cmd
+            # Déterminer si l'écran est allumé en comparant avec screen_off_cmd
+            # (si la commande est screen_off_cmd, l'écran est éteint, sinon il est allumé)
+            self.screen_on = (cmd != self.screen_off_cmd)
 
         except Exception as e:
             self.logger.error(f"Screen command failed: {e}")
