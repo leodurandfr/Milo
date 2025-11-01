@@ -114,7 +114,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         try:
             commands = "\n".join([
                 "power on",
-                "system-alias Milo · Bluetooth",
+                "system-alias Milō · Bluetooth",
                 "discoverable-timeout 0",
                 "discoverable on",
                 "pairable on",

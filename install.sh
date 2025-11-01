@@ -1,5 +1,11 @@
 #!/bin/bash
 # Milo Audio System - Installation Script v1.3
+#
+# IMPORTANT: Ce script est optimisé pour Raspberry Pi OS Lite (64-bit)
+# Raspberry Pi OS Lite est recommandé pour minimiser l'utilisation des ressources
+# et éviter les conflits avec des services desktop inutiles.
+#
+# Téléchargez Raspberry Pi OS Lite sur: https://www.raspberrypi.com/software/operating-systems/
 
 set -e
 
@@ -63,19 +69,26 @@ check_root() {
 
 check_system() {
     log_info "Vérification du système..."
-    
+
     if ! grep -q "Raspberry Pi" /proc/cpuinfo; then
         log_error "Ce script est conçu pour Raspberry Pi uniquement."
         exit 1
     fi
-    
+
     ARCH=$(uname -m)
     if [[ "$ARCH" != "aarch64" ]]; then
         log_error "Architecture non supportée: $ARCH. Raspberry Pi OS 64bit requis."
         exit 1
     fi
-    
-    log_success "Système compatible détecté"
+
+    # Avertissement si un environnement desktop est détecté
+    if systemctl list-units --type=service | grep -qE "lightdm|gdm|sddm|xdm"; then
+        log_warning "Un environnement desktop a été détecté."
+        log_warning "Raspberry Pi OS Lite est recommandé pour des performances optimales."
+        echo ""
+    fi
+
+    log_success "Système compatible détecté (Raspberry Pi OS 64-bit)"
 }
 
 collect_user_choices() {
@@ -316,6 +329,7 @@ install_dependencies() {
     sudo apt upgrade -y
     
     log_info "Installation des dépendances de base..."
+		# Configuration optimisée pour Raspberry Pi OS Lite
 		sudo apt install -y \
 				git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
 				cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
@@ -349,7 +363,6 @@ create_milo_user() {
 install_milo_application() {
     log_info "Clonage et configuration de Milo..."
     
-    # Se déplacer dans un répertoire sûr AVANT de supprimer
     cd /tmp
     
     if [[ -d "$MILO_APP_DIR" ]]; then
@@ -377,13 +390,11 @@ install_milo_application() {
 fix_nginx_permissions() {
     log_info "Configuration des permissions pour nginx..."
     
-    # Permettre à nginx (www-data) d'accéder au frontend
     sudo chmod 755 /home/milo
     sudo chmod 755 /home/milo/milo
     sudo chmod 755 /home/milo/milo/frontend
     sudo chmod -R 755 /home/milo/milo/frontend/dist
     
-    # S'assurer que les fichiers appartiennent bien à milo
     sudo chown -R "$MILO_USER:$MILO_USER" /home/milo/milo/frontend/dist
     
     log_success "Permissions nginx configurées"
@@ -1252,6 +1263,9 @@ source = alsa:///?name=ROC&device=hw:1,1,1
 source = alsa:///?name=Spotify&device=hw:1,1,2
 source = alsa:///?name=Radio&device=hw:1,1,3
 
+[streaming_client]
+initial_volume = 28
+
 [http]
 enabled = true
 bind_to_address = 0.0.0.0
@@ -1353,7 +1367,6 @@ upstream milo_backend {
 
 server {
     listen 80;
-    listen [::]:80;
     server_name milo.local localhost _;
 
     # Serve frontend static files directly from /dist
@@ -1414,8 +1427,9 @@ EOF
 configure_cage_kiosk() {
     log_info "Configuration du mode kiosk avec Cage..."
 
-    # Installer Cage et les outils nécessaires
-    sudo apt install -y cage x11-xserver-utils
+    # Installer Cage (Wayland compositor)
+    # Note: x11-xserver-utils n'est pas nécessaire car Cage est Wayland pur
+    sudo apt install -y cage
 
     # Chromium est déjà installé via install_avahi_nginx()
 
@@ -1597,10 +1611,6 @@ EOF
     # Masquer plymouth-quit services (milo-readiness gère le quit manuellement)
     sudo systemctl mask plymouth-quit.service plymouth-quit-wait.service
 
-    # Désactiver cloud-init (économie ~20s au boot)
-    sudo touch /etc/cloud/cloud-init.disabled
-    sudo systemctl disable cloud-init.service cloud-config.service cloud-final.service cloud-init-local.service 2>/dev/null || true
-
     log_success "Écran de démarrage configuré avec thème Milo, Plymouth reste actif jusqu'au quit manuel"
     REBOOT_REQUIRED=true
 }
@@ -1745,6 +1755,18 @@ enable_services() {
 
    sudo systemctl daemon-reload
 
+   # Configurer graphical.target comme target par défaut
+   # Nécessaire pour que milo-kiosk.service démarre (WantedBy=graphical.target)
+   # Sur Raspberry Pi OS Lite, le système démarre en multi-user.target par défaut
+   local current_target=$(systemctl get-default)
+   if [[ "$current_target" != "graphical.target" ]]; then
+       log_info "Configuration du système pour démarrer en graphical.target (requis pour milo-kiosk)..."
+       sudo systemctl set-default graphical.target
+       log_success "Target par défaut configuré: graphical.target"
+   else
+       log_info "Target par défaut déjà configuré: graphical.target"
+   fi
+
    # Services qui doivent être enabled au démarrage
    sudo systemctl enable milo-backend.service
    sudo systemctl enable milo-readiness.service
@@ -1815,8 +1837,7 @@ finalize_installation() {
    echo -e "${BLUE}Accès :${NC}"
    echo "  • Interface web: http://milo.local"
    echo "  • Spotify Connect: 'Milō'"
-   echo "  • Bluetooth: 'Milo · Bluetooth'"
-   echo "  • Snapserver: http://milo.local:1780"
+   echo "  • Bluetooth: 'Milō · Bluetooth'"
    echo ""
    
    if [[ "$REBOOT_REQUIRED" == "true" ]]; then

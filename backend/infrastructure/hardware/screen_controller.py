@@ -77,8 +77,8 @@ class ScreenController:
             self.screen_off_cmd = f"sudo /usr/local/bin/milo-brightness-7 -b 0"
         elif self.screen_type == "waveshare_8_dsi":
             # Waveshare 8" DSI : utilise sysfs (chemin direct sans wildcard pour éviter problèmes shell)
-            self.screen_on_cmd = f"echo {native_brightness} | sudo tee /sys/class/backlight/10-0045/brightness"
-            self.screen_off_cmd = f"echo 0 | sudo tee /sys/class/backlight/10-0045/brightness"
+            self.screen_on_cmd = f"echo {native_brightness} | sudo tee /sys/class/backlight/*/brightness"
+            self.screen_off_cmd = f"echo 0 | sudo tee /sys/class/backlight/*/brightness"
         else:
             # Aucun écran ou type inconnu : commandes vides
             self.logger.warning(f"Unknown screen type '{self.screen_type}', brightness control disabled")
