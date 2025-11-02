@@ -146,6 +146,16 @@
             <p>Chargement des stations...</p>
           </div>
 
+          <!-- Message d'erreur avec bouton réessayer -->
+          <div v-else-if="radioStore.hasError && displayedStations.length === 0 && transitionState === 'idle'" class="error-state">
+            <div class="error-icon">⚠️</div>
+            <p class="heading-2">Erreur de connexion</p>
+            <p class="text-body-small" style="color: var(--color-text-secondary);">Impossible de charger les stations</p>
+            <Button variant="toggle" :active="false" @click="retrySearch">
+              Réessayer
+            </Button>
+          </div>
+
           <div v-else-if="displayedStations.length === 0 && transitionState === 'idle'" class="empty-list">
             <div class="empty-icon">📻</div>
             <p class="heading-2">{{ isSearchMode ? 'Aucune station trouvée' : 'Aucune radio favorite' }}</p>
@@ -451,6 +461,11 @@ function handleSearch() {
     // Utiliser la nouvelle fonction de transition
     await performTransition();
   }, 300);
+}
+
+function retrySearch() {
+  // Forcer un refresh pour réessayer après une erreur
+  radioStore.loadStations(false, true);
 }
 
 // === SCROLL INFINI ===
@@ -781,7 +796,8 @@ onBeforeUnmount(() => {
 }
 
 .loading-state,
-.empty-list {
+.empty-list,
+.error-state {
   display: flex;
   height: 100%;
   flex-direction: column;
@@ -793,7 +809,8 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-.empty-icon {
+.empty-icon,
+.error-icon {
   font-size: 64px;
   opacity: 0.5;
 }

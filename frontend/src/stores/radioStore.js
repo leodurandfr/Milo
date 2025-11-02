@@ -13,15 +13,22 @@ export const useRadioStore = defineStore('radio', () => {
   const countryFilter = ref('');
   const genreFilter = ref('');
 
-  // Cache unifié avec clés composites
+  // Cache unifié avec clés composites + TTL
   // Clé = combinaison des filtres (ex: "query:nova|country:France|genre:pop")
+  // Valeur = { stations: [], total: 0, loaded: boolean, error: boolean, timestamp: number }
   const stationsCache = ref(new Map());
 
+  // TTL du cache (5 minutes)
+  const CACHE_TTL = 5 * 60 * 1000;
+
   // Cache séparé pour les favoris
-  const favoritesCache = ref({ stations: [], total: 0, loaded: false, lastSync: null });
+  const favoritesCache = ref({ stations: [], total: 0, loaded: false, error: false, lastSync: null, timestamp: null });
 
   // Stations visibles actuellement (pour rendu progressif)
   const visibleStations = ref([]);
+
+  // AbortController pour annuler les requêtes en cours
+  let currentAbortController = null;
 
   // === GETTERS ===
 
@@ -32,6 +39,29 @@ export const useRadioStore = defineStore('radio', () => {
     if (country) parts.push(`country:${country}`);
     if (genre) parts.push(`genre:${genre}`);
     return parts.length > 0 ? parts.join('|') : 'top';
+  };
+
+  // Vérifie si une entrée de cache est valide (présente, chargée, pas d'erreur, pas expirée)
+  const isCacheValid = (cacheKey) => {
+    if (!stationsCache.value.has(cacheKey)) {
+      return false;
+    }
+
+    const cached = stationsCache.value.get(cacheKey);
+
+    // Si l'entrée a une erreur ou n'est pas chargée, elle n'est pas valide
+    if (!cached.loaded || cached.error) {
+      return false;
+    }
+
+    // Vérifier l'expiration (TTL)
+    const age = Date.now() - (cached.timestamp || 0);
+    if (age > CACHE_TTL) {
+      console.log(`⏰ Cache expired for "${cacheKey}" (age: ${Math.round(age / 1000)}s)`);
+      return false;
+    }
+
+    return true;
   };
 
   // Clé du cache actuel
@@ -73,18 +103,27 @@ export const useRadioStore = defineStore('radio', () => {
       .sort((a, b) => a.name.localeCompare(b.name));
   });
 
+  // État d'erreur du cache actuel
+  const hasError = computed(() => {
+    const cacheEntry = stationsCache.value.get(currentCacheKey.value);
+    return cacheEntry?.error || false;
+  });
+
   // === ACTIONS ===
 
   /**
    * Charge les stations selon les filtres actifs
-   * Utilise le cache si déjà chargé
+   * Utilise le cache si valide (pas expiré, pas d'erreur)
    */
   async function loadStations(favoritesOnly = false, forceRefresh = false) {
     if (favoritesOnly) {
       // Gestion des favoris (cache séparé)
-      if (!forceRefresh && favoritesCache.value.loaded) {
-        console.log('📻 Using cached favorites');
-        return true;
+      if (!forceRefresh && favoritesCache.value.loaded && !favoritesCache.value.error) {
+        const age = Date.now() - (favoritesCache.value.timestamp || 0);
+        if (age < CACHE_TTL) {
+          console.log('📻 Using cached favorites');
+          return true;
+        }
       }
 
       loading.value = true;
@@ -97,13 +136,20 @@ export const useRadioStore = defineStore('radio', () => {
           stations: response.data.stations,
           total: response.data.total,
           loaded: true,
-          lastSync: Date.now()
+          error: false,
+          lastSync: Date.now(),
+          timestamp: Date.now()
         };
 
         console.log(`✅ Loaded ${response.data.stations.length} favorites`);
         return true;
       } catch (error) {
         console.error('❌ Error loading favorites:', error);
+
+        // Marquer comme erreur dans le cache
+        favoritesCache.value.error = true;
+        favoritesCache.value.loaded = false;
+
         return false;
       } finally {
         loading.value = false;
@@ -113,13 +159,23 @@ export const useRadioStore = defineStore('radio', () => {
     // Charger stations normales avec cache composite
     const cacheKey = currentCacheKey.value;
 
-    // Vérifier si déjà en cache (sauf si forceRefresh)
-    if (!forceRefresh && stationsCache.value.has(cacheKey) && stationsCache.value.get(cacheKey).loaded) {
+    // Vérifier si le cache est valide (pas expiré, pas d'erreur)
+    if (!forceRefresh && isCacheValid(cacheKey)) {
       console.log(`📻 Using cached stations for: "${cacheKey}"`);
       // Réinitialiser les stations visibles avec les 40 premières
       visibleStations.value = currentStations.value.slice(0, 40);
       return true;
     }
+
+    // Annuler la requête précédente si elle existe
+    if (currentAbortController) {
+      console.log('🚫 Cancelling previous search request');
+      currentAbortController.abort();
+    }
+
+    // Créer un nouveau AbortController pour cette requête
+    currentAbortController = new AbortController();
+    const signal = currentAbortController.signal;
 
     // Charger depuis l'API
     loading.value = true;
@@ -134,13 +190,15 @@ export const useRadioStore = defineStore('radio', () => {
       if (genreFilter.value) params.genre = genreFilter.value;
 
       console.log(`📻 Fetching stations from API - Key: "${cacheKey}"`);
-      const response = await axios.get('/api/radio/stations', { params });
+      const response = await axios.get('/api/radio/stations', { params, signal });
 
-      // Stocker dans le cache avec la clé composite
+      // Stocker dans le cache avec la clé composite + timestamp + état
       stationsCache.value.set(cacheKey, {
         stations: response.data.stations,
         total: response.data.total,
-        loaded: true
+        loaded: true,
+        error: false,
+        timestamp: Date.now()
       });
 
       // Initialiser les stations visibles avec les 40 premières
@@ -149,10 +207,27 @@ export const useRadioStore = defineStore('radio', () => {
       console.log(`✅ Loaded ${response.data.stations.length} stations (total: ${response.data.total})`);
       return true;
     } catch (error) {
+      // Si la requête a été annulée, ne pas logger comme erreur
+      if (axios.isCancel(error) || error.name === 'CanceledError') {
+        console.log('🚫 Search request cancelled');
+        return false;
+      }
+
       console.error('❌ Error loading stations:', error);
+
+      // Stocker l'erreur dans le cache pour éviter de retenter immédiatement
+      stationsCache.value.set(cacheKey, {
+        stations: [],
+        total: 0,
+        loaded: false,
+        error: true,
+        timestamp: Date.now()
+      });
+
       return false;
     } finally {
       loading.value = false;
+      currentAbortController = null;
     }
   }
 
@@ -506,6 +581,7 @@ export const useRadioStore = defineStore('radio', () => {
     hasMoreStations,
     remainingStations,
     favoriteStations,
+    hasError,
 
     // Actions
     loadStations,

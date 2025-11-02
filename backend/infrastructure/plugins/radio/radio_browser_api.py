@@ -472,10 +472,10 @@ class RadioBrowserAPI:
         Déduplique une liste de stations par nom (case-insensitive)
         Pour chaque groupe de doublons, fusionne la meilleure URL audio avec la meilleure image
 
-        Stratégie :
+        Stratégie optimisée (SANS requêtes HTTP HEAD bloquantes):
         1. Groupe toutes les versions d'une même station par nom
         2. Choisit la version avec le meilleur flux audio (score + bitrate le plus élevé)
-        3. Évalue tous les favicons via requêtes HEAD pour trouver le meilleur (disponible + plus lourd)
+        3. Choisit le meilleur favicon basé sur URL quality uniquement (pas de HEAD request)
         4. Fusionne les deux pour créer la station optimale
 
         Args:
@@ -484,6 +484,9 @@ class RadioBrowserAPI:
         Returns:
             Liste de stations dédupliquées et triées par score
         """
+        if not stations:
+            return []
+
         # Grouper toutes les versions de chaque station par nom
         stations_by_name = {}
 
@@ -511,54 +514,17 @@ class RadioBrowserAPI:
                     key=lambda s: (s.get('score', 0), s.get('bitrate', 0))
                 )
 
-                # 2. Évaluer tous les favicons candidats via requêtes HEAD
-                # Collecter tous les favicons non vides avec leur URL quality
-                favicon_candidates = []
+                # 2. Trouver le meilleur favicon basé sur URL quality uniquement (rapide)
+                best_favicon = ""
+                best_favicon_quality = -1
+
                 for version in versions:
                     favicon = version.get('favicon', '')
-                    if favicon and favicon not in [f for f, _, _ in favicon_candidates]:
-                        # Éviter les doublons d'URL
+                    if favicon:
                         url_quality = self._get_favicon_quality(favicon)
-                        favicon_candidates.append((favicon, version, url_quality))
-
-                # Trier par URL quality décroissant (meilleur en premier)
-                # PNG > WEBP > JPG > ICO
-                favicon_candidates.sort(key=lambda x: x[2], reverse=True)
-
-                # Tester séquentiellement dans l'ordre de qualité
-                # Dès qu'un HEAD réussit (status 200 + image/*), on le prend
-                best_favicon = ""
-                best_favicon_score = -1
-                best_favicon_size = 0
-
-                if favicon_candidates:
-                    for favicon_url, version, url_quality in favicon_candidates:
-                        # Tester ce favicon avec HEAD
-                        score, size = await self._evaluate_favicon_with_head(favicon_url)
-
-                        if score > 0:  # HEAD a réussi (200 + Content-Type: image/*)
-                            best_favicon = favicon_url
-                            best_favicon_score = score
-                            best_favicon_size = size
-                            self.logger.info(
-                                f"✅ Selected favicon for '{versions[0]['name']}' "
-                                f"(url_quality={url_quality}, size={size}B): {favicon_url}"
-                            )
-                            break  # On s'arrête dès qu'on trouve un qui marche
-                        else:
-                            self.logger.debug(
-                                f"❌ Favicon HEAD failed for '{versions[0]['name']}' "
-                                f"(url_quality={url_quality}): {favicon_url}"
-                            )
-
-                    # Fallback : si tous les HEAD ont échoué, utiliser le meilleur selon URL quality
-                    if best_favicon_score < 0 and favicon_candidates:
-                        best_favicon = favicon_candidates[0][0]
-                        best_url_quality = favicon_candidates[0][2]
-                        self.logger.info(
-                            f"⚠️ All HEAD requests failed for '{versions[0]['name']}', "
-                            f"using best URL quality favicon (quality={best_url_quality}): {best_favicon}"
-                        )
+                        if url_quality > best_favicon_quality:
+                            best_favicon_quality = url_quality
+                            best_favicon = favicon
 
                 # 3. Créer la station fusionnée (meilleur audio + meilleure image)
                 merged_station = best_audio.copy()
@@ -566,13 +532,13 @@ class RadioBrowserAPI:
 
                 deduplicated.append(merged_station)
 
-                # Log détaillé pour debug (seulement si doublons fusionnés)
+                # Log concis pour debug (seulement si doublons fusionnés)
                 if len(versions) > 1:
-                    self.logger.info(
-                        f"🔀 Merged {len(versions)} versions of '{versions[0]['name']}': "
-                        f"best_audio(score={best_audio.get('score', 0)}, bitrate={best_audio.get('bitrate', 0)})"
+                    self.logger.debug(
+                        f"🔀 Merged {len(versions)} versions of '{versions[0]['name']}' "
+                        f"(score={best_audio.get('score', 0)}, bitrate={best_audio.get('bitrate', 0)}, "
+                        f"favicon_quality={best_favicon_quality})"
                     )
-                    # Note: L'URL complète du favicon est déjà loggée ci-dessus avec ✅ ou ⚠️
 
         # Trier par popularité (votes + clics)
         sorted_stations = sorted(
@@ -581,7 +547,111 @@ class RadioBrowserAPI:
             reverse=True
         )
 
+        self.logger.debug(f"Deduplication: {len(stations)} → {len(sorted_stations)} stations")
+
         return sorted_stations
+
+    def _build_search_params(
+        self,
+        query: str = "",
+        country: str = "",
+        genre: str = "",
+        order: str = "votes",
+        limit: int = 10000
+    ) -> Dict[str, Any]:
+        """
+        Construit intelligemment les paramètres de recherche pour l'API RadioBrowser
+
+        Args:
+            query: Terme de recherche
+            country: Filtre pays
+            genre: Filtre genre (tag)
+            order: Tri (votes, clickcount, name, etc.)
+            limit: Nombre max de résultats
+
+        Returns:
+            Dict de paramètres pour l'API
+        """
+        params = {
+            "limit": limit,
+            "order": order,
+            "reverse": "true",  # Tri décroissant (meilleurs en premier)
+            "hidebroken": "true"  # Masquer les stations non fonctionnelles
+        }
+
+        # Ajouter les filtres actifs
+        if query:
+            # Utiliser SEULEMENT name pour le query (substring matching par défaut)
+            # Ne PAS mettre dans tag aussi → évite AND logic trop restrictive
+            params["name"] = query
+
+        if country:
+            params["country"] = country
+
+        if genre:
+            # Tag = genre musical
+            params["tag"] = genre
+
+        return params
+
+    async def _fetch_with_search_params(
+        self,
+        params: Dict[str, Any],
+        description: str = "search"
+    ) -> List[Dict[str, Any]]:
+        """
+        Appel API unifié avec les paramètres de recherche
+
+        Args:
+            params: Paramètres de recherche construits par _build_search_params()
+            description: Description pour les logs
+
+        Returns:
+            Liste des stations normalisées et dédupliquées
+        """
+        await self._ensure_session()
+
+        try:
+            url = f"{self.BASE_URL}/stations/search"
+
+            self.logger.debug(f"API call [{description}]: {params}")
+
+            async with self.session.get(
+                url,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as resp:
+                if resp.status != 200:
+                    self.logger.warning(f"API error [{description}]: HTTP {resp.status}")
+                    return []
+
+                stations = await resp.json()
+                self.logger.debug(f"Fetched {len(stations)} raw stations [{description}]")
+
+                # Filtrer et normaliser
+                valid_stations = []
+                for station in stations:
+                    if self._is_valid_station(station):
+                        normalized = self._normalize_station(station)
+                        valid_stations.append(normalized)
+
+                # Dédupliquer et trier
+                deduplicated_stations = await self._deduplicate_stations(valid_stations)
+
+                self.logger.info(
+                    f"[{description}] {len(stations)} raw → "
+                    f"{len(valid_stations)} valid → "
+                    f"{len(deduplicated_stations)} deduplicated"
+                )
+
+                return deduplicated_stations
+
+        except asyncio.TimeoutError:
+            self.logger.error(f"Timeout during [{description}]")
+            return []
+        except Exception as e:
+            self.logger.error(f"Error during [{description}]: {e}")
+            return []
 
     async def search_stations(
         self,
@@ -591,7 +661,14 @@ class RadioBrowserAPI:
         limit: int = 10000
     ) -> Dict[str, Any]:
         """
-        Recherche des stations avec filtres (inclut les stations personnalisées)
+        Recherche unifiée de stations avec filtres (inclut les stations personnalisées)
+
+        Stratégie:
+        1. Construit les paramètres de recherche optimaux
+        2. Fait l'appel API unifié
+        3. Si < 10 résultats, tente un fallback progressif
+        4. Ajoute les stations personnalisées
+        5. Enrichit avec les images personnalisées
 
         Args:
             query: Terme de recherche (nom de station)
@@ -602,81 +679,28 @@ class RadioBrowserAPI:
         Returns:
             Dict avec stations et total: {stations: [...], total: int}
         """
-        all_stations = []
+        # Log de la recherche
+        filters_desc = []
+        if query:
+            filters_desc.append(f"query='{query}'")
+        if country:
+            filters_desc.append(f"country='{country}'")
+        if genre:
+            filters_desc.append(f"genre='{genre}'")
 
-        # Déterminer quelle méthode de fetch utiliser selon les filtres actifs
-        # Les genres sont maintenant cherchés via l'API (paramètre tag) au lieu de filtrer localement
+        search_desc = ", ".join(filters_desc) if filters_desc else "no filters (top stations)"
+        self.logger.info(f"🔍 Search: {search_desc}")
 
-        if country and genre and query:
-            # Tous les filtres : country + genre + query
-            # Note: L'API Radio Browser ne supporte pas les 3 en même temps
-            # On fait country + genre, puis on filtre localement par query
-            self.logger.info(f"Fetching stations for country: {country}, genre: {genre}, query: {query}")
-            all_stations = await self._fetch_stations_by_country_and_genre(country, genre)
-            # Filtrage local par query
-            query_lower = query.lower()
-            all_stations = [
-                s for s in all_stations
-                if query_lower in s['name'].lower() or query_lower in s['genre'].lower()
-            ]
-        elif country and genre:
-            # Pays + Genre
-            self.logger.info(f"Fetching stations for country: {country}, genre: {genre}")
-            all_stations = await self._fetch_stations_by_country_and_genre(country, genre)
-        elif country and query:
-            # Pays + Recherche (déjà supporté nativement par l'API)
-            self.logger.info(f"Fetching stations for country: {country}, query: {query}")
-            # Vérifier cache par pays
-            country_lower = country.lower()
-            if country_lower in self._country_cache:
-                timestamp, cached_stations = self._country_cache[country_lower]
-                if datetime.now() - timestamp < self.cache_duration:
-                    self.logger.debug(f"Using cached stations for country: {country}")
-                    all_stations = cached_stations
-                else:
-                    all_stations = await self._fetch_stations_by_country_name(country)
-                    self._country_cache[country_lower] = (datetime.now(), all_stations)
-            else:
-                all_stations = await self._fetch_stations_by_country_name(country)
-                self._country_cache[country_lower] = (datetime.now(), all_stations)
-
-            # Filtrage local par query
-            query_lower = query.lower()
-            all_stations = [
-                s for s in all_stations
-                if query_lower in s['name'].lower() or query_lower in s['genre'].lower()
-            ]
-        elif genre and query:
-            # Genre + Recherche
-            self.logger.info(f"Fetching stations for genre: {genre}, query: {query}")
-            all_stations = await self._fetch_stations_by_query_and_genre(query, genre)
-        elif country:
-            # Pays seul
-            country_lower = country.lower()
-            if country_lower in self._country_cache:
-                timestamp, cached_stations = self._country_cache[country_lower]
-                if datetime.now() - timestamp < self.cache_duration:
-                    self.logger.debug(f"Using cached stations for country: {country}")
-                    all_stations = cached_stations
-                else:
-                    all_stations = await self._fetch_stations_by_country_name(country)
-                    self._country_cache[country_lower] = (datetime.now(), all_stations)
-            else:
-                self.logger.info(f"Fetching stations for country: {country}")
-                all_stations = await self._fetch_stations_by_country_name(country)
-                self._country_cache[country_lower] = (datetime.now(), all_stations)
-        elif genre:
-            # Genre seul (maintenant cherché via l'API au lieu de filtrer localement)
-            self.logger.info(f"Fetching stations for genre: {genre}")
-            all_stations = await self._fetch_stations_by_genre(genre)
-        elif query:
-            # Recherche seule
-            self.logger.info(f"Global search for query: {query}")
-            all_stations = await self._fetch_stations_by_query(query)
-        else:
-            # Aucun filtre : top 500 stations
+        # Cas spécial: aucun filtre → top stations
+        if not query and not country and not genre:
             self.logger.debug("No filters, loading top 500 stations")
             all_stations = await self._fetch_top_stations(limit=500)
+        else:
+            # Construire les paramètres de recherche
+            search_params = self._build_search_params(query, country, genre)
+
+            # Appel API unifié
+            all_stations = await self._fetch_with_search_params(search_params, search_desc)
 
         # Ajouter les stations personnalisées
         if self.station_manager:
@@ -693,6 +717,8 @@ class RadioBrowserAPI:
 
         # Limiter résultats
         limited_results = all_stations[:limit]
+
+        self.logger.info(f"📊 Final: {total} stations (returning {len(limited_results)})")
 
         return {
             "stations": limited_results,
