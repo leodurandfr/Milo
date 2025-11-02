@@ -44,7 +44,7 @@
 
         <IconButton v-if="settingsStore.dockApps.radio" title="Radio" :clickable="true" :show-caret="true" @click="goToView('radio')">
           <template #icon>
-            <img :src="applicationsIcon" alt="Radio" />
+            <img :src="radioIcon" alt="Radio" />
           </template>
         </IconButton>
 
@@ -59,6 +59,9 @@
             <img :src="informationIcon" alt="Information" />
           </template>
         </IconButton>
+
+        <!-- Placeholder pour nombre impair d'IconButton en mode desktop -->
+        <div v-if="shouldShowPlaceholder" class="icon-button-placeholder"></div>
       </div>
     </div>
 
@@ -148,6 +151,7 @@ import spotifyIcon from '@/assets/settings-icons/spotify.svg';
 import multiroomIcon from '@/assets/settings-icons/multiroom.svg';
 import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
+import radioIcon from '@/assets/settings-icons/radio.svg';
 import ApplicationsSettings from '@/components/settings/categories/ApplicationsSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
@@ -174,6 +178,18 @@ function goToView(view) {
 function goToHome() {
   currentView.value = 'home';
 }
+
+// Placeholder pour grille impaire
+const shouldShowPlaceholder = computed(() => {
+  // Compte le nombre d'IconButton visibles
+  let count = 6; // Base: Languages, Applications, Volume, Screen, Updates, Information
+  if (settingsStore.dockApps.librespot) count++;
+  if (settingsStore.dockApps.multiroom) count++;
+  if (settingsStore.dockApps.radio) count++;
+
+  // Retourne true si impair
+  return count % 2 !== 0;
+});
 
 // Multiroom toggle
 const isMultiroomToggling = ref(false);
@@ -240,10 +256,21 @@ onUnmounted(() => {
   gap: var(--space-01);
 }
 
+/* Placeholder pour grille impaire */
+.icon-button-placeholder {
+  background: var(--color-background-neutral-50);
+  border-radius: var(--radius-05);
+}
+
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .settings-nav-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* Masquer le placeholder en mode mobile */
+  .icon-button-placeholder {
+    display: none;
   }
 }
 </style>

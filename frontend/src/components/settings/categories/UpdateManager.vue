@@ -3,8 +3,6 @@
   <div class="update-manager">
     <!-- Programmes locaux (Milo principal) -->
     <section class="update-section">
-      <h1 class="heading-2">{{ $t('updates.miloTitle') }}</h1>
-
       <div v-if="localProgramsLoading" class="loading-state">
         <div class="loading-message text-mono">
           {{ $t('updates.checking') }}
@@ -21,7 +19,62 @@
       </div>
 
       <div v-else class="programs-list">
-        <div v-for="(program, key) in localPrograms" :key="key" class="program-item">
+        <!-- Milo OS - displayed first, before the title -->
+        <div v-if="localPrograms.milo" class="program-item">
+          <div class="program-header">
+            <div class="program-info">
+              <h3 class="program-name text-body">{{ localPrograms.milo.name }}</h3>
+              <p class="program-description text-mono">{{ $t(localPrograms.milo.description) }}</p>
+            </div>
+
+            <div v-if="localPrograms.milo.update_available && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')" class="version-update">
+              <span class="version-update-label text-mono">{{ $t('updates.latestVersion') }}</span>
+              <span class="version-update-value text-mono">{{ getLocalLatestVersion(localPrograms.milo) || '...' }}</span>
+            </div>
+
+            <div class="version-info">
+              <span class="version-label text-mono">{{ $t('updates.installed') }}</span>
+              <span class="version-value text-mono" :class="{ 'version-uptodate': !localPrograms.milo.update_available, 'version-outdated': localPrograms.milo.update_available }">
+                <span v-if="getLocalInstalledVersion(localPrograms.milo)">{{ getLocalInstalledVersion(localPrograms.milo) }}</span>
+                <span v-else class="text-error">{{ $t('updates.notAvailable') }}</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Message de progression si mise à jour en cours -->
+          <div v-if="isLocalUpdating('milo')" class="update-progress">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: getLocalUpdateProgress('milo') + '%' }"></div>
+            </div>
+            <p class="progress-message text-mono">{{ getLocalUpdateMessage('milo') }}</p>
+          </div>
+
+          <Button v-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')"
+            variant="primary"
+            @click="startLocalUpdate('milo')"
+            :disabled="isAnyUpdateInProgress()"
+            class="update-button">
+            {{ $t('updates.update') }}
+          </Button>
+
+          <!-- Détails d'erreur si nécessaire -->
+          <div v-if="localPrograms.milo.installed?.errors?.length" class="program-errors">
+            <details class="error-details">
+              <summary class="text-mono">{{ $t('updates.errorDetails') }}</summary>
+              <ul class="error-list">
+                <li v-for="error in localPrograms.milo.installed.errors" :key="error" class="text-mono">{{ error }}</li>
+              </ul>
+            </details>
+          </div>
+        </div>
+
+        <!-- Title for other programs -->
+        <h1 class="heading-2">{{ $t('updates.miloTitle') }}</h1>
+
+        <!-- Other programs container -->
+        <div class="programs-container">
+          <template v-for="(program, key) in localPrograms" :key="key">
+            <div v-if="key !== 'milo'" class="program-item">
           <div class="program-header">
             <div class="program-info">
               <h3 class="program-name text-body">{{ program.name }}</h3>
@@ -67,6 +120,8 @@
               </ul>
             </details>
           </div>
+            </div>
+          </template>
         </div>
       </div>
     </section>
@@ -433,7 +488,13 @@ onMounted(async () => {
 .programs-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
+  gap: var(--space-05);
+}
+
+.programs-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
 }
 
 .program-item {
