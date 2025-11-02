@@ -520,11 +520,11 @@ class RadioBrowserAPI:
 
                 for version in versions:
                     favicon = version.get('favicon', '')
-                    if favicon:
-                        url_quality = self._get_favicon_quality(favicon)
-                        if url_quality > best_favicon_quality:
-                            best_favicon_quality = url_quality
-                            best_favicon = favicon
+                    # Évalue toujours la qualité, même si vide (retourne -1)
+                    url_quality = self._get_favicon_quality(favicon)
+                    if url_quality > best_favicon_quality:
+                        best_favicon_quality = url_quality
+                        best_favicon = favicon
 
                 # 3. Créer la station fusionnée (meilleur audio + meilleure image)
                 merged_station = best_audio.copy()
@@ -638,6 +638,15 @@ class RadioBrowserAPI:
                 # Dédupliquer et trier
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
+                # Debug: Log favicons après déduplication
+                for station in deduplicated_stations:
+                    if 'meuh' in station.get('name', '').lower():
+                        self.logger.debug(
+                            f"🔍 After deduplication: {station.get('name')} → "
+                            f"favicon={'✅' if station.get('favicon') else '❌'} "
+                            f"({station.get('favicon')[:50] if station.get('favicon') else 'empty'})"
+                        )
+
                 self.logger.info(
                     f"[{description}] {len(stations)} raw → "
                     f"{len(valid_stations)} valid → "
@@ -711,6 +720,15 @@ class RadioBrowserAPI:
         # Enrichir avec les images personnalisées
         if self.station_manager:
             all_stations = self.station_manager.enrich_with_custom_images(all_stations)
+
+            # Debug: Log favicons après enrichissement
+            for station in all_stations:
+                if 'meuh' in station.get('name', '').lower():
+                    self.logger.debug(
+                        f"🎨 After enrich_with_custom_images: {station.get('name')} → "
+                        f"favicon={'✅' if station.get('favicon') else '❌'} "
+                        f"({station.get('favicon')[:50] if station.get('favicon') else 'empty'})"
+                    )
 
         # Total avant limitation
         total = len(all_stations)

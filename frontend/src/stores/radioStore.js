@@ -276,8 +276,36 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function addFavorite(stationId) {
     try {
-      // SIMPLIFIÉ: L'état sera synchronisé via WebSocket
-      const response = await axios.post('/api/radio/favorites/add', { station_id: stationId });
+      // Trouver l'objet station complet (qui a le bon favicon après déduplication)
+      let station = null;
+
+      // Chercher dans visibleStations (recherche en cours)
+      station = visibleStations.value.find(s => s.id === stationId);
+
+      // Si pas trouvée, chercher dans currentStation (en cours de lecture)
+      if (!station && currentStation.value?.id === stationId) {
+        station = currentStation.value;
+      }
+
+      // Si pas trouvée, chercher dans le cache des favoris
+      if (!station) {
+        station = favoritesCache.value.stations.find(s => s.id === stationId);
+      }
+
+      // Si pas trouvée, chercher dans tous les caches
+      if (!station) {
+        for (const cached of stationsCache.value.values()) {
+          station = cached.stations.find(s => s.id === stationId);
+          if (station) break;
+        }
+      }
+
+      // Envoyer la station complète avec le bon favicon (ou juste l'ID si non trouvée)
+      const payload = station
+        ? { station_id: stationId, station: station }
+        : { station_id: stationId };
+
+      const response = await axios.post('/api/radio/favorites/add', payload);
       return response.data.success;
     } catch (error) {
       console.error('Error adding favorite:', error);

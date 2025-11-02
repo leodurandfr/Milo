@@ -352,8 +352,20 @@ class StationManager:
             station_id = station.get('id')
             if station_id and station_id in self._station_images:
                 image_info = self._station_images[station_id]
-                station['favicon'] = image_info.get('favicon', '')
-                station['image_filename'] = image_info.get('image_filename', '')
+                # N'écrase le favicon que si on a vraiment une image uploadée localement
+                # Sinon, on garde le favicon trouvé par la déduplication
+                if image_info.get('image_filename'):
+                    self.logger.debug(
+                        f"📎 Overwriting favicon for {station.get('name')} with custom image"
+                    )
+                    station['favicon'] = image_info.get('favicon', '')
+                    station['image_filename'] = image_info.get('image_filename', '')
+                else:
+                    if 'meuh' in station.get('name', '').lower():
+                        self.logger.debug(
+                            f"🔒 Keeping deduplication favicon for {station.get('name')} "
+                            f"(no custom image)"
+                        )
         return stations
 
     def get_stats(self) -> Dict[str, int]:

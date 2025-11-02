@@ -433,17 +433,24 @@ class RadioPlugin(UnifiedAudioPlugin):
             # OPTIMISATION: Enrichir le cache avec les métadonnées de la station
             # pour éviter les appels API futurs lors du chargement des favoris
             try:
-                # Récupérer les métadonnées complètes de la station
-                station = await self.radio_api.get_station_by_id(station_id)
+                # Utiliser l'objet station fourni (avec favicon dédupliqué) si disponible
+                station = data.get('station')
+
+                # Sinon, récupérer les métadonnées depuis l'API (fallback)
+                if not station:
+                    self.logger.debug(f"⚠️ Pas d'objet station fourni, récupération depuis API pour {station_id}")
+                    station = await self.radio_api.get_station_by_id(station_id)
+                else:
+                    self.logger.debug(f"✅ Utilisation de l'objet station fourni (favicon dédupliqué) pour {station_id}")
 
                 if station and not station_id.startswith("custom_"):
                     # Sauvegarder dans station_images pour le cache
                     # (les custom stations sont déjà dans custom_stations)
-                    # Utiliser cache_station_metadata() qui accepte les favicons externes
+                    # Le favicon est soit dédupliqué (fourni par frontend), soit depuis l'API
                     await self.station_manager.cache_station_metadata(
                         station_id=station_id,
                         station_name=station.get('name', ''),
-                        favicon=station.get('favicon', ''),  # Favicon externe OK
+                        favicon=station.get('favicon', ''),  # Favicon dédupliqué si fourni par frontend
                         country=station.get('country', ''),
                         genre=station.get('genre', '')
                     )
