@@ -34,6 +34,7 @@ class PlayStationRequest(BaseModel):
 class FavoriteRequest(BaseModel):
     """Requête pour gérer les favoris"""
     station_id: str
+    station: Optional[dict] = None  # Objet station complet (optionnel) avec favicon dédupliqué
 
 
 class MarkBrokenRequest(BaseModel):
@@ -262,7 +263,12 @@ async def add_favorite(request: FavoriteRequest):
     """
     try:
         plugin = container.radio_plugin()
-        result = await plugin.handle_command("add_favorite", {"station_id": request.station_id})
+        # Passer l'objet station s'il est fourni (avec favicon dédupliqué)
+        command_data = {"station_id": request.station_id}
+        if request.station:
+            command_data["station"] = request.station
+
+        result = await plugin.handle_command("add_favorite", command_data)
 
         if not result.get("success"):
             raise HTTPException(
