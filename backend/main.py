@@ -26,7 +26,7 @@ from backend.presentation.api.routes.roc import setup_roc_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
 from backend.presentation.api.routes.radio import router as radio_router
 from backend.presentation.api.routes.settings import create_settings_router
-from backend.presentation.api.routes.dependencies import create_dependencies_router
+from backend.presentation.api.routes.programs import create_programs_router
 from backend.presentation.api.routes.health import create_health_router
 from backend.presentation.websockets.server import WebSocketServer
 from backend.domain.audio_state import AudioSource
@@ -156,11 +156,11 @@ settings_router = create_settings_router(
 )
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
-dependencies_router = create_dependencies_router(
+programs_router = create_programs_router(
     ws_manager=container.websocket_manager(),
     snapcast_service=container.snapcast_service()
 )
-app.include_router(dependencies_router)
+app.include_router(programs_router)
 
 # Health check
 health_router = create_health_router(state_machine, routing_service, snapcast_service)

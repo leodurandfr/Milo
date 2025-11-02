@@ -5,38 +5,38 @@
     <section class="update-section">
       <h1 class="heading-2">{{ $t('updates.miloTitle') }}</h1>
 
-      <div v-if="localDependenciesLoading" class="loading-state">
+      <div v-if="localProgramsLoading" class="loading-state">
         <div class="loading-message text-mono">
           {{ $t('updates.checking') }}
         </div>
       </div>
 
-      <div v-else-if="localDependenciesError" class="error-state">
+      <div v-else-if="localProgramsError" class="error-state">
         <div class="error-message text-mono">
           {{ $t('updates.error') }}
         </div>
-        <Button variant="secondary" @click="loadLocalDependencies">
+        <Button variant="secondary" @click="loadLocalPrograms">
           {{ $t('updates.retry') }}
         </Button>
       </div>
 
-      <div v-else class="dependencies-list">
-        <div v-for="(dep, key) in localDependencies" :key="key" class="dependency-item">
-          <div class="dependency-header">
-            <div class="dependency-info">
-              <h3 class="dependency-name text-body">{{ dep.name }}</h3>
-              <p class="dependency-description text-mono">{{ $t(dep.description) }}</p>
+      <div v-else class="programs-list">
+        <div v-for="(program, key) in localPrograms" :key="key" class="program-item">
+          <div class="program-header">
+            <div class="program-info">
+              <h3 class="program-name text-body">{{ program.name }}</h3>
+              <p class="program-description text-mono">{{ $t(program.description) }}</p>
             </div>
 
-            <div v-if="dep.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)" class="version-update">
+            <div v-if="program.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)" class="version-update">
               <span class="version-update-label text-mono">{{ $t('updates.latestVersion') }}</span>
-              <span class="version-update-value text-mono">{{ getLocalLatestVersion(dep) || '...' }}</span>
+              <span class="version-update-value text-mono">{{ getLocalLatestVersion(program) || '...' }}</span>
             </div>
 
             <div class="version-info">
               <span class="version-label text-mono">{{ $t('updates.installed') }}</span>
-              <span class="version-value text-mono" :class="{ 'version-uptodate': !dep.update_available, 'version-outdated': dep.update_available }">
-                <span v-if="getLocalInstalledVersion(dep)">{{ getLocalInstalledVersion(dep) }}</span>
+              <span class="version-value text-mono" :class="{ 'version-uptodate': !program.update_available, 'version-outdated': program.update_available }">
+                <span v-if="getLocalInstalledVersion(program)">{{ getLocalInstalledVersion(program) }}</span>
                 <span v-else class="text-error">{{ $t('updates.notAvailable') }}</span>
               </span>
             </div>
@@ -50,7 +50,7 @@
             <p class="progress-message text-mono">{{ getLocalUpdateMessage(key) }}</p>
           </div>
 
-          <Button v-if="dep.update_available && canUpdateLocal(key) && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)"
+          <Button v-if="program.update_available && canUpdateLocal(key) && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)"
             variant="primary"
             @click="startLocalUpdate(key)"
             :disabled="isAnyUpdateInProgress()"
@@ -59,11 +59,11 @@
           </Button>
 
           <!-- Détails d'erreur si nécessaire -->
-          <div v-if="dep.installed?.errors?.length" class="dependency-errors">
+          <div v-if="program.installed?.errors?.length" class="program-errors">
             <details class="error-details">
               <summary class="text-mono">{{ $t('updates.errorDetails') }}</summary>
               <ul class="error-list">
-                <li v-for="error in dep.installed.errors" :key="error" class="text-mono">{{ error }}</li>
+                <li v-for="error in program.installed.errors" :key="error" class="text-mono">{{ error }}</li>
               </ul>
             </details>
           </div>
@@ -94,12 +94,12 @@
         <p class="text-mono">{{ $t('updates.noSatellites') }}</p>
       </div>
 
-      <div v-else class="dependencies-list">
-        <div v-for="satellite in satellites" :key="satellite.hostname" class="dependency-item">
-          <div class="dependency-header">
-            <div class="dependency-info">
-              <h3 class="dependency-name text-body">{{ $t('updates.snapclientOf') }} {{ satellite.display_name }}</h3>
-              <p class="dependency-description text-mono">{{ $t('updates.multiroomClient') }} {{ satellite.hostname }}</p>
+      <div v-else class="programs-list">
+        <div v-for="satellite in satellites" :key="satellite.hostname" class="program-item">
+          <div class="program-header">
+            <div class="program-info">
+              <h3 class="program-name text-body">{{ $t('updates.snapclientOf') }} {{ satellite.display_name }}</h3>
+              <p class="program-description text-mono">{{ $t('updates.multiroomClient') }} {{ satellite.hostname }}</p>
             </div>
 
             <div v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)" class="version-update">
@@ -152,9 +152,9 @@ const unifiedStore = useUnifiedAudioStore();
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 // États locaux
-const localDependencies = ref({});
-const localDependenciesLoading = ref(false);
-const localDependenciesError = ref(false);
+const localPrograms = ref({});
+const localProgramsLoading = ref(false);
+const localProgramsError = ref(false);
 
 const satellites = ref([]);
 const satellitesLoading = ref(false);
@@ -171,88 +171,88 @@ const supportedLocalUpdates = ['milo', 'go-librespot', 'snapserver', 'snapclient
 
 // === PROGRAMMES LOCAUX ===
 
-async function loadLocalDependencies() {
-  if (localDependenciesLoading.value) return;
+async function loadLocalPrograms() {
+  if (localProgramsLoading.value) return;
 
   try {
-    localDependenciesLoading.value = true;
-    localDependenciesError.value = false;
+    localProgramsLoading.value = true;
+    localProgramsError.value = false;
 
-    const response = await axios.get('/api/dependencies');
+    const response = await axios.get('/api/programs');
 
     if (response.data.status === 'success') {
-      localDependencies.value = response.data.dependencies || {};
-      localDependenciesError.value = false;
+      localPrograms.value = response.data.programs || {};
+      localProgramsError.value = false;
     } else {
-      localDependenciesError.value = true;
+      localProgramsError.value = true;
     }
   } catch (error) {
-    console.error('Error loading dependencies:', error);
-    localDependenciesError.value = true;
+    console.error('Error loading programs:', error);
+    localProgramsError.value = true;
   } finally {
-    localDependenciesLoading.value = false;
+    localProgramsLoading.value = false;
   }
 }
 
-function getLocalInstallStatus(dep) {
-  return dep.installed?.status || 'unknown';
+function getLocalInstallStatus(program) {
+  return program.installed?.status || 'unknown';
 }
 
-function getLocalInstalledVersion(dep) {
-  const versions = dep.installed?.versions || {};
+function getLocalInstalledVersion(program) {
+  const versions = program.installed?.versions || {};
   const versionValues = Object.values(versions);
   return versionValues.length > 0 ? versionValues[0] : null;
 }
 
-function getLocalLatestVersion(dep) {
-  return dep.latest?.version || null;
+function getLocalLatestVersion(program) {
+  return program.latest?.version || null;
 }
 
-function getLocalGitHubStatus(dep) {
-  return dep.latest?.status || 'unknown';
+function getLocalGitHubStatus(program) {
+  return program.latest?.status || 'unknown';
 }
 
-function canUpdateLocal(depKey) {
-  return supportedLocalUpdates.includes(depKey);
+function canUpdateLocal(programKey) {
+  return supportedLocalUpdates.includes(programKey);
 }
 
-function isLocalUpdating(depKey) {
-  return localUpdateStates.value[depKey]?.updating || false;
+function isLocalUpdating(programKey) {
+  return localUpdateStates.value[programKey]?.updating || false;
 }
 
-function isLocalUpdateCompleted(depKey) {
-  return localCompletedUpdates.value.has(depKey);
+function isLocalUpdateCompleted(programKey) {
+  return localCompletedUpdates.value.has(programKey);
 }
 
-function getLocalUpdateProgress(depKey) {
-  return localUpdateStates.value[depKey]?.progress || 0;
+function getLocalUpdateProgress(programKey) {
+  return localUpdateStates.value[programKey]?.progress || 0;
 }
 
-function getLocalUpdateMessage(depKey) {
-  return localUpdateStates.value[depKey]?.message || '';
+function getLocalUpdateMessage(programKey) {
+  return localUpdateStates.value[programKey]?.message || '';
 }
 
-async function startLocalUpdate(depKey) {
-  if (!canUpdateLocal(depKey) || isLocalUpdating(depKey)) return;
+async function startLocalUpdate(programKey) {
+  if (!canUpdateLocal(programKey) || isLocalUpdating(programKey)) return;
 
   try {
-    localUpdateStates.value[depKey] = {
+    localUpdateStates.value[programKey] = {
       updating: true,
       progress: 0,
       message: t('updates.updatingInit')
     };
 
-    const response = await axios.post(`/api/dependencies/${depKey}/update`);
+    const response = await axios.post(`/api/programs/${programKey}/update`);
 
     if (response.data.status !== 'success') {
       throw new Error(response.data.message || 'Failed to start update');
     }
 
-    console.log(`Update started for ${depKey}: ${response.data.message}`);
+    console.log(`Update started for ${programKey}: ${response.data.message}`);
 
   } catch (error) {
-    console.error(`Error starting update for ${depKey}:`, error);
-    delete localUpdateStates.value[depKey];
+    console.error(`Error starting update for ${programKey}:`, error);
+    delete localUpdateStates.value[programKey];
   }
 }
 
@@ -265,7 +265,7 @@ async function loadSatellites() {
     satellitesLoading.value = true;
     satellitesError.value = false;
 
-    const response = await axios.get('/api/dependencies/satellites');
+    const response = await axios.get('/api/programs/satellites');
 
     if (response.data.status === 'success') {
       satellites.value = response.data.satellites || [];
@@ -307,7 +307,7 @@ async function startSatelliteUpdate(hostname) {
       message: t('updates.updatingInit')
     };
 
-    const response = await axios.post(`/api/dependencies/satellites/${hostname}/update`);
+    const response = await axios.post(`/api/programs/satellites/${hostname}/update`);
 
     if (response.data.status !== 'success') {
       throw new Error(response.data.message || 'Failed to start update');
@@ -329,28 +329,28 @@ function isAnyUpdateInProgress() {
 // === WEBSOCKET HANDLERS ===
 
 const wsListeners = {
-  'dependency_update_progress': (msg) => {
-    const { dependency, progress, message, status } = msg.data;
-    if (dependency && localUpdateStates.value[dependency]) {
-      localUpdateStates.value[dependency] = {
+  'program_update_progress': (msg) => {
+    const { program, progress, message, status } = msg.data;
+    if (program && localUpdateStates.value[program]) {
+      localUpdateStates.value[program] = {
         updating: status === 'updating',
         progress: progress || 0,
         message: message || ''
       };
     }
   },
-  'dependency_update_complete': (msg) => {
-    const { dependency, success, message, error, old_version, new_version } = msg.data;
+  'program_update_complete': (msg) => {
+    const { program, success, message, error, old_version, new_version } = msg.data;
 
-    if (dependency) {
-      delete localUpdateStates.value[dependency];
+    if (program) {
+      delete localUpdateStates.value[program];
 
       if (success) {
-        console.log(`Update completed for ${dependency}: ${old_version} → ${new_version}`);
-        localCompletedUpdates.value.add(dependency);
-        loadLocalDependencies();
+        console.log(`Update completed for ${program}: ${old_version} → ${new_version}`);
+        localCompletedUpdates.value.add(program);
+        loadLocalPrograms();
       } else {
-        console.error(`Update failed for ${dependency}: ${error}`);
+        console.error(`Update failed for ${program}: ${error}`);
       }
     }
   },
@@ -384,12 +384,12 @@ const wsListeners = {
 // === LIFECYCLE ===
 
 onMounted(async () => {
-  await loadLocalDependencies();
+  await loadLocalPrograms();
   await loadSatellites();
 
   // Enregistrer les listeners WebSocket
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
-    on('dependencies', eventType, handler);
+    on('programs', eventType, handler);
   });
 });
 </script>
@@ -430,13 +430,13 @@ onMounted(async () => {
   color: var(--color-text-secondary);
 }
 
-.dependencies-list {
+.programs-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
 }
 
-.dependency-item {
+.program-item {
   background: var(--color-background-strong);
   border-radius: var(--radius-04);
   padding: var(--space-04);
@@ -445,23 +445,23 @@ onMounted(async () => {
   gap: var(--space-04);
 }
 
-.dependency-header {
+.program-header {
   display: flex;
   align-items: flex-start;
   gap: var(--space-05);
 }
 
-.dependency-info {
+.program-info {
   flex: 1;
   min-width: 0;
 }
 
-.dependency-name {
+.program-name {
   color: var(--color-text);
   margin-bottom: var(--space-01);
 }
 
-.dependency-description {
+.program-description {
   color: var(--color-text-secondary);
 }
 
@@ -536,7 +536,7 @@ onMounted(async () => {
   width: 100%;
 }
 
-.dependency-errors {
+.program-errors {
   margin-top: var(--space-02);
 }
 
@@ -568,11 +568,11 @@ onMounted(async () => {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
-  .dependency-header {
+  .program-header {
     flex-wrap: wrap;
   }
 
-  .dependency-info {
+  .program-info {
     flex-basis: 100%;
   }
 
