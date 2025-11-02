@@ -90,7 +90,7 @@ class DependencyUpdateService(DependencyVersionService):
                 return {"success": False, "error": "Not a git repository"}
 
             if progress_callback:
-                await progress_callback("Fetching updates from GitHub...", 20)
+                await progress_callback("Fetching updates from GitHub...", 15)
 
             # 2. Faire un git fetch pour récupérer les dernières infos
             proc = await asyncio.create_subprocess_exec(
@@ -104,7 +104,7 @@ class DependencyUpdateService(DependencyVersionService):
                 return {"success": False, "error": f"Git fetch failed: {stderr.decode()}"}
 
             if progress_callback:
-                await progress_callback("Checking for local changes...", 30)
+                await progress_callback("Checking for local changes...", 20)
 
             # 3. Vérifier s'il y a des modifications locales non commitées
             proc = await asyncio.create_subprocess_exec(
@@ -118,7 +118,7 @@ class DependencyUpdateService(DependencyVersionService):
                 return {"success": False, "error": "Local changes detected. Please commit or stash them first."}
 
             if progress_callback:
-                await progress_callback("Pulling latest changes...", 50)
+                await progress_callback("Pulling latest changes...", 30)
 
             # 4. Faire le git pull
             proc = await asyncio.create_subprocess_exec(
@@ -132,9 +132,42 @@ class DependencyUpdateService(DependencyVersionService):
                 return {"success": False, "error": f"Git pull failed: {stderr.decode()}"}
 
             if progress_callback:
+                await progress_callback("Installing frontend dependencies...", 40)
+
+            # 5. Installer les dépendances npm du frontend
+            frontend_dir = Path(config["git_path"]) / "frontend"
+            if frontend_dir.exists():
+                proc = await asyncio.create_subprocess_exec(
+                    "npm", "install",
+                    cwd=str(frontend_dir),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await proc.communicate()
+
+                if proc.returncode != 0:
+                    return {"success": False, "error": f"npm install failed: {stderr.decode()}"}
+
+            if progress_callback:
+                await progress_callback("Building frontend...", 55)
+
+            # 6. Builder le frontend
+            if frontend_dir.exists():
+                proc = await asyncio.create_subprocess_exec(
+                    "npm", "run", "build",
+                    cwd=str(frontend_dir),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await proc.communicate()
+
+                if proc.returncode != 0:
+                    return {"success": False, "error": f"npm run build failed: {stderr.decode()}"}
+
+            if progress_callback:
                 await progress_callback("Installing Python dependencies...", 70)
 
-            # 5. Installer les dépendances Python si requirements.txt existe
+            # 7. Installer les dépendances Python si requirements.txt existe
             requirements_file = Path(config["git_path"]) / "backend" / "requirements.txt"
             if requirements_file.exists():
                 proc = await asyncio.create_subprocess_exec(
@@ -147,15 +180,23 @@ class DependencyUpdateService(DependencyVersionService):
             if progress_callback:
                 await progress_callback("Restarting backend service...", 85)
 
-            # 6. Redémarrer le service backend (le frontend sera rechargé automatiquement par le navigateur)
+            # 8. Redémarrer le service backend
             restart_result = await self._restart_service(config["service_name"])
             if not restart_result:
                 return {"success": False, "error": "Failed to restart backend service"}
 
             if progress_callback:
+                await progress_callback("Restarting kiosk...", 95)
+
+            # 9. Redémarrer le service kiosk pour recharger le frontend
+            kiosk_restart_result = await self._restart_service("milo-kiosk.service")
+            if not kiosk_restart_result:
+                self.update_logger.warning("Failed to restart kiosk service, but update was successful")
+
+            if progress_callback:
                 await progress_callback("Update completed!", 100)
 
-            # 7. Récupérer la nouvelle version
+            # 10. Récupérer la nouvelle version
             new_status = await self.get_installed_version("milo")
             new_version = list(new_status.get("versions", {}).values())[0] if new_status.get("versions") else "unknown"
 
