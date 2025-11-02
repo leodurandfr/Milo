@@ -19,7 +19,7 @@ class SettingsService:
         self._file_lock = asyncio.Lock()  # Lock async natif au lieu de fcntl.flock
         
         self.defaults = {
-            "language": "french",
+            "language": "english",
             "volume": {
                 "limits_enabled": True,
                 "alsa_min": 0,
