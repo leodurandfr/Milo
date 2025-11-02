@@ -1,78 +1,78 @@
-# backend/presentation/api/routes/dependencies.py
+# backend/presentation/api/routes/programs.py
 """
-Routes API pour la gestion des dépendances - Version complète avec satellites
+Routes API pour la gestion des programmes - Version complète avec satellites
 """
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Dict, Any
-from backend.infrastructure.services.dependency_version_service import DependencyVersionService
-from backend.infrastructure.services.dependency_update_service import DependencyUpdateService
-from backend.infrastructure.services.satellite_dependency_update_service import SatelliteDependencyUpdateService
+from backend.infrastructure.services.program_version_service import ProgramVersionService
+from backend.infrastructure.services.program_update_service import ProgramUpdateService
+from backend.infrastructure.services.satellite_program_update_service import SatelliteProgramUpdateService
 
-def create_dependencies_router(ws_manager, snapcast_service):
-    """Router pour les dépendances locales et satellites"""
-    router = APIRouter(prefix="/api/dependencies", tags=["dependencies"])
-    
-    dependency_service = DependencyVersionService()
-    update_service = DependencyUpdateService()
-    satellite_service = SatelliteDependencyUpdateService(snapcast_service)
-    
+def create_programs_router(ws_manager, snapcast_service):
+    """Router pour les programmes locaux et satellites"""
+    router = APIRouter(prefix="/api/programs", tags=["programs"])
+
+    program_service = ProgramVersionService()
+    update_service = ProgramUpdateService()
+    satellite_service = SatelliteProgramUpdateService(snapcast_service)
+
     # Store pour suivre les mises à jour en cours
     active_updates = {}
-    
+
     # === ROUTES SPÉCIFIQUES (doivent être AVANT les routes génériques) ===
-    
+
     @router.get("")
-    async def get_all_dependencies():
-        """Récupère le statut de toutes les dépendances locales (installées + GitHub)"""
+    async def get_all_programs():
+        """Récupère le statut de tous les programmes locaux (installés + GitHub)"""
         try:
-            results = await dependency_service.get_all_dependency_status()
+            results = await program_service.get_all_program_status()
             return {
                 "status": "success",
-                "dependencies": results,
+                "programs": results,
                 "count": len(results)
             }
         except Exception as e:
             return {
                 "status": "error",
                 "message": str(e),
-                "dependencies": {},
+                "programs": {},
                 "count": 0
             }
-    
+
     @router.get("/list")
-    async def get_dependency_list():
-        """Récupère la liste des dépendances configurées"""
+    async def get_program_list():
+        """Récupère la liste des programmes configurés"""
         try:
-            dependencies = dependency_service.get_dependency_list()
+            programs = program_service.get_program_list()
             return {
                 "status": "success",
-                "dependencies": dependencies
+                "programs": programs
             }
         except Exception as e:
             return {
                 "status": "error",
                 "message": str(e),
-                "dependencies": []
+                "programs": []
             }
-    
+
     # === ROUTES SATELLITES (spécifiques, avant les routes génériques) ===
-    
+
     @router.get("/satellites")
     async def get_satellites():
         """Récupère la liste des satellites détectés avec leurs versions"""
         try:
             satellites = await satellite_service.discover_satellites()
-            
+
             # Enrichir avec version disponible et update_available
             latest_version = await satellite_service._get_latest_snapclient_version()
-            
+
             for satellite in satellites:
                 satellite["latest_version"] = latest_version
                 satellite["update_available"] = satellite_service._compare_versions(
                     satellite.get("snapclient_version"),
                     latest_version
                 )
-            
+
             return {
                 "status": "success",
                 "satellites": satellites,
@@ -85,7 +85,7 @@ def create_dependencies_router(ws_manager, snapcast_service):
                 "satellites": [],
                 "count": 0
             }
-    
+
     @router.get("/satellites/{hostname}")
     async def get_satellite_status(hostname: str):
         """Récupère le statut d'un satellite spécifique"""
@@ -97,34 +97,34 @@ def create_dependencies_router(ws_manager, snapcast_service):
                 "status": "error",
                 "message": str(e)
             }
-    
+
     @router.post("/satellites/{hostname}/update")
     async def update_satellite(hostname: str, background_tasks: BackgroundTasks):
         """Lance la mise à jour d'un satellite en arrière-plan"""
-        
+
         satellite_key = f"satellite_{hostname}"
-        
+
         if satellite_key in active_updates:
             return {
                 "status": "error",
                 "message": f"Update already in progress for {hostname}"
             }
-        
+
         active_updates[satellite_key] = {
             "status": "starting",
             "progress": 0,
             "message": "Initializing satellite update..."
         }
-        
+
         async def progress_callback(message: str, progress: int):
             active_updates[satellite_key] = {
                 "status": "updating",
                 "progress": progress,
                 "message": message
             }
-            
+
             await ws_manager.broadcast_dict({
-                "category": "dependencies",
+                "category": "programs",
                 "type": "satellite_update_progress",
                 "source": "satellite_update",
                 "data": {
@@ -134,16 +134,16 @@ def create_dependencies_router(ws_manager, snapcast_service):
                     "status": "updating"
                 }
             })
-        
+
         async def do_update():
             try:
                 result = await satellite_service.update_satellite(hostname, progress_callback)
-                
+
                 if result["success"]:
                     del active_updates[satellite_key]
-                    
+
                     await ws_manager.broadcast_dict({
-                        "category": "dependencies",
+                        "category": "programs",
                         "type": "satellite_update_complete",
                         "source": "satellite_update",
                         "data": {
@@ -155,9 +155,9 @@ def create_dependencies_router(ws_manager, snapcast_service):
                     })
                 else:
                     del active_updates[satellite_key]
-                    
+
                     await ws_manager.broadcast_dict({
-                        "category": "dependencies",
+                        "category": "programs",
                         "type": "satellite_update_complete",
                         "source": "satellite_update",
                         "data": {
@@ -166,13 +166,13 @@ def create_dependencies_router(ws_manager, snapcast_service):
                             "error": result.get("error", "Update failed")
                         }
                     })
-                    
+
             except Exception as e:
                 if satellite_key in active_updates:
                     del active_updates[satellite_key]
-                
+
                 await ws_manager.broadcast_dict({
-                    "category": "dependencies",
+                    "category": "programs",
                     "type": "satellite_update_complete",
                     "source": "satellite_update",
                     "data": {
@@ -181,19 +181,19 @@ def create_dependencies_router(ws_manager, snapcast_service):
                         "error": str(e)
                     }
                 })
-        
+
         background_tasks.add_task(do_update)
-        
+
         return {
             "status": "success",
             "message": f"Update started for satellite {hostname}"
         }
-    
+
     @router.get("/satellites/{hostname}/update-status")
     async def get_satellite_update_status(hostname: str):
         """Récupère le statut de mise à jour d'un satellite"""
         satellite_key = f"satellite_{hostname}"
-        
+
         if satellite_key in active_updates:
             return {
                 "status": "success",
@@ -206,30 +206,30 @@ def create_dependencies_router(ws_manager, snapcast_service):
                 "updating": False,
                 "message": "No update in progress"
             }
-    
+
     # === ROUTES GÉNÉRIQUES (doivent être APRÈS les routes spécifiques) ===
-    
-    @router.get("/{dependency_key}")
-    async def get_dependency_details(dependency_key: str):
-        """Récupère les détails d'une dépendance spécifique"""
+
+    @router.get("/{program_key}")
+    async def get_program_details(program_key: str):
+        """Récupère les détails d'un programme spécifique"""
         try:
-            result = await dependency_service._get_dependency_full_status(dependency_key)
+            result = await program_service._get_program_full_status(program_key)
             return {
                 "status": "success",
-                "dependency": result
+                "program": result
             }
         except Exception as e:
             return {
                 "status": "error",
                 "message": str(e),
-                "dependency": None
+                "program": None
             }
-    
-    @router.get("/{dependency_key}/installed")
-    async def get_dependency_installed_version(dependency_key: str):
-        """Récupère uniquement la version installée d'une dépendance"""
+
+    @router.get("/{program_key}/installed")
+    async def get_program_installed_version(program_key: str):
+        """Récupère uniquement la version installée d'un programme"""
         try:
-            result = await dependency_service.get_installed_version(dependency_key)
+            result = await program_service.get_installed_version(program_key)
             return {
                 "status": "success",
                 "installed": result
@@ -240,12 +240,12 @@ def create_dependencies_router(ws_manager, snapcast_service):
                 "message": str(e),
                 "installed": None
             }
-    
-    @router.get("/{dependency_key}/latest")
-    async def get_dependency_latest_version(dependency_key: str):
+
+    @router.get("/{program_key}/latest")
+    async def get_program_latest_version(program_key: str):
         """Récupère uniquement la dernière version depuis GitHub"""
         try:
-            result = await dependency_service.get_latest_github_version(dependency_key)
+            result = await program_service.get_latest_github_version(program_key)
             return {
                 "status": "success",
                 "latest": result
@@ -256,12 +256,12 @@ def create_dependencies_router(ws_manager, snapcast_service):
                 "message": str(e),
                 "latest": None
             }
-    
-    @router.get("/{dependency_key}/can-update")
-    async def check_can_update_dependency(dependency_key: str):
-        """Vérifie si une dépendance peut être mise à jour"""
+
+    @router.get("/{program_key}/can-update")
+    async def check_can_update_program(program_key: str):
+        """Vérifie si un programme peut être mis à jour"""
         try:
-            result = await update_service.can_update_dependency(dependency_key)
+            result = await update_service.can_update_program(program_key)
             return {
                 "status": "success",
                 **result
@@ -272,62 +272,62 @@ def create_dependencies_router(ws_manager, snapcast_service):
                 "message": str(e),
                 "can_update": False
             }
-    
-    @router.post("/{dependency_key}/update")
-    async def update_dependency(dependency_key: str, background_tasks: BackgroundTasks):
-        """Lance la mise à jour d'une dépendance locale en arrière-plan"""
-        
-        if dependency_key in active_updates:
+
+    @router.post("/{program_key}/update")
+    async def update_program(program_key: str, background_tasks: BackgroundTasks):
+        """Lance la mise à jour d'un programme local en arrière-plan"""
+
+        if program_key in active_updates:
             return {
                 "status": "error",
-                "message": "Update already in progress for this dependency"
+                "message": "Update already in progress for this program"
             }
-        
-        can_update = await update_service.can_update_dependency(dependency_key)
+
+        can_update = await update_service.can_update_program(program_key)
         if not can_update.get("can_update"):
             return {
-                "status": "error", 
+                "status": "error",
                 "message": can_update.get("reason", "Cannot update")
             }
-        
-        active_updates[dependency_key] = {
+
+        active_updates[program_key] = {
             "status": "starting",
             "progress": 0,
             "message": "Initializing update..."
         }
-        
+
         async def progress_callback(message: str, progress: int):
-            active_updates[dependency_key] = {
+            active_updates[program_key] = {
                 "status": "updating",
                 "progress": progress,
                 "message": message
             }
-            
+
             await ws_manager.broadcast_dict({
-                "category": "dependencies",
-                "type": "dependency_update_progress",
-                "source": "dependency_update",
+                "category": "programs",
+                "type": "program_update_progress",
+                "source": "program_update",
                 "data": {
-                    "dependency": dependency_key,
+                    "program": program_key,
                     "progress": progress,
                     "message": message,
                     "status": "updating"
                 }
             })
-        
+
         async def do_update():
             try:
-                result = await update_service.update_dependency(dependency_key, progress_callback)
-                
+                result = await update_service.update_program(program_key, progress_callback)
+
                 if result["success"]:
-                    del active_updates[dependency_key]
-                    
+                    del active_updates[program_key]
+
                     await ws_manager.broadcast_dict({
-                        "category": "dependencies",
-                        "type": "dependency_update_complete",
-                        "source": "dependency_update",
+                        "category": "programs",
+                        "type": "program_update_complete",
+                        "source": "program_update",
                         "data": {
-                            "dependency": dependency_key,
+                            "program": program_key,
                             "success": True,
                             "message": result.get("message", "Update completed"),
                             "old_version": result.get("old_version"),
@@ -335,50 +335,50 @@ def create_dependencies_router(ws_manager, snapcast_service):
                         }
                     })
                 else:
-                    del active_updates[dependency_key]
-                    
+                    del active_updates[program_key]
+
                     await ws_manager.broadcast_dict({
-                        "category": "dependencies",
-                        "type": "dependency_update_complete",
-                        "source": "dependency_update",
+                        "category": "programs",
+                        "type": "program_update_complete",
+                        "source": "program_update",
                         "data": {
-                            "dependency": dependency_key,
+                            "program": program_key,
                             "success": False,
                             "error": result.get("error", "Update failed")
                         }
                     })
-                    
+
             except Exception as e:
-                if dependency_key in active_updates:
-                    del active_updates[dependency_key]
-                
+                if program_key in active_updates:
+                    del active_updates[program_key]
+
                 await ws_manager.broadcast_dict({
-                    "category": "dependencies",
-                    "type": "dependency_update_complete",
-                    "source": "dependency_update",
+                    "category": "programs",
+                    "type": "program_update_complete",
+                    "source": "program_update",
                     "data": {
-                        "dependency": dependency_key,
+                        "program": program_key,
                         "success": False,
                         "error": str(e)
                     }
                 })
-        
+
         background_tasks.add_task(do_update)
-        
+
         return {
             "status": "success",
-            "message": f"Update started for {dependency_key}",
+            "message": f"Update started for {program_key}",
             "available_version": can_update.get("available_version")
         }
-    
-    @router.get("/{dependency_key}/update-status")
-    async def get_update_status(dependency_key: str):
-        """Récupère le statut de mise à jour d'une dépendance"""
-        if dependency_key in active_updates:
+
+    @router.get("/{program_key}/update-status")
+    async def get_update_status(program_key: str):
+        """Récupère le statut de mise à jour d'un programme"""
+        if program_key in active_updates:
             return {
                 "status": "success",
                 "updating": True,
-                **active_updates[dependency_key]
+                **active_updates[program_key]
             }
         else:
             return {
@@ -386,5 +386,5 @@ def create_dependencies_router(ws_manager, snapcast_service):
                 "updating": False,
                 "message": "No update in progress"
             }
-    
+
     return router
