@@ -689,19 +689,17 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--color-background-radio);
+  background: var(--color-background);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   z-index: 1;
-  padding: var(--space-07);
+  padding: 0 var(--space-07);
   gap: var(--space-04);
 }
 
 .radio-container {
   position: relative;
-  background: var(--color-background-neutral-50);
-  border-radius: var(--radius-07);
   width: 100%;
   max-width: 768px;
   max-height: 100%;
@@ -718,32 +716,16 @@ onBeforeUnmount(() => {
   }
 } */
 
-.radio-container::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 2px;
-  opacity: 0.8;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-07);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: -1;
-  pointer-events: none;
-}
+
 
 .radio-content {
   overflow-y: auto;
-  padding: var(--space-04);
   display: flex;
   flex-direction: column;
+  padding-top: var(--space-07);
   gap: var(--space-04);
   min-height: 0;
   flex: 1;
-  border-radius: var(--radius-07);
   touch-action: pan-y;
 }
 
@@ -850,6 +832,7 @@ onBeforeUnmount(() => {
   transition: transform var(--transition-fast);
   position: relative;
   background: var(--color-background-neutral);
+  filter: drop-shadow(0px 4px 48px rgba(0,0,0,0.04));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1137,10 +1120,12 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   overflow: hidden;
   width: 310px;
-  height: 100%;
+  height: calc(100% - 2 * var(--space-07));
+  max-height: 560px;
   flex-shrink: 0;
   flex-direction: column;
   gap: var(--space-04);
+  margin-top: var(--space-07);
   padding: var(--space-04);
   background: var(--color-text);
   border-radius: var(--radius-07);
