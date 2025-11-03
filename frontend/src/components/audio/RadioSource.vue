@@ -19,9 +19,7 @@
         <div v-if="isSearchMode" class="search-section">
           <div class="filters">
             <input v-model="radioStore.searchQuery" type="text" class="filter-input search-input text-body-small"
-              placeholder="Rechercher..."
-              @focus="handleSearchInputFocus"
-              @blur="handleSearchInputBlur"
+              placeholder="Rechercher..." @focus="handleSearchInputFocus" @blur="handleSearchInputBlur"
               @input="handleSearch" />
             <select v-model="radioStore.countryFilter" class="filter-input filter-select text-body-small"
               @change="handleSearch">
@@ -147,10 +145,12 @@
           </div>
 
           <!-- Message d'erreur avec bouton réessayer -->
-          <div v-else-if="radioStore.hasError && displayedStations.length === 0 && transitionState === 'idle'" class="error-state">
+          <div v-else-if="radioStore.hasError && displayedStations.length === 0 && transitionState === 'idle'"
+            class="error-state">
             <div class="error-icon">⚠️</div>
             <p class="heading-2">Erreur de connexion</p>
-            <p class="text-body-small" style="color: var(--color-text-secondary);">Impossible de charger les stations</p>
+            <p class="text-body-small" style="color: var(--color-text-secondary);">Impossible de charger les stations
+            </p>
             <Button variant="toggle" :active="false" @click="retrySearch">
               Réessayer
             </Button>
@@ -175,7 +175,8 @@
             }]" @click="playStation(station.id)">
               <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-img"
                 @error="handleStationImageError" />
-              <img :src="placeholderImg" alt="Station sans image" class="image-placeholder" :class="{ visible: !station.favicon }" />
+              <img :src="placeholderImg" alt="Station sans image" class="image-placeholder"
+                :class="{ visible: !station.favicon }" />
 
               <!-- Loading overlay -->
               <div v-if="bufferingStationId === station.id" class="loading-overlay">
@@ -195,7 +196,8 @@
               <div class="station-logo">
                 <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-favicon"
                   @error="handleStationImageError" />
-                <img :src="placeholderImg" alt="Station sans image" class="logo-placeholder" :class="{ visible: !station.favicon }" />
+                <img :src="placeholderImg" alt="Station sans image" class="logo-placeholder"
+                  :class="{ visible: !station.favicon }" />
               </div>
 
               <div class="station-details">
@@ -235,13 +237,14 @@
       <div class="station-art">
         <img v-if="radioStore.currentStation.favicon" :src="getFaviconUrl(radioStore.currentStation.favicon)"
           alt="Station logo" class="current-station-favicon" @error="handleCurrentStationImageError" />
-        <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo" :class="{ visible: !radioStore.currentStation.favicon }" />
+        <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo"
+          :class="{ visible: !radioStore.currentStation.favicon }" />
       </div>
 
       <div class="station-info">
         <p class="station-name display-1">{{ radioStore.currentStation.name }}</p>
         <p class="station-meta text-mono">{{ radioStore.currentStation.country }} • {{ radioStore.currentStation.genre
-        }}
+          }}
         </p>
       </div>
       <div class="controls-wrapper">
@@ -694,8 +697,6 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: center;
   z-index: 1;
-  padding: 0 var(--space-07);
-  gap: var(--space-04);
 }
 
 .radio-container {
@@ -729,12 +730,16 @@ onBeforeUnmount(() => {
   touch-action: pan-y;
 }
 
+:deep(.modal-header) {
 
+  margin: 0 var(--space-06);
+}
 
 /* === SEARCH SECTION === */
 .search-section {
   display: flex;
   flex-direction: column;
+  margin: 0 var(--space-06);
   gap: var(--space-03);
 }
 
@@ -807,8 +812,7 @@ onBeforeUnmount(() => {
 
 .stations-grid {
   display: grid;
-  padding-bottom: var(--space-04);
-}
+  padding: 0 var(--space-06) var(--space-07) var(--space-06);}
 
 /* Mode Recherche */
 .stations-grid.search-mode {
@@ -832,7 +836,7 @@ onBeforeUnmount(() => {
   transition: transform var(--transition-fast);
   position: relative;
   background: var(--color-background-neutral);
-  filter: drop-shadow(0px 4px 48px rgba(0,0,0,0.04));
+  filter: drop-shadow(0px 4px 24px rgba(0, 0, 0, 0.04));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1266,6 +1270,7 @@ onBeforeUnmount(() => {
     opacity: 1;
     transform: translateY(0);
   }
+
   to {
     opacity: 0;
     transform: translateY(-20px);
@@ -1277,6 +1282,7 @@ onBeforeUnmount(() => {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
