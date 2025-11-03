@@ -10,6 +10,7 @@ from backend.domain.audio_state import PluginState
 from backend.infrastructure.plugins.radio.mpv_controller import MpvController
 from backend.infrastructure.plugins.radio.radio_browser_api import RadioBrowserAPI
 from backend.infrastructure.plugins.radio.station_manager import StationManager
+from backend.infrastructure.services.radio_data_service import RadioDataService
 
 
 class RadioPlugin(UnifiedAudioPlugin):
@@ -35,9 +36,12 @@ class RadioPlugin(UnifiedAudioPlugin):
         self.ipc_socket_path = config.get("ipc_socket", "/tmp/milo-radio-ipc.sock")
         self.settings_service = settings_service
 
+        # Créer le service de données radio dédié
+        self.radio_data_service = RadioDataService()
+
         # Composants
         self.mpv = MpvController(self.ipc_socket_path)
-        self.station_manager = StationManager(settings_service, state_machine)
+        self.station_manager = StationManager(self.radio_data_service, state_machine)
         # Note: station_manager est passé à RadioBrowserAPI pour fusionner stations personnalisées
         self.radio_api = RadioBrowserAPI(cache_duration_minutes=60, station_manager=self.station_manager)
 
@@ -421,43 +425,24 @@ class RadioPlugin(UnifiedAudioPlugin):
             return self.format_response(False, error=str(e))
 
     async def _handle_add_favorite(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Ajoute une station aux favoris et sauvegarde ses métadonnées pour le cache"""
+        """Ajoute une station aux favoris avec ses métadonnées complètes"""
         station_id = data.get('station_id')
         if not station_id:
             return self.format_response(False, error="station_id requis")
 
-        # Ajouter aux favoris
-        success = await self.station_manager.add_favorite(station_id)
+        # Récupérer l'objet station complet
+        station = data.get('station')
 
-        if success:
-            # OPTIMISATION: Enrichir le cache avec les métadonnées de la station
-            # pour éviter les appels API futurs lors du chargement des favoris
-            try:
-                # Utiliser l'objet station fourni (avec favicon dédupliqué) si disponible
-                station = data.get('station')
+        # Si pas fourni, récupérer depuis l'API
+        if not station:
+            self.logger.debug(f"⚠️ Pas d'objet station fourni, récupération depuis API pour {station_id}")
+            station = await self.radio_api.get_station_by_id(station_id)
 
-                # Sinon, récupérer les métadonnées depuis l'API (fallback)
-                if not station:
-                    self.logger.debug(f"⚠️ Pas d'objet station fourni, récupération depuis API pour {station_id}")
-                    station = await self.radio_api.get_station_by_id(station_id)
-                else:
-                    self.logger.debug(f"✅ Utilisation de l'objet station fourni (favicon dédupliqué) pour {station_id}")
+        if not station:
+            return self.format_response(False, error=f"Station {station_id} introuvable")
 
-                if station and not station_id.startswith("custom_"):
-                    # Sauvegarder dans station_images pour le cache
-                    # (les custom stations sont déjà dans custom_stations)
-                    # Le favicon est soit dédupliqué (fourni par frontend), soit depuis l'API
-                    await self.station_manager.cache_station_metadata(
-                        station_id=station_id,
-                        station_name=station.get('name', ''),
-                        favicon=station.get('favicon', ''),  # Favicon dédupliqué si fourni par frontend
-                        country=station.get('country', ''),
-                        genre=station.get('genre', '')
-                    )
-                    self.logger.info(f"✅ Métadonnées cachées pour {station.get('name')} ({station_id})")
-            except Exception as e:
-                # Ne pas faire échouer l'ajout du favori si le cache échoue
-                self.logger.warning(f"⚠️ Impossible de cacher métadonnées pour {station_id}: {e}")
+        # Ajouter aux favoris avec métadonnées complètes
+        success = await self.station_manager.add_favorite(station_id, station)
 
         return self.format_response(
             success,

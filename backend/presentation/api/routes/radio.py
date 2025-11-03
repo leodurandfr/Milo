@@ -85,26 +85,13 @@ async def search_stations(
         plugin = container.radio_plugin()
 
         if favorites_only:
-            # OPTIMISATION: Charger d'abord depuis le cache local (milo_settings.json)
-            # pour éviter les appels API inutiles
-            cache_result = plugin.station_manager.get_favorites_with_cached_metadata()
-            cached_stations = cache_result['stations']
-            missing_ids = cache_result['missing_ids']
+            # Charger directement depuis le cache local (radio_data.json)
+            # Les favoris sont déjà stockés avec métadonnées complètes
+            stations = plugin.station_manager.get_favorites_with_metadata()
 
             # Si aucun favori, retourner liste vide
-            if not cached_stations and not missing_ids:
+            if not stations:
                 return {"stations": [], "total": 0}
-
-            # Fetcher seulement les stations manquantes depuis l'API RadioBrowser
-            fetched_stations = []
-            if missing_ids:
-                logger.info(f"📡 Fetching {len(missing_ids)} missing stations from RadioBrowser API")
-                fetched_stations = await plugin.radio_api.get_stations_by_ids(missing_ids)
-            else:
-                logger.info("✅ All favorites loaded from cache (0 API calls)")
-
-            # Merger les stations (cache + API)
-            stations = cached_stations + fetched_stations
 
             # Filtrer si nécessaire
             if query:
@@ -561,10 +548,10 @@ async def update_station_image(
     image: UploadFile = File(...)
 ):
     """
-    Met à jour l'image d'une station (personnalisée ou non)
+    Met à jour l'image d'une station personnalisée
 
     Args:
-        station_id: ID de la station
+        station_id: ID de la station (doit être une custom station)
         image: Nouveau fichier image (max 10MB, formats: JPG, PNG, WEBP, GIF)
 
     Returns:
@@ -573,8 +560,15 @@ async def update_station_image(
     try:
         plugin = container.radio_plugin()
 
+        # Vérifier que c'est une custom station
+        if not station_id.startswith("custom_"):
+            raise HTTPException(
+                status_code=400,
+                detail="Cette route fonctionne uniquement avec les stations personnalisées"
+            )
+
         # Vérifier que la station existe
-        station = await plugin.radio_api.get_station_by_id(station_id)
+        station = plugin.station_manager.get_custom_station_by_id(station_id)
         if not station:
             raise HTTPException(status_code=404, detail=f"Station {station_id} introuvable")
 
@@ -596,7 +590,7 @@ async def update_station_image(
                 detail=f"Erreur image: {error}"
             )
 
-        # Supprimer l'ancienne image si elle existe et est locale
+        # Supprimer l'ancienne image si elle existe
         old_image_filename = station.get('image_filename')
         if old_image_filename:
             await plugin.station_manager.image_manager.delete_image(old_image_filename)
@@ -605,27 +599,16 @@ async def update_station_image(
         station['favicon'] = f"/api/radio/images/{saved_filename}"
         station['image_filename'] = saved_filename
 
-        # Si c'est une station personnalisée, mettre à jour dans les settings
-        if station.get('is_custom'):
-            # Trouver et mettre à jour la station dans la liste
-            custom_stations = plugin.station_manager.get_custom_stations()
-            for custom_station in custom_stations:
-                if custom_station['id'] == station_id:
-                    custom_station['favicon'] = station['favicon']
-                    custom_station['image_filename'] = saved_filename
-                    break
+        # Trouver et mettre à jour la station dans la liste
+        custom_stations = plugin.station_manager.get_custom_stations()
+        for custom_station in custom_stations:
+            if custom_station['id'] == station_id:
+                custom_station['favicon'] = station['favicon']
+                custom_station['image_filename'] = saved_filename
+                break
 
-            # Sauvegarder
-            await plugin.station_manager._save_custom_stations()
-        else:
-            # Pour les stations non-custom, sauvegarder dans station_images
-            await plugin.station_manager.add_station_image(
-                station_id=station_id,
-                station_name=station.get('name', ''),
-                image_filename=saved_filename,
-                country=station.get('country', ''),
-                genre=station.get('genre', '')
-            )
+        # Sauvegarder
+        await plugin.station_manager._save_custom_stations()
 
         return {
             "success": True,
@@ -644,57 +627,55 @@ async def remove_station_image(
     station_id: str = Form(...)
 ):
     """
-    Supprime l'image importée d'une station et revient à l'image originale
+    Supprime l'image d'une station personnalisée
 
     Args:
-        station_id: ID de la station
+        station_id: ID de la station (doit être une custom station)
 
     Returns:
-        La station mise à jour sans image personnalisée
+        La station mise à jour sans image
     """
     try:
         plugin = container.radio_plugin()
 
+        # Vérifier que c'est une custom station
+        if not station_id.startswith("custom_"):
+            raise HTTPException(
+                status_code=400,
+                detail="Cette route fonctionne uniquement avec les stations personnalisées"
+            )
+
         # Vérifier que la station existe
-        station = await plugin.radio_api.get_station_by_id(station_id)
+        station = plugin.station_manager.get_custom_station_by_id(station_id)
         if not station:
             raise HTTPException(status_code=404, detail=f"Station {station_id} introuvable")
 
-        # Vérifier qu'une image personnalisée existe
+        # Vérifier qu'une image existe
         image_filename = station.get('image_filename')
         if not image_filename:
-            raise HTTPException(status_code=400, detail="Cette station n'a pas d'image personnalisée")
+            raise HTTPException(status_code=400, detail="Cette station n'a pas d'image")
 
         # Supprimer le fichier image
         await plugin.station_manager.image_manager.delete_image(image_filename)
 
         # Mettre à jour la station
+        station['favicon'] = ""
         station['image_filename'] = ""
 
-        # Si c'est une station personnalisée, remettre favicon à vide
-        # Sinon, restaurer l'URL favicon originale (si elle existe)
-        if station.get('is_custom'):
-            station['favicon'] = ""
+        # Mettre à jour dans la liste
+        custom_stations = plugin.station_manager.get_custom_stations()
+        for custom_station in custom_stations:
+            if custom_station['id'] == station_id:
+                custom_station['favicon'] = ""
+                custom_station['image_filename'] = ""
+                break
 
-            # Mettre à jour dans les settings
-            custom_stations = plugin.station_manager.get_custom_stations()
-            for custom_station in custom_stations:
-                if custom_station['id'] == station_id:
-                    custom_station['favicon'] = ""
-                    custom_station['image_filename'] = ""
-                    break
-
-            # Sauvegarder
-            await plugin.station_manager._save_custom_stations()
-        else:
-            # Pour les stations non-custom, retirer de station_images
-            await plugin.station_manager.remove_station_image(station_id)
-            # Essayer de récupérer le favicon original
-            station['favicon'] = ""
+        # Sauvegarder
+        await plugin.station_manager._save_custom_stations()
 
         return {
             "success": True,
-            "message": "Image personnalisée supprimée",
+            "message": "Image supprimée",
             "station": station
         }
 
@@ -721,35 +702,6 @@ async def get_custom_stations():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur récupération stations personnalisées: {str(e)}")
-
-
-@router.get("/stations-with-images")
-async def get_stations_with_images():
-    """
-    Récupère toutes les stations avec des images modifiées
-    (custom et non-custom)
-
-    Returns:
-        Liste des stations avec images personnalisées
-    """
-    try:
-        plugin = container.radio_plugin()
-
-        # Récupérer les stations non-custom avec images modifiées
-        stations_with_images = plugin.station_manager.get_stations_with_images()
-
-        # Récupérer les stations custom qui ont une image
-        custom_stations = plugin.station_manager.get_custom_stations()
-        custom_with_images = [s for s in custom_stations if s.get('image_filename')]
-
-        # Merger les deux listes
-        all_stations = stations_with_images + custom_with_images
-
-        # Enrichir avec statut favori
-        return plugin.station_manager.enrich_with_favorite_status(all_stations)
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur récupération stations avec images: {str(e)}")
 
 
 @router.get("/images/{filename}")
