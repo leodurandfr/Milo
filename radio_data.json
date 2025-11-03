@@ -5,11 +5,12 @@
       "name": "France Musique",
       "country": "France",
       "genre": "classical",
-      "favicon": "https://upload.wikimedia.org/wikipedia/fr/thumb/2/22/France_Musique_-_2008.svg/1024px-France_Musique_-_2008.svg.png",
+      "favicon": "/api/radio/images/790a6ab4d6c5.jpg",
       "url": "",
       "bitrate": 0,
       "codec": "Unknown",
-      "is_favorite": true
+      "is_favorite": true,
+      "image_filename": "790a6ab4d6c5.jpg"
     },
     {
       "id": "4fac0b5b-799e-11ea-8a3b-52543be04c81",
@@ -27,12 +28,12 @@
       "name": "FIP Groove",
       "country": "France",
       "genre": "aac",
-      "favicon": "/api/radio/images/6c71950a85f3.jpg",
+      "favicon": "",
       "url": "",
       "bitrate": 0,
       "codec": "Unknown",
       "is_favorite": true,
-      "image_filename": "6c71950a85f3.jpg"
+      "image_filename": ""
     },
     {
       "id": "94d42cb6-14ea-48cd-9523-6c3ee2ded1a2",
@@ -50,44 +51,48 @@
       "name": "France Inter",
       "country": "France",
       "genre": "Variety",
-      "favicon": "https://upload.wikimedia.org/wikipedia/fr/3/39/France_Inter_logo.svg",
+      "favicon": "",
       "url": "",
       "bitrate": 0,
       "codec": "Unknown",
-      "is_favorite": true
+      "is_favorite": true,
+      "image_filename": ""
     },
     {
       "id": "f6f9652b-8c51-11ea-8564-52543be04c81",
       "name": "FIP Monde",
       "country": "",
       "genre": "fip",
-      "favicon": "https://cdn-profiles.tunein.com/s262538/images/logod.png?t=636966437370000000",
+      "favicon": "",
       "url": "",
       "bitrate": 0,
       "codec": "Unknown",
-      "is_favorite": true
+      "is_favorite": true,
+      "image_filename": ""
     },
     {
       "id": "5b9ceedf-eb85-11e9-a96c-52543be04c81",
       "name": "FIP Jazz",
       "country": "France",
       "genre": "aac",
-      "favicon": "https://cdn-profiles.tunein.com/s262533/images/logod.png?t=636966437720000000",
+      "favicon": "",
       "url": "",
       "bitrate": 0,
       "codec": "Unknown",
-      "is_favorite": true
+      "is_favorite": true,
+      "image_filename": ""
     },
     {
       "id": "6a1440b2-e6f0-11e9-a96c-52543be04c81",
       "name": "France Culture",
       "country": "France",
       "genre": "aac",
-      "favicon": "https://upload.wikimedia.org/wikipedia/fr/thumb/c/c9/France_Culture_-_2008.svg/1024px-France_Culture_-_2008.svg.png",
+      "favicon": "",
       "url": "",
       "bitrate": 0,
       "codec": "Unknown",
-      "is_favorite": true
+      "is_favorite": true,
+      "image_filename": ""
     },
     {
       "id": "c998424a-e6f5-11e9-a96c-52543be04c81",
@@ -120,18 +125,20 @@
       "url": "",
       "bitrate": 0,
       "codec": "Unknown",
-      "is_favorite": true
+      "is_favorite": true,
+      "image_filename": ""
     },
     {
       "id": "932eb148-e6f6-11e9-a96c-52543be04c81",
       "name": "FIP",
       "country": "France",
       "genre": "aac",
-      "favicon": "https://upload.wikimedia.org/wikipedia/fr/thumb/d/d5/FIP_logo_2005.svg/1024px-FIP_logo_2005.svg.png",
+      "favicon": "",
       "url": "",
       "bitrate": 0,
       "codec": "Unknown",
-      "is_favorite": true
+      "is_favorite": true,
+      "image_filename": ""
     },
     {
       "id": "960a0f41-0601-11e8-ae97-52543be04c81",
@@ -153,18 +160,8 @@
       "url": "",
       "bitrate": 0,
       "codec": "Unknown",
-      "is_favorite": true
-    },
-    {
-      "id": "9612a51a-0601-11e8-ae97-52543be04c81",
-      "name": "FIP tout nouveau, tout FIP",
-      "country": "France",
-      "genre": "music",
-      "favicon": "",
-      "url": "",
-      "bitrate": 0,
-      "codec": "Unknown",
-      "is_favorite": true
+      "is_favorite": true,
+      "image_filename": ""
     },
     {
       "id": "cce91c68-bec8-447a-8c90-29ddf29536e5",
@@ -182,11 +179,12 @@
       "name": "France Info",
       "country": "France",
       "genre": "Variety",
-      "favicon": "https://www.francetvinfo.fr/assets/common/images/pwa/ios/120-5487caf3.png",
+      "favicon": "",
       "url": "",
       "bitrate": 0,
       "codec": "Unknown",
-      "is_favorite": true
+      "is_favorite": true,
+      "image_filename": ""
     },
     {
       "id": "cc394300-6304-41ae-a75c-17857006ff4a",
@@ -201,6 +199,36 @@
       "clickcount": 4,
       "score": 10,
       "is_favorite": true
+    },
+    {
+      "id": "b809226c-eb82-11e9-a96c-52543be04c81",
+      "name": "FIP Electro",
+      "url": "http://icecast.radiofrance.fr/fipelectro-hifi.aac",
+      "country": "France",
+      "genre": "aac",
+      "favicon": "",
+      "bitrate": 192,
+      "codec": "AAC",
+      "votes": 3228,
+      "clickcount": 48,
+      "score": 3276,
+      "is_favorite": true,
+      "image_filename": ""
+    },
+    {
+      "id": "76b129aa-45cc-46cf-b6b2-1fde08a2c8f9",
+      "name": "FIP Pop",
+      "url": "https://icecast.radiofrance.fr/fippop-hifi.aac",
+      "country": "France",
+      "genre": "aac",
+      "favicon": "",
+      "bitrate": 192,
+      "codec": "AAC",
+      "votes": 1190,
+      "clickcount": 36,
+      "score": 1226,
+      "is_favorite": true,
+      "image_filename": ""
     }
   ],
   "broken_stations": [
