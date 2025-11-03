@@ -1129,7 +1129,7 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   flex-direction: column;
   gap: var(--space-04);
-  margin-top: var(--space-07);
+  margin: var(--space-07) var(--space-06) 0 0;
   padding: var(--space-04);
   background: var(--color-text);
   border-radius: var(--radius-07);

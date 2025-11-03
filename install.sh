@@ -1374,6 +1374,16 @@ server {
     root /home/milo/milo/frontend/dist;
     index index.html;
 
+    # Radio images - must come BEFORE static files regex
+    location ^~ /api/radio/images/ {
+        proxy_pass http://milo_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+    }
+
     # Cache static assets for better performance
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
         expires 1y;

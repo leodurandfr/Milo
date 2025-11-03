@@ -148,6 +148,7 @@ import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useRadioStore } from '@/stores/radioStore';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -181,6 +182,7 @@ const { t } = useI18n();
 const { on } = useWebSocket();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
+const radioStore = useRadioStore();
 
 // Navigation
 const currentView = ref('home');
@@ -208,12 +210,17 @@ function handleRadioStationAdded(station) {
   currentView.value = 'radio';
 }
 
-function handleRadioImageChanged(station) {
+async function handleRadioImageChanged(station) {
   console.log('✅ Image modifiée:', station);
-  // Recharger les données de RadioSettings
+
+  // Recharger les favoris dans radioStore pour mettre à jour RadioSource
+  await radioStore.loadStations(true);
+
+  // Recharger les données de RadioSettings pour la vue settings
   if (radioSettingsRef.value) {
     radioSettingsRef.value.loadCustomStations();
   }
+
   currentView.value = 'radio';
 }
 
