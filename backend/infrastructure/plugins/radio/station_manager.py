@@ -210,6 +210,71 @@ class StationManager:
         # Les favoris sont déjà stockés avec métadonnées complètes
         return self._favorites.copy()
 
+    def is_favorite(self, station_id: str) -> bool:
+        """
+        Vérifie si une station est dans les favoris
+
+        Args:
+            station_id: UUID de la station
+
+        Returns:
+            True si la station est favorite
+        """
+        return any(f.get('id') == station_id for f in self._favorites)
+
+    async def update_favorite_image(self, station_id: str, image_filename: str) -> bool:
+        """
+        Met à jour l'image d'une station favorite
+
+        Args:
+            station_id: UUID de la station
+            image_filename: Nom du fichier image
+
+        Returns:
+            True si mise à jour réussie
+        """
+        for favorite in self._favorites:
+            if favorite.get('id') == station_id:
+                # Supprimer l'ancienne image si elle existe
+                old_image = favorite.get('image_filename')
+                if old_image:
+                    await self.image_manager.delete_image(old_image)
+
+                # Mettre à jour avec la nouvelle image
+                favorite['image_filename'] = image_filename
+                favorite['favicon'] = f"/api/radio/images/{image_filename}"
+
+                self.logger.info(f"Updated image for favorite station {station_id}")
+                return await self._save()
+
+        return False
+
+    async def remove_favorite_image(self, station_id: str) -> bool:
+        """
+        Supprime l'image personnalisée d'une station favorite
+
+        Args:
+            station_id: UUID de la station
+
+        Returns:
+            True si suppression réussie
+        """
+        for favorite in self._favorites:
+            if favorite.get('id') == station_id:
+                # Supprimer le fichier image si existe
+                old_image = favorite.get('image_filename')
+                if old_image:
+                    await self.image_manager.delete_image(old_image)
+
+                # Réinitialiser les champs image
+                favorite['image_filename'] = ""
+                favorite['favicon'] = ""
+
+                self.logger.info(f"Removed image for favorite station {station_id}")
+                return await self._save()
+
+        return False
+
     async def mark_as_broken(self, station_id: str) -> bool:
         """
         Marque une station comme cassée
@@ -268,16 +333,26 @@ class StationManager:
 
     def enrich_with_favorite_status(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Enrichit les stations avec le statut favori
+        Enrichit les stations avec le statut favori et les images personnalisées
 
         Args:
             stations: Liste de stations
 
         Returns:
-            Liste enrichie avec clé 'is_favorite'
+            Liste enrichie avec clé 'is_favorite' et images personnalisées si disponibles
         """
         for station in stations:
-            station['is_favorite'] = self.is_favorite(station.get('id'))
+            station_id = station.get('id')
+            station['is_favorite'] = self.is_favorite(station_id)
+
+            # Si c'est un favori, copier les données d'image personnalisée
+            if station['is_favorite']:
+                favorite_metadata = next((f for f in self._favorites if f.get('id') == station_id), None)
+                if favorite_metadata and favorite_metadata.get('image_filename'):
+                    # Écraser avec l'image personnalisée du favori
+                    station['favicon'] = favorite_metadata.get('favicon')
+                    station['image_filename'] = favorite_metadata.get('image_filename')
+
         return stations
 
     def get_stats(self) -> Dict[str, int]:

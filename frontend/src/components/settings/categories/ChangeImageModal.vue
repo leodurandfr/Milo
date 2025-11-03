@@ -1,14 +1,31 @@
 <template>
   <section class="settings-section">
     <form @submit.prevent="handleSubmit" class="change-image-form">
-        <!-- Nom de la station (recherche) -->
+        <!-- Sélection de la station (recherche) -->
         <div class="form-group">
-          <label class="text-mono">Nom exact de la station *</label>
-          <input v-model="stationName" type="text" required class="form-input text-body-small"
-            placeholder="Ex: RTL" @input="searchStation" />
-          <p v-if="searchResult === 'searching'" class="search-info text-mono">Recherche...</p>
-          <p v-else-if="searchResult === 'found'" class="search-info success text-mono">✅ Station trouvée</p>
-          <p v-else-if="searchResult === 'not_found'" class="search-info error text-mono">❌ Station introuvable</p>
+          <label class="text-mono">Chercher une station favorite</label>
+          <input v-model="stationName" type="text" class="form-input text-body-small"
+            placeholder="Tapez pour filtrer..." @input="searchStation" @focus="showSuggestions = true" />
+
+          <p v-if="foundStation" class="search-info success text-mono">✅ Station sélectionnée : {{ foundStation.name }}</p>
+          <p v-else-if="favoriteStations.length === 0" class="search-info error text-mono">⚠️ Aucune station favorite trouvée</p>
+
+          <!-- Suggestions de stations favorites -->
+          <div v-if="matchingStations.length > 0 && showSuggestions" class="suggestions-list">
+            <p class="suggestions-label text-mono">Stations favorites ({{ matchingStations.length }}) :</p>
+            <button
+              v-for="station in matchingStations"
+              :key="station.id"
+              type="button"
+              class="suggestion-item"
+              :class="{ 'selected': foundStation?.id === station.id }"
+              @click="selectSuggestion(station)"
+            >
+              <img v-if="station.favicon" :src="station.favicon" alt="" class="suggestion-img" />
+              <div v-else class="suggestion-placeholder">📻</div>
+              <span class="suggestion-name text-body-small">{{ station.name }}</span>
+            </button>
+          </div>
         </div>
 
         <!-- Image actuelle (si trouvée) -->
@@ -73,66 +90,67 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
-import { useRadioStore } from '@/stores/radioStore';
+import { ref, computed, onMounted } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import axios from 'axios';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const emit = defineEmits(['back', 'success']);
-const radioStore = useRadioStore();
+
+// Liste des stations favorites chargées
+const favoriteStations = ref([]);
+
+// Charger les stations favorites au montage de la modal
+onMounted(async () => {
+  try {
+    const response = await axios.get('/api/radio/stations', {
+      params: { favorites_only: true, limit: 10000 }
+    });
+    favoriteStations.value = response.data.stations;
+    console.log(`✅ Chargé ${response.data.stations.length} stations favorites`);
+  } catch (error) {
+    console.error('❌ Erreur chargement stations favorites:', error);
+    favoriteStations.value = [];
+  }
+});
 
 const fileInput = ref(null);
 const stationName = ref('');
 const foundStation = ref(null);
-const searchResult = ref(null); // 'searching', 'found', 'not_found', null
 const selectedFile = ref(null);
 const imagePreview = ref(null);
 const isSubmitting = ref(false);
 const errorMessage = ref('');
-const searchTimeout = ref(null);
+const showSuggestions = ref(false);
 
-async function searchStation() {
+// Suggestions de stations favorites pendant la frappe
+const matchingStations = computed(() => {
+  // Si pas de recherche, afficher toutes les stations favorites
   if (!stationName.value.trim()) {
+    return favoriteStations.value;
+  }
+
+  // Sinon, filtrer par le terme de recherche
+  const query = stationName.value.toLowerCase();
+  return favoriteStations.value.filter(s =>
+    s.name.toLowerCase().includes(query)
+  );
+});
+
+function searchStation() {
+  // Juste pour afficher les suggestions (le filtrage se fait dans matchingStations)
+  showSuggestions.value = true;
+
+  // Réinitialiser la station sélectionnée si on modifie le texte
+  if (foundStation.value && foundStation.value.name !== stationName.value) {
     foundStation.value = null;
-    searchResult.value = null;
-    return;
   }
+}
 
-  // Debounce search
-  if (searchTimeout.value) {
-    clearTimeout(searchTimeout.value);
-  }
-
-  searchResult.value = 'searching';
-
-  searchTimeout.value = setTimeout(async () => {
-    try {
-      // Chercher dans les stations (favoris + custom)
-      const response = await axios.get('/api/radio/stations', {
-        params: {
-          query: stationName.value.trim(),
-          limit: 100
-        }
-      });
-
-      const exactMatch = response.data.stations.find(
-        s => s.name.toLowerCase() === stationName.value.trim().toLowerCase()
-      );
-
-      if (exactMatch) {
-        foundStation.value = exactMatch;
-        searchResult.value = 'found';
-      } else {
-        foundStation.value = null;
-        searchResult.value = 'not_found';
-      }
-    } catch (error) {
-      console.error('Erreur recherche station:', error);
-      foundStation.value = null;
-      searchResult.value = 'not_found';
-    }
-  }, 500);
+function selectSuggestion(station) {
+  stationName.value = station.name;
+  foundStation.value = station;
+  showSuggestions.value = false; // Masquer les suggestions après sélection
 }
 
 function handleFileSelect(event) {
@@ -256,6 +274,72 @@ async function handleSubmit() {
 
 .search-info.error {
   color: rgb(244, 67, 54);
+}
+
+/* Suggestions */
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+  margin-top: var(--space-02);
+  padding: var(--space-02);
+  background: var(--color-background);
+  border: 2px solid var(--color-background-glass);
+  border-radius: var(--radius-03);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.suggestions-label {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  margin-bottom: var(--space-01);
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+  padding: var(--space-02);
+  background: var(--color-background-neutral);
+  border: 2px solid transparent;
+  border-radius: var(--radius-03);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+}
+
+.suggestion-item:hover {
+  background: var(--color-background);
+  border-color: var(--color-brand);
+  transform: translateX(4px);
+}
+
+.suggestion-item.selected {
+  background: var(--color-background);
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-rgb), 0.1);
+}
+
+.suggestion-img {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-02);
+  object-fit: cover;
+}
+
+.suggestion-placeholder {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.suggestion-name {
+  color: var(--color-text);
+  flex: 1;
 }
 
 /* Current Image */
