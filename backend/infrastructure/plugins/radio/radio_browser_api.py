@@ -25,10 +25,6 @@ class RadioBrowserAPI:
         self.cache_duration = timedelta(minutes=cache_duration_minutes)
         self.station_manager = station_manager
 
-        # Cache avec timestamp
-        self._stations_cache: Dict[str, Any] = {}
-        self._cache_timestamp: Optional[datetime] = None
-
         # Cache par pays pour recherches dynamiques (country_name -> (timestamp, stations))
         self._country_cache: Dict[str, tuple[datetime, List[Dict[str, Any]]]] = {}
 
@@ -54,12 +50,6 @@ class RadioBrowserAPI:
         if self.session and not self.session.closed:
             await self.session.close()
             self.session = None
-
-    def _is_cache_valid(self) -> bool:
-        """Vérifie si le cache est encore valide"""
-        if not self._cache_timestamp or not self._stations_cache:
-            return False
-        return datetime.now() - self._cache_timestamp < self.cache_duration
 
     async def _fetch_stations_by_country(self, country_code: str) -> List[Dict[str, Any]]:
         """
@@ -717,19 +707,6 @@ class RadioBrowserAPI:
             # Les stations personnalisées sont ajoutées en premier (priorité)
             all_stations = custom_stations + all_stations
 
-        # Enrichir avec les images personnalisées
-        if self.station_manager:
-            all_stations = self.station_manager.enrich_with_custom_images(all_stations)
-
-            # Debug: Log favicons après enrichissement
-            for station in all_stations:
-                if 'meuh' in station.get('name', '').lower():
-                    self.logger.debug(
-                        f"🎨 After enrich_with_custom_images: {station.get('name')} → "
-                        f"favicon={'✅' if station.get('favicon') else '❌'} "
-                        f"({station.get('favicon')[:50] if station.get('favicon') else 'empty'})"
-                    )
-
         # Total avant limitation
         total = len(all_stations)
 
@@ -759,21 +736,8 @@ class RadioBrowserAPI:
             if custom_station:
                 return custom_station
 
-        # Chercher dans le cache d'abord
-        if self._is_cache_valid() and station_id in self._stations_cache:
-            station = self._stations_cache[station_id]
-        else:
-            # Sinon, récupérer directement depuis l'API
-            station = await self._fetch_station_by_id(station_id)
-
-            # Mettre en cache si trouvée
-            if station:
-                self._stations_cache[station_id] = station
-
-        # Enrichir avec les images personnalisées si la station existe
-        if station and self.station_manager:
-            # Appliquer l'image personnalisée si elle existe
-            station = self.station_manager.enrich_with_custom_images([station])[0]
+        # Récupérer directement depuis l'API
+        station = await self._fetch_station_by_id(station_id)
 
         return station
 
@@ -808,15 +772,8 @@ class RadioBrowserAPI:
 
         # Récupérer les stations normales
         for station_id in regular_ids:
-            # Chercher dans le cache d'abord
-            if self._is_cache_valid() and station_id in self._stations_cache:
-                station = self._stations_cache[station_id]
-            else:
-                # Sinon, récupérer depuis l'API
-                station = await self._fetch_station_by_id(station_id)
-                # Mettre en cache si trouvée
-                if station:
-                    self._stations_cache[station_id] = station
+            # Récupérer depuis l'API
+            station = await self._fetch_station_by_id(station_id)
 
             if station:
                 stations.append(station)
@@ -854,10 +811,6 @@ class RadioBrowserAPI:
         # La déduplication va comparer toutes les versions de chaque station (ID + alternatives par nom)
         # et garder le meilleur favicon pour chaque station unique
         deduplicated_stations = await self._deduplicate_stations(stations)
-
-        # Enrichir avec les images personnalisées
-        if deduplicated_stations and self.station_manager:
-            deduplicated_stations = self.station_manager.enrich_with_custom_images(deduplicated_stations)
 
         return deduplicated_stations
 

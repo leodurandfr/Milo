@@ -9,125 +9,109 @@ from backend.infrastructure.plugins.radio.image_manager import ImageManager
 
 class StationManager:
     """
-    Gère les favoris, stations cassées et stations personnalisées avec persistance via SettingsService
+    Gère les favoris, stations cassées et stations personnalisées avec persistance via RadioDataService
 
-    Stockage dans milo_settings.json:
+    Stockage dans radio_data.json:
     {
-        "radio": {
-            "favorites": ["station_id1", "station_id2", ...],
-            "broken_stations": ["station_id3", "station_id4", ...],
-            "custom_stations": [
-                {
-                    "id": "custom_uuid",
-                    "name": "RTL",
-                    "url": "http://streaming.radio.rtl.fr/rtl-1-44-128",
-                    "country": "France",
-                    "genre": "Variety",
-                    "favicon": "",
-                    "bitrate": 128,
-                    "codec": "MP3"
-                }
-            ]
-        }
+        "favorites": [
+            {
+                "id": "station_id1",
+                "name": "RTL",
+                "url": "http://...",
+                "country": "France",
+                "genre": "Variety",
+                "favicon": "http://...",
+                "bitrate": 128,
+                "codec": "MP3",
+                "votes": 100,
+                "clickcount": 200,
+                "score": 300
+            }
+        ],
+        "broken_stations": ["station_id3", "station_id4", ...],
+        "custom_stations": [
+            {
+                "id": "custom_uuid",
+                "name": "Ma Radio",
+                "url": "http://...",
+                "country": "France",
+                "genre": "Variety",
+                "favicon": "/api/radio/images/abc123.jpg",
+                "image_filename": "abc123.jpg",
+                "bitrate": 128,
+                "codec": "MP3",
+                "is_custom": true
+            }
+        ]
     }
     """
 
-    def __init__(self, settings_service=None, state_machine=None):
+    def __init__(self, radio_data_service=None, state_machine=None):
         self.logger = logging.getLogger(__name__)
-        self.settings_service = settings_service
+        self.radio_data_service = radio_data_service
         self.state_machine = state_machine
         self.image_manager = ImageManager()
 
         # Cache local
-        self._favorites: Set[str] = set()
+        self._favorites: List[Dict[str, Any]] = []  # Liste de stations avec métadonnées complètes
         self._broken_stations: Set[str] = set()
         self._custom_stations: List[Dict[str, Any]] = []
-        self._station_images: Dict[str, Dict[str, Any]] = {}  # station_id -> {name, image_filename}
         self._loaded = False
 
     async def initialize(self) -> None:
-        """Charge l'état depuis SettingsService"""
+        """Charge l'état depuis RadioDataService"""
         if self._loaded:
             return
 
         try:
-            if self.settings_service:
-                # Charger favoris
-                favorites = await self.settings_service.get_setting('radio.favorites')
-                if favorites and isinstance(favorites, list):
-                    self._favorites = set(favorites)
-                    self.logger.info(f"Loaded {len(self._favorites)} favorite stations")
+            if self.radio_data_service:
+                # Charger toutes les données d'un coup
+                data = await self.radio_data_service.load_data()
 
-                # Charger stations cassées
-                broken = await self.settings_service.get_setting('radio.broken_stations')
-                if broken and isinstance(broken, list):
-                    self._broken_stations = set(broken)
-                    self.logger.info(f"Loaded {len(self._broken_stations)} broken stations")
+                self._favorites = data.get('favorites', [])
+                self._broken_stations = set(data.get('broken_stations', []))
+                self._custom_stations = data.get('custom_stations', [])
 
-                # Charger stations personnalisées
-                custom = await self.settings_service.get_setting('radio.custom_stations')
-                if custom and isinstance(custom, list):
-                    self._custom_stations = custom
-                    self.logger.info(f"Loaded {len(self._custom_stations)} custom stations")
-
-                # Charger les images modifiées (station_id -> {name, image_filename})
-                station_images = await self.settings_service.get_setting('radio.station_images')
-                if station_images and isinstance(station_images, dict):
-                    self._station_images = station_images
-                    self.logger.info(f"Loaded {len(self._station_images)} stations with custom images")
+                self.logger.info(
+                    f"Loaded {len(self._favorites)} favorites, "
+                    f"{len(self._broken_stations)} broken, "
+                    f"{len(self._custom_stations)} custom stations"
+                )
             else:
-                self.logger.warning("SettingsService not available, using empty state")
+                self.logger.warning("RadioDataService not available, using empty state")
 
             self._loaded = True
 
         except Exception as e:
             self.logger.error(f"Error loading station manager state: {e}")
-            self._favorites = set()
+            self._favorites = []
             self._broken_stations = set()
             self._custom_stations = []
-            self._station_images = {}
             self._loaded = True
 
-    async def _save_favorites(self) -> bool:
-        """Sauvegarde les favoris dans SettingsService"""
-        if not self.settings_service:
+    async def _save(self) -> bool:
+        """Sauvegarde toutes les données dans radio_data.json"""
+        if not self.radio_data_service:
             return False
 
         try:
-            success = await self.settings_service.set_setting(
-                'radio.favorites',
-                list(self._favorites)
-            )
-            if success:
-                self.logger.debug(f"Saved {len(self._favorites)} favorites")
-            return success
+            data = {
+                "favorites": self._favorites,
+                "broken_stations": list(self._broken_stations),
+                "custom_stations": self._custom_stations
+            }
+            return await self.radio_data_service.save_data(data)
         except Exception as e:
-            self.logger.error(f"Error saving favorites: {e}")
+            self.logger.error(f"Error saving radio data: {e}")
             return False
 
-    async def _save_broken_stations(self) -> bool:
-        """Sauvegarde les stations cassées dans SettingsService"""
-        if not self.settings_service:
-            return False
-
-        try:
-            success = await self.settings_service.set_setting(
-                'radio.broken_stations',
-                list(self._broken_stations)
-            )
-            if success:
-                self.logger.debug(f"Saved {len(self._broken_stations)} broken stations")
-            return success
-        except Exception as e:
-            self.logger.error(f"Error saving broken stations: {e}")
-            return False
-
-    async def add_favorite(self, station_id: str) -> bool:
+    async def add_favorite(self, station_id: str, station: Optional[Dict[str, Any]] = None) -> bool:
         """
-        Ajoute une station aux favoris
+        Ajoute une station aux favoris avec ses métadonnées complètes
 
         Args:
             station_id: UUID de la station
+            station: Dict complet de la station avec métadonnées (recommandé)
 
         Returns:
             True si ajout réussi
@@ -135,20 +119,27 @@ class StationManager:
         if not station_id:
             return False
 
-        if station_id in self._favorites:
+        # Vérifier si déjà dans les favoris
+        if any(f.get('id') == station_id for f in self._favorites):
             self.logger.debug(f"Station {station_id} already in favorites")
             return True
 
-        self._favorites.add(station_id)
-        self.logger.info(f"Added station {station_id} to favorites")
+        # Si station fournie, l'ajouter avec métadonnées complètes
+        if station:
+            self._favorites.append(station)
+            self.logger.info(f"Added station {station.get('name')} to favorites with metadata")
+        else:
+            # Fallback: ajouter seulement l'ID (métadonnées seront fetchées à la demande)
+            self._favorites.append({"id": station_id})
+            self.logger.warning(f"Added station {station_id} to favorites WITHOUT metadata (will need API fetch)")
 
-        success = await self._save_favorites()
+        success = await self._save()
 
         # Broadcast l'événement à tous les clients
         if success and self.state_machine:
             await self.state_machine.broadcast_event("radio", "favorite_added", {
                 "station_id": station_id,
-                "favorites": list(self._favorites),
+                "favorites_count": len(self._favorites),
                 "source": "radio"
             })
 
@@ -167,20 +158,22 @@ class StationManager:
         if not station_id:
             return False
 
-        if station_id not in self._favorites:
+        original_count = len(self._favorites)
+        self._favorites = [f for f in self._favorites if f.get('id') != station_id]
+
+        if len(self._favorites) == original_count:
             self.logger.debug(f"Station {station_id} not in favorites")
             return True
 
-        self._favorites.discard(station_id)
         self.logger.info(f"Removed station {station_id} from favorites")
 
-        success = await self._save_favorites()
+        success = await self._save()
 
         # Broadcast l'événement à tous les clients
         if success and self.state_machine:
             await self.state_machine.broadcast_event("radio", "favorite_removed", {
                 "station_id": station_id,
-                "favorites": list(self._favorites),
+                "favorites_count": len(self._favorites),
                 "source": "radio"
             })
 
@@ -196,7 +189,7 @@ class StationManager:
         Returns:
             True si favori
         """
-        return station_id in self._favorites
+        return any(f.get('id') == station_id for f in self._favorites)
 
     def get_favorites(self) -> List[str]:
         """
@@ -205,68 +198,17 @@ class StationManager:
         Returns:
             Liste des IDs de stations favorites
         """
-        return list(self._favorites)
+        return [f.get('id') for f in self._favorites if f.get('id')]
 
-    def get_favorites_with_cached_metadata(self) -> Dict[str, Any]:
+    def get_favorites_with_metadata(self) -> List[Dict[str, Any]]:
         """
         Récupère les stations favorites avec leurs métadonnées depuis le cache local
-        (station_images + custom_stations) sans faire d'appels API externes.
 
         Returns:
-            Dict avec:
-            - 'stations': List[Dict] des stations avec métadonnées complètes
-            - 'missing_ids': List[str] des IDs sans métadonnées (à fetcher depuis API)
+            Liste des stations avec métadonnées complètes
         """
-        cached_stations = []
-        missing_ids = []
-
-        for station_id in self._favorites:
-            # Cas 1: Station personnalisée (custom_)
-            if station_id.startswith("custom_"):
-                custom_station = self.get_custom_station_by_id(station_id)
-                if custom_station:
-                    # Ajouter is_favorite explicitement
-                    custom_station['is_favorite'] = True
-                    cached_stations.append(custom_station)
-                    continue
-                # Si custom station non trouvée, la considérer comme manquante
-                missing_ids.append(station_id)
-                continue
-
-            # Cas 2: Station avec métadonnées dans station_images
-            if station_id in self._station_images:
-                image_info = self._station_images[station_id]
-                # Reconstruire la station depuis les métadonnées cachées
-                station = {
-                    'id': station_id,
-                    'name': image_info.get('name', 'Station inconnue'),
-                    'country': image_info.get('country', ''),
-                    'genre': image_info.get('genre', ''),
-                    'favicon': image_info.get('favicon', ''),
-                    'image_filename': image_info.get('image_filename', ''),
-                    'url': '',  # URL sera remplie par l'API si besoin
-                    'bitrate': 0,
-                    'codec': 'Unknown',
-                    'votes': 0,
-                    'clickcount': 0,
-                    'score': 0,
-                    'is_favorite': True
-                }
-                cached_stations.append(station)
-                continue
-
-            # Cas 3: Aucune métadonnée - doit être fetchée depuis l'API
-            missing_ids.append(station_id)
-
-        self.logger.info(
-            f"📻 Favorites cache: {len(cached_stations)} from cache, "
-            f"{len(missing_ids)} missing (need API fetch)"
-        )
-
-        return {
-            'stations': cached_stations,
-            'missing_ids': missing_ids
-        }
+        # Les favoris sont déjà stockés avec métadonnées complètes
+        return self._favorites.copy()
 
     async def mark_as_broken(self, station_id: str) -> bool:
         """
@@ -286,7 +228,7 @@ class StationManager:
 
         self._broken_stations.add(station_id)
         self.logger.info(f"Marked station {station_id} as broken")
-        return await self._save_broken_stations()
+        return await self._save()
 
     def is_broken(self, station_id: str) -> bool:
         """
@@ -310,7 +252,7 @@ class StationManager:
         count = len(self._broken_stations)
         self._broken_stations.clear()
         self.logger.info(f"Reset {count} broken stations")
-        return await self._save_broken_stations()
+        return await self._save()
 
     def filter_broken_stations(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -338,36 +280,6 @@ class StationManager:
             station['is_favorite'] = self.is_favorite(station.get('id'))
         return stations
 
-    def enrich_with_custom_images(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Enrichit les stations avec les images personnalisées si elles existent
-
-        Args:
-            stations: Liste de stations
-
-        Returns:
-            Liste enrichie avec images personnalisées appliquées
-        """
-        for station in stations:
-            station_id = station.get('id')
-            if station_id and station_id in self._station_images:
-                image_info = self._station_images[station_id]
-                # N'écrase le favicon que si on a vraiment une image uploadée localement
-                # Sinon, on garde le favicon trouvé par la déduplication
-                if image_info.get('image_filename'):
-                    self.logger.debug(
-                        f"📎 Overwriting favicon for {station.get('name')} with custom image"
-                    )
-                    station['favicon'] = image_info.get('favicon', '')
-                    station['image_filename'] = image_info.get('image_filename', '')
-                else:
-                    if 'meuh' in station.get('name', '').lower():
-                        self.logger.debug(
-                            f"🔒 Keeping deduplication favicon for {station.get('name')} "
-                            f"(no custom image)"
-                        )
-        return stations
-
     def get_stats(self) -> Dict[str, int]:
         """
         Récupère les statistiques
@@ -382,23 +294,6 @@ class StationManager:
         }
 
     # === Gestion des stations personnalisées ===
-
-    async def _save_custom_stations(self) -> bool:
-        """Sauvegarde les stations personnalisées dans SettingsService"""
-        if not self.settings_service:
-            return False
-
-        try:
-            success = await self.settings_service.set_setting(
-                'radio.custom_stations',
-                self._custom_stations
-            )
-            if success:
-                self.logger.debug(f"Saved {len(self._custom_stations)} custom stations")
-            return success
-        except Exception as e:
-            self.logger.error(f"Error saving custom stations: {e}")
-            return False
 
     async def add_custom_station(
         self,
@@ -457,7 +352,7 @@ class StationManager:
             self.logger.info(f"Added custom station: {name} ({station_id}) with image: {image_filename}")
 
             # Sauvegarder
-            success = await self._save_custom_stations()
+            success = await self._save()
 
             if success and self.state_machine:
                 await self.state_machine.broadcast_event("radio", "custom_station_added", {
@@ -521,7 +416,7 @@ class StationManager:
             self.logger.info(f"Removed custom station {station_id}")
 
             # Sauvegarder
-            success = await self._save_custom_stations()
+            success = await self._save()
 
             if success and self.state_machine:
                 await self.state_machine.broadcast_event("radio", "custom_station_removed", {
@@ -531,7 +426,7 @@ class StationManager:
                 })
 
             # Retirer aussi des favoris si présent
-            if station_id in self._favorites:
+            if self.is_favorite(station_id):
                 await self.remove_favorite(station_id)
 
             return success
@@ -563,137 +458,3 @@ class StationManager:
             if station.get('id') == station_id:
                 return station.copy()
         return None
-
-    # === Gestion des images de stations ===
-
-    async def _save_station_images(self) -> bool:
-        """Sauvegarde les mappings station_id -> image dans SettingsService"""
-        if not self.settings_service:
-            return False
-
-        try:
-            success = await self.settings_service.set_setting(
-                'radio.station_images',
-                self._station_images
-            )
-            if success:
-                self.logger.debug(f"Saved {len(self._station_images)} station images")
-            return success
-        except Exception as e:
-            self.logger.error(f"Error saving station images: {e}")
-            return False
-
-    async def cache_station_metadata(
-        self,
-        station_id: str,
-        station_name: str,
-        favicon: str = "",
-        country: str = "",
-        genre: str = ""
-    ) -> bool:
-        """
-        Cache les métadonnées d'une station pour chargement rapide des favoris
-        (accepte les favicons externes sans fichier local)
-
-        Args:
-            station_id: ID de la station
-            station_name: Nom de la station
-            favicon: URL du favicon (externe RadioBrowser ou local /api/radio/images/...)
-            country: Pays de la station (optionnel)
-            genre: Genre de la station (optionnel)
-
-        Returns:
-            True si enregistrement réussi
-        """
-        if not station_id or not station_name:
-            return False
-
-        self._station_images[station_id] = {
-            "name": station_name,
-            "image_filename": "",  # Vide pour les stations RadioBrowser normales
-            "country": country,
-            "genre": genre,
-            "favicon": favicon  # Peut être une URL externe ou locale
-        }
-
-        self.logger.debug(f"Cached metadata for {station_name} ({station_id})")
-        return await self._save_station_images()
-
-    async def add_station_image(
-        self,
-        station_id: str,
-        station_name: str,
-        image_filename: str,
-        country: str = "",
-        genre: str = ""
-    ) -> bool:
-        """
-        Enregistre qu'une station a une image uploadée localement
-        (nécessite un fichier image local)
-
-        Args:
-            station_id: ID de la station
-            station_name: Nom de la station
-            image_filename: Nom du fichier image LOCAL (ex: "abc123.jpg")
-            country: Pays de la station (optionnel)
-            genre: Genre de la station (optionnel)
-
-        Returns:
-            True si enregistrement réussi
-        """
-        if not station_id or not image_filename:
-            return False
-
-        self._station_images[station_id] = {
-            "name": station_name,
-            "image_filename": image_filename,
-            "country": country,
-            "genre": genre,
-            "favicon": f"/api/radio/images/{image_filename}"
-        }
-
-        self.logger.info(f"Added image {image_filename} for station {station_name} ({station_id})")
-        return await self._save_station_images()
-
-    async def remove_station_image(self, station_id: str) -> bool:
-        """
-        Retire l'image modifiée d'une station
-
-        Args:
-            station_id: ID de la station
-
-        Returns:
-            True si retrait réussi
-        """
-        if not station_id or station_id not in self._station_images:
-            return False
-
-        image_info = self._station_images.pop(station_id)
-        self.logger.info(f"Removed image for station {image_info.get('name')} ({station_id})")
-        return await self._save_station_images()
-
-    def get_stations_with_images(self) -> List[Dict[str, Any]]:
-        """
-        Récupère toutes les stations avec des images modifiées (uploadées manuellement)
-
-        Returns:
-            Liste des stations avec leurs infos et image_filename
-        """
-        stations = []
-        for station_id, info in self._station_images.items():
-            # Ne retourner que les stations qui ont vraiment une image uploadée localement
-            # (image_filename non vide)
-            if not info.get("image_filename"):
-                continue
-
-            station = {
-                "id": station_id,
-                "name": info.get("name", ""),
-                "country": info.get("country", ""),
-                "genre": info.get("genre", ""),
-                "favicon": info.get("favicon", ""),
-                "image_filename": info.get("image_filename", ""),
-                "is_custom": False  # Ces stations sont des stations existantes avec image modifiée
-            }
-            stations.append(station)
-        return stations

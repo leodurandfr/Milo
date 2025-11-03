@@ -13,16 +13,12 @@ export const useRadioStore = defineStore('radio', () => {
   const countryFilter = ref('');
   const genreFilter = ref('');
 
-  // Cache unifié avec clés composites + TTL
-  // Clé = combinaison des filtres (ex: "query:nova|country:France|genre:pop")
-  // Valeur = { stations: [], total: 0, loaded: boolean, error: boolean, timestamp: number }
-  const stationsCache = ref(new Map());
+  // Stations actuelles (résultat de la dernière recherche)
+  const currentStations = ref([]);
+  const currentTotal = ref(0);
 
-  // TTL du cache (5 minutes)
-  const CACHE_TTL = 5 * 60 * 1000;
-
-  // Cache séparé pour les favoris
-  const favoritesCache = ref({ stations: [], total: 0, loaded: false, error: false, lastSync: null, timestamp: null });
+  // Favoris (chargés une fois, rechargés si modification)
+  const favoriteStations = ref([]);
 
   // Stations visibles actuellement (pour rendu progressif)
   const visibleStations = ref([]);
@@ -32,59 +28,11 @@ export const useRadioStore = defineStore('radio', () => {
 
   // === GETTERS ===
 
-  // Génère une clé de cache composite basée sur tous les filtres actifs
-  const generateCacheKey = (query, country, genre) => {
-    const parts = [];
-    if (query) parts.push(`query:${query}`);
-    if (country) parts.push(`country:${country}`);
-    if (genre) parts.push(`genre:${genre}`);
-    return parts.length > 0 ? parts.join('|') : 'top';
-  };
-
-  // Vérifie si une entrée de cache est valide (présente, chargée, pas d'erreur, pas expirée)
-  const isCacheValid = (cacheKey) => {
-    if (!stationsCache.value.has(cacheKey)) {
-      return false;
-    }
-
-    const cached = stationsCache.value.get(cacheKey);
-
-    // Si l'entrée a une erreur ou n'est pas chargée, elle n'est pas valide
-    if (!cached.loaded || cached.error) {
-      return false;
-    }
-
-    // Vérifier l'expiration (TTL)
-    const age = Date.now() - (cached.timestamp || 0);
-    if (age > CACHE_TTL) {
-      console.log(`⏰ Cache expired for "${cacheKey}" (age: ${Math.round(age / 1000)}s)`);
-      return false;
-    }
-
-    return true;
-  };
-
-  // Clé du cache actuel
-  const currentCacheKey = computed(() => {
-    return generateCacheKey(searchQuery.value, countryFilter.value, genreFilter.value);
-  });
-
-  // Stations actuelles (toutes celles du cache, pas encore slicées)
-  const currentStations = computed(() => {
-    const cacheEntry = stationsCache.value.get(currentCacheKey.value);
-    return cacheEntry?.stations || [];
-  });
-
-  // Total de stations disponibles (depuis le backend)
-  const totalStations = computed(() => {
-    const cacheEntry = stationsCache.value.get(currentCacheKey.value);
-    return cacheEntry?.total || 0;
-  });
+  // Total de stations disponibles
+  const totalStations = computed(() => currentTotal.value);
 
   // Stations affichées (accumulées progressivement)
-  const displayedStations = computed(() => {
-    return visibleStations.value;
-  });
+  const displayedStations = computed(() => visibleStations.value);
 
   // Y a-t-il plus de stations à afficher ?
   const hasMoreStations = computed(() => {
@@ -96,75 +44,37 @@ export const useRadioStore = defineStore('radio', () => {
     return Math.max(0, currentStations.value.length - visibleStations.value.length);
   });
 
-  // Stations favorites (depuis cache dédié)
-  const favoriteStations = computed(() => {
-    return favoritesCache.value.stations
+  // Stations favorites triées
+  const sortedFavorites = computed(() => {
+    return favoriteStations.value
       .filter(s => s.is_favorite)
       .sort((a, b) => a.name.localeCompare(b.name));
-  });
-
-  // État d'erreur du cache actuel
-  const hasError = computed(() => {
-    const cacheEntry = stationsCache.value.get(currentCacheKey.value);
-    return cacheEntry?.error || false;
   });
 
   // === ACTIONS ===
 
   /**
    * Charge les stations selon les filtres actifs
-   * Utilise le cache si valide (pas expiré, pas d'erreur)
+   * Fait toujours un appel API (pas de cache)
    */
-  async function loadStations(favoritesOnly = false, forceRefresh = false) {
+  async function loadStations(favoritesOnly = false) {
     if (favoritesOnly) {
-      // Gestion des favoris (cache séparé)
-      if (!forceRefresh && favoritesCache.value.loaded && !favoritesCache.value.error) {
-        const age = Date.now() - (favoritesCache.value.timestamp || 0);
-        if (age < CACHE_TTL) {
-          console.log('📻 Using cached favorites');
-          return true;
-        }
-      }
-
+      // Charger les favoris
       loading.value = true;
       try {
         const response = await axios.get('/api/radio/stations', {
           params: { limit: 10000, favorites_only: true }
         });
 
-        favoritesCache.value = {
-          stations: response.data.stations,
-          total: response.data.total,
-          loaded: true,
-          error: false,
-          lastSync: Date.now(),
-          timestamp: Date.now()
-        };
-
+        favoriteStations.value = response.data.stations;
         console.log(`✅ Loaded ${response.data.stations.length} favorites`);
         return true;
       } catch (error) {
         console.error('❌ Error loading favorites:', error);
-
-        // Marquer comme erreur dans le cache
-        favoritesCache.value.error = true;
-        favoritesCache.value.loaded = false;
-
         return false;
       } finally {
         loading.value = false;
       }
-    }
-
-    // Charger stations normales avec cache composite
-    const cacheKey = currentCacheKey.value;
-
-    // Vérifier si le cache est valide (pas expiré, pas d'erreur)
-    if (!forceRefresh && isCacheValid(cacheKey)) {
-      console.log(`📻 Using cached stations for: "${cacheKey}"`);
-      // Réinitialiser les stations visibles avec les 40 premières
-      visibleStations.value = currentStations.value.slice(0, 40);
-      return true;
     }
 
     // Annuler la requête précédente si elle existe
@@ -189,17 +99,12 @@ export const useRadioStore = defineStore('radio', () => {
       if (countryFilter.value) params.country = countryFilter.value;
       if (genreFilter.value) params.genre = genreFilter.value;
 
-      console.log(`📻 Fetching stations from API - Key: "${cacheKey}"`);
+      console.log(`📻 Fetching stations from API`);
       const response = await axios.get('/api/radio/stations', { params, signal });
 
-      // Stocker dans le cache avec la clé composite + timestamp + état
-      stationsCache.value.set(cacheKey, {
-        stations: response.data.stations,
-        total: response.data.total,
-        loaded: true,
-        error: false,
-        timestamp: Date.now()
-      });
+      // Stocker les stations
+      currentStations.value = response.data.stations;
+      currentTotal.value = response.data.total;
 
       // Initialiser les stations visibles avec les 40 premières
       visibleStations.value = response.data.stations.slice(0, 40);
@@ -214,16 +119,9 @@ export const useRadioStore = defineStore('radio', () => {
       }
 
       console.error('❌ Error loading stations:', error);
-
-      // Stocker l'erreur dans le cache pour éviter de retenter immédiatement
-      stationsCache.value.set(cacheKey, {
-        stations: [],
-        total: 0,
-        loaded: false,
-        error: true,
-        timestamp: Date.now()
-      });
-
+      currentStations.value = [];
+      currentTotal.value = 0;
+      visibleStations.value = [];
       return false;
     } finally {
       loading.value = false;
@@ -252,8 +150,6 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function playStation(stationId) {
     try {
-      // SIMPLIFIÉ: Pas d'optimistic update - faire confiance au backend
-      // L'état de buffering sera synchronisé via WebSocket (metadata.buffering)
       const response = await axios.post('/api/radio/play', { station_id: stationId });
       return response.data.success;
     } catch (error) {
@@ -264,8 +160,6 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function stopPlayback() {
     try {
-      // SIMPLIFIÉ: Pas d'optimistic update - faire confiance au backend
-      // L'état sera synchronisé via WebSocket
       const response = await axios.post('/api/radio/stop');
       return response.data.success;
     } catch (error) {
@@ -276,31 +170,28 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function addFavorite(stationId) {
     try {
-      // Trouver l'objet station complet (qui a le bon favicon après déduplication)
+      // Trouver l'objet station complet
       let station = null;
 
-      // Chercher dans visibleStations (recherche en cours)
+      // Chercher dans visibleStations
       station = visibleStations.value.find(s => s.id === stationId);
 
-      // Si pas trouvée, chercher dans currentStation (en cours de lecture)
+      // Si pas trouvée, chercher dans currentStation
       if (!station && currentStation.value?.id === stationId) {
         station = currentStation.value;
       }
 
-      // Si pas trouvée, chercher dans le cache des favoris
+      // Si pas trouvée, chercher dans favoriteStations
       if (!station) {
-        station = favoritesCache.value.stations.find(s => s.id === stationId);
+        station = favoriteStations.value.find(s => s.id === stationId);
       }
 
-      // Si pas trouvée, chercher dans tous les caches
+      // Si pas trouvée, chercher dans currentStations
       if (!station) {
-        for (const cached of stationsCache.value.values()) {
-          station = cached.stations.find(s => s.id === stationId);
-          if (station) break;
-        }
+        station = currentStations.value.find(s => s.id === stationId);
       }
 
-      // Envoyer la station complète avec le bon favicon (ou juste l'ID si non trouvée)
+      // Envoyer la station complète (ou juste l'ID si non trouvée)
       const payload = station
         ? { station_id: stationId, station: station }
         : { station_id: stationId };
@@ -315,7 +206,6 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function removeFavorite(stationId) {
     try {
-      // SIMPLIFIÉ: L'état sera synchronisé via WebSocket
       const response = await axios.post('/api/radio/favorites/remove', { station_id: stationId });
       return response.data.success;
     } catch (error) {
@@ -325,15 +215,13 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   async function toggleFavorite(stationId) {
-    // Chercher d'abord dans les stations actuelles
+    // Chercher la station
     let station = currentStations.value.find(s => s.id === stationId);
 
-    // Sinon dans les stations visibles
     if (!station) {
       station = visibleStations.value.find(s => s.id === stationId);
     }
 
-    // Sinon utiliser currentStation si c'est la bonne
     if (!station && currentStation.value?.id === stationId) {
       station = currentStation.value;
     }
@@ -358,12 +246,8 @@ export const useRadioStore = defineStore('radio', () => {
         // Retirer de visibleStations
         visibleStations.value = visibleStations.value.filter(s => s.id !== stationId);
 
-        // Retirer de tous les caches
-        stationsCache.value.forEach((cacheEntry) => {
-          if (cacheEntry.stations) {
-            cacheEntry.stations = cacheEntry.stations.filter(s => s.id !== stationId);
-          }
-        });
+        // Retirer de currentStations
+        currentStations.value = currentStations.value.filter(s => s.id !== stationId);
 
         return true;
       }
@@ -391,19 +275,8 @@ export const useRadioStore = defineStore('radio', () => {
   async function addCustomStation(stationData) {
     /**
      * Ajoute une station personnalisée avec upload d'image
-     *
-     * @param {Object} stationData - Données de la station
-     * @param {string} stationData.name - Nom de la station
-     * @param {string} stationData.url - URL du flux audio
-     * @param {string} stationData.country - Pays (défaut: "France")
-     * @param {string} stationData.genre - Genre (défaut: "Variety")
-     * @param {File} stationData.image - Fichier image (optionnel)
-     * @param {number} stationData.bitrate - Bitrate (défaut: 128)
-     * @param {string} stationData.codec - Codec (défaut: "MP3")
-     * @returns {Promise<{success: boolean, station?: Object, error?: string}>}
      */
     try {
-      // Créer un FormData pour l'upload multipart/form-data
       const formData = new FormData();
       formData.append('name', stationData.name);
       formData.append('url', stationData.url);
@@ -412,7 +285,6 @@ export const useRadioStore = defineStore('radio', () => {
       formData.append('bitrate', stationData.bitrate || 128);
       formData.append('codec', stationData.codec || 'MP3');
 
-      // Ajouter l'image si fournie
       if (stationData.image) {
         formData.append('image', stationData.image);
       }
@@ -426,11 +298,6 @@ export const useRadioStore = defineStore('radio', () => {
       if (response.data.success) {
         const newStation = response.data.station;
         console.log('📻 Station personnalisée ajoutée:', newStation);
-
-        // Invalider tous les caches pour forcer un reload
-        stationsCache.value.clear();
-        favoritesCache.value.loaded = false;
-
         return { success: true, station: newStation };
       } else {
         return { success: false, error: response.data.error || 'Échec ajout station' };
@@ -449,12 +316,9 @@ export const useRadioStore = defineStore('radio', () => {
       if (response.data.success) {
         console.log('📻 Station personnalisée supprimée:', stationId);
 
-        // Retirer de visibleStations
+        // Retirer de visibleStations et currentStations
         visibleStations.value = visibleStations.value.filter(s => s.id !== stationId);
-
-        // Invalider tous les caches pour forcer un reload
-        stationsCache.value.clear();
-        favoritesCache.value.loaded = false;
+        currentStations.value = currentStations.value.filter(s => s.id !== stationId);
 
         return true;
       }
@@ -468,9 +332,6 @@ export const useRadioStore = defineStore('radio', () => {
   async function removeStationImage(stationId) {
     /**
      * Supprime l'image importée d'une station
-     *
-     * @param {string} stationId - ID de la station
-     * @returns {Promise<{success: boolean, station?: Object, error?: string}>}
      */
     try {
       const formData = new FormData();
@@ -492,15 +353,11 @@ export const useRadioStore = defineStore('radio', () => {
           visibleStations.value[visibleIndex] = updatedStation;
         }
 
-        // Mettre à jour dans tous les caches
-        stationsCache.value.forEach((cacheEntry) => {
-          if (cacheEntry.stations) {
-            const index = cacheEntry.stations.findIndex(s => s.id === stationId);
-            if (index !== -1) {
-              cacheEntry.stations[index] = updatedStation;
-            }
-          }
-        });
+        // Mettre à jour dans currentStations
+        const currentIndex = currentStations.value.findIndex(s => s.id === stationId);
+        if (currentIndex !== -1) {
+          currentStations.value[currentIndex] = updatedStation;
+        }
 
         return { success: true, station: updatedStation };
       } else {
@@ -514,19 +371,14 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   function updateFromWebSocket(metadata) {
-    // SIMPLIFIÉ: Synchronisation directe depuis le backend (source de vérité)
-
     // Mise à jour depuis le WebSocket (via unifiedAudioStore)
     if (metadata.station_id) {
-      // Chercher la station dans tous les caches
-      let station = null;
-
-      // Chercher dans le cache actuel
-      station = currentStations.value.find(s => s.id === metadata.station_id);
+      // Chercher la station dans les stations actuelles
+      let station = currentStations.value.find(s => s.id === metadata.station_id);
 
       // Sinon, chercher dans les favoris
       if (!station) {
-        station = favoritesCache.value.stations.find(s => s.id === metadata.station_id);
+        station = favoriteStations.value.find(s => s.id === metadata.station_id);
       }
 
       if (station) {
@@ -543,37 +395,20 @@ export const useRadioStore = defineStore('radio', () => {
         };
       }
     } else {
-      // Pas de station en cours (plugin en mode READY)
+      // Pas de station en cours
       currentStation.value = null;
     }
-
-    // NOTE: isPlaying est maintenant géré par unifiedAudioStore.metadata.is_playing
-    // NOTE: buffering est maintenant géré par unifiedAudioStore.metadata.buffering
   }
 
   async function handleFavoriteEvent(stationId, isFavorite) {
-    // Synchroniser le statut favori depuis le backend (source de vérité)
+    // Synchroniser le statut favori depuis le backend
     console.log(`🔄 Syncing favorite status: ${stationId} = ${isFavorite}`);
 
-    // Mettre à jour dans TOUS les caches
-    const updateInCache = (cacheEntry) => {
-      if (cacheEntry && Array.isArray(cacheEntry.stations)) {
-        const station = cacheEntry.stations.find(s => s.id === stationId);
-        if (station) {
-          station.is_favorite = isFavorite;
-          return true;
-        }
-      }
-      return false;
-    };
-
-    // Mettre à jour dans tous les caches de stations
-    stationsCache.value.forEach((cacheEntry) => {
-      updateInCache(cacheEntry);
-    });
-
-    // Mettre à jour dans les favoris
-    updateInCache(favoritesCache.value);
+    // Mettre à jour dans currentStations
+    const currentStationObj = currentStations.value.find(s => s.id === stationId);
+    if (currentStationObj) {
+      currentStationObj.is_favorite = isFavorite;
+    }
 
     // Mettre à jour dans visibleStations
     const visibleStation = visibleStations.value.find(s => s.id === stationId);
@@ -581,10 +416,16 @@ export const useRadioStore = defineStore('radio', () => {
       visibleStation.is_favorite = isFavorite;
     }
 
-    // Si ajout aux favoris et pas déjà dans le cache favorites, recharger
-    if (isFavorite && !favoritesCache.value.stations.find(s => s.id === stationId)) {
-      console.log('📻 New favorite added, reloading favorites cache');
-      await loadStations(true, true); // forceRefresh
+    // Mettre à jour dans favoriteStations
+    const favoriteStation = favoriteStations.value.find(s => s.id === stationId);
+    if (favoriteStation) {
+      favoriteStation.is_favorite = isFavorite;
+    }
+
+    // Si ajout aux favoris, recharger les favoris
+    if (isFavorite && !favoriteStation) {
+      console.log('📻 New favorite added, reloading favorites');
+      await loadStations(true);
     }
 
     // Mettre à jour currentStation si c'est celle-ci
@@ -601,15 +442,13 @@ export const useRadioStore = defineStore('radio', () => {
     countryFilter,
     genreFilter,
 
-    // Getters (valeurs calculées)
-    currentCacheKey,
+    // Getters
     currentStations,
     totalStations,
     displayedStations,
     hasMoreStations,
     remainingStations,
-    favoriteStations,
-    hasError,
+    favoriteStations: sortedFavorites,
 
     // Actions
     loadStations,
