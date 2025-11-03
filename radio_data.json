@@ -27,11 +27,12 @@
       "name": "FIP Groove",
       "country": "France",
       "genre": "aac",
-      "favicon": "",
+      "favicon": "/api/radio/images/6c71950a85f3.jpg",
       "url": "",
       "bitrate": 0,
       "codec": "Unknown",
-      "is_favorite": true
+      "is_favorite": true,
+      "image_filename": "6c71950a85f3.jpg"
     },
     {
       "id": "94d42cb6-14ea-48cd-9523-6c3ee2ded1a2",
@@ -199,7 +200,7 @@
       "votes": 6,
       "clickcount": 4,
       "score": 10,
-      "is_favorite": false
+      "is_favorite": true
     }
   ],
   "broken_stations": [

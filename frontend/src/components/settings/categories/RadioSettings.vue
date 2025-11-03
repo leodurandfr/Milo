@@ -103,7 +103,7 @@
     </div>
 
     <!-- Aucune station -->
-    <div v-if="customStations.length === 0 && stationsWithCustomImages.length === 0" class="radio-group">
+    <div v-if="customStations.length === 0" class="radio-group">
       <div class="empty-state text-mono">
         Aucune station personnalisée. Cliquez sur "Ajouter une station" pour commencer.
       </div>
@@ -152,17 +152,19 @@ const stationToDelete = ref(null);
 const stationToRemoveImage = ref(null);
 
 // Listes locales chargées depuis l'API
-const stationsWithCustomImages = ref([]);
 const customStations = ref([]);
+const favoriteStations = ref([]);
 
-// Stations existantes (Radio Browser API) avec image modifiée
+// Stations favorites avec image modifiée (non-custom)
 const existingStationsWithModifiedImage = computed(() => {
-  return stationsWithCustomImages.value.filter(s => !s.is_custom);
+  return favoriteStations.value.filter(s =>
+    s.image_filename && !s.id.startsWith('custom_')
+  );
 });
 
 // Stations personnalisées avec image
 const customStationsWithImage = computed(() => {
-  return stationsWithCustomImages.value.filter(s => s.is_custom);
+  return customStations.value.filter(s => s.image_filename);
 });
 
 // Stations personnalisées sans image uploadée
@@ -171,15 +173,6 @@ const customStationsWithoutImage = computed(() => {
 });
 
 async function loadCustomStations() {
-  // Charger les stations avec images modifiées depuis l'endpoint dédié
-  try {
-    const imagesResponse = await axios.get('/api/radio/stations-with-images');
-    stationsWithCustomImages.value = imagesResponse.data;
-  } catch (error) {
-    console.error('Erreur chargement stations avec images:', error);
-    stationsWithCustomImages.value = [];
-  }
-
   // Charger les stations personnalisées
   try {
     const customResponse = await axios.get('/api/radio/custom');
@@ -187,6 +180,17 @@ async function loadCustomStations() {
   } catch (error) {
     console.error('Erreur chargement stations personnalisées:', error);
     customStations.value = [];
+  }
+
+  // Charger les stations favorites pour voir celles avec images modifiées
+  try {
+    const favoritesResponse = await axios.get('/api/radio/stations', {
+      params: { favorites_only: true, limit: 10000 }
+    });
+    favoriteStations.value = favoritesResponse.data.stations;
+  } catch (error) {
+    console.error('Erreur chargement favoris:', error);
+    favoriteStations.value = [];
   }
 }
 

@@ -548,10 +548,10 @@ async def update_station_image(
     image: UploadFile = File(...)
 ):
     """
-    Met à jour l'image d'une station personnalisée
+    Met à jour l'image d'une station favorite
 
     Args:
-        station_id: ID de la station (doit être une custom station)
+        station_id: ID de la station (doit être une station favorite)
         image: Nouveau fichier image (max 10MB, formats: JPG, PNG, WEBP, GIF)
 
     Returns:
@@ -560,17 +560,12 @@ async def update_station_image(
     try:
         plugin = container.radio_plugin()
 
-        # Vérifier que c'est une custom station
-        if not station_id.startswith("custom_"):
+        # Vérifier que c'est une station favorite
+        if not plugin.station_manager.is_favorite(station_id):
             raise HTTPException(
                 status_code=400,
-                detail="Cette route fonctionne uniquement avec les stations personnalisées"
+                detail="Seules les stations favorites peuvent avoir leur image modifiée"
             )
-
-        # Vérifier que la station existe
-        station = plugin.station_manager.get_custom_station_by_id(station_id)
-        if not station:
-            raise HTTPException(status_code=404, detail=f"Station {station_id} introuvable")
 
         # Lire et valider la nouvelle image
         if not image or not image.filename:
@@ -590,25 +585,15 @@ async def update_station_image(
                 detail=f"Erreur image: {error}"
             )
 
-        # Supprimer l'ancienne image si elle existe
-        old_image_filename = station.get('image_filename')
-        if old_image_filename:
-            await plugin.station_manager.image_manager.delete_image(old_image_filename)
+        # Mettre à jour l'image du favori
+        update_success = await plugin.station_manager.update_favorite_image(station_id, saved_filename)
 
-        # Mettre à jour la station
-        station['favicon'] = f"/api/radio/images/{saved_filename}"
-        station['image_filename'] = saved_filename
+        if not update_success:
+            raise HTTPException(status_code=500, detail="Échec de la mise à jour de l'image")
 
-        # Trouver et mettre à jour la station dans la liste
-        custom_stations = plugin.station_manager.get_custom_stations()
-        for custom_station in custom_stations:
-            if custom_station['id'] == station_id:
-                custom_station['favicon'] = station['favicon']
-                custom_station['image_filename'] = saved_filename
-                break
-
-        # Sauvegarder
-        await plugin.station_manager._save_custom_stations()
+        # Récupérer la station mise à jour
+        favorites = plugin.station_manager.get_favorites_with_metadata()
+        station = next((f for f in favorites if f.get('id') == station_id), None)
 
         return {
             "success": True,
@@ -627,10 +612,10 @@ async def remove_station_image(
     station_id: str = Form(...)
 ):
     """
-    Supprime l'image d'une station personnalisée
+    Supprime l'image d'une station favorite
 
     Args:
-        station_id: ID de la station (doit être une custom station)
+        station_id: ID de la station (doit être une station favorite)
 
     Returns:
         La station mise à jour sans image
@@ -638,40 +623,22 @@ async def remove_station_image(
     try:
         plugin = container.radio_plugin()
 
-        # Vérifier que c'est une custom station
-        if not station_id.startswith("custom_"):
+        # Vérifier que c'est une station favorite
+        if not plugin.station_manager.is_favorite(station_id):
             raise HTTPException(
                 status_code=400,
-                detail="Cette route fonctionne uniquement avec les stations personnalisées"
+                detail="Seules les stations favorites peuvent avoir leur image modifiée"
             )
 
-        # Vérifier que la station existe
-        station = plugin.station_manager.get_custom_station_by_id(station_id)
-        if not station:
-            raise HTTPException(status_code=404, detail=f"Station {station_id} introuvable")
+        # Supprimer l'image du favori
+        remove_success = await plugin.station_manager.remove_favorite_image(station_id)
 
-        # Vérifier qu'une image existe
-        image_filename = station.get('image_filename')
-        if not image_filename:
-            raise HTTPException(status_code=400, detail="Cette station n'a pas d'image")
+        if not remove_success:
+            raise HTTPException(status_code=500, detail="Échec de la suppression de l'image")
 
-        # Supprimer le fichier image
-        await plugin.station_manager.image_manager.delete_image(image_filename)
-
-        # Mettre à jour la station
-        station['favicon'] = ""
-        station['image_filename'] = ""
-
-        # Mettre à jour dans la liste
-        custom_stations = plugin.station_manager.get_custom_stations()
-        for custom_station in custom_stations:
-            if custom_station['id'] == station_id:
-                custom_station['favicon'] = ""
-                custom_station['image_filename'] = ""
-                break
-
-        # Sauvegarder
-        await plugin.station_manager._save_custom_stations()
+        # Récupérer la station mise à jour
+        favorites = plugin.station_manager.get_favorites_with_metadata()
+        station = next((f for f in favorites if f.get('id') == station_id), None)
 
         return {
             "success": True,
