@@ -1,90 +1,85 @@
 <template>
-  <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal-container">
-      <ModalHeader title="Changer l'image" :show-back="true" variant="neutral" @back="$emit('close')">
-      </ModalHeader>
+  <section class="settings-section">
+    <form @submit.prevent="handleSubmit" class="change-image-form">
+        <!-- Nom de la station (recherche) -->
+        <div class="form-group">
+          <label class="text-mono">Nom exact de la station *</label>
+          <input v-model="stationName" type="text" required class="form-input text-body-small"
+            placeholder="Ex: RTL" @input="searchStation" />
+          <p v-if="searchResult === 'searching'" class="search-info text-mono">Recherche...</p>
+          <p v-else-if="searchResult === 'found'" class="search-info success text-mono">✅ Station trouvée</p>
+          <p v-else-if="searchResult === 'not_found'" class="search-info error text-mono">❌ Station introuvable</p>
+        </div>
 
-      <div class="modal-content">
-        <form @submit.prevent="handleSubmit" class="change-image-form">
-          <!-- Nom de la station (recherche) -->
-          <div class="form-section">
-            <label class="form-label text-body">Nom exact de la station *</label>
-            <input v-model="stationName" type="text" required class="form-input text-body-small"
-              placeholder="Ex: RTL" @input="searchStation" />
-            <p v-if="searchResult === 'searching'" class="search-info text-mono">Recherche...</p>
-            <p v-else-if="searchResult === 'found'" class="search-info success text-mono">✅ Station trouvée</p>
-            <p v-else-if="searchResult === 'not_found'" class="search-info error text-mono">❌ Station introuvable</p>
-          </div>
-
-          <!-- Image actuelle (si trouvée) -->
-          <div v-if="foundStation" class="current-image-section">
-            <label class="form-label text-body">Image actuelle</label>
-            <div class="current-image-preview">
-              <img v-if="foundStation.favicon" :src="foundStation.favicon" alt="Image actuelle"
-                class="current-img" />
-              <div v-else class="no-image">📻 Aucune image</div>
+        <!-- Image actuelle (si trouvée) -->
+        <div v-if="foundStation" class="current-image-section">
+          <label class="text-mono">Image actuelle</label>
+          <div class="current-image-preview">
+            <img v-if="foundStation.favicon" :src="foundStation.favicon" alt="Image actuelle"
+              class="current-img" />
+            <div v-else class="no-image">
+              <img :src="placeholderImg" alt="Station sans image" style="width: 100%; height: 100%; object-fit: cover;" />
             </div>
           </div>
+        </div>
 
-          <!-- Nouvelle image -->
-          <div class="form-section">
-            <label class="form-label text-body">Nouvelle image *</label>
-            <div class="image-upload-container">
-              <!-- Preview -->
-              <div class="image-preview" :class="{ 'has-image': imagePreview || selectedFile }">
-                <img v-if="imagePreview" :src="imagePreview" alt="Aperçu" class="preview-img" />
-                <div v-else class="preview-placeholder">
-                  <span class="placeholder-icon">📷</span>
-                  <p class="text-mono">Cliquez pour choisir</p>
-                </div>
-
-                <!-- Remove button if image selected -->
-                <button v-if="selectedFile" type="button" class="remove-image-btn" @click="removeImage">
-                  ✕
-                </button>
+        <!-- Nouvelle image -->
+        <div class="form-group">
+          <label class="text-mono">Nouvelle image *</label>
+          <div class="image-upload-container">
+            <!-- Preview -->
+            <div class="image-preview" :class="{ 'has-image': imagePreview || selectedFile }">
+              <img v-if="imagePreview" :src="imagePreview" alt="Aperçu" class="preview-img" />
+              <div v-else class="preview-placeholder">
+                <span class="placeholder-icon">📷</span>
+                <p class="text-mono">Cliquez pour choisir</p>
               </div>
 
-              <!-- Hidden file input -->
-              <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif"
-                @change="handleFileSelect" class="file-input" />
-
-              <!-- Click zone -->
-              <button type="button" class="upload-btn" @click="$refs.fileInput.click()">
-                {{ selectedFile ? 'Changer l\'image' : 'Choisir une image' }}
+              <!-- Remove button if image selected -->
+              <button v-if="selectedFile" type="button" class="remove-image-btn" @click="removeImage">
+                ✕
               </button>
-
-              <p class="file-info text-mono">JPG, PNG, WEBP, GIF - Max 10MB</p>
             </div>
-          </div>
 
-          <!-- Error Message -->
-          <div v-if="errorMessage" class="error-message text-body-small">
-            ❌ {{ errorMessage }}
-          </div>
+            <!-- Hidden file input -->
+            <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+              @change="handleFileSelect" class="file-input" />
 
-          <!-- Actions -->
-          <div class="form-actions">
-            <button type="button" class="btn-secondary" @click="$emit('close')" :disabled="isSubmitting">
-              Annuler
+            <!-- Click zone -->
+            <button type="button" class="upload-btn" @click="$refs.fileInput.click()">
+              {{ selectedFile ? 'Changer l\'image' : 'Choisir une image' }}
             </button>
-            <button type="submit" class="btn-primary"
-              :disabled="isSubmitting || !foundStation || !selectedFile">
-              {{ isSubmitting ? 'Modification en cours...' : 'Changer l\'image' }}
-            </button>
+
+            <p class="file-info text-mono">JPG, PNG, WEBP, GIF - Max 10MB</p>
           </div>
-        </form>
-      </div>
-    </div>
-  </div>
+        </div>
+
+        <!-- Error Message -->
+        <div v-if="errorMessage" class="error-message text-mono">
+          ❌ {{ errorMessage }}
+        </div>
+
+        <!-- Actions -->
+        <div class="form-actions">
+          <Button variant="secondary" @click="$emit('back')" :disabled="isSubmitting">
+            Annuler
+          </Button>
+          <Button variant="primary" type="submit" :disabled="isSubmitting || !foundStation || !selectedFile">
+            {{ isSubmitting ? 'Modification en cours...' : 'Changer l\'image' }}
+          </Button>
+        </div>
+      </form>
+  </section>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref } from 'vue';
 import { useRadioStore } from '@/stores/radioStore';
-import ModalHeader from '@/components/ui/ModalHeader.vue';
+import Button from '@/components/ui/Button.vue';
 import axios from 'axios';
+import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
-const emit = defineEmits(['close', 'success']);
+const emit = defineEmits(['back', 'success']);
 const radioStore = useRadioStore();
 
 const fileInput = ref(null);
@@ -121,7 +116,7 @@ async function searchStation() {
         }
       });
 
-      const exactMatch = response.data.find(
+      const exactMatch = response.data.stations.find(
         s => s.name.toLowerCase() === stationName.value.trim().toLowerCase()
       );
 
@@ -200,7 +195,7 @@ async function handleSubmit() {
     if (response.data.success) {
       console.log('✅ Image modifiée avec succès');
       emit('success', response.data.station);
-      emit('close');
+      emit('back');
     } else {
       errorMessage.value = response.data.error || 'Échec de la modification';
     }
@@ -214,52 +209,10 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 5001;
-  padding: var(--space-04);
-}
-
-.modal-container {
-  background: var(--color-background-neutral-50);
-  border-radius: var(--radius-07);
-  width: 100%;
-  max-width: 500px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-}
-
-.modal-container::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 2px;
-  opacity: 0.8;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-07);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: -1;
-  pointer-events: none;
-}
-
-.modal-content {
-  overflow-y: auto;
-  padding: var(--space-04);
-  min-height: 0;
+.settings-section {
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
+  padding: var(--space-05-fixed) var(--space-05);
 }
 
 .change-image-form {
@@ -268,21 +221,20 @@ async function handleSubmit() {
   gap: var(--space-04);
 }
 
-.form-section {
+.form-group {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
 }
 
-.form-label {
-  color: var(--color-text);
-  font-weight: 500;
+.form-group label {
+  color: var(--color-text-secondary);
 }
 
 .form-input {
-  padding: var(--space-03) var(--space-04);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-04);
+  padding: var(--space-02) var(--space-03);
+  border: 2px solid var(--color-background-glass);
+  border-radius: var(--radius-03);
   background: var(--color-background-neutral);
   color: var(--color-text);
   transition: border-color var(--transition-fast);
@@ -303,7 +255,7 @@ async function handleSubmit() {
 }
 
 .search-info.error {
-  color: #ff4444;
+  color: rgb(244, 67, 54);
 }
 
 /* Current Image */
@@ -313,13 +265,17 @@ async function handleSubmit() {
   gap: var(--space-02);
 }
 
+.current-image-section label {
+  color: var(--color-text-secondary);
+}
+
 .current-image-preview {
   width: 120px;
   height: 120px;
   border-radius: var(--radius-04);
   overflow: hidden;
   background: var(--color-background-neutral);
-  border: 2px solid var(--color-border);
+  border: 2px solid var(--color-background-glass);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -350,7 +306,7 @@ async function handleSubmit() {
   border-radius: var(--radius-05);
   overflow: hidden;
   background: var(--color-background-neutral);
-  border: 2px dashed var(--color-border);
+  border: 2px dashed var(--color-background-glass);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -388,8 +344,8 @@ async function handleSubmit() {
 .upload-btn {
   padding: var(--space-03) var(--space-05);
   background: var(--color-background-neutral);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-04);
+  border: 2px solid var(--color-background-glass);
+  border-radius: var(--radius-03);
   color: var(--color-text);
   font-size: var(--font-size-body);
   cursor: pointer;
@@ -398,6 +354,7 @@ async function handleSubmit() {
 
 .upload-btn:hover {
   background: var(--color-background);
+  border-color: var(--color-brand);
   transform: translateY(-2px);
 }
 
@@ -432,10 +389,10 @@ async function handleSubmit() {
 /* Error Message */
 .error-message {
   padding: var(--space-03);
-  background: rgba(255, 0, 0, 0.1);
-  border: 1px solid rgba(255, 0, 0, 0.3);
+  background: rgba(244, 67, 54, 0.1);
+  border: 2px solid rgba(244, 67, 54, 0.3);
   border-radius: var(--radius-04);
-  color: #ff4444;
+  color: rgb(244, 67, 54);
 }
 
 /* Actions */
@@ -444,45 +401,5 @@ async function handleSubmit() {
   gap: var(--space-03);
   justify-content: flex-end;
   padding-top: var(--space-02);
-}
-
-.btn-primary,
-.btn-secondary {
-  padding: var(--space-03) var(--space-05);
-  border-radius: var(--radius-04);
-  font-size: var(--font-size-body);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  border: none;
-}
-
-.btn-primary {
-  background: var(--color-brand);
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background: var(--color-background-neutral);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--color-background);
-}
-
-.btn-secondary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 </style>
