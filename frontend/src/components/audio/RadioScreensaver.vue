@@ -16,7 +16,7 @@
       <div class="station-art stagger-2">
         <img v-if="currentStation?.favicon" :src="currentStation.favicon" alt="Station logo"
           class="current-station-favicon" @error="handleImageError" />
-        <div class="placeholder-logo" :class="{ visible: !currentStation?.favicon || imageError }">📻</div>
+        <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo" :class="{ visible: !currentStation?.favicon || imageError }" />
       </div>
 
       <!-- Infos de la station (animation stagger 3) -->
@@ -36,6 +36,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { useRadioStore } from '@/stores/radioStore';
+import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const props = defineProps({
   isVisible: {
@@ -262,6 +263,9 @@ watch(() => props.isVisible, (visible) => {
   display: none;
   z-index: 1;
   font-size: 64px;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .placeholder-logo.visible {

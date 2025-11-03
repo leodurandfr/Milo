@@ -8,10 +8,10 @@
           Ajoutez vos propres stations radio avec leur image
         </div>
         <div class="action-buttons">
-          <Button variant="brand" @click="showAddStationModal = true">
+          <Button variant="brand" @click="$emit('go-to-add-station')">
             + Ajouter une station
           </Button>
-          <Button variant="neutral" @click="showChangeImageModal = true">
+          <Button variant="neutral" @click="$emit('go-to-change-image')">
             🖼️ Changer une image
           </Button>
         </div>
@@ -28,7 +28,7 @@
         <div v-for="station in existingStationsWithModifiedImage" :key="station.id" class="station-item modified">
           <div class="station-image">
             <img v-if="station.favicon" :src="station.favicon" :alt="station.name" @error="handleImageError" />
-            <div v-else class="no-image">📻</div>
+            <img v-else :src="placeholderImg" alt="Station sans image" class="no-image" />
           </div>
           <div class="station-info">
             <div class="station-name text-body">{{ station.name }}</div>
@@ -55,7 +55,7 @@
         <div v-for="station in customStationsWithImage" :key="station.id" class="station-item custom">
           <div class="station-image">
             <img v-if="station.favicon" :src="station.favicon" :alt="station.name" @error="handleImageError" />
-            <div v-else class="no-image">📻</div>
+            <img v-else :src="placeholderImg" alt="Station sans image" class="no-image" />
           </div>
           <div class="station-info">
             <div class="station-name text-body">{{ station.name }}</div>
@@ -77,14 +77,14 @@
 
     <!-- Stations personnalisées sans image -->
     <div v-if="customStationsWithoutImage.length > 0" class="radio-group">
-      <h2 class="heading-2 text-body">📻 Stations personnalisées sans image ({{ customStationsWithoutImage.length }})</h2>
+      <h2 class="heading-2 text-body">Stations personnalisées sans image ({{ customStationsWithoutImage.length }})</h2>
       <div class="radio-description text-mono">
         Stations ajoutées manuellement sans image
       </div>
       <div class="stations-list">
         <div v-for="station in customStationsWithoutImage" :key="station.id" class="station-item">
           <div class="station-image">
-            <div class="no-image">📻</div>
+            <img :src="placeholderImg" alt="Station sans image" class="no-image" />
           </div>
           <div class="station-info">
             <div class="station-name text-body">{{ station.name }}</div>
@@ -108,13 +108,6 @@
         Aucune station personnalisée. Cliquez sur "Ajouter une station" pour commencer.
       </div>
     </div>
-
-    <!-- Modals -->
-    <AddStationModal v-if="showAddStationModal" @close="showAddStationModal = false"
-      @success="handleStationAdded" />
-
-    <ChangeImageModal v-if="showChangeImageModal" @close="showChangeImageModal = false"
-      @success="handleImageChanged" />
 
     <!-- Delete Confirmation Modal -->
     <div v-if="stationToDelete" class="modal-overlay" @click.self="stationToDelete = null">
@@ -150,13 +143,11 @@ import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { useRadioStore } from '@/stores/radioStore';
 import Button from '@/components/ui/Button.vue';
-import AddStationModal from '@/components/audio/AddStationModal.vue';
-import ChangeImageModal from '@/components/audio/ChangeImageModal.vue';
+import placeholderImg from '@/assets/radio/station-placeholder.jpg';
+
+defineEmits(['go-to-add-station', 'go-to-change-image']);
 
 const radioStore = useRadioStore();
-
-const showAddStationModal = ref(false);
-const showChangeImageModal = ref(false);
 const stationToDelete = ref(null);
 const stationToRemoveImage = ref(null);
 
@@ -199,15 +190,8 @@ async function loadCustomStations() {
   }
 }
 
-function handleStationAdded(station) {
-  console.log('✅ Station ajoutée:', station);
-  loadCustomStations();
-}
-
-function handleImageChanged(station) {
-  console.log('✅ Image modifiée:', station);
-  loadCustomStations();
-}
+// Exposer loadCustomStations pour que SettingsModal puisse recharger les données
+defineExpose({ loadCustomStations });
 
 function confirmDelete(station) {
   stationToDelete.value = station;
@@ -251,7 +235,12 @@ function handleImageError(event) {
   event.target.style.display = 'none';
   const parent = event.target.parentElement;
   if (parent) {
-    parent.innerHTML = '<div class="no-image">📻</div>';
+    const img = document.createElement('img');
+    img.src = placeholderImg;
+    img.alt = 'Station sans image';
+    img.className = 'no-image';
+    parent.innerHTML = '';
+    parent.appendChild(img);
   }
 }
 
@@ -345,6 +334,9 @@ onMounted(() => {
 .no-image {
   font-size: 32px;
   color: var(--color-text-secondary);
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .station-info {

@@ -674,13 +674,18 @@ class StationManager:
 
     def get_stations_with_images(self) -> List[Dict[str, Any]]:
         """
-        Récupère toutes les stations avec des images modifiées
+        Récupère toutes les stations avec des images modifiées (uploadées manuellement)
 
         Returns:
             Liste des stations avec leurs infos et image_filename
         """
         stations = []
         for station_id, info in self._station_images.items():
+            # Ne retourner que les stations qui ont vraiment une image uploadée localement
+            # (image_filename non vide)
+            if not info.get("image_filename"):
+                continue
+
             station = {
                 "id": station_id,
                 "name": info.get("name", ""),

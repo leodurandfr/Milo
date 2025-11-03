@@ -113,7 +113,19 @@
     <!-- Vue Radio -->
     <div v-else-if="currentView === 'radio'" class="view-detail">
       <ModalHeader title="Radio" show-back @back="goToHome" />
-      <RadioSettings />
+      <RadioSettings ref="radioSettingsRef" @go-to-add-station="goToView('radio-add')" @go-to-change-image="goToView('radio-change-image')" />
+    </div>
+
+    <!-- Vue Radio - Ajouter une station -->
+    <div v-else-if="currentView === 'radio-add'" class="view-detail">
+      <ModalHeader title="Ajouter une station" show-back @back="handleBackFromRadioModal" />
+      <AddStationModal @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
+    </div>
+
+    <!-- Vue Radio - Changer une image -->
+    <div v-else-if="currentView === 'radio-change-image'" class="view-detail">
+      <ModalHeader title="Changer l'image" show-back @back="handleBackFromRadioModal" />
+      <ChangeImageModal @back="handleBackFromRadioModal" @success="handleRadioImageChanged" />
     </div>
 
     <!-- Vue Mises à jour -->
@@ -158,6 +170,8 @@ import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue'
 import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
 import MultiroomSettings from '@/components/settings/categories/MultiroomSettings.vue';
 import RadioSettings from '@/components/settings/categories/RadioSettings.vue';
+import AddStationModal from '@/components/settings/categories/AddStationModal.vue';
+import ChangeImageModal from '@/components/settings/categories/ChangeImageModal.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 
@@ -170,6 +184,7 @@ const unifiedStore = useUnifiedAudioStore();
 
 // Navigation
 const currentView = ref('home');
+const radioSettingsRef = ref(null);
 
 function goToView(view) {
   currentView.value = view;
@@ -177,6 +192,29 @@ function goToView(view) {
 
 function goToHome() {
   currentView.value = 'home';
+}
+
+// Gestion navigation Radio
+function handleBackFromRadioModal() {
+  currentView.value = 'radio';
+}
+
+function handleRadioStationAdded(station) {
+  console.log('✅ Station ajoutée:', station);
+  // Recharger les données de RadioSettings
+  if (radioSettingsRef.value) {
+    radioSettingsRef.value.loadCustomStations();
+  }
+  currentView.value = 'radio';
+}
+
+function handleRadioImageChanged(station) {
+  console.log('✅ Image modifiée:', station);
+  // Recharger les données de RadioSettings
+  if (radioSettingsRef.value) {
+    radioSettingsRef.value.loadCustomStations();
+  }
+  currentView.value = 'radio';
 }
 
 // Placeholder pour grille impaire

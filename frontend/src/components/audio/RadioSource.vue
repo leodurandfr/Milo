@@ -157,7 +157,7 @@
           </div>
 
           <div v-else-if="displayedStations.length === 0 && transitionState === 'idle'" class="empty-list">
-            <div class="empty-icon">📻</div>
+            <div class="empty-icon"><img :src="placeholderImg" alt="Station sans image" /></div>
             <p class="heading-2">{{ isSearchMode ? 'Aucune station trouvée' : 'Aucune radio favorite' }}</p>
           </div>
 
@@ -175,7 +175,7 @@
             }]" @click="playStation(station.id)">
               <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-img"
                 @error="handleStationImageError" />
-              <span class="image-placeholder" :class="{ visible: !station.favicon }">📻</span>
+              <img :src="placeholderImg" alt="Station sans image" class="image-placeholder" :class="{ visible: !station.favicon }" />
 
               <!-- Loading overlay -->
               <div v-if="bufferingStationId === station.id" class="loading-overlay">
@@ -195,7 +195,7 @@
               <div class="station-logo">
                 <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-favicon"
                   @error="handleStationImageError" />
-                <span class="logo-placeholder" :class="{ visible: !station.favicon }">📻</span>
+                <img :src="placeholderImg" alt="Station sans image" class="logo-placeholder" :class="{ visible: !station.favicon }" />
               </div>
 
               <div class="station-details">
@@ -235,7 +235,7 @@
       <div class="station-art">
         <img v-if="radioStore.currentStation.favicon" :src="getFaviconUrl(radioStore.currentStation.favicon)"
           alt="Station logo" class="current-station-favicon" @error="handleCurrentStationImageError" />
-        <div class="placeholder-logo" :class="{ visible: !radioStore.currentStation.favicon }">📻</div>
+        <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo" :class="{ visible: !radioStore.currentStation.favicon }" />
       </div>
 
       <div class="station-info">
@@ -263,8 +263,9 @@ import useWebSocket from '@/services/websocket';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
-import AddStationModal from '@/components/audio/AddStationModal.vue';
+import AddStationModal from '@/components/settings/categories/AddStationModal.vue';
 import Button from '@/components/ui/Button.vue';
+import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const radioStore = useRadioStore();
 const unifiedStore = useUnifiedAudioStore();
@@ -815,6 +816,13 @@ onBeforeUnmount(() => {
   opacity: 0.5;
 }
 
+.empty-icon img {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  opacity: 0.5;
+}
+
 .stations-grid {
   display: grid;
   padding-bottom: var(--space-04);
@@ -876,6 +884,9 @@ onBeforeUnmount(() => {
   font-size: 48px;
   display: none;
   z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .station-image .image-placeholder.visible {
@@ -938,6 +949,9 @@ onBeforeUnmount(() => {
   transform: translate(-50%, -50%);
   font-size: 32px;
   display: none;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .logo-placeholder.visible {
@@ -1062,6 +1076,9 @@ onBeforeUnmount(() => {
 .now-playing .placeholder-logo {
   display: none;
   z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .now-playing .placeholder-logo.visible {
@@ -1157,9 +1174,6 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-05);
 }
 
-.now-playing .placeholder-logo {
-  font-size: 64px;
-}
 
 .now-playing .station-info {
   display: flex;
@@ -1327,9 +1341,6 @@ onBeforeUnmount(() => {
     border-radius: var(--radius-03);
   }
 
-  .now-playing .placeholder-logo {
-    font-size: 32px;
-  }
 
   .now-playing .station-info {
     flex: 1;
