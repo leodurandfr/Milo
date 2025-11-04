@@ -5,25 +5,25 @@
         @pointerup="handlePointerUp" @pointercancel="handlePointerUp">
 
         <!-- ModalHeader : Vue Favoris -->
-        <ModalHeader v-if="!isSearchMode" title="Radios préférées" variant="neutral" icon="radio">
+        <ModalHeader v-if="!isSearchMode" :title="t('audioSources.radioSource.favoritesTitle')" variant="neutral" icon="radio">
           <template #actions>
             <CircularIcon icon="search" variant="light" @click="openSearch" />
           </template>
         </ModalHeader>
 
         <!-- ModalHeader : Vue Recherche -->
-        <ModalHeader v-else title="Découvrir des radios" :show-back="true" variant="neutral" @back="closeSearch">
+        <ModalHeader v-else :title="t('audioSources.radioSource.discoverTitle')" :show-back="true" variant="neutral" @back="closeSearch">
         </ModalHeader>
 
         <!-- Recherche et filtres (visible uniquement en mode recherche) -->
         <div v-if="isSearchMode" class="search-section">
           <div class="filters">
-            <InputText v-model="radioStore.searchQuery" placeholder="Rechercher..."
+            <InputText v-model="radioStore.searchQuery" :placeholder="t('audioSources.radioSource.searchPlaceholder')"
               input-class="filter-input search-input text-body-small" @update:modelValue="handleSearch" />
             <select v-model="radioStore.countryFilter" class="filter-input filter-select text-body-small"
               @change="handleSearch">
-              <option value="">Tous les pays</option>
-              <option v-if="availableCountries.length === 0" disabled>Chargement des pays...</option>
+              <option value="">{{ t('audioSources.radioSource.allCountries') }}</option>
+              <option v-if="availableCountries.length === 0" disabled>{{ t('audioSources.radioSource.loadingCountries') }}</option>
               <option v-for="country in availableCountries" :key="country.name" :value="country.name">
                 {{ country.name }}
               </option>
@@ -31,7 +31,7 @@
 
             <select v-model="radioStore.genreFilter" class="filter-input filter-select text-body-small"
               @change="handleSearch">
-              <option value="">Tous les genres</option>
+              <option value="">{{ t('audioSources.radioSource.allGenres') }}</option>
               <option value="pop">Pop</option>
               <option value="rock">Rock</option>
               <option value="news">News</option>
@@ -140,24 +140,24 @@
         <!-- Liste des stations -->
         <div class="stations-list">
           <div v-if="transitionState === 'loading'" class="loading-state">
-            <p>Chargement des stations...</p>
+            <p>{{ t('audioSources.radioSource.loadingStations') }}</p>
           </div>
 
           <!-- Message d'erreur avec bouton réessayer -->
           <div v-else-if="radioStore.hasError && displayedStations.length === 0 && transitionState === 'idle'"
             class="error-state">
             <div class="error-icon">⚠️</div>
-            <p class="heading-2">Erreur de connexion</p>
-            <p class="text-body-small" style="color: var(--color-text-secondary);">Impossible de charger les stations
+            <p class="heading-2">{{ t('audioSources.radioSource.connectionError') }}</p>
+            <p class="text-body-small" style="color: var(--color-text-secondary);">{{ t('audioSources.radioSource.cannotLoadStations') }}
             </p>
             <Button variant="toggle" :active="false" @click="retrySearch">
-              Réessayer
+              {{ t('audioSources.radioSource.retry') }}
             </Button>
           </div>
 
           <div v-else-if="displayedStations.length === 0 && transitionState === 'idle'" class="empty-list">
-            <div class="empty-icon"><img :src="placeholderImg" alt="Station sans image" /></div>
-            <p class="heading-2">{{ isSearchMode ? 'Aucune station trouvée' : 'Aucune radio favorite' }}</p>
+            <div class="empty-icon"><img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" /></div>
+            <p class="heading-2">{{ isSearchMode ? t('audioSources.radioSource.noStationsFound') : t('audioSources.radioSource.noFavorites') }}</p>
           </div>
 
           <div v-else-if="transitionState !== 'loading'" class="stations-grid" :class="{
@@ -174,7 +174,7 @@
             }]" @click="playStation(station.id)">
               <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-img"
                 @error="handleStationImageError" />
-              <img :src="placeholderImg" alt="Station sans image" class="image-placeholder"
+              <img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" class="image-placeholder"
                 :class="{ visible: !station.favicon }" />
 
               <!-- Loading overlay -->
@@ -195,7 +195,7 @@
               <div class="station-logo">
                 <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-favicon"
                   @error="handleStationImageError" />
-                <img :src="placeholderImg" alt="Station sans image" class="logo-placeholder"
+                <img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" class="logo-placeholder"
                   :class="{ visible: !station.favicon }" />
               </div>
 
@@ -218,7 +218,7 @@
           <!-- Bouton "Charger plus" -->
           <div v-if="hasMoreStations" class="load-more">
             <Button variant="toggle" :active="false" @click="loadMore">
-              Charger plus ({{ remainingStations }} restantes)
+              {{ t('audioSources.radioSource.loadMore') }} ({{ remainingStations }} {{ t('audioSources.radioSource.remaining') }})
             </Button>
           </div>
         </div>
@@ -236,7 +236,7 @@
       <div class="station-art">
         <img v-if="radioStore.currentStation.favicon" :src="getFaviconUrl(radioStore.currentStation.favicon)"
           alt="Station logo" class="current-station-favicon" @error="handleCurrentStationImageError" />
-        <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo"
+        <img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" class="placeholder-logo"
           :class="{ visible: !radioStore.currentStation.favicon }" />
       </div>
 
@@ -262,6 +262,7 @@ import axios from 'axios';
 import { useRadioStore } from '@/stores/radioStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
+import { useI18n } from '@/services/i18n';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 import AddStationModal from '@/components/settings/categories/AddStationModal.vue';
@@ -272,6 +273,7 @@ import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 const radioStore = useRadioStore();
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
+const { t } = useI18n();
 
 const isSearchMode = ref(false);
 const searchDebounceTimer = ref(null);

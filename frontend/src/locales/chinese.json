@@ -13,7 +13,25 @@
     "spotify": "Spotify",
     "bluetooth": "蓝牙",
     "macReceiver": "Mac 音频接收器",
-    "rocReception": "Mac 音频接收"
+    "rocReception": "Mac 音频接收",
+    "radio": "广播",
+    "radioSource": {
+      "favoritesTitle": "喜爱的广播",
+      "discoverTitle": "发现广播",
+      "searchPlaceholder": "搜索...",
+      "allCountries": "所有国家",
+      "loadingCountries": "正在加载国家...",
+      "allGenres": "所有类型",
+      "loadingStations": "正在加载电台...",
+      "connectionError": "连接错误",
+      "cannotLoadStations": "无法加载电台",
+      "retry": "重试",
+      "noStationsFound": "未找到电台",
+      "noFavorites": "没有喜爱的广播",
+      "loadMore": "加载更多",
+      "remaining": "剩余",
+      "stationNoImage": "无图片的电台"
+    }
   },
   "multiroom": {
     "title": "多房间",

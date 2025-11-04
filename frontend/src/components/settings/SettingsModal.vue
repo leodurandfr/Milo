@@ -30,7 +30,7 @@
           </template>
         </IconButton>
 
-        <IconButton v-if="settingsStore.dockApps.librespot" :title="t('spotifySettings.title')" :clickable="true" :show-caret="true" @click="goToView('spotify')">
+        <IconButton v-if="settingsStore.dockApps.librespot" :title="t('audioSources.spotify')" :clickable="true" :show-caret="true" @click="goToView('spotify')">
           <template #icon>
             <img :src="spotifyIcon" alt="Spotify" />
           </template>
@@ -42,7 +42,7 @@
           </template>
         </IconButton>
 
-        <IconButton v-if="settingsStore.dockApps.radio" title="Radio" :clickable="true" :show-caret="true" @click="goToView('radio')">
+        <IconButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" :clickable="true" :show-caret="true" @click="goToView('radio')">
           <template #icon>
             <img :src="radioIcon" alt="Radio" />
           </template>
