@@ -853,6 +853,7 @@ onBeforeUnmount(() => {
   transition: all var(--transition-fast);
   background: var(--color-background-neutral-64);
   position: relative;
+  min-width: 0;
 }
 
 .station-card:hover {
@@ -912,6 +913,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   justify-content: center;
   gap: var(--space-01);
+  overflow: hidden;
 }
 
 .station-title {
@@ -1269,6 +1271,7 @@ onBeforeUnmount(() => {
   .now-playing {
     position: fixed;
     bottom: var(--space-08);
+    top: auto;
     left: 50%;
     transform: translateX(-50%);
     width: calc(100% - var(--space-02) * 2);
