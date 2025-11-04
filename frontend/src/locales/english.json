@@ -52,6 +52,7 @@
   "status": {
     "loading": "Starting...",
     "loadingOf": "Starting",
+    "loadingOfMasculine": "Starting",
     "ready": "Ready to connect",
     "readyToStream": "Ready to stream",
     "waiting": "Waiting...",

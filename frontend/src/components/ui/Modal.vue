@@ -233,6 +233,13 @@ function handleUserActivity() {
 function handlePointerDown(event) {
   if (!modalContent.value) return;
 
+  // Désactiver le pointer scroll sur les appareils tactiles (mobile)
+  // Le Raspberry avec souris (pointer: fine) gardera le scroll manuel
+  const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+  if (isTouchDevice) {
+    return;
+  }
+
   // Exclure les sliders et autres contrôles interactifs
   const isSlider = event.target.closest('input[type="range"]');
   const isButton = event.target.closest('button');
