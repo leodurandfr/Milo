@@ -48,6 +48,7 @@ volume_service = container.volume_service()
 rotary_controller = container.rotary_controller()
 screen_controller = container.screen_controller()
 systemd_manager = container.systemd_manager()
+hardware_service = container.hardware_service()
 ws_manager = container.websocket_manager()
 websocket_server = WebSocketServer(ws_manager, state_machine)
 state_machine.volume_service = volume_service
@@ -147,12 +148,13 @@ app.include_router(bluetooth_router)
 app.include_router(radio_router, prefix="/api")
 
 settings_router = create_settings_router(
-    ws_manager, 
-    volume_service, 
-    state_machine, 
+    ws_manager,
+    volume_service,
+    state_machine,
     screen_controller,
     systemd_manager,
-    routing_service
+    routing_service,
+    hardware_service
 )
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 

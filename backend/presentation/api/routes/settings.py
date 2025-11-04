@@ -12,12 +12,13 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 def create_settings_router(
-    ws_manager, 
-    volume_service, 
-    state_machine, 
+    ws_manager,
+    volume_service,
+    state_machine,
     screen_controller,
     systemd_manager,
-    routing_service
+    routing_service,
+    hardware_service
 ):
     """Router settings avec désactivation propre des apps"""
     router = APIRouter()
@@ -767,6 +768,31 @@ def create_settings_router(
                 "status": "error",
                 "message": str(e),
                 "ip": None
+            }
+
+    # Hardware info
+    @router.get("/hardware-info")
+    async def get_hardware_info():
+        """Récupère les informations hardware (type d'écran, résolution, etc.)"""
+        try:
+            screen_info = hardware_service.get_screen_info()
+
+            return {
+                "status": "success",
+                "hardware": {
+                    "screen_type": screen_info["type"],
+                    "screen_resolution": screen_info["resolution"]
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error getting hardware info: {e}")
+            return {
+                "status": "error",
+                "message": str(e),
+                "hardware": {
+                    "screen_type": "none",
+                    "screen_resolution": {"width": None, "height": None}
+                }
             }
 
     return router
