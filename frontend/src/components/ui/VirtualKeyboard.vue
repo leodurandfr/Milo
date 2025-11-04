@@ -1,7 +1,9 @@
 <!-- frontend/src/components/ui/VirtualKeyboard.vue -->
 <template>
-  <Transition name="keyboard">
-    <div v-if="isKeyboardVisible && shouldShowKeyboard" class="virtual-keyboard-overlay" @click.self="handleClose">
+  <!-- Component always mounted for computed to work -->
+  <div>
+    <Transition name="keyboard">
+      <div v-if="isKeyboardVisible && shouldShowKeyboard" class="virtual-keyboard-overlay" @click.self="handleClose">
       <div class="virtual-keyboard">
         <div class="keyboard-header">
           <div class="keyboard-input-display">
@@ -88,18 +90,21 @@
           </div>
         </div>
       </div>
-    </div>
-  </Transition>
+      </div>
+    </Transition>
+  </div>
 </template>
 
 <script setup>
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
+import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import Icon from './Icon.vue';
 
 const { getCurrentLanguage } = useI18n();
 const keyboardState = useVirtualKeyboard();
+const { screenResolution } = useHardwareConfig();
 
 // Create local computed refs for reactivity in template
 const isKeyboardVisible = computed(() => keyboardState.isVisible.value);
@@ -110,45 +115,47 @@ const keyboardValue = computed({
 const keyboardPlaceholder = computed(() => keyboardState.placeholder.value);
 
 const isUppercase = ref(false);
-const screenWidth = ref(window.innerWidth);
-const screenHeight = ref(window.innerHeight);
 
-// Detect if we should show keyboard
-// 1. Check for 1024x600 resolution (Raspberry Pi default)
-// 2. Check for touchscreen capability as fallback
-// 3. Allow forcing via URL parameter ?virtualKeyboard=true for testing
+// Detect if keyboard should be shown based on screen resolution from milo_hardware.json
+// The keyboard appears only when browser resolution matches the configured screen resolution
 const shouldShowKeyboard = computed(() => {
-  // Force mode via URL parameter (for testing)
+  // Force mode via URL parameter (for development/testing)
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('virtualKeyboard') === 'true') {
+    console.log('[VirtualKeyboard] Force mode enabled via URL');
     return true;
   }
 
-  // Primary detection: Raspberry Pi resolution
-  const isRaspberryPi = screenWidth.value === 1024 && screenHeight.value === 600;
-  if (isRaspberryPi) {
-    return true;
+  // Get configured resolution from milo_hardware.json
+  // Use toRaw or direct property access to handle Vue Proxy correctly
+  const configuredResolution = screenResolution.value;
+  const currentWidth = window.innerWidth;
+  const currentHeight = window.innerHeight;
+
+  // Extract width/height from potential Proxy object
+  const configWidth = configuredResolution?.width;
+  const configHeight = configuredResolution?.height;
+
+  console.log('[VirtualKeyboard] shouldShowKeyboard check:', {
+    configWidth,
+    configHeight,
+    browserWidth: currentWidth,
+    browserHeight: currentHeight,
+    rawConfigured: JSON.stringify(configuredResolution)
+  });
+
+  // If no valid resolution configured, don't show keyboard
+  if (!configWidth || !configHeight) {
+    console.log('[VirtualKeyboard] ❌ No valid resolution configured');
+    return false;
   }
 
-  // Secondary detection: touchscreen device
-  const hasTouchScreen = 'maxTouchPoints' in navigator && navigator.maxTouchPoints > 0;
-  const isSmallScreen = screenWidth.value <= 1280 && screenHeight.value <= 800;
+  // Show keyboard ONLY if resolutions match exactly
+  const matches = currentWidth === configWidth && currentHeight === configHeight;
 
-  // Show keyboard on touchscreen devices with small screens
-  return hasTouchScreen && isSmallScreen;
-});
+  console.log(`[VirtualKeyboard] Resolution ${matches ? '✅ MATCH' : '❌ NO MATCH'} (${currentWidth}x${currentHeight} vs ${configWidth}x${configHeight})`);
 
-// Update screen size on resize
-onMounted(() => {
-  const updateScreenSize = () => {
-    screenWidth.value = window.innerWidth;
-    screenHeight.value = window.innerHeight;
-  };
-  window.addEventListener('resize', updateScreenSize);
-});
-
-onUnmounted(() => {
-  // Cleanup is handled automatically
+  return matches;
 });
 
 // Keyboard layouts

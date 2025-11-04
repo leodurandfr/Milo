@@ -33,10 +33,9 @@
             :style="getClientGridStyle(index)">
             <div class="client-info-wrapper">
               <span class="client-hostname text-mono">{{ client.host }}</span>
-              <input type="text" v-model="clientNames[client.id]" :placeholder="client.host"
-                class="client-name-input text-body" maxlength="50"
-                @focus="handleInputFocus(client.id, $event)"
-                @blur="handleInputBlur(client.id)">
+              <InputText v-model="clientNames[client.id]" :placeholder="client.host"
+                input-class="client-name-input text-body" :maxlength="50"
+                @blur="handleInputBlur(client.id)" />
             </div>
           </div>
         </div>
@@ -106,21 +105,15 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Icon from '@/components/ui/Icon.vue';
+import InputText from '@/components/ui/InputText.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
 const snapcastStore = useSnapcastStore();
 const unifiedStore = useUnifiedAudioStore();
-const keyboard = useVirtualKeyboard();
-
-// Détection de l'écran tactile (1024x600 = Raspberry Pi)
-const isTouchScreen = computed(() => {
-  return window.innerWidth === 1024 && window.innerHeight === 600;
-});
 
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -262,37 +255,11 @@ async function applyServerConfig() {
   await snapcastStore.applyServerConfig();
 }
 
-// === VIRTUAL KEYBOARD ===
-
-function handleInputFocus(clientId, event) {
-  // Sur écran tactile : ouvrir le clavier virtuel et blur l'input natif
-  if (isTouchScreen.value) {
-    event.target.blur(); // Empêcher le clavier natif
-    openKeyboard(clientId);
-  }
-  // Sur desktop : laisser l'édition normale (pas de action supplémentaire)
-}
+// === INPUT HANDLERS ===
 
 function handleInputBlur(clientId) {
-  // Sauvegarder les changements quand l'utilisateur quitte le champ (desktop uniquement)
-  if (!isTouchScreen.value) {
-    updateClientName(clientId);
-  }
-}
-
-function openKeyboard(clientId) {
-  const client = sortedSnapcastClients.value.find(c => c.id === clientId);
-
-  keyboard.open({
-    value: clientNames.value[clientId] || '',
-    placeholder: client?.host || '',
-    onSubmit: (newValue) => {
-      // Valider et sauvegarder
-      clientNames.value[clientId] = newValue;
-      updateClientName(clientId);
-    }
-    // Pas de onClose = annulation sans sauvegarde
-  });
+  // Sauvegarder les changements quand l'utilisateur quitte le champ
+  updateClientName(clientId);
 }
 
 // === RESIZE OBSERVER ===

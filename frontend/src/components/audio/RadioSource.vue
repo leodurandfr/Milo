@@ -18,9 +18,8 @@
         <!-- Recherche et filtres (visible uniquement en mode recherche) -->
         <div v-if="isSearchMode" class="search-section">
           <div class="filters">
-            <input v-model="radioStore.searchQuery" type="text" class="filter-input search-input text-body-small"
-              placeholder="Rechercher..." @focus="handleSearchInputFocus" @blur="handleSearchInputBlur"
-              @input="handleSearch" />
+            <InputText v-model="radioStore.searchQuery" placeholder="Rechercher..."
+              input-class="filter-input search-input text-body-small" @update:modelValue="handleSearch" />
             <select v-model="radioStore.countryFilter" class="filter-input filter-select text-body-small"
               @change="handleSearch">
               <option value="">Tous les pays</option>
@@ -263,22 +262,16 @@ import axios from 'axios';
 import { useRadioStore } from '@/stores/radioStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
-import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 import AddStationModal from '@/components/settings/categories/AddStationModal.vue';
 import Button from '@/components/ui/Button.vue';
+import InputText from '@/components/ui/InputText.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const radioStore = useRadioStore();
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
-const keyboard = useVirtualKeyboard();
-
-// Détection de l'écran tactile (1024x600 = Raspberry Pi)
-const isTouchScreen = computed(() => {
-  return window.innerWidth === 1024 && window.innerHeight === 600;
-});
 
 const isSearchMode = ref(false);
 const searchDebounceTimer = ref(null);
@@ -389,34 +382,6 @@ function closeSearch() {
   if (radioStore.favoriteStations.length === 0) {
     radioStore.loadStations(true);
   }
-}
-
-// === VIRTUAL KEYBOARD FOR SEARCH ===
-function handleSearchInputFocus(event) {
-  // Sur écran tactile : ouvrir le clavier virtuel et blur l'input natif
-  if (isTouchScreen.value) {
-    event.target.blur(); // Empêcher le clavier natif
-    openSearchKeyboard();
-  }
-  // Sur desktop : laisser l'édition normale (pas de action supplémentaire)
-}
-
-function handleSearchInputBlur() {
-  // Sur desktop, le modèle v-model est déjà synchronisé
-  // Pas besoin d'action supplémentaire
-}
-
-function openSearchKeyboard() {
-  keyboard.open({
-    value: radioStore.searchQuery || '',
-    placeholder: 'Rechercher...',
-    onSubmit: (newValue) => {
-      // Mettre à jour la recherche
-      radioStore.searchQuery = newValue;
-      // Déclencher la recherche
-      handleSearch();
-    }
-  });
 }
 
 // === ACTIONS ===

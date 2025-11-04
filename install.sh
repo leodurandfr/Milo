@@ -1748,17 +1748,45 @@ EOF
             ;;
     esac
 
-    # Save screen type in milo_hardware.json
-    log_info "Saving screen type in $MILO_DATA_DIR/milo_hardware.json..."
-    sudo tee "$MILO_DATA_DIR/milo_hardware.json" > /dev/null << EOF
+    # Save screen type with resolution in milo_hardware.json (new format)
+    log_info "Saving screen configuration in $MILO_DATA_DIR/milo_hardware.json..."
+
+    case "$SCREEN_TYPE" in
+        "waveshare_7_usb")
+            sudo tee "$MILO_DATA_DIR/milo_hardware.json" > /dev/null << 'EOF'
 {
   "screen": {
-    "type": "$SCREEN_TYPE"
+    "waveshare_7_usb": {
+      "resolution": "1024x600"
+    }
   }
 }
 EOF
+            ;;
+        "waveshare_8_dsi")
+            sudo tee "$MILO_DATA_DIR/milo_hardware.json" > /dev/null << 'EOF'
+{
+  "screen": {
+    "waveshare_8_dsi": {
+      "resolution": "1280x800"
+    }
+  }
+}
+EOF
+            ;;
+        "none"|*)
+            sudo tee "$MILO_DATA_DIR/milo_hardware.json" > /dev/null << 'EOF'
+{
+  "screen": {
+    "none": {}
+  }
+}
+EOF
+            ;;
+    esac
+
     sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/milo_hardware.json"
-    log_success "Screen type '$SCREEN_TYPE' saved"
+    log_success "Screen configuration saved: $SCREEN_TYPE"
 }
 
 enable_services() {

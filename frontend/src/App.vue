@@ -42,9 +42,11 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useScreenActivity } from '@/composables/useScreenActivity';
+import { useHardwareConfig } from '@/composables/useHardwareConfig';
 
 const unifiedStore = useUnifiedAudioStore();
 const { on, onReconnect } = useWebSocket();
+const { loadHardwareInfo } = useHardwareConfig();
 
 // Activer la détection d'activité écran (touch, souris, clavier)
 useScreenActivity();
@@ -67,10 +69,13 @@ provide('closeModals', () => {
 
 const cleanupFunctions = [];
 
-onMounted(() => {
+onMounted(async () => {
+  // Charger les infos hardware AVANT tout le reste (critique pour VirtualKeyboard)
+  await loadHardwareInfo();
+
   // Configuration initiale
   unifiedStore.setVolumeBarRef(volumeBar);
-  
+
   // Setup des listeners
   const visibilityCleanup = unifiedStore.setupVisibilityListener();
   cleanupFunctions.push(visibilityCleanup);
