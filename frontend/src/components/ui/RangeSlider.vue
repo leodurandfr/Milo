@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/RangeSlider.vue -->
 <template>
-  <div :class="['slider-container', orientation]" :style="cssVars">
+  <div ref="sliderContainer" :class="['slider-container', orientation]" :style="cssVars">
     <input type="range" :class="['range-slider', orientation]" :min="min" :max="max" :step="step" :value="modelValue"
       @input="handleInput" @change="handleChange" @pointerdown="handlePointerDown" @pointerup="handlePointerUp"
       :disabled="disabled">
@@ -12,7 +12,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 
 const props = defineProps({
   modelValue: { type: Number, required: true },
@@ -28,15 +28,51 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 'drag-end']);
 
 const isDragging = ref(false);
+const sliderContainer = ref(null);
+const containerSize = ref({ width: 0, height: 0 });
+
+let resizeObserver = null;
+
+onMounted(() => {
+  if (sliderContainer.value) {
+    // Initial size
+    updateContainerSize();
+
+    // Watch for size changes
+    resizeObserver = new ResizeObserver(() => {
+      updateContainerSize();
+    });
+    resizeObserver.observe(sliderContainer.value);
+  }
+});
+
+onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
+});
+
+function updateContainerSize() {
+  if (sliderContainer.value) {
+    const rect = sliderContainer.value.getBoundingClientRect();
+    containerSize.value = { width: rect.width, height: rect.height };
+  }
+}
 
 const percentage = computed(() => {
   const rawPercentage = ((props.modelValue - props.min) / (props.max - props.min)) * 100;
 
   if (props.orientation === 'horizontal') {
-    const thumbAdjustment = 15;
+    // Thumb width is 62px
+    const thumbWidth = 62;
+    const containerWidth = containerSize.value.width || 400; // Fallback to reasonable default
+    const thumbAdjustment = (thumbWidth / containerWidth) * 100;
     return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
   } else {
-    const thumbAdjustment = 11;
+    // Thumb height is 62px
+    const thumbHeight = 62;
+    const containerHeight = containerSize.value.height || 260; // Fallback to reasonable default
+    const thumbAdjustment = (thumbHeight / containerHeight) * 100;
     return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
   }
 });
