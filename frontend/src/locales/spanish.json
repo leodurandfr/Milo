@@ -13,7 +13,25 @@
     "spotify": "Spotify",
     "bluetooth": "Bluetooth",
     "macReceiver": "Receptor de audio Mac",
-    "rocReception": "Recepción de audio Mac"
+    "rocReception": "Recepción de audio Mac",
+    "radio": "Radio",
+    "radioSource": {
+      "favoritesTitle": "Radios favoritas",
+      "discoverTitle": "Descubrir radios",
+      "searchPlaceholder": "Buscar...",
+      "allCountries": "Todos los países",
+      "loadingCountries": "Cargando países...",
+      "allGenres": "Todos los géneros",
+      "loadingStations": "Cargando estaciones...",
+      "connectionError": "Error de conexión",
+      "cannotLoadStations": "No se pueden cargar las estaciones",
+      "retry": "Reintentar",
+      "noStationsFound": "No se encontraron estaciones",
+      "noFavorites": "No hay radios favoritas",
+      "loadMore": "Cargar más",
+      "remaining": "restantes",
+      "stationNoImage": "Estación sin imagen"
+    }
   },
   "multiroom": {
     "title": "Multiroom",
