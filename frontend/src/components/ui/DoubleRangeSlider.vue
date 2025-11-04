@@ -59,6 +59,9 @@ const emit = defineEmits(['update:modelValue', 'input', 'change', 'drag-start', 
 const isDraggingMin = ref(false);
 const isDraggingMax = ref(false);
 const track = ref(null);
+const trackWidth = ref(0);
+
+let resizeObserver = null;
 
 // Calcul des positions en pixels (propre)
 const minPosition = computed(() => {
@@ -71,16 +74,22 @@ const maxPosition = computed(() => {
   return `calc(31px + ${percentage} * (100% - 62px))`;
 });
 
-// Pourcentages pour le gradient (même logique que RangeSlider.vue)
+// Pourcentages pour le gradient - calcul dynamique basé sur la largeur réelle
 const minPercentageForGradient = computed(() => {
   const rawPercentage = ((props.modelValue.min - props.min) / (props.max - props.min)) * 100;
-  const thumbAdjustment = 12; // Même valeur que RangeSlider
+  // Thumb width is 62px
+  const thumbWidth = 62;
+  const containerWidth = trackWidth.value || 400; // Fallback to reasonable default
+  const thumbAdjustment = (thumbWidth / containerWidth) * 100;
   return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
 });
 
 const maxPercentageForGradient = computed(() => {
   const rawPercentage = ((props.modelValue.max - props.min) / (props.max - props.min)) * 100;
-  const thumbAdjustment = 12; // Même valeur que RangeSlider
+  // Thumb width is 62px
+  const thumbWidth = 62;
+  const containerWidth = trackWidth.value || 400; // Fallback to reasonable default
+  const thumbAdjustment = (thumbWidth / containerWidth) * 100;
   return rawPercentage * (100 - thumbAdjustment) / 100 + thumbAdjustment / 2;
 });
 
@@ -202,13 +211,35 @@ function stopDrag() {
 
 onMounted(() => {
   updateValues(props.modelValue.min, props.modelValue.max, false);
+
+  // Watch for size changes
+  if (track.value) {
+    // Initial width
+    updateTrackWidth();
+
+    resizeObserver = new ResizeObserver(() => {
+      updateTrackWidth();
+    });
+    resizeObserver.observe(track.value);
+  }
 });
 
 onUnmounted(() => {
   document.removeEventListener('pointermove', handleDrag);
   document.removeEventListener('pointerup', stopDrag);
   document.removeEventListener('pointercancel', stopDrag);
+
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+  }
 });
+
+function updateTrackWidth() {
+  if (track.value) {
+    const rect = track.value.getBoundingClientRect();
+    trackWidth.value = rect.width;
+  }
+}
 </script>
 
 <style scoped>
