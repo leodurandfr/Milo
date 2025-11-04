@@ -14,13 +14,10 @@
       </div>
 
       <!-- RadioView -->
-      <div
+      <RadioSource
         v-else-if="shouldShowRadio"
         :key="radioKey"
-        class="radio-container"
-      >
-        <RadioSource />
-      </div>
+      />
 
       <!-- PluginStatus -->
       <div
@@ -196,12 +193,6 @@ onMounted(() => {
 
 /* LibrespotView : plein écran naturel */
 .librespot-container {
-  width: 100%;
-  height: 100%;
-}
-
-/* RadioView : plein écran naturel */
-.radio-container {
   width: 100%;
   height: 100%;
 }
