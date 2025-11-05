@@ -197,8 +197,23 @@
     </div>
 
     <!-- Now Playing : Desktop - à droite du container, Mobile - sticky en bas -->
-    <StationCard v-if="radioStore.currentStation" class="stagger-2" :station="radioStore.currentStation" variant="now-playing"
-      :show-controls="true" :is-playing="isCurrentlyPlaying" @play="handlePlayPause" @favorite="handleFavorite" />
+    <div :class="[
+      'now-playing-wrapper',
+      {
+        'has-station': radioStore.currentStation,
+        'first-appearance': radioStore.currentStation && isFirstAppearance
+      }
+    ]">
+      <StationCard
+        v-if="radioStore.currentStation"
+        :class="{ 'first-appearance-mobile': isFirstAppearance }"
+        :station="radioStore.currentStation"
+        variant="now-playing"
+        :show-controls="true"
+        :is-playing="isCurrentlyPlaying"
+        @play="handlePlayPause"
+        @favorite="handleFavorite" />
+    </div>
   </div>
 </template>
 
@@ -226,6 +241,7 @@ const isSearchMode = ref(false);
 const searchDebounceTimer = ref(null);
 const availableCountries = ref([]); // Liste dynamique des pays disponibles
 const transitionState = ref('idle'); // États: 'idle', 'fading-out', 'loading', 'fading-in'
+const isFirstAppearance = ref(true); // Track if this is the first time now-playing appears
 
 // Référence pour animations et scroll
 const radioContainer = ref(null);
@@ -469,6 +485,17 @@ function handlePointerUp(event) {
   }
 }
 
+// === NOW PLAYING ANIMATION ===
+// Watch for first station appearance and disable animation after it completes
+watch(() => radioStore.currentStation, (newStation) => {
+  if (newStation && isFirstAppearance.value) {
+    // Wait for animation to complete (700ms spring + 200ms delay = 900ms)
+    setTimeout(() => {
+      isFirstAppearance.value = false;
+    }, 900);
+  }
+});
+
 // === SYNCHRONISATION WEBSOCKET ===
 // Écouter les mises à jour de métadonnées
 watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
@@ -562,26 +589,17 @@ onBeforeUnmount(() => {
 
 /* === STAGGERING SIMPLE ET NATUREL === */
 
-/* États initiaux : tous les éléments sont cachés */
-.stagger-1,
-.stagger-2 {
+/* État initial : radio-container */
+.stagger-1 {
   opacity: 0;
   transform: translateY(var(--space-07));
-}
-
-/* Animation avec deux effets séparés */
-.stagger-1,
-.stagger-2 {
   animation:
     stagger-transform var(--transition-spring) forwards,
     stagger-opacity 0.4s ease forwards;
+  animation-delay: 0ms;
 }
 
-/* Délais échelonnés simples : Desktop uniquement */
-.stagger-1 { animation-delay: 0ms; }
-.stagger-2 { animation-delay: 100ms; }
-
-/* Animation spring pour le transform */
+/* Animation spring pour le transform (radio-container - vertical) */
 @keyframes stagger-transform {
   to {
     transform: translateY(0);
@@ -595,23 +613,54 @@ onBeforeUnmount(() => {
   }
 }
 
-/* Mobile : Préserver le centrage translateX(-50%) du now-playing */
+/* === NOW PLAYING WRAPPER === */
+
+/* Desktop : État de base - pas de station, prend 0 place dans le flex layout */
+.now-playing-wrapper {
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  flex-shrink: 0;
+  transform: translateX(100px);
+}
+
+/* Desktop : État avec station - apparitions suivantes (instantané) */
+.now-playing-wrapper.has-station {
+  width: 310px;
+  opacity: 1;
+  overflow: visible;
+  transform: translateX(0);
+}
+
+/* Desktop : État avec station - PREMIÈRE apparition (animé) */
+.now-playing-wrapper.has-station.first-appearance {
+  transition:
+    width var(--transition-spring) 200ms,
+    transform var(--transition-spring) 200ms,
+    opacity 0.4s ease 200ms;
+}
+
+/* Mobile : now-playing est position fixed, donc le wrapper doit être transparent */
 @media (max-aspect-ratio: 4/3) {
-  .stagger-2 {
+  /* display: contents = le wrapper disparaît du flow, comme s'il n'existait pas */
+  .now-playing-wrapper {
+    display: contents;
+  }
+
+  /* Animation stagger mobile pour now-playing (première apparition) */
+  :deep(.now-playing.first-appearance-mobile) {
+    opacity: 0;
     transform: translateX(-50%) translateY(var(--space-07));
+    animation:
+      stagger-transform-mobile var(--transition-spring) forwards,
+      stagger-opacity 0.4s ease forwards;
+    animation-delay: 200ms;
   }
 
   @keyframes stagger-transform-mobile {
     to {
       transform: translateX(-50%) translateY(0);
     }
-  }
-
-  .stagger-2 {
-    animation:
-      stagger-transform-mobile var(--transition-spring) forwards,
-      stagger-opacity 0.4s ease forwards;
-    animation-delay: 200ms;
   }
 }
 
@@ -623,6 +672,8 @@ onBeforeUnmount(() => {
   height: 100%;
   gap: var(--space-06);
   padding: 0 var(--space-06);
+    transition: all var(--transition-spring);
+
 }
 
 .radio-container {
@@ -632,22 +683,14 @@ onBeforeUnmount(() => {
   max-height: 100%;
   display: flex;
   flex-direction: column;
-  transition: max-width var(--transition-normal);
   overflow-y: auto;
   padding-top: var(--space-07);
   gap: var(--space-04);
   min-height: 0;
-  flex: 1;
+  flex: 1 1 auto;
+  flex-shrink: 1;
   touch-action: pan-y;
 }
-
-/* Desktop : réduire la largeur du container quand now-playing est visible */
-/* @media (min-aspect-ratio: 4/3) {
-  .radio-container {
-    max-width: calc(768px - 320px - var(--space-04));
-  }
-} */
-
 
 /* :deep(.modal-header) {
   margin: 0 var(--space-06);

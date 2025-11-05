@@ -158,9 +158,6 @@ function handleImageError() {
   justify-content: center;
 }
 
-.station-image:hover {
-  transform: scale(1.02);
-}
 
 .station-image.playing {
   outline: 3px solid hsla(0, 0%, 0%, 0.08);
