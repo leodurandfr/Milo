@@ -151,7 +151,7 @@ class WebSocketSingleton {
       }
     };
 
-    document.addEventListener('visibilitychange', this.visibilityHandler);
+    document.addEventListener('visibilitychange', this.visibilityHandler, { passive: true });
   }
   
   removeVisibilityListener() {

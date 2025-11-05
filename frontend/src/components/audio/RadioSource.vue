@@ -1,6 +1,6 @@
 <template>
-  <div ref="radioContainer" class="radio-container" @pointerdown="handlePointerDown" @pointermove="handlePointerMove"
-    @pointerup="handlePointerUp" @pointercancel="handlePointerUp">
+  <div class="radio-source-wrapper">
+    <div ref="radioContainer" class="radio-container stagger-1">
 
     <!-- ModalHeader : Vue Favoris -->
     <ModalHeader v-if="!isSearchMode" :title="t('audioSources.radioSource.favoritesTitle')" variant="neutral"
@@ -172,52 +172,17 @@
         'transition-fading-in': transitionState === 'fading-in'
       }">
         <!-- Mode Favoris : affichage image seule -->
-        <div v-if="!isSearchMode" v-for="station in displayedStations" :key="`fav-${station.id}`" :class="['station-image', {
-          active: radioStore.currentStation?.id === station.id,
-          playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying,
-          loading: bufferingStationId === station.id
-        }]" @click="playStation(station.id)">
-          <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-img"
-            @error="handleStationImageError" />
-          <img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" class="image-placeholder"
-            :class="{ visible: !station.favicon }" />
-
-          <!-- Loading overlay -->
-          <div v-if="bufferingStationId === station.id" class="loading-overlay">
-            <div class="loading-spinner"></div>
-          </div>
-        </div>
+        <StationCard v-if="!isSearchMode" v-for="station in displayedStations" :key="`fav-${station.id}`"
+          :station="station" variant="image" :is-active="radioStore.currentStation?.id === station.id"
+          :is-playing="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
+          :is-loading="bufferingStationId === station.id" @click="playStation(station.id)" />
 
         <!-- Mode Recherche : affichage avec informations -->
-        <div v-else v-for="station in displayedStations" :key="`search-${station.id}`" :class="[
-          'station-card',
-          {
-            active: radioStore.currentStation?.id === station.id,
-            playing: radioStore.currentStation?.id === station.id && isCurrentlyPlaying,
-            loading: bufferingStationId === station.id
-          }
-        ]" @click="playStation(station.id)">
-          <div class="station-logo">
-            <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-favicon"
-              @error="handleStationImageError" />
-            <img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" class="logo-placeholder"
-              :class="{ visible: !station.favicon }" />
-          </div>
-
-          <div class="station-details">
-            <p class="station-title text-body">{{ station.name }}</p>
-            <p class="station-subtitle text-mono">{{ station.genre }}</p>
-          </div>
-
-          <!-- Loading spinner -->
-          <div v-if="bufferingStationId === station.id" class="loading-spinner-small"></div>
-
-          <!-- Stop button -->
-          <button v-else-if="radioStore.currentStation?.id === station.id && isCurrentlyPlaying" class="stop-btn"
-            @click.stop="playStation(station.id)">
-            ⏸
-          </button>
-        </div>
+        <StationCard v-else v-for="station in displayedStations" :key="`search-${station.id}`" :station="station"
+          variant="card" :is-active="radioStore.currentStation?.id === station.id"
+          :is-playing="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
+          :is-loading="bufferingStationId === station.id" :show-controls="true" @click="playStation(station.id)"
+          @play="playStation(station.id)" />
       </div>
 
       <!-- Bouton "Charger plus" -->
@@ -229,40 +194,16 @@
         </Button>
       </div>
     </div>
-  </div>
-
-  <!-- Now Playing : Desktop - à droite du container, Mobile - sticky en bas -->
-  <div v-if="radioStore.currentStation" class="now-playing">
-    <!-- Background image - très zoomée et blurrée -->
-    <div class="station-art-background">
-      <img v-if="radioStore.currentStation.favicon" :src="getFaviconUrl(radioStore.currentStation.favicon)" alt=""
-        class="background-station-favicon" />
     </div>
 
-    <div class="station-art">
-      <img v-if="radioStore.currentStation.favicon" :src="getFaviconUrl(radioStore.currentStation.favicon)"
-        alt="Station logo" class="current-station-favicon" @error="handleCurrentStationImageError" />
-      <img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" class="placeholder-logo"
-        :class="{ visible: !radioStore.currentStation.favicon }" />
-    </div>
-
-    <div class="station-info">
-      <p class="station-name display-1">{{ radioStore.currentStation.name }}</p>
-      <p class="station-meta text-mono">{{ radioStore.currentStation.country }} • {{ radioStore.currentStation.genre
-      }}
-      </p>
-    </div>
-    <div class="controls-wrapper">
-      <CircularIcon :icon="radioStore.currentStation.is_favorite ? 'heart' : 'heartOff'" variant="overlay"
-        @click="handleFavorite" />
-      <CircularIcon :icon="isCurrentlyPlaying ? 'stop' : 'play'" variant="overlay" @click="handlePlayPause" />
-    </div>
-
+    <!-- Now Playing : Desktop - à droite du container, Mobile - sticky en bas -->
+    <StationCard v-if="radioStore.currentStation" class="stagger-2" :station="radioStore.currentStation" variant="now-playing"
+      :show-controls="true" :is-playing="isCurrentlyPlaying" @play="handlePlayPause" @favorite="handleFavorite" />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import axios from 'axios';
 import { useRadioStore } from '@/stores/radioStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
@@ -273,6 +214,7 @@ import CircularIcon from '@/components/ui/CircularIcon.vue';
 import AddStationModal from '@/components/settings/categories/AddStationModal.vue';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
+import StationCard from '@/components/audio/StationCard.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const radioStore = useRadioStore();
@@ -339,29 +281,6 @@ const remainingStations = computed(() => {
   }
   return 0;
 });
-
-// === ANIMATIONS ===
-async function animateIn() {
-  await nextTick();
-
-  if (!radioContainer.value) return;
-
-  // État initial container
-  radioContainer.value.style.transition = 'none';
-  radioContainer.value.style.opacity = '0';
-  radioContainer.value.style.transform = 'translateY(80px) scale(0.85)';
-
-  // Forcer le reflow
-  radioContainer.value.offsetHeight;
-
-  // Animation d'entrée
-  setTimeout(() => {
-    if (!radioContainer.value) return;
-    radioContainer.value.style.transition = 'transform var(--transition-spring), opacity 400ms ease-out';
-    radioContainer.value.style.opacity = '1';
-    radioContainer.value.style.transform = 'translateY(0) scale(1)';
-  }, 100);
-}
 
 // === NAVIGATION ===
 async function openSearch() {
@@ -499,22 +418,6 @@ function handleStationAdded(station) {
   radioStore.loadStations(false);
 }
 
-function handleCurrentStationImageError(e) {
-  e.target.style.display = 'none';
-  const placeholder = e.target.nextElementSibling;
-  if (placeholder) {
-    placeholder.classList.add('visible');
-  }
-}
-
-function handleStationImageError(e) {
-  e.target.style.display = 'none';
-  const placeholder = e.target.nextElementSibling;
-  if (placeholder) {
-    placeholder.classList.add('visible');
-  }
-}
-
 // === POINTER SCROLL ===
 let isDragging = false;
 let startY = 0;
@@ -523,13 +426,6 @@ let pointerId = null;
 
 function handlePointerDown(event) {
   if (!radioContainer.value) return;
-
-  // Désactiver le pointer scroll sur les appareils tactiles (mobile)
-  // Le Raspberry avec souris (pointer: fine) gardera le scroll manuel
-  const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
-  if (isTouchDevice) {
-    return;
-  }
 
   const isSlider = event.target.closest('input[type="range"]');
   const isButton = event.target.closest('button');
@@ -571,22 +467,6 @@ function handlePointerUp(event) {
       radioContainer.value.releasePointerCapture(event.pointerId);
     }
   }
-}
-
-// === FAVICON PROXY ===
-function getFaviconUrl(faviconUrl) {
-  // Pas de favicon
-  if (!faviconUrl) {
-    return '';
-  }
-
-  // Image locale déjà hébergée par le backend
-  if (faviconUrl.startsWith('/api/radio/images/')) {
-    return faviconUrl;
-  }
-
-  // Image externe : utiliser le proxy backend pour éviter CORS
-  return `/api/radio/favicon?url=${encodeURIComponent(faviconUrl)}`;
 }
 
 // === SYNCHRONISATION WEBSOCKET ===
@@ -644,16 +524,33 @@ onMounted(async () => {
 
   // Ajouter l'écouteur de scroll pour le scroll infini
   if (radioContainer.value) {
-    radioContainer.value.addEventListener('scroll', handleScroll);
-  }
+    radioContainer.value.addEventListener('scroll', handleScroll, { passive: true });
 
-  animateIn();
+    // Ajouter les pointer event listeners uniquement sur desktop (pointer: fine)
+    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+    if (!isTouchDevice) {
+      // Sur desktop, on a besoin de preventDefault pour le drag scroll
+      radioContainer.value.addEventListener('pointerdown', handlePointerDown, { passive: false });
+      radioContainer.value.addEventListener('pointermove', handlePointerMove, { passive: false });
+      radioContainer.value.addEventListener('pointerup', handlePointerUp, { passive: false });
+      radioContainer.value.addEventListener('pointercancel', handlePointerUp, { passive: false });
+    }
+  }
 });
 
-// Nettoyer l'écouteur au démontage
+// Nettoyer les écouteurs au démontage
 onBeforeUnmount(() => {
   if (radioContainer.value) {
     radioContainer.value.removeEventListener('scroll', handleScroll);
+
+    // Retirer les pointer event listeners
+    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+    if (!isTouchDevice) {
+      radioContainer.value.removeEventListener('pointerdown', handlePointerDown);
+      radioContainer.value.removeEventListener('pointermove', handlePointerMove);
+      radioContainer.value.removeEventListener('pointerup', handlePointerUp);
+      radioContainer.value.removeEventListener('pointercancel', handlePointerUp);
+    }
   }
 });
 </script>
@@ -663,7 +560,68 @@ onBeforeUnmount(() => {
   display: none;
 }
 
+/* === STAGGERING SIMPLE ET NATUREL === */
+
+/* États initiaux : tous les éléments sont cachés */
+.stagger-1,
+.stagger-2 {
+  opacity: 0;
+  transform: translateY(var(--space-07));
+}
+
+/* Animation avec deux effets séparés */
+.stagger-1,
+.stagger-2 {
+  animation:
+    stagger-transform var(--transition-spring) forwards,
+    stagger-opacity 0.4s ease forwards;
+}
+
+/* Délais échelonnés simples */
+.stagger-1 { animation-delay: 0ms; }
+.stagger-2 { animation-delay: 100ms; }
+
+/* Animation spring pour le transform */
+@keyframes stagger-transform {
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Animation ease pour l'opacité */
+@keyframes stagger-opacity {
+  to {
+    opacity: 1;
+  }
+}
+
+/* Mobile : Préserver le centrage translateX(-50%) du now-playing */
+@media (max-aspect-ratio: 4/3) {
+  .stagger-2 {
+    transform: translateX(-50%) translateY(var(--space-07));
+  }
+
+  @keyframes stagger-transform-mobile {
+    to {
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
+  .stagger-2 {
+    animation:
+      stagger-transform-mobile var(--transition-spring) forwards,
+      stagger-opacity 0.4s ease forwards;
+    animation-delay: 100ms;
+  }
+}
+
 /* === LAYOUT === */
+.radio-source-wrapper {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
 .radio-container {
   position: relative;
   width: 100%;
@@ -671,7 +629,6 @@ onBeforeUnmount(() => {
   max-height: 100%;
   display: flex;
   flex-direction: column;
-  opacity: 0;
   transition: max-width var(--transition-normal);
   overflow-y: auto;
   padding-top: var(--space-07);
@@ -679,7 +636,6 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex: 1;
   touch-action: pan-y;
-  margin: 0 auto;
 }
 
 /* Desktop : réduire la largeur du container quand now-playing est visible */
@@ -786,446 +742,18 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-/* === STATION IMAGE (Mode Favoris - Image seule) === */
-.station-image {
-  aspect-ratio: 1 / 1;
-  width: 100%;
-  border-radius: var(--radius-05);
-  overflow: hidden;
-  cursor: pointer;
-  transition: transform var(--transition-fast);
-  position: relative;
-  background: var(--color-background-neutral);
-  /* box-shadow: 0 var(--space-01) var(--space-06) rgba(0, 0, 0, 0.02); */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.station-image:hover {
-  transform: scale(1.02);
-}
-
-/* .station-image.active {
-  border: 2px solid var(--color-brand);
-} */
-
-.station-image.playing {
-  outline: 3px solid hsla(0, 0%, 0%, 0.08);
-  outline-offset: -3px;
-}
-
-.station-image .station-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  /* position: absolute; */
-  top: 0;
-  left: 0;
-  /* z-index: 1; */
-  display: block;
-}
-
-.station-image .image-placeholder {
-  font-size: 48px;
-  display: none;
-  z-index: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.station-image .image-placeholder.visible {
-  display: flex;
-}
-
-/* === STATION CARD (Mode Recherche - Avec informations) === */
-.station-card {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: var(--space-02);
-  padding: var(--space-02);
-  border: 2px solid var(--color-border);
-  border-radius: var(--radius-04);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  background: var(--color-background-neutral-64);
-  position: relative;
-  min-width: 0;
-}
-
-.station-card:hover {
-  background: var(--color-background);
-}
-
-.station-card.active {
-  border-color: var(--color-brand);
-}
-
-.station-card.playing {
-  border-color: var(--color-brand);
-  background: var(--color-background);
-}
-
-.station-logo {
-  flex-shrink: 0;
-  width: 52px;
-  height: 52px;
-  position: relative;
-  border-radius: var(--radius-02);
-  overflow: hidden;
-  background: var(--color-background);
-}
-
-.station-logo .station-favicon {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  display: block;
-}
-
-.logo-placeholder {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 32px;
-  display: none;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.logo-placeholder.visible {
-  display: flex;
-}
-
-.station-details {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: var(--space-01);
-  overflow: hidden;
-}
-
-.station-title {
-  margin: 0;
-  font-size: var(--font-size-body-small);
-  font-weight: 500;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.station-subtitle {
-  margin: 0;
-  font-size: var(--font-size-small);
-  color: var(--color-text-light);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.station-card .favorite-btn,
-.station-card .stop-btn {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-full);
-  font-size: 20px;
-  cursor: pointer;
-  transition: transform var(--transition-fast);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.station-card .stop-btn {
-  background: var(--color-background-neutral-12);
-  font-size: 18px;
-}
-
-.station-card .favorite-btn:hover,
-.station-card .stop-btn:hover {
-  transform: scale(1.1);
-}
-
-.station-card .favorite-btn:active,
-.station-card .stop-btn:active {
-  transform: scale(0.95);
-}
+/* Styles de stations migrés vers StationCard.vue */
 
 .load-more {
   padding-bottom: var(--space-06);
   text-align: center;
 }
 
-/* === NOW PLAYING === 
-
-/* Background image - très zoomée et blurrée (commun Desktop + Mobile) */
-.now-playing .station-art-background {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-  pointer-events: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.now-playing .station-art-background .background-station-favicon {
-  max-width: none;
-  max-height: none;
-  width: auto;
-  height: auto;
-  min-width: 200%;
-  min-height: 200%;
-  object-fit: contain;
-  transform: scale(2);
-}
-
-.now-playing .station-art {
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  z-index: 1;
-  aspect-ratio: 1 / 1;
-  flex-shrink: 0;
-}
-
-.now-playing .station-art .current-station-favicon {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
-  display: block;
-}
-
-.now-playing .placeholder-logo {
-  display: none;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.now-playing .placeholder-logo.visible {
-  display: flex;
-}
-
-.now-playing .station-info {
-  position: relative;
-  z-index: 1;
-}
-
-.now-playing .station-name {
-  margin: 0;
-}
-
-.now-playing .station-meta {
-  margin: 0;
-}
-
-.now-playing .favorite-btn {
-  border: none;
-  background: var(--color-background-neutral-12);
-  border-radius: var(--radius-05);
-  cursor: pointer;
-  transition: transform var(--transition-fast);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  z-index: 1;
-}
-
-.now-playing .favorite-btn:hover {
-  transform: scale(1.1);
-}
-
-.now-playing .favorite-btn:active {
-  transform: scale(0.95);
-}
-
-.now-playing .control-btn {
-  border: none;
-  background: var(--color-background-neutral-12);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  z-index: 1;
-}
-
-.now-playing {
-  position: absolute;
-  top: var(--space-07);
-  right: var(--space-06);
-  display: flex;
-  justify-content: space-between;
-  overflow: hidden;
-  width: 310px;
-  height: calc(100% - 2 * var(--space-07));
-  max-height: 560px;
-  flex-shrink: 0;
-  flex-direction: column;
-  gap: var(--space-04);
-  padding: var(--space-04);
-  background: var(--color-text);
-  border-radius: var(--radius-07);
-  backdrop-filter: blur(16px);
-}
-
-.now-playing .station-art-background .background-station-favicon {
-  filter: blur(60px);
-  opacity: 0.72;
-}
-
-.now-playing::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 2px;
-  opacity: 0.8;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-07);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: -1;
-  pointer-events: none;
-}
-
-.now-playing .station-art {
-  width: 100%;
-  border-radius: var(--radius-05);
-}
-
-
-.now-playing .station-info {
-  display: flex;
-  height: 100%;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.now-playing .station-name {
-  color: var(--color-text-contrast);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.now-playing .station-meta {
-  color: var(--color-text-contrast-50);
-}
-
-.now-playing .favorite-btn {
-  width: 48px;
-  height: 48px;
-  font-size: 20px;
-}
-
-.controls-wrapper {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  gap: var(--space-02);
-  justify-content: space-between;
-  z-index: 1;
-}
-
-.now-playing .control-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-05);
-  font-size: 24px;
-}
-
-.now-playing .control-btn:hover {
-  transform: scale(1.02);
-}
-
-.now-playing .control-btn:active {
-  transform: scale(0.98);
-}
+/* Styles now-playing migrés vers StationCard.vue */
 
 
 
-/* === LOADING STATES === */
-
-/* Loading overlay pour les stations en mode favoris */
-.loading-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-05);
-  z-index: 10;
-}
-
-/* Spinner pour mode favoris (overlay) */
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.2);
-  border-top-color: var(--color-brand);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-/* Spinner pour mode recherche (petit, à la place du bouton) */
-.loading-spinner-small {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--color-border);
-  border-top-color: var(--color-brand);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Réduire légèrement l'opacité des stations en loading */
-.station-image.loading,
-.station-card.loading {
-  opacity: 0.9;
-}
+/* Styles loading migrés vers StationCard.vue */
 
 /* === TRANSITION ANIMATIONS === */
 @keyframes fadeOutUp {
@@ -1266,81 +794,8 @@ onBeforeUnmount(() => {
 
 
 
-/* Mobile : Player sticky en bas (layout horizontal) */
+/* Mobile : Responsive adaptations */
 @media (max-aspect-ratio: 4/3) {
-  .now-playing {
-    position: fixed;
-    bottom: var(--space-08);
-    top: auto;
-    left: 50%;
-    transform: translateX(-50%);
-    width: calc(100% - var(--space-02) * 2);
-    height: auto;
-    flex-direction: row;
-    align-items: center;
-    gap: var(--space-03);
-    padding: var(--space-03);
-    border-radius: var(--radius-06);
-    box-shadow: 0 var(--space-04) var(--space-07) rgba(0, 0, 0, 0.2);
-    z-index: 1000;
-  }
-
-  /* Background blur spécifique Mobile */
-  /* .now-playing .station-art-background .background-station-favicon {
-    filter: blur(40px);
-  } */
-
-  .now-playing .station-art {
-    width: 48px;
-    height: 48px;
-    border-radius: var(--radius-03);
-  }
-
-
-  .now-playing .station-info {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .now-playing .station-name {
-    font-size: var(--font-size-h1);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .now-playing .station-meta {
-    display: none;
-  }
-
-  .now-playing .favorite-btn {
-    flex-shrink: 0;
-    width: 48px;
-    height: 48px;
-    font-size: 20px;
-  }
-
-  .now-playing .control-btn {
-    flex-shrink: 0;
-    border-radius: var(--radius-full);
-    font-size: 24px;
-    width: 48px;
-    height: 48px;
-  }
-
-  .now-playing .control-btn:hover {
-    transform: scale(1.05);
-  }
-
-  .now-playing .control-btn:active {
-    transform: scale(0.95);
-  }
-
-  .now-playing::before {
-    border-radius: var(--radius-06);
-  }
-
-
   .radio-container {
     max-width: none;
     padding-bottom: calc(var(--space-04) + 80px);

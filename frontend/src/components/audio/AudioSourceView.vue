@@ -3,35 +3,19 @@
   <div class="audio-source-view">
     <!-- Transition SIMPLIFIÉE sans position absolute -->
     <Transition name="audio-content" mode="out-in">
-      
+
       <!-- LibrespotView avec key forcée -->
-      <div
-        v-if="shouldShowLibrespot"
-        :key="librespotKey"
-        class="librespot-container"
-      >
+      <div v-if="shouldShowLibrespot" :key="librespotKey" class="librespot-container">
         <LibrespotSource />
       </div>
 
       <!-- RadioView -->
-      <RadioSource
-        v-else-if="shouldShowRadio"
-        :key="radioKey"
-      />
+      <RadioSource v-else-if="shouldShowRadio" :key="radioKey" />
 
       <!-- PluginStatus -->
-      <div
-        v-else-if="shouldShowPluginStatus"
-        :key="pluginStatusKey"
-        class="plugin-status-container"
-      >
-        <AudioSourceStatus
-          :plugin-type="currentPluginType"
-          :plugin-state="currentPluginState"
-          :device-name="currentDeviceName"
-          :is-disconnecting="isDisconnecting"
-          @disconnect="$emit('disconnect')"
-        />
+      <div v-else-if="shouldShowPluginStatus" :key="pluginStatusKey" class="plugin-status-container">
+        <AudioSourceStatus :plugin-type="currentPluginType" :plugin-state="currentPluginState"
+          :device-name="currentDeviceName" :is-disconnecting="isDisconnecting" @disconnect="$emit('disconnect')" />
       </div>
 
     </Transition>
@@ -98,16 +82,16 @@ const shouldShowLibrespot = computed(() => {
   if (showInitialDelay.value) return false;
 
   return displayedSource.value === 'librespot' &&
-         props.pluginState === 'connected' &&
-         hasCompleteTrackInfo.value &&
-         !props.transitioning;
+    props.pluginState === 'connected' &&
+    hasCompleteTrackInfo.value &&
+    !props.transitioning;
 });
 
 const shouldShowRadio = computed(() => {
   if (showInitialDelay.value) return false;
 
   return displayedSource.value === 'radio' &&
-         !props.transitioning;
+    !props.transitioning;
 });
 
 const shouldShowPluginStatus = computed(() => {
@@ -172,7 +156,7 @@ const radioKey = computed(() => {
 // === LIFECYCLE ===
 onMounted(() => {
   // console.log('🚀 AudioSourceView mounted - SIMPLIFIED');
-  
+
   // Attente initiale de 1000ms
   setTimeout(() => {
     showInitialDelay.value = false;
@@ -184,6 +168,9 @@ onMounted(() => {
 .audio-source-view {
   width: 100%;
   height: 100%;
+  display: flex;
+  padding: 0 var(--space-06);
+  justify-content: center;
   position: relative;
 }
 

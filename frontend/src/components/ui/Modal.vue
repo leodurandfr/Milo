@@ -307,11 +307,11 @@ function toggleBodyScroll(isOpen) {
 function addActivityListeners() {
   if (!modalOverlay.value) return;
 
-  modalOverlay.value.addEventListener('pointermove', handleUserActivity);
-  modalOverlay.value.addEventListener('pointerdown', handleUserActivity);
-  modalOverlay.value.addEventListener('wheel', handleUserActivity);
-  modalOverlay.value.addEventListener('touchstart', handleUserActivity);
-  modalOverlay.value.addEventListener('touchmove', handleUserActivity);
+  modalOverlay.value.addEventListener('pointermove', handleUserActivity, { passive: true });
+  modalOverlay.value.addEventListener('pointerdown', handleUserActivity, { passive: true });
+  modalOverlay.value.addEventListener('wheel', handleUserActivity, { passive: true });
+  modalOverlay.value.addEventListener('touchstart', handleUserActivity, { passive: true });
+  modalOverlay.value.addEventListener('touchmove', handleUserActivity, { passive: true });
 }
 
 // Retirer les listeners d'activité utilisateur
@@ -337,7 +337,7 @@ watch(() => props.isOpen, async (newValue) => {
 });
 
 onMounted(() => {
-  document.addEventListener('keydown', handleKeydown);
+  document.addEventListener('keydown', handleKeydown, { passive: true });
 });
 
 onUnmounted(() => {

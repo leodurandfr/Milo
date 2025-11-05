@@ -14,7 +14,7 @@
       class="additional-apps-container mobile-only" :class="{ visible: showAdditionalApps }">
 
       <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
-        @click="() => handleAdditionalAppClick(app.id)" @touchstart="addPressEffect" @mousedown="addPressEffect"
+        @click="() => handleAdditionalAppClick(app.id)" @touchstart.passive="addPressEffect" @mousedown="addPressEffect"
         class="additional-app-content button-interactive-subtle">
         <AppIcon :name="app.icon" :size="32" />
         <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
@@ -39,7 +39,7 @@
           :key="`mobile-${id}`"
           :ref="el => { if (el) mobileDockItems[index] = el }"
           @click="() => handleAppClick(id, index)"
-          @touchstart="addPressEffect"
+          @touchstart.passive="addPressEffect"
           @mousedown="addPressEffect"
           :disabled="unifiedStore.systemState.transitioning"
           :style="{ transitionDelay: `${0.1 + index * 0.05}s` }"
@@ -53,7 +53,7 @@
           :key="`desktop-audio-${id}`"
           :ref="el => { if (el) desktopDockItems[index] = el }"
           @click="() => handleAppClick(id, index)"
-          @touchstart="addPressEffect"
+          @touchstart.passive="addPressEffect"
           @mousedown="addPressEffect"
           :disabled="unifiedStore.systemState.transitioning"
           :style="{ transitionDelay: `${0.1 + index * 0.05}s` }"
@@ -72,7 +72,7 @@
         <button
           v-if="additionalDockApps.length > 0"
           @click="handleToggleClick"
-          @touchstart="addPressEffect"
+          @touchstart.passive="addPressEffect"
           @mousedown="addPressEffect"
           :style="{ transitionDelay: `${0.1 + dockApps.length * 0.05}s` }"
           class="dock-item toggle-btn mobile-only button-interactive">
@@ -84,7 +84,7 @@
           v-for="({ id, icon, handler }, index) in enabledFeatures"
           :key="`desktop-feature-${id}`"
           @click="handler"
-          @touchstart="addPressEffect"
+          @touchstart.passive="addPressEffect"
           @mousedown="addPressEffect"
           :style="{ transitionDelay: `${0.1 + (enabledAudioPlugins.length + 1 + index) * 0.05}s` }"
           class="dock-item desktop-only button-interactive-subtle">
