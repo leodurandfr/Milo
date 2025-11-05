@@ -169,7 +169,7 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   display: flex;
-  padding: 0 var(--space-06);
+  /* padding: 0 var(--space-06); */
   justify-content: center;
   position: relative;
 }
