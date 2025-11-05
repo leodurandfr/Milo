@@ -130,8 +130,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       }
     };
 
-    document.addEventListener('visibilitychange', visibilityHandler);
-    window.addEventListener('focus', visibilityHandler);
+    document.addEventListener('visibilitychange', visibilityHandler, { passive: true });
+    window.addEventListener('focus', visibilityHandler, { passive: true });
 
     return () => {
       document.removeEventListener('visibilitychange', visibilityHandler);

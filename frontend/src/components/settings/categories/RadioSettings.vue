@@ -25,23 +25,13 @@
         Radios existantes avec une image importée manuellement
       </div>
       <div class="stations-list">
-        <div v-for="station in existingStationsWithModifiedImage" :key="station.id" class="station-item modified">
-          <div class="station-image">
-            <img v-if="station.favicon" :src="station.favicon" :alt="station.name" @error="handleImageError" />
-            <img v-else :src="placeholderImg" alt="Station sans image" class="no-image" />
-          </div>
-          <div class="station-info">
-            <div class="station-name text-body">{{ station.name }}</div>
-            <div class="station-details text-mono">
-              {{ station.country }} • {{ station.genre }}
-            </div>
-          </div>
-          <div class="station-actions">
-            <button class="icon-btn remove-image-btn" @click="confirmRemoveImage(station)" title="Restaurer l'image d'origine">
-              ❌
-            </button>
-          </div>
-        </div>
+        <StationCard v-for="station in existingStationsWithModifiedImage" :key="station.id" :station="station"
+          variant="card" :show-country="true" image-size="medium">
+          <template #actions>
+            <CircularIcon icon="close" variant="neutral" @click="confirmRemoveImage(station)"
+              title="Restaurer l'image d'origine" />
+          </template>
+        </StationCard>
       </div>
     </div>
 
@@ -52,26 +42,15 @@
         Stations ajoutées manuellement avec une image
       </div>
       <div class="stations-list">
-        <div v-for="station in customStationsWithImage" :key="station.id" class="station-item custom">
-          <div class="station-image">
-            <img v-if="station.favicon" :src="station.favicon" :alt="station.name" @error="handleImageError" />
-            <img v-else :src="placeholderImg" alt="Station sans image" class="no-image" />
-          </div>
-          <div class="station-info">
-            <div class="station-name text-body">{{ station.name }}</div>
-            <div class="station-details text-mono">
-              {{ station.country }} • {{ station.genre }}
-            </div>
-          </div>
-          <div class="station-actions">
-            <button class="icon-btn remove-image-btn" @click="confirmRemoveImage(station)" title="Supprimer l'image">
-              ❌
-            </button>
-            <button class="icon-btn delete-btn" @click="confirmDelete(station)" title="Supprimer la station">
-              🗑️
-            </button>
-          </div>
-        </div>
+        <StationCard v-for="station in customStationsWithImage" :key="station.id" :station="station" variant="card"
+          :show-country="true" image-size="medium">
+          <template #actions>
+            <CircularIcon icon="close" variant="neutral" @click="confirmRemoveImage(station)"
+              title="Supprimer l'image" />
+            <CircularIcon icon="trash" variant="neutral" @click="confirmDelete(station)"
+              title="Supprimer la station" />
+          </template>
+        </StationCard>
       </div>
     </div>
 
@@ -82,23 +61,13 @@
         Stations ajoutées manuellement sans image
       </div>
       <div class="stations-list">
-        <div v-for="station in customStationsWithoutImage" :key="station.id" class="station-item">
-          <div class="station-image">
-            <img :src="placeholderImg" alt="Station sans image" class="no-image" />
-          </div>
-          <div class="station-info">
-            <div class="station-name text-body">{{ station.name }}</div>
-            <div class="station-details text-mono">
-              {{ station.country }} • {{ station.genre }}
-            </div>
-            <div class="station-url text-mono">{{ station.url }}</div>
-          </div>
-          <div class="station-actions">
-            <button class="icon-btn delete-btn" @click="confirmDelete(station)" title="Supprimer la station">
-              🗑️
-            </button>
-          </div>
-        </div>
+        <StationCard v-for="station in customStationsWithoutImage" :key="station.id" :station="station" variant="card"
+          :show-country="true" image-size="medium">
+          <template #actions>
+            <CircularIcon icon="trash" variant="neutral" @click="confirmDelete(station)"
+              title="Supprimer la station" />
+          </template>
+        </StationCard>
       </div>
     </div>
 
@@ -143,7 +112,8 @@ import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { useRadioStore } from '@/stores/radioStore';
 import Button from '@/components/ui/Button.vue';
-import placeholderImg from '@/assets/radio/station-placeholder.jpg';
+import CircularIcon from '@/components/ui/CircularIcon.vue';
+import StationCard from '@/components/audio/StationCard.vue';
 
 defineEmits(['go-to-add-station', 'go-to-change-image']);
 
@@ -235,19 +205,6 @@ async function removeImage() {
   stationToRemoveImage.value = null;
 }
 
-function handleImageError(event) {
-  event.target.style.display = 'none';
-  const parent = event.target.parentElement;
-  if (parent) {
-    const img = document.createElement('img');
-    img.src = placeholderImg;
-    img.alt = 'Station sans image';
-    img.className = 'no-image';
-    parent.innerHTML = '';
-    parent.appendChild(img);
-  }
-}
-
 onMounted(() => {
   loadCustomStations();
 });
@@ -290,122 +247,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
-}
-
-.station-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-04);
-  padding: var(--space-04);
-  background: var(--color-background);
-  border-radius: var(--radius-04);
-  border: 1px solid var(--color-border);
-  transition: transform var(--transition-fast);
-}
-
-.station-item:hover {
-  transform: translateY(-2px);
-}
-
-.station-item.modified {
-  border-color: var(--color-brand);
-  background: linear-gradient(135deg, var(--color-background) 0%, rgba(255, 255, 255, 0.02) 100%);
-}
-
-.station-item.custom {
-  border-color: #ffa500;
-  background: linear-gradient(135deg, var(--color-background) 0%, rgba(255, 165, 0, 0.05) 100%);
-}
-
-.station-image {
-  width: 60px;
-  height: 60px;
-  min-width: 60px;
-  border-radius: var(--radius-04);
-  overflow: hidden;
-  background: var(--color-background-neutral);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.station-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.no-image {
-  font-size: 32px;
-  color: var(--color-text-secondary);
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.station-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-  min-width: 0;
-}
-
-.station-name {
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.station-details {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
-}
-
-.station-url {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.station-badge {
-  color: var(--color-brand);
-  font-size: var(--font-size-small);
-  font-weight: 500;
-}
-
-.station-actions {
-  display: flex;
-  gap: var(--space-02);
-}
-
-.icon-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--color-border);
-  background: var(--color-background-neutral);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  transition: all var(--transition-fast);
-}
-
-.icon-btn:hover {
-  transform: scale(1.1);
-}
-
-.delete-btn:hover {
-  background: rgba(255, 68, 68, 0.1);
-  border-color: #ff4444;
-}
-
-.remove-image-btn:hover {
-  background: rgba(255, 165, 0, 0.1);
-  border-color: #ffa500;
 }
 
 /* Empty State */

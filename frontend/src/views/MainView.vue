@@ -97,11 +97,11 @@ function handleUserActivity() {
 
 // Ajoute les listeners d'activité
 function addActivityListeners() {
-  document.addEventListener('pointermove', handleUserActivity);
-  document.addEventListener('pointerdown', handleUserActivity);
-  document.addEventListener('wheel', handleUserActivity);
-  document.addEventListener('touchstart', handleUserActivity);
-  document.addEventListener('touchmove', handleUserActivity);
+  document.addEventListener('pointermove', handleUserActivity, { passive: true });
+  document.addEventListener('pointerdown', handleUserActivity, { passive: true });
+  document.addEventListener('wheel', handleUserActivity, { passive: true });
+  document.addEventListener('touchstart', handleUserActivity, { passive: true });
+  document.addEventListener('touchmove', handleUserActivity, { passive: true });
 }
 
 // Retire les listeners d'activité
