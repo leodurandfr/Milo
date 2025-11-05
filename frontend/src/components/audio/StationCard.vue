@@ -506,6 +506,7 @@ function handleImageError() {
     left: 50%;
     transform: translateX(-50%);
     width: calc(100% - var(--space-02) * 2);
+
     height: auto;
     flex-direction: row;
     align-items: center;
