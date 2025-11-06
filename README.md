@@ -37,6 +37,25 @@ Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, 
 
 ### Milō (main installation)
 
+**1. Prepare the SD card**
+
+Download and open [Raspberry Pi Imager](https://www.raspberrypi.com/software/):
+- Select your Raspberry Pi model (Raspberry Pi 4 or 5)
+- Choose **"Raspberry Pi OS (64-bit) Lite"** (based on Debian Trixie)
+- Select your microSD card
+- Click **"Next"** → **"Edit Settings"**
+- Configure:
+  - Hostname: `milo`
+  - Username: `milo`
+  - Password: choose your password
+  - WiFi: configure if not using Ethernet
+- Click **"Save"** → **"Yes"**
+
+Once flashing is complete, insert the microSD card into your Raspberry Pi and power it on. Wait a few minutes for the first boot to complete.
+
+**2. Run the installation script**
+
+Connect via SSH and run:
 ```bash
 wget https://raw.githubusercontent.com/leodurandfr/Milo/main/install.sh
 chmod +x install.sh
@@ -44,16 +63,15 @@ chmod +x install.sh
 ```
 
 The script will guide you through:
-- Configuring the hostname (`milo`)
 - Selecting your HiFiBerry audio card
-- Configuring your touch screen
+- Configuring your touch screen (optional)
 - Installing all dependencies automatically
 
 **Access after installation:**
 - Web interface: **http://milo.local**
 - Spotify Connect: Select **"Milō"** in the Spotify app
 - Bluetooth: Connect to **"Milō · Bluetooth"**
-- Mac audio: After installing [**Milō Mac**](https://github.com/leodurandfr/Milo-Mac), select **"Milo"** in your mac audio output.
+- Mac audio: After installing [**Milō Mac**](https://github.com/leodurandfr/Milo-Mac), select **"Milo"** in your Mac audio output
 
 **Uninstall:**
 ```bash
@@ -62,13 +80,37 @@ The script will guide you through:
 
 ### Milō Sat (multiroom satellites)
 
-Install Milō Sat on other Raspberry Pis to create a synchronized multiroom system.
+Install Milō Sat on additional Raspberry Pis to create a synchronized multiroom system.
 
+**1. Prepare the SD card**
+
+Download and open [Raspberry Pi Imager](https://www.raspberrypi.com/software/):
+- Select your Raspberry Pi model (Raspberry Pi 4 or 5)
+- Choose **"Raspberry Pi OS (64-bit) Lite"** (based on Debian Trixie)
+- Select your microSD card
+- Click **"Next"** → **"Edit Settings"**
+- Configure:
+  - Hostname: `milo-sat-01` (use `milo-sat-02`, `milo-sat-03`, etc. for additional satellites)
+  - Username: `milo-sat-01` (match the hostname)
+  - Password: choose your password
+  - WiFi: configure if not using Ethernet
+- Click **"Save"** → **"Yes"**
+
+Once flashing is complete, insert the microSD card into your Raspberry Pi and power it on. Wait a few minutes for the first boot to complete.
+
+**2. Run the installation script**
+
+Connect via SSH and run:
 ```bash
 wget https://raw.githubusercontent.com/leodurandfr/Milo/main/milo-sat/install-sat.sh
 chmod +x install-sat.sh
 ./install-sat.sh
 ```
+
+The script will guide you through:
+- Selecting your HiFiBerry audio card
+- Configuring Snapcast client settings
+- Installing all dependencies automatically
 
 **Uninstall:**
 ```bash
