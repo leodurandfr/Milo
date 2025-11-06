@@ -333,7 +333,7 @@ install_dependencies() {
         sudo apt install -y \
             git python3-pip python3-venv python3-dev libasound2-dev libssl-dev \
             cmake build-essential pkg-config swig liblgpio-dev nodejs npm wget unzip \
-            fontconfig mpv libinput-tools \
+            fontconfig mpv libinput-tools bc \
             fonts-noto fonts-noto-cjk fonts-lohit-deva fonts-noto-color-emoji
     
     log_info "Updating Node.js and npm..."
