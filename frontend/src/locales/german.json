@@ -171,5 +171,22 @@
     "configuration": "Einstellungen",
     "language": "Sprache",
     "unknown": "Unbekannt"
+  },
+  "radioSettings": {
+    "modifiedImagesTitle": "Sender mit geändertem Bild",
+    "restoreOriginalImage": "Originalbild wiederherstellen",
+    "noModifiedImages": "Kein Sender mit geändertem Bild",
+    "changeStationImage": "Senderbild ändern",
+    "addedStationsTitle": "Hinzugefügte Sender",
+    "removeImage": "Bild entfernen",
+    "deleteStation": "Sender löschen",
+    "noAddedStations": "Kein Sender hinzugefügt. Klicken Sie auf \"Sender hinzufügen\", um zu beginnen.",
+    "addStation": "Sender hinzufügen",
+    "deleteStationConfirm": "Sender löschen?",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "removeImageConfirm": "Importiertes Bild entfernen?",
+    "imageWillBeDeleted": "Das Bild wird gelöscht.",
+    "imageWillBeDeletedAndRestored": "Das Bild wird gelöscht und der Sender kehrt zu seinem Originalbild zurück."
   }
 }

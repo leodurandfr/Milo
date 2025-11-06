@@ -2,60 +2,60 @@
   <div class="radio-settings-container">
     <!-- Section 1: Stations avec image modifiée -->
     <section class="settings-section">
-      <h2 class="heading-2 text-body">Stations avec image modifiée</h2>
+      <h2 class="heading-2 text-body">{{ $t('radioSettings.modifiedImagesTitle') }}</h2>
 
       <div v-if="existingStationsWithModifiedImage.length > 0" class="stations-list">
         <StationCard v-for="station in existingStationsWithModifiedImage" :key="station.id" :station="station"
           variant="card" :show-country="true" image-size="medium">
           <template #actions>
             <CircularIcon icon="close" variant="neutral" @click="confirmRemoveImage(station)"
-              title="Restaurer l'image d'origine" />
+              :title="$t('radioSettings.restoreOriginalImage')" />
           </template>
         </StationCard>
       </div>
 
       <div v-else class="empty-state text-mono">
-        Aucune station avec image modifiée
+        {{ $t('radioSettings.noModifiedImages') }}
       </div>
 
       <Button variant="primary" @click="$emit('go-to-change-image')">
-        Changer l'image d'une station
+        {{ $t('radioSettings.changeStationImage') }}
       </Button>
     </section>
 
     <!-- Section 2: Stations ajoutées -->
     <section class="settings-section">
-      <h2 class="heading-2 text-body">Stations ajoutées</h2>
+      <h2 class="heading-2 text-body">{{ $t('radioSettings.addedStationsTitle') }}</h2>
 
       <div v-if="customStations.length > 0" class="stations-list">
         <StationCard v-for="station in customStations" :key="station.id" :station="station" variant="card"
           :show-country="true" image-size="medium">
           <template #actions>
             <CircularIcon v-if="station.image_filename" icon="close" variant="neutral" @click="confirmRemoveImage(station)"
-              title="Supprimer l'image" />
+              :title="$t('radioSettings.removeImage')" />
             <CircularIcon icon="trash" variant="neutral" @click="confirmDelete(station)"
-              title="Supprimer la station" />
+              :title="$t('radioSettings.deleteStation')" />
           </template>
         </StationCard>
       </div>
 
       <div v-else class="empty-state text-mono">
-        Aucune station ajoutée. Cliquez sur "Ajouter une station" pour commencer.
+        {{ $t('radioSettings.noAddedStations') }}
       </div>
 
       <Button variant="primary" @click="$emit('go-to-add-station')">
-        Ajouter une station
+        {{ $t('radioSettings.addStation') }}
       </Button>
     </section>
 
     <!-- Delete Confirmation Modal -->
     <div v-if="stationToDelete" class="modal-overlay" @click.self="stationToDelete = null">
       <div class="confirm-modal">
-        <h3 class="text-body">Supprimer la station ?</h3>
+        <h3 class="text-body">{{ $t('radioSettings.deleteStationConfirm') }}</h3>
         <p class="text-mono">{{ stationToDelete.name }}</p>
         <div class="confirm-actions">
-          <Button variant="secondary" @click="stationToDelete = null">Annuler</Button>
-          <button class="btn-danger" @click="deleteStation">Supprimer</button>
+          <Button variant="secondary" @click="stationToDelete = null">{{ $t('radioSettings.cancel') }}</Button>
+          <button class="btn-danger" @click="deleteStation">{{ $t('radioSettings.delete') }}</button>
         </div>
       </div>
     </div>
@@ -63,14 +63,14 @@
     <!-- Remove Image Confirmation Modal -->
     <div v-if="stationToRemoveImage" class="modal-overlay" @click.self="stationToRemoveImage = null">
       <div class="confirm-modal">
-        <h3 class="text-body">Supprimer l'image importée ?</h3>
+        <h3 class="text-body">{{ $t('radioSettings.removeImageConfirm') }}</h3>
         <p class="text-mono">{{ stationToRemoveImage.name }}</p>
         <p class="text-mono" style="color: var(--color-text-secondary); font-size: var(--font-size-small);">
-          {{ stationToRemoveImage.id.startsWith('custom_') ? 'L\'image sera supprimée.' : 'L\'image sera supprimée et la station reviendra à son image d\'origine.' }}
+          {{ stationToRemoveImage.id.startsWith('custom_') ? $t('radioSettings.imageWillBeDeleted') : $t('radioSettings.imageWillBeDeletedAndRestored') }}
         </p>
         <div class="confirm-actions">
-          <Button variant="secondary" @click="stationToRemoveImage = null">Annuler</Button>
-          <button class="btn-danger" @click="removeImage">Supprimer l'image</button>
+          <Button variant="secondary" @click="stationToRemoveImage = null">{{ $t('radioSettings.cancel') }}</Button>
+          <button class="btn-danger" @click="removeImage">{{ $t('radioSettings.delete') }}</button>
         </div>
       </div>
     </div>

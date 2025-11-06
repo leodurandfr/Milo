@@ -171,5 +171,22 @@
     "configuration": "配置",
     "language": "语言",
     "unknown": "未知"
+  },
+  "radioSettings": {
+    "modifiedImagesTitle": "修改图片的电台",
+    "restoreOriginalImage": "恢复原始图片",
+    "noModifiedImages": "没有修改图片的电台",
+    "changeStationImage": "更改电台图片",
+    "addedStationsTitle": "已添加的电台",
+    "removeImage": "删除图片",
+    "deleteStation": "删除电台",
+    "noAddedStations": "尚未添加电台。点击'添加电台'开始。",
+    "addStation": "添加电台",
+    "deleteStationConfirm": "删除电台？",
+    "cancel": "取消",
+    "delete": "删除",
+    "removeImageConfirm": "删除导入的图片？",
+    "imageWillBeDeleted": "图片将被删除。",
+    "imageWillBeDeletedAndRestored": "图片将被删除，电台将恢复到原始图片。"
   }
 }

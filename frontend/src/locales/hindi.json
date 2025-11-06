@@ -171,5 +171,22 @@
     "configuration": "कॉन्फ़िगरेशन",
     "language": "भाषा",
     "unknown": "अज्ञात"
+  },
+  "radioSettings": {
+    "modifiedImagesTitle": "संशोधित छवि वाले स्टेशन",
+    "restoreOriginalImage": "मूल छवि पुनर्स्थापित करें",
+    "noModifiedImages": "संशोधित छवि वाला कोई स्टेशन नहीं",
+    "changeStationImage": "स्टेशन छवि बदलें",
+    "addedStationsTitle": "जोड़े गए स्टेशन",
+    "removeImage": "छवि हटाएं",
+    "deleteStation": "स्टेशन हटाएं",
+    "noAddedStations": "कोई स्टेशन नहीं जोड़ा गया। शुरू करने के लिए \"स्टेशन जोड़ें\" पर क्लिक करें।",
+    "addStation": "स्टेशन जोड़ें",
+    "deleteStationConfirm": "स्टेशन हटाएं?",
+    "cancel": "रद्द करें",
+    "delete": "हटाएं",
+    "removeImageConfirm": "आयातित छवि हटाएं?",
+    "imageWillBeDeleted": "छवि हटा दी जाएगी।",
+    "imageWillBeDeletedAndRestored": "छवि हटा दी जाएगी और स्टेशन अपनी मूल छवि पर वापस आ जाएगा।"
   }
 }

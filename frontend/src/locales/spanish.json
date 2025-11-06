@@ -171,5 +171,22 @@
     "configuration": "Configuración",
     "language": "Idioma",
     "unknown": "Desconocido"
+  },
+  "radioSettings": {
+    "modifiedImagesTitle": "Estaciones con imagen modificada",
+    "restoreOriginalImage": "Restaurar imagen original",
+    "noModifiedImages": "Ninguna estación con imagen modificada",
+    "changeStationImage": "Cambiar imagen de estación",
+    "addedStationsTitle": "Estaciones añadidas",
+    "removeImage": "Eliminar imagen",
+    "deleteStation": "Eliminar estación",
+    "noAddedStations": "Ninguna estación añadida. Haz clic en \"Añadir estación\" para comenzar.",
+    "addStation": "Añadir estación",
+    "deleteStationConfirm": "¿Eliminar estación?",
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "removeImageConfirm": "¿Eliminar imagen importada?",
+    "imageWillBeDeleted": "La imagen será eliminada.",
+    "imageWillBeDeletedAndRestored": "La imagen será eliminada y la estación volverá a su imagen original."
   }
 }
