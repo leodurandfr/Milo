@@ -405,7 +405,7 @@ onUnmounted(() => {
 .close-btn-position {
   position: absolute;
   top: 0;
-  right: calc(-96px - var(--space-04));
+  right: var(--space-04);
   opacity: 0;
   transform: translateY(-24px);
 }
@@ -421,12 +421,6 @@ onUnmounted(() => {
   touch-action: pan-y;
 }
 
-/* Support pour back-modal-header */
-/* .modal-content :deep(.back-modal-header) {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-} */
 
 /* Responsive - MOBILE : bouton centré en haut */
 @media (max-aspect-ratio: 4/3) {
@@ -435,7 +429,7 @@ onUnmounted(() => {
   }
 
   .close-btn-position {
-    position: fixed;
+    position: absolute;
     top: calc(-48px - var(--space-04));
     left: 50%;
     transform: translateX(-50%) translateY(-24px);

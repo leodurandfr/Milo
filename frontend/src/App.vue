@@ -10,15 +10,15 @@
 
     />
 
-    <Modal :is-open="isSnapcastOpen" height-mode="auto" @close="isSnapcastOpen = false">
+    <Modal :is-open="isSnapcastOpen" @close="isSnapcastOpen = false">
       <SnapcastModal />
     </Modal>
 
-    <Modal :is-open="isEqualizerOpen" height-mode="fixed" @close="isEqualizerOpen = false">
+    <Modal :is-open="isEqualizerOpen" @close="isEqualizerOpen = false">
       <EqualizerModal />
     </Modal>
 
-    <Modal :is-open="isSettingsOpen" height-mode="fixed" @close="isSettingsOpen = false">
+    <Modal :is-open="isSettingsOpen" @close="isSettingsOpen = false">
       <SettingsModal />
     </Modal>
 
