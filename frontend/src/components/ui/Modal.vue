@@ -405,7 +405,7 @@ onUnmounted(() => {
 .close-btn-position {
   position: absolute;
   top: 0;
-  right: var(--space-04);
+  right: calc(-1 * var(--space-04) - var(--space-09));
   opacity: 0;
   transform: translateY(-24px);
 }
@@ -430,7 +430,7 @@ onUnmounted(() => {
 
   .close-btn-position {
     position: absolute;
-    top: calc(-48px - var(--space-04));
+    top: calc(-1 * var(--space-05) - var(--space-08));
     left: 50%;
     transform: translateX(-50%) translateY(-24px);
   }
