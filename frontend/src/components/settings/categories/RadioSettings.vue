@@ -1,30 +1,10 @@
 <template>
-  <section class="settings-section">
-    <!-- Ajouter une station -->
-    <div class="radio-group">
-      <h2 class="heading-2 text-body">Stations personnalisées</h2>
-      <div class="setting-item-container">
-        <div class="radio-description text-mono">
-          Ajoutez vos propres stations radio avec leur image
-        </div>
-        <div class="action-buttons">
-          <Button variant="brand" @click="$emit('go-to-add-station')">
-            + Ajouter une station
-          </Button>
-          <Button variant="neutral" @click="$emit('go-to-change-image')">
-            🖼️ Changer une image
-          </Button>
-        </div>
-      </div>
-    </div>
+  <div class="radio-settings-container">
+    <!-- Section 1: Stations avec image modifiée -->
+    <section class="settings-section">
+      <h2 class="heading-2 text-body">Stations avec image modifiée</h2>
 
-    <!-- Stations existantes avec image modifiée -->
-    <div v-if="existingStationsWithModifiedImage.length > 0" class="radio-group">
-      <h2 class="heading-2 text-body">🖼️ Images modifiées ({{ existingStationsWithModifiedImage.length }})</h2>
-      <div class="radio-description text-mono">
-        Radios existantes avec une image importée manuellement
-      </div>
-      <div class="stations-list">
+      <div v-if="existingStationsWithModifiedImage.length > 0" class="stations-list">
         <StationCard v-for="station in existingStationsWithModifiedImage" :key="station.id" :station="station"
           variant="card" :show-country="true" image-size="medium">
           <template #actions>
@@ -33,50 +13,40 @@
           </template>
         </StationCard>
       </div>
-    </div>
 
-    <!-- Stations personnalisées avec image -->
-    <div v-if="customStationsWithImage.length > 0" class="radio-group">
-      <h2 class="heading-2 text-body">⭐ Stations personnalisées avec image ({{ customStationsWithImage.length }})</h2>
-      <div class="radio-description text-mono">
-        Stations ajoutées manuellement avec une image
+      <div v-else class="empty-state text-mono">
+        Aucune station avec image modifiée
       </div>
-      <div class="stations-list">
-        <StationCard v-for="station in customStationsWithImage" :key="station.id" :station="station" variant="card"
+
+      <Button variant="primary" @click="$emit('go-to-change-image')">
+        Changer l'image d'une station
+      </Button>
+    </section>
+
+    <!-- Section 2: Stations ajoutées -->
+    <section class="settings-section">
+      <h2 class="heading-2 text-body">Stations ajoutées</h2>
+
+      <div v-if="customStations.length > 0" class="stations-list">
+        <StationCard v-for="station in customStations" :key="station.id" :station="station" variant="card"
           :show-country="true" image-size="medium">
           <template #actions>
-            <CircularIcon icon="close" variant="neutral" @click="confirmRemoveImage(station)"
+            <CircularIcon v-if="station.image_filename" icon="close" variant="neutral" @click="confirmRemoveImage(station)"
               title="Supprimer l'image" />
             <CircularIcon icon="trash" variant="neutral" @click="confirmDelete(station)"
               title="Supprimer la station" />
           </template>
         </StationCard>
       </div>
-    </div>
 
-    <!-- Stations personnalisées sans image -->
-    <div v-if="customStationsWithoutImage.length > 0" class="radio-group">
-      <h2 class="heading-2 text-body">Stations personnalisées sans image ({{ customStationsWithoutImage.length }})</h2>
-      <div class="radio-description text-mono">
-        Stations ajoutées manuellement sans image
+      <div v-else class="empty-state text-mono">
+        Aucune station ajoutée. Cliquez sur "Ajouter une station" pour commencer.
       </div>
-      <div class="stations-list">
-        <StationCard v-for="station in customStationsWithoutImage" :key="station.id" :station="station" variant="card"
-          :show-country="true" image-size="medium">
-          <template #actions>
-            <CircularIcon icon="trash" variant="neutral" @click="confirmDelete(station)"
-              title="Supprimer la station" />
-          </template>
-        </StationCard>
-      </div>
-    </div>
 
-    <!-- Aucune station -->
-    <div v-if="customStations.length === 0" class="radio-group">
-      <div class="empty-state text-mono">
-        Aucune station personnalisée. Cliquez sur "Ajouter une station" pour commencer.
-      </div>
-    </div>
+      <Button variant="primary" @click="$emit('go-to-add-station')">
+        Ajouter une station
+      </Button>
+    </section>
 
     <!-- Delete Confirmation Modal -->
     <div v-if="stationToDelete" class="modal-overlay" @click.self="stationToDelete = null">
@@ -84,7 +54,7 @@
         <h3 class="text-body">Supprimer la station ?</h3>
         <p class="text-mono">{{ stationToDelete.name }}</p>
         <div class="confirm-actions">
-          <button class="btn-secondary" @click="stationToDelete = null">Annuler</button>
+          <Button variant="secondary" @click="stationToDelete = null">Annuler</Button>
           <button class="btn-danger" @click="deleteStation">Supprimer</button>
         </div>
       </div>
@@ -96,15 +66,15 @@
         <h3 class="text-body">Supprimer l'image importée ?</h3>
         <p class="text-mono">{{ stationToRemoveImage.name }}</p>
         <p class="text-mono" style="color: var(--color-text-secondary); font-size: var(--font-size-small);">
-          L'image sera supprimée et la station reviendra à son image d'origine.
+          {{ stationToRemoveImage.id.startsWith('custom_') ? 'L\'image sera supprimée.' : 'L\'image sera supprimée et la station reviendra à son image d\'origine.' }}
         </p>
         <div class="confirm-actions">
-          <button class="btn-secondary" @click="stationToRemoveImage = null">Annuler</button>
+          <Button variant="secondary" @click="stationToRemoveImage = null">Annuler</Button>
           <button class="btn-danger" @click="removeImage">Supprimer l'image</button>
         </div>
       </div>
     </div>
-  </section>
+  </div>
 </template>
 
 <script setup>
@@ -211,47 +181,31 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.radio-settings-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
 .settings-section {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
   padding: var(--space-05-fixed) var(--space-05);
   display: flex;
   flex-direction: column;
-  gap: var(--space-05-fixed);
-}
-
-.radio-group {
-  display: flex;
-  flex-direction: column;
   gap: var(--space-04);
-}
-
-.setting-item-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
-}
-
-.radio-description {
-  color: var(--color-text-secondary);
-}
-
-.action-buttons {
-  display: flex;
-  gap: var(--space-03);
-  flex-wrap: wrap;
 }
 
 /* Stations List */
 .stations-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-03);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-01);
 }
 
 /* Empty State */
 .empty-state {
-  padding: var(--space-06);
+  padding: var(--space-05);
   text-align: center;
   color: var(--color-text-secondary);
   background: var(--color-background);
@@ -339,5 +293,11 @@ onMounted(() => {
   .station-actions {
     align-self: flex-end;
   }
+  .stations-list {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: var(--space-01);
+}
+
 }
 </style>
