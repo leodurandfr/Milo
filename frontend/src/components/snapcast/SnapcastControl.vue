@@ -1,6 +1,6 @@
 <!-- frontend/src/components/snapcast/SnapcastControl.vue -->
 <template>
-  <div class="clients-container" :style="{ height: containerHeight }">
+  <div class="clients-container" :class="{ opening: isOpening }" :style="{ height: containerHeight }">
     <div class="clients-list" ref="clientsListRef" :class="{ 'with-background': showBackground }">
       <!-- MESSAGE : Multiroom désactivé -->
       <Transition name="message">
@@ -35,6 +35,7 @@ const { on } = useWebSocket();
 
 const clientsListRef = ref(null);
 const containerHeight = ref('0px');
+const isOpening = ref(true);
 
 // États locaux pour les transitions multiroom
 const isMultiroomTransitioning = ref(false);
@@ -210,6 +211,11 @@ onMounted(async () => {
   await nextTick();
   setupResizeObserver();
 
+  // Désactiver la classe 'opening' après l'animation de la modal
+  setTimeout(() => {
+    isOpening.value = false;
+  }, 700);
+
   unsubscribeFunctions.push(
     on('snapcast', 'client_connected', handleClientConnected),
     on('snapcast', 'client_disconnected', handleClientDisconnected),
@@ -282,6 +288,10 @@ watch(isTogglingMultiroom, (isToggling, wasToggling) => {
   transition: height var(--transition-spring);
   overflow: visible;
   position: relative;
+}
+
+.clients-container.opening {
+  transition: none !important;
 }
 
 .clients-list {
