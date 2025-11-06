@@ -169,7 +169,8 @@
         'favorites-mode': !isSearchMode,
         'search-mode': isSearchMode,
         'transition-fading-out': transitionState === 'fading-out',
-        'transition-fading-in': transitionState === 'fading-in'
+        'transition-fading-in': transitionState === 'fading-in',
+        'has-now-playing': radioStore.currentStation
       }">
         <!-- Mode Favoris : affichage image seule -->
         <StationCard v-if="!isSearchMode" v-for="station in displayedStations" :key="`fav-${station.id}`"
@@ -684,7 +685,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding-top: var(--space-07);
+  padding: var(--space-07) 0;
   gap: var(--space-04);
   min-height: 0;
   flex: 1 1 auto;
@@ -692,21 +693,18 @@ onBeforeUnmount(() => {
   touch-action: pan-y;
 }
 
-/* :deep(.modal-header) {
-  margin: 0 var(--space-06);
-} */
+
 
 /* === SEARCH SECTION === */
 .search-section {
   display: flex;
   flex-direction: column;
-  margin: 0 var(--space-06);
   gap: var(--space-03);
 }
 
 .filters {
   display: flex;
-  gap: var(--space-03);
+  gap: var(--space-01);
   color: var(--color-text-secondary);
 }
 
@@ -773,7 +771,7 @@ onBeforeUnmount(() => {
 
 .stations-grid {
   display: grid;
-  /* padding: 0 var(--space-06) var(--space-07) var(--space-06); */
+  padding-bottom: var(--space-07);
 }
 
 /* Mode Recherche */
@@ -850,6 +848,10 @@ onBeforeUnmount(() => {
 
   .stations-grid {
     /* padding: 0 var(--space-05) 142px var(--space-05); */
+  }
+
+  .stations-grid.has-now-playing {
+    padding-bottom: 144px;
   }
 
   /* :deep(.modal-header) {
