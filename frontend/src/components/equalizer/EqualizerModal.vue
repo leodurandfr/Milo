@@ -281,7 +281,6 @@ onUnmounted(() => {
 .content-container {
   transition: height var(--transition-spring);
   overflow: visible;
-  position: relative;
 }
 
 .content-wrapper {
