@@ -42,6 +42,8 @@ class ScreenController:
 
         # État
         self.last_activity_time = monotonic()
+        self.boot_time = None  # Sera défini lors de initialize()
+        self.boot_grace_period = 30  # Sera calculé comme max(30, timeout_seconds) lors de initialize()
         self.screen_on = True
         self.running = False
         self.current_plugin_state = "inactive"
@@ -127,9 +129,17 @@ class ScreenController:
         """Initialise le contrôleur"""
         try:
             await self._load_config()
+
+            # Calculer la période de grâce : max entre 30s et le timeout configuré
+            # Cela garantit qu'on voit toujours au moins 30s de boot, même si timeout est court
+            self.boot_grace_period = max(30, self.timeout_seconds if self.timeout_seconds != 0 else 30)
+
             await self._screen_cmd(self.screen_on_cmd)
+            self.boot_time = monotonic()  # Enregistrer le temps de démarrage
             self.last_activity_time = monotonic()
             self.running = True
+
+            self.logger.info(f"Screen controller initialized with {self.boot_grace_period}s boot grace period (timeout_seconds={self.timeout_seconds}s)")
 
             # Démarrer monitoring
             asyncio.create_task(self._monitor_plugin_state())
@@ -189,6 +199,17 @@ class ScreenController:
                 if self.timeout_seconds == 0:
                     await asyncio.sleep(5)
                     continue
+
+                # Période de grâce après boot : ne pas éteindre l'écran pendant les X premières secondes
+                if self.boot_time is not None:
+                    time_since_boot = monotonic() - self.boot_time
+                    if time_since_boot < self.boot_grace_period:
+                        # Encore dans la période de grâce
+                        remaining = self.boot_grace_period - time_since_boot
+                        if int(time_since_boot) % 10 == 0:  # Log toutes les 10s pour éviter le spam
+                            self.logger.debug(f"Boot grace period active: {remaining:.0f}s remaining")
+                        await asyncio.sleep(1)
+                        continue
 
                 # Garder le timer à 0 tant que le plugin est "connected"
                 if self.current_plugin_state == "connected":

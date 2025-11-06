@@ -97,6 +97,12 @@ main() {
 
     log_success "All services are ready!"
 
+    # Keep Plymouth splash visible for a few more seconds
+    # This prevents seeing the empty Cage screen before Chromium loads
+    SPLASH_DELAY=10  # seconds
+    log_info "Keeping splash screen visible for ${SPLASH_DELAY}s..."
+    sleep $SPLASH_DELAY
+
     # Quit Plymouth
     quit_plymouth
 
