@@ -1,4 +1,4 @@
-// frontend/src/composables/usePlaybackProgress.js - Version simplifiée sans logique complexe
+// frontend/src/composables/usePlaybackProgress.js
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
@@ -17,14 +17,14 @@ export function usePlaybackProgress() {
     return (currentPosition.value / duration.value) * 100;
   });
 
-  // 🎯 SIMPLIFIÉ : Synchronisation directe avec les métadonnées du store
+  // Direct synchronization with store metadata
   watch(() => unifiedStore.systemState.metadata?.position, (newPosition) => {
     if (newPosition !== undefined && !isApiSyncing) {
       localPosition.value = newPosition;
     }
   }, { immediate: true });
 
-  // Animation locale pendant la lecture
+  // Local animation while playing
   watch(() => unifiedStore.systemState.metadata?.is_playing, (isPlaying) => {
     stopProgressTimer();
     if (isPlaying) {

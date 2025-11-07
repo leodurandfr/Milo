@@ -9,7 +9,6 @@
 </template>
 
 <script>
-// Import de tous vos SVG
 import playIcon from '@/assets/icons/play.svg?raw';
 import pauseIcon from '@/assets/icons/pause.svg?raw';
 import nextIcon from '@/assets/icons/next.svg?raw';
@@ -106,7 +105,7 @@ export default {
   display: block;
 }
 
-/* Mode responsive : application directe sur le SVG */
+/* Responsive : apply on SVG */
 .icon :deep(.svg-responsive) {
   width: 28px;
   height: 28px;

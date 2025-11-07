@@ -9,7 +9,7 @@
         :class="{ 'visible': isLoading }"
       ></div>
 
-      <!-- Contenu réel -->
+      <!-- Real content -->
       <div
         class="client-name heading-2"
         :class="{
@@ -29,7 +29,7 @@
         :class="{ 'visible': isLoading }"
       ></div>
 
-      <!-- Contenu réel -->
+      <!-- Real content -->
       <div
         class="volume-control"
         :class="{
@@ -59,7 +59,7 @@
         :class="{ 'visible': isLoading }"
       ></div>
 
-      <!-- Contenu réel -->
+      <!-- Real content -->
       <div
         class="control-toggle"
         :class="{ 'visible': !isLoading }"
@@ -167,7 +167,7 @@ onUnmounted(() => {
   align-items: center;
 }
 
-/* Skeleton pour le nom */
+/* Skeleton for name */
 .client-name-skeleton {
   position: absolute;
   inset: 0;
@@ -190,7 +190,7 @@ onUnmounted(() => {
   transition: opacity 300ms ease 0ms;
 }
 
-/* Contenu réel du nom */
+/* Real name content */
 .client-name {
   position: absolute;
   inset: 0;
@@ -220,7 +220,7 @@ onUnmounted(() => {
   align-items: center;
 }
 
-/* Skeleton pour le volume */
+/* Skeleton for volume */
 .volume-skeleton {
   position: absolute;
   inset: 0;
@@ -243,7 +243,7 @@ onUnmounted(() => {
   transition: opacity 300ms ease 0ms;
 }
 
-/* Contenu réel du volume */
+/* Real volume content */
 .volume-control {
   position: absolute;
   inset: 0;
@@ -272,7 +272,7 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-/* Skeleton pour le toggle */
+/* Skeleton for toggle */
 .toggle-skeleton {
   position: absolute;
   width: 70px;
@@ -296,7 +296,7 @@ onUnmounted(() => {
   transition: opacity 300ms ease 0ms;
 }
 
-/* Contenu réel du toggle */
+/* Real toggle content */
 .control-toggle {
   position: absolute;
   display: flex;

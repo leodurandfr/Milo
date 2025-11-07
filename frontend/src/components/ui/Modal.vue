@@ -5,7 +5,7 @@
       <IconButtonFloating ref="closeButton" class="close-btn-position" icon-name="close" aria-label="Fermer"
         @click="close" />
 
-      <!-- Contenu -->
+      <!-- Content -->
       <div ref="modalContent" class="modal-content" @pointerdown="handlePointerDown" @pointermove="handlePointerMove"
         @pointerup="handlePointerUp" @pointercancel="handlePointerUp">
         <slot></slot>
@@ -31,27 +31,27 @@ const props = defineProps({
 
 const emit = defineEmits(['close']);
 
-// Références aux éléments de la modal
+// References to modal elements
 const modalContent = ref(null);
 const modalContainer = ref(null);
 const modalOverlay = ref(null);
 const closeButton = ref(null);
 
-// État d'animation
+// Animation state
 const isVisible = ref(false);
 const isAnimating = ref(false);
 
-// Variables pour annuler les timeouts en cours
+// Variables to cancel ongoing timeouts
 let animationTimeouts = [];
 let inactivityTimer = null;
 
-// Fonction utilitaire pour nettoyer tous les timeouts
+// Utility to clear all timeouts
 function clearAllTimeouts() {
   animationTimeouts.forEach(timeout => clearTimeout(timeout));
   animationTimeouts = [];
 }
 
-// Fonction pour nettoyer le timer d'inactivité
+// Clear the inactivity timer
 function clearInactivityTimer() {
   if (inactivityTimer) {
     clearTimeout(inactivityTimer);
@@ -59,38 +59,38 @@ function clearInactivityTimer() {
   }
 }
 
-// Fonction pour réinitialiser le timer d'inactivité
+// Reset the inactivity timer
 function resetInactivityTimer() {
   clearInactivityTimer();
 
-  // Démarrer un nouveau timer de 60 secondes
+  // Start a new 60-second timer
   inactivityTimer = setTimeout(() => {
     close();
-  }, 60000); // 60 secondes
+  }, 60000); // 60 seconds
 }
 
 const ANIMATION_TIMINGS = {
-  // Délais d'ouverture
+  // Opening delays
   overlayDelay: 0,
   containerDelay: 100,
   closeButtonDelay: 600,
 
-  // Durées individuelles d'ouverture
+  // Opening durations
   overlayDuration: 400,
   closeButtonDuration: 400,
 
-  // Délais de fermeture
+  // Closing delays
   closeOverlayDelay: 0,
   closeContainerDelay: 0,
   closeButtonDelayOut: 0,
 
-  // Durées individuelles de fermeture
+  // Closing durations
   closeOverlayDuration: 300,
   closeContainerDuration: 200,
   closeButtonDurationOut: 200
 };
 
-// Variables pour le pointer scroll
+// Pointer scroll variables
 let isDragging = false;
 let startY = 0;
 let startScrollTop = 0;
@@ -118,24 +118,24 @@ async function openModal() {
 
   if (!modalContainer.value || !modalOverlay.value || !closeButton.value) return;
 
-  // État initial overlay (invisible)
+  // Initial overlay state (invisible)
   modalOverlay.value.style.transition = 'none';
   modalOverlay.value.style.opacity = '0';
 
-  // État initial container (invisible et position plus basse comme le dock)
+  // Initial container state (invisible and lower position like the dock)
   modalContainer.value.style.transition = 'none';
   modalContainer.value.style.opacity = '0';
   modalContainer.value.style.transform = 'translateY(80px) scale(0.85)';
 
-  // État initial close button (invisible et position haute)
+  // Initial close button state (invisible and higher position)
   closeButton.value.$el.style.transition = 'none';
   closeButton.value.$el.style.opacity = '0';
   closeButton.value.$el.style.transform = 'translateX(-50%) translateY(-24px)';
 
-  // Forcer le reflow
+  // Force reflow
   modalContainer.value.offsetHeight;
 
-  // Animation d'entrée overlay (immédiate)
+  // Overlay enter animation (immediate)
   const overlayTimeout = setTimeout(() => {
     if (!modalOverlay.value) return;
     modalOverlay.value.style.transition = `opacity ${ANIMATION_TIMINGS.overlayDuration}ms ease-out`;
@@ -143,7 +143,7 @@ async function openModal() {
   }, ANIMATION_TIMINGS.overlayDelay);
   animationTimeouts.push(overlayTimeout);
 
-  // Animation d'entrée container (utilise --transition-spring comme le dock)
+  // Container enter animation (uses --transition-spring like the dock)
   const containerTimeout = setTimeout(() => {
     if (!modalContainer.value) return;
     modalContainer.value.style.transition = 'transform var(--transition-spring), opacity 400ms ease-out';
@@ -152,7 +152,7 @@ async function openModal() {
   }, ANIMATION_TIMINGS.containerDelay);
   animationTimeouts.push(containerTimeout);
 
-  // Animation retardée du close button (utilise --transition-spring)
+  // Delayed close button animation (uses --transition-spring)
   const closeButtonTimeout = setTimeout(() => {
     if (!closeButton.value || !closeButton.value.$el) return;
     closeButton.value.$el.style.transition = `transform var(--transition-spring), opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms ease-out`;
@@ -161,7 +161,7 @@ async function openModal() {
   }, ANIMATION_TIMINGS.closeButtonDelay);
   animationTimeouts.push(closeButtonTimeout);
 
-  // Attendre la fin de l'animation
+  // Wait for the end of the animation
   const totalDuration = Math.max(
     ANIMATION_TIMINGS.closeButtonDelay + ANIMATION_TIMINGS.closeButtonDuration,
     ANIMATION_TIMINGS.containerDelay + 600,
@@ -170,7 +170,7 @@ async function openModal() {
 
   const finalTimeout = setTimeout(() => {
     isAnimating.value = false;
-    // Ajouter les listeners d'activité et démarrer le timer d'inactivité
+    // Add activity listeners and start the inactivity timer
     addActivityListeners();
     resetInactivityTimer();
   }, totalDuration);
@@ -186,7 +186,7 @@ async function closeModal() {
 
   if (!modalContainer.value || !modalOverlay.value || !closeButton.value) return;
 
-  // Animation de sortie avec ease-out pour fermeture
+  // Exit animation with ease-out for closing
   const overlayCloseTimeout = setTimeout(() => {
     if (!modalOverlay.value) return;
     modalOverlay.value.style.transition = `opacity ${ANIMATION_TIMINGS.closeOverlayDuration}ms ease-out`;
@@ -210,7 +210,7 @@ async function closeModal() {
   }, ANIMATION_TIMINGS.closeButtonDelayOut);
   animationTimeouts.push(closeButtonCloseTimeout);
 
-  // Attendre la fin de l'animation
+  // Wait for the end of the animation
   const totalCloseDuration = Math.max(
     ANIMATION_TIMINGS.closeOverlayDelay + ANIMATION_TIMINGS.closeOverlayDuration,
     ANIMATION_TIMINGS.closeContainerDelay + ANIMATION_TIMINGS.closeContainerDuration,
@@ -224,23 +224,23 @@ async function closeModal() {
   animationTimeouts.push(finalCloseTimeout);
 }
 
-// Gestionnaire d'activité utilisateur
+// User activity handler
 function handleUserActivity() {
   resetInactivityTimer();
 }
 
-// Gestion du pointer scroll
+// Pointer scroll handling
 function handlePointerDown(event) {
   if (!modalContent.value) return;
 
-  // Désactiver le pointer scroll sur les appareils tactiles (mobile)
-  // Le Raspberry avec souris (pointer: fine) gardera le scroll manuel
+  // Disable pointer scroll on touch devices (mobile)
+  // Raspberry with mouse (pointer: fine) will keep manual scroll
   const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
   if (isTouchDevice) {
     return;
   }
 
-  // Exclure les sliders et autres contrôles interactifs
+  // Exclude sliders and other interactive controls
   const isSlider = event.target.closest('input[type="range"]');
   const isButton = event.target.closest('button');
   const isInput = event.target.closest('input, select, textarea');
@@ -287,14 +287,14 @@ function handlePointerUp(event) {
   }
 }
 
-// Gestion de l'échappement
+// Escape handling
 function handleKeydown(event) {
   if (event.key === 'Escape' && props.isOpen) {
     close();
   }
 }
 
-// Bloquer le scroll du body quand modal ouverte
+// Block body scroll when modal is open
 function toggleBodyScroll(isOpen) {
   if (isOpen) {
     document.body.style.overflow = 'hidden';
@@ -303,7 +303,7 @@ function toggleBodyScroll(isOpen) {
   }
 }
 
-// Ajouter les listeners d'activité utilisateur
+// Add user activity listeners
 function addActivityListeners() {
   if (!modalOverlay.value) return;
 
@@ -314,7 +314,7 @@ function addActivityListeners() {
   modalOverlay.value.addEventListener('touchmove', handleUserActivity, { passive: true });
 }
 
-// Retirer les listeners d'activité utilisateur
+// Remove user activity listeners
 function removeActivityListeners() {
   if (!modalOverlay.value) return;
 
@@ -325,7 +325,7 @@ function removeActivityListeners() {
   modalOverlay.value.removeEventListener('touchmove', handleUserActivity);
 }
 
-// Watcher pour les animations
+// Watcher for animations
 watch(() => props.isOpen, async (newValue) => {
   if (newValue) {
     toggleBodyScroll(true);
@@ -354,7 +354,6 @@ onUnmounted(() => {
   display: none;
 }
 
-/* Overlay */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -371,7 +370,6 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-/* Container */
 .modal-container {
   position: relative;
   background: var(--color-background-neutral-50);
@@ -401,7 +399,6 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-/* Positionnement du bouton close - DESKTOP : en haut à droite à l'extérieur */
 .close-btn-position {
   position: absolute;
   top: 0;
@@ -410,7 +407,6 @@ onUnmounted(() => {
   transform: translateY(-24px);
 }
 
-/* Contenu */
 .modal-content {
   overflow-y: auto;
   padding: var(--space-04);
@@ -422,7 +418,7 @@ onUnmounted(() => {
 }
 
 
-/* Responsive - MOBILE : bouton centré en haut */
+/* Responsive */
 @media (max-aspect-ratio: 4/3) {
   ::-webkit-scrollbar {
     display: none;

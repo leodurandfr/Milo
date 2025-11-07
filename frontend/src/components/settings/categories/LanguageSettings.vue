@@ -28,7 +28,6 @@ import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import IconButton from '@/components/ui/IconButton.vue';
 
-// Import des icônes de drapeaux
 import franceIcon from '@/assets/flags-icons/france.svg';
 import unitedKingdomIcon from '@/assets/flags-icons/united-kingdom.svg';
 import spainIcon from '@/assets/flags-icons/spain.svg';
@@ -70,13 +69,12 @@ const handleLanguageChanged = (msg) => {
   const newLanguage = msg.data?.language;
   if (newLanguage) {
     i18n.handleLanguageChanged(newLanguage);
-    // Mettre à jour le store
+    // Update store
     settingsStore.updateLanguage(newLanguage);
   }
 };
 
 onMounted(() => {
-  // Plus besoin de charger la langue, elle est déjà dans le store
   on('settings', 'language_changed', handleLanguageChanged);
 });
 </script>

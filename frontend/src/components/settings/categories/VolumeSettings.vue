@@ -1,7 +1,7 @@
 <!-- frontend/src/components/settings/categories/VolumeSettings.vue -->
 <template>
   <div class="settings-container">
-    <!-- Contrôles du volume -->
+    <!-- Volume controls -->
     <section class="settings-section">
       <div class="volume-group">
         <h2 class="heading-2 text-body">{{ t('volumeSettings.controls') }}</h2>
@@ -28,7 +28,7 @@
       </div>
     </section>
 
-    <!-- Limites du volume -->
+    <!-- Volume limits -->
     <section class="settings-section">
       <div class="volume-group">
         <h2 class="heading-2 text-body">{{ t('volumeSettings.limits') }}</h2>
@@ -44,7 +44,7 @@
       </div>
     </section>
 
-    <!-- Volume au démarrage -->
+    <!-- Startup volume -->
     <section class="settings-section">
       <div class="volume-group">
         <h2 class="heading-2 text-body">{{ t('volumeSettings.startup') }}</h2>
@@ -89,7 +89,7 @@ const { on } = useWebSocket();
 const { updateSetting, debouncedUpdate, clearAllTimers } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
-// Refs locales pour une réactivité instantanée
+// Local refs for instant responsiveness
 const config = ref({
   mobile_volume_steps: 5,
   rotary_volume_steps: 5,
@@ -98,7 +98,7 @@ const config = ref({
   startup_volume: 50
 });
 
-// Synchroniser les refs locales avec le store au montage
+// Sync local refs with the store on mount
 function syncFromStore() {
   config.value.mobile_volume_steps = settingsStore.volumeSteps.mobile_volume_steps;
   config.value.rotary_volume_steps = settingsStore.volumeSteps.rotary_volume_steps;
@@ -115,7 +115,7 @@ function updateVolumeLimits(limits) {
   });
 }
 
-// WebSocket listeners - mettent à jour le store ET les refs locales
+// WebSocket listeners - update both the store AND local refs
 const wsListeners = {
   volume_limits_changed: (msg) => {
     if (msg.data?.limits) {
@@ -156,7 +156,7 @@ const wsListeners = {
 };
 
 onMounted(() => {
-  // Synchroniser avec le store au montage
+  // Sync with the store on mount
   syncFromStore();
 
   // Register WebSocket listeners

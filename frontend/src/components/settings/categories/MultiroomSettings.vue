@@ -1,10 +1,10 @@
 <!-- frontend/src/components/settings/categories/MultiroomSettings.vue -->
 <template>
   <div class="multiroom-settings">
-    <!-- Contenu principal avec hauteur animée -->
+    <!-- Main content with animated height -->
     <div class="content-container" :style="{ height: containerHeight }">
       <div class="content-wrapper" ref="contentWrapperRef" :class="{ 'with-background': !isMultiroomActive }">
-        <!-- MESSAGE : Multiroom désactivé -->
+        <!-- MESSAGE: Multiroom disabled -->
         <Transition name="message">
           <div v-if="!isMultiroomActive" key="message" class="message-content">
             <Icon name="multiroom" :size="96" color="var(--color-background-glass)" />
@@ -12,10 +12,10 @@
           </div>
         </Transition>
 
-        <!-- SETTINGS : Sections visibles uniquement si multiroom activé -->
+        <!-- SETTINGS: Sections visible only if multiroom is enabled -->
         <Transition name="settings">
           <div v-if="isMultiroomActive" key="settings" class="settings-container">
-        <!-- Enceintes multiroom -->
+        <!-- Multiroom speakers -->
         <section class="settings-section">
       <div class="multiroom-group">
         <h2 class="heading-2 text-body">{{ t('multiroom.speakers') }}</h2>
@@ -42,7 +42,7 @@
       </div>
     </section>
 
-    <!-- Presets audio -->
+    <!-- Audio presets -->
     <section class="settings-section">
       <div class="multiroom-group">
         <h2 class="heading-2 text-body">{{ t('multiroomSettings.presets') }}</h2>
@@ -55,7 +55,7 @@
       </div>
     </section>
 
-    <!-- Paramètres avancés -->
+    <!-- Advanced settings -->
     <section class="settings-section">
       <div class="multiroom-group">
         <h2 class="heading-2 text-body">{{ t('multiroomSettings.advanced') }}</h2>
@@ -118,16 +118,16 @@ const unifiedStore = useUnifiedAudioStore();
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
-// ResizeObserver pour animer la hauteur
+// ResizeObserver to animate height
 const contentWrapperRef = ref(null);
 const containerHeight = ref('auto');
 let resizeObserver = null;
 let isFirstResize = true;
 
-// Noms des clients (état local pour l'input)
+// Client names (local state for input)
 const clientNames = ref({});
 
-// Clients triés avec "milo" en premier
+// Sorted clients with "milo" first
 const sortedSnapcastClients = computed(() => snapcastStore.sortedClients);
 
 const audioPresets = computed(() => [
@@ -148,7 +148,7 @@ const audioPresets = computed(() => [
   }
 ]);
 
-// Style dynamique pour la grille
+// Dynamic style for the grid
 const clientsGridStyle = computed(() => {
   const count = sortedSnapcastClients.value.length;
 
@@ -171,7 +171,7 @@ const clientsGridStyle = computed(() => {
     };
   }
 
-  // 5+ items : grid 3 colonnes
+  // 5+ items: 3-column grid
   return {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
@@ -179,19 +179,19 @@ const clientsGridStyle = computed(() => {
   };
 });
 
-// Position grid pour chaque item (ligne courte en haut)
+// Grid position for each item (short row on top)
 const getClientGridStyle = (index) => {
   const count = sortedSnapcastClients.value.length;
 
-  // Pas de positionnement spécifique pour 1-4 items
+  // No specific positioning for 1–4 items
   if (count <= 4) return {};
 
   const remainder = count % 3;
 
-  // Si divisible par 3, pas besoin de réorganiser
+  // If divisible by 3, no reordering needed
   if (remainder === 0) return {};
 
-  // Première ligne : remainder items
+  // First row: remainder items
   if (index < remainder) {
     return {
       gridRow: 1,
@@ -199,7 +199,7 @@ const getClientGridStyle = (index) => {
     };
   }
 
-  // Lignes suivantes : groupes de 3
+  // Following rows: groups of 3
   const adjustedIndex = index - remainder;
   const row = Math.floor(adjustedIndex / 3) + 2;
   const col = (adjustedIndex % 3) + 1;
@@ -221,13 +221,13 @@ function isPresetActive(preset) {
 // === MULTIROOM - CLIENTS ===
 
 async function loadSnapcastData() {
-  // Charger les clients et la config serveur depuis le store
+  // Load clients and server config from the store
   await Promise.all([
     snapcastStore.loadClients(),
     snapcastStore.loadServerConfig()
   ]);
 
-  // Initialiser les noms locaux
+  // Initialize local names
   clientNames.value = {};
   snapcastStore.clients.forEach(client => {
     clientNames.value[client.id] = client.name || client.host;
@@ -258,7 +258,7 @@ async function applyServerConfig() {
 // === INPUT HANDLERS ===
 
 function handleInputBlur(clientId) {
-  // Sauvegarder les changements quand l'utilisateur quitte le champ
+  // Save changes when the user leaves the field
   updateClientName(clientId);
 }
 
@@ -272,7 +272,7 @@ function setupResizeObserver() {
     if (entries[0]) {
       const newHeight = entries[0].contentRect.height;
 
-      // Première fois : initialiser sans transition
+      // First time: initialize without transition
       if (isFirstResize) {
         containerHeight.value = `${newHeight}px`;
         isFirstResize = false;
@@ -298,25 +298,25 @@ const handleClientNameChanged = (msg) => {
   if (clientNames.value[client_id] !== undefined) {
     clientNames.value[client_id] = name;
   }
-  // Le store se met à jour via son propre handler
+  // The store updates itself via its own handler
   snapcastStore.handleClientNameChanged(msg);
 };
 
-// Watcher pour charger les données quand multiroom est activé
+// Watcher to load data when multiroom is enabled
 watch(isMultiroomActive, async (newValue, oldValue) => {
   if (newValue && !oldValue) {
-    // Multiroom vient d'être activé, charger les données
+    // Multiroom has just been enabled, load data
     await loadSnapcastData();
   }
 });
 
 onMounted(async () => {
-  // Ne charger que si multiroom est activé
+  // Load only if multiroom is enabled
   if (isMultiroomActive.value) {
     await loadSnapcastData();
   }
 
-  // Setup ResizeObserver après le prochain tick pour que la ref soit disponible
+  // Setup ResizeObserver after next tick so the ref is available
   await nextTick();
   setupResizeObserver();
 
@@ -399,7 +399,7 @@ onUnmounted(() => {
 }
 
 .clients-list {
-  /* Le style est appliqué dynamiquement via clientsGridStyle */
+  /* Style is applied dynamically via clientsGridStyle */
 }
 
 .client-config-item {
@@ -477,7 +477,7 @@ onUnmounted(() => {
 }
 
 
-/* Transitions pour message */
+/* Transitions for message */
 .message-enter-active {
   transition: opacity 300ms ease, transform 300ms ease;
 }
@@ -500,7 +500,7 @@ onUnmounted(() => {
   transform: translateY(-12px);
 }
 
-/* Transitions pour settings */
+/* Transitions for settings */
 .settings-enter-active {
   transition: opacity 300ms ease 100ms, transform 300ms ease 100ms;
 }

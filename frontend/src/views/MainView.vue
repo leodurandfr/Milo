@@ -1,10 +1,10 @@
 <!-- frontend/src/views/MainView.vue -->
 <template>
   <div class="main-view">
-    <!-- Hotspot secret pour ouvrir Settings -->
+    <!-- Secret hotspot to open Settings -->
     <div class="SettingsAccess" role="button" aria-label="Open settings" @click="handleSettingsClick"></div>
 
-    <!-- Contenu principal -->
+    <!-- Main content -->
     <div class="content-container">
       <AudioSourceView
         :active-source="unifiedStore.systemState.active_source"
@@ -25,7 +25,7 @@
       :transition-mode="logoTransitionMode"
     />
 
-    <!-- Modal Settings -->
+    <!-- Settings modal -->
     <Modal :is-open="isSettingsOpen" @close="closeSettings" height-mode="auto">
       <SettingsModal @close="closeSettings" />
     </Modal>
@@ -48,7 +48,7 @@ import RadioScreensaver from '@/components/audio/RadioScreensaver.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 
-// === États de déconnexion pour chaque plugin ===
+// === Disconnecting states for each plugin ===
 const disconnectingStates = ref({
   bluetooth: false,
   roc: false,
@@ -59,15 +59,15 @@ const disconnectingStates = ref({
 // === Radio Screensaver ===
 const isScreensaverVisible = ref(false);
 let inactivityTimer = null;
-const SCREENSAVER_DELAY = 15000; // 15 secondes
+const SCREENSAVER_DELAY = 15000; // 15 seconds
 
-// Vérifie si le screensaver doit être actif
+// Check if the screensaver should be active
 const shouldMonitorInactivity = computed(() => {
   return unifiedStore.systemState.active_source === 'radio' &&
          unifiedStore.systemState.plugin_state === 'connected';
 });
 
-// Réinitialise le timer d'inactivité
+// Reset the inactivity timer
 function resetInactivityTimer() {
   clearInactivityTimer();
 
@@ -80,7 +80,7 @@ function resetInactivityTimer() {
   }, SCREENSAVER_DELAY);
 }
 
-// Nettoie le timer d'inactivité
+// Clear the inactivity timer
 function clearInactivityTimer() {
   if (inactivityTimer) {
     clearTimeout(inactivityTimer);
@@ -88,14 +88,14 @@ function clearInactivityTimer() {
   }
 }
 
-// Gestionnaire d'activité utilisateur
+// User activity handler
 function handleUserActivity() {
   if (!isScreensaverVisible.value) {
     resetInactivityTimer();
   }
 }
 
-// Ajoute les listeners d'activité
+// Add activity listeners
 function addActivityListeners() {
   document.addEventListener('pointermove', handleUserActivity, { passive: true });
   document.addEventListener('pointerdown', handleUserActivity, { passive: true });
@@ -104,7 +104,7 @@ function addActivityListeners() {
   document.addEventListener('touchmove', handleUserActivity, { passive: true });
 }
 
-// Retire les listeners d'activité
+// Remove activity listeners
 function removeActivityListeners() {
   document.removeEventListener('pointermove', handleUserActivity);
   document.removeEventListener('pointerdown', handleUserActivity);
@@ -113,13 +113,13 @@ function removeActivityListeners() {
   document.removeEventListener('touchmove', handleUserActivity);
 }
 
-// Ferme le screensaver
+// Close the screensaver
 function closeScreensaver() {
   isScreensaverVisible.value = false;
   resetInactivityTimer();
 }
 
-// Surveille l'état du plugin radio pour démarrer/arrêter le monitoring
+// Watch the radio plugin state to start/stop monitoring
 watch(shouldMonitorInactivity, (shouldMonitor) => {
   if (shouldMonitor) {
     addActivityListeners();
@@ -131,16 +131,16 @@ watch(shouldMonitorInactivity, (shouldMonitor) => {
   }
 }, { immediate: true });
 
-// === États du logo ===
+// === Logo states ===
 const logoPosition = ref('center');  // 'center' | 'top'
 const logoSize = ref('large');       // 'large' | 'small'
 const logoVisible = ref(true);
 const logoTransitionMode = ref('normal'); // 'normal' | 'librespot-hide' | 'librespot-show'
-const isInitialLoad = ref(true); // Pour distinguer refresh vs transitions d'état
+const isInitialLoad = ref(true); // To distinguish refresh vs. state transitions
 
 let logoTimeout = null;
 
-// === COMPUTED POUR LES ÉTATS CIBLES ===
+// === COMPUTED TARGET STATES ===
 const isLibrespotFullScreen = computed(() => {
   const hasCompleteTrackInfo = !!(
     unifiedStore.systemState.plugin_state === 'connected' &&
@@ -155,7 +155,7 @@ const isLibrespotFullScreen = computed(() => {
 });
 
 const shouldShowLogo = computed(() => {
-  // Masquer le logo pour librespot ET radio
+  // Hide logo for both librespot AND radio
   if (unifiedStore.systemState.active_source === 'radio') {
     return false;
   }
@@ -173,31 +173,31 @@ const targetSize = computed(() => {
   return targetPosition.value === 'center' ? 'large' : 'small';
 });
 
-// === LOGIQUE PRINCIPALE ===
+// === MAIN LOGIC ===
 watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisible]) => {
   if (logoTimeout) {
     clearTimeout(logoTimeout);
     logoTimeout = null;
   }
 
-  // CAS 1 & 2: Logo visible → caché pour librespot
+  // CASE 1 & 2: Logo visible → hidden for librespot
   if (!newVisible && logoVisible.value) {
     logoTransitionMode.value = 'librespot-hide';
 
-    // Transition immédiate si ce n’est pas le chargement initial
+    // Immediate transition if not the initial load
     if (!isInitialLoad.value) {
       logoVisible.value = false;
       return;
     }
 
-    // Délai seulement au chargement initial (refresh)
+    // Delay only on initial load (refresh)
     logoTimeout = setTimeout(() => {
       logoVisible.value = false;
     }, 900);
     return;
   }
 
-  // CAS 3: Logo caché → visible (retour de librespot)
+  // CASE 3: Logo hidden → visible (leaving librespot)
   if (newVisible && !logoVisible.value) {
     logoTransitionMode.value = 'librespot-show';
     logoPosition.value = 'top';
@@ -207,10 +207,10 @@ watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisibl
     return;
   }
 
-  // CAS 1 & 2: Changements normaux
+  // CASE 1 & 2: Normal changes
   logoTransitionMode.value = 'normal';
 
-  // Transition immédiate si ce n’est pas le chargement initial
+  // Immediate transition if not the initial load
   if (!isInitialLoad.value) {
     logoPosition.value = newPos;
     logoSize.value = newSize;
@@ -218,7 +218,7 @@ watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisibl
     return;
   }
 
-  // Délai seulement au chargement initial (refresh)
+  // Delay only on initial load (refresh)
   logoTimeout = setTimeout(() => {
     logoPosition.value = newPos;
     logoSize.value = newSize;
@@ -227,16 +227,16 @@ watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisibl
   }, 900);
 }, { immediate: true });
 
-// Initialisation au montage
+// Initialization on mount
 onMounted(() => {
-  // Toujours démarrer big+center, même pour librespot connected
+  // Always start big+center, even for librespot connected
   logoPosition.value = 'center';
   logoSize.value = 'large';
   logoVisible.value = true;
   logoTransitionMode.value = 'normal';
 });
 
-// === GESTION DES ACTIONS ===
+// === ACTION HANDLERS ===
 async function handleDisconnect() {
   const currentSource = unifiedStore.systemState.active_source;
   if (!currentSource || currentSource === 'none') return;
@@ -279,7 +279,7 @@ async function handleDisconnect() {
 }
 
 /* =========================
-   Accès à Settings (tap secret)
+   Settings access (secret tap)
    ========================= */
 const isSettingsOpen = ref(false);
 
@@ -315,16 +315,16 @@ function handleSettingsClick() {
 
   if (settingsClicks.value >= SETTINGS_CLICKS_REQUIRED) {
     resetClickWindow();
-    openSettings(); // ✅ Ouvre la modal au lieu d'aller sur /settings
+    openSettings(); // ✅ Open the modal instead of navigating to /settings
   }
 }
 
 onUnmounted(() => {
-  // Nettoyage si on quitte la vue
+  // Cleanup when leaving the view
   if (clickWindowTimer) clearTimeout(clickWindowTimer);
   if (logoTimeout) clearTimeout(logoTimeout);
 
-  // Nettoyage du screensaver
+  // Screensaver cleanup
   removeActivityListeners();
   clearInactivityTimer();
 });

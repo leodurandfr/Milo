@@ -47,7 +47,6 @@ defineEmits(['click']);
   z-index: 5001;
 }
 
-/* Gradient stroke avec technique mask */
 .icon-button-floating::before {
   content: '';
   position: absolute;

@@ -6,7 +6,7 @@ import axios from 'axios';
 const CACHE_KEY = 'snapcast_clients_cache';
 
 export const useSnapcastStore = defineStore('snapcast', () => {
-  // === ÉTAT ===
+  // === STATE ===
   const clients = ref([]);
   const isLoading = ref(false);
   const serverConfig = ref({
@@ -18,7 +18,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   const originalServerConfig = ref({});
   const isApplyingServerConfig = ref(false);
 
-  // Mémorisation du dernier nombre de clients connus (pour les skeletons)
+  // Memorization of the last known number of clients (for skeletons)
   const lastKnownClientCount = ref(3);
 
   // === COMPUTED ===
@@ -96,8 +96,8 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   // === ACTIONS - CLIENTS ===
 
   /**
-   * Pré-charge le cache de manière synchrone et met à jour lastKnownClientCount
-   * Retourne le nombre de clients dans le cache (ou la valeur par défaut)
+   * Preloads the cache synchronously and updates lastKnownClientCount
+   * Returns the number of clients in the cache (or the default value)
    */
   function preloadCache() {
     const cache = loadCache();
@@ -110,11 +110,11 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   }
 
   async function loadClients(forceNoCache = false) {
-    // Si les clients sont déjà chargés (via preloadCache), juste rafraîchir
+    // If clients are already loaded (via preloadCache), just refresh
     if (clients.value.length > 0 && !forceNoCache) {
       isLoading.value = false;
 
-      // Rafraîchir en arrière-plan
+      // Refresh in the background
       const freshClients = await fetchClients();
       const sortedFresh = sortClients(freshClients);
 
@@ -126,7 +126,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
       return;
     }
 
-    // Sinon, charger normalement avec cache
+    // Otherwise, load normally with cache
     const cache = forceNoCache ? null : loadCache();
 
     if (cache && cache.length > 0 && !forceNoCache) {
@@ -134,7 +134,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
       clients.value = cache;
       isLoading.value = false;
 
-      // Rafraîchir en arrière-plan
+      // Refresh in the background
       const freshClients = await fetchClients();
       const sortedFresh = sortClients(freshClients);
 
@@ -143,7 +143,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
         saveCache(sortedFresh);
       }
     } else {
-      // Pas de cache : charger avec skeleton
+      // No cache: load with skeleton
       isLoading.value = true;
       const freshClients = await fetchClients();
       const sortedClients = sortClients(freshClients);
@@ -299,7 +299,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
   }
 
   return {
-    // État
+    // State
     clients,
     isLoading,
     serverConfig,

@@ -1,4 +1,4 @@
-<!-- frontend/src/components/equalizer/RangeSliderEqualizer.vue - Version avec orientation responsive -->
+<!-- frontend/src/components/equalizer/RangeSliderEqualizer.vue - Version with responsive orientation -->
 <template>
   <div class="equalizer-slider" :class="{ 'horizontal': orientation === 'horizontal' }">
     <div v-if="label" class="label text-mono">{{ label }}</div>
@@ -39,7 +39,6 @@ defineEmits(['update:modelValue', 'input', 'change']);
   align-items: center;
   gap: 8px;
   height: 100%;
-  /* CORRIGÉ : Revenir à height pour cohérence totale */
   min-height: 0;
 }
 
@@ -60,7 +59,7 @@ defineEmits(['update:modelValue', 'input', 'change']);
   color: var(--color-brand);
 }
 
-/* Responsive */
+/* Mobile */
 @media (max-aspect-ratio: 4/3) {
   .equalizer-slider {
     flex-direction: row;
@@ -69,9 +68,5 @@ defineEmits(['update:modelValue', 'input', 'change']);
     height: auto;
     gap: var(--space-03);
   }
-
-
-
-
 }
 </style>

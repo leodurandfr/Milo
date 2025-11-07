@@ -1,16 +1,16 @@
-<!-- LibrespotView.vue - Version avec stagger automatique -->
+<!-- LibrespotSource.vue - Version with automatic stagger -->
 <template>
   <div class="librespot-player">
     <div class="now-playing-spotify">
-      <!-- Partie gauche : Image de couverture avec staggering CSS -->
+      <!-- Left side: Cover image with CSS staggering -->
       <div class="album-art-section stagger-1">
         <div class="album-art-container">
-          <!-- Blur en arrière-plan -->
+          <!-- Background blur -->
           <div class="album-art-blur"
             :style="{ backgroundImage: persistentMetadata.album_art_url ? `url(${persistentMetadata.album_art_url})` : 'none' }">
           </div>
 
-          <!-- Art cover principale -->
+          <!-- Main cover art -->
           <div class="album-art">
             <img v-if="persistentMetadata.album_art_url" :src="persistentMetadata.album_art_url"
               alt="Album Art" />
@@ -18,15 +18,15 @@
         </div>
       </div>
 
-      <!-- Partie droite : Informations et contrôles avec staggering CSS -->
+      <!-- Right side: Info and controls with CSS staggering -->
       <div class="content-section stagger-2">
-        <!-- Bloc 1 : Informations (prend l'espace restant) -->
+        <!-- Block 1: Information (takes remaining space) -->
         <div class="track-info stagger-3">
           <h1 class="track-title heading-1">{{ persistentMetadata.title || 'Titre inconnu' }}</h1>
           <p class="track-artist heading-2">{{ persistentMetadata.artist || 'Artiste inconnu' }}</p>
         </div>
 
-        <!-- Bloc 2 : Contrôles (aligné en bas) -->
+        <!-- Block 2: Controls (aligned at bottom) -->
         <div class="controls-section">
           <div class="progress-wrapper stagger-4">
             <ProgressBar :currentPosition="currentPosition" :duration="duration"
@@ -60,7 +60,7 @@ const unifiedStore = useUnifiedAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
 const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackProgress();
 
-// === PERSISTANCE DES MÉTADONNÉES ===
+// === METADATA PERSISTENCE ===
 const lastValidMetadata = ref({
   title: '',
   artist: '',
@@ -70,7 +70,7 @@ const lastValidMetadata = ref({
 const persistentMetadata = computed(() => {
   const currentMetadata = unifiedStore.systemState.metadata || {};
 
-  // Si on a des métadonnées valides actuellement, les utiliser et les sauvegarder
+  // If we currently have valid metadata, use and save it
   if (currentMetadata.title && currentMetadata.artist) {
     lastValidMetadata.value = {
       title: currentMetadata.title,
@@ -80,17 +80,17 @@ const persistentMetadata = computed(() => {
     return lastValidMetadata.value;
   }
 
-  // Sinon, utiliser les dernières métadonnées valides sauvegardées
+  // Otherwise, use the last saved valid metadata
   return lastValidMetadata.value;
 });
 
-// État de lecture en temps réel (non persisté)
+// Real-time playback state (not persisted)
 const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);
 
 // === WATCHERS ===
 watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
   if (newMetadata?.position !== undefined) {
-    // La synchronisation est gérée dans usePlaybackProgress
+    // Synchronization is handled in usePlaybackProgress
   }
 }, { immediate: true });
 
@@ -124,9 +124,9 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* === STAGGERING SIMPLE ET NATUREL === */
+/* === SIMPLE AND NATURAL STAGGERING === */
 
-/* États initiaux : tous les éléments sont cachés */
+/* Initial states: all elements are hidden */
 .stagger-1,
 .stagger-2,
 .stagger-3,
@@ -136,7 +136,7 @@ onMounted(async () => {
   transform: translateY(var(--space-07));
 }
 
-/* Animation avec deux effets séparés */
+/* Animation with two separate effects */
 .librespot-player .stagger-1,
 .librespot-player .stagger-2,
 .librespot-player .stagger-3,
@@ -147,33 +147,33 @@ onMounted(async () => {
     stagger-opacity 0.4s ease forwards;
 }
 
-/* Délais échelonnés simples */
+/* Simple staggered delays */
 .librespot-player .stagger-1 { animation-delay: 0ms; }
 .librespot-player .stagger-2 { animation-delay: 0ms; }
 .librespot-player .stagger-3 { animation-delay: 100ms; }
 .librespot-player .stagger-4 { animation-delay: 200ms; }
 .librespot-player .stagger-5 { animation-delay: 300ms; }
 
-/* Animation spring pour le transform */
+/* Spring animation for transform */
 @keyframes stagger-transform {
   to {
     transform: translateY(0);
   }
 }
 
-/* Animation ease pour l'opacité */
+/* Ease animation for opacity */
 @keyframes stagger-opacity {
   to {
     opacity: 1;
   }
 }
 
-/* === STYLES DU COMPOSANT === */
+/* === COMPONENT STYLES === */
 .librespot-player {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  /* Assurer que les transitions parent fonctionnent */
+  /* Ensure parent transitions work */
   position: relative;
 }
 
@@ -203,14 +203,14 @@ onMounted(async () => {
   z-index: 1;
 }
 
-/* Container pour les deux art covers superposées */
+/* Container for the two stacked cover arts */
 .album-art-container {
   position: relative;
   width: 100%;
   height: 100%;
 }
 
-/* Art cover en arrière-plan avec blur */
+/* Background cover art with blur */
 .album-art-blur {
   position: absolute;
   top: -20px;
@@ -227,7 +227,7 @@ onMounted(async () => {
   backface-visibility: hidden;
 }
 
-/* Art cover principale avec border radius */
+/* Main cover art with border radius */
 .album-art {
   position: relative;
   z-index: 3;

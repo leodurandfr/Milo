@@ -31,7 +31,7 @@ const { on } = useWebSocket();
 const { updateSetting } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
-// Utilisation du store
+// Using the store
 const config = computed(() => ({
   auto_disconnect_delay: settingsStore.spotifyDisconnect.auto_disconnect_delay
 }));
@@ -56,7 +56,7 @@ function setSpotifyDisconnect(value) {
   updateSetting('spotify-disconnect', { auto_disconnect_delay: value });
 }
 
-// WebSocket listener - met à jour le store
+// WebSocket listener - updates the store
 const handleSpotifyDisconnectChanged = (msg) => {
   if (msg.data?.config?.auto_disconnect_delay !== undefined) {
     settingsStore.updateSpotifyDisconnect({
@@ -66,7 +66,7 @@ const handleSpotifyDisconnectChanged = (msg) => {
 };
 
 onMounted(() => {
-  // Plus besoin de charger la config, elle est déjà dans le store
+  // No need to load the config, it's already in the store
   on('settings', 'spotify_disconnect_changed', handleSpotifyDisconnectChanged);
 });
 </script>

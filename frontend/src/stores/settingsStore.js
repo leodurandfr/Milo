@@ -57,7 +57,7 @@ export const useSettingsStore = defineStore('settings', () => {
   // === ACTIONS ===
 
   /**
-   * Charge tous les settings en parallèle
+   * Load all settings in parallel
    */
   async function loadAllSettings() {
     if (isLoading.value) return;
@@ -115,7 +115,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
       // Rotary steps
       if (rotaryStepsResponse.data.config) {
-        volumeSteps.value.rotary_volume_steps = rotaryStepsResponse.data.config.rotary_volume_steps ?? 2;
+        volumeSteps.value.rotary_volume_steps = volumeStepsResponse.data.config.rotary_volume_steps ?? 2;
       }
 
       // Dock apps
@@ -165,35 +165,35 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
-   * Met à jour la langue
+   * Update language
    */
   function updateLanguage(newLanguage) {
     language.value = newLanguage;
   }
 
   /**
-   * Met à jour les limites de volume
+   * Update volume limits
    */
   function updateVolumeLimits(limits) {
     volumeLimits.value = { ...volumeLimits.value, ...limits };
   }
 
   /**
-   * Met à jour le volume au démarrage
+   * Update startup volume
    */
   function updateVolumeStartup(config) {
     volumeStartup.value = { ...volumeStartup.value, ...config };
   }
 
   /**
-   * Met à jour les steps de volume (mobile et/ou rotary)
+   * Update volume steps (mobile and/or rotary)
    */
   function updateVolumeSteps(steps) {
     volumeSteps.value = { ...volumeSteps.value, ...steps };
   }
 
   /**
-   * Met à jour les apps du dock
+   * Update dock apps
    */
   function updateDockApps(enabledApps) {
     dockApps.value = {
@@ -208,21 +208,21 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
-   * Met à jour la config Spotify
+   * Update Spotify config
    */
   function updateSpotifyDisconnect(config) {
     spotifyDisconnect.value = { ...spotifyDisconnect.value, ...config };
   }
 
   /**
-   * Met à jour le timeout de l'écran
+   * Update screen timeout
    */
   function updateScreenTimeout(config) {
     screenTimeout.value = { ...screenTimeout.value, ...config };
   }
 
   /**
-   * Met à jour la luminosité de l'écran
+   * Update screen brightness
    */
   function updateScreenBrightness(config) {
     screenBrightness.value = { ...screenBrightness.value, ...config };

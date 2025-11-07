@@ -2,7 +2,7 @@
   <div class="radio-source-wrapper">
     <div ref="radioContainer" class="radio-container stagger-1" :class="{ 'is-initial-animating': isInitialAnimating }">
 
-      <!-- ModalHeader : Vue Favoris -->
+      <!-- ModalHeader: Favorites view -->
       <ModalHeader v-if="!isSearchMode" :title="t('audioSources.radioSource.favoritesTitle')" variant="neutral"
         icon="radio">
         <template #actions>
@@ -10,12 +10,12 @@
         </template>
       </ModalHeader>
 
-      <!-- ModalHeader : Vue Recherche -->
+      <!-- ModalHeader: Search view -->
       <ModalHeader v-else :title="t('audioSources.radioSource.discoverTitle')" :show-back="true" variant="neutral"
         @back="closeSearch">
       </ModalHeader>
 
-      <!-- Recherche et filtres (visible uniquement en mode recherche) -->
+      <!-- Search and filters (visible only in search mode) -->
       <div v-if="isSearchMode" class="search-section">
         <div class="filters">
           <InputText v-model="radioStore.searchQuery" :placeholder="t('audioSources.radioSource.searchPlaceholder')"
@@ -139,13 +139,13 @@
         </div>
       </div>
 
-      <!-- Liste des stations -->
+      <!-- List of stations -->
       <div class="stations-list">
         <div v-if="transitionState === 'loading'" class="loading-state">
           <p>{{ t('audioSources.radioSource.loadingStations') }}</p>
         </div>
 
-        <!-- Message d'erreur avec bouton réessayer -->
+        <!-- Error message with retry button -->
         <div v-else-if="radioStore.hasError && displayedStations.length === 0 && transitionState === 'idle'"
           class="error-state">
           <div class="error-icon">⚠️</div>
@@ -172,13 +172,13 @@
           'transition-fading-in': transitionState === 'fading-in',
           'has-now-playing': radioStore.currentStation
         }">
-          <!-- Mode Favoris : affichage image seule -->
+          <!-- Favorites mode: image-only display -->
           <StationCard v-if="!isSearchMode" v-for="station in displayedStations" :key="`fav-${station.id}`"
             :station="station" variant="image" :is-active="radioStore.currentStation?.id === station.id"
             :is-playing="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
             :is-loading="bufferingStationId === station.id" @click="playStation(station.id)" />
 
-          <!-- Mode Recherche : affichage avec informations -->
+          <!-- Search mode: display with information -->
           <StationCard v-else v-for="station in displayedStations" :key="`search-${station.id}`" :station="station"
             variant="card" :is-active="radioStore.currentStation?.id === station.id"
             :is-playing="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
@@ -186,7 +186,7 @@
             @play="playStation(station.id)" />
         </div>
 
-        <!-- Bouton "Charger plus" -->
+        <!-- "Load more" button -->
         <div v-if="hasMoreStations" class="load-more">
           <Button variant="toggle" :active="false" @click="loadMore">
             {{ t('audioSources.radioSource.loadMore') }} ({{ remainingStations }} {{
@@ -197,7 +197,7 @@
       </div>
     </div>
 
-    <!-- Now Playing : Desktop - à droite du container, Mobile - sticky en bas -->
+    <!-- Now Playing: Desktop - on the right of the container, Mobile - sticky at the bottom -->
     <div :class="[
       'now-playing-wrapper',
       {
@@ -234,35 +234,35 @@ const { t } = useI18n();
 
 const isSearchMode = ref(false);
 const searchDebounceTimer = ref(null);
-const availableCountries = ref([]); // Liste dynamique des pays disponibles
-const transitionState = ref('idle'); // États: 'idle', 'fading-out', 'loading', 'fading-in'
+const availableCountries = ref([]); // Dynamic list of available countries
+const transitionState = ref('idle'); // States: 'idle', 'fading-out', 'loading', 'fading-in'
 const isFirstAppearance = ref(true); // Track if this is the first time now-playing appears
 const isInitialAnimating = ref(true); // Track if initial spring animation is running
 
-// Référence pour animations et scroll
+// Reference for animations and scroll
 const radioContainer = ref(null);
 
-// État de lecture - Utiliser unifiedStore.metadata.is_playing (source de vérité backend)
+// Playback state - Use unifiedStore.metadata.is_playing (backend source of truth)
 const isCurrentlyPlaying = computed(() => {
-  // Vérifier que la source active est bien Radio
+  // Check that the active source is Radio
   if (unifiedStore.systemState.active_source !== 'radio') {
     return false;
   }
-  // Utiliser l'état du backend via WebSocket
+  // Use backend state via WebSocket
   return unifiedStore.systemState.metadata.is_playing || false;
 });
 
-// État de buffering - Utiliser unifiedStore.metadata.buffering (source de vérité backend)
+// Buffering state - Use unifiedStore.metadata.buffering (backend source of truth)
 const isBuffering = computed(() => {
-  // Vérifier que la source active est bien Radio
+  // Check that the active source is Radio
   if (unifiedStore.systemState.active_source !== 'radio') {
     return false;
   }
-  // Utiliser l'état du backend via WebSocket
+  // Use backend state via WebSocket
   return unifiedStore.systemState.metadata.buffering || false;
 });
 
-// ID de la station en buffering (pour afficher le spinner sur la bonne station)
+// ID of the buffering station (to display the spinner on the correct station)
 const bufferingStationId = computed(() => {
   if (!isBuffering.value) {
     return null;
@@ -270,12 +270,12 @@ const bufferingStationId = computed(() => {
   return unifiedStore.systemState.metadata.station_id || null;
 });
 
-// Stations affichées - favoris ou résultats de recherche selon le mode
+// Displayed stations - favorites or search results depending on mode
 const displayedStations = computed(() => {
   if (isSearchMode.value) {
     return radioStore.displayedStations;
   } else {
-    // Mode favoris : afficher tous les favoris (pas de pagination)
+    // Favorites mode: display all favorites (no pagination)
     return radioStore.favoriteStations;
   }
 });
@@ -284,7 +284,7 @@ const hasMoreStations = computed(() => {
   if (isSearchMode.value) {
     return radioStore.hasMoreStations;
   }
-  return false; // Pas de pagination pour les favoris
+  return false; // No pagination for favorites
 });
 
 const remainingStations = computed(() => {
@@ -299,23 +299,23 @@ async function openSearch() {
   console.log('🔍 Opening search mode. Available countries:', availableCountries.value.length);
   isSearchMode.value = true;
 
-  // Charger les pays si pas encore chargés
+  // Load countries if not yet loaded
   if (availableCountries.value.length === 0) {
     await loadAvailableCountries();
   }
 
-  // Charger les stations top 500 (utilise le cache si déjà chargé)
+  // Load top 500 stations (uses cache if already loaded)
   radioStore.loadStations(false);
 }
 
 function closeSearch() {
   isSearchMode.value = false;
-  // Retour au mode favoris - réinitialiser les filtres
+  // Return to favorites mode - reset filters
   radioStore.searchQuery = '';
   radioStore.countryFilter = '';
   radioStore.genreFilter = '';
 
-  // Ne recharger les favoris que s'ils ne sont pas déjà en cache
+  // Only reload favorites if not already in cache
   if (radioStore.favoriteStations.length === 0) {
     radioStore.loadStations(true);
   }
@@ -328,7 +328,7 @@ function loadMore() {
 
 // === TRANSITION ANIMATIONS ===
 async function performTransition() {
-  // Si la liste est vide, pas besoin d'animation de sortie
+  // If the list is empty, no need for exit animation
   if (displayedStations.value.length === 0) {
     transitionState.value = 'loading';
     await radioStore.loadStations(false);
@@ -338,50 +338,50 @@ async function performTransition() {
     return;
   }
 
-  // Séquence complète d'animations
-  // 1. Fade out vers le haut (300ms)
+  // Complete animation sequence
+  // 1. Fade out to top (300ms)
   transitionState.value = 'fading-out';
   await new Promise(resolve => setTimeout(resolve, 300));
 
-  // 2. Afficher le message de chargement
+  // 2. Display loading message
   transitionState.value = 'loading';
 
-  // 3. Charger les nouvelles stations
+  // 3. Load new stations
   await radioStore.loadStations(false);
 
-  // 4. Fade in depuis le bas (400ms)
+  // 4. Fade in from bottom (400ms)
   transitionState.value = 'fading-in';
   await new Promise(resolve => setTimeout(resolve, 400));
 
-  // 5. Retour à l'état normal
+  // 5. Return to normal state
   transitionState.value = 'idle';
 }
 
 function handleSearch() {
-  // Debounce pour éviter trop d'appels API
+  // Debounce to avoid too many API calls
   if (searchDebounceTimer.value) {
     clearTimeout(searchDebounceTimer.value);
   }
 
   searchDebounceTimer.value = setTimeout(async () => {
-    // Utiliser la nouvelle fonction de transition
+    // Use new transition function
     await performTransition();
   }, 300);
 }
 
 function retrySearch() {
-  // Forcer un refresh pour réessayer après une erreur
+  // Force refresh to retry after error
   radioStore.loadStations(false, true);
 }
 
-// === SCROLL INFINI ===
+// === INFINITE SCROLL ===
 function handleScroll() {
   if (!radioContainer.value || !isSearchMode.value) return;
 
   const { scrollTop, scrollHeight, clientHeight } = radioContainer.value;
   const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
 
-  // Charger plus quand on atteint 80% du scroll
+  // Load more when reaching 80% of scroll
   if (scrollPercentage > 0.8 && hasMoreStations.value && !radioStore.loading) {
     console.log('📻 Scroll threshold reached, loading more...');
     loadMore();
@@ -389,7 +389,7 @@ function handleScroll() {
 }
 
 async function playStation(stationId) {
-  // Si la station est déjà en cours et qu'on clique dessus, toggle play/pause
+  // If station is already playing and clicked again, toggle play/pause
   if (radioStore.currentStation?.id === stationId && isCurrentlyPlaying.value) {
     await radioStore.stopPlayback();
   } else {
@@ -425,8 +425,8 @@ async function handleFavorite() {
 
 function handleStationAdded(station) {
   console.log('✅ Station ajoutée:', station);
-  // La station a été ajoutée au store, elle apparaîtra automatiquement dans la liste
-  // On peut optionnellement recharger les stations pour être sûr
+  // The station has been added to the store; it will appear automatically in the list
+  // Optionally reload stations to be sure
   radioStore.loadStations(false);
 }
 
@@ -492,15 +492,15 @@ watch(() => radioStore.currentStation, (newStation) => {
   }
 });
 
-// === SYNCHRONISATION WEBSOCKET ===
-// Écouter les mises à jour de métadonnées
+// === WEBSOCKET SYNC ===
+// Listen for metadata updates
 watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
   if (unifiedStore.systemState.active_source === 'radio' && newMetadata) {
     radioStore.updateFromWebSocket(newMetadata);
   }
 }, { immediate: true, deep: true });
 
-// Écouter les événements de favoris
+// Listen for favorite events
 on('radio', 'favorite_added', (event) => {
   console.log('📻 Favorite added event:', event);
   if (event.data?.station_id) {
@@ -515,7 +515,7 @@ on('radio', 'favorite_removed', (event) => {
   }
 });
 
-// === PAYS DISPONIBLES ===
+// === AVAILABLE COUNTRIES ===
 async function loadAvailableCountries() {
   console.log('📍 Loading countries from API...');
   try {
@@ -526,7 +526,7 @@ async function loadAvailableCountries() {
   } catch (error) {
     console.error('❌ Error loading countries:', error);
     console.error('❌ Error details:', error.response?.data || error.message);
-    // Pas de fallback : liste vide si l'API échoue
+    // No fallback: empty list if API fails
     availableCountries.value = [];
     console.log('📍 Could not load countries from API');
   }
@@ -536,29 +536,29 @@ async function loadAvailableCountries() {
 onMounted(async () => {
   console.log('📻 RadioSource mounted');
 
-  await radioStore.loadStations(true); // Charger uniquement les favoris au démarrage
+  await radioStore.loadStations(true); // Load only favorites at startup
 
-  // IMPORTANT: Synchroniser currentStation depuis l'état actuel du backend
-  // au cas où une station est déjà en cours de lecture
+  // IMPORTANT: Sync currentStation from current backend state
+  // in case a station is already playing
   if (unifiedStore.systemState.active_source === 'radio' && unifiedStore.systemState.metadata) {
     console.log('📻 Syncing currentStation from existing state on mount');
     radioStore.updateFromWebSocket(unifiedStore.systemState.metadata);
   }
 
-  // Désactiver le flag d'animation initiale après la fin de l'animation spring
-  // Animation spring
+  // Disable the initial animation flag after the spring animation finishes
+  // Spring animation
   setTimeout(() => {
     isInitialAnimating.value = false;
   }, 500);
 
-  // Ajouter l'écouteur de scroll pour le scroll infini
+  // Add scroll listener for infinite scroll
   if (radioContainer.value) {
     radioContainer.value.addEventListener('scroll', handleScroll, { passive: true });
 
-    // Ajouter les pointer event listeners uniquement sur desktop (pointer: fine)
+    // Add pointer event listeners only on desktop (pointer: fine)
     const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
     if (!isTouchDevice) {
-      // Sur desktop, on a besoin de preventDefault pour le drag scroll
+      // On desktop, we need preventDefault for drag scroll
       radioContainer.value.addEventListener('pointerdown', handlePointerDown, { passive: false });
       radioContainer.value.addEventListener('pointermove', handlePointerMove, { passive: false });
       radioContainer.value.addEventListener('pointerup', handlePointerUp, { passive: false });
@@ -567,12 +567,12 @@ onMounted(async () => {
   }
 });
 
-// Nettoyer les écouteurs au démontage
+// Clean up listeners on unmount
 onBeforeUnmount(() => {
   if (radioContainer.value) {
     radioContainer.value.removeEventListener('scroll', handleScroll);
 
-    // Retirer les pointer event listeners
+    // Remove pointer event listeners
     const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
     if (!isTouchDevice) {
       radioContainer.value.removeEventListener('pointerdown', handlePointerDown);
@@ -589,9 +589,9 @@ onBeforeUnmount(() => {
   display: none;
 }
 
-/* === STAGGERING SIMPLE ET NATUREL === */
+/* === SIMPLE AND NATURAL STAGGERING === */
 
-/* État initial : radio-container */
+/* Initial state: radio-container */
 .stagger-1 {
   opacity: 0;
   transform: translateY(var(--space-07));
@@ -601,14 +601,12 @@ onBeforeUnmount(() => {
   animation-delay: 0ms;
 }
 
-/* Animation spring pour le transform (radio-container - vertical) */
 @keyframes stagger-transform {
   to {
     transform: translateY(0);
   }
 }
 
-/* Animation ease pour l'opacité */
 @keyframes stagger-opacity {
   to {
     opacity: 1;
@@ -617,7 +615,6 @@ onBeforeUnmount(() => {
 
 /* === NOW PLAYING WRAPPER === */
 
-/* Desktop : État de base - pas de station, prend 0 place dans le flex layout */
 .now-playing-wrapper {
   width: 0;
   opacity: 0;
@@ -626,7 +623,6 @@ onBeforeUnmount(() => {
   transform: translateX(100px);
 }
 
-/* Desktop : État avec station - apparitions suivantes (instantané) */
 .now-playing-wrapper.has-station {
   width: 310px;
   opacity: 1;
@@ -634,7 +630,7 @@ onBeforeUnmount(() => {
   transform: translateX(0);
 }
 
-/* Desktop : État avec station - PREMIÈRE apparition (animé) */
+/* Desktop: with station - FIRST appearance (animated) */
 .now-playing-wrapper.has-station.first-appearance {
   transition:
     width var(--transition-spring) 200ms,
@@ -642,15 +638,14 @@ onBeforeUnmount(() => {
     opacity 0.4s ease 200ms;
 }
 
-/* Mobile : now-playing est position fixed, donc le wrapper doit être transparent */
+/* Mobile: now-playing is position fixed, so the wrapper must be transparent */
 @media (max-aspect-ratio: 4/3) {
 
-  /* display: contents = le wrapper disparaît du flow, comme s'il n'existait pas */
   .now-playing-wrapper {
     display: contents;
   }
 
-  /* Animation stagger mobile pour now-playing (première apparition) */
+  /* Mobile stagger animation for now-playing (first appearance) */
   :deep(.now-playing.first-appearance-mobile) {
     opacity: 0;
     transform: translateX(-50%) translateY(var(--space-07));
@@ -695,7 +690,7 @@ onBeforeUnmount(() => {
   touch-action: pan-y;
 }
 
-/* Permettre au contenu de dépasser pendant l'animation spring avec rebond */
+/* Allow content to overflow during spring animation with bounce */
 .radio-container.is-initial-animating {
   overflow-y: visible !important;
 }
@@ -743,7 +738,6 @@ onBeforeUnmount(() => {
 /* === STATIONS LIST === */
 .stations-list {
   flex: 1;
-  /* overflow: visible; */
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -781,30 +775,24 @@ onBeforeUnmount(() => {
   padding-bottom: var(--space-07);
 }
 
-/* Mode Recherche */
+/* Search mode */
 .stations-grid.search-mode {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-01);
 }
 
-/* Mode Favoris */
+/* Favorites mode */
 .stations-grid.favorites-mode {
   gap: var(--space-03);
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-/* Styles de stations migrés vers StationCard.vue */
 
 .load-more {
   padding-bottom: var(--space-06);
   text-align: center;
 }
 
-/* Styles now-playing migrés vers StationCard.vue */
-
-
-
-/* Styles loading migrés vers StationCard.vue */
 
 /* === TRANSITION ANIMATIONS === */
 @keyframes fadeOutUp {
@@ -831,7 +819,6 @@ onBeforeUnmount(() => {
   }
 }
 
-/* Appliquer les animations selon l'état de transition */
 .stations-grid.transition-fading-out {
   animation: fadeOutUp 300ms ease-out forwards;
 }
@@ -841,25 +828,17 @@ onBeforeUnmount(() => {
 }
 
 
-/* Mobile : Responsive adaptations */
+/* Mobile: Responsive adaptations */
 @media (max-aspect-ratio: 4/3) {
   .radio-container {
     max-width: none;
     padding-bottom: calc(var(--space-04) + 80px);
     padding-top: var(--space-09);
   }
-
-  .stations-grid {
-    /* padding: 0 var(--space-05) 142px var(--space-05); */
-  }
-
+  
   .stations-grid.has-now-playing {
     padding-bottom: 144px;
   }
-
-  /* :deep(.modal-header) {
-    margin: 0 var(--space-05);
-  } */
 
   .stations-grid.favorites-mode {
     grid-template-columns: repeat(3, 1fr);

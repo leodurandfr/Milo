@@ -3,15 +3,15 @@ import { ref } from 'vue';
 import axios from 'axios';
 
 /**
- * Composable pour gérer les appels API des settings avec debouncing
+ * Composable to manage settings API calls with debouncing
  */
 export function useSettingsAPI() {
   const debounceTimers = new Map();
 
   /**
-   * Envoie une mise à jour de setting à l'API
-   * @param {string} endpoint - L'endpoint API (ex: 'volume-limits')
-   * @param {object} payload - Les données à envoyer
+   * Send a settings update to the API
+   * @param {string} endpoint - API endpoint (e.g., 'volume-limits')
+   * @param {object} payload - Data to send
    */
   async function updateSetting(endpoint, payload) {
     try {
@@ -23,11 +23,11 @@ export function useSettingsAPI() {
   }
 
   /**
-   * Mise à jour avec debouncing
-   * @param {string} key - Clé unique pour identifier le timer
-   * @param {string} endpoint - L'endpoint API
-   * @param {object} payload - Les données à envoyer
-   * @param {number} delay - Délai en ms (défaut: 800ms)
+   * Update with debouncing
+   * @param {string} key - Unique key to identify the timer
+   * @param {string} endpoint - API endpoint
+   * @param {object} payload - Data to send
+   * @param {number} delay - Delay in ms (default: 800ms)
    */
   function debouncedUpdate(key, endpoint, payload, delay = 800) {
     if (debounceTimers.has(key)) {
@@ -43,7 +43,7 @@ export function useSettingsAPI() {
   }
 
   /**
-   * Nettoie tous les timers en attente (pour cleanup)
+   * Clear all pending timers (for cleanup)
    */
   function clearAllTimers() {
     debounceTimers.forEach(timer => clearTimeout(timer));
@@ -51,9 +51,9 @@ export function useSettingsAPI() {
   }
 
   /**
-   * Charge une configuration depuis l'API
-   * @param {string} endpoint - L'endpoint API
-   * @returns {Promise<object>} - La réponse de l'API
+   * Load a configuration from the API
+   * @param {string} endpoint - API endpoint
+   * @returns {Promise<object>} - API response
    */
   async function loadConfig(endpoint) {
     try {

@@ -1,19 +1,19 @@
-<!-- AudioSourceStatus.vue - Version SIMPLIFIÉE avec traductions -->
+<!-- AudioSourceStatus.vue -->
 <template>
   <div class="plugin-status">
     <div class="plugin-status-content">
       <div class="plugin-status-inner">
-        <!-- Section info appareil -->
+        <!-- Device info section -->
         <div class="device-info">
           <div class="device-info-content">
             <div class="device-info-inner">
-              <!-- Icône du plugin -->
+              <!-- Plugin icon -->
               <div class="plugin-icon">
                 <AppIcon :name="displayedIconName" :size="32"
                   :state="displayedPluginState === 'starting' ? 'loading' : 'normal'" />
               </div>
 
-              <!-- Statut textuel -->
+              <!-- Text status -->
               <div class="device-status">
                 <div v-if="displayedStatusLines.length === 1" class="status-single">
                   <h2 class="heading-2">{{ displayedStatusLines[0] }}</h2>
@@ -31,7 +31,7 @@
           </div>
         </div>
 
-        <!-- Bouton déconnecter (conditionnel) -->
+        <!-- Disconnect button (conditional) -->
         <div v-if="displayedShowDisconnectButton" class="disconnect-button">
           <div class="disconnect-button-content">
             <div class="disconnect-button-inner">
@@ -65,7 +65,7 @@ const props = defineProps({
     required: true
   },
   deviceName: {
-    type: [String, Array],  // Support string ou array pour ROC multi-clients
+    type: [String, Array],  // Support string or array for ROC multi-clients
     default: ''
   },
   isDisconnecting: {
@@ -74,10 +74,10 @@ const props = defineProps({
   }
 });
 
-// Émissions
+// Emits
 const emit = defineEmits(['disconnect']);
 
-// === FONCTIONS UTILITAIRES ===
+// === UTILITY FUNCTIONS ===
 function cleanDeviceName(deviceName) {
   if (!deviceName) return '';
   return deviceName
@@ -85,22 +85,22 @@ function cleanDeviceName(deviceName) {
     .replace(/-/g, ' ');
 }
 
-// Formatte deviceName qui peut être string ou array
+// Format deviceName which can be string or array
 function formatDeviceNames(deviceName) {
   if (!deviceName) return '';
 
-  // Si c'est un array (ROC multi-clients)
+  // If it's an array (ROC multi-clients)
   if (Array.isArray(deviceName)) {
     if (deviceName.length === 0) return '';
-    // Joindre avec \n pour saut de ligne (nécessite white-space: pre-line en CSS)
+    // Join with \n for line breaks (requires white-space: pre-line in CSS)
     return deviceName.map(name => cleanDeviceName(name)).join('\n');
   }
 
-  // Si c'est un string (cas normal)
+  // If it's a string (normal case)
   return cleanDeviceName(deviceName);
 }
 
-// === COMPUTED POUR LE CONTENU AFFICHÉ === (À quoi sert cette partie ? uniquement pour renomber les "librespsot" à "spotify" ? - Semble complexe inutilement)
+// === COMPUTED FOR DISPLAYED CONTENT === (What is this part for? only to rename "librespsot" to "spotify"? - Seems needlessly complex)
 const displayedIconName = computed(() => {
   return props.pluginType === 'librespot' ? 'spotify' : props.pluginType;
 });
@@ -110,7 +110,7 @@ const displayedPluginState = computed(() => {
 });
 
 const displayedStatusLines = computed(() => {
-  // État de démarrage
+  // Starting state
   if (props.pluginState === 'starting') {
     switch (props.pluginType) {
       case 'bluetooth':
@@ -126,7 +126,7 @@ const displayedStatusLines = computed(() => {
     }
   }
 
-  // État ready : messages d'attente
+  // Ready state: waiting messages
   if (props.pluginState === 'ready') {
     switch (props.pluginType) {
       case 'bluetooth':
@@ -142,7 +142,7 @@ const displayedStatusLines = computed(() => {
     }
   }
 
-  // État connected : messages avec nom d'appareil
+  // Connected state: messages with device name
   if (props.pluginState === 'connected' && props.deviceName) {
     const formattedDeviceNames = formatDeviceNames(props.deviceName);
 
@@ -166,7 +166,7 @@ const displayedShowDisconnectButton = computed(() => {
   return props.pluginType === 'bluetooth' && props.pluginState === 'connected';
 });
 
-// Classes pour les lignes de statut
+// Classes for status lines
 function getDisplayedStatusLine1Class() {
   if (props.pluginState === 'starting') {
     return 'starting-state';
@@ -187,14 +187,14 @@ function getDisplayedStatusLine2Class() {
   return 'secondary-state';
 }
 
-// === GESTIONNAIRE D'ÉVÉNEMENTS ===
+// === EVENT HANDLER ===
 function handleDisconnect() {
   emit('disconnect');
 }
 </script>
 
 <style scoped>
-/* === STYLES DU COMPOSANT === */
+/* === COMPONENT STYLES === */
 .plugin-status {
   background: var(--color-background-neutral);
   border-radius: var(--radius-07);
@@ -252,7 +252,7 @@ function handleDisconnect() {
   width: 100%;
 }
 
-/* Icône du plugin */
+/* Plugin icon */
 .plugin-icon {
   position: relative;
   flex-shrink: 0;
@@ -261,7 +261,7 @@ function handleDisconnect() {
   justify-content: center;
 }
 
-/* Statut textuel */
+/* Text status */
 .device-status {
   display: flex;
   flex-direction: column;
@@ -269,25 +269,25 @@ function handleDisconnect() {
   text-align: center;
 }
 
-/* États par défaut */
+/* Default states */
 .status-single h2,
 .status-line-1 h2,
 .status-line-2 h2 {
   color: var(--color-text);
 }
 
-/* Support des sauts de ligne pour multi-clients ROC */
+/* Line-break support for ROC multi-clients */
 .status-line-2 h2 {
   white-space: pre-line;
 }
 
-/* États spéciaux ligne 1 */
+/* Special states line 1 */
 .status-line-1.starting-state h2,
 .status-line-1.connected-state h2 {
   color: var(--color-text-secondary);
 }
 
-/* États spéciaux ligne 2 */
+/* Special states line 2 */
 .status-line-2.starting-state h2,
 .status-line-2.connected-state h2 {
   color: var(--color-text);
@@ -297,7 +297,7 @@ function handleDisconnect() {
   color: var(--color-text-secondary);
 }
 
-/* Bouton déconnecter */
+/* Disconnect button */
 .disconnect-button {
   background: var(--color-background-strong);
   height: 42px;

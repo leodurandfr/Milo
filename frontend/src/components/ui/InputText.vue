@@ -52,7 +52,7 @@ const inputRef = ref(null);
 const keyboard = useVirtualKeyboard();
 const { screenResolution } = useHardwareConfig();
 
-// Détection si la résolution correspond (pour afficher le clavier virtuel)
+// Detect if the resolution matches (to show the virtual keyboard)
 const shouldShowKeyboard = computed(() => {
   // Force mode via URL parameter (for development/testing)
   const urlParams = new URLSearchParams(window.location.search);
@@ -75,13 +75,13 @@ const shouldShowKeyboard = computed(() => {
     browserHeight: currentHeight
   });
 
-  // Si aucune résolution valide configurée, pas de clavier virtuel
+  // If no valid resolution configured, no virtual keyboard
   if (!configWidth || !configHeight) {
     console.log('[InputText] ❌ No valid resolution configured');
     return false;
   }
 
-  // Vérifier si les résolutions correspondent exactement
+  // Check if resolutions match exactly
   const matches = currentWidth === configWidth && currentHeight === configHeight;
 
   console.log(`[InputText] Resolution ${matches ? '✅ MATCH' : '❌ NO MATCH'} (${currentWidth}x${currentHeight} vs ${configWidth}x${configHeight})`);
@@ -118,15 +118,13 @@ function handleBlur(event) {
   emit('blur', event);
 }
 
-// Expose inputRef for parent components if needed
 defineExpose({
   inputRef
 });
 </script>
 
 <style scoped>
-/* Les styles de base sont hérités via inputClass prop */
-/* Ajoutez ici uniquement des styles spécifiques si nécessaire */
+
 input {
   width: 100%;
   outline: none;

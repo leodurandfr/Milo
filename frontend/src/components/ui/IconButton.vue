@@ -2,15 +2,15 @@
 <template>
   <component :is="clickable ? 'button' : 'div'"
     :class="['icon-button', `icon-button--${variant}`, { 'icon-button--clickable': clickable }]" @click="handleClick">
-    <!-- Icône à gauche -->
+    <!-- Icon on the left -->
     <div class="icon-button__icon">
       <slot name="icon"></slot>
     </div>
 
-    <!-- Titre -->
+    <!-- Title -->
     <span class="icon-button__title text-body">{{ title }}</span>
 
-    <!-- Action à droite (toggle, caret, ou rien) -->
+    <!-- Right-side action (toggle, caret, or nothing) -->
     <div v-if="showCaret || $slots.action" class="icon-button__action">
       <slot name="action">
         <Icon v-if="showCaret" name="caretRight" :size="24" color="var(--color-text-light)" />
@@ -45,7 +45,7 @@ const props = defineProps({
 const emit = defineEmits(['click']);
 
 function handleClick(event) {
-  // Si c'est un toggle, ne pas émettre le click (le toggle gère son propre événement)
+  // If it's a toggle, don't emit click (the toggle handles its own event)
   if (props.clickable) {
     emit('click', event);
   }
@@ -64,7 +64,7 @@ function handleClick(event) {
   text-align: left;
 }
 
-/* Variante default (SettingsModal) */
+/* Default variant (SettingsModal) */
 .icon-button--default {
   background: var(--color-background-neutral);
 }
@@ -73,7 +73,7 @@ function handleClick(event) {
   background: var(--color-background-strong);
 } */
 
-/* Variante outlined (LanguageSettings) */
+/* Outlined variant (LanguageSettings) */
 .icon-button--outlined {
   background: var(--color-background);
   box-shadow: inset 0 0 0 1px var(--color-border);
@@ -84,18 +84,18 @@ function handleClick(event) {
   background: var(--color-background-strong);
 } */
 
-/* État actif (LanguageSettings) */
+/* Active state (LanguageSettings) */
 .icon-button--outlined.active {
   background: var(--color-background-neutral);
   box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
-/* État cliquable (avec caret-right) */
+/* Clickable state (with caret-right) */
 .icon-button--clickable {
   cursor: pointer;
 }
 
-/* Icône à gauche */
+/* Left icon */
 .icon-button__icon {
   flex-shrink: 0;
   width: 40px;
@@ -111,23 +111,23 @@ function handleClick(event) {
   height: 40px;
 }
 
-/* Titre */
+/* Title */
 .icon-button__title {
   flex: 1;
   color: var(--color-text);
 }
 
-/* Titre en text-secondary pour outlined non actif */
+/* Title in text-secondary for outlined non-active */
 .icon-button--outlined .icon-button__title {
   color: var(--color-text-secondary);
 }
 
-/* Titre en text normal pour outlined actif */
+/* Title in normal text for outlined active */
 .icon-button--outlined.active .icon-button__title {
   color: var(--color-text);
 }
 
-/* Action à droite */
+/* Right action */
 .icon-button__action {
   flex-shrink: 0;
   display: flex;

@@ -1,8 +1,8 @@
-// frontend/src/services/websocket.js - Version finale OPTIM
+// frontend/src/services/websocket.js
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 
 /**
- * Singleton WebSocket avec déconnexion intelligente sur onglet caché
+ * WebSocket singleton with smart disconnect when the tab is hidden
  */
 class WebSocketSingleton {
   constructor() {
@@ -16,7 +16,7 @@ class WebSocketSingleton {
     this.pingCheckInterval = null;
     this.reconnectCallbacks = new Set();
     this.reconnectAttempts = 0;
-    this.maxReconnectDelay = 30000; // 30 secondes max
+    this.maxReconnectDelay = 30000; // Max 30 seconds
   }
 
   addSubscriber(subscriberId) {
@@ -31,7 +31,7 @@ class WebSocketSingleton {
     this.subscribers.delete(subscriberId);
 
     if (this.subscribers.size === 0) {
-      this.closeConnection(true); // Full cleanup car plus de subscribers
+      this.closeConnection(true); // Full cleanup because there are no more subscribers
     }
   }
 
@@ -40,12 +40,12 @@ class WebSocketSingleton {
       return;
     }
 
-    // Configuration automatique de l'URL WebSocket
+    // Automatic WebSocket URL configuration
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
 
     let wsUrl;
-    // En mode DEV, se connecter directement au backend sur le port 8000
+    // In DEV mode, connect directly to the backend on port 8000
     if (import.meta.env.DEV && (host === 'localhost' || host === '127.0.0.1')) {
       wsUrl = `${protocol}//${host}:8000/ws`;
     } else if (host === 'milo.local' || host.endsWith('.local')) {
@@ -68,7 +68,7 @@ class WebSocketSingleton {
 
       if (wasReconnecting) {
         console.log('WebSocket reconnected - full state sync incoming');
-        // Notifier les subscribers qu'une reconnexion a eu lieu
+        // Notify subscribers that a reconnection occurred
         this.notifyReconnect();
       } else {
         console.log('WebSocket connected successfully');
@@ -89,9 +89,9 @@ class WebSocketSingleton {
       this.socket = null;
       console.log('WebSocket disconnected');
 
-      // Reconnexion automatique seulement si l'onglet est visible
+      // Auto-reconnect only if the tab is visible
       if (this.subscribers.size > 0 && !document.hidden) {
-        // Backoff exponentiel: 1s, 2s, 4s, 8s, 16s, jusqu'à 30s max
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, up to 30s max
         this.reconnectAttempts++;
         const delay = Math.min(
           1000 * Math.pow(2, this.reconnectAttempts - 1),
@@ -115,7 +115,7 @@ class WebSocketSingleton {
     this.isConnected.value = false;
     this.stopPingCheck();
 
-    // Ne clear les handlers et l'état que si c'est un cleanup complet (plus de subscribers)
+    // Only clear handlers and state if this is a full cleanup (no more subscribers)
     if (fullCleanup) {
       this.eventHandlers.clear();
       this.lastSystemState = null;
@@ -128,22 +128,22 @@ class WebSocketSingleton {
 
     this.visibilityHandler = () => {
       if (document.hidden) {
-        // Déconnecter quand l'onglet est caché
+        // Disconnect when the tab is hidden
         if (this.socket) {
           this.socket.close();
         }
       } else {
-        // Reconnecter quand l'onglet redevient visible
+        // Reconnect when the tab becomes visible again
         if (this.subscribers.size > 0) {
           // Reset backoff counter on visibility change (user interaction)
           this.reconnectAttempts = 0;
 
-          // Fermer toute connexion existante
+          // Close any existing connection
           if (this.socket) {
             this.socket.close();
           }
 
-          // Reconnecter après un court délai
+          // Reconnect after a short delay
           setTimeout(() => {
             this.createConnection();
           }, 200);
@@ -162,7 +162,7 @@ class WebSocketSingleton {
   }
 
   startPingCheck() {
-    // Vérifier la connexion toutes les 60 secondes
+    // Check the connection every 60 seconds
     if (this.pingCheckInterval) {
       clearInterval(this.pingCheckInterval);
     }
@@ -170,7 +170,7 @@ class WebSocketSingleton {
     this.pingCheckInterval = setInterval(() => {
       const timeSinceLastPing = Date.now() - this.lastPingTime;
 
-      // Si pas de ping depuis 90 secondes (3x l'intervalle), reconnect
+      // If no ping for 90 seconds (3x the interval), reconnect
       if (timeSinceLastPing > 90000 && !document.hidden) {
         console.warn('WebSocket ping timeout, reconnecting...');
         this.closeConnection();
@@ -204,10 +204,10 @@ class WebSocketSingleton {
   }
 
   handleMessage(message) {
-    // Détecter les pings
+    // Detect pings
     if (message.category === 'system' && message.type === 'ping') {
       this.lastPingTime = Date.now();
-      return; // Ne pas propager les pings aux handlers
+      return; // Do not propagate pings to handlers
     }
 
     if (message.category === 'system' && message.type === 'state_changed' && message.data?.full_state) {
@@ -249,11 +249,11 @@ class WebSocketSingleton {
   }
 }
 
-// Instance singleton globale
+// Global singleton instance
 const wsInstance = new WebSocketSingleton();
 
 /**
- * Composable WebSocket
+ * WebSocket composable
  */
 export default function useWebSocket() {
   const subscriberId = Symbol('WebSocketSubscriber');
@@ -288,7 +288,7 @@ export default function useWebSocket() {
   };
 }
 
-// Debug pour développement
+// Debug for development
 if (import.meta.env.DEV) {
   window.wsDebug = () => {
     console.log('WebSocket Debug:', {

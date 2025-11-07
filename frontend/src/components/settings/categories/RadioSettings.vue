@@ -1,6 +1,6 @@
 <template>
   <div class="radio-settings-container">
-    <!-- Section 1: Stations avec image modifiée -->
+    <!-- Section 1: Stations with modified image -->
     <section class="settings-section">
       <h2 class="heading-2 text-body">{{ $t('radioSettings.modifiedImagesTitle') }}</h2>
 
@@ -23,7 +23,7 @@
       </Button>
     </section>
 
-    <!-- Section 2: Stations ajoutées -->
+    <!-- Section 2: Added stations -->
     <section class="settings-section">
       <h2 class="heading-2 text-body">{{ $t('radioSettings.addedStationsTitle') }}</h2>
 
@@ -91,29 +91,29 @@ const radioStore = useRadioStore();
 const stationToDelete = ref(null);
 const stationToRemoveImage = ref(null);
 
-// Listes locales chargées depuis l'API
+// Local lists loaded from the API
 const customStations = ref([]);
 const favoriteStations = ref([]);
 
-// Stations favorites avec image modifiée (non-custom)
+// Favorite stations with modified image (non-custom)
 const existingStationsWithModifiedImage = computed(() => {
   return favoriteStations.value.filter(s =>
     s.image_filename && !s.id.startsWith('custom_')
   );
 });
 
-// Stations personnalisées avec image
+// Custom stations with image
 const customStationsWithImage = computed(() => {
   return customStations.value.filter(s => s.image_filename);
 });
 
-// Stations personnalisées sans image uploadée
+// Custom stations without uploaded image
 const customStationsWithoutImage = computed(() => {
   return customStations.value.filter(s => !s.image_filename);
 });
 
 async function loadCustomStations() {
-  // Charger les stations personnalisées
+  // Load custom stations
   try {
     const customResponse = await axios.get('/api/radio/custom');
     customStations.value = customResponse.data;
@@ -122,7 +122,7 @@ async function loadCustomStations() {
     customStations.value = [];
   }
 
-  // Charger les stations favorites pour voir celles avec images modifiées
+  // Load favorite stations to detect those with modified images
   try {
     const favoritesResponse = await axios.get('/api/radio/stations', {
       params: { favorites_only: true, limit: 10000 }
@@ -134,7 +134,7 @@ async function loadCustomStations() {
   }
 }
 
-// Exposer loadCustomStations pour que SettingsModal puisse recharger les données
+// Expose loadCustomStations so SettingsModal can reload data
 defineExpose({ loadCustomStations });
 
 function confirmDelete(station) {
@@ -196,14 +196,14 @@ onMounted(() => {
   gap: var(--space-04);
 }
 
-/* Stations List */
+/* Stations list */
 .stations-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-01);
 }
 
-/* Empty State */
+/* Empty state */
 .empty-state {
   padding: var(--space-05);
   text-align: center;
@@ -213,7 +213,7 @@ onMounted(() => {
   border: 2px dashed var(--color-border);
 }
 
-/* Delete Confirmation Modal */
+/* Delete confirmation modal */
 .modal-overlay {
   position: fixed;
   top: 0;

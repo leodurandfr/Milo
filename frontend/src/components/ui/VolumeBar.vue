@@ -17,7 +17,6 @@ const unifiedStore = useUnifiedAudioStore();
 const isVisible = ref(false);
 let hideTimer = null;
 
-// Computed simplifié pour le style de la barre
 const volumeFillStyle = computed(() => {
   const volume = unifiedStore.volumeState.currentVolume;
   return {
