@@ -1,7 +1,7 @@
 # backend/infrastructure/hardware/screen_controller.py
 """
-Contrôleur d'écran - Version OPTIM avec timeout_seconds = 0 pour jamais
-Support multi-écrans : Waveshare 7" USB et Waveshare 8" DSI
+Screen Controller - OPTIM Version with timeout_seconds = 0 for never
+Multi-screen support: Waveshare 7" USB and Waveshare 8" DSI
 """
 import asyncio
 import logging
@@ -9,7 +9,7 @@ import os
 from time import monotonic
 
 class ScreenController:
-    """Contrôleur d'écran avec timeout_seconds = 0 pour désactiver"""
+    """Screen controller with timeout_seconds = 0 to disable"""
 
     def __init__(self, state_machine, settings_service, hardware_service):
         self.state_machine = state_machine
@@ -17,15 +17,15 @@ class ScreenController:
         self.hardware_service = hardware_service
         self.logger = logging.getLogger(__name__)
 
-        # Détection du type d'écran
+        # Screen type detection
         self.screen_type = hardware_service.get_screen_type()
         self.logger.info(f"Screen type detected: {self.screen_type}")
 
-        # Configuration depuis settings
+        # Configuration from settings
         self.timeout_seconds = 10
         self.brightness_on = 5
 
-        # Plages de luminosité selon le type d'écran
+        # Brightness ranges based on screen type
         if self.screen_type == "waveshare_7_usb":
             self.brightness_min = 0
             self.brightness_max = 10
@@ -33,67 +33,67 @@ class ScreenController:
             self.brightness_min = 0
             self.brightness_max = 255
         else:
-            # Aucun écran ou type inconnu
+            # No screen or unknown type
             self.brightness_min = 0
             self.brightness_max = 10
 
-        # Commandes dynamiques (générées selon le type d'écran)
+        # Dynamic commands (generated based on screen type)
         self._update_screen_commands()
 
-        # État
+        # State
         self.last_activity_time = monotonic()
-        self.boot_time = None  # Sera défini lors de initialize()
-        self.boot_grace_period = 30  # Sera calculé comme max(30, timeout_seconds) lors de initialize()
+        self.boot_time = None  # Will be set during initialize()
+        self.boot_grace_period = 30  # Will be calculated as max(30, timeout_seconds) during initialize()
         self.screen_on = True
         self.running = False
         self.current_plugin_state = "inactive"
     
     def _map_brightness_value(self, ui_value: int) -> int:
         """
-        Convertit une valeur UI (1-10) vers la plage native de l'écran.
+        Converts a UI value (1-10) to the screen's native range.
 
         Args:
-            ui_value: Valeur de l'interface utilisateur (1-10)
+            ui_value: User interface value (1-10)
 
         Returns:
-            Valeur native pour l'écran (0-10 pour 7" USB, 25-255 pour 8" DSI)
+            Native value for the screen (0-10 for 7" USB, 25-255 for 8" DSI)
         """
         if self.screen_type == "waveshare_7_usb":
-            # 7" USB utilise directement 0-10
+            # 7" USB uses 0-10 directly
             return ui_value
         elif self.screen_type == "waveshare_8_dsi":
-            # 8" DSI : mapper 1-10 vers 25-255 (éviter 0 = complètement éteint)
-            # Formule : 25 + (ui_value - 1) * (255 - 25) / (10 - 1)
+            # 8" DSI: map 1-10 to 25-255 (avoid 0 = completely off)
+            # Formula: 25 + (ui_value - 1) * (255 - 25) / (10 - 1)
             return int(25 + (ui_value - 1) * (230 / 9))
         else:
-            # Type inconnu : retourner la valeur telle quelle
+            # Unknown type: return value as-is
             return ui_value
 
     def _update_screen_commands(self):
-        """Met à jour les commandes avec la luminosité depuis settings selon le type d'écran"""
+        """Updates commands with brightness from settings based on screen type"""
         native_brightness = self._map_brightness_value(self.brightness_on)
 
         if self.screen_type == "waveshare_7_usb":
-            # Waveshare 7" USB : utilise le binaire milo-brightness-7
+            # Waveshare 7" USB: uses milo-brightness-7 binary
             self.screen_on_cmd = f"sudo /usr/local/bin/milo-brightness-7 -b {native_brightness}"
             self.screen_off_cmd = f"sudo /usr/local/bin/milo-brightness-7 -b 0"
         elif self.screen_type == "waveshare_8_dsi":
-            # Waveshare 8" DSI : utilise sysfs (chemin direct sans wildcard pour éviter problèmes shell)
+            # Waveshare 8" DSI: uses sysfs (direct path without wildcard to avoid shell issues)
             self.screen_on_cmd = f"echo {native_brightness} | sudo tee /sys/class/backlight/*/brightness"
             self.screen_off_cmd = f"echo 0 | sudo tee /sys/class/backlight/*/brightness"
         else:
-            # Aucun écran ou type inconnu : commandes vides
+            # No screen or unknown type: empty commands
             self.logger.warning(f"Unknown screen type '{self.screen_type}', brightness control disabled")
             self.screen_on_cmd = ""
             self.screen_off_cmd = ""
     
     async def _load_config(self):
-        """Charge la config complète depuis settings - timeout_seconds = 0 pour jamais"""
+        """Loads complete config from settings - timeout_seconds = 0 for never"""
         try:
-            # FORCER le reload depuis le fichier en invalidant le cache d'abord
+            # FORCE reload from file by invalidating cache first
             self.settings_service._cache = None
 
-            # Charger directement toutes les settings depuis le fichier
+            # Load all settings directly from file
             all_settings = await self.settings_service.load_settings()
             screen_config = all_settings.get('screen', {})
 
@@ -103,18 +103,18 @@ class ScreenController:
             timeout_enabled = self.timeout_seconds != 0
             self.logger.info(f"Screen config loaded: timeout={self.timeout_seconds}s ({'enabled' if timeout_enabled else 'DISABLED'}), brightness={self.brightness_on}")
 
-            # Mettre à jour les commandes avec la nouvelle luminosité
+            # Update commands with new brightness
             self._update_screen_commands()
 
         except Exception as e:
             self.logger.error(f"Error loading screen config: {e}")
-            # Fallback sur defaults
+            # Fallback to defaults
             self.timeout_seconds = 10
             self.brightness_on = 5
             self._update_screen_commands()
     
     async def reload_timeout_config(self) -> bool:
-        """Recharge la config timeout/brightness"""
+        """Reloads timeout/brightness config"""
         try:
             self.logger.info(f"Reloading screen config (old timeout: {self.timeout_seconds}s)")
             await self._load_config()
@@ -126,25 +126,25 @@ class ScreenController:
             return False
     
     async def initialize(self) -> bool:
-        """Initialise le contrôleur"""
+        """Initializes the controller"""
         try:
             await self._load_config()
 
-            # Calculer la période de grâce : max entre 30s et le timeout configuré
-            # Cela garantit qu'on voit toujours au moins 30s de boot, même si timeout est court
+            # Calculate grace period: max between 30s and configured timeout
+            # This ensures we always see at least 30s of boot, even if timeout is short
             self.boot_grace_period = max(30, self.timeout_seconds if self.timeout_seconds != 0 else 30)
 
             await self._screen_cmd(self.screen_on_cmd)
-            self.boot_time = monotonic()  # Enregistrer le temps de démarrage
+            self.boot_time = monotonic()  # Record boot time
             self.last_activity_time = monotonic()
             self.running = True
 
             self.logger.info(f"Screen controller initialized with {self.boot_grace_period}s boot grace period (timeout_seconds={self.timeout_seconds}s)")
 
-            # Démarrer monitoring
+            # Start monitoring
             asyncio.create_task(self._monitor_plugin_state())
             asyncio.create_task(self._monitor_timeout())
-            # asyncio.create_task(self._monitor_touch_events())  # Désactivé - détection via frontend
+            # asyncio.create_task(self._monitor_touch_events())  # Disabled - detection via frontend
 
             return True
 
@@ -153,8 +153,8 @@ class ScreenController:
             return False
     
     async def _screen_cmd(self, cmd):
-        """Exécute une commande écran"""
-        # Ne rien faire si aucun écran n'est configuré ou commande vide
+        """Executes a screen command"""
+        # Do nothing if no screen is configured or command is empty
         if not cmd or self.screen_type == "none":
             return
 
@@ -164,15 +164,15 @@ class ScreenController:
             )
             await process.communicate()
 
-            # Déterminer si l'écran est allumé en comparant avec screen_off_cmd
-            # (si la commande est screen_off_cmd, l'écran est éteint, sinon il est allumé)
+            # Determine if screen is on by comparing with screen_off_cmd
+            # (if command is screen_off_cmd, screen is off, otherwise it's on)
             self.screen_on = (cmd != self.screen_off_cmd)
 
         except Exception as e:
             self.logger.error(f"Screen command failed: {e}")
     
     async def _monitor_plugin_state(self):
-        """Surveille l'état des plugins"""
+        """Monitors plugin state"""
         while self.running:
             try:
                 system_state = await self.state_machine.get_current_state()
@@ -192,26 +192,26 @@ class ScreenController:
                 await asyncio.sleep(5)
     
     async def _monitor_timeout(self):
-        """Surveille le timeout - timeout_seconds = 0 pour jamais"""
+        """Monitors timeout - timeout_seconds = 0 for never"""
         while self.running:
             try:
-                # timeout_seconds = 0 signifie jamais (désactivé)
+                # timeout_seconds = 0 means never (disabled)
                 if self.timeout_seconds == 0:
                     await asyncio.sleep(5)
                     continue
 
-                # Période de grâce après boot : ne pas éteindre l'écran pendant les X premières secondes
+                # Grace period after boot: don't turn off screen during the first X seconds
                 if self.boot_time is not None:
                     time_since_boot = monotonic() - self.boot_time
                     if time_since_boot < self.boot_grace_period:
-                        # Encore dans la période de grâce
+                        # Still in grace period
                         remaining = self.boot_grace_period - time_since_boot
-                        if int(time_since_boot) % 10 == 0:  # Log toutes les 10s pour éviter le spam
+                        if int(time_since_boot) % 10 == 0:  # Log every 10s to avoid spam
                             self.logger.debug(f"Boot grace period active: {remaining:.0f}s remaining")
                         await asyncio.sleep(1)
                         continue
 
-                # Garder le timer à 0 tant que le plugin est "connected"
+                # Keep timer at 0 while plugin is "connected"
                 if self.current_plugin_state == "connected":
                     self.last_activity_time = monotonic()
 
@@ -234,10 +234,10 @@ class ScreenController:
                 await asyncio.sleep(10)
     
     async def on_touch_detected(self):
-        """Interface publique pour touch externe"""
+        """Public interface for external touch"""
         await self._screen_cmd(self.screen_on_cmd)
         self.last_activity_time = monotonic()
     
     def cleanup(self):
-        """Nettoie les ressources"""
+        """Cleans up resources"""
         self.running = False

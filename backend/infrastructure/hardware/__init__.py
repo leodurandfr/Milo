@@ -1,4 +1,4 @@
 # backend/infrastructure/hardware/__init__.py
 """
-Module hardware pour Milo - Intégrations matérielles Raspberry Pi
+Hardware module for Milo - Raspberry Pi hardware integrations
 """
