@@ -1,6 +1,6 @@
 # backend/tests/test_settings_service.py
 """
-Tests unitaires pour SettingsService
+Unit tests for SettingsService
 """
 import pytest
 import json
@@ -11,11 +11,11 @@ from backend.infrastructure.services.settings_service import SettingsService
 
 
 class TestSettingsService:
-    """Tests pour le service de settings"""
+    """Tests for settings service"""
 
     @pytest.fixture
     def temp_settings_file(self):
-        """Crée un fichier temporaire pour les tests"""
+        """Create a temporary file for tests"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             temp_path = f.name
 
@@ -27,7 +27,7 @@ class TestSettingsService:
         except:
             pass
 
-        # Cleanup du fichier .tmp aussi si présent
+        # Cleanup .tmp file as well if present
         try:
             os.unlink(temp_path + '.tmp')
         except:
@@ -35,7 +35,7 @@ class TestSettingsService:
 
     @pytest.fixture
     def service(self, temp_settings_file):
-        """Fixture pour créer un service de settings"""
+        """Fixture to create a settings service"""
         service = SettingsService()
         service.settings_file = temp_settings_file
         return service

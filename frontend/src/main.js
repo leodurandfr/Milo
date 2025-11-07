@@ -12,12 +12,12 @@ async function initApp() {
   app.use(createPinia())
   app.use(router)
 
-  // Configuration globale de l'i18n
+  // Global i18n configuration
   app.config.globalProperties.$t = i18n.t.bind(i18n)
 
   app.config.devtools = true
 
-  // Initialiser la langue depuis le serveur avant de monter l'app
+  // Initialize language from server before mounting app
   await i18n.initializeLanguage()
 
   app.mount('#app')

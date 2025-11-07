@@ -1,6 +1,6 @@
 # backend/tests/conftest.py
 """
-Configuration pytest - Fixtures partagées pour tous les tests
+Pytest configuration - Shared fixtures for all tests
 """
 import pytest
 import asyncio
@@ -10,7 +10,7 @@ from backend.domain.audio_state import AudioSource, PluginState
 
 @pytest.fixture
 def event_loop():
-    """Fixture pour créer une boucle d'événements asyncio pour chaque test"""
+    """Fixture to create an asyncio event loop for each test"""
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()

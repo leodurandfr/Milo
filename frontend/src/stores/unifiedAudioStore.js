@@ -101,7 +101,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ delta, show_bar: showBar })
     }).catch(error => {
-      console.error('Erreur volume:', error);
+      console.error('Volume error:', error);
     });
   }
 
@@ -113,16 +113,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return await adjustVolume(-5);
   }
 
-  // === REFRESH (WebSocket uniquement - pas de polling HTTP) ===
-  // Note: L'état est synchronisé automatiquement via WebSocket.
-  // Cette fonction est conservée uniquement pour compatibilité mais ne fait plus de polling HTTP.
+  // === REFRESH (WebSocket only - no HTTP polling) ===
+  // Note: State is synchronized automatically via WebSocket.
+  // This function is kept only for compatibility but no longer does HTTP polling.
   async function refreshState() {
     console.log('ℹ️ refreshState called - state synchronized via WebSocket only');
     return true;
   }
 
-  // === GESTION VISIBILITÉ ===
-  // Note: Plus besoin de polling au retour de focus - le WebSocket maintient l'état à jour
+  // === VISIBILITY MANAGEMENT ===
+  // Note: No need for polling on focus return - WebSocket keeps state up to date
   function setupVisibilityListener() {
     const visibilityHandler = () => {
       if (!document.hidden) {
@@ -139,41 +139,41 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     };
   }
 
-  // === MISE À JOUR D'ÉTAT ===
+  // === STATE UPDATE ===
   function updateSystemState(newState, source = 'unknown') {
-    // Validation défensive des valeurs reçues du WebSocket
-    // Note: Cette validation est une mesure de sécurité défensive côté frontend.
-    // Elle ne devrait jamais être nécessaire si le backend fonctionne correctement,
-    // mais protège contre les corruptions de données en transit.
+    // Defensive validation of values received from WebSocket
+    // Note: This validation is a defensive security measure on frontend side.
+    // It should never be necessary if backend works correctly,
+    // but protects against data corruption in transit.
     const validSources = ['none', 'librespot', 'bluetooth', 'roc', 'radio'];
     const validStates = ['inactive', 'ready', 'connected', 'error'];
 
-    // Valider active_source
+    // Validate active_source
     const activeSource = validSources.includes(newState.active_source)
       ? newState.active_source
       : 'none';
 
-    // Valider plugin_state
+    // Validate plugin_state
     const pluginState = validStates.includes(newState.plugin_state)
       ? newState.plugin_state
       : 'inactive';
 
-    // Valider transitioning (doit être boolean)
+    // Validate transitioning (must be boolean)
     const transitioning = typeof newState.transitioning === 'boolean'
       ? newState.transitioning
       : false;
 
-    // Valider target_source
+    // Validate target_source
     const targetSource = newState.target_source && validSources.includes(newState.target_source)
       ? newState.target_source
       : null;
 
-    // Valider metadata (doit être objet)
+    // Validate metadata (must be object)
     const metadata = newState.metadata && typeof newState.metadata === 'object' && !Array.isArray(newState.metadata)
       ? newState.metadata
       : {};
 
-    // Valider multiroom_enabled et equalizer_enabled (doivent être boolean)
+    // Validate multiroom_enabled and equalizer_enabled (must be boolean)
     const multiroomEnabled = typeof newState.multiroom_enabled === 'boolean'
       ? newState.multiroom_enabled
       : systemState.value.multiroom_enabled;
@@ -193,7 +193,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       equalizer_enabled: equalizerEnabled
     };
 
-    // Log warning si validation a modifié des valeurs
+    // Log warning if validation modified values
     if (activeSource !== newState.active_source || pluginState !== newState.plugin_state) {
       console.warn('⚠️ Invalid WebSocket data received:', {
         received: { active_source: newState.active_source, plugin_state: newState.plugin_state },

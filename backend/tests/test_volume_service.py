@@ -1,6 +1,6 @@
 # backend/tests/test_volume_service.py
 """
-Tests unitaires pour VolumeService - Tests des fonctions de conversion et configuration
+Unit tests for VolumeService - Tests for conversion and configuration functions
 """
 import pytest
 import json
@@ -11,11 +11,11 @@ from backend.infrastructure.services.volume_service import VolumeService
 
 
 class TestVolumeService:
-    """Tests pour le service de volume"""
+    """Tests for the volume service"""
 
     @pytest.fixture
     def mock_state_machine(self):
-        """Mock de la state machine"""
+        """Mock of the state machine"""
         sm = Mock()
         sm.broadcast_event = AsyncMock()
         sm.routing_service = Mock()
@@ -24,7 +24,7 @@ class TestVolumeService:
 
     @pytest.fixture
     def mock_snapcast_service(self):
-        """Mock du service snapcast"""
+        """Mock of the snapcast service"""
         service = Mock()
         service.get_clients = AsyncMock(return_value=[])
         service.set_volume = AsyncMock(return_value=True)
@@ -32,7 +32,7 @@ class TestVolumeService:
 
     @pytest.fixture
     def service(self, mock_state_machine, mock_snapcast_service):
-        """Fixture pour créer un VolumeService"""
+        """Fixture to create a VolumeService"""
         with patch('backend.infrastructure.services.volume_service.SettingsService') as mock_settings:
             # Mock SettingsService
             settings_instance = Mock()
@@ -50,7 +50,7 @@ class TestVolumeService:
             return service
 
     def test_initialization(self, service):
-        """Test de l'initialisation du service"""
+        """Test service initialization"""
         assert service.state_machine is not None
         assert service.snapcast_service is not None
         assert service._alsa_min_volume == 0
@@ -59,7 +59,7 @@ class TestVolumeService:
         assert service._rotary_volume_steps == 2
 
     def test_alsa_to_display_conversion(self, service):
-        """Test de conversion ALSA → Display (0-100%)"""
+        """Test ALSA → Display conversion (0-100%)"""
         # Min volume
         assert service._alsa_to_display(0) == 0
 
@@ -71,7 +71,7 @@ class TestVolumeService:
         assert 48 <= result <= 50
 
     def test_display_to_alsa_conversion(self, service):
-        """Test de conversion Display → ALSA"""
+        """Test Display → ALSA conversion"""
         # Min volume
         assert service._display_to_alsa(0) == 0
 
@@ -83,21 +83,21 @@ class TestVolumeService:
         assert 31 <= result <= 34
 
     def test_display_to_alsa_precise_conversion(self, service):
-        """Test de conversion Display précise → ALSA"""
+        """Test precise Display → ALSA conversion"""
         # Test avec float
         result = service._display_to_alsa_precise(50.5)
         assert isinstance(result, int)
         assert 31 <= result <= 34
 
     def test_round_half_up(self, service):
-        """Test de l'arrondi standard"""
+        """Test standard rounding"""
         assert service._round_half_up(1.4) == 1
         assert service._round_half_up(1.5) == 2
         assert service._round_half_up(1.6) == 2
         assert service._round_half_up(2.0) == 2
 
     def test_clamp_display_volume(self, service):
-        """Test du clamping du volume display (0-100%)"""
+        """Test display volume clamping (0-100%)"""
         assert service._clamp_display_volume(-10.0) == 0.0
         assert service._clamp_display_volume(0.0) == 0.0
         assert service._clamp_display_volume(50.0) == 50.0
@@ -105,7 +105,7 @@ class TestVolumeService:
         assert service._clamp_display_volume(110.0) == 100.0
 
     def test_clamp_alsa_volume(self, service):
-        """Test du clamping du volume ALSA (min-max)"""
+        """Test ALSA volume clamping (min-max)"""
         assert service._clamp_alsa_volume(-10) == 0  # alsa_min
         assert service._clamp_alsa_volume(0) == 0
         assert service._clamp_alsa_volume(30) == 30
@@ -113,7 +113,7 @@ class TestVolumeService:
         assert service._clamp_alsa_volume(100) == 65
 
     def test_load_volume_config(self, service):
-        """Test du chargement de la configuration volume"""
+        """Test loading volume configuration"""
         service.settings_service.get_volume_config = Mock(return_value={
             "alsa_min": 10,
             "alsa_max": 70,
@@ -133,7 +133,7 @@ class TestVolumeService:
         assert service._rotary_volume_steps == 1
 
     def test_display_to_alsa_old_limits(self, service):
-        """Test de conversion avec anciennes limites"""
+        """Test conversion with old limits"""
         # Conversion avec old_min=0, old_max=50
         result = service._display_to_alsa_old_limits(50, 0, 50)
         assert result == 25
@@ -143,7 +143,7 @@ class TestVolumeService:
         assert result == 60
 
     def test_invalidate_all_caches(self, service):
-        """Test de l'invalidation des caches"""
+        """Test cache invalidation"""
         service._client_display_states = {"client1": 50.0}
         service._client_states_initialized = True
         service._snapcast_clients_cache = [{"id": "client1"}]
@@ -157,7 +157,7 @@ class TestVolumeService:
         assert service._snapcast_cache_time == 0
 
     def test_set_client_display_volume(self, service):
-        """Test de définition du volume display d'un client"""
+        """Test setting client display volume"""
         service._set_client_display_volume("client1", 75.5)
 
         assert service._client_display_states["client1"] == 75.5
@@ -170,41 +170,41 @@ class TestVolumeService:
         assert service._client_display_states["client3"] == 0.0
 
     def test_is_multiroom_enabled_true(self, service, mock_state_machine):
-        """Test de vérification multiroom activé"""
+        """Test checking multiroom enabled"""
         mock_state_machine.routing_service.get_state = Mock(return_value={'multiroom_enabled': True})
 
         assert service._is_multiroom_enabled() is True
 
     def test_is_multiroom_enabled_false(self, service, mock_state_machine):
-        """Test de vérification multiroom désactivé"""
+        """Test checking multiroom disabled"""
         mock_state_machine.routing_service.get_state = Mock(return_value={'multiroom_enabled': False})
 
         assert service._is_multiroom_enabled() is False
 
     def test_is_multiroom_enabled_no_routing_service(self, service, mock_state_machine):
-        """Test de vérification multiroom sans routing_service"""
+        """Test checking multiroom without routing_service"""
         mock_state_machine.routing_service = None
 
         assert service._is_multiroom_enabled() is False
 
     def test_get_rotary_step(self, service):
-        """Test de récupération du step rotary"""
+        """Test getting rotary step"""
         service._rotary_volume_steps = 3
 
         assert service.get_rotary_step() == 3
 
     def test_convert_alsa_to_display_public(self, service):
-        """Test de la méthode publique de conversion ALSA → Display"""
+        """Test public method for ALSA → Display conversion"""
         assert service.convert_alsa_to_display(0) == 0
         assert service.convert_alsa_to_display(65) == 100
 
     def test_convert_display_to_alsa_public(self, service):
-        """Test de la méthode publique de conversion Display → ALSA"""
+        """Test public method for Display → ALSA conversion"""
         assert service.convert_display_to_alsa(0) == 0
         assert service.convert_display_to_alsa(100) == 65
 
     def test_get_volume_config_public(self, service):
-        """Test de récupération de la config publique"""
+        """Test getting public config"""
         config = service.get_volume_config_public()
 
         assert config["alsa_min"] == 0
@@ -216,7 +216,7 @@ class TestVolumeService:
 
     @pytest.mark.asyncio
     async def test_reload_volume_steps_config(self, service):
-        """Test du rechargement des volume steps"""
+        """Test reloading volume steps"""
         service.settings_service.get_volume_config = Mock(return_value={
             "alsa_min": 0,
             "alsa_max": 65,
@@ -233,7 +233,7 @@ class TestVolumeService:
 
     @pytest.mark.asyncio
     async def test_reload_rotary_steps_config(self, service):
-        """Test du rechargement des rotary steps"""
+        """Test reloading rotary steps"""
         service.settings_service.get_volume_config = Mock(return_value={
             "alsa_min": 0,
             "alsa_max": 65,
@@ -250,7 +250,7 @@ class TestVolumeService:
 
     @pytest.mark.asyncio
     async def test_reload_startup_config(self, service):
-        """Test du rechargement de la config startup"""
+        """Test reloading startup config"""
         service.settings_service.get_volume_config = Mock(return_value={
             "alsa_min": 0,
             "alsa_max": 65,
@@ -267,7 +267,7 @@ class TestVolumeService:
         assert service._restore_last_volume is True
 
     def test_determine_startup_volume_default(self, service):
-        """Test de détermination du volume startup (mode par défaut)"""
+        """Test determining startup volume (default mode)"""
         service._restore_last_volume = False
         service._default_startup_display_volume = 37
 
@@ -276,66 +276,66 @@ class TestVolumeService:
         assert volume == 37
 
     def test_determine_startup_volume_no_saved_file(self, service):
-        """Test de détermination du volume startup sans fichier sauvegardé"""
+        """Test determining startup volume without saved file"""
         service._restore_last_volume = True
         service._default_startup_display_volume = 37
 
-        # S'assurer qu'il n'y a pas de fichier
+        # Ensure there is no file
         if service.LAST_VOLUME_FILE.exists():
             os.unlink(service.LAST_VOLUME_FILE)
 
         volume = service._determine_startup_volume()
 
-        # Devrait fallback au default
+        # Should fallback to default
         assert volume == 37
 
     def test_save_last_volume_disabled(self, service):
-        """Test que save_last_volume ne sauvegarde pas si désactivé"""
+        """Test that save_last_volume doesn't save if disabled"""
         service._restore_last_volume = False
 
-        # Ne devrait rien sauvegarder
+        # Should not save anything
         service._save_last_volume(50)
 
-        # Vérifier qu'aucun fichier n'est créé (test asynchrone donc pas de garantie immédiate)
-        # On teste juste que la fonction ne lève pas d'exception
+        # Verify that no file is created (async test so no immediate guarantee)
+        # We just test that the function doesn't raise an exception
 
     def test_ensure_data_directory_exists(self, service):
-        """Test que le répertoire de données est créé"""
-        # La méthode est appelée dans __init__
+        """Test that data directory is created"""
+        # Method is called in __init__
         parent_dir = service.LAST_VOLUME_FILE.parent
 
-        # Le répertoire devrait exister (ou ne pas lever d'exception si impossible à créer)
-        assert parent_dir.exists() or True  # Tolérance si impossible à créer
+        # Directory should exist (or not raise exception if cannot be created)
+        assert parent_dir.exists() or True  # Tolerance if cannot be created
 
     @pytest.mark.asyncio
     async def test_get_snapcast_clients_cached(self, service, mock_snapcast_service):
-        """Test du cache des clients snapcast"""
+        """Test snapcast clients cache"""
         mock_clients = [
             {"id": "client1", "name": "Client 1"},
             {"id": "client2", "name": "Client 2"}
         ]
         mock_snapcast_service.get_clients = AsyncMock(return_value=mock_clients)
 
-        # Premier appel - devrait récupérer depuis snapcast
+        # First call - should fetch from snapcast
         clients = await service._get_snapcast_clients_cached()
         assert len(clients) == 2
         assert clients[0]["id"] == "client1"
 
-        # Deuxième appel immédiat - devrait utiliser le cache
-        mock_snapcast_service.get_clients = AsyncMock(return_value=[])  # Changer le mock
+        # Second immediate call - should use cache
+        mock_snapcast_service.get_clients = AsyncMock(return_value=[])  # Change mock
         clients = await service._get_snapcast_clients_cached()
-        assert len(clients) == 2  # Toujours depuis le cache
+        assert len(clients) == 2  # Still from cache
 
     @pytest.mark.asyncio
     async def test_get_snapcast_clients_cached_error_fallback(self, service, mock_snapcast_service):
-        """Test du fallback du cache en cas d'erreur"""
-        # Premier appel réussi
+        """Test cache fallback on error"""
+        # First successful call
         mock_snapcast_service.get_clients = AsyncMock(return_value=[{"id": "client1"}])
         clients = await service._get_snapcast_clients_cached()
         assert len(clients) == 1
 
-        # Deuxième appel avec erreur - devrait retourner le cache
-        service._snapcast_cache_time = 0  # Invalider le cache
+        # Second call with error - should return cache
+        service._snapcast_cache_time = 0  # Invalidate cache
         mock_snapcast_service.get_clients = AsyncMock(side_effect=Exception("Connection error"))
         clients = await service._get_snapcast_clients_cached()
-        assert len(clients) == 1  # Devrait retourner l'ancien cache
+        assert len(clients) == 1  # Should return old cache

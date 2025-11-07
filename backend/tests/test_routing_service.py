@@ -1,6 +1,6 @@
 # backend/tests/test_routing_service.py
 """
-Tests unitaires pour AudioRoutingService
+Unit tests for AudioRoutingService
 """
 import pytest
 import os
@@ -10,11 +10,11 @@ from backend.domain.audio_state import AudioSource
 
 
 class TestAudioRoutingService:
-    """Tests pour le service de routage audio"""
+    """Tests for the audio routing service"""
 
     @pytest.fixture
     def mock_systemd_manager(self):
-        """Mock du SystemdServiceManager"""
+        """Mock of SystemdServiceManager"""
         with patch('backend.infrastructure.services.audio_routing_service.SystemdServiceManager') as mock:
             manager = Mock()
             manager.is_active = AsyncMock(return_value=False)
@@ -26,50 +26,50 @@ class TestAudioRoutingService:
 
     @pytest.fixture
     def routing_service(self, mock_settings_service, mock_systemd_manager):
-        """Fixture pour créer un routing service"""
+        """Fixture to create a routing service"""
         service = AudioRoutingService(settings_service=mock_settings_service)
-        # Initialiser _initial_detection_done pour éviter la détection automatique
+        # Initialize _initial_detection_done to avoid automatic detection
         service._initial_detection_done = True
         return service
 
     def test_initialization(self, routing_service):
-        """Test de l'initialisation du service"""
+        """Test service initialization"""
         assert routing_service.snapcast_websocket_service is None
         assert routing_service.snapcast_service is None
         assert routing_service.state_machine is None
-        # Plus de self.state - utilise directement state_machine.system_state
+        # No more self.state - uses state_machine.system_state directly
 
     def test_set_plugin_callback(self, routing_service):
-        """Test de définition du callback des plugins"""
+        """Test setting the plugin callback"""
         callback = lambda source: None
         routing_service.set_plugin_callback(callback)
 
         assert routing_service.get_plugin == callback
 
     def test_set_snapcast_websocket_service(self, routing_service):
-        """Test de définition du service WebSocket Snapcast"""
+        """Test setting the Snapcast WebSocket service"""
         mock_service = Mock()
         routing_service.set_snapcast_websocket_service(mock_service)
 
         assert routing_service.snapcast_websocket_service == mock_service
 
     def test_set_snapcast_service(self, routing_service):
-        """Test de définition du service Snapcast"""
+        """Test setting the Snapcast service"""
         mock_service = Mock()
         routing_service.set_snapcast_service(mock_service)
 
         assert routing_service.snapcast_service == mock_service
 
     def test_set_state_machine(self, routing_service):
-        """Test de définition de la state machine"""
+        """Test setting the state machine"""
         mock_sm = Mock()
         routing_service.set_state_machine(mock_sm)
 
         assert routing_service.state_machine == mock_sm
 
     def test_get_state(self, routing_service):
-        """Test de récupération de l'état - retourne maintenant un dict"""
-        # Ajouter un state_machine mock
+        """Test getting state - now returns a dict"""
+        # Add a mock state_machine
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = False
@@ -84,11 +84,11 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_initialize_with_settings(self, routing_service, mock_settings_service, mock_async_lock):
-        """Test de l'initialisation avec chargement des settings"""
-        # Réinitialiser le flag
+        """Test initialization with settings loading"""
+        # Reset the flag
         routing_service._initial_detection_done = False
 
-        # Créer un mock state_machine
+        # Create a mock state_machine
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = False
@@ -110,20 +110,20 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_initialize_without_settings_service(self):
-        """Test de l'initialisation sans SettingsService (fallback aux defaults)"""
+        """Test initialization without SettingsService (fallback to defaults)"""
         service = AudioRoutingService(settings_service=None)
 
         with patch.object(service, '_update_systemd_environment', new_callable=AsyncMock):
             with patch.object(service, 'get_snapcast_status', new_callable=AsyncMock, return_value={"multiroom_available": False}):
                 await service.initialize()
 
-        # Devrait utiliser les valeurs par défaut
+        # Should use default values
         assert service.multiroom_enabled is False
         assert service.equalizer_enabled is False
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_already_enabled(self, routing_service, mock_async_lock):
-        """Test de set_multiroom_enabled quand déjà dans l'état souhaité (no-op)"""
+        """Test set_multiroom_enabled when already in desired state (no-op)"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = True
@@ -136,7 +136,7 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_success(self, routing_service, mock_settings_service, mock_async_lock):
-        """Test d'activation réussie du multiroom"""
+        """Test successful multiroom activation"""
         mock_state_machine = Mock()
         mock_state_machine.system_state = Mock()
         mock_state_machine.system_state.multiroom_enabled = False
@@ -155,7 +155,7 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_set_multiroom_enabled_failure_rollback(self, routing_service, mock_settings_service, mock_async_lock):
-        """Test d'échec d'activation avec rollback de l'état"""
+        """Test activation failure with state rollback"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = False
@@ -168,14 +168,14 @@ class TestAudioRoutingService:
                 result = await routing_service.set_multiroom_enabled(True)
 
         assert result is False
-        # L'état devrait être revenu à False
+        # State should have reverted to False
         assert mock_sm.system_state.multiroom_enabled is False
-        # Ne devrait PAS avoir sauvegardé
+        # Should NOT have saved
         mock_settings_service.set_setting.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_set_equalizer_enabled_already_enabled(self, routing_service, mock_async_lock):
-        """Test de set_equalizer_enabled quand déjà dans l'état souhaité (no-op)"""
+        """Test set_equalizer_enabled when already in desired state (no-op)"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.equalizer_enabled = True
@@ -188,7 +188,7 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_set_equalizer_enabled_success(self, routing_service, mock_settings_service, mock_async_lock):
-        """Test d'activation réussie de l'equalizer"""
+        """Test successful equalizer activation"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.equalizer_enabled = False
@@ -204,7 +204,7 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_set_equalizer_enabled_with_plugin_restart(self, routing_service, mock_plugin, mock_async_lock):
-        """Test d'activation de l'equalizer avec restart du plugin actif"""
+        """Test equalizer activation with active plugin restart"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.equalizer_enabled = False
@@ -220,36 +220,36 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_update_systemd_environment_validation(self, routing_service):
-        """Test d'écriture du fichier d'environnement"""
+        """Test writing the environment file"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = True
         mock_sm.system_state.equalizer_enabled = False
         routing_service.set_state_machine(mock_sm)
 
-        # NOUVEAU: teste l'écriture du fichier au lieu de sudo
-        # Utiliser mock_open de unittest.mock qui supporte fileno()
+        # NEW: test file writing instead of sudo
+        # Use mock_open from unittest.mock which supports fileno()
         from unittest.mock import mock_open as create_mock_open
         m = create_mock_open()
 
         with patch('builtins.open', m):
             with patch('os.replace'):
-                with patch('os.fsync'):  # Mock fsync aussi
+                with patch('os.fsync'):  # Mock fsync too
                     await routing_service._update_systemd_environment()
 
-                    # Vérifier que le fichier a été ouvert
+                    # Verify that the file was opened
                     assert m.called
 
     @pytest.mark.asyncio
     async def test_update_systemd_environment_file_content(self, routing_service):
-        """Test du contenu du fichier d'environnement écrit"""
+        """Test written environment file content"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()
         mock_sm.system_state.multiroom_enabled = True
         mock_sm.system_state.equalizer_enabled = True
         routing_service.set_state_machine(mock_sm)
 
-        # Teste le contenu du fichier
+        # Test file content
         from unittest.mock import mock_open as create_mock_open
         m = create_mock_open()
 
@@ -258,7 +258,7 @@ class TestAudioRoutingService:
                 with patch('os.fsync'):
                     await routing_service._update_systemd_environment()
 
-                    # Vérifier que MILO_MODE=multiroom et MILO_EQUALIZER=_eq sont écrits
+                    # Verify that MILO_MODE=multiroom and MILO_EQUALIZER=_eq are written
                     handle = m()
                     calls = [str(call) for call in handle.write.call_args_list]
                     assert any('MILO_MODE=multiroom' in str(call) for call in calls)
@@ -266,7 +266,7 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_get_snapcast_status(self, routing_service, mock_systemd_manager):
-        """Test de récupération du statut snapcast"""
+        """Test getting snapcast status"""
         mock_systemd_manager.is_active = AsyncMock(side_effect=[True, True])
 
         status = await routing_service.get_snapcast_status()
@@ -277,7 +277,7 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_get_snapcast_status_partial(self, routing_service, mock_systemd_manager):
-        """Test de récupération du statut snapcast avec un service arrêté"""
+        """Test getting snapcast status with a stopped service"""
         mock_systemd_manager.is_active = AsyncMock(side_effect=[True, False])
 
         status = await routing_service.get_snapcast_status()
@@ -288,7 +288,7 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_transition_to_multiroom(self, routing_service, mock_systemd_manager):
-        """Test de transition vers le multiroom"""
+        """Test transition to multiroom"""
         mock_systemd_manager.start = AsyncMock(return_value=True)
 
         result = await routing_service._transition_to_multiroom()
@@ -298,7 +298,7 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_transition_to_direct(self, routing_service, mock_systemd_manager):
-        """Test de transition vers le mode direct"""
+        """Test transition to direct mode"""
         mock_systemd_manager.stop = AsyncMock()
 
         result = await routing_service._transition_to_direct()
@@ -308,7 +308,7 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_auto_configure_multiroom(self, routing_service):
-        """Test de configuration automatique du multiroom"""
+        """Test automatic multiroom configuration"""
         mock_snapcast = Mock()
         mock_snapcast.is_available = AsyncMock(return_value=True)
         mock_snapcast.set_all_groups_to_multiroom = AsyncMock()
@@ -320,13 +320,13 @@ class TestAudioRoutingService:
 
     @pytest.mark.asyncio
     async def test_auto_configure_multiroom_timeout(self, routing_service):
-        """Test de timeout de configuration automatique du multiroom"""
+        """Test automatic multiroom configuration timeout"""
         mock_snapcast = Mock()
-        mock_snapcast.is_available = AsyncMock(return_value=False)  # Jamais disponible
+        mock_snapcast.is_available = AsyncMock(return_value=False)  # Never available
         routing_service.set_snapcast_service(mock_snapcast)
 
-        # Devrait timeout après 10 tentatives
+        # Should timeout after 10 attempts
         await routing_service._auto_configure_multiroom()
 
-        # Vérifier qu'on a essayé plusieurs fois
+        # Verify that we tried multiple times
         assert mock_snapcast.is_available.call_count == 10

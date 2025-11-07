@@ -1,6 +1,6 @@
 # backend/tests/test_equalizer_service.py
 """
-Tests unitaires pour EqualizerService
+Unit tests for EqualizerService
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
@@ -8,7 +8,7 @@ from backend.infrastructure.services.equalizer_service import EqualizerService
 
 
 class TestEqualizerService:
-    """Tests pour le service equalizer"""
+    """Tests for equalizer service"""
 
     @pytest.fixture
     def mock_settings_service(self):
@@ -20,12 +20,12 @@ class TestEqualizerService:
 
     @pytest.fixture
     def service(self, mock_settings_service):
-        """Fixture pour créer un EqualizerService"""
+        """Fixture to create an EqualizerService"""
         return EqualizerService(settings_service=mock_settings_service)
 
     @pytest.fixture
     def service_no_settings(self):
-        """Fixture pour créer un service sans SettingsService"""
+        """Fixture to create a service without SettingsService"""
         return EqualizerService(settings_service=None)
 
     def test_initialization(self, service):
@@ -39,7 +39,7 @@ class TestEqualizerService:
 
     def test_bands_configuration(self, service):
         """Test de la configuration des bandes"""
-        # Vérifier que toutes les bandes ont id et freq
+        # Verify that all bands have id and freq
         for band in service.BANDS:
             assert "id" in band
             assert "freq" in band

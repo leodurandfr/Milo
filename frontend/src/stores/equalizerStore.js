@@ -29,7 +29,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const isResetting = ref(false);
   const bandsLoaded = ref(false);
 
-  // Gestion du throttling
+  // Throttling management
   const bandThrottleMap = new Map();
 
   // === COMPUTED ===
@@ -37,7 +37,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === INITIALIZATION ===
   function initializeBands() {
-    // Initialiser avec les valeurs par défaut (seront remplacées par l'API)
+    // Initialize with default values (will be replaced by API)
     bands.value = STATIC_BANDS.map(band => ({
       ...band,
       value: DEFAULT_VALUE
@@ -97,7 +97,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       ]);
 
       if (statusData?.available && bandsData.length > 0) {
-        // Mettre à jour vers les vraies valeurs depuis l'API
+        // Update to real values from API
         bands.value = bands.value.map(band => {
           const apiBand = bandsData.find(b => b.id === band.id);
           return {
@@ -199,7 +199,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     if (event.data.band_changed) {
       const { band_id, value } = event.data;
       const band = bands.value.find(b => b.id === band_id);
-      // Ne pas mettre à jour si on est en train de throttler (évite les conflits)
+      // Don't update if we're throttling (avoids conflicts)
       if (band && bandThrottleMap.size === 0) {
         band.value = value;
       }
@@ -208,7 +208,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   function handleReset(event) {
     if (event.data.reset) {
-      // Ne pas mettre à jour si on est en train de throttler
+      // Don't update if we're throttling
       if (bandThrottleMap.size === 0) {
         bands.value.forEach(band => {
           band.value = event.data.reset_value;

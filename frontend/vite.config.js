@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => ({
     __VUE_PROD_DEVTOOLS__: true,
   },
   preview: {
-    allowedHosts: ['milo.local']  // ✅ Autoriser milo.local
+    allowedHosts: ['milo.local']  // ✅ Allow milo.local
   },
   server: {
     host: '0.0.0.0',
@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
-            console.log('Erreur de proxy:', err);
+            console.log('Proxy error:', err);
           });
         },
       },
@@ -34,7 +34,7 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
-            console.log('Erreur de proxy librespot:', err);
+            console.log('Librespot proxy error:', err);
           });
         },
       },
@@ -43,7 +43,7 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
-            console.log('Erreur de proxy roc:', err);
+            console.log('ROC proxy error:', err);
           });
         },
       },
@@ -52,7 +52,7 @@ export default defineConfig(({ mode }) => ({
         ws: true,
         configure: (proxy, _options) => {
           proxy.on('error', (err, _req, _res) => {
-            console.log('Erreur de proxy WS:', err);
+            console.log('WebSocket proxy error:', err);
           });
         },
       }
