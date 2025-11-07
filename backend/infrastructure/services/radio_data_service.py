@@ -19,7 +19,7 @@ class RadioDataService:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.data_file = os.path.expanduser('~/milo/radio_data.json')
+        self.data_file = '/var/lib/milo/radio_data.json'
         self._file_lock = asyncio.Lock()
 
     async def load_data(self) -> Dict[str, Any]:
@@ -84,7 +84,7 @@ class RadioDataService:
         Returns:
             Données migrées
         """
-        settings_file = os.path.expanduser('~/milo/milo_settings.json')
+        settings_file = '/var/lib/milo/settings.json'
 
         if not os.path.exists(settings_file):
             return {"favorites": [], "broken_stations": [], "custom_stations": []}

@@ -30,7 +30,9 @@
       "noFavorites": "Keine Lieblings-Radios",
       "loadMore": "Mehr laden",
       "remaining": "verbleibend",
-      "stationNoImage": "Sender ohne Bild"
+      "stationNoImage": "Sender ohne Bild",
+      "playRadio": "Radio abspielen",
+      "stopRadio": "Radio stoppen"
     }
   },
   "multiroom": {

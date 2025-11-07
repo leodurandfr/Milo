@@ -351,7 +351,7 @@ The Radio plugin (`backend/infrastructure/plugins/radio/`) is a complete, produc
 **Key features demonstrated:**
 - External API integration (Radio Browser API)
 - Service lifecycle management (systemd + IPC socket)
-- Complex data persistence (favorites, custom stations, images in milo_settings.json)
+- Complex data persistence (favorites, custom stations in /var/lib/milo/radio_data.json, images in /var/lib/milo/radio_images/)
 - File uploads (station images with validation and storage)
 - Caching strategy (API responses cached for performance)
 - Error handling (broken station detection and filtering)

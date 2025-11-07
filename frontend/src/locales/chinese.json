@@ -30,7 +30,9 @@
       "noFavorites": "没有喜爱的广播",
       "loadMore": "加载更多",
       "remaining": "剩余",
-      "stationNoImage": "无图片的电台"
+      "stationNoImage": "无图片的电台",
+      "playRadio": "播放电台",
+      "stopRadio": "停止电台"
     }
   },
   "multiroom": {

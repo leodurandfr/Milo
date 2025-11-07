@@ -49,8 +49,7 @@
   <div v-else-if="variant === 'now-playing'" class="now-playing">
     <!-- Background image - très zoomée et blurrée -->
     <div class="station-art-background">
-      <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt=""
-        class="background-station-favicon" />
+      <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="background-station-favicon" />
     </div>
 
     <div class="station-art">
@@ -66,20 +65,42 @@
     </div>
 
     <div v-if="showControls" class="controls-wrapper">
-      <CircularIcon :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="overlay"
-        @click="$emit('favorite')" />
-      <CircularIcon :icon="isPlaying ? 'stop' : 'play'" variant="overlay" @click="$emit('play')" />
+      <CircularIcon :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="overlay" @click="$emit('favorite')" />
+      <!-- Desktop: Button avec texte -->
+      <Button v-if="!isMobile" variant="background-light" :left-icon="isPlaying ? 'stop' : 'play'"
+        @click="$emit('play')">
+        {{ isPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio') }}
+      </Button>
+      <!-- Mobile: CircularIcon sans texte -->
+      <CircularIcon v-else :icon="isPlaying ? 'stop' : 'play'" variant="overlay" @click="$emit('play')" />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
+import Button from '@/components/ui/Button.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const { t } = useI18n();
+
+// Détection responsive pour desktop vs mobile
+const isMobile = ref(false);
+
+const updateMediaQuery = () => {
+  isMobile.value = window.matchMedia('(max-aspect-ratio: 4/3)').matches;
+};
+
+onMounted(() => {
+  updateMediaQuery();
+  window.addEventListener('resize', updateMediaQuery);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateMediaQuery);
+});
 
 const props = defineProps({
   station: {
@@ -487,7 +508,7 @@ function handleImageError() {
 
 .controls-wrapper {
   display: flex;
-  flex-direction: row;
+  flex-direction: row-reverse;
   flex-wrap: nowrap;
   gap: var(--space-02);
   justify-content: space-between;
@@ -538,6 +559,10 @@ function handleImageError() {
 
   .now-playing::before {
     border-radius: var(--radius-06);
+  }
+
+  .controls-wrapper {
+    flex-direction: row;
   }
 }
 </style>

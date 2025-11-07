@@ -30,7 +30,9 @@
       "noFavorites": "No favorite radios",
       "loadMore": "Load more",
       "remaining": "remaining",
-      "stationNoImage": "Station without image"
+      "stationNoImage": "Station without image",
+      "playRadio": "Play radio",
+      "stopRadio": "Stop radio"
     }
   },
   "multiroom": {

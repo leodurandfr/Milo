@@ -265,9 +265,9 @@ Each source has its own loopback subdevice:
 
 ## Data persistence
 
-### Settings (milo_settings.json)
+### Configuration files in /var/lib/milo/
 
-Central file for all system parameters:
+**settings.json** - Central file for all system parameters:
 ```json
 {
   "language": "french",
@@ -276,12 +276,26 @@ Central file for all system parameters:
   "routing": { "multiroom_enabled": false, "equalizer_enabled": false },
   "dock": { "enabled_apps": [...] }
 }
-# SHA256:abc123...
 ```
 
+**hardware.json** - Hardware configuration (screen type and resolution):
+```json
+{
+  "screen": {
+    "waveshare_7_usb": {
+      "resolution": "1024x600"
+    }
+  }
+}
+```
+
+**radio_data.json** - Radio favorites and custom stations
+**routing.env** - ALSA routing environment variables (auto-generated from settings.json)
+**last_volume.json** - Last saved volume for restoration
+
 **Integrity protection:**
-- ✅ Automatic SHA256 checksum
 - ✅ Atomic write (`os.replace()`)
+- ✅ File locks for concurrent access
 - ✅ Automatic backup if corruption detected
 
 ### Backups

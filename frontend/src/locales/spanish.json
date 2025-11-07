@@ -30,7 +30,9 @@
       "noFavorites": "No hay radios favoritas",
       "loadMore": "Cargar más",
       "remaining": "restantes",
-      "stationNoImage": "Estación sin imagen"
+      "stationNoImage": "Estación sin imagen",
+      "playRadio": "Reproducir radio",
+      "stopRadio": "Detener radio"
     }
   },
   "multiroom": {
