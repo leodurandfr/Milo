@@ -1,200 +1,200 @@
 <template>
   <div class="radio-source-wrapper">
-    <div ref="radioContainer" class="radio-container stagger-1">
+    <div ref="radioContainer" class="radio-container stagger-1" :class="{ 'is-initial-animating': isInitialAnimating }">
 
-    <!-- ModalHeader : Vue Favoris -->
-    <ModalHeader v-if="!isSearchMode" :title="t('audioSources.radioSource.favoritesTitle')" variant="neutral"
-      icon="radio">
-      <template #actions>
-        <CircularIcon icon="search" variant="light" @click="openSearch" />
-      </template>
-    </ModalHeader>
+      <!-- ModalHeader : Vue Favoris -->
+      <ModalHeader v-if="!isSearchMode" :title="t('audioSources.radioSource.favoritesTitle')" variant="neutral"
+        icon="radio">
+        <template #actions>
+          <CircularIcon icon="search" variant="light" @click="openSearch" />
+        </template>
+      </ModalHeader>
 
-    <!-- ModalHeader : Vue Recherche -->
-    <ModalHeader v-else :title="t('audioSources.radioSource.discoverTitle')" :show-back="true" variant="neutral"
-      @back="closeSearch">
-    </ModalHeader>
+      <!-- ModalHeader : Vue Recherche -->
+      <ModalHeader v-else :title="t('audioSources.radioSource.discoverTitle')" :show-back="true" variant="neutral"
+        @back="closeSearch">
+      </ModalHeader>
 
-    <!-- Recherche et filtres (visible uniquement en mode recherche) -->
-    <div v-if="isSearchMode" class="search-section">
-      <div class="filters">
-        <InputText v-model="radioStore.searchQuery" :placeholder="t('audioSources.radioSource.searchPlaceholder')"
-          input-class="filter-input search-input text-body-small" @update:modelValue="handleSearch" />
-        <select v-model="radioStore.countryFilter" class="filter-input filter-select text-body-small"
-          @change="handleSearch">
-          <option value="">{{ t('audioSources.radioSource.allCountries') }}</option>
-          <option v-if="availableCountries.length === 0" disabled>{{ t('audioSources.radioSource.loadingCountries')
-          }}
-          </option>
-          <option v-for="country in availableCountries" :key="country.name" :value="country.name">
-            {{ country.name }}
-          </option>
-        </select>
+      <!-- Recherche et filtres (visible uniquement en mode recherche) -->
+      <div v-if="isSearchMode" class="search-section">
+        <div class="filters">
+          <InputText v-model="radioStore.searchQuery" :placeholder="t('audioSources.radioSource.searchPlaceholder')"
+            input-class="filter-input search-input text-body-small" @update:modelValue="handleSearch" />
+          <select v-model="radioStore.countryFilter" class="filter-input filter-select text-body-small"
+            @change="handleSearch">
+            <option value="">{{ t('audioSources.radioSource.allCountries') }}</option>
+            <option v-if="availableCountries.length === 0" disabled>{{ t('audioSources.radioSource.loadingCountries')
+              }}
+            </option>
+            <option v-for="country in availableCountries" :key="country.name" :value="country.name">
+              {{ country.name }}
+            </option>
+          </select>
 
-        <select v-model="radioStore.genreFilter" class="filter-input filter-select text-body-small"
-          @change="handleSearch">
-          <option value="">{{ t('audioSources.radioSource.allGenres') }}</option>
-          <option value="pop">Pop</option>
-          <option value="rock">Rock</option>
-          <option value="news">News</option>
-          <option value="classical">Classical</option>
-          <option value="talk">Talk</option>
-          <option value="dance">Dance</option>
-          <option value="oldies">Oldies</option>
-          <option value="80s">80s</option>
-          <option value="jazz">Jazz</option>
-          <option value="90s">90s</option>
-          <option value="electronic">Electronic</option>
-          <option value="classic rock">Classic Rock</option>
-          <option value="country">Country</option>
-          <option value="pop rock">Pop Rock</option>
-          <option value="house">House</option>
-          <option value="alternative">Alternative</option>
-          <option value="metal">Metal</option>
-          <option value="soul">Soul</option>
-          <option value="indie">Indie</option>
-          <option value="chillout">Chillout</option>
-          <option value="techno">Techno</option>
-          <option value="folk">Folk</option>
-          <option value="disco">Disco</option>
-          <option value="ambient">Ambient</option>
-          <option value="blues">Blues</option>
-          <option value="alternative rock">Alternative Rock</option>
-          <option value="rap">Rap</option>
-          <option value="hiphop">HipHop</option>
-          <option value="lounge">Lounge</option>
-          <option value="trance">Trance</option>
-          <option value="latin pop">Latin Pop</option>
-          <option value="60s">60s</option>
-          <option value="edm">EDM</option>
-          <option value="smooth jazz">Smooth Jazz</option>
-          <option value="reggaeton">Reggaeton</option>
-          <option value="tropical">Tropical</option>
-          <option value="hard rock">Hard Rock</option>
-          <option value="reggae">Reggae</option>
-          <option value="rnb">RnB</option>
-          <option value="hip-hop">Hip-Hop</option>
-          <option value="deep house">Deep House</option>
-          <option value="schlager">Schlager</option>
-          <option value="70s">70s</option>
-          <option value="punk">Punk</option>
-          <option value="urban">Urban</option>
-          <option value="latin">Latin</option>
-          <option value="latin music">Latin Music</option>
-          <option value="r&b">R&B</option>
-          <option value="eurodance">Eurodance</option>
-          <option value="2010s">2010s</option>
-          <option value="1990s">1990s</option>
-          <option value="merengue">Merengue</option>
-          <option value="new wave">New Wave</option>
-          <option value="pop dance">Pop Dance</option>
-          <option value="classic jazz">Classic Jazz</option>
-          <option value="funk">Funk</option>
-          <option value="grunge">Grunge</option>
-          <option value="minimal">Minimal</option>
-          <option value="ska">Ska</option>
-          <option value="italo disco">Italo Disco</option>
-          <option value="singer-songwriter">Singer-Songwriter</option>
-          <option value="opera">Opera</option>
-          <option value="americana">Americana</option>
-          <option value="darkwave">Darkwave</option>
-          <option value="afrobeats">Afrobeats</option>
-          <option value="bossa nova">Bossa Nova</option>
-          <option value="celtic">Celtic</option>
-          <option value="lo-fi">Lo-Fi</option>
-          <option value="nu disco">Nu Disco</option>
-          <option value="acoustic">Acoustic</option>
-          <option value="folk rock">Folk Rock</option>
-          <option value="progressive rock">Progressive Rock</option>
-          <option value="art rock">Art Rock</option>
-          <option value="psychedelic rock">Psychedelic Rock</option>
-          <option value="britpop">Britpop</option>
-          <option value="drum and bass">Drum And Bass</option>
-          <option value="dubstep">Dubstep</option>
-          <option value="trap">Trap</option>
-          <option value="tech house">Tech House</option>
-          <option value="jazz fusion">Jazz Fusion</option>
-          <option value="downtempo">Downtempo</option>
-          <option value="chill">Chill</option>
-          <option value="new age">New Age</option>
-          <option value="world music">World Music</option>
-          <option value="garage">Garage</option>
-          <option value="progressive house">Progressive House</option>
-          <option value="trip-hop">Trip-Hop</option>
-          <option value="minimal techno">Minimal Techno</option>
-          <option value="psychedelic">Psychedelic</option>
-          <option value="power metal">Power Metal</option>
-          <option value="thrash metal">Thrash Metal</option>
-          <option value="death metal">Death Metal</option>
-          <option value="hardcore">Hardcore</option>
-          <option value="stoner rock">Stoner Rock</option>
-          <option value="synthwave">Synthwave</option>
-          <option value="smooth lounge">Smooth Lounge</option>
-          <option value="dancehall">Dancehall</option>
-          <option value="dub">Dub</option>
-          <option value="roots">Roots</option>
-          <option value="salsa">Salsa</option>
-          <option value="bachata">Bachata</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- Liste des stations -->
-    <div class="stations-list">
-      <div v-if="transitionState === 'loading'" class="loading-state">
-        <p>{{ t('audioSources.radioSource.loadingStations') }}</p>
-      </div>
-
-      <!-- Message d'erreur avec bouton réessayer -->
-      <div v-else-if="radioStore.hasError && displayedStations.length === 0 && transitionState === 'idle'"
-        class="error-state">
-        <div class="error-icon">⚠️</div>
-        <p class="heading-2">{{ t('audioSources.radioSource.connectionError') }}</p>
-        <p class="text-body-small" style="color: var(--color-text-secondary);">{{
-          t('audioSources.radioSource.cannotLoadStations') }}
-        </p>
-        <Button variant="toggle" :active="false" @click="retrySearch">
-          {{ t('audioSources.radioSource.retry') }}
-        </Button>
-      </div>
-
-      <div v-else-if="displayedStations.length === 0 && transitionState === 'idle'" class="empty-list">
-        <div class="empty-icon"><img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" />
+          <select v-model="radioStore.genreFilter" class="filter-input filter-select text-body-small"
+            @change="handleSearch">
+            <option value="">{{ t('audioSources.radioSource.allGenres') }}</option>
+            <option value="pop">Pop</option>
+            <option value="rock">Rock</option>
+            <option value="news">News</option>
+            <option value="classical">Classical</option>
+            <option value="talk">Talk</option>
+            <option value="dance">Dance</option>
+            <option value="oldies">Oldies</option>
+            <option value="80s">80s</option>
+            <option value="jazz">Jazz</option>
+            <option value="90s">90s</option>
+            <option value="electronic">Electronic</option>
+            <option value="classic rock">Classic Rock</option>
+            <option value="country">Country</option>
+            <option value="pop rock">Pop Rock</option>
+            <option value="house">House</option>
+            <option value="alternative">Alternative</option>
+            <option value="metal">Metal</option>
+            <option value="soul">Soul</option>
+            <option value="indie">Indie</option>
+            <option value="chillout">Chillout</option>
+            <option value="techno">Techno</option>
+            <option value="folk">Folk</option>
+            <option value="disco">Disco</option>
+            <option value="ambient">Ambient</option>
+            <option value="blues">Blues</option>
+            <option value="alternative rock">Alternative Rock</option>
+            <option value="rap">Rap</option>
+            <option value="hiphop">HipHop</option>
+            <option value="lounge">Lounge</option>
+            <option value="trance">Trance</option>
+            <option value="latin pop">Latin Pop</option>
+            <option value="60s">60s</option>
+            <option value="edm">EDM</option>
+            <option value="smooth jazz">Smooth Jazz</option>
+            <option value="reggaeton">Reggaeton</option>
+            <option value="tropical">Tropical</option>
+            <option value="hard rock">Hard Rock</option>
+            <option value="reggae">Reggae</option>
+            <option value="rnb">RnB</option>
+            <option value="hip-hop">Hip-Hop</option>
+            <option value="deep house">Deep House</option>
+            <option value="schlager">Schlager</option>
+            <option value="70s">70s</option>
+            <option value="punk">Punk</option>
+            <option value="urban">Urban</option>
+            <option value="latin">Latin</option>
+            <option value="latin music">Latin Music</option>
+            <option value="r&b">R&B</option>
+            <option value="eurodance">Eurodance</option>
+            <option value="2010s">2010s</option>
+            <option value="1990s">1990s</option>
+            <option value="merengue">Merengue</option>
+            <option value="new wave">New Wave</option>
+            <option value="pop dance">Pop Dance</option>
+            <option value="classic jazz">Classic Jazz</option>
+            <option value="funk">Funk</option>
+            <option value="grunge">Grunge</option>
+            <option value="minimal">Minimal</option>
+            <option value="ska">Ska</option>
+            <option value="italo disco">Italo Disco</option>
+            <option value="singer-songwriter">Singer-Songwriter</option>
+            <option value="opera">Opera</option>
+            <option value="americana">Americana</option>
+            <option value="darkwave">Darkwave</option>
+            <option value="afrobeats">Afrobeats</option>
+            <option value="bossa nova">Bossa Nova</option>
+            <option value="celtic">Celtic</option>
+            <option value="lo-fi">Lo-Fi</option>
+            <option value="nu disco">Nu Disco</option>
+            <option value="acoustic">Acoustic</option>
+            <option value="folk rock">Folk Rock</option>
+            <option value="progressive rock">Progressive Rock</option>
+            <option value="art rock">Art Rock</option>
+            <option value="psychedelic rock">Psychedelic Rock</option>
+            <option value="britpop">Britpop</option>
+            <option value="drum and bass">Drum And Bass</option>
+            <option value="dubstep">Dubstep</option>
+            <option value="trap">Trap</option>
+            <option value="tech house">Tech House</option>
+            <option value="jazz fusion">Jazz Fusion</option>
+            <option value="downtempo">Downtempo</option>
+            <option value="chill">Chill</option>
+            <option value="new age">New Age</option>
+            <option value="world music">World Music</option>
+            <option value="garage">Garage</option>
+            <option value="progressive house">Progressive House</option>
+            <option value="trip-hop">Trip-Hop</option>
+            <option value="minimal techno">Minimal Techno</option>
+            <option value="psychedelic">Psychedelic</option>
+            <option value="power metal">Power Metal</option>
+            <option value="thrash metal">Thrash Metal</option>
+            <option value="death metal">Death Metal</option>
+            <option value="hardcore">Hardcore</option>
+            <option value="stoner rock">Stoner Rock</option>
+            <option value="synthwave">Synthwave</option>
+            <option value="smooth lounge">Smooth Lounge</option>
+            <option value="dancehall">Dancehall</option>
+            <option value="dub">Dub</option>
+            <option value="roots">Roots</option>
+            <option value="salsa">Salsa</option>
+            <option value="bachata">Bachata</option>
+          </select>
         </div>
-        <p class="heading-2">{{ isSearchMode ? t('audioSources.radioSource.noStationsFound') :
-          t('audioSources.radioSource.noFavorites') }}</p>
       </div>
 
-      <div v-else-if="transitionState !== 'loading'" class="stations-grid" :class="{
-        'favorites-mode': !isSearchMode,
-        'search-mode': isSearchMode,
-        'transition-fading-out': transitionState === 'fading-out',
-        'transition-fading-in': transitionState === 'fading-in',
-        'has-now-playing': radioStore.currentStation
-      }">
-        <!-- Mode Favoris : affichage image seule -->
-        <StationCard v-if="!isSearchMode" v-for="station in displayedStations" :key="`fav-${station.id}`"
-          :station="station" variant="image" :is-active="radioStore.currentStation?.id === station.id"
-          :is-playing="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
-          :is-loading="bufferingStationId === station.id" @click="playStation(station.id)" />
+      <!-- Liste des stations -->
+      <div class="stations-list">
+        <div v-if="transitionState === 'loading'" class="loading-state">
+          <p>{{ t('audioSources.radioSource.loadingStations') }}</p>
+        </div>
 
-        <!-- Mode Recherche : affichage avec informations -->
-        <StationCard v-else v-for="station in displayedStations" :key="`search-${station.id}`" :station="station"
-          variant="card" :is-active="radioStore.currentStation?.id === station.id"
-          :is-playing="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
-          :is-loading="bufferingStationId === station.id" :show-controls="true" @click="playStation(station.id)"
-          @play="playStation(station.id)" />
-      </div>
+        <!-- Message d'erreur avec bouton réessayer -->
+        <div v-else-if="radioStore.hasError && displayedStations.length === 0 && transitionState === 'idle'"
+          class="error-state">
+          <div class="error-icon">⚠️</div>
+          <p class="heading-2">{{ t('audioSources.radioSource.connectionError') }}</p>
+          <p class="text-body-small" style="color: var(--color-text-secondary);">{{
+            t('audioSources.radioSource.cannotLoadStations') }}
+          </p>
+          <Button variant="toggle" :active="false" @click="retrySearch">
+            {{ t('audioSources.radioSource.retry') }}
+          </Button>
+        </div>
 
-      <!-- Bouton "Charger plus" -->
-      <div v-if="hasMoreStations" class="load-more">
-        <Button variant="toggle" :active="false" @click="loadMore">
-          {{ t('audioSources.radioSource.loadMore') }} ({{ remainingStations }} {{
-            t('audioSources.radioSource.remaining')
-          }})
-        </Button>
+        <div v-else-if="displayedStations.length === 0 && transitionState === 'idle'" class="empty-list">
+          <div class="empty-icon"><img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" />
+          </div>
+          <p class="heading-2">{{ isSearchMode ? t('audioSources.radioSource.noStationsFound') :
+            t('audioSources.radioSource.noFavorites') }}</p>
+        </div>
+
+        <div v-else-if="transitionState !== 'loading'" class="stations-grid" :class="{
+          'favorites-mode': !isSearchMode,
+          'search-mode': isSearchMode,
+          'transition-fading-out': transitionState === 'fading-out',
+          'transition-fading-in': transitionState === 'fading-in',
+          'has-now-playing': radioStore.currentStation
+        }">
+          <!-- Mode Favoris : affichage image seule -->
+          <StationCard v-if="!isSearchMode" v-for="station in displayedStations" :key="`fav-${station.id}`"
+            :station="station" variant="image" :is-active="radioStore.currentStation?.id === station.id"
+            :is-playing="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
+            :is-loading="bufferingStationId === station.id" @click="playStation(station.id)" />
+
+          <!-- Mode Recherche : affichage avec informations -->
+          <StationCard v-else v-for="station in displayedStations" :key="`search-${station.id}`" :station="station"
+            variant="card" :is-active="radioStore.currentStation?.id === station.id"
+            :is-playing="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
+            :is-loading="bufferingStationId === station.id" :show-controls="true" @click="playStation(station.id)"
+            @play="playStation(station.id)" />
+        </div>
+
+        <!-- Bouton "Charger plus" -->
+        <div v-if="hasMoreStations" class="load-more">
+          <Button variant="toggle" :active="false" @click="loadMore">
+            {{ t('audioSources.radioSource.loadMore') }} ({{ remainingStations }} {{
+              t('audioSources.radioSource.remaining')
+            }})
+          </Button>
+        </div>
       </div>
-    </div>
     </div>
 
     <!-- Now Playing : Desktop - à droite du container, Mobile - sticky en bas -->
@@ -205,15 +205,9 @@
         'first-appearance': radioStore.currentStation && isFirstAppearance
       }
     ]">
-      <StationCard
-        v-if="radioStore.currentStation"
-        :class="{ 'first-appearance-mobile': isFirstAppearance }"
-        :station="radioStore.currentStation"
-        variant="now-playing"
-        :show-controls="true"
-        :is-playing="isCurrentlyPlaying"
-        @play="handlePlayPause"
-        @favorite="handleFavorite" />
+      <StationCard v-if="radioStore.currentStation" :class="{ 'first-appearance-mobile': isFirstAppearance }"
+        :station="radioStore.currentStation" variant="now-playing" :show-controls="true"
+        :is-playing="isCurrentlyPlaying" @play="handlePlayPause" @favorite="handleFavorite" />
     </div>
   </div>
 </template>
@@ -243,6 +237,7 @@ const searchDebounceTimer = ref(null);
 const availableCountries = ref([]); // Liste dynamique des pays disponibles
 const transitionState = ref('idle'); // États: 'idle', 'fading-out', 'loading', 'fading-in'
 const isFirstAppearance = ref(true); // Track if this is the first time now-playing appears
+const isInitialAnimating = ref(true); // Track if initial spring animation is running
 
 // Référence pour animations et scroll
 const radioContainer = ref(null);
@@ -550,6 +545,12 @@ onMounted(async () => {
     radioStore.updateFromWebSocket(unifiedStore.systemState.metadata);
   }
 
+  // Désactiver le flag d'animation initiale après la fin de l'animation spring
+  // Animation spring
+  setTimeout(() => {
+    isInitialAnimating.value = false;
+  }, 500);
+
   // Ajouter l'écouteur de scroll pour le scroll infini
   if (radioContainer.value) {
     radioContainer.value.addEventListener('scroll', handleScroll, { passive: true });
@@ -643,6 +644,7 @@ onBeforeUnmount(() => {
 
 /* Mobile : now-playing est position fixed, donc le wrapper doit être transparent */
 @media (max-aspect-ratio: 4/3) {
+
   /* display: contents = le wrapper disparaît du flow, comme s'il n'existait pas */
   .now-playing-wrapper {
     display: contents;
@@ -673,7 +675,7 @@ onBeforeUnmount(() => {
   height: 100%;
   gap: var(--space-06);
   padding: 0 var(--space-06);
-    transition: all var(--transition-spring);
+  transition: all var(--transition-spring);
 
 }
 
@@ -691,6 +693,11 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   flex-shrink: 1;
   touch-action: pan-y;
+}
+
+/* Permettre au contenu de dépasser pendant l'animation spring avec rebond */
+.radio-container.is-initial-animating {
+  overflow-y: visible !important;
 }
 
 
@@ -736,7 +743,7 @@ onBeforeUnmount(() => {
 /* === STATIONS LIST === */
 .stations-list {
   flex: 1;
-  overflow: visible;
+  /* overflow: visible; */
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -832,10 +839,6 @@ onBeforeUnmount(() => {
 .stations-grid.transition-fading-in {
   animation: fadeInUp 400ms ease-out forwards;
 }
-
-
-
-
 
 
 /* Mobile : Responsive adaptations */
