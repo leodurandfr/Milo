@@ -1,33 +1,33 @@
 """
-Interface abstraite pour les sources audio.
+Abstract interface for audio sources.
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
 class AudioSourcePlugin(ABC):
-    """Interface commune pour toutes les sources audio"""
-    
+    """Common interface for all audio sources"""
+
     @abstractmethod
     async def initialize(self) -> bool:
-        """Initialise le plugin"""
+        """Initialize the plugin"""
         pass
-        
+
     @abstractmethod
     async def start(self) -> bool:
-        """Démarre la source audio"""
+        """Start the audio source"""
         pass
-        
+
     @abstractmethod
     async def stop(self) -> bool:
-        """Arrête la source audio"""
+        """Stop the audio source"""
         pass
-        
+
     @abstractmethod
     async def get_status(self) -> Dict[str, Any]:
-        """Récupère l'état actuel de la source audio"""
+        """Get current status of the audio source"""
         pass
-        
+
     @abstractmethod
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Traite une commande spécifique à cette source"""
+        """Handle a command specific to this source"""
         pass

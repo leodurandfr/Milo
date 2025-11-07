@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/base.py
 """
-Classe de base optimisée pour les plugins - Version nettoyée sans EventBus
+Optimized base class for plugins - Clean version without EventBus
 """
 import logging
 from abc import ABC, abstractmethod
@@ -11,17 +11,17 @@ from backend.domain.audio_state import PluginState, AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
-    """Classe de base pour plugins audio - Version nettoyée"""
-    
+    """Base class for audio plugins - Clean version"""
+
     def __init__(self, name: str, state_machine=None):
         self.name = name
         self.logger = logging.getLogger(f"plugin.{name}")
         self.state_machine = state_machine
         self.service_manager = SystemdServiceManager()
         self._initialized = False
-    
+
     def _get_audio_source(self) -> AudioSource:
-        """Retourne l'enum AudioSource correspondant à ce plugin"""
+        """Returns the AudioSource enum corresponding to this plugin"""
         sources = {
             'librespot': AudioSource.LIBRESPOT,
             'roc': AudioSource.ROC,
@@ -32,26 +32,26 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
     
     @property
     def current_state(self) -> PluginState:
-        """Récupère l'état actuel depuis la machine à états (source de vérité)"""
+        """Gets the current state from the state machine (source of truth)"""
         if self.state_machine and self.is_active_plugin():
             return self.state_machine.system_state.plugin_state
         return PluginState.INACTIVE
     
     @property
     def current_metadata(self) -> Dict[str, Any]:
-        """Récupère les métadonnées depuis la machine à états (source de vérité)"""
+        """Gets the metadata from the state machine (source of truth)"""
         if self.state_machine and self.is_active_plugin():
             return self.state_machine.system_state.metadata
         return {}
     
     def is_active_plugin(self) -> bool:
-        """Vérifie si ce plugin est celui actuellement actif"""
+        """Checks if this plugin is the currently active one"""
         if not self.state_machine:
             return False
         return self.state_machine.system_state.active_source == self._get_audio_source()
     
     async def notify_state_change(self, new_state: PluginState, metadata: Dict[str, Any] = None) -> None:
-        """Notifie la machine à états d'un changement d'état du plugin"""
+        """Notifies the state machine of a plugin state change"""
         if self.state_machine:
             await self.state_machine.update_plugin_state(
                 source=self._get_audio_source(),
@@ -59,35 +59,33 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
                 metadata=metadata or {}
             )
     
-    # Méthodes utilitaires communes
-    
     async def control_service(self, service_name: str, action: str) -> bool:
-        """Contrôle un service systemd (start, stop, restart)"""
+        """Controls a systemd service (start, stop, restart)"""
         try:
-            self.logger.info(f"{action.capitalize()} du service {service_name}")
-            
+            self.logger.info(f"{action.capitalize()} service {service_name}")
+
             actions = {
                 "start": self.service_manager.start,
                 "stop": self.service_manager.stop,
                 "restart": self.service_manager.restart
             }
-            
+
             if action not in actions:
-                self.logger.error(f"Action non supportée: {action}")
+                self.logger.error(f"Unsupported action: {action}")
                 return False
-                
+
             success = await actions[action](service_name)
-            
+
             if not success:
-                self.logger.error(f"Échec de l'opération {action} sur {service_name}")
-                
+                self.logger.error(f"Failed to {action} {service_name}")
+
             return success
         except Exception as e:
-            self.logger.error(f"Erreur {action} service {service_name}: {e}")
+            self.logger.error(f"Error {action} service {service_name}: {e}")
             return False
-    
+
     def format_response(self, success: bool, message: str = None, error: str = None, **kwargs) -> Dict[str, Any]:
-        """Formate une réponse standard pour les commandes"""
+        """Formats a standard response for commands"""
         response = {"success": success}
         
         if success and message:
@@ -98,73 +96,73 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         return {**response, **kwargs}
     
     async def initialize(self) -> bool:
-        """Initialise le plugin avec idempotence"""
+        """Initializes the plugin with idempotence"""
         if self._initialized:
             return True
-            
+
         try:
             success = await self._do_initialize()
             if success:
                 self._initialized = True
             return success
         except Exception as e:
-            self.logger.error(f"Erreur d'initialisation {self.name}: {e}")
+            self.logger.error(f"Initialization error {self.name}: {e}")
             return False
-    
+
     @abstractmethod
     async def _do_initialize(self) -> bool:
-        """Implémentation spécifique de l'initialisation"""
+        """Specific implementation of initialization"""
         pass
-    
+
     async def start(self) -> bool:
-        """Démarre la source audio avec gestion d'état"""
+        """Starts the audio source with state management"""
         if not self._initialized and not await self.initialize():
-            await self.notify_state_change(PluginState.ERROR, {"error": "Échec d'initialisation"})
+            await self.notify_state_change(PluginState.ERROR, {"error": "Initialization failed"})
             return False
-            
+
         try:
             success = await self._do_start()
-            
+
             if success:
                 await self.notify_state_change(PluginState.READY)
             else:
-                await self.notify_state_change(PluginState.ERROR, {"error": "Échec du démarrage"})
-                
+                await self.notify_state_change(PluginState.ERROR, {"error": "Start failed"})
+
             return success
         except Exception as e:
-            self.logger.error(f"Erreur démarrage {self.name}: {e}")
+            self.logger.error(f"Start error {self.name}: {e}")
             await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
             return False
-    
+
     @abstractmethod
     async def _do_start(self) -> bool:
-        """Implémentation spécifique du démarrage"""
+        """Specific implementation of start"""
         pass
-    
+
     async def restart(self) -> bool:
-        """Redémarre le service systemd - Version de base"""
+        """Restarts the systemd service - Base version"""
         try:
             success = await self.control_service(self.service_name, "restart")
             return success
         except Exception as e:
             self.logger.error(f"Error restarting service: {e}")
             return False
-        
+
     @abstractmethod
     async def stop(self) -> bool:
-        """Arrête la source audio"""
+        """Stops the audio source"""
         pass
-        
+
     @abstractmethod
     async def get_status(self) -> Dict[str, Any]:
-        """Récupère l'état actuel de la source audio"""
+        """Gets the current state of the audio source"""
         pass
-        
+
     @abstractmethod
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Traite une commande pour cette source"""
+        """Processes a command for this source"""
         pass
 
     async def get_initial_state(self) -> Dict[str, Any]:
-        """État initial pour les nouvelles connexions WebSocket"""
+        """Initial state for new WebSocket connections"""
         return await self.get_status()

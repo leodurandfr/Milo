@@ -1,7 +1,7 @@
 # backend/infrastructure/plugins/roc/plugin.py
 """
-Plugin ROC pour Milo - Support multi-clients avec IPv4/IPv6 et mDNS
-Gère plusieurs Mac connectés simultanément en trackant leurs IPs et noms via les logs ROC.
+ROC plugin for Milo - Multi-client support with IPv4/IPv6 and mDNS
+Handles multiple Macs connected simultaneously by tracking their IPs and names via ROC logs.
 """
 import asyncio
 import re
@@ -13,9 +13,9 @@ from backend.domain.audio_state import PluginState
 from backend.infrastructure.plugins.plugin_utils import format_response
 
 
-# ------------ Helpers IP/Port (IPv4 + IPv6 + scope) -----------------
+# ------------ IP/Port Helpers (IPv4 + IPv6 + scope) -----------------
 
-# Exemples gérés :
+# Supported examples:
 #   address=1.2.3.4:10003
 #   address=[2001:db8::1]:10003
 #   address=[fe80::a%wlan0]:10003
@@ -28,8 +28,8 @@ _IP_PORT_RE = re.compile(
 
 def _parse_ip_from_line(line: str) -> Tuple[Optional[str], Optional[int]]:
     """
-    Extrait (ip, port) depuis une ligne de log ROC si présent.
-    IPv6 peut inclure un %scope (ex: fe80::1%wlan0).
+    Extracts (ip, port) from a ROC log line if present.
+    IPv6 may include a %scope (e.g. fe80::1%wlan0).
     """
     m = _IP_PORT_RE.search(line)
     if not m:
@@ -41,7 +41,7 @@ def _parse_ip_from_line(line: str) -> Tuple[Optional[str], Optional[int]]:
     return None, None
 
 def _normalize_ip_for_storage(ip: Optional[str]) -> Optional[str]:
-    """Nettoie les crochets éventuels et conserve le %scope si présent."""
+    """Cleans brackets if present and preserves %scope."""
     if not ip:
         return None
     return ip.strip('[]')
@@ -49,13 +49,13 @@ def _normalize_ip_for_storage(ip: Optional[str]) -> Optional[str]:
 
 class RocPlugin(UnifiedAudioPlugin):
     """
-    Plugin ROC avec support multi-clients simultanés.
+    ROC plugin with simultaneous multi-client support.
 
     Features:
-    - Tracking de plusieurs Mac connectés via dict {ip: display_name}
-    - Surveillance des logs (journalctl) pour détection connexion/déconnexion avec IPs
-    - Résolution mDNS (avahi-resolve) pour obtenir les noms des Mac
-    - Support IPv4/IPv6 (incluant link-local avec %scope)
+    - Tracking multiple connected Macs via dict {ip: display_name}
+    - Log monitoring (journalctl) for connection/disconnection detection with IPs
+    - mDNS resolution (avahi-resolve) to get Mac names
+    - IPv4/IPv6 support (including link-local with %scope)
     """
 
     def __init__(self, config: Dict[str, Any], state_machine=None):
@@ -63,24 +63,24 @@ class RocPlugin(UnifiedAudioPlugin):
         self.config = config
         self.service_name = config.get("service_name", "milo-roc.service")
 
-        # Paramètres ROC
+        # ROC parameters
         self.rtp_port = config.get("rtp_port", 10001)
         self.rs8m_port = config.get("rs8m_port", 10002)
         self.rtcp_port = config.get("rtcp_port", 10003)
         self.audio_output = config.get("audio_output", "hw:1,0")
 
-        # Option utile pour IPv6 link-local (fe80::/64)
-        # Exemple: "wlan0" ou "eth0" — aide la résolution mDNS si pas de %scope
+        # Useful option for IPv6 link-local (fe80::/64)
+        # Example: "wlan0" or "eth0" - helps mDNS resolution if no %scope
         self.network_interface = config.get("network_interface")
 
-        # État - Tracking de plusieurs clients connectés
+        # State - Tracking multiple connected clients
         self.connected_clients: Dict[str, str] = {}  # {ip: display_name}
         self.monitor_task: Optional[asyncio.Task] = None
         self._stopping = False
         self._current_device = "milo_roc"
 
     async def _do_initialize(self) -> bool:
-        """Initialisation du plugin ROC"""
+        """ROC plugin initialization"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "list-unit-files", self.service_name,
@@ -89,17 +89,17 @@ class RocPlugin(UnifiedAudioPlugin):
             stdout, _ = await proc.communicate()
 
             if proc.returncode != 0 or self.service_name not in stdout.decode():
-                raise RuntimeError(f"Service {self.service_name} non trouvé")
+                raise RuntimeError(f"Service {} not found")
 
             self.logger.info("Plugin ROC initialisé")
             return True
 
         except Exception as e:
-            self.logger.error(f"Erreur initialisation ROC: {e}")
+            self.logger.error(f"ROC initialization error: {e}")
             return False
 
     async def _do_start(self) -> bool:
-        """Démarrage du service ROC"""
+        """Starting ROC service"""
         try:
             success = await self.control_service(self.service_name, "start")
 
@@ -122,12 +122,12 @@ class RocPlugin(UnifiedAudioPlugin):
             return False
 
         except Exception as e:
-            self.logger.error(f"Erreur démarrage ROC: {e}")
+            self.logger.error(f"ROC start error: {e}")
             return False
 
     async def stop(self) -> bool:
-        """Arrêt ultra-simple du plugin ROC"""
-        self.logger.info("Arrêt simple du plugin ROC")
+        """Simple ROC plugin stop"""
+        self.logger.info("Simple ROC plugin stop")
         self._stopping = True
 
         # Cleanup des tâches
@@ -135,23 +135,23 @@ class RocPlugin(UnifiedAudioPlugin):
             self.monitor_task.cancel()
             self.monitor_task = None
 
-        # Arrêter le service
+        # Stop the service
         success = await self.control_service(self.service_name, "stop")
 
-        # Reset état
+        # Reset state
         self.connected_clients.clear()
         await self.notify_state_change(PluginState.INACTIVE)
 
-        self.logger.info(f"Arrêt ROC terminé: {success}")
+        self.logger.info(f"ROC stop completed: {success}")
         return success
 
     async def _detect_active_connections(self):
         """
-        Détecte les connexions actives via tcpdump si Mac déjà connecté avant démarrage ROC.
+        Detects active connections via tcpdump si Mac déjà connecté avant démarrage ROC.
         Capture brièvement les paquets sur les ports ROC pour extraire les IPs sources.
         """
         try:
-            self.logger.info("Lancement tcpdump pour détecter connexions actives...")
+            self.logger.info("Launching tcpdump to detect active connections...")
 
             # Lancer tcpdump : capture max 15 paquets ou timeout 3s
             proc = await asyncio.create_subprocess_exec(
@@ -188,30 +188,30 @@ class RocPlugin(UnifiedAudioPlugin):
                     detected_ips.add(ip)
 
             if detected_ips:
-                self.logger.info(f"Connexions actives détectées via tcpdump: {detected_ips}")
+                self.logger.info(f"Active connections detected via tcpdump: {detected_ips}")
                 for ip in detected_ips:
                     await self._add_client(ip)
             else:
-                self.logger.info("Aucune connexion active détectée via tcpdump")
+                self.logger.info("No active connections detected via tcpdump")
 
         except Exception as e:
-            self.logger.warning(f"Erreur détection tcpdump (non-bloquant): {e}")
+            self.logger.warning(f"tcpdump detection error (non-bloquant): {e}")
 
     async def _monitor_events(self):
-        """Surveillance événementielle pure avec journalctl -f"""
+        """Pure event monitoring with journalctl -f"""
         proc = None
         try:
-            # Lire l'état initial
+            # Read initial state
             await self._check_initial_state()
 
-            # Surveillance temps réel
+            # Real-time monitoring
             proc = await asyncio.create_subprocess_exec(
                 "journalctl", "-f", "-u", self.service_name, "-o", "short",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
 
-            self.logger.info("Surveillance événementielle ROC active")
+            self.logger.info("ROC event monitoring active")
 
             while not self._stopping and proc.returncode is None:
                 try:
@@ -222,23 +222,23 @@ class RocPlugin(UnifiedAudioPlugin):
                 except asyncio.TimeoutError:
                     continue
                 except Exception as e:
-                    self.logger.error(f"Erreur traitement log: {e}")
+                    self.logger.error(f"Log processing error: {e}")
                     break
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            self.logger.error(f"Erreur surveillance: {e}")
+            self.logger.error(f"Monitoring error: {e}")
         finally:
             if proc and proc.returncode is None:
                 try:
                     proc.terminate()
                     await proc.wait()
                 except ProcessLookupError:
-                    pass  # Le processus est déjà terminé
+                    pass  # Process already terminated
 
     async def _check_initial_state(self):
-        """Vérifie l'état initial en analysant les derniers logs"""
+        """Checks initial state en analysant les derniers logs"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "journalctl", "-u", self.service_name, "-n", "100", "--no-pager",
@@ -256,14 +256,14 @@ class RocPlugin(UnifiedAudioPlugin):
             # Si aucune connexion trouvée dans les logs, utiliser tcpdump
             # pour détecter les Mac déjà connectés (cas où Mac connecté avant démarrage ROC)
             if not self.connected_clients:
-                self.logger.info("Aucune connexion dans les logs, recherche active avec tcpdump...")
+                self.logger.info("No connection in logs, recherche active avec tcpdump...")
                 await self._detect_active_connections()
 
         except Exception as e:
-            self.logger.error(f"Erreur état initial: {e}")
+            self.logger.error(f"Initial state error: {e}")
 
     async def _process_log_line(self, line: str):
-        """Traite une ligne de log - Détection connexion ET déconnexion avec IP"""
+        """Processes a log line - Détection connexion ET déconnexion avec IP"""
         try:
             # DÉCONNEXION - Extraire l'IP depuis les logs de déconnexion
             # Pattern: "session router: removing route: ... address=192.168.1.172:54421"
@@ -274,12 +274,12 @@ class RocPlugin(UnifiedAudioPlugin):
                     ip = _normalize_ip_for_storage(ip)
                     if ip in self.connected_clients:
                         client_name = self.connected_clients[ip]
-                        self.logger.info(f"DÉCONNEXION détectée: {client_name} ({ip})")
+                        self.logger.info(f"DISCONNECTION detected: {client_name} ({ip})")
                         del self.connected_clients[ip]
                         await self._update_state()
                 else:
                     # Si on ne trouve pas l'IP, on log un warning
-                    self.logger.warning(f"Déconnexion détectée sans IP: {line[:100]}")
+                    self.logger.warning(f"Disconnection detected without IP: {line[:100]}")
                 return
 
             # CONNEXION - Pattern: "session group: creating session"
@@ -289,7 +289,7 @@ class RocPlugin(UnifiedAudioPlugin):
                 if ip:
                     ip = _normalize_ip_for_storage(ip)
                     if ip not in self.connected_clients:
-                        self.logger.info(f"CONNEXION détectée: {ip}")
+                        self.logger.info(f"CONNECTION detected: {ip}")
                         await self._add_client(ip)
                 return
 
@@ -299,32 +299,32 @@ class RocPlugin(UnifiedAudioPlugin):
                 if ip:
                     ip = _normalize_ip_for_storage(ip)
                     if ip not in self.connected_clients:
-                        self.logger.info(f"CONNEXION détectée (route): {ip}")
+                        self.logger.info(f"CONNECTION detected (route): {ip}")
                         await self._add_client(ip)
                 return
 
         except Exception as e:
-            self.logger.error(f"Erreur process line: {e}")
+            self.logger.error(f"Process line error: {e}")
 
     async def _add_client(self, ip: str):
-        """Ajoute un nouveau client au tracking et résout son nom"""
+        """Adds a new client to tracking and resolves its name"""
         if ip in self.connected_clients:
             return
 
         # Résoudre le hostname
         display_name = await self._resolve_hostname(ip)
         self.connected_clients[ip] = display_name
-        self.logger.info(f"Client ajouté: {display_name} ({ip})")
+        self.logger.info(f"Client added: {display_name} ({ip})")
 
-        # Mettre à jour l'état
+        # Update state
         await self._update_state()
 
     async def _resolve_hostname(self, ip: str) -> str:
         """
-        Résout le hostname mDNS pour IPv4 ou IPv6.
-        - Conserve un éventuel %scope sur IPv6 (indispensable pour fe80::/64).
-        - Ajoute un %scope si l'IP est fe80::/64 et que self.network_interface est défini.
-        - Force -6 pour IPv6.
+        Resolves mDNS hostname for IPv4 or IPv6.
+        - Preserves potential %scope on IPv6 (essential for fe80::/64).
+        - Adds %scope if IP is fe80::/64 and self.network_interface is defined.
+        - Forces -6 for IPv6.
         """
         if not ip:
             return "Mac connecté"
@@ -333,7 +333,7 @@ class RocPlugin(UnifiedAudioPlugin):
             ip_norm = _normalize_ip_for_storage(ip)
             scope = None
 
-            # Séparer un scope éventuel sur IPv6
+            # Separate potential scope sur IPv6
             if '%' in ip_norm:
                 ip_only, scope = ip_norm.split('%', 1)
             else:
@@ -341,11 +341,11 @@ class RocPlugin(UnifiedAudioPlugin):
 
             addr = ipaddress.ip_address(ip_only)
 
-            # Ajouter scope si link-local IPv6 et qu'on a une interface connue
+            # Add scope if link-local IPv6 et qu'on a une interface connue
             if addr.version == 6 and addr.is_link_local and scope is None and self.network_interface:
                 ip_norm = f"{ip_only}%{self.network_interface}"
 
-            # Construire la commande avahi-resolve
+            # Build command avahi-resolve
             args = ["avahi-resolve", "-a", ip_norm]
             if addr.version == 6:
                 args.insert(1, "-6")
@@ -371,9 +371,9 @@ class RocPlugin(UnifiedAudioPlugin):
         return ip
 
     async def _update_state(self):
-        """Met à jour l'état avec la liste des clients connectés"""
+        """Updates state with connected clients list"""
         if self.connected_clients:
-            # Liste des noms de clients
+            # List of client names
             client_names = list(self.connected_clients.values())
 
             await self.notify_state_change(PluginState.CONNECTED, {
@@ -395,7 +395,7 @@ class RocPlugin(UnifiedAudioPlugin):
             })
 
     async def get_status(self) -> Dict[str, Any]:
-        """État actuel avec liste des clients connectés"""
+        """Current state with connected clients list"""
         try:
             service_status = await self.service_manager.get_status(self.service_name)
             client_names = list(self.connected_clients.values())
@@ -414,12 +414,12 @@ class RocPlugin(UnifiedAudioPlugin):
             return {"error": str(e), "current_device": self._current_device}
 
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Commandes simples"""
+        """Simple commands"""
         try:
             if command == "restart":
                 success = await self.control_service(self.service_name, "restart")
                 if success:
-                    # Redémarrer la surveillance
+                    # Restart monitoring
                     if self.monitor_task:
                         self.monitor_task.cancel()
                         try:
@@ -430,14 +430,14 @@ class RocPlugin(UnifiedAudioPlugin):
                     await asyncio.sleep(1)
                     self.monitor_task = asyncio.create_task(self._monitor_events())
 
-                return format_response(success, "Redémarré" if success else "Échec")
+                return format_response(success, "Restarted" if success else "Failed")
 
-            return format_response(False, error=f"Commande inconnue: {command}")
+            return format_response(False, error=f"Unknown command: {command}")
 
         except Exception as e:
             return format_response(False, error=str(e))
 
     async def get_initial_state(self) -> Dict[str, Any]:
-        """État initial"""
+        """Initial state"""
         status = await self.get_status()
         return {**status, "plugin_state": self.current_state.value}

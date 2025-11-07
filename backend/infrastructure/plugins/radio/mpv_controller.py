@@ -1,5 +1,5 @@
 """
-Contrôleur mpv via IPC socket pour lecture de streams radio
+mpv controller via IPC socket pour lecture de streams radio
 """
 import asyncio
 import json
@@ -10,7 +10,7 @@ from pathlib import Path
 
 class MpvController:
     """
-    Contrôle mpv via IPC socket pour lecture de streams radio
+    Controls mpv via IPC socket pour lecture de streams radio
 
     Communication asynchrone via socket Unix avec mpv en mode JSON IPC.
     Pattern inspiré de libmpv et python-mpv.
@@ -26,7 +26,7 @@ class MpvController:
 
     async def connect(self, max_retries: int = 10, retry_delay: float = 0.5) -> bool:
         """
-        Connecte au socket IPC de mpv avec retry
+        Connects to IPC socket de mpv avec retry
 
         Args:
             max_retries: Nombre de tentatives de connexion
@@ -64,7 +64,7 @@ class MpvController:
         return False
 
     async def disconnect(self) -> None:
-        """Déconnecte du socket IPC"""
+        """Disconnects from IPC socket"""
         if self.writer:
             try:
                 self.writer.close()
@@ -79,12 +79,12 @@ class MpvController:
 
     @property
     def is_connected(self) -> bool:
-        """Vérifie si connecté au socket IPC"""
+        """Checks if connected au socket IPC"""
         return self._connected and self.writer is not None and not self.writer.is_closing()
 
     async def _send_command(self, command: str, *args) -> Optional[Dict[str, Any]]:
         """
-        Envoie une commande JSON IPC à mpv
+        Sends a command JSON IPC à mpv
 
         Format mpv IPC: {"command": ["command_name", "arg1", "arg2"], "request_id": 1}
 
@@ -149,7 +149,7 @@ class MpvController:
 
     async def load_stream(self, url: str) -> bool:
         """
-        Charge et joue un stream radio
+        Loads and plays a stream radio
 
         Args:
             url: URL du stream radio
@@ -178,7 +178,7 @@ class MpvController:
 
     async def stop(self) -> bool:
         """
-        Arrête la lecture en cours
+        Stoppinge la lecture en cours
 
         Returns:
             True si commande envoyée avec succès
@@ -189,7 +189,7 @@ class MpvController:
 
     async def get_property(self, property_name: str) -> Optional[Any]:
         """
-        Récupère une propriété de mpv
+        Gets a property de mpv
 
         Args:
             property_name: Nom de la propriété (ex: "pause", "volume", "metadata")
@@ -204,7 +204,7 @@ class MpvController:
 
     async def set_property(self, property_name: str, value: Any) -> bool:
         """
-        Définit une propriété de mpv
+        Sets a property de mpv
 
         Args:
             property_name: Nom de la propriété
@@ -218,7 +218,7 @@ class MpvController:
 
     async def is_playing(self) -> bool:
         """
-        Vérifie si mpv est en cours de lecture via playback-time
+        Checks if mpv is playing via playback-time
 
         Returns:
             True si en lecture (playback-time existe)
@@ -232,7 +232,7 @@ class MpvController:
 
     async def get_status(self) -> Dict[str, Any]:
         """
-        Récupère l'état actuel de mpv
+        Gets current state de mpv
 
         Returns:
             Dict avec l'état de connexion et de lecture

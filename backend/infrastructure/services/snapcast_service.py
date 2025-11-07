@@ -1,6 +1,6 @@
 # backend/infrastructure/services/snapcast_service.py
 """
-Service Snapcast SIMPLIFIÉ - Uniquement commandes REST (WebSocket service gère les notifications)
+Simplified Snapcast service - REST commands only (WebSocket service handles notifications)
 """
 import aiohttp
 import asyncio
@@ -11,16 +11,16 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 class SnapcastService:
-    """Service Snapcast simplifié - Commandes REST uniquement"""
-    
+    """Simplified Snapcast service - REST commands only"""
+
     def __init__(self, host: str = "localhost", port: int = 1780):
         self.base_url = f"http://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
         self._request_id = 0
         self.snapserver_conf = Path("/etc/snapserver.conf")
-    
+
     async def _request(self, method: str, params: dict = None) -> dict:
-        """Requête JSON-RPC simplifiée vers Snapcast"""
+        """Simplified JSON-RPC request to Snapcast"""
         self._request_id += 1
         request = {"id": self._request_id, "jsonrpc": "2.0", "method": method}
         if params:
@@ -39,17 +39,17 @@ class SnapcastService:
             return {}
     
     async def set_all_groups_to_multiroom(self) -> bool:
-        """Bascule tous les groupes sur le stream Multiroom"""
+        """Switch all groups to Multiroom stream"""
         try:
-            # Récupérer le statut du serveur
+            # Get server status
             status = await self._request("Server.GetStatus")
             if not status:
                 return False
-                
-            # Extraire les groupes
+
+            # Extract groups
             groups = status.get("server", {}).get("groups", [])
-            
-            # Basculer chaque groupe sur "Multiroom"
+
+            # Switch each group to "Multiroom"
             for group in groups:
                 group_id = group.get("id")
                 if group_id:
@@ -57,24 +57,24 @@ class SnapcastService:
                         "id": group_id,
                         "stream_id": "Multiroom"
                     })
-            
+
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error setting groups to multiroom: {e}")
             return False
-    
+
     async def set_client_group_to_multiroom(self, client_id: str) -> bool:
-        """Bascule le groupe d'un client sur le stream Multiroom"""
+        """Switch a client's group to Multiroom stream"""
         try:
-            # Récupérer le statut pour trouver le groupe du client
+            # Get status to find client's group
             status = await self._request("Server.GetStatus")
             if not status:
                 return False
-            
+
             groups = status.get("server", {}).get("groups", [])
-            
-            # Trouver le groupe du client
+
+            # Find client's group
             client_group_id = None
             for group in groups:
                 for client in group.get("clients", []):
@@ -83,17 +83,17 @@ class SnapcastService:
                         break
                 if client_group_id:
                     break
-            
+
             if not client_group_id:
                 self.logger.warning(f"Client {client_id} not found in any group")
                 return False
-            
-            # Basculer le groupe sur Multiroom
+
+            # Switch group to Multiroom
             result = await self._request("Group.SetStream", {
                 "id": client_group_id,
                 "stream_id": "Multiroom"
             })
-            
+
             self.logger.info(f"Client {client_id} group switched to Multiroom: {bool(result)}")
             return bool(result)
             
@@ -101,81 +101,81 @@ class SnapcastService:
             self.logger.error(f"Error setting client group to multiroom: {e}")
             return False
     
-    # === COMMANDES CLIENT (REST uniquement) ===
-    
+    # === CLIENT COMMANDS (REST only) ===
+
     async def set_volume(self, client_id: str, volume: int) -> bool:
-        """Change le volume d'un client"""
+        """Change a client's volume"""
         try:
-            # Récupérer l'état mute actuel
+            # Get current mute state
             clients = await self.get_clients()
             current_muted = False
             for client in clients:
                 if client["id"] == client_id:
                     current_muted = client["muted"]
                     break
-            
+
             result = await self._request("Client.SetVolume", {
                 "id": client_id,
                 "volume": {"percent": max(0, min(100, volume)), "muted": current_muted}
             })
             return bool(result)
-            
+
         except Exception as e:
             self.logger.error(f"Error setting volume: {e}")
             return False
-    
+
     async def set_mute(self, client_id: str, muted: bool) -> bool:
-        """Mute/unmute un client"""
+        """Mute/unmute a client"""
         try:
-            # Récupérer le volume actuel
+            # Get current volume
             clients = await self.get_clients()
-            current_volume = 50  # Valeur par défaut
-            
+            current_volume = 50  # Default value
+
             for client in clients:
                 if client["id"] == client_id:
                     current_volume = client["volume"]
                     break
-            
+
             result = await self._request("Client.SetVolume", {
                 "id": client_id,
                 "volume": {"percent": current_volume, "muted": muted}
             })
             return bool(result)
-            
+
         except Exception as e:
             self.logger.error(f"Error setting mute: {e}")
             return False
-    
+
     async def set_client_latency(self, client_id: str, latency: int) -> bool:
-        """Configure la latence d'un client"""
+        """Set a client's latency"""
         try:
             result = await self._request("Client.SetLatency", {
                 "id": client_id,
                 "latency": max(0, min(1000, latency))
             })
             return bool(result)
-            
+
         except Exception as e:
             self.logger.error(f"Error setting client latency: {e}")
             return False
-    
+
     async def set_client_name(self, client_id: str, name: str) -> bool:
-        """Configure le nom d'un client"""
+        """Set a client's name"""
         try:
             result = await self._request("Client.SetName", {
                 "id": client_id,
                 "name": name.strip()
             })
             return bool(result)
-            
+
         except Exception as e:
             self.logger.error(f"Error setting client name: {e}")
             return False
-    
-    # === REQUÊTES D'ÉTAT (pour les API REST) ===
-    
+
+    # === STATE QUERIES (for REST APIs) ===
+
     async def get_clients(self) -> List[Dict[str, Any]]:
-        """Récupère les clients (utilisé par les API REST)"""
+        """Get clients (used by REST APIs)"""
         try:
             status = await self._request("Server.GetStatus")
             return self._extract_clients(status)
@@ -184,7 +184,7 @@ class SnapcastService:
             return []
     
     def _extract_clients(self, status: dict) -> List[Dict[str, Any]]:
-        """Extrait et filtre les clients du statut serveur"""
+        """Extract and filter clients from server status"""
         clients = []
         exclude_names = {'snapweb client', 'snapweb'}
         
@@ -209,7 +209,7 @@ class SnapcastService:
         return clients
     
     async def get_detailed_clients(self) -> List[Dict[str, Any]]:
-        """Récupère les clients avec informations détaillées"""
+        """Get clients with detailed information"""
         try:
             status = await self._request("Server.GetStatus")
             clients = []
@@ -252,17 +252,17 @@ class SnapcastService:
             return []
     
     def _calculate_connection_quality(self, last_seen: Dict[str, Any]) -> str:
-        """Calcule la qualité de connexion basée sur lastSeen"""
+        """Calculate connection quality based on lastSeen"""
         if not last_seen:
             return "unknown"
         
         sec = last_seen.get("sec", 0)
         return "good" if sec > 0 else "poor"
     
-    # === VÉRIFICATION DE DISPONIBILITÉ ===
-    
+    # === AVAILABILITY CHECK ===
+
     async def is_available(self) -> bool:
-        """Vérifie si Snapcast est disponible"""
+        """Check if Snapcast is available"""
         try:
             result = await self._request("Server.GetRPCVersion")
             return bool(result)
@@ -270,21 +270,21 @@ class SnapcastService:
             return False
 
     async def get_server_status(self) -> dict:
-        """Récupère le statut complet du serveur Snapcast"""
+        """Get complete Snapcast server status"""
         return await self._request("Server.GetStatus")
 
-    # === CONFIGURATION SERVEUR ===
-    
+    # === SERVER CONFIGURATION ===
+
     async def get_server_config(self) -> Dict[str, Any]:
-        """Récupère la configuration serveur"""
+        """Get server configuration"""
         try:
-            # Récupérer les infos API et lecture fichier en parallèle
+            # Get API info and read file in parallel
             api_task = self._request("Server.GetStatus")
             file_task = self._read_snapserver_conf()
-            
+
             status, file_config = await asyncio.gather(api_task, file_task)
-            
-            # Traiter les données API
+
+            # Process API data
             server_info = status.get("server", {})
             streams = status.get("streams", [])
             
@@ -313,7 +313,7 @@ class SnapcastService:
             return {}
     
     async def _read_snapserver_conf(self) -> Dict[str, Any]:
-        """Parser pour snapserver.conf"""
+        """Parser for snapserver.conf"""
         try:
             if not self.snapserver_conf.exists():
                 return {}
@@ -351,26 +351,26 @@ class SnapcastService:
             return {}
     
     async def update_server_config(self, config: Dict[str, Any]) -> bool:
-        """Met à jour la configuration serveur"""
+        """Update server configuration"""
         try:
             if not self._validate_config(config):
                 return False
-            
-            # Forcer sampleformat
+
+            # Force sampleformat
             config["sampleformat"] = "48000:16:2"
-            
+
             success = await self._update_config_file(config)
             if not success:
                 return False
-            
+
             return await self._restart_snapserver()
-            
+
         except Exception as e:
             self.logger.error(f"Error updating server config: {e}")
             return False
-    
+
     def _validate_config(self, config: Dict[str, Any]) -> bool:
-        """Validation des paramètres"""
+        """Validate parameters"""
         validators = {
             "buffer": lambda x: isinstance(x, int) and 100 <= x <= 2000,
             "codec": lambda x: x in ["flac", "pcm", "opus", "ogg"],
@@ -385,52 +385,52 @@ class SnapcastService:
         return True
     
     async def _update_config_file(self, config: Dict[str, Any]) -> bool:
-        """Met à jour le fichier de configuration"""
+        """Update configuration file"""
         try:
             if not self.snapserver_conf.exists():
                 self.logger.error("snapserver.conf not found")
                 return False
-            
+
             async with aiofiles.open(self.snapserver_conf, 'r') as f:
                 content = await f.read()
-            
+
             updated_content = self._modify_config_content(content, config)
-            
-            # Écriture atomique
+
+            # Atomic write
             temp_file = "/tmp/snapserver_temp.conf"
             async with aiofiles.open(temp_file, 'w') as f:
                 await f.write(updated_content)
-            
-            # Remplacement avec sudo
+
+            # Replace with sudo
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "mv", temp_file, str(self.snapserver_conf),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            
+
             _, stderr = await proc.communicate()
-            
+
             if proc.returncode == 0:
                 self.logger.info("snapserver.conf updated successfully")
                 return True
             else:
                 self.logger.error(f"Failed to update config: {stderr.decode()}")
                 return False
-            
+
         except Exception as e:
             self.logger.error(f"Error updating config file: {e}")
             return False
-    
+
     def _modify_config_content(self, content: str, config: Dict[str, Any]) -> str:
-        """Modification du contenu fichier"""
+        """Modify file content"""
         lines = content.split('\n')
         updated_lines = []
         in_stream_section = False
-        
-        # Mappage des paramètres à modifier
+
+        # Mapping of parameters to modify
         param_mapping = {
             "buffer": "buffer",
-            "codec": "codec", 
+            "codec": "codec",
             "chunk_ms": "chunk_ms",
             "sampleformat": "sampleformat"
         }
@@ -464,33 +464,33 @@ class SnapcastService:
         return '\n'.join(updated_lines)
     
     async def _restart_snapserver(self) -> bool:
-        """Redémarre le serveur Snapcast"""
+        """Restart Snapcast server"""
         try:
             self.logger.info("Restarting snapserver...")
-            
+
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "restart", "milo-snapserver-multiroom.service",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
-            
+
             _, stderr = await proc.communicate()
-            
+
             if proc.returncode != 0:
                 self.logger.error(f"Failed to restart snapserver: {stderr.decode()}")
                 return False
-            
-            # Vérifier la disponibilité
+
+            # Check availability
             await asyncio.sleep(3)
             for _ in range(10):
                 if await self.is_available():
                     self.logger.info("Snapserver restarted successfully")
                     return True
                 await asyncio.sleep(1)
-            
+
             self.logger.warning("Snapserver restarted but API not available yet")
             return False
-            
+
         except Exception as e:
             self.logger.error(f"Error restarting snapserver: {e}")
             return False

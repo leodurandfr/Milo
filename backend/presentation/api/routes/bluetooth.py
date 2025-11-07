@@ -1,44 +1,41 @@
 """
-Routes API spécifiques pour le plugin Bluetooth.
+API routes for Bluetooth plugin
 """
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 from backend.domain.audio_state import PluginState
 
-# Créer un router dédié pour bluetooth avec le préfixe corrigé
 router = APIRouter(
     prefix="/api/bluetooth",
     tags=["bluetooth"],
     responses={404: {"description": "Not found"}},
 )
 
-# Référence au plugin bluetooth (sera injectée via l'injection de dépendances)
 bluetooth_plugin_dependency = None
 
 def setup_bluetooth_routes(plugin_provider):
     """
-    Configure les routes bluetooth avec une référence au plugin.
-    
+    Configures bluetooth routes with plugin reference
+
     Args:
-        plugin_provider: Fonction qui retourne une instance du plugin bluetooth
+        plugin_provider: Function that returns bluetooth plugin instance
     """
     global bluetooth_plugin_dependency
     bluetooth_plugin_dependency = plugin_provider
     return router
 
 def get_bluetooth_plugin():
-    """Dépendance pour obtenir le plugin bluetooth"""
+    """Dependency to get bluetooth plugin"""
     if bluetooth_plugin_dependency is None:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="Bluetooth plugin not initialized. Call setup_bluetooth_routes first."
         )
     return bluetooth_plugin_dependency()
 
-# Endpoint pour récupérer le statut du plugin
 @router.get("/status")
 async def get_bluetooth_status(plugin = Depends(get_bluetooth_plugin)):
-    """Récupère le statut actuel du Bluetooth"""
+    """Gets current Bluetooth status"""
     try:
         status = await plugin.get_status()
         return {
@@ -57,42 +54,40 @@ async def get_bluetooth_status(plugin = Depends(get_bluetooth_plugin)):
             "plugin_state": plugin.current_state.value if plugin else "unknown"
         }
 
-# Endpoint pour déconnecter un périphérique
 @router.post("/disconnect")
 async def disconnect_bluetooth_device(plugin = Depends(get_bluetooth_plugin)):
-    """Déconnecte le périphérique Bluetooth actuel"""
+    """Disconnects current Bluetooth device"""
     try:
         result = await plugin.handle_command("disconnect", {})
         if result.get("success"):
             return {
                 "status": "success",
-                "message": result.get("message", "Périphérique déconnecté avec succès")
+                "message": result.get("message", "Device disconnected successfully")
             }
         else:
             return {
                 "status": "error",
-                "message": result.get("error", "Échec de la déconnexion")
+                "message": result.get("error", "Disconnection failed")
             }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur: {str(e)}"
+            "message": f"Error: {str(e)}"
         }
 
-# Endpoint pour redémarrer la lecture audio
 @router.post("/restart-audio")
 async def restart_bluetooth_audio(plugin = Depends(get_bluetooth_plugin)):
-    """Redémarre uniquement la lecture audio pour le périphérique Bluetooth connecté"""
+    """Restarts audio playback for connected Bluetooth device"""
     try:
         result = await plugin.handle_command("restart_audio", {})
-        
+
         return {
             "status": "success" if result.get("success") else "error",
-            "message": result.get("message", "Lecture audio redémarrée"),
+            "message": result.get("message", "Audio playback restarted"),
             "details": result
         }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur de redémarrage audio: {str(e)}"
+            "message": f"Audio restart error: {str(e)}"
         }

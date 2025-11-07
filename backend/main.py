@@ -1,6 +1,6 @@
 # backend/main.py
 """
-Point d'entrée principal de l'application Milo
+Main entry point for the Milo application.
 """
 import sys
 import os
@@ -31,14 +31,10 @@ from backend.presentation.api.routes.health import create_health_router
 from backend.presentation.websockets.server import WebSocketServer
 from backend.domain.audio_state import AudioSource
 
-# Configuration du logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration du rate limiter
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
-
-# Configuration des dépendances
 state_machine = container.audio_state_machine()
 routing_service = container.audio_routing_service()
 snapcast_service = container.snapcast_service()
@@ -56,16 +52,14 @@ state_machine.snapcast_service = snapcast_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Gestion du cycle de vie avec SettingsService"""
+    """Application lifecycle management with async service initialization."""
     try:
-        # Initialiser et attendre les services
         container.initialize_services()
 
         logger.info("Waiting for services initialization to complete...")
         await container._init_task
         logger.info("Services initialization completed")
 
-        # Initialiser tous les plugins
         for source, plugin in state_machine.plugins.items():
             if plugin:
                 try:
@@ -81,8 +75,7 @@ async def lifespan(app: FastAPI):
         raise
     
     yield
-    
-    # Cleanup
+
     logger.info("Milo backend shutting down...")
     try:
         await snapcast_websocket_service.cleanup()
@@ -93,28 +86,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
 
-# Création de l'application FastAPI
 app = FastAPI(title="Milo API", lifespan=lifespan)
 
-# Configuration du rate limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Configuration CORS - Restreint aux origines autorisées
+# CORS configuration - restricted to authorized origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://milo.local",
         "https://milo.local",
-        "http://localhost:5173",  # Dev frontend
-        "http://127.0.0.1:5173",  # Dev frontend
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Accept", "Authorization"],
 )
 
-# Routes existantes
 audio_router = audio.create_router(state_machine)
 app.include_router(audio_router)
 
@@ -164,11 +154,9 @@ programs_router = create_programs_router(
 )
 app.include_router(programs_router)
 
-# Health check
 health_router = create_health_router(state_machine, routing_service, snapcast_service)
 app.include_router(health_router)
 
-# WebSocket
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
 
 if __name__ == "__main__":
@@ -178,6 +166,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=False,
-        access_log=False,     # ⬅️ coupe les "GET / ..." répétitifs
-        # log_level="warning",  # ⬅️ (optionnel) réduit le bruit de uvicorn.error
+        access_log=False,  # Disable repetitive request logs
+        # log_level="warning",  # Optional: reduce uvicorn noise
     )

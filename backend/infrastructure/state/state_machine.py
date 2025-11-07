@@ -1,6 +1,6 @@
 # backend/infrastructure/state/state_machine.py
 """
-Machine à états unifiée avec buffering des updates pendant transitions
+Unified state machine with update buffering during transitions.
 """
 import asyncio
 import time
@@ -12,17 +12,17 @@ from backend.application.interfaces.audio_source import AudioSourcePlugin
 
 class UnifiedAudioStateMachine:
     """
-    Gère l'état complet du système audio
+    Manages complete audio system state.
 
-    NOUVEAU: Les updates qui arrivent pendant une transition ne sont plus ignorés,
-    mais stockés dans une queue et rejoués après la transition.
+    Updates arriving during a transition are no longer ignored,
+    but stored in a queue and replayed after the transition.
     """
 
     TRANSITION_TIMEOUT = 5.0
-    MAX_BUFFERED_UPDATES = 50  # Protection contre débordement mémoire
+    MAX_BUFFERED_UPDATES = 50  # Memory overflow protection
 
     def __init__(self, routing_service=None, websocket_handler=None):
-        self.routing_service = routing_service  # Sera résolu plus tard
+        self.routing_service = routing_service  # Resolved later via DI
         self.websocket_handler = websocket_handler
         self.system_state = SystemAudioState()
         self.plugins: Dict[AudioSource, Optional[AudioSourcePlugin]] = {
@@ -31,28 +31,27 @@ class UnifiedAudioStateMachine:
         }
         self.logger = logging.getLogger(__name__)
         self._transition_lock = asyncio.Lock()
-        self._state_lock = asyncio.Lock()  # Lock pour protéger system_state
-        self._buffer_lock = asyncio.Lock()  # Lock pour protéger _buffered_updates
+        self._state_lock = asyncio.Lock()  # Protects system_state
+        self._buffer_lock = asyncio.Lock()  # Protects _buffered_updates
 
-        # NOUVEAU: Queue FIFO pour buffer les updates pendant les transitions
+        # FIFO queue to buffer updates during transitions
         self._buffered_updates: deque[Tuple[AudioSource, PluginState, Optional[Dict[str, Any]]]] = deque(maxlen=self.MAX_BUFFERED_UPDATES)
 
-        # Cache pour to_dict()
+        # Cache for to_dict()
         self._state_cache: Optional[Dict[str, Any]] = None
 
     
     def _sync_routing_state(self) -> None:
         """
-        Synchronise l'état de routage initial
+        Sync initial routing state.
 
-        NOTE: Cette méthode n'est plus nécessaire car routing_service utilise
-        directement system_state. Conservée pour compatibilité mais ne fait rien.
+        NOTE: This method is no longer necessary as routing_service uses
+        system_state directly. Kept for compatibility but does nothing.
         """
-        # Plus besoin de synchroniser : routing_service lit/écrit directement dans system_state
         pass
-    
+
     def register_plugin(self, source: AudioSource, plugin: AudioSourcePlugin) -> None:
-        """Enregistre un plugin pour une source spécifique"""
+        """Register a plugin for a specific source."""
         if source in self.plugins:
             self.plugins[source] = plugin
             self.logger.info(f"Plugin registered for source: {source.value}")
@@ -60,29 +59,29 @@ class UnifiedAudioStateMachine:
             self.logger.error(f"Cannot register plugin for invalid source: {source.value}")
     
     def get_plugin(self, source: AudioSource) -> Optional[AudioSourcePlugin]:
-        """Récupère un plugin pour le routing service"""
+        """Get plugin for the routing service."""
         return self.plugins.get(source)
-    
+
     def get_plugin_metadata(self, source: AudioSource) -> Dict[str, Any]:
-        """Récupère les métadonnées d'un plugin spécifique"""
+        """Get metadata for a specific plugin."""
         if source == self.system_state.active_source:
             return self.system_state.metadata
         return {}
-    
+
     def get_plugin_state(self, source: AudioSource) -> PluginState:
-        """Récupère l'état d'un plugin spécifique"""
+        """Get state of a specific plugin."""
         if source == self.system_state.active_source:
             return self.system_state.plugin_state
         return PluginState.INACTIVE
-    
+
     async def get_current_state(self) -> Dict[str, Any]:
-        """Renvoie l'état actuel du système avec synchronisation automatique"""
+        """Return current system state with automatic synchronization."""
         if self.routing_service:
             self._sync_routing_state()
         return self.system_state.to_dict()
-    
+
     async def transition_to_source(self, target_source: AudioSource) -> bool:
-        """Effectue une transition vers une nouvelle source avec timeout"""
+        """Perform transition to new source with timeout."""
         async with self._transition_lock:
             self.logger.debug(
                 "START TRANSITION: %s -> %s",
@@ -90,7 +89,7 @@ class UnifiedAudioStateMachine:
                 target_source.value
             )
             self.logger.debug(
-                "STATE AVANT: active=%s, plugin_state=%s, transitioning=%s",
+                "STATE BEFORE: active=%s, plugin_state=%s, transitioning=%s",
                 self.system_state.active_source.value,
                 self.system_state.plugin_state.value,
                 self.system_state.transitioning
@@ -106,14 +105,13 @@ class UnifiedAudioStateMachine:
                 return False
 
             try:
-                # Appliquer le timeout sur toute la transition
                 async with asyncio.timeout(self.TRANSITION_TIMEOUT):
                     self.logger.debug("Setting transition state")
                     async with self._state_lock:
                         from_source = self.system_state.active_source.value
                         self.system_state.transitioning = True
                         self.system_state.target_source = target_source
-                        self._state_cache = None  # Invalider le cache
+                        self._state_cache = None
 
                     self.logger.debug("Broadcasting transition start")
                     await self._broadcast_event("system", "transition_start", {
@@ -142,11 +140,10 @@ class UnifiedAudioStateMachine:
                     async with self._state_lock:
                         self.system_state.transitioning = False
                         self.system_state.target_source = None
-                        self._state_cache = None  # Invalider le cache
+                        self._state_cache = None
                         final_source = self.system_state.active_source.value
                         final_state = self.system_state.plugin_state.value
 
-                    # NOUVEAU: Rejouer les updates bufferisés
                     await self._replay_buffered_updates()
 
                     self.logger.debug("Broadcasting transition complete")
@@ -165,9 +162,8 @@ class UnifiedAudioStateMachine:
                     self.system_state.transitioning = False
                     self.system_state.target_source = None
                     self.system_state.error = "Transition timeout"
-                    self._state_cache = None  # Invalider le cache
+                    self._state_cache = None
 
-                # Vider la queue des updates bufferisés (obsolètes après un échec)
                 await self._clear_buffered_updates()
 
                 await self._emergency_stop()
@@ -185,9 +181,8 @@ class UnifiedAudioStateMachine:
                     self.system_state.transitioning = False
                     self.system_state.target_source = None
                     self.system_state.error = str(e)
-                    self._state_cache = None  # Invalider le cache
+                    self._state_cache = None
 
-                # Vider la queue des updates bufferisés (obsolètes après un échec)
                 await self._clear_buffered_updates()
 
                 await self._emergency_stop()
@@ -201,12 +196,11 @@ class UnifiedAudioStateMachine:
     async def update_plugin_state(self, source: AudioSource, new_state: PluginState,
                                metadata: Optional[Dict[str, Any]] = None) -> None:
         """
-        Met à jour l'état d'un plugin avec protection thread-safe et buffering pendant transitions
+        Update plugin state with thread-safe protection and buffering during transitions.
 
-        NOUVEAU: Les updates qui arrivent pendant une transition sont maintenant bufferisés
-        et rejoués après la transition au lieu d'être ignorés.
+        Updates arriving during a transition are buffered and replayed after completion
+        instead of being ignored.
         """
-        # CRITIQUE: Lecture thread-safe de active_source et transitioning
         async with self._state_lock:
             current_active_source = self.system_state.active_source
             is_transitioning = self.system_state.transitioning
@@ -215,7 +209,6 @@ class UnifiedAudioStateMachine:
             self.logger.warning("Ignoring state update from inactive source: %s", source.value)
             return
 
-        # NOUVEAU: Buffer les updates pendant les transitions au lieu de les ignorer
         if is_transitioning:
             async with self._buffer_lock:
                 queue_size = len(self._buffered_updates)
@@ -227,7 +220,6 @@ class UnifiedAudioStateMachine:
                 )
                 self._buffered_updates.append((source, new_state, metadata))
 
-                # Log warning si la queue est presque pleine (60% au lieu de 80%)
                 if len(self._buffered_updates) > self.MAX_BUFFERED_UPDATES * 0.6:
                     self.logger.warning(
                         "⚠️ Buffered updates queue is %d%% full",
@@ -235,12 +227,11 @@ class UnifiedAudioStateMachine:
                     )
             return
 
-        # Appliquer l'update normalement
         await self._apply_plugin_state_update(source, new_state, metadata)
 
     async def _apply_plugin_state_update(self, source: AudioSource, new_state: PluginState,
                                          metadata: Optional[Dict[str, Any]] = None) -> None:
-        """Applique une mise à jour d'état de plugin (méthode interne)"""
+        """Apply plugin state update (internal method)."""
         async with self._state_lock:
             old_state = self.system_state.plugin_state
             self.system_state.plugin_state = new_state
@@ -253,7 +244,6 @@ class UnifiedAudioStateMachine:
             else:
                 self.system_state.error = None
 
-            # Invalider le cache
             self._state_cache = None
 
         await self._broadcast_event("plugin", "state_changed", {
@@ -264,11 +254,11 @@ class UnifiedAudioStateMachine:
         })
     
     async def update_multiroom_state(self, enabled: bool) -> None:
-        """Met à jour l'état multiroom dans l'état système avec protection thread-safe"""
+        """Update multiroom state with thread-safe protection."""
         async with self._state_lock:
             old_state = self.system_state.multiroom_enabled
             self.system_state.multiroom_enabled = enabled
-            self._state_cache = None  # Invalider le cache
+            self._state_cache = None
 
         await self._broadcast_event("system", "state_changed", {
             "old_state": old_state,
@@ -279,11 +269,11 @@ class UnifiedAudioStateMachine:
         })
     
     async def update_equalizer_state(self, enabled: bool) -> None:
-        """Met à jour l'état de l'equalizer dans l'état système avec protection thread-safe"""
+        """Update equalizer state with thread-safe protection."""
         async with self._state_lock:
             old_state = self.system_state.equalizer_enabled
             self.system_state.equalizer_enabled = enabled
-            self._state_cache = None  # Invalider le cache
+            self._state_cache = None
 
         await self._broadcast_event("system", "state_changed", {
             "old_state": old_state,
@@ -293,7 +283,7 @@ class UnifiedAudioStateMachine:
         })
     
     async def _stop_current_source(self) -> None:
-        """Arrête la source actuellement active avec protection thread-safe"""
+        """Stop currently active source with thread-safe protection."""
         if self.system_state.active_source != AudioSource.NONE:
             current_plugin = self.plugins.get(self.system_state.active_source)
             if current_plugin:
@@ -302,12 +292,12 @@ class UnifiedAudioStateMachine:
                     async with self._state_lock:
                         self.system_state.plugin_state = PluginState.INACTIVE
                         self.system_state.metadata = {}
-                        self._state_cache = None  # Invalider le cache
+                        self._state_cache = None
                 except Exception as e:
                     self.logger.error(f"Error stopping {self.system_state.active_source.value}: {e}")
     
     async def _start_new_source(self, source: AudioSource) -> bool:
-        """Démarre une nouvelle source avec protection thread-safe"""
+        """Start new source with thread-safe protection."""
         plugin = self.plugins.get(source)
         if not plugin:
             return False
@@ -325,11 +315,9 @@ class UnifiedAudioStateMachine:
                 async with self._state_lock:
                     self.system_state.active_source = source
 
-                    # Force l'état à READY si le plugin n'a pas notifié
                     if self.system_state.plugin_state == PluginState.INACTIVE:
                         self.system_state.plugin_state = PluginState.READY
 
-                    # Invalider le cache
                     self._state_cache = None
 
                 self.logger.info("Active source changed to: %s", source.value)
@@ -342,7 +330,7 @@ class UnifiedAudioStateMachine:
             return False
     
     async def _emergency_stop(self) -> None:
-        """Arrêt d'urgence - arrête tous les processus avec protection thread-safe"""
+        """Emergency stop - halt all processes with thread-safe protection."""
         for plugin in self.plugins.values():
             if plugin:
                 try:
@@ -355,14 +343,14 @@ class UnifiedAudioStateMachine:
             self.system_state.plugin_state = PluginState.INACTIVE
             self.system_state.metadata = {}
             self.system_state.error = None
-            self._state_cache = None  # Invalider le cache
+            self._state_cache = None
 
     async def _replay_buffered_updates(self) -> None:
         """
-        Rejoue les updates bufferisés après une transition
+        Replay buffered updates after a transition.
 
-        NOUVEAU: Cette méthode est appelée après chaque transition réussie pour
-        appliquer les updates qui sont arrivés pendant la transition.
+        Called after each successful transition to apply updates that arrived
+        during the transition.
         """
         async with self._buffer_lock:
             if not self._buffered_updates:
@@ -371,11 +359,9 @@ class UnifiedAudioStateMachine:
             buffered_count = len(self._buffered_updates)
             self.logger.info("📤 Replaying %d buffered update(s) after transition", buffered_count)
 
-            # Traiter tous les updates bufferisés dans l'ordre FIFO
             while self._buffered_updates:
                 source, new_state, metadata = self._buffered_updates.popleft()
 
-                # Vérifier que la source est toujours active
                 async with self._state_lock:
                     current_active_source = self.system_state.active_source
 
@@ -403,7 +389,7 @@ class UnifiedAudioStateMachine:
         self.logger.info("✅ Finished replaying buffered updates")
 
     async def _clear_buffered_updates(self) -> None:
-        """Vide la queue des updates bufferisés"""
+        """Clear buffered updates queue."""
         async with self._buffer_lock:
             if self._buffered_updates:
                 discarded_count = len(self._buffered_updates)
@@ -414,15 +400,14 @@ class UnifiedAudioStateMachine:
                 )
     
     async def broadcast_event(self, category: str, event_type: str, data: Dict[str, Any]) -> None:
-        """Publie un événement directement au WebSocket - Méthode publique pour les routes"""
+        """Publish event directly to WebSocket - Public method for routes."""
         await self._broadcast_event(category, event_type, data)
-    
+
     async def _broadcast_event(self, category: str, event_type: str, data: Dict[str, Any]) -> None:
-        """Publie un événement directement au WebSocket avec cache optimisé"""
+        """Publish event directly to WebSocket with optimized cache."""
         if not self.websocket_handler:
             return
 
-        # Utiliser le cache si disponible, sinon recalculer
         async with self._state_lock:
             if self._state_cache is None:
                 self._state_cache = self.system_state.to_dict()

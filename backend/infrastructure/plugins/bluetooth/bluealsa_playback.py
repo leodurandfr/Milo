@@ -1,18 +1,18 @@
 """
-Gestionnaire de lecture audio via systemd - Version Milo
+Manager de lecture audio via systemd - Version Milo
 """
 import asyncio
 import logging
 
 class BlueAlsaPlayback:
-    """Gère la lecture audio avec milo-bluealsa-aplay.service"""
+    """Manages la lecture audio avec milo-bluealsa-aplay.service"""
     
     def __init__(self):
         self.logger = logging.getLogger("plugin.bluetooth.playback")
         self.service_name = "milo-bluealsa-aplay.service"
     
     async def start_playback(self, address: str) -> bool:
-        """Démarre la lecture audio via le service systemd"""
+        """Starts audio playback via le service systemd"""
         try:
             # Le service est configuré pour auto-détecter les appareils
             # On vérifie juste qu'il est actif
@@ -24,7 +24,7 @@ class BlueAlsaPlayback:
             stdout, _ = await proc.communicate()
             
             if stdout.decode().strip() != "active":
-                # Démarrer le service s'il n'est pas actif
+                # Start le service s'il n'est pas actif
                 proc = await asyncio.create_subprocess_exec(
                     "sudo", "systemctl", "start", self.service_name,
                     stdout=asyncio.subprocess.DEVNULL,
@@ -35,17 +35,17 @@ class BlueAlsaPlayback:
             
             return True
         except Exception as e:
-            self.logger.error(f"Erreur démarrage lecture: {e}")
+            self.logger.error(f"Error démarrage lecture: {e}")
             return False
     
     async def stop_playback(self, address: str) -> bool:
-        """Arrête la lecture audio - optionnel car le service gère automatiquement"""
+        """Stoppinge la lecture audio - optionnel car le service gère automatiquement"""
         # On pourrait arrêter le service, mais il est configuré pour
         # gérer automatiquement les connexions/déconnexions
         return True
     
     async def stop_all_playback(self) -> None:
-        """Arrête le service de lecture"""
+        """Stoppinge le service de lecture"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "stop", self.service_name,
@@ -54,10 +54,10 @@ class BlueAlsaPlayback:
             )
             await proc.wait()
         except Exception as e:
-            self.logger.error(f"Erreur arrêt service: {e}")
+            self.logger.error(f"Error arrêt service: {e}")
     
     def is_playing(self, address: str) -> bool:
-        """Vérifie si le service est actif"""
+        """Checks if service is active"""
         try:
             import subprocess
             result = subprocess.run(

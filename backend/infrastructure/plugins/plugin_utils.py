@@ -1,5 +1,5 @@
 """
-Fonctions utilitaires minimalistes pour les plugins audio.
+Minimalist utility functions for audio plugins.
 """
 import logging
 import asyncio
@@ -8,7 +8,7 @@ from typing import Dict, Any, Callable, Awaitable, Tuple, Optional, TypeVar
 T = TypeVar('T')
 
 def format_response(success: bool, message: str = None, error: str = None, **kwargs) -> Dict[str, Any]:
-    """Formate une réponse standardisée."""
+    """Formats a standardized response."""
     response = {"success": success}
     
     if success and message:
@@ -18,62 +18,57 @@ def format_response(success: bool, message: str = None, error: str = None, **kwa
     
     return {**response, **kwargs}
 
-async def safely_execute(logger: logging.Logger, 
-                         func: Callable[..., Awaitable[T]], 
+async def safely_execute(logger: logging.Logger,
+                         func: Callable[..., Awaitable[T]],
                          *args, **kwargs) -> Tuple[bool, Optional[T], Optional[str]]:
-    """Exécute une fonction de manière sécurisée."""
+    """Executes a function safely."""
     try:
         result = await func(*args, **kwargs)
         return True, result, None
     except Exception as e:
-        logger.error(f"Erreur: {e}")
+        logger.error(f"Error: {e}")
         return False, None, str(e)
 
 class WebSocketManager:
-    """Gestionnaire simplifié pour les connexions WebSocket."""
-    
+    """Simplified manager for WebSocket connections."""
+
     def __init__(self, logger: logging.Logger):
         self.logger = logger
         self.connected = False
         self.task = None
         self._stopping = False
-    
+
     async def start(self, connect_func: Callable[[], Awaitable[bool]],
                    process_func: Callable[[], Awaitable[None]]) -> None:
         """
-        Démarre la connexion WebSocket.
-        
+        Starts the WebSocket connection.
+
         Args:
-            connect_func: Fonction qui établit la connexion initiale
-            process_func: Fonction qui traite les messages
+            connect_func: Function that establishes the initial connection
+            process_func: Function that processes messages
         """
-        # Annuler toute tâche en cours
         await self.stop()
-        
+
         self._stopping = False
-        
-        # Créer une nouvelle tâche
+
         async def connection_loop():
             try:
-                # Tenter la connexion
                 if await connect_func():
                     self.connected = True
-                    
-                    # Traiter les messages
                     await process_func()
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                self.logger.error(f"Erreur WebSocket: {e}")
+                self.logger.error(f"WebSocket error: {e}")
             finally:
                 self.connected = False
-        
+
         self.task = asyncio.create_task(connection_loop())
-    
+
     async def stop(self) -> None:
-        """Arrête la connexion WebSocket."""
+        """Stops the WebSocket connection."""
         self._stopping = True
-        
+
         if self.task and not self.task.done():
             self.task.cancel()
             try:
@@ -81,8 +76,8 @@ class WebSocketManager:
             except asyncio.CancelledError:
                 pass
             except Exception as e:
-                self.logger.error(f"Erreur arrêt WebSocket: {e}")
+                self.logger.error(f"WebSocket stop error: {e}")
             finally:
                 self.task = None
-        
+
         self.connected = False
