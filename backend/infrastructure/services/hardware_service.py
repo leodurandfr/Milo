@@ -12,7 +12,7 @@ class HardwareService:
     """Service pour lire la configuration hardware (écran, audio, etc.)"""
 
     def __init__(self):
-        self.hardware_file = Path("/var/lib/milo/milo_hardware.json")
+        self.hardware_file = Path("/var/lib/milo/hardware.json")
         self.logger = logging.getLogger(__name__)
         self._cache: Optional[Dict] = None
 

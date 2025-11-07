@@ -1,18 +1,24 @@
 <!-- frontend/src/components/ui/Button.vue -->
 <template>
     <button :class="buttonClasses" :disabled="disabled" @click="handleClick">
+        <Icon v-if="leftIcon" :name="leftIcon" :size="32" />
         <slot></slot>
     </button>
 </template>
 
 <script>
+import Icon from './Icon.vue'
+
 export default {
     name: 'Button',
+    components: {
+        Icon
+    },
     props: {
         variant: {
             type: String,
             default: 'primary',
-            validator: (value) => ['primary', 'secondary', 'toggle'].includes(value)
+            validator: (value) => ['primary', 'secondary', 'toggle', 'background-light'].includes(value)
         },
         disabled: {
             type: Boolean,
@@ -21,6 +27,10 @@ export default {
         active: {
             type: Boolean,
             default: false
+        },
+        leftIcon: {
+            type: String,
+            default: null
         }
     },
     computed: {
@@ -28,8 +38,9 @@ export default {
             const baseClasses = 'btn text-body'
             const variantClass = `btn--${this.variant}`
             const stateClass = this.getStateClass()
+            const iconClass = this.leftIcon ? 'btn--with-icon' : ''
 
-            return `${baseClasses} ${variantClass} ${stateClass}`.trim()
+            return `${baseClasses} ${variantClass} ${stateClass} ${iconClass}`.trim()
         }
     },
     methods: {
@@ -56,10 +67,18 @@ export default {
     cursor: pointer;
     transition: var(--transition-fast);
     border-radius: var(--radius-04);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-01);
 }
 
 .btn:disabled {
     cursor: not-allowed;
+}
+
+/* Button with left icon - padding spécifique */
+.btn--with-icon {
+    padding: var(--space-02) var(--space-04) var(--space-02) var(--space-02);
 }
 
 /* Primary variant */
@@ -96,5 +115,16 @@ export default {
     background-color: var(--color-background-strong);
     color: var(--color-text-secondary);
 
+}
+
+/* Background Light variant */
+.btn--background-light.btn--default {
+    background-color: var(--color-background-neutral-12);
+    color: var(--color-text-contrast);
+}
+
+.btn--background-light.btn--disabled {
+    background-color: var(--color-background);
+    color: var(--color-text-light);
 }
 </style>

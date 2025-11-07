@@ -816,7 +816,7 @@ Group=audio
 
 ExecStart=/usr/local/bin/go-librespot --config_dir /var/lib/milo/go-librespot
 Environment=HOME=/home/milo
-EnvironmentFile=/var/lib/milo/milo_environment
+EnvironmentFile=/var/lib/milo/routing.env
 WorkingDirectory=/var/lib/milo
 Restart=always
 RestartSec=5
@@ -859,7 +859,7 @@ After=milo-bluealsa.service milo-backend.service
 BindsTo=milo-backend.service milo-bluealsa.service
 
 [Service]
-EnvironmentFile=/var/lib/milo/milo_environment
+EnvironmentFile=/var/lib/milo/routing.env
 Type=simple
 User=milo
 
@@ -889,7 +889,7 @@ User=milo
 Group=audio
 
 EnvironmentFile=/etc/environment
-EnvironmentFile=/var/lib/milo/milo_environment
+EnvironmentFile=/var/lib/milo/routing.env
 Environment=HOME=/home/milo
 
 ExecStart=/usr/bin/roc-recv -vvv \
@@ -936,7 +936,7 @@ RuntimeDirectory=milo
 RuntimeDirectoryMode=0755
 
 # Load Milo environment variables (MILO_MODE and MILO_EQUALIZER)
-EnvironmentFile=/var/lib/milo/milo_environment
+EnvironmentFile=/var/lib/milo/routing.env
 
 # The ALSA device milo_radio automatically routes to the correct device
 # based on MILO_MODE (direct/multiroom) and MILO_EQUALIZER (empty/_eq)
@@ -1234,12 +1234,12 @@ ctl.equal {
 }
 EOF
 
-    sudo tee /var/lib/milo/milo_environment > /dev/null << 'EOF'
+    sudo tee /var/lib/milo/routing.env > /dev/null << 'EOF'
 MILO_MODE=direct
 MILO_EQUALIZER=
 EOF
 
-    sudo chown "$MILO_USER:$MILO_USER" /var/lib/milo/milo_environment
+    sudo chown "$MILO_USER:$MILO_USER" /var/lib/milo/routing.env
 
     log_success "Complete ALSA configuration done"
 }
@@ -1678,15 +1678,15 @@ optimize_boot_performance() {
 install_screen_brightness_control() {
     if [[ "$SCREEN_TYPE" == "none" ]]; then
         log_info "No brightness control to install"
-        # Still save the "none" type in milo_hardware.json
-        sudo tee "$MILO_DATA_DIR/milo_hardware.json" > /dev/null << EOF
+        # Still save the "none" type in hardware.json
+        sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << EOF
 {
   "screen": {
     "type": "none"
   }
 }
 EOF
-        sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/milo_hardware.json"
+        sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/hardware.json"
         return
     fi
 
@@ -1748,12 +1748,12 @@ EOF
             ;;
     esac
 
-    # Save screen type with resolution in milo_hardware.json (new format)
-    log_info "Saving screen configuration in $MILO_DATA_DIR/milo_hardware.json..."
+    # Save screen type with resolution in hardware.json (new format)
+    log_info "Saving screen configuration in $MILO_DATA_DIR/hardware.json..."
 
     case "$SCREEN_TYPE" in
         "waveshare_7_usb")
-            sudo tee "$MILO_DATA_DIR/milo_hardware.json" > /dev/null << 'EOF'
+            sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << 'EOF'
 {
   "screen": {
     "waveshare_7_usb": {
@@ -1764,7 +1764,7 @@ EOF
 EOF
             ;;
         "waveshare_8_dsi")
-            sudo tee "$MILO_DATA_DIR/milo_hardware.json" > /dev/null << 'EOF'
+            sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << 'EOF'
 {
   "screen": {
     "waveshare_8_dsi": {
@@ -1775,7 +1775,7 @@ EOF
 EOF
             ;;
         "none"|*)
-            sudo tee "$MILO_DATA_DIR/milo_hardware.json" > /dev/null << 'EOF'
+            sudo tee "$MILO_DATA_DIR/hardware.json" > /dev/null << 'EOF'
 {
   "screen": {
     "none": {}
@@ -1785,7 +1785,7 @@ EOF
             ;;
     esac
 
-    sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/milo_hardware.json"
+    sudo chown "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/hardware.json"
     log_success "Screen configuration saved: $SCREEN_TYPE"
 }
 

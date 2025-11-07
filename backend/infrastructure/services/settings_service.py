@@ -14,7 +14,7 @@ class SettingsService:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.settings_file = os.path.expanduser('~/milo/milo_settings.json')
+        self.settings_file = '/var/lib/milo/settings.json'
         self._cache = None
         self._file_lock = asyncio.Lock()  # Lock async natif au lieu de fcntl.flock
         

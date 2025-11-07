@@ -291,7 +291,7 @@ class AudioRoutingService:
         Met à jour les variables d'environnement ALSA via fichier statique
 
         NOUVEAU: Plus de sudo runtime ! Les variables sont écrites dans
-        /var/lib/milo/milo_environment qui est lu par les services systemd.
+        /var/lib/milo/routing.env qui est lu par les services systemd.
         """
         mode_value = "multiroom" if self.multiroom_enabled else "direct"
         equalizer_value = "_eq" if self.equalizer_enabled else ""
@@ -303,18 +303,14 @@ class AudioRoutingService:
         if equalizer_value not in self.ALLOWED_EQUALIZER:
             raise ValueError(f"Invalid equalizer value: {equalizer_value}. Allowed: {self.ALLOWED_EQUALIZER}")
 
-        environment_file = os.path.expanduser("~/milo/var/lib/milo/milo_environment")
-
-        # Fallback si le chemin n'existe pas (pour compatibilité)
-        if not os.path.exists(os.path.dirname(environment_file)):
-            environment_file = "/var/lib/milo/milo_environment"
+        environment_file = "/var/lib/milo/routing.env"
 
         try:
             # Écriture atomique du fichier d'environnement
             temp_file = environment_file + ".tmp"
 
             with open(temp_file, 'w') as f:
-                f.write("# Milo Environment Variables\n")
+                f.write("# Milo Audio Routing Environment Variables\n")
                 f.write("# Ce fichier est modifié automatiquement par Milo backend\n")
                 f.write("# Ne pas éditer manuellement\n\n")
                 f.write(f"# Mode de routage audio : \"direct\" ou \"multiroom\"\n")
@@ -331,7 +327,7 @@ class AudioRoutingService:
             os.environ["MILO_MODE"] = mode_value
             os.environ["MILO_EQUALIZER"] = equalizer_value
 
-            self.logger.info(f"✅ Updated ALSA environment file: MODE={mode_value}, EQUALIZER={equalizer_value}")
+            self.logger.info(f"✅ Updated routing.env: MODE={mode_value}, EQUALIZER={equalizer_value}")
 
         except Exception as e:
             self.logger.error(f"Failed to update environment file: {e}")

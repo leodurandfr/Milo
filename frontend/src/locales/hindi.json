@@ -30,7 +30,9 @@
       "noFavorites": "कोई पसंदीदा रेडियो नहीं",
       "loadMore": "और लोड करें",
       "remaining": "शेष",
-      "stationNoImage": "बिना छवि के स्टेशन"
+      "stationNoImage": "बिना छवि के स्टेशन",
+      "playRadio": "रेडियो चलाएं",
+      "stopRadio": "रेडियो बंद करें"
     }
   },
   "multiroom": {
