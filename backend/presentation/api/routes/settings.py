@@ -1,6 +1,6 @@
 # backend/presentation/api/routes/settings.py
 """
-Routes Settings - Version avec désactivation des apps et arrêt des processus
+Settings Routes – Version with app deactivation and process stopping
 """
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Callable, Optional
@@ -20,7 +20,7 @@ def create_settings_router(
     routing_service,
     hardware_service
 ):
-    """Router settings avec désactivation propre des apps"""
+    """Settings router with proper app deactivation"""
     router = APIRouter()
     settings = SettingsService()
     
@@ -32,12 +32,12 @@ def create_settings_router(
         event_data: Dict[str, Any],
         reload_callback: Optional[Callable] = None
     ) -> Dict[str, Any]:
-        """Pattern unifié pour toutes les routes settings - supporte les setters async"""
+        """Unified pattern for all settings routes – supports async setters"""
         try:
             if not validator(payload):
                 raise HTTPException(status_code=400, detail="Invalid payload")
 
-            # Appeler le setter et l'attendre s'il est async
+            # Call the setter and await it if it's async
             setter_result = setter()
             if asyncio.iscoroutine(setter_result):
                 success = await setter_result
@@ -47,7 +47,7 @@ def create_settings_router(
             if not success:
                 raise HTTPException(status_code=500, detail="Failed to save")
 
-            # NOUVEAU : Invalider explicitement le cache avant le reload_callback
+            # NEW: Explicitly invalidate the cache before the reload_callback
             settings._cache = None
 
             reload_success = True
@@ -72,7 +72,7 @@ def create_settings_router(
             raise HTTPException(status_code=500, detail=str(e))
     
     def _get_services_for_source(source: str) -> list:
-        """Retourne la liste des services systemd pour une source audio"""
+        """Return the list of systemd services for an audio source"""
         services_map = {
             'librespot': ['milo-go-librespot.service'],
             'roc': ['milo-roc.service'],
@@ -247,7 +247,7 @@ def create_settings_router(
             reload_callback=volume_service.reload_rotary_steps_config
         )
     
-    # Dock apps - VERSION AVEC DÉSACTIVATION DES PROCESSUS
+    # Dock apps – VERSION WITH PROCESS DEACTIVATION
     @router.get("/dock-apps")
     async def get_dock_apps():
         dock = await settings.get_setting('dock') or {}
@@ -261,35 +261,35 @@ def create_settings_router(
     @router.post("/dock-apps")
     async def set_dock_apps(payload: Dict[str, Any]):
         """
-        Met à jour les apps activées dans le dock.
-        Si une app est désactivée, arrête les processus associés.
-        Si une app est activée, démarre les processus associés (multiroom/equalizer).
-        Approche stricte : une erreur = rollback complet.
+        Update the enabled apps in the dock.
+        If an app is disabled, stop the associated processes.
+        If an app is enabled, start the associated processes (multiroom/equalizer).
+        Strict approach: one error = full rollback.
         """
         try:
             enabled_apps = payload.get('enabled_apps', [])
             
-            # Validation basique
+            # Basic validation
             valid_apps = ["librespot", "bluetooth", "roc", "radio", "multiroom", "equalizer", "settings"]
             if not isinstance(enabled_apps, list) or not all(app in valid_apps for app in enabled_apps):
                 raise HTTPException(status_code=400, detail="Invalid enabled_apps list")
 
-            # Au moins une source audio doit être activée
+            # At least one audio source must be enabled
             audio_sources = ["librespot", "bluetooth", "roc", "radio"]
             enabled_audio_sources = [app for app in enabled_apps if app in audio_sources]
             if not enabled_audio_sources:
                 raise HTTPException(status_code=400, detail="At least one audio source must be enabled")
             
-            # Charger ancienne config
+            # Load previous config
             old_settings = await settings.load_settings()
             old_enabled_apps = old_settings.get("dock", {}).get("enabled_apps", [])
             
-            # Détection des changements
+            # Detect changes
             disabled_apps = set(old_enabled_apps) - set(enabled_apps)
             enabled_apps_new = set(enabled_apps) - set(old_enabled_apps)
             
             if not disabled_apps and not enabled_apps_new:
-                # Aucun changement, juste sauvegarder
+                # No change, just save
                 success = await settings.set_setting("dock.enabled_apps", enabled_apps)
                 if success:
                     await ws_manager.broadcast_dict({
@@ -302,27 +302,27 @@ def create_settings_router(
                 else:
                     raise HTTPException(status_code=500, detail="Failed to save settings")
             
-            # Log des opérations pour debug
+            # Operations log for debugging
             operations_log = []
             
             try:
-                # === TRAITER LES DÉSACTIVATIONS ===
+                # === HANDLE DISABLES ===
                 for app in disabled_apps:
                     logger.info(f"Processing disable for app: {app}")
                     
-                    # === SOURCES AUDIO ===
+                    # === AUDIO SOURCES ===
                     if app in ['librespot', 'bluetooth', 'roc', 'radio']:
                         current_source = state_machine.system_state.active_source.value
                         
                         if app == current_source:
-                            # Source active : transition vers none (arrête automatiquement)
+                            # Active source: transition to none (automatically stops)
                             operations_log.append(f"Transitioning {app} to none")
                             logger.info(f"Transitioning active source {app} to none")
                             success = await state_machine.transition_to_source(AudioSource.NONE)
                             if not success:
                                 raise ValueError(f"Failed to transition from {app} to none")
                         else:
-                            # Source inactive : arrêter directement les services
+                            # Inactive source: stop services directly
                             services_to_stop = _get_services_for_source(app)
                             for service in services_to_stop:
                                 operations_log.append(f"Stopping service {service}")
@@ -333,7 +333,7 @@ def create_settings_router(
                     
                     # === MULTIROOM ===
                     elif app == 'multiroom':
-                        # 1. Récupérer la source active pour redémarrer le plugin
+                        # 1. Get the active source to restart the plugin
                         current_state = await state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
@@ -342,33 +342,33 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        # 2. Désactiver le routing (redémarre automatiquement le plugin en mode direct)
+                        # 2. Disable routing (automatically restarts the plugin in direct mode)
                         operations_log.append("Disabling multiroom routing and switching to direct mode")
                         logger.info(f"Disabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
                         await routing_service.set_multiroom_enabled(False, active_source)
 
-                        # 3. Arrêter snapserver
+                        # 3. Stop snapserver
                         operations_log.append("Stopping milo-snapserver-multiroom.service")
                         logger.info("Stopping milo-snapserver-multiroom.service")
                         success = await systemd_manager.stop("milo-snapserver-multiroom.service")
                         if not success:
                             raise ValueError("Failed to stop milo-snapserver-multiroom.service")
 
-                        # 4. Arrêter snapclient
+                        # 4. Stop snapclient
                         operations_log.append("Stopping milo-snapclient-multiroom.service")
                         logger.info("Stopping milo-snapclient-multiroom.service")
                         success = await systemd_manager.stop("milo-snapclient-multiroom.service")
                         if not success:
                             raise ValueError("Failed to stop milo-snapclient-multiroom.service")
 
-                        # 5. Notifier le frontend via WebSocket
+                        # 5. Notify the frontend via WebSocket
                         operations_log.append("Broadcasting multiroom state update")
                         logger.info("Broadcasting multiroom state update to frontend")
                         await state_machine.update_multiroom_state(False)
                     
                     # === EQUALIZER ===
                     elif app == 'equalizer':
-                        # Récupérer la source active pour redémarrer le plugin
+                        # Get the active source to restart the plugin
                         current_state = await state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
@@ -381,23 +381,23 @@ def create_settings_router(
                         logger.info(f"Disabling equalizer for active source: {active_source.value if active_source else 'none'}")
                         await routing_service.set_equalizer_enabled(False, active_source)
 
-                        # Notifier le frontend via WebSocket
+                        # Notify the frontend via WebSocket
                         operations_log.append("Broadcasting equalizer state update")
                         logger.info("Broadcasting equalizer state update to frontend")
                         await state_machine.update_equalizer_state(False)
                 
-                # === TRAITER LES ACTIVATIONS ===
+                # === HANDLE ENABLES ===
                 for app in enabled_apps_new:
                     logger.info(f"Processing enable for app: {app}")
                     
-                    # === SOURCES AUDIO : NE RIEN FAIRE ===
+                    # === AUDIO SOURCES: DO NOTHING ===
                     if app in ['librespot', 'bluetooth', 'roc', 'radio']:
                         operations_log.append(f"App {app} enabled (no service start needed)")
                         logger.info(f"App {app} enabled in dock (services will start on source change)")
                     
                     # === MULTIROOM ===
                     elif app == 'multiroom':
-                        # 1. Récupérer la source active pour redémarrer le plugin
+                        # 1. Get the active source to restart the plugin
                         current_state = await state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
@@ -406,33 +406,33 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        # 2. Activer le routing (redémarre automatiquement le plugin en mode multiroom)
+                        # 2. Enable routing (automatically restarts the plugin in multiroom mode)
                         operations_log.append("Enabling multiroom routing and switching to multiroom mode")
                         logger.info(f"Enabling multiroom routing for active source: {active_source.value if active_source else 'none'}")
                         await routing_service.set_multiroom_enabled(True, active_source)
 
-                        # 3. Démarrer snapserver
+                        # 3. Start snapserver
                         operations_log.append("Starting milo-snapserver-multiroom.service")
                         logger.info("Starting milo-snapserver-multiroom.service")
                         success = await systemd_manager.start("milo-snapserver-multiroom.service")
                         if not success:
                             raise ValueError("Failed to start milo-snapserver-multiroom.service")
 
-                        # 4. Démarrer snapclient
+                        # 4. Start snapclient
                         operations_log.append("Starting milo-snapclient-multiroom.service")
                         logger.info("Starting milo-snapclient-multiroom.service")
                         success = await systemd_manager.start("milo-snapclient-multiroom.service")
                         if not success:
                             raise ValueError("Failed to start milo-snapclient-multiroom.service")
 
-                        # 5. Notifier le frontend via WebSocket
+                        # 5. Notify the frontend via WebSocket
                         operations_log.append("Broadcasting multiroom state update")
                         logger.info("Broadcasting multiroom state update to frontend")
                         await state_machine.update_multiroom_state(True)
                     
                     # === EQUALIZER ===
                     elif app == 'equalizer':
-                        # Récupérer la source active pour redémarrer le plugin
+                        # Get the active source to restart the plugin
                         current_state = await state_machine.get_current_state()
                         active_source = None
                         if current_state["active_source"] != "none":
@@ -445,19 +445,19 @@ def create_settings_router(
                         logger.info(f"Enabling equalizer for active source: {active_source.value if active_source else 'none'}")
                         await routing_service.set_equalizer_enabled(True, active_source)
 
-                        # Notifier le frontend via WebSocket
+                        # Notify the frontend via WebSocket
                         operations_log.append("Broadcasting equalizer state update")
                         logger.info("Broadcasting equalizer state update to frontend")
                         await state_machine.update_equalizer_state(True)
                 
-                # Toutes les opérations ont réussi → sauvegarder les settings
+                # All operations succeeded → save settings
                 operations_log.append("Saving new settings")
                 logger.info("All operations successful, saving settings")
                 success = await settings.set_setting("dock.enabled_apps", enabled_apps)
                 if not success:
                     raise ValueError("Failed to save settings")
                 
-                # Broadcast WebSocket
+                # WebSocket broadcast
                 await ws_manager.broadcast_dict({
                     "category": "settings",
                     "type": "dock_apps_changed",
@@ -472,7 +472,7 @@ def create_settings_router(
                 }
                 
             except Exception as e:
-                # ROLLBACK : Une erreur = annulation complète
+                # ROLLBACK: any error = full cancellation
                 logger.error(f"Error during dock-apps update: {e}")
                 logger.error(f"Operations completed before error: {operations_log}")
                 
@@ -583,21 +583,21 @@ def create_settings_router(
     
     @router.post("/screen-brightness/apply")
     async def apply_brightness_instantly(payload: Dict[str, Any]):
-        """Application instantanée de luminosité + restart timeout"""
+        """Instant brightness application + restart timeout"""
         try:
             brightness_on = payload.get('brightness_on')
 
             if not brightness_on or not (1 <= brightness_on <= 10):
                 raise HTTPException(status_code=400, detail="brightness_on must be between 1 and 10")
 
-            # Utiliser screen_controller qui gère les différents types d'écrans
+            # Use screen_controller which handles different screen types
             screen_controller.brightness_on = brightness_on
             screen_controller._update_screen_commands()
 
-            # Exécuter la commande adaptée au type d'écran
+            # Execute the command adapted to the screen type
             await screen_controller._screen_cmd(screen_controller.screen_on_cmd)
 
-            # Réinitialiser le timer d'inactivité
+            # Reset the inactivity timer
             from time import monotonic
             screen_controller.last_activity_time = monotonic()
             screen_controller.screen_on = True
@@ -616,7 +616,7 @@ def create_settings_router(
 
     @router.post("/screen-activity")
     async def notify_screen_activity():
-        """Endpoint pour notifier l'activité écran depuis le frontend (touch, souris, clavier)"""
+        """Endpoint to notify screen activity from the frontend (touch, mouse, keyboard)"""
         try:
             await screen_controller.on_touch_detected()
             return {"status": "success", "activity_time_reset": True}
@@ -626,7 +626,7 @@ def create_settings_router(
     # Screen debug
     @router.get("/screen-debug")
     async def get_screen_debug():
-        """Endpoint de debug pour visualiser l'état du screen controller en temps réel"""
+        """Debug endpoint to visualize screen controller state in real time"""
         from time import monotonic
 
         time_since_activity = monotonic() - screen_controller.last_activity_time
@@ -644,10 +644,10 @@ def create_settings_router(
             }
         }
 
-    # Température système
+    # System temperature
     @router.get("/system-temperature")
     async def get_system_temperature():
-        """Récupère la température du Raspberry Pi et le statut de throttling"""
+        """Retrieve Raspberry Pi temperature and throttling status"""
         try:
             temp_process = asyncio.create_subprocess_shell(
                 "vcgencmd measure_temp",
@@ -667,7 +667,7 @@ def create_settings_router(
             
             result = {"status": "success"}
             
-            # Parser température
+            # Parse temperature
             if temp_proc.returncode == 0:
                 temp_output = temp_stdout.decode().strip()
                 if temp_output.startswith("temp=") and temp_output.endswith("'C"):
@@ -679,7 +679,7 @@ def create_settings_router(
             else:
                 result["temperature"] = None
             
-            # Parser throttling
+            # Parse throttling
             throttle_status = {"code": "0x0", "current": [], "past": [], "severity": "ok"}
             
             if throttle_proc.returncode == 0:
@@ -733,7 +733,7 @@ def create_settings_router(
     # Network info (IP address)
     @router.get("/network-info")
     async def get_network_info():
-        """Récupère l'adresse IP locale principale du Raspberry Pi"""
+        """Retrieve the primary local IP address of the Raspberry Pi"""
         try:
             process = await asyncio.create_subprocess_shell(
                 "hostname -I",
@@ -745,11 +745,11 @@ def create_settings_router(
 
             if process.returncode == 0:
                 output = stdout.decode().strip()
-                # hostname -I retourne toutes les IPs séparées par des espaces
-                # On prend la première qui est généralement l'IP principale IPv4
+                # hostname -I returns all IPs separated by spaces
+                # Take the first one, generally the primary IPv4
                 ips = output.split()
                 if ips:
-                    # Filtrer pour ne garder que l'IPv4 (format x.x.x.x)
+                    # Keep only IPv4 (format x.x.x.x)
                     ipv4_ips = [ip for ip in ips if ip.count('.') == 3]
                     if ipv4_ips:
                         return {
@@ -773,7 +773,7 @@ def create_settings_router(
     # Hardware info
     @router.get("/hardware-info")
     async def get_hardware_info():
-        """Récupère les informations hardware (type d'écran, résolution, etc.)"""
+        """Retrieve hardware information (screen type, resolution, etc.)"""
         try:
             screen_info = hardware_service.get_screen_info()
 

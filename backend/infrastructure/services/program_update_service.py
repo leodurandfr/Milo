@@ -1,6 +1,6 @@
 # backend/infrastructure/services/program_update_service.py
 """
-Service de mise à jour des programmes - Phase 2A (go-librespot + snapcast)
+Program update service - Phase 2A (go-librespot + snapcast)
 """
 import asyncio
 import aiohttp
@@ -14,13 +14,13 @@ from typing import Dict, Any, Optional, Callable, Awaitable
 from backend.infrastructure.services.program_version_service import ProgramVersionService
 
 class ProgramUpdateService(ProgramVersionService):
-    """Service de mise à jour des programmes - Extends ProgramVersionService"""
+    """Program update service - Extends ProgramVersionService"""
 
     def __init__(self):
         super().__init__()
         self.update_logger = logging.getLogger(f"{__name__}.update")
 
-        # Configuration spécifique aux mises à jour (snapserver et snapclient séparés)
+        # Update-specific configuration (snapserver and snapclient separated)
         self.update_config = {
             "milo": {
                 "git_path": "/home/milo/milo",
@@ -48,12 +48,12 @@ class ProgramUpdateService(ProgramVersionService):
         }
 
     async def update_program(self, program_key: str, progress_callback: Optional[Callable[[str, int], Awaitable[None]]] = None) -> Dict[str, Any]:
-        """Met à jour un programme spécifique avec callback de progression"""
+        """Updates a specific program with progress callback"""
         if program_key not in self.update_config:
             return {"success": False, "error": f"Update not supported for {program_key}"}
 
         try:
-            # Vérifier qu'une mise à jour est disponible
+            # Check that an update is available
             status = await self._get_program_full_status(program_key)
             if not status.get("update_available"):
                 return {"success": False, "error": "No update available"}
@@ -61,7 +61,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Initializing update...", 0)
 
-            # Dispatcher vers la méthode spécifique
+            # Dispatch to specific method
             if program_key == "milo":
                 return await self._update_milo_app(status, progress_callback)
             elif program_key == "go-librespot":
@@ -76,7 +76,7 @@ class ProgramUpdateService(ProgramVersionService):
             return {"success": False, "error": str(e)}
 
     async def _update_milo_app(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Met à jour l'application Milo via git pull"""
+        """Updates Milo application via git pull"""
         config = self.update_config["milo"]
         latest_version = status["latest"]["version"]
 
@@ -84,7 +84,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Checking git repository status...", 10)
 
-            # 1. Vérifier que le répertoire est bien un dépôt git
+            # 1. Check that the directory is a git repository
             git_dir = Path(config["git_path"]) / ".git"
             if not git_dir.exists():
                 return {"success": False, "error": "Not a git repository"}
@@ -92,7 +92,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Fetching updates from GitHub...", 15)
 
-            # 2. Faire un git fetch pour récupérer les dernières infos
+            # 2. Do a git fetch to retrieve the latest information
             proc = await asyncio.create_subprocess_exec(
                 "git", "-C", config["git_path"], "fetch", "origin", config["git_branch"],
                 stdout=asyncio.subprocess.PIPE,
@@ -106,7 +106,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Checking for local changes...", 20)
 
-            # 3. Vérifier s'il y a des modifications locales non commitées
+            # 3. Check if there are uncommitted local changes
             proc = await asyncio.create_subprocess_exec(
                 "git", "-C", config["git_path"], "status", "--porcelain",
                 stdout=asyncio.subprocess.PIPE,
@@ -120,7 +120,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Pulling latest changes...", 30)
 
-            # 4. Faire le git pull
+            # 4. Do the git pull
             proc = await asyncio.create_subprocess_exec(
                 "git", "-C", config["git_path"], "pull", "origin", config["git_branch"],
                 stdout=asyncio.subprocess.PIPE,
@@ -134,7 +134,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Installing frontend dependencies...", 40)
 
-            # 5. Installer les dépendances npm du frontend
+            # 5. Install frontend npm dependencies
             frontend_dir = Path(config["git_path"]) / "frontend"
             if frontend_dir.exists():
                 proc = await asyncio.create_subprocess_exec(
@@ -151,7 +151,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Building frontend...", 55)
 
-            # 6. Builder le frontend
+            # 6. Build the frontend
             if frontend_dir.exists():
                 proc = await asyncio.create_subprocess_exec(
                     "npm", "run", "build",
@@ -167,7 +167,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Installing Python dependencies...", 70)
 
-            # 7. Installer les dépendances Python si requirements.txt existe
+            # 7. Install Python dependencies if requirements.txt exists
             requirements_file = Path(config["git_path"]) / "backend" / "requirements.txt"
             if requirements_file.exists():
                 proc = await asyncio.create_subprocess_exec(
@@ -180,7 +180,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Restarting backend service...", 85)
 
-            # 8. Redémarrer le service backend
+            # 8. Restart the backend service
             restart_result = await self._restart_service(config["service_name"])
             if not restart_result:
                 return {"success": False, "error": "Failed to restart backend service"}
@@ -188,7 +188,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Restarting kiosk...", 95)
 
-            # 9. Redémarrer le service kiosk pour recharger le frontend
+            # 9. Restart kiosk service to reload frontend
             kiosk_restart_result = await self._restart_service("milo-kiosk.service")
             if not kiosk_restart_result:
                 self.update_logger.warning("Failed to restart kiosk service, but update was successful")
@@ -196,7 +196,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Update completed!", 100)
 
-            # 10. Récupérer la nouvelle version
+            # 10. Get the new version
             new_status = await self.get_installed_version("milo")
             new_version = list(new_status.get("versions", {}).values())[0] if new_status.get("versions") else "unknown"
 
@@ -212,7 +212,7 @@ class ProgramUpdateService(ProgramVersionService):
             return {"success": False, "error": str(e)}
 
     async def _update_go_librespot(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Met à jour go-librespot"""
+        """Updates go-librespot"""
         config = self.update_config["go-librespot"]
         latest_version = status["latest"]["version"]
 
@@ -220,7 +220,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Creating backup...", 10)
 
-            # 1. Créer une sauvegarde
+            # 1. Create a backup
             backup_result = await self._backup_go_librespot(config)
             if not backup_result["success"]:
                 return backup_result
@@ -228,7 +228,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Downloading new version...", 20)
 
-            # 2. Télécharger la nouvelle version
+            # 2. Download the new version
             download_result = await self._download_go_librespot(latest_version)
             if not download_result["success"]:
                 return download_result
@@ -236,7 +236,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Stopping service...", 60)
 
-            # 3. Arrêter le service
+            # 3. Stop the service
             stop_result = await self._stop_service(config["service_name"])
             if not stop_result:
                 return {"success": False, "error": "Failed to stop service"}
@@ -244,7 +244,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Installing new version...", 70)
 
-            # 4. Remplacer le binaire
+            # 4. Replace the binary
             install_result = await self._install_go_librespot_binary(download_result["binary_path"])
             if not install_result["success"]:
                 # Rollback
@@ -254,7 +254,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Starting service...", 90)
 
-            # 5. Redémarrer le service
+            # 5. Restart the service
             start_result = await self._start_service(config["service_name"])
             if not start_result:
                 # Rollback
@@ -264,7 +264,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Verifying update...", 95)
 
-            # 6. Vérifier que la mise à jour a fonctionné
+            # 6. Verify that the update worked
             verify_result = await self._verify_go_librespot_update(latest_version)
             if not verify_result["success"]:
                 # Rollback
@@ -274,7 +274,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Update completed!", 100)
 
-            # 7. Nettoyer les fichiers temporaires
+            # 7. Clean up temporary files
             await self._cleanup_temp_files(download_result.get("temp_dir"))
 
             return {
@@ -285,13 +285,13 @@ class ProgramUpdateService(ProgramVersionService):
             }
 
         except Exception as e:
-            # Rollback en cas d'erreur
+            # Rollback in case of error
             await self._rollback_go_librespot(config)
             self.update_logger.error(f"go-librespot update failed: {e}")
             return {"success": False, "error": str(e)}
 
     async def _update_snapcast_component(self, component_key: str, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Met à jour un composant snapcast (snapserver ou snapclient)"""
+        """Updates a snapcast component (snapserver or snapclient)"""
         config = self.update_config[component_key]
         latest_version = status["latest"]["version"]
 
@@ -299,7 +299,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback(f"Downloading {component_key}...", 10)
 
-            # 1. Télécharger le package .deb
+            # 1. Download the .deb package
             download_result = await self._download_snapcast_component(component_key, latest_version)
             if not download_result["success"]:
                 return download_result
@@ -307,14 +307,14 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback(f"Stopping {component_key} service...", 30)
 
-            # 2. Arrêter le service
+            # 2. Stop the service
             for service in config["services"]:
                 await self._stop_service(service)
 
             if progress_callback:
                 await progress_callback(f"Installing {component_key}...", 50)
 
-            # 3. Installer le package
+            # 3. Install the package
             install_result = await self._install_deb_package(download_result["deb_path"])
             if not install_result["success"]:
                 return install_result
@@ -322,7 +322,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback(f"Starting {component_key} service...", 90)
 
-            # 4. Redémarrer le service
+            # 4. Restart the service
             for service in config["services"]:
                 start_result = await self._start_service(service)
                 if not start_result:
@@ -331,7 +331,7 @@ class ProgramUpdateService(ProgramVersionService):
             if progress_callback:
                 await progress_callback("Update completed!", 100)
 
-            # 5. Nettoyer
+            # 5. Clean up
             await self._cleanup_temp_files(download_result.get("temp_dir"))
 
             return {
@@ -345,19 +345,19 @@ class ProgramUpdateService(ProgramVersionService):
             self.update_logger.error(f"{component_key} update failed: {e}")
             return {"success": False, "error": str(e)}
 
-    # === MÉTHODES UTILITAIRES ===
+    # === UTILITY METHODS ===
 
     async def _backup_go_librespot(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Sauvegarde go-librespot"""
+        """Backs up go-librespot"""
         try:
             backup_dir = Path(config["backup_path"])
             backup_dir.mkdir(parents=True, exist_ok=True)
 
-            # Sauvegarder le binaire
+            # Backup the binary
             binary_backup = backup_dir / "go-librespot.backup"
             shutil.copy2(config["binary_path"], binary_backup)
 
-            # Sauvegarder la config si elle existe
+            # Backup config if it exists
             config_path = Path(config["config_path"])
             if config_path.exists():
                 config_backup = backup_dir / "config.yml.backup"
@@ -369,15 +369,15 @@ class ProgramUpdateService(ProgramVersionService):
             return {"success": False, "error": f"Backup failed: {e}"}
 
     async def _download_go_librespot(self, version: str) -> Dict[str, Any]:
-        """Télécharge go-librespot depuis GitHub"""
+        """Downloads go-librespot from GitHub"""
         try:
-            # Créer un répertoire temporaire
+            # Create a temporary directory
             temp_dir = tempfile.mkdtemp()
 
-            # URL de téléchargement
+            # Download URL
             url = f"https://github.com/devgianlu/go-librespot/releases/download/v{version}/go-librespot_linux_arm64.tar.gz"
 
-            # Télécharger
+            # Download
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as response:
                     if response.status != 200:
@@ -388,7 +388,7 @@ class ProgramUpdateService(ProgramVersionService):
                         async for chunk in response.content.iter_chunked(8192):
                             await f.write(chunk)
 
-            # Extraire l'archive
+            # Extract the archive
             extract_dir = Path(temp_dir) / "extracted"
             extract_dir.mkdir()
 
@@ -402,7 +402,7 @@ class ProgramUpdateService(ProgramVersionService):
             if proc.returncode != 0:
                 return {"success": False, "error": "Failed to extract archive"}
 
-            # Trouver le binaire
+            # Find the binary
             binary_path = extract_dir / "go-librespot"
             if not binary_path.exists():
                 return {"success": False, "error": "Binary not found in archive"}
@@ -418,7 +418,7 @@ class ProgramUpdateService(ProgramVersionService):
 
 
     async def _get_debian_codename(self) -> str:
-        """Détecte la version Debian du système (bookworm, trixie, etc.)"""
+        """Detects the Debian version of the system (bookworm, trixie, etc.)"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "bash", "-c", "source /etc/os-release && echo $VERSION_CODENAME",
@@ -441,14 +441,14 @@ class ProgramUpdateService(ProgramVersionService):
             return "bookworm"
 
     async def _download_snapcast_component(self, component_key: str, version: str) -> Dict[str, Any]:
-        """Télécharge un composant snapcast (.deb) avec détection auto de Debian"""
+        """Downloads a snapcast component (.deb) with auto Debian detection"""
         try:
-            # Détecter la version Debian
+            # Detect Debian version
             debian_codename = await self._get_debian_codename()
 
             temp_dir = tempfile.mkdtemp()
 
-            # Déterminer le nom du package selon le composant
+            # Determine package name according to component
             if component_key == "snapserver":
                 package_name = f"snapserver_{version}-1_arm64_{debian_codename}.deb"
             elif component_key == "snapclient":
@@ -456,12 +456,12 @@ class ProgramUpdateService(ProgramVersionService):
             else:
                 return {"success": False, "error": f"Unknown component: {component_key}"}
 
-            # URL de téléchargement
+            # Download URL
             url = f"https://github.com/badaix/snapcast/releases/download/v{version}/{package_name}"
 
             self.update_logger.info(f"Downloading {package_name} from GitHub (Debian {debian_codename})...")
 
-            # Télécharger
+            # Download
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as response:
                     if response.status != 200:
@@ -482,11 +482,11 @@ class ProgramUpdateService(ProgramVersionService):
             return {"success": False, "error": str(e)}
 
     async def _download_snapcast_debs(self, version: str) -> Dict[str, Any]:
-        """Télécharge les packages .deb snapcast"""
+        """Downloads snapcast .deb packages"""
         try:
             temp_dir = tempfile.mkdtemp()
 
-            # URLs des packages
+            # Package URLs
             base_url = f"https://github.com/badaix/snapcast/releases/download/v{version}"
             server_url = f"{base_url}/snapserver_{version}-1_arm64_bookworm.deb"
             client_url = f"{base_url}/snapclient_{version}-1_arm64_bookworm.deb"
@@ -494,7 +494,7 @@ class ProgramUpdateService(ProgramVersionService):
             server_path = Path(temp_dir) / f"snapserver_{version}.deb"
             client_path = Path(temp_dir) / f"snapclient_{version}.deb"
 
-            # Télécharger les deux packages
+            # Download les deux packages
             async with aiohttp.ClientSession() as session:
                 # Server
                 async with session.get(server_url) as response:
@@ -525,9 +525,9 @@ class ProgramUpdateService(ProgramVersionService):
             return {"success": False, "error": str(e)}
 
     async def _install_go_librespot_binary(self, binary_path: str) -> Dict[str, Any]:
-        """Installe le nouveau binaire go-librespot"""
+        """Installs the new go-librespot binary"""
         try:
-            # Copier avec sudo
+            # Copy with sudo
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "cp", binary_path, "/usr/local/bin/go-librespot",
                 stdout=asyncio.subprocess.PIPE,
@@ -538,7 +538,7 @@ class ProgramUpdateService(ProgramVersionService):
             if proc.returncode != 0:
                 return {"success": False, "error": f"Failed to copy binary: {stderr.decode()}"}
 
-            # Définir les permissions
+            # Set permissions
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "chmod", "+x", "/usr/local/bin/go-librespot",
                 stdout=asyncio.subprocess.PIPE,
@@ -552,7 +552,7 @@ class ProgramUpdateService(ProgramVersionService):
             return {"success": False, "error": str(e)}
 
     async def _install_deb_package(self, deb_path: str) -> Dict[str, Any]:
-        """Installe un package .deb avec dpkg + apt-get -f (méthode officielle snapcast)"""
+        """Installs a .deb package with dpkg + apt-get -f (official snapcast method)"""
         try:
             env = {
                 "DEBIAN_FRONTEND": "noninteractive",
@@ -560,7 +560,7 @@ class ProgramUpdateService(ProgramVersionService):
                 "APT_LISTCHANGES_FRONTEND": "none"
             }
 
-            # Étape 1 : Mettre à jour la liste des paquets
+            # Step 1: Update package list
             self.update_logger.info("Updating APT package list...")
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "-E", "apt", "update",
@@ -570,8 +570,8 @@ class ProgramUpdateService(ProgramVersionService):
             )
             await proc.communicate()
 
-            # Étape 2a : Installer le .deb avec dpkg (peut échouer si dépendances manquantes - c'est normal)
-            # --force-confdef --force-confold : garde automatiquement les anciennes configs sans prompt
+            # Step 2a: Install .deb with dpkg (may fail if dependencies missing - this is normal)
+            # --force-confdef --force-confold: automatically keeps old configs without prompt
             self.update_logger.info(f"Installing {Path(deb_path).name} with dpkg...")
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "-E", "dpkg", "-i", "--force-confdef", "--force-confold", deb_path,
@@ -582,12 +582,12 @@ class ProgramUpdateService(ProgramVersionService):
 
             dpkg_stdout, dpkg_stderr = await proc.communicate()
 
-            # Note: dpkg peut retourner une erreur si des dépendances manquent, c'est prévu
+            # Note: dpkg may return an error if dependencies missing, this is expected
             if proc.returncode != 0:
                 self.update_logger.info(f"dpkg returned non-zero (expected if dependencies missing): {dpkg_stderr.decode()}")
 
-            # Étape 2b : Résoudre les dépendances avec apt-get -f install
-            # C'est cette étape qui détermine le succès ou l'échec final
+            # Step 2b: Resolve dependencies with apt-get -f install
+            # This step determines final success or failure
             self.update_logger.info("Resolving dependencies with apt-get -f install...")
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "-E", "apt-get", "-f", "install", "-y",
@@ -611,7 +611,7 @@ class ProgramUpdateService(ProgramVersionService):
             return {"success": False, "error": str(e)}
 
     async def _stop_service(self, service_name: str) -> bool:
-        """Arrête un service systemd"""
+        """Stops a systemd service"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "stop", service_name,
@@ -627,7 +627,7 @@ class ProgramUpdateService(ProgramVersionService):
             return False
 
     async def _start_service(self, service_name: str) -> bool:
-        """Démarre un service systemd"""
+        """Starts a systemd service"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "start", service_name,
@@ -639,10 +639,10 @@ class ProgramUpdateService(ProgramVersionService):
             if proc.returncode != 0:
                 return False
 
-            # Attendre que le service soit vraiment démarré
+            # Wait for the service to actually start
             await asyncio.sleep(2)
 
-            # Vérifier l'état
+            # Check status
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "is-active", service_name,
                 stdout=asyncio.subprocess.PIPE,
@@ -657,7 +657,7 @@ class ProgramUpdateService(ProgramVersionService):
             return False
 
     async def _restart_service(self, service_name: str) -> bool:
-        """Redémarre un service systemd"""
+        """Restarts a systemd service"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "restart", service_name,
@@ -670,10 +670,10 @@ class ProgramUpdateService(ProgramVersionService):
                 self.update_logger.error(f"Failed to restart {service_name}: {stderr.decode()}")
                 return False
 
-            # Attendre que le service soit vraiment démarré
+            # Wait for the service to actually start
             await asyncio.sleep(2)
 
-            # Vérifier l'état
+            # Check status
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "is-active", service_name,
                 stdout=asyncio.subprocess.PIPE,
@@ -688,9 +688,9 @@ class ProgramUpdateService(ProgramVersionService):
             return False
 
     async def _verify_go_librespot_update(self, expected_version: str) -> Dict[str, Any]:
-        """Vérifie que go-librespot a été mis à jour correctement"""
+        """Verifies that go-librespot was updated correctly"""
         try:
-            # Vérifier la version installée
+            # Check installed version
             result = await self.get_installed_version("go-librespot")
 
             if result["status"] != "installed":
@@ -707,7 +707,7 @@ class ProgramUpdateService(ProgramVersionService):
             return {"success": False, "error": f"Verification failed: {e}"}
 
     async def _rollback_go_librespot(self, config: Dict[str, Any]) -> bool:
-        """Rollback go-librespot vers la version sauvegardée"""
+        """Rollback go-librespot to the backed up version"""
         try:
             backup_dir = Path(config["backup_path"])
             binary_backup = backup_dir / "go-librespot.backup"
@@ -716,10 +716,10 @@ class ProgramUpdateService(ProgramVersionService):
                 self.update_logger.error("No backup found for rollback")
                 return False
 
-            # Arrêter le service
+            # Stop the service
             await self._stop_service(config["service_name"])
 
-            # Restaurer le binaire
+            # Restore the binary
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "cp", str(binary_backup), config["binary_path"],
                 stdout=asyncio.subprocess.DEVNULL,
@@ -727,7 +727,7 @@ class ProgramUpdateService(ProgramVersionService):
             )
             await proc.communicate()
 
-            # Redémarrer le service
+            # Restart the service
             await self._start_service(config["service_name"])
 
             self.update_logger.info("go-librespot rollback completed")
@@ -738,7 +738,7 @@ class ProgramUpdateService(ProgramVersionService):
             return False
 
     async def _cleanup_temp_files(self, temp_dir: Optional[str]) -> None:
-        """Nettoie les fichiers temporaires"""
+        """Cleans up temporary files"""
         if temp_dir and os.path.exists(temp_dir):
             try:
                 shutil.rmtree(temp_dir)
@@ -746,11 +746,11 @@ class ProgramUpdateService(ProgramVersionService):
                 self.update_logger.warning(f"Failed to cleanup {temp_dir}: {e}")
 
     async def can_update_program(self, program_key: str) -> Dict[str, Any]:
-        """Vérifie si un programme peut être mis à jour"""
+        """Checks if a program can be updated"""
         if program_key not in self.update_config:
             return {"can_update": False, "reason": "Update not supported"}
 
-        # Vérifier les permissions sudo
+        # Check sudo permissions
         try:
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "-n", "true",
@@ -765,7 +765,7 @@ class ProgramUpdateService(ProgramVersionService):
         except Exception:
             return {"can_update": False, "reason": "Cannot check sudo access"}
 
-        # Vérifier qu'une mise à jour est disponible
+        # Check that an update is available
         status = await self._get_program_full_status(program_key)
         if not status.get("update_available"):
             return {"can_update": False, "reason": "No update available"}

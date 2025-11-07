@@ -43,11 +43,11 @@ class AudioRoutingService:
         self.snapclient_service = "milo-snapclient-multiroom.service"
     
     def set_snapcast_websocket_service(self, service) -> None:
-        """Définit la référence vers SnapcastWebSocketService"""
+        """Sets reference to SnapcastWebSocketService"""
         self.snapcast_websocket_service = service
     
     def set_snapcast_service(self, service) -> None:
-        """Définit la référence vers SnapcastService"""
+        """Sets reference to SnapcastService"""
         self.snapcast_service = service
     
     def set_state_machine(self, state_machine) -> None:
@@ -103,7 +103,7 @@ class AudioRoutingService:
         return self.state_machine.system_state.equalizer_enabled
     
     async def initialize(self) -> None:
-        """Initialise l'état du service"""
+        """Initializes service state"""
         if not self._initial_detection_done:
             await self._detect_initial_state()
     
@@ -378,7 +378,7 @@ class AudioRoutingService:
             return False
     
     async def _start_snapcast(self) -> bool:
-        """Démarre les services snapcast"""
+        """Starts snapcast services"""
         try:
             success = await self.service_manager.start(self.snapserver_service)
             if not success:
@@ -393,7 +393,7 @@ class AudioRoutingService:
             return False
     
     async def _stop_snapcast(self) -> None:
-        """Arrête les services snapcast"""
+        """Stops snapcast services"""
         try:
             await self.service_manager.stop(self.snapclient_service)
             await self.service_manager.stop(self.snapserver_service)
@@ -412,7 +412,7 @@ class AudioRoutingService:
         }
     
     async def get_snapcast_status(self) -> Dict[str, Any]:
-        """Récupère l'état des services snapcast"""
+        """Gets snapcast services status"""
         try:
             server_active = await self.service_manager.is_active(self.snapserver_service)
             client_active = await self.service_manager.is_active(self.snapclient_service)
@@ -427,7 +427,7 @@ class AudioRoutingService:
             return {"server_active": False, "client_active": False, "multiroom_available": False}
     
     async def get_available_services(self) -> Dict[str, bool]:
-        """Récupère la liste des services disponibles"""
+        """Gets list of available services"""
         services_status = {}
         
         services_to_check = [

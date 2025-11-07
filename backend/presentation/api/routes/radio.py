@@ -1,5 +1,5 @@
 """
-Routes API pour le plugin Radio
+API routes for the Radio plugin
 """
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Form
 from fastapi.responses import FileResponse, Response
@@ -13,7 +13,7 @@ import logging
 from backend.config.container import container
 from backend.domain.audio_state import AudioSource
 
-# PNG transparent 1x1 pixel pour fallback favicons
+# Transparent 1x1 PNG used as a fallback for favicons
 TRANSPARENT_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 )
@@ -24,26 +24,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/radio", tags=["radio"])
 
 
-# === Modèles Pydantic pour validation ===
+# === Pydantic models for validation ===
 
 class PlayStationRequest(BaseModel):
-    """Requête pour jouer une station"""
+    """Request to play a station"""
     station_id: str
 
 
 class FavoriteRequest(BaseModel):
-    """Requête pour gérer les favoris"""
+    """Request to manage favorites"""
     station_id: str
-    station: Optional[dict] = None  # Objet station complet (optionnel) avec favicon dédupliqué
+    station: Optional[dict] = None  # Full station object (optional) with deduplicated favicon
 
 
 class MarkBrokenRequest(BaseModel):
-    """Requête pour marquer une station comme cassée"""
+    """Request to mark a station as broken"""
     station_id: str
 
 
 class AddCustomStationRequest(BaseModel):
-    """Requête pour ajouter une station personnalisée"""
+    """Request to add a custom station"""
     name: str
     url: str
     country: str = "France"
@@ -54,7 +54,7 @@ class AddCustomStationRequest(BaseModel):
 
 
 class RemoveCustomStationRequest(BaseModel):
-    """Requête pour supprimer une station personnalisée"""
+    """Request to remove a custom station"""
     station_id: str
 
 
@@ -62,38 +62,38 @@ class RemoveCustomStationRequest(BaseModel):
 
 @router.get("/stations")
 async def search_stations(
-    query: str = Query("", description="Terme de recherche"),
-    country: str = Query("", description="Filtre pays"),
-    genre: str = Query("", description="Filtre genre"),
-    limit: int = Query(10000, ge=1, le=10000, description="Nombre max de résultats"),
-    favorites_only: bool = Query(False, description="Seulement les favoris")
+    query: str = Query("", description="Search term"),
+    country: str = Query("", description="Country filter"),
+    genre: str = Query("", description="Genre filter"),
+    limit: int = Query(10000, ge=1, le=10000, description="Max number of results"),
+    favorites_only: bool = Query(False, description="Favorites only")
 ):
     """
-    Recherche des stations radio
+    Search radio stations
 
     Args:
-        query: Terme de recherche (nom de station ou genre)
-        country: Filtre par pays (ex: "France")
-        genre: Filtre par genre (ex: "Rock")
-        limit: Nombre max de résultats (1-10000)
-        favorites_only: Si True, retourne seulement les favoris
+        query: Search term (station name or genre)
+        country: Country filter (e.g., "France")
+        genre: Genre filter (e.g., "Rock")
+        limit: Max number of results (1–10000)
+        favorites_only: If True, returns favorites only
 
     Returns:
-        Dict avec stations et total: {stations: [...], total: int}
+        Dict with stations and total: {stations: [...], total: int}
     """
     try:
         plugin = container.radio_plugin()
 
         if favorites_only:
-            # Charger directement depuis le cache local (radio_data.json)
-            # Les favoris sont déjà stockés avec métadonnées complètes
+            # Load directly from local cache (radio_data.json)
+            # Favorites are already stored with complete metadata
             stations = plugin.station_manager.get_favorites_with_metadata()
 
-            # Si aucun favori, retourner liste vide
+            # If no favorites, return an empty list
             if not stations:
                 return {"stations": [], "total": 0}
 
-            # Filtrer si nécessaire
+            # Filter if needed
             if query:
                 query_lower = query.lower()
                 stations = [
@@ -109,7 +109,7 @@ async def search_stations(
                 genre_lower = genre.lower()
                 stations = [s for s in stations if genre_lower in s['genre'].lower()]
 
-            # Enrichir avec statut favori (déjà fait pour cached_stations, mais nécessaire pour fetched)
+            # Enrich with favorite status (already done for cached_stations, but required for fetched)
             enriched_stations = plugin.station_manager.enrich_with_favorite_status(stations[:limit])
 
             return {
@@ -118,7 +118,7 @@ async def search_stations(
             }
 
         else:
-            # Recherche dans toutes les stations
+            # Search across all stations
             result = await plugin.radio_api.search_stations(
                 query=query,
                 country=country,
@@ -126,10 +126,10 @@ async def search_stations(
                 limit=limit
             )
 
-            # Filtrer stations cassées
+            # Filter out broken stations
             filtered_stations = plugin.station_manager.filter_broken_stations(result["stations"])
 
-            # Enrichir avec statut favori
+            # Enrich with favorite status
             enriched_stations = plugin.station_manager.enrich_with_favorite_status(filtered_stations)
 
             return {
@@ -144,13 +144,13 @@ async def search_stations(
 @router.get("/station/{station_id}")
 async def get_station(station_id: str):
     """
-    Récupère les détails d'une station par son ID
+    Retrieve the details of a station by its ID
 
     Args:
-        station_id: UUID de la station
+        station_id: Station UUID
 
     Returns:
-        Détails de la station
+        Station details
     """
     try:
         plugin = container.radio_plugin()
@@ -159,7 +159,7 @@ async def get_station(station_id: str):
         if not station:
             raise HTTPException(status_code=404, detail="Station introuvable")
 
-        # Enrichir avec statut favori
+        # Enrich with favorite status
         enriched = plugin.station_manager.enrich_with_favorite_status([station])
         return enriched[0]
 
@@ -172,21 +172,21 @@ async def get_station(station_id: str):
 @router.post("/play")
 async def play_station(request: PlayStationRequest):
     """
-    Joue une station radio
+    Play a radio station
 
     Args:
-        request: Requête avec station_id
+        request: Request with station_id
 
     Returns:
-        Résultat de la commande
+        Command result
     """
     try:
         state_machine = container.audio_state_machine()
         plugin = container.radio_plugin()
 
-        # Vérifier si le plugin est démarré
+        # Check if the plugin is started
         if not await is_plugin_started():
-            # Démarrer via state machine (transition vers RADIO)
+            # Start via state machine (transition to RADIO)
             success = await state_machine.transition_to_source(AudioSource.RADIO)
             if not success:
                 raise HTTPException(
@@ -194,7 +194,7 @@ async def play_station(request: PlayStationRequest):
                     detail="Impossible de démarrer le plugin Radio"
                 )
 
-        # Envoyer la commande play_station
+        # Send the play_station command
         result = await plugin.handle_command("play_station", {"station_id": request.station_id})
 
         if not result.get("success"):
@@ -214,10 +214,10 @@ async def play_station(request: PlayStationRequest):
 @router.post("/stop")
 async def stop_playback():
     """
-    Arrête la lecture en cours
+    Stop current playback
 
     Returns:
-        Résultat de la commande
+        Command result
     """
     try:
         plugin = container.radio_plugin()
@@ -240,17 +240,17 @@ async def stop_playback():
 @router.post("/favorites/add")
 async def add_favorite(request: FavoriteRequest):
     """
-    Ajoute une station aux favoris
+    Add a station to favorites
 
     Args:
-        request: Requête avec station_id
+        request: Request with station_id
 
     Returns:
-        Résultat de l'opération
+        Operation result
     """
     try:
         plugin = container.radio_plugin()
-        # Passer l'objet station s'il est fourni (avec favicon dédupliqué)
+        # Pass the station object if provided (with deduplicated favicon)
         command_data = {"station_id": request.station_id}
         if request.station:
             command_data["station"] = request.station
@@ -274,13 +274,13 @@ async def add_favorite(request: FavoriteRequest):
 @router.post("/favorites/remove")
 async def remove_favorite(request: FavoriteRequest):
     """
-    Retire une station des favoris
+    Remove a station from favorites
 
     Args:
-        request: Requête avec station_id
+        request: Request with station_id
 
     Returns:
-        Résultat de l'opération
+        Operation result
     """
     try:
         plugin = container.radio_plugin()
@@ -303,10 +303,10 @@ async def remove_favorite(request: FavoriteRequest):
 @router.get("/favorites")
 async def get_favorites():
     """
-    Récupère la liste des stations favorites
+    Retrieve the list of favorite stations
 
     Returns:
-        Liste des stations favorites avec détails
+        List of favorite stations with details
     """
     try:
         plugin = container.radio_plugin()
@@ -315,7 +315,7 @@ async def get_favorites():
         if not favorite_ids:
             return []
 
-        # Charger les détails des stations
+        # Load station details
         stations = []
         for station_id in favorite_ids:
             station = await plugin.radio_api.get_station_by_id(station_id)
@@ -332,13 +332,13 @@ async def get_favorites():
 @router.post("/broken/mark")
 async def mark_broken(request: MarkBrokenRequest):
     """
-    Marque une station comme cassée
+    Mark a station as broken
 
     Args:
-        request: Requête avec station_id
+        request: Request with station_id
 
     Returns:
-        Résultat de l'opération
+        Operation result
     """
     try:
         plugin = container.radio_plugin()
@@ -361,10 +361,10 @@ async def mark_broken(request: MarkBrokenRequest):
 @router.post("/broken/reset")
 async def reset_broken_stations():
     """
-    Réinitialise la liste des stations cassées
+    Reset the list of broken stations
 
     Returns:
-        Résultat de l'opération
+        Operation result
     """
     try:
         plugin = container.radio_plugin()
@@ -387,10 +387,10 @@ async def reset_broken_stations():
 @router.get("/status")
 async def get_status():
     """
-    Récupère le status du plugin Radio
+    Retrieve the Radio plugin status
 
     Returns:
-        État actuel du plugin (service, lecture en cours, station actuelle, etc.)
+        Current plugin state (service, current playback, current station, etc.)
     """
     try:
         plugin = container.radio_plugin()
@@ -404,10 +404,10 @@ async def get_status():
 @router.get("/stats")
 async def get_stats():
     """
-    Récupère les statistiques (nombre de favoris, stations cassées, etc.)
+    Retrieve statistics (number of favorites, broken stations, etc.)
 
     Returns:
-        Statistiques du plugin
+        Plugin statistics
     """
     try:
         plugin = container.radio_plugin()
@@ -421,10 +421,10 @@ async def get_stats():
 @router.get("/countries")
 async def get_countries():
     """
-    Récupère la liste de tous les pays disponibles depuis Radio Browser API
+    Retrieve the list of all countries available from the Radio Browser API
 
     Returns:
-        Liste des pays avec nom et nombre de stations
+        List of countries with name and station count
         Format: [{"name": "France", "stationcount": 2345}, ...]
     """
     try:
@@ -447,30 +447,30 @@ async def add_custom_station(
     image: Optional[UploadFile] = File(None)
 ):
     """
-    Ajoute une station personnalisée avec image optionnelle
+    Add a custom station with an optional image
 
     Args:
-        name: Nom de la station
-        url: URL du flux audio
-        country: Pays (défaut: "France")
-        genre: Genre musical (défaut: "Variety")
-        bitrate: Bitrate en kbps (défaut: 128)
-        codec: Codec audio (défaut: "MP3")
-        image: Fichier image (optionnel, max 5MB, formats: JPG, PNG, WEBP, GIF)
+        name: Station name
+        url: Audio stream URL
+        country: Country (default: "France")
+        genre: Music genre (default: "Variety")
+        bitrate: Bitrate in kbps (default: 128)
+        codec: Audio codec (default: "MP3")
+        image: Image file (optional, max 5MB, formats: JPG, PNG, WEBP, GIF)
 
     Returns:
-        La station créée avec son ID
+        The created station with its ID
     """
     try:
         plugin = container.radio_plugin()
         image_filename = ""
 
-        # Si une image est fournie, la valider et la sauvegarder
+        # If an image is provided, validate and save it
         if image and image.filename:
-            # Lire le contenu du fichier
+            # Read file content
             file_content = await image.read()
 
-            # Valider et sauvegarder l'image
+            # Validate and save the image
             success, saved_filename, error = await plugin.station_manager.image_manager.validate_and_save_image(
                 file_content=file_content,
                 filename=image.filename
@@ -484,7 +484,7 @@ async def add_custom_station(
 
             image_filename = saved_filename
 
-        # Créer la station
+        # Create the station
         result = await plugin.station_manager.add_custom_station(
             name=name,
             url=url,
@@ -496,7 +496,7 @@ async def add_custom_station(
         )
 
         if not result.get("success"):
-            # Si échec, supprimer l'image qui a été uploadée
+            # On failure, delete the image that was uploaded
             if image_filename:
                 await plugin.station_manager.image_manager.delete_image(image_filename)
 
@@ -516,13 +516,13 @@ async def add_custom_station(
 @router.post("/custom/remove")
 async def remove_custom_station(request: RemoveCustomStationRequest):
     """
-    Supprime une station personnalisée
+    Remove a custom station
 
     Args:
-        request: Requête avec station_id
+        request: Request with station_id
 
     Returns:
-        Résultat de l'opération
+        Operation result
     """
     try:
         plugin = container.radio_plugin()
@@ -548,32 +548,32 @@ async def update_station_image(
     image: UploadFile = File(...)
 ):
     """
-    Met à jour l'image d'une station favorite
+    Update the image of a favorite station
 
     Args:
-        station_id: ID de la station (doit être une station favorite)
-        image: Nouveau fichier image (max 10MB, formats: JPG, PNG, WEBP, GIF)
+        station_id: Station ID (must be a favorite station)
+        image: New image file (max 10MB, formats: JPG, PNG, WEBP, GIF)
 
     Returns:
-        La station mise à jour
+        The updated station
     """
     try:
         plugin = container.radio_plugin()
 
-        # Vérifier que c'est une station favorite
+        # Ensure it is a favorite station
         if not plugin.station_manager.is_favorite(station_id):
             raise HTTPException(
                 status_code=400,
                 detail="Seules les stations favorites peuvent avoir leur image modifiée"
             )
 
-        # Lire et valider la nouvelle image
+        # Read and validate the new image
         if not image or not image.filename:
             raise HTTPException(status_code=400, detail="Image requise")
 
         file_content = await image.read()
 
-        # Valider et sauvegarder la nouvelle image
+        # Validate and save the new image
         success, saved_filename, error = await plugin.station_manager.image_manager.validate_and_save_image(
             file_content=file_content,
             filename=image.filename
@@ -585,13 +585,13 @@ async def update_station_image(
                 detail=f"Erreur image: {error}"
             )
 
-        # Mettre à jour l'image du favori
+        # Update the favorite's image
         update_success = await plugin.station_manager.update_favorite_image(station_id, saved_filename)
 
         if not update_success:
             raise HTTPException(status_code=500, detail="Échec de la mise à jour de l'image")
 
-        # Récupérer la station mise à jour
+        # Retrieve the updated station
         favorites = plugin.station_manager.get_favorites_with_metadata()
         station = next((f for f in favorites if f.get('id') == station_id), None)
 
@@ -612,31 +612,31 @@ async def remove_station_image(
     station_id: str = Form(...)
 ):
     """
-    Supprime l'image d'une station favorite
+    Remove the image of a favorite station
 
     Args:
-        station_id: ID de la station (doit être une station favorite)
+        station_id: Station ID (must be a favorite station)
 
     Returns:
-        La station mise à jour sans image
+        The updated station without image
     """
     try:
         plugin = container.radio_plugin()
 
-        # Vérifier que c'est une station favorite
+        # Ensure it is a favorite station
         if not plugin.station_manager.is_favorite(station_id):
             raise HTTPException(
                 status_code=400,
                 detail="Seules les stations favorites peuvent avoir leur image modifiée"
             )
 
-        # Supprimer l'image du favori
+        # Remove the favorite's image
         remove_success = await plugin.station_manager.remove_favorite_image(station_id)
 
         if not remove_success:
             raise HTTPException(status_code=500, detail="Échec de la suppression de l'image")
 
-        # Récupérer la station mise à jour
+        # Retrieve the updated station
         favorites = plugin.station_manager.get_favorites_with_metadata()
         station = next((f for f in favorites if f.get('id') == station_id), None)
 
@@ -655,16 +655,16 @@ async def remove_station_image(
 @router.get("/custom")
 async def get_custom_stations():
     """
-    Récupère toutes les stations personnalisées
+    Retrieve all custom stations
 
     Returns:
-        Liste des stations personnalisées
+        List of custom stations
     """
     try:
         plugin = container.radio_plugin()
         custom_stations = plugin.station_manager.get_custom_stations()
 
-        # Enrichir avec statut favori
+        # Enrich with favorite status
         return plugin.station_manager.enrich_with_favorite_status(custom_stations)
 
     except Exception as e:
@@ -674,13 +674,13 @@ async def get_custom_stations():
 @router.get("/images/{filename}")
 async def get_station_image(filename: str):
     """
-    Sert une image de station radio
+    Serve a radio station image
 
     Args:
-        filename: Nom du fichier image (ex: "abc123.jpg")
+        filename: Image filename (e.g., "abc123.jpg")
 
     Returns:
-        Fichier image
+        Image file
     """
     try:
         plugin = container.radio_plugin()
@@ -689,7 +689,7 @@ async def get_station_image(filename: str):
         if not image_path or not image_path.exists():
             raise HTTPException(status_code=404, detail="Image introuvable")
 
-        # Déterminer le media_type basé sur l'extension
+        # Determine media_type based on extension
         ext = image_path.suffix.lower()
         media_type_map = {
             '.jpg': 'image/jpeg',
@@ -704,7 +704,7 @@ async def get_station_image(filename: str):
             path=str(image_path),
             media_type=media_type,
             headers={
-                "Cache-Control": "public, max-age=31536000",  # Cache 1 an
+                "Cache-Control": "public, max-age=31536000",  # Cache 1 year
                 "Content-Disposition": f"inline; filename={filename}"
             }
         )
@@ -716,49 +716,49 @@ async def get_station_image(filename: str):
 
 
 @router.get("/favicon")
-async def get_favicon_proxy(url: str = Query(..., description="URL du favicon à proxifier")):
+async def get_favicon_proxy(url: str = Query(..., description="Favicon URL to proxy")):
     """
-    Proxy pour les favicons de stations radio
+    Proxy for radio station favicons
 
-    Résout les problèmes CORS et gère automatiquement les redirections HTTP→HTTPS
-    Retourne une image transparente 1x1 en cas d'erreur (évite les erreurs 404 côté frontend)
+    Solves CORS issues and automatically handles HTTP→HTTPS redirects.
+    Returns a 1x1 transparent image on error (prevents 404s on the frontend).
 
     Args:
-        url: URL du favicon original
+        url: Original favicon URL
 
     Returns:
-        Image favicon avec headers CORS appropriés, ou PNG transparent si indisponible
+        Favicon image with appropriate CORS headers, or a transparent PNG if unavailable
     """
     try:
-        # Valider que l'URL commence par http:// ou https://
+        # Validate that the URL starts with http:// or https://
         if not url.startswith(('http://', 'https://')):
-            logger.warning(f"URL favicon invalide: {url}")
+            logger.warning(f"Invalid favicon URL: {url}")
             return _return_transparent_png()
 
-        # Télécharger le favicon avec gestion des redirections
+        # Download the favicon with redirect handling
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 url,
                 timeout=aiohttp.ClientTimeout(total=5),
-                allow_redirects=True,  # Suit automatiquement les redirections HTTP→HTTPS
+                allow_redirects=True,  # Automatically follows HTTP→HTTPS redirects
                 headers={'User-Agent': 'Milo/1.0'}
             ) as resp:
                 if resp.status != 200:
-                    logger.debug(f"Favicon non disponible (HTTP {resp.status}): {url}")
+                    logger.debug(f"Favicon not available (HTTP {resp.status}): {url}")
                     return _return_transparent_png()
 
-                # Lire le contenu
+                # Read content
                 content = await resp.read()
 
-                # Vérifier que le contenu n'est pas vide
+                # Ensure content is not empty
                 if not content or len(content) == 0:
-                    logger.debug(f"Favicon vide: {url}")
+                    logger.debug(f"Empty favicon: {url}")
                     return _return_transparent_png()
 
-                # Déterminer le content-type
+                # Determine content-type
                 content_type = resp.headers.get('Content-Type', 'image/x-icon')
 
-                # Retourner l'image avec headers CORS et cache
+                # Return image with CORS and cache headers
                 return Response(
                     content=content,
                     media_type=content_type,
@@ -770,23 +770,23 @@ async def get_favicon_proxy(url: str = Query(..., description="URL du favicon à
                 )
 
     except asyncio.TimeoutError:
-        logger.debug(f"Timeout téléchargement favicon: {url}")
+        logger.debug(f"Favicon download timeout: {url}")
         return _return_transparent_png()
     except aiohttp.ClientError as e:
-        logger.debug(f"Erreur téléchargement favicon {url}: {e}")
+        logger.debug(f"Favicon download error {url}: {e}")
         return _return_transparent_png()
     except Exception as e:
-        logger.warning(f"Erreur proxy favicon {url}: {e}")
+        logger.warning(f"Favicon proxy error {url}: {e}")
         return _return_transparent_png()
 
 
 def _return_transparent_png() -> Response:
-    """Retourne une image PNG transparente 1x1 pixel"""
+    """Return a 1x1 transparent PNG image"""
     return Response(
         content=TRANSPARENT_PNG,
         media_type="image/png",
         headers={
-            "Cache-Control": "public, max-age=3600",  # Cache 1h (moins que succès)
+            "Cache-Control": "public, max-age=3600",  # Cache 1h (shorter than success)
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET"
         }
@@ -796,7 +796,7 @@ def _return_transparent_png() -> Response:
 # === Helpers ===
 
 async def is_plugin_started() -> bool:
-    """Vérifie si le plugin Radio est démarré"""
+    """Check whether the Radio plugin is started"""
     try:
         state_machine = container.audio_state_machine()
         system_state = state_machine.system_state

@@ -91,7 +91,7 @@ class RocPlugin(UnifiedAudioPlugin):
             if proc.returncode != 0 or self.service_name not in stdout.decode():
                 raise RuntimeError(f"Service {self.service_name} not found")
 
-            self.logger.info("Plugin ROC initialisé")
+            self.logger.info("ROC plugin initialized")
             return True
 
         except Exception as e:
@@ -108,7 +108,7 @@ class RocPlugin(UnifiedAudioPlugin):
                 is_active = await self.service_manager.is_active(self.service_name)
 
                 if is_active:
-                    # Démarrer la surveillance événementielle (journalctl)
+                    # Start event monitoring (journalctl)
                     self._stopping = False
                     self.monitor_task = asyncio.create_task(self._monitor_events())
 
@@ -130,7 +130,7 @@ class RocPlugin(UnifiedAudioPlugin):
         self.logger.info("Simple ROC plugin stop")
         self._stopping = True
 
-        # Cleanup des tâches
+        # Cleanup tasks
         if self.monitor_task:
             self.monitor_task.cancel()
             self.monitor_task = None
@@ -147,25 +147,25 @@ class RocPlugin(UnifiedAudioPlugin):
 
     async def _detect_active_connections(self):
         """
-        Detects active connections via tcpdump si Mac déjà connecté avant démarrage ROC.
-        Capture brièvement les paquets sur les ports ROC pour extraire les IPs sources.
+        Detects active connections via tcpdump if Mac already connected before ROC start.
+        Briefly captures packets on ROC ports to extract source IPs.
         """
         try:
             self.logger.info("Launching tcpdump to detect active connections...")
 
-            # Lancer tcpdump : capture max 15 paquets ou timeout 3s
+            # Launch tcpdump: capture max 15 packets or 3s timeout
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "tcpdump",
-                "-i", "any",           # Toutes les interfaces
-                "-n",                  # Pas de résolution DNS
+                "-i", "any",           # All interfaces
+                "-n",                  # No DNS resolution
                 "-l",                  # Line buffered
-                "-c", "15",            # Max 15 paquets
+                "-c", "15",            # Max 15 packets
                 f"udp and dst port ({self.rtp_port} or {self.rs8m_port} or {self.rtcp_port})",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL
             )
 
-            # Timeout de 3 secondes max
+            # Timeout of 3 seconds max
             try:
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
             except asyncio.TimeoutError:
@@ -175,9 +175,9 @@ class RocPlugin(UnifiedAudioPlugin):
 
             output = stdout.decode('utf-8', errors='ignore')
 
-            # Parser les IPs sources (IPv4 et IPv6)
+            # Parse source IPs (IPv4 and IPv6)
             # Format: "21:47:59.614123 IP 192.168.1.172.54421 > ..."
-            # Format IPv6: "21:47:59.614123 IP6 fe80::1.54421 > ..."
+            # IPv6 format: "21:47:59.614123 IP6 fe80::1.54421 > ..."
             ip_pattern = re.compile(r'IP6?\s+([0-9a-fA-F:.]+)\.\d+\s+>')
 
             detected_ips = set()
@@ -195,7 +195,7 @@ class RocPlugin(UnifiedAudioPlugin):
                 self.logger.info("No active connections detected via tcpdump")
 
         except Exception as e:
-            self.logger.warning(f"tcpdump detection error (non-bloquant): {e}")
+            self.logger.warning(f"tcpdump detection error (non-blocking): {e}")
 
     async def _monitor_events(self):
         """Pure event monitoring with journalctl -f"""
@@ -238,7 +238,7 @@ class RocPlugin(UnifiedAudioPlugin):
                     pass  # Process already terminated
 
     async def _check_initial_state(self):
-        """Checks initial state en analysant les derniers logs"""
+        """Checks initial state by analyzing recent logs"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "journalctl", "-u", self.service_name, "-n", "100", "--no-pager",
@@ -248,24 +248,24 @@ class RocPlugin(UnifiedAudioPlugin):
 
             if proc.returncode == 0:
                 lines = stdout.decode().split('\n')
-                # Traiter tous les logs dans l'ordre chronologique
+                # Process all logs in chronological order
                 for line in lines:
                     if line.strip():
                         await self._process_log_line(line)
 
-            # Si aucune connexion trouvée dans les logs, utiliser tcpdump
-            # pour détecter les Mac déjà connectés (cas où Mac connecté avant démarrage ROC)
+            # If no connection found in logs, use tcpdump
+            # to detect already connected Macs (case where Mac connected before ROC start)
             if not self.connected_clients:
-                self.logger.info("No connection in logs, recherche active avec tcpdump...")
+                self.logger.info("No connection in logs, active search with tcpdump...")
                 await self._detect_active_connections()
 
         except Exception as e:
             self.logger.error(f"Initial state error: {e}")
 
     async def _process_log_line(self, line: str):
-        """Processes a log line - Détection connexion ET déconnexion avec IP"""
+        """Processes a log line - Connection AND disconnection detection with IP"""
         try:
-            # DÉCONNEXION - Extraire l'IP depuis les logs de déconnexion
+            # DISCONNECTION - Extract IP from disconnection logs
             # Pattern: "session router: removing route: ... address=192.168.1.172:54421"
             # Pattern: "rtcp reporter: removing address: remote_addr=192.168.1.172:54421"
             if "removing route" in line or "removing address" in line:
@@ -278,13 +278,13 @@ class RocPlugin(UnifiedAudioPlugin):
                         del self.connected_clients[ip]
                         await self._update_state()
                 else:
-                    # Si on ne trouve pas l'IP, on log un warning
+                    # If we don't find the IP, log a warning
                     self.logger.warning(f"Disconnection detected without IP: {line[:100]}")
                 return
 
-            # CONNEXION - Pattern: "session group: creating session"
+            # CONNECTION - Pattern: "session group: creating session"
             if "session group: creating session" in line:
-                # Chercher l'IP dans cette ligne ou les suivantes
+                # Look for IP in this line or following ones
                 ip, _ = _parse_ip_from_line(line)
                 if ip:
                     ip = _normalize_ip_for_storage(ip)
@@ -293,7 +293,7 @@ class RocPlugin(UnifiedAudioPlugin):
                         await self._add_client(ip)
                 return
 
-            # CONNEXION via route - Pattern: "creating.*route.*address="
+            # CONNECTION via route - Pattern: "creating.*route.*address="
             if "creating" in line and "route" in line and "address=" in line:
                 ip, _ = _parse_ip_from_line(line)
                 if ip:
@@ -311,7 +311,7 @@ class RocPlugin(UnifiedAudioPlugin):
         if ip in self.connected_clients:
             return
 
-        # Résoudre le hostname
+        # Resolve hostname
         display_name = await self._resolve_hostname(ip)
         self.connected_clients[ip] = display_name
         self.logger.info(f"Client added: {display_name} ({ip})")
@@ -341,11 +341,11 @@ class RocPlugin(UnifiedAudioPlugin):
 
             addr = ipaddress.ip_address(ip_only)
 
-            # Add scope if link-local IPv6 et qu'on a une interface connue
+            # Add scope if link-local IPv6 and we have a known interface
             if addr.version == 6 and addr.is_link_local and scope is None and self.network_interface:
                 ip_norm = f"{ip_only}%{self.network_interface}"
 
-            # Build command avahi-resolve
+            # Build avahi-resolve command
             args = ["avahi-resolve", "-a", ip_norm]
             if addr.version == 6:
                 args.insert(1, "-6")
@@ -381,7 +381,7 @@ class RocPlugin(UnifiedAudioPlugin):
                 "rtp_port": self.rtp_port,
                 "audio_output": self.audio_output,
                 "connected": True,
-                "client_names": client_names,  # Liste des noms
+                "client_names": client_names,  # List of names
                 "client_count": len(client_names)
             })
         else:

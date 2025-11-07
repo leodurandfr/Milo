@@ -1,6 +1,6 @@
 # backend/presentation/api/routes/programs.py
 """
-Routes API pour la gestion des programmes - Version complète avec satellites
+API routes for program management — Full version with satellites
 """
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Dict, Any
@@ -9,21 +9,21 @@ from backend.infrastructure.services.program_update_service import ProgramUpdate
 from backend.infrastructure.services.satellite_program_update_service import SatelliteProgramUpdateService
 
 def create_programs_router(ws_manager, snapcast_service):
-    """Router pour les programmes locaux et satellites"""
+    """Router for local and satellite programs"""
     router = APIRouter(prefix="/api/programs", tags=["programs"])
 
     program_service = ProgramVersionService()
     update_service = ProgramUpdateService()
     satellite_service = SatelliteProgramUpdateService(snapcast_service)
 
-    # Store pour suivre les mises à jour en cours
+    # Store to track ongoing updates
     active_updates = {}
 
-    # === ROUTES SPÉCIFIQUES (doivent être AVANT les routes génériques) ===
+    # === SPECIFIC ROUTES (must come BEFORE generic routes) ===
 
     @router.get("")
     async def get_all_programs():
-        """Récupère le statut de tous les programmes locaux (installés + GitHub)"""
+        """Retrieve the status of all local programs (installed + GitHub)"""
         try:
             results = await program_service.get_all_program_status()
             return {
@@ -41,7 +41,7 @@ def create_programs_router(ws_manager, snapcast_service):
 
     @router.get("/list")
     async def get_program_list():
-        """Récupère la liste des programmes configurés"""
+        """Retrieve the list of configured programs"""
         try:
             programs = program_service.get_program_list()
             return {
@@ -55,15 +55,15 @@ def create_programs_router(ws_manager, snapcast_service):
                 "programs": []
             }
 
-    # === ROUTES SATELLITES (spécifiques, avant les routes génériques) ===
+    # === SATELLITE ROUTES (specific, before generic routes) ===
 
     @router.get("/satellites")
     async def get_satellites():
-        """Récupère la liste des satellites détectés avec leurs versions"""
+        """Retrieve the list of detected satellites with their versions"""
         try:
             satellites = await satellite_service.discover_satellites()
 
-            # Enrichir avec version disponible et update_available
+            # Enrich with available version and update_available
             latest_version = await satellite_service._get_latest_snapclient_version()
 
             for satellite in satellites:
@@ -88,7 +88,7 @@ def create_programs_router(ws_manager, snapcast_service):
 
     @router.get("/satellites/{hostname}")
     async def get_satellite_status(hostname: str):
-        """Récupère le statut d'un satellite spécifique"""
+        """Retrieve the status of a specific satellite"""
         try:
             result = await satellite_service.get_satellite_status(hostname)
             return result
@@ -100,7 +100,7 @@ def create_programs_router(ws_manager, snapcast_service):
 
     @router.post("/satellites/{hostname}/update")
     async def update_satellite(hostname: str, background_tasks: BackgroundTasks):
-        """Lance la mise à jour d'un satellite en arrière-plan"""
+        """Launch a satellite update in the background"""
 
         satellite_key = f"satellite_{hostname}"
 
@@ -191,7 +191,7 @@ def create_programs_router(ws_manager, snapcast_service):
 
     @router.get("/satellites/{hostname}/update-status")
     async def get_satellite_update_status(hostname: str):
-        """Récupère le statut de mise à jour d'un satellite"""
+        """Retrieve the update status of a satellite"""
         satellite_key = f"satellite_{hostname}"
 
         if satellite_key in active_updates:
@@ -207,11 +207,11 @@ def create_programs_router(ws_manager, snapcast_service):
                 "message": "No update in progress"
             }
 
-    # === ROUTES GÉNÉRIQUES (doivent être APRÈS les routes spécifiques) ===
+    # === GENERIC ROUTES (must come AFTER specific routes) ===
 
     @router.get("/{program_key}")
     async def get_program_details(program_key: str):
-        """Récupère les détails d'un programme spécifique"""
+        """Retrieve the details of a specific program"""
         try:
             result = await program_service._get_program_full_status(program_key)
             return {
@@ -227,7 +227,7 @@ def create_programs_router(ws_manager, snapcast_service):
 
     @router.get("/{program_key}/installed")
     async def get_program_installed_version(program_key: str):
-        """Récupère uniquement la version installée d'un programme"""
+        """Retrieve only the installed version of a program"""
         try:
             result = await program_service.get_installed_version(program_key)
             return {
@@ -243,7 +243,7 @@ def create_programs_router(ws_manager, snapcast_service):
 
     @router.get("/{program_key}/latest")
     async def get_program_latest_version(program_key: str):
-        """Récupère uniquement la dernière version depuis GitHub"""
+        """Retrieve only the latest version from GitHub"""
         try:
             result = await program_service.get_latest_github_version(program_key)
             return {
@@ -259,7 +259,7 @@ def create_programs_router(ws_manager, snapcast_service):
 
     @router.get("/{program_key}/can-update")
     async def check_can_update_program(program_key: str):
-        """Vérifie si un programme peut être mis à jour"""
+        """Check if a program can be updated"""
         try:
             result = await update_service.can_update_program(program_key)
             return {
@@ -275,7 +275,7 @@ def create_programs_router(ws_manager, snapcast_service):
 
     @router.post("/{program_key}/update")
     async def update_program(program_key: str, background_tasks: BackgroundTasks):
-        """Lance la mise à jour d'un programme local en arrière-plan"""
+        """Launch a local program update in the background"""
 
         if program_key in active_updates:
             return {
@@ -373,7 +373,7 @@ def create_programs_router(ws_manager, snapcast_service):
 
     @router.get("/{program_key}/update-status")
     async def get_update_status(program_key: str):
-        """Récupère le statut de mise à jour d'un programme"""
+        """Retrieve the update status of a program"""
         if program_key in active_updates:
             return {
                 "status": "success",

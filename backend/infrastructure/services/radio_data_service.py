@@ -1,5 +1,5 @@
 """
-Service minimal pour gérer radio_data.json
+Minimal service to manage radio_data.json
 """
 import json
 import os
@@ -13,8 +13,8 @@ class RadioDataService:
     """
     Service minimal pour radio_data.json
 
-    Fournit uniquement load_data() et save_data()
-    La logique métier reste dans StationManager
+    Only provides load_data() and save_data()
+    Business logic remains in StationManager
     """
 
     def __init__(self):
@@ -24,19 +24,19 @@ class RadioDataService:
 
     async def load_data(self) -> Dict[str, Any]:
         """
-        Charge radio_data.json ou migre depuis milo_settings.json
+        Loads radio_data.json or migrates from milo_settings.json
 
         Returns:
-            Dict avec favorites, broken_stations, custom_stations
+            Dict with favorites, broken_stations, custom_stations
         """
         try:
             if os.path.exists(self.data_file):
-                # Fichier existe, le charger
+                # File exists, load it
                 async with self._file_lock:
                     async with aiofiles.open(self.data_file, 'r', encoding='utf-8') as f:
                         return json.loads(await f.read())
             else:
-                # Première fois : migrer depuis milo_settings.json
+                # First time: migrate from milo_settings.json
                 self.logger.info("radio_data.json not found, migrating from milo_settings.json")
                 return await self._migrate_from_settings()
 
@@ -49,26 +49,26 @@ class RadioDataService:
 
     async def save_data(self, data: Dict[str, Any]) -> bool:
         """
-        Sauvegarde radio_data.json avec écriture atomique
+        Saves radio_data.json with atomic write
 
         Args:
-            data: Dict avec favorites, broken_stations, custom_stations
+            data: Dict with favorites, broken_stations, custom_stations
 
         Returns:
-            True si succès
+            True if successful
         """
         try:
             async with self._file_lock:
                 temp_file = self.data_file + '.tmp'
 
-                # Écrire dans fichier temporaire
+                # Write to temporary file
                 async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
                     await f.write(json.dumps(data, ensure_ascii=False, indent=2))
                     await f.write('\n')
                     await f.flush()
                     os.fsync(f.fileno())
 
-                # Renommage atomique
+                # Atomic rename
                 os.replace(temp_file, self.data_file)
 
             return True
@@ -79,10 +79,10 @@ class RadioDataService:
 
     async def _migrate_from_settings(self) -> Dict[str, Any]:
         """
-        Migre les données depuis milo_settings.json (une seule fois)
+        Migrates data from milo_settings.json (once only)
 
         Returns:
-            Données migrées
+            Migrated data
         """
         settings_file = '/var/lib/milo/settings.json'
 
@@ -95,13 +95,13 @@ class RadioDataService:
 
             radio_section = settings.get('radio', {})
 
-            # Extraire les données
+            # Extract data
             old_favorites_ids = radio_section.get('favorites', [])
             broken_stations = radio_section.get('broken_stations', [])
             custom_stations = radio_section.get('custom_stations', [])
             station_images = radio_section.get('station_images', {})
 
-            # Convertir favoris : fusionner IDs + métadonnées
+            # Convert favorites: merge IDs + metadata
             new_favorites = []
             for station_id in old_favorites_ids:
                 if station_id.startswith("custom_"):
@@ -112,7 +112,7 @@ class RadioDataService:
                     else:
                         new_favorites.append({"id": station_id})
                 elif station_id in station_images:
-                    # Station avec métadonnées
+                    # Station with metadata
                     metadata = station_images[station_id]
                     new_favorites.append({
                         'id': station_id,
@@ -125,7 +125,7 @@ class RadioDataService:
                         'codec': 'Unknown'
                     })
                 else:
-                    # Juste l'ID
+                    # Just the ID
                     new_favorites.append({"id": station_id})
 
             migrated = {
@@ -134,7 +134,7 @@ class RadioDataService:
                 "custom_stations": custom_stations
             }
 
-            # Sauvegarder immédiatement
+            # Save immediately
             await self.save_data(migrated)
             self.logger.info(f"✅ Migrated {len(new_favorites)} favorites from milo_settings.json")
 
