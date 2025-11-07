@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/bluetooth/bluealsa_monitor.py
 """
-Connection monitor Bluetooth via bluealsa-cli monitor - Version concise corrigée
+Bluetooth connection monitor via bluealsa-cli monitor - Fixed concise version
 """
 import asyncio
 import logging
@@ -19,12 +19,12 @@ class BlueAlsaMonitor:
         self._stopped = False
     
     def set_callbacks(self, connection_callback, disconnection_callback):
-        """Sets callbacks pour les événements de connexion/déconnexion"""
+        """Sets callbacks for connection/disconnection events"""
         self._connection_callback = connection_callback
         self._disconnection_callback = disconnection_callback
     
     async def start_monitoring(self) -> bool:
-        """Starts monitoring des PCMs BlueALSA"""
+        """Starts BlueALSA PCM monitoring"""
         try:
             self._stopped = False
             
@@ -35,28 +35,28 @@ class BlueAlsaMonitor:
                 stderr=asyncio.subprocess.PIPE
             )
             
-            # Start la tâche de lecture de la sortie
+            # Start output reading task
             asyncio.create_task(self._read_output())
             
             return True
         except Exception as e:
-            self.logger.error(f"Error démarrage surveillance: {e}")
+            self.logger.error(f"Monitoring startup error: {e}")
             return False
     
     async def stop_monitoring(self) -> None:
-        """Stoppinge la surveillance des PCMs BlueALSA proprement"""
+        """Stops BlueALSA PCM monitoring cleanly"""
         self._stopped = True
         
         if self.process and self.process.returncode is None:
             try:
-                # Terminate cleanly le processus
+                # Terminate process cleanly
                 self.process.terminate()
                 
-                # Wait la terminaison (avec timeout raisonnable)
+                # Wait for termination (with reasonable timeout)
                 try:
                     await asyncio.wait_for(self.process.wait(), timeout=2.0)
                 except asyncio.TimeoutError:
-                    # Si timeout, kill définitivement
+                    # If timeout, kill definitively
                     self.process.kill()
                     await self.process.wait()
                     
@@ -71,7 +71,7 @@ class BlueAlsaMonitor:
         self.connected_devices.clear()
     
     async def _read_output(self) -> None:
-        """Reads output de bluealsa-cli monitor"""
+        """Reads bluealsa-cli monitor output"""
         if not self.process:
             return
         
@@ -87,17 +87,17 @@ class BlueAlsaMonitor:
             pass
         except Exception as e:
             if not self._stopped:
-                self.logger.error(f"Error lecture: {e}")
+                self.logger.error(f"Reading error: {e}")
     
     async def _parse_line(self, line: str) -> None:
-        """Parses a line de sortie de bluealsa-cli monitor"""
+        """Parses a line of bluealsa-cli monitor output"""
         try:
             if line.startswith("PCMAdded"):
                 await self._handle_pcm_added(line)
             elif line.startswith("PCMRemoved"):
                 await self._handle_pcm_removed(line)
         except Exception as e:
-            self.logger.error(f"Error parsing: {e}")
+            self.logger.error(f"Parsing error: {e}")
     
     async def _handle_pcm_added(self, line: str) -> None:
         """Processes PCM added event"""
@@ -134,10 +134,10 @@ class BlueAlsaMonitor:
                     await self._disconnection_callback(address, name)
     
     def _extract_device_info(self, path: str) -> Optional[Dict[str, Any]]:
-        """Extracts information d'appareil à partir d'un chemin PCM"""
+        """Extracts device information from a PCM path"""
         parts = path.split("/")
         
-        # Verify le format du chemin
+        # Verify path format
         if len(parts) < 6:
             return None
             
@@ -145,7 +145,7 @@ class BlueAlsaMonitor:
         profile_part = parts[-2]  # a2dpsnk
         direction_part = parts[-1]  # source
         
-        # Filter pour ne garder que les PCM A2DP sink/source
+        # Filter to keep only A2DP sink/source PCMs
         if device_part.startswith("dev_") and "a2dp" in profile_part.lower() and direction_part == "source":
             address = device_part[4:].replace("_", ":")
             return {
@@ -157,7 +157,7 @@ class BlueAlsaMonitor:
         return None
     
     async def _get_device_name(self, address: str) -> str:
-        """Gets name d'un appareil Bluetooth - Version non-bloquante"""
+        """Gets Bluetooth device name - Non-blocking version"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "bluetoothctl", "info", address,
@@ -165,17 +165,17 @@ class BlueAlsaMonitor:
                 stderr=asyncio.subprocess.DEVNULL
             )
             
-            # Timeout court pour éviter les blocages
+            # Short timeout to avoid blocking
             try:
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
                 output = stdout.decode()
                 
-                # Search name dans la sortie
+                # Search for name in output
                 match = re.search(r"Name: (.+)$", output, re.MULTILINE)
                 return match.group(1).strip() if match else f"Device {address}"
                 
             except asyncio.TimeoutError:
-                # Kill process et retourner l'adresse
+                # Kill process and return address
                 proc.kill()
                 await proc.wait()
                 return f"Device {address}"

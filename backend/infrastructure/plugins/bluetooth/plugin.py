@@ -29,12 +29,12 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         # ADD: Define service_name for base class
         self.service_name = self.bluealsa_service
 
-        # State - Renamed to avoid conflict avec la classe de base
+        # State - Renamed to avoid conflict with base class
         self.connected_device = None
         self._auto_connecting = False
         self._current_device = "milo_bluetooth"
 
-        # Composants
+        # Components
         self.agent = BluetoothAgent()
         self.monitor = BlueAlsaMonitor()
         self.playback = BlueAlsaPlayback()
@@ -114,7 +114,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         try:
             commands = "\n".join([
                 "power on",
-                "system-alias Milō · Bluetooth",
+                "system-alias Milō · Bluetooth",
                 "discoverable-timeout 0",
                 "discoverable on",
                 "pairable on",
@@ -189,7 +189,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             return False
 
     async def _monitor_connections(self):
-        """Monitors Bluetooth connections et déconnecte les appareils supplémentaires"""
+        """Monitors Bluetooth connections and disconnects additional devices"""
         self.logger.info("Bluetooth connections monitoring started")
 
         while True:
@@ -231,8 +231,8 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                     for address in connected_devices:
                         if address != self._first_connected_device:
                             self.logger.warning(
-                                f"REFUS: {address} se connecte alors que "
-                                f"{self._first_connected_device} est déjà connecté - déconnexion"
+                                f"REFUSED: {address} trying to connect while "
+                                f"{self._first_connected_device} is already connected - disconnecting"
                             )
                             await self._disconnect_device(address)
 
@@ -258,10 +258,10 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 self.logger.error(f"Disconnection error {address}: {stderr.decode().strip()}")
                 return False
 
-            self.logger.info(f"Device {} disconnected successfully")
+            self.logger.info(f"Device {address} disconnected successfully")
             return True
         except Exception as e:
-            self.logger.error(f"Disconnection error appareil {address}: {e}")
+            self.logger.error(f"Device disconnection error {address}: {e}")
             return False
     
     async def _cleanup(self) -> None:
@@ -272,7 +272,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         # Stop monitoring
         await self.monitor.stop_monitoring()
 
-        # Stop monitoring task des connexions
+        # Stop connections monitoring task
         if self._monitoring_task and not self._monitoring_task.done():
             self._monitoring_task.cancel()
             try:
@@ -288,8 +288,8 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             await self.agent.unregister()
     
     async def _on_device_connected(self, address: str, name: str) -> None:
-        """Callback called on connection d'un appareil"""
-        # The monitoring loop handles blocking les connexions multiples
+        """Callback called on device connection"""
+        # The monitoring loop handles blocking multiple connections
         # Here we just register the device
         if not self.connected_device:
             self.connected_device = {"address": address, "name": name}
@@ -308,7 +308,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         await self.playback.start_playback(address)
     
     async def _on_device_disconnected(self, address: str, name: str) -> None:
-        """Callback called on disconnection d'un appareil"""
+        """Callback called on device disconnection"""
         # Check if current device
         if not self.connected_device or self.connected_device.get("address") != address:
             return

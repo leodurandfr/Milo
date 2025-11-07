@@ -1,3 +1,4 @@
+# backend/infrastructure/plugins/radio/plugin.py
 """
 Radio plugin for Milo - Web radio streaming via mpv
 """
@@ -18,11 +19,11 @@ class RadioPlugin(UnifiedAudioPlugin):
     Radio plugin for Milo
 
     Follows the pattern of other plugins (Librespot, Bluetooth, ROC):
-    - Controls an external systemd service (milo-radio.service avec mpv)
-    - Manages metadata (station actuelle, titre du stream)
+    - Controls an external systemd service (milo-radio.service with mpv)
+    - Manages metadata (current station, stream title)
     - Multiroom and equalizer support via routing service
 
-    États:
+    States:
         INACTIVE → service stopped
         READY → service started (mpv in idle)
         CONNECTED → station playing
@@ -39,10 +40,10 @@ class RadioPlugin(UnifiedAudioPlugin):
         # Create dedicated radio data service
         self.radio_data_service = RadioDataService()
 
-        # Composants
+        # Components
         self.mpv = MpvController(self.ipc_socket_path)
         self.station_manager = StationManager(self.radio_data_service, state_machine)
-        # Note: station_manager est passé à RadioBrowserAPI pour fusionner stations personnalisées
+        # Note: station_manager is passed to RadioBrowserAPI to merge custom stations
         self.radio_api = RadioBrowserAPI(cache_duration_minutes=60, station_manager=self.station_manager)
 
         # Current state
@@ -70,7 +71,7 @@ class RadioPlugin(UnifiedAudioPlugin):
             if proc.returncode != 0 or self.service_name not in stdout.decode():
                 raise RuntimeError(f"Service {self.service_name} not found")
 
-            # Vérifier que mpv est installé
+            # Check that mpv is installed
             proc = await asyncio.create_subprocess_exec(
                 "which", "mpv",
                 stdout=asyncio.subprocess.PIPE,
@@ -230,7 +231,7 @@ class RadioPlugin(UnifiedAudioPlugin):
         """
         Monitors mpv playback state
 
-        Vérifie périodiquement l'état et les métadonnées
+        Periodically checks state and metadata
         """
         try:
             while not self._stopping:
@@ -238,31 +239,31 @@ class RadioPlugin(UnifiedAudioPlugin):
                     # Check playback state
                     is_playing = await self.mpv.is_playing()
 
-                    # DEBUG: Log raw state de mpv (seulement pendant buffering)
+                    # DEBUG: Log raw mpv state (only during buffering)
                     if self.current_station and self._is_buffering:
                         playback_time = await self.mpv.get_property("playback-time")
                         self.logger.info(f"🔍 Monitor: is_playing={is_playing}, playback_time={playback_time}")
 
-                    # Update state immediately (pas de debouncing avec core-idle)
+                    # Update state immediately (no debouncing with core-idle)
                     if is_playing != self._is_playing:
                         self._is_playing = is_playing
                         self.logger.info(f"Playback state changed: {'playing' if is_playing else 'stopped'}")
 
-                        # Si on passe à playing et qu'on était en buffering, terminer le buffering
+                        # If transitioning to playing and we were buffering, finish buffering
                         if is_playing and self._is_buffering:
                             self._is_buffering = False
-                            self.logger.info("✅ Buffering completed, stream en lecture")
+                            self.logger.info("✅ Buffering completed, stream playing")
 
                     # plugin_state is CONNECTED while a station is loaded
-                    # isPlaying dans les métadonnées indique l'état réel de lecture
+                    # isPlaying in metadata indicates actual playback state
                     if self.current_station:
                         await self._update_metadata()
 
-                        # Broadcast on each update pour synchroniser tous les clients
+                        # Broadcast on each update to sync all clients
                         await self.notify_state_change(PluginState.CONNECTED, self._metadata)
 
-                    # Fast polling pour détecter rapidement le début de la lecture
-                    await asyncio.sleep(0.5)  # Check every 0.5 secondes
+                    # Fast polling to quickly detect playback start
+                    await asyncio.sleep(0.5)  # Check every 0.5 seconds
 
                 except Exception as e:
                     self.logger.error(f"Playback monitoring error: {e}")
@@ -276,9 +277,9 @@ class RadioPlugin(UnifiedAudioPlugin):
     async def _update_metadata(self) -> None:
         """Updates metadata from mpv"""
         try:
-            # Check that current_station is a dict BEFORE d'accéder aux propriétés
+            # Check that current_station is a dict BEFORE accessing properties
             if self.current_station and not isinstance(self.current_station, dict):
-                self.logger.error(f"current_station n'est pas un dict: {type(self.current_station)}, valeur: {self.current_station}")
+                self.logger.error(f"current_station is not a dict: {type(self.current_station)}, value: {self.current_station}")
                 self.current_station = None
                 self._metadata = {}
                 return
@@ -351,14 +352,14 @@ class RadioPlugin(UnifiedAudioPlugin):
             station = await self.radio_api.get_station_by_id(station_id)
             if not station:
                 self.logger.error(f"❌ Station not found: {station_id}")
-                return self.format_response(False, error=f"Station {station_id} introuvable")
+                return self.format_response(False, error=f"Station {station_id} not found")
 
             self.logger.info(f"📻 Playing station: {station['name']} (URL: {station['url']})")
 
             # Increment Radio Browser counter
             asyncio.create_task(self.radio_api.increment_station_clicks(station_id))
 
-            # Mettre à jour l'état : buffering in progress
+            # Update state: buffering in progress
             self.current_station = station
             self._is_playing = False
             self._is_buffering = True
@@ -381,8 +382,8 @@ class RadioPlugin(UnifiedAudioPlugin):
                     error=f"Unable to load stream {station['name']}"
                 )
 
-            # Buffering will continue jusqu'à ce que _monitor_playback détecte is_playing=true
-            # On ne met pas _is_playing = True ici, on laisse _monitor_playback le faire
+            # Buffering will continue until _monitor_playback detects is_playing=true
+            # We don't set _is_playing = True here, we let _monitor_playback do it
 
             return self.format_response(
                 True,
@@ -398,16 +399,16 @@ class RadioPlugin(UnifiedAudioPlugin):
     async def _handle_stop_playback(self) -> Dict[str, Any]:
         """Stops playback"""
         try:
-            # Always stop mpv (ignore l'erreur si déjà arrêté)
+            # Always stop mpv (ignore error if already stopped)
             await self.mpv.stop()
 
-            # Always reset state, même si mpv retourne une erreur
-            # (cas où on appelle stop() alors qu'on est déjà arrêté)
+            # Always reset state, even if mpv returns an error
+            # (case where we call stop() when already stopped)
             self.current_station = None
             self._is_playing = False
             self._is_buffering = False
 
-            # Create metadata avec is_playing: false pour notifier le frontend
+            # Create metadata with is_playing: false to notify frontend
             self._metadata = {
                 "is_playing": False,
                 "buffering": False,
@@ -425,7 +426,7 @@ class RadioPlugin(UnifiedAudioPlugin):
             return self.format_response(False, error=str(e))
 
     async def _handle_add_favorite(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Adds station to favorites avec ses métadonnées complètes"""
+        """Adds station to favorites with complete metadata"""
         station_id = data.get('station_id')
         if not station_id:
             return self.format_response(False, error="station_id required")
@@ -435,11 +436,11 @@ class RadioPlugin(UnifiedAudioPlugin):
 
         # If not provided, get from API
         if not station:
-            self.logger.debug(f"⚠️ Pas d'objet station fourni, récupération depuis API pour {station_id}")
+            self.logger.debug(f"⚠️ No station object provided, fetching from API for {station_id}")
             station = await self.radio_api.get_station_by_id(station_id)
 
         if not station:
-            return self.format_response(False, error=f"Station {station_id} introuvable")
+            return self.format_response(False, error=f"Station {station_id} not found")
 
         # Add to favorites with complete metadata
         success = await self.station_manager.add_favorite(station_id, station)

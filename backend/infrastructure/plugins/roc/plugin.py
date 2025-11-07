@@ -89,7 +89,7 @@ class RocPlugin(UnifiedAudioPlugin):
             stdout, _ = await proc.communicate()
 
             if proc.returncode != 0 or self.service_name not in stdout.decode():
-                raise RuntimeError(f"Service {} not found")
+                raise RuntimeError(f"Service {self.service_name} not found")
 
             self.logger.info("Plugin ROC initialisé")
             return True

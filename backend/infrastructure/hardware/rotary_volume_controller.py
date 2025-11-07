@@ -1,6 +1,6 @@
 # backend/infrastructure/hardware/rotary_volume_controller.py
 """
-Contrôleur rotary encoder KY-040 pour volume - Version API volume affiché
+KY-040 Rotary Encoder Controller for Volume - Display Volume API Version
 """
 import lgpio
 import asyncio
@@ -9,7 +9,7 @@ from typing import Optional, Callable, Awaitable
 from time import monotonic
 
 class RotaryVolumeController:
-    """Contrôleur rotary encoder KY-040 - API volume affiché (0-100%)"""
+    """KY-040 rotary encoder controller - Display volume API (0-100%)"""
     
     def __init__(self, volume_service, clk_pin=22, dt_pin=27, sw_pin=23):
         self.volume_service = volume_service
@@ -21,12 +21,12 @@ class RotaryVolumeController:
         self.running = False
         self.logger = logging.getLogger(__name__)
         
-        # Configuration rotary pour volume affiché  
+        # Rotary configuration for display volume  
         self.DEBOUNCE_TIME = 0.05  # 50ms debounce
         self.rotation_accumulator = 0
         self.is_processing = False
-        self.PROCESS_INTERVAL = 0.05  # 50ms entre traitements
-        self.MIN_UPDATE_INTERVAL = 0.05  # 50ms minimum entre updates
+        self.PROCESS_INTERVAL = 0.05  # 50ms between processing
+        self.MIN_UPDATE_INTERVAL = 0.05  # 50ms minimum between updates
         
         # Timing
         self._last_adjustment_time = 0
@@ -34,19 +34,19 @@ class RotaryVolumeController:
         self._last_button_press = 0
     
     async def initialize(self) -> bool:
-        """Initialise le contrôleur rotary"""
+        """Initializes the rotary controller"""
         try:
             self.logger.info(f"Initializing rotary controller with display volume API (CLK={self.CLK}, DT={self.DT}, SW={self.SW})")
             self.chip_handle = lgpio.gpiochip_open(0)
             
-            # Configuration des pins
+            # Pin configuration
             for pin in [self.CLK, self.DT, self.SW]:
                 lgpio.gpio_claim_input(self.chip_handle, pin, lgpio.SET_PULL_UP)
             
             self.last_clk = lgpio.gpio_read(self.chip_handle, self.CLK)
             self.running = True
             
-            # Démarrer les boucles de surveillance
+            # Start monitoring loops
             asyncio.create_task(self._monitor_loop())
             asyncio.create_task(self._process_rotations_loop())
             
@@ -59,7 +59,7 @@ class RotaryVolumeController:
             return False
     
     async def _monitor_loop(self):
-        """Boucle principale de surveillance"""
+        """Main monitoring loop"""
         self.logger.info("Starting rotary monitoring loop")
         
         while self.running:
@@ -73,14 +73,14 @@ class RotaryVolumeController:
                 await asyncio.sleep(1)
     
     async def _process_rotations_loop(self):
-        """Boucle de traitement des rotations accumulées"""
+        """Loop for processing accumulated rotations"""
         last_process_time = monotonic()
         
         while self.running:
             try:
                 current_time = monotonic()
                 
-                # Conditions pour traiter les rotations
+                # Conditions for processing rotations
                 should_process = (
                     current_time - last_process_time >= self.PROCESS_INTERVAL and
                     self.rotation_accumulator != 0 and
@@ -91,15 +91,15 @@ class RotaryVolumeController:
                 if should_process:
                     self.is_processing = True
                     
-                    # Récupérer le step dynamique depuis VolumeService
+                    # Get dynamic step from VolumeService
                     volume_step = self.volume_service.get_rotary_step()
                     
-                    # Calculer le changement de volume affiché (0-100%)
+                    # Calculate display volume change (0-100%)
                     volume_delta = self.rotation_accumulator * volume_step
                     self.rotation_accumulator = 0
                     last_process_time = current_time
                     
-                    # Appliquer le changement via le service volume
+                    # Apply change via volume service
                     try:
                         result = await self.volume_service.adjust_display_volume(volume_delta)
                         self._last_volume_update = current_time
@@ -117,7 +117,7 @@ class RotaryVolumeController:
                 await asyncio.sleep(0.1)
     
     async def _check_rotation(self):
-        """Détecte et accumule les rotations"""
+        """Detects and accumulates rotations"""
         clk_state = lgpio.gpio_read(self.chip_handle, self.CLK)
         
         if clk_state != self.last_clk:
@@ -127,11 +127,11 @@ class RotaryVolumeController:
                 dt_state = lgpio.gpio_read(self.chip_handle, self.DT)
                 
                 if dt_state != clk_state:
-                    # Rotation horaire (volume +)
+                    # Clockwise rotation (volume +)
                     self.rotation_accumulator += 1
                     self.logger.debug(f"Rotation clockwise → (+1), accumulator={self.rotation_accumulator}")
                 else:
-                    # Rotation anti-horaire (volume -)
+                    # Counter-clockwise rotation (volume -)
                     self.rotation_accumulator -= 1
                     self.logger.debug(f"Rotation counter-clockwise ← (-1), accumulator={self.rotation_accumulator}")
                 
@@ -140,18 +140,18 @@ class RotaryVolumeController:
             self.last_clk = clk_state
     
     async def _check_button(self):
-        """Détecte l'appui sur le bouton SW"""
+        """Detects SW button press"""
         if lgpio.gpio_read(self.chip_handle, self.SW) == 0:
             current_time = monotonic()
             
             if current_time - self._last_button_press >= self.DEBOUNCE_TIME:
                 self.logger.debug("Button pressed - could implement mute/unmute")
-                # Action libre - pourrait être mute/unmute via VolumeService
+                # Free action - could be mute/unmute via VolumeService
                 self._last_button_press = current_time
-                await asyncio.sleep(0.2)  # Éviter les rebonds
+                await asyncio.sleep(0.2)  # Avoid bouncing
     
     def cleanup(self):
-        """Nettoie les ressources GPIO"""
+        """Cleans up GPIO resources"""
         self.logger.info("Cleaning up rotary controller")
         self.running = False
         
