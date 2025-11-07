@@ -9,7 +9,7 @@ import os
 from typing import Dict, Any, List, Optional
 
 class SatelliteProgramUpdateService:
-    """Service pour gérer les satellites et leurs mises à jour"""
+    """Service to manage satellites and their updates"""
 
     def __init__(self, snapcast_service):
         self.snapcast_service = snapcast_service
@@ -78,7 +78,7 @@ class SatelliteProgramUpdateService:
             return []
 
     async def _check_satellite_api(self, hostname: str, ip: str) -> Dict[str, Any]:
-        """Vérifie si l'API d'un satellite répond et récupère ses infos"""
+        """Checks if a satellite API responds and retrieves its info"""
         try:
             url = f"http://{ip}:{self.satellite_api_port}/status"
 
@@ -102,7 +102,7 @@ class SatelliteProgramUpdateService:
             return {"online": False}
 
     async def get_satellite_status(self, hostname: str) -> Dict[str, Any]:
-        """Récupère le statut complet d'un satellite spécifique"""
+        """Gets complete status of a specific satellite"""
         try:
             satellites = await self.discover_satellites()
 
@@ -261,7 +261,7 @@ class SatelliteProgramUpdateService:
         }
 
     async def _get_latest_snapclient_version(self) -> Optional[str]:
-        """Récupère la dernière version de snapclient depuis GitHub avec token"""
+        """Gets latest snapclient version from GitHub with token"""
         try:
             url = "https://api.github.com/repos/badaix/snapcast/releases/latest"
             headers = self._get_github_headers()

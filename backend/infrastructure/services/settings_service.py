@@ -10,7 +10,7 @@ import asyncio
 from typing import Dict, Any
 
 class SettingsService:
-    """Gestionnaire de settings simplifié avec support 0 = désactivé"""
+    """Simplified settings manager with support for 0 = disabled"""
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ class SettingsService:
 
         except json.JSONDecodeError as e:
             self.logger.error(f"JSON decode error in settings file: {e}")
-            # Sauvegarder le fichier corrompu
+            # Save le fichier corrompu
             if os.path.exists(self.settings_file):
                 backup_corrupted = self.settings_file + '.corrupted'
                 async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as src:
@@ -100,7 +100,7 @@ class SettingsService:
             validated = self._validate_and_merge(settings)
 
             async with self._file_lock:
-                # Écriture atomique via fichier temporaire
+                # Atomic write via fichier temporaire
                 temp_file = self.settings_file + '.tmp'
 
                 # Générer le JSON
@@ -218,7 +218,7 @@ class SettingsService:
         return validated
     
     def get_setting_sync(self, key_path: str) -> Any:
-        """Récupère une setting par chemin (SYNCHRONE - utilise cache ou charge bloquant)"""
+        """Gets a setting by path (SYNCHRONOUS - uses cache or blocking load)"""
         if not self._cache:
             # Charger de manière synchrone si nécessaire (bloquant mais rare)
             try:
@@ -240,7 +240,7 @@ class SettingsService:
             return None
 
     async def get_setting(self, key_path: str) -> Any:
-        """Récupère une setting par chemin (async)"""
+        """Gets a setting by path (async)"""
         if not self._cache:
             self._cache = await self.load_settings()
 

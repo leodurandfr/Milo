@@ -1,6 +1,6 @@
 # backend/infrastructure/services/program_version_service.py
 """
-Service de gestion des versions des programmes - Version avec support token GitHub
+Program version management service - Version with GitHub token support
 """
 import asyncio
 import aiohttp
@@ -11,19 +11,19 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 class ProgramVersionService:
-    """Service simplifié pour gérer les versions des programmes Milo"""
+    """Simplified service to manage Milo program versions"""
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-        # Récupérer le token GitHub depuis l'environnement (optionnel)
+        # Get GitHub token from environment (optional)
         self.github_token = os.environ.get('GITHUB_TOKEN')
         if self.github_token:
             self.logger.info("GitHub token detected - using authenticated API (5000 req/hour)")
         else:
             self.logger.info("No GitHub token - using anonymous API (60 req/hour)")
 
-        # Configuration des programmes (snapserver et snapclient séparés)
+        # Program configuration (snapserver and snapclient separated)
         self.programs = {
             "milo": {
                 "name": "Milō",
@@ -82,13 +82,13 @@ class ProgramVersionService:
             }
         }
 
-        # Cache pour éviter les appels répétés à GitHub
+        # Cache to avoid repeated GitHub calls
         self._github_cache = {}
-        self._cache_timeout = 3600  # 1 heure
+        self._cache_timeout = 3600  # 1 hour
         self._last_github_fetch = {}
 
     def _get_github_headers(self) -> Dict[str, str]:
-        """Retourne les headers pour les requêtes GitHub (avec token si disponible)"""
+        """Returns headers for GitHub requests (with token if available)"""
         headers = {
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": "Milo-Audio-System"
@@ -100,7 +100,7 @@ class ProgramVersionService:
         return headers
 
     async def get_installed_version(self, program_key: str) -> Dict[str, Any]:
-        """Récupère la version installée d'un programme"""
+        """Gets the installed version of a program"""
         if program_key not in self.programs:
             return {"status": "error", "message": "Unknown program"}
 
@@ -113,7 +113,7 @@ class ProgramVersionService:
             "errors": []
         }
 
-        # Tenter de récupérer les versions pour chaque commande
+        # Try to retrieve versions for each command
         for cmd_name, cmd_args in program_config["commands"].items():
             try:
                 version = await self._execute_version_command(cmd_args, program_config["version_regex"])
@@ -121,20 +121,20 @@ class ProgramVersionService:
                     result["versions"][cmd_name] = version
                     result["status"] = "installed"
                 else:
-                    result["errors"].append(f"{cmd_name}: Version non détectée")
+                    result["errors"].append(f"{cmd_name}: Version not detected")
             except Exception as e:
                 result["errors"].append(f"{cmd_name}: {str(e)}")
 
-        # Si aucune version détectée, marquer comme non installé
+        # If no version detected, mark as not installed
         if not result["versions"]:
             result["status"] = "not_installed"
 
         return result
 
     async def _execute_version_command(self, cmd_args: List[str], version_regex: str) -> Optional[str]:
-        """Exécute une commande de version et extrait le numéro"""
+        """Executes a version command and extracts the number"""
         try:
-            # Timeout court pour éviter les blocages
+            # Short timeout to avoid blocking
             proc = await asyncio.create_subprocess_exec(
                 *cmd_args,
                 stdout=asyncio.subprocess.PIPE,
@@ -144,14 +144,14 @@ class ProgramVersionService:
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
 
-                # Chercher la version dans stdout puis stderr
+                # Search for version in stdout then stderr
                 output_text = stdout.decode() + stderr.decode()
                 match = re.search(version_regex, output_text)
 
                 if match:
                     return match.group(1)
 
-                # Fallback : chercher des patterns de version communs
+                # Fallback: search for common version patterns
                 fallback_patterns = [
                     r"(\d+\.\d+\.\d+)",
                     r"version (\d+\.\d+\.\d+)",
@@ -176,13 +176,13 @@ class ProgramVersionService:
             raise Exception(f"Execution error: {str(e)}")
 
     async def get_latest_github_version(self, program_key: str) -> Dict[str, Any]:
-        """Récupère la dernière version depuis GitHub avec cache et token"""
+        """Gets the latest version from GitHub with cache and token"""
         if program_key not in self.programs:
             return {"status": "error", "message": "Unknown program"}
 
         repo = self.programs[program_key]["repo"]
 
-        # Vérifier le cache
+        # Check cache
         import time
         current_time = time.time()
         cache_key = f"github_{program_key}"
@@ -193,7 +193,7 @@ class ProgramVersionService:
             return self._github_cache[cache_key]
 
         try:
-            # Appel à l'API GitHub avec headers (incluant token si disponible)
+            # Call GitHub API with headers (including token if available)
             url = f"https://api.github.com/repos/{repo}/releases/latest"
             headers = self._get_github_headers()
 
@@ -203,7 +203,7 @@ class ProgramVersionService:
                         data = await response.json()
                         tag_name = data.get("tag_name", "")
 
-                        # Extraire le numéro de version
+                        # Extract version number
                         version_regex = self.programs[program_key]["version_regex"]
                         match = re.search(version_regex, tag_name)
 
@@ -224,7 +224,7 @@ class ProgramVersionService:
                                 "html_url": data.get("html_url")
                             }
 
-                        # Mettre en cache
+                        # Cache result
                         self._github_cache[cache_key] = result
                         self._last_github_fetch[cache_key] = current_time
 
@@ -249,10 +249,10 @@ class ProgramVersionService:
             return {"status": "error", "message": f"GitHub API error: {str(e)}"}
 
     async def get_all_program_status(self) -> Dict[str, Any]:
-        """Récupère le statut de tous les programmes"""
+        """Gets the status of all programs"""
         results = {}
 
-        # Récupérer les versions installées en parallèle
+        # Get installed versions in parallel
         tasks = []
         for program_key in self.programs.keys():
             tasks.append(self._get_program_full_status(program_key))
@@ -271,9 +271,9 @@ class ProgramVersionService:
         return results
 
     async def _get_program_full_status(self, program_key: str) -> Dict[str, Any]:
-        """Récupère le statut complet (installé + GitHub) pour un programme"""
+        """Gets complete status (installed + GitHub) for a program"""
         try:
-            # Lancer les deux requêtes en parallèle
+            # Launch both requests in parallel
             installed_task = self.get_installed_version(program_key)
             github_task = self.get_latest_github_version(program_key)
 
@@ -281,14 +281,14 @@ class ProgramVersionService:
                 installed_task, github_task, return_exceptions=True
             )
 
-            # Gérer les exceptions
+            # Handle exceptions
             if isinstance(installed_result, Exception):
                 installed_result = {"status": "error", "message": str(installed_result)}
 
             if isinstance(github_result, Exception):
                 github_result = {"status": "error", "message": str(github_result)}
 
-            # Combiner les résultats
+            # Combine results
             result = {
                 "name": self.programs[program_key]["name"],
                 "description": self.programs[program_key]["description"],
@@ -297,11 +297,11 @@ class ProgramVersionService:
                 "update_available": False
             }
 
-            # Déterminer s'il y a une mise à jour disponible
+            # Determine if an update is available
             if (installed_result.get("status") == "installed" and
                 github_result.get("status") == "success"):
 
-                # Prendre la première version installée pour comparaison
+                # Take the first installed version for comparison
                 installed_versions = installed_result.get("versions", {})
                 if installed_versions:
                     installed_version = list(installed_versions.values())[0]
@@ -321,13 +321,13 @@ class ProgramVersionService:
             }
 
     def _compare_versions(self, installed: str, latest: str) -> bool:
-        """Compare deux versions semver (retourne True si mise à jour disponible)"""
+        """Compares two semver versions (returns True if update available)"""
         try:
             def parse_version(version_str):
-                # Nettoyer et parser la version
+                # Clean and parse version
                 clean_version = re.sub(r'[^\d.]', '', version_str)
                 parts = clean_version.split('.')
-                # S'assurer qu'on a au moins 3 parties
+                # Ensure we have at least 3 parts
                 while len(parts) < 3:
                     parts.append('0')
                 return [int(p) for p in parts[:3]]
@@ -335,21 +335,21 @@ class ProgramVersionService:
             installed_parts = parse_version(installed)
             latest_parts = parse_version(latest)
 
-            # Comparaison semver
+            # Semver comparison
             for i in range(3):
                 if latest_parts[i] > installed_parts[i]:
                     return True
                 elif latest_parts[i] < installed_parts[i]:
                     return False
 
-            return False  # Versions identiques
+            return False  # Identical versions
 
         except Exception:
-            # En cas d'erreur de parsing, on considère qu'il n'y a pas de mise à jour
+            # In case of parsing error, assume no update available
             return False
 
     def get_program_list(self) -> List[Dict[str, Any]]:
-        """Récupère la liste des programmes configurés"""
+        """Gets the list of configured programs"""
         return [
             {
                 "key": key,

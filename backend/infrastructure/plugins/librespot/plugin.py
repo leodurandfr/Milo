@@ -203,7 +203,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         old_enabled = self.auto_disconnect_enabled
         old_delay = self.pause_disconnect_delay
 
-        # MODIFIED: Handle delay = 0 as disabled
+        # Handle delay = 0 as disabled
         if delay is not None and delay == 0:
             self.auto_disconnect_enabled = False
             self.pause_disconnect_delay = 10.0  # Default value for display

@@ -9,7 +9,7 @@ from backend.infrastructure.plugins.radio.image_manager import ImageManager
 
 class StationManager:
     """
-    Manages favorites, stations cassées et stations personnalisées avec persistance via RadioDataService
+    Manages favorites, broken stations and custom stations with persistence via RadioDataService
 
     Storage in radio_data.json:
     {
@@ -52,8 +52,8 @@ class StationManager:
         self.state_machine = state_machine
         self.image_manager = ImageManager()
 
-        # Cache local
-        self._favorites: List[Dict[str, Any]] = []  # Liste de stations avec métadonnées complètes
+        # Local cache
+        self._favorites: List[Dict[str, Any]] = []  # List of stations with complete metadata
         self._broken_stations: Set[str] = set()
         self._custom_stations: List[Dict[str, Any]] = []
         self._loaded = False
@@ -90,7 +90,7 @@ class StationManager:
             self._loaded = True
 
     async def _save(self) -> bool:
-        """Saves all data dans radio_data.json"""
+        """Saves all data in radio_data.json"""
         if not self.radio_data_service:
             return False
 
@@ -107,14 +107,14 @@ class StationManager:
 
     async def add_favorite(self, station_id: str, station: Optional[Dict[str, Any]] = None) -> bool:
         """
-        Adds station to favorites avec ses métadonnées complètes
+        Adds station to favorites with its complete metadata
 
         Args:
-            station_id: UUID de la station
-            station: Dict complet de la station avec métadonnées (recommandé)
+            station_id: Station UUID
+            station: Complete dict of the station with metadata (recommended)
 
         Returns:
-            True si ajout réussi
+            True if addition successful
         """
         if not station_id:
             return False
@@ -124,18 +124,18 @@ class StationManager:
             self.logger.debug(f"Station {station_id} already in favorites")
             return True
 
-        # If station provided, l'ajouter avec métadonnées complètes
+        # If station provided, add it with complete metadata
         if station:
             self._favorites.append(station)
             self.logger.info(f"Added station {station.get('name')} to favorites with metadata")
         else:
-            # Fallback: add only ID (métadonnées seront fetchées à la demande)
+            # Fallback: add only ID (metadata will be fetched on demand)
             self._favorites.append({"id": station_id})
             self.logger.warning(f"Added station {station_id} to favorites WITHOUT metadata (will need API fetch)")
 
         success = await self._save()
 
-        # Broadcast event à tous les clients
+        # Broadcast event to all clients
         if success and self.state_machine:
             await self.state_machine.broadcast_event("radio", "favorite_added", {
                 "station_id": station_id,
@@ -150,10 +150,10 @@ class StationManager:
         Removes station from favorites
 
         Args:
-            station_id: UUID de la station
+            station_id: Station UUID
 
         Returns:
-            True si retrait réussi
+            True if removal successful
         """
         if not station_id:
             return False
@@ -169,7 +169,7 @@ class StationManager:
 
         success = await self._save()
 
-        # Broadcast event à tous les clients
+        # Broadcast event to all clients
         if success and self.state_machine:
             await self.state_machine.broadcast_event("radio", "favorite_removed", {
                 "station_id": station_id,
@@ -184,10 +184,10 @@ class StationManager:
         Checks if station is in favorites
 
         Args:
-            station_id: UUID de la station
+            station_id: Station UUID
 
         Returns:
-            True si favori
+            True if favorite
         """
         return any(f.get('id') == station_id for f in self._favorites)
 
@@ -196,18 +196,18 @@ class StationManager:
         Gets list of favorite IDs
 
         Returns:
-            Liste des IDs de stations favorites
+            List of favorite station IDs
         """
         return [f.get('id') for f in self._favorites if f.get('id')]
 
     def get_favorites_with_metadata(self) -> List[Dict[str, Any]]:
         """
-        Gets favorite stations avec leurs métadonnées depuis le cache local
+        Gets favorite stations with their metadata from local cache
 
         Returns:
-            Liste des stations avec métadonnées complètes
+            List of stations with complete metadata
         """
-        # Favorites are already stored avec métadonnées complètes
+        # Favorites are already stored with complete metadata
         return self._favorites.copy()
 
     def is_favorite(self, station_id: str) -> bool:
@@ -215,27 +215,27 @@ class StationManager:
         Checks if station is in favorites
 
         Args:
-            station_id: UUID de la station
+            station_id: Station UUID
 
         Returns:
-            True si la station est favorite
+            True if station is favorite
         """
         return any(f.get('id') == station_id for f in self._favorites)
 
     async def update_favorite_image(self, station_id: str, image_filename: str) -> bool:
         """
-        Updates image d'une station favorite
+        Updates image of a favorite station
 
         Args:
-            station_id: UUID de la station
-            image_filename: Nom du fichier image
+            station_id: Station UUID
+            image_filename: Image file name
 
         Returns:
-            True si mise à jour réussie
+            True if update successful
         """
         for favorite in self._favorites:
             if favorite.get('id') == station_id:
-                # Delete old image si elle existe
+                # Delete old image if it exists
                 old_image = favorite.get('image_filename')
                 if old_image:
                     await self.image_manager.delete_image(old_image)
@@ -251,17 +251,17 @@ class StationManager:
 
     async def remove_favorite_image(self, station_id: str) -> bool:
         """
-        Deletes custom image d'une station favorite
+        Deletes custom image of a favorite station
 
         Args:
-            station_id: UUID de la station
+            station_id: Station UUID
 
         Returns:
-            True si suppression réussie
+            True if deletion successful
         """
         for favorite in self._favorites:
             if favorite.get('id') == station_id:
-                # Delete image file si existe
+                # Delete image file if exists
                 old_image = favorite.get('image_filename')
                 if old_image:
                     await self.image_manager.delete_image(old_image)
@@ -280,10 +280,10 @@ class StationManager:
         Marks station as broken
 
         Args:
-            station_id: UUID de la station
+            station_id: Station UUID
 
         Returns:
-            True si marquage réussi
+            True if marking successful
         """
         if not station_id:
             return False
@@ -300,10 +300,10 @@ class StationManager:
         Checks if station is marked as broken
 
         Args:
-            station_id: UUID de la station
+            station_id: Station UUID
 
         Returns:
-            True si cassée
+            True if broken
         """
         return station_id in self._broken_stations
 
@@ -312,7 +312,7 @@ class StationManager:
         Resets broken stations list
 
         Returns:
-            True si reset réussi
+            True if reset successful
         """
         count = len(self._broken_stations)
         self._broken_stations.clear()
@@ -321,35 +321,35 @@ class StationManager:
 
     def filter_broken_stations(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Filters broken stations d'une liste
+        Filters broken stations from a list
 
         Args:
-            stations: Liste de stations
+            stations: List of stations
 
         Returns:
-            Liste sans les stations cassées
+            List without broken stations
         """
         return [s for s in stations if not self.is_broken(s.get('id'))]
 
     def enrich_with_favorite_status(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Enriches stations with favorite status et les images personnalisées
+        Enriches stations with favorite status and custom images
 
         Args:
-            stations: Liste de stations
+            stations: List of stations
 
         Returns:
-            Liste enrichie avec clé 'is_favorite' et images personnalisées si disponibles
+            Enriched list with 'is_favorite' key and custom images if available
         """
         for station in stations:
             station_id = station.get('id')
             station['is_favorite'] = self.is_favorite(station_id)
 
-            # If favorite, copier les données d'image personnalisée
+            # If favorite, copy custom image data
             if station['is_favorite']:
                 favorite_metadata = next((f for f in self._favorites if f.get('id') == station_id), None)
                 if favorite_metadata and favorite_metadata.get('image_filename'):
-                    # Override with custom image du favori
+                    # Override with custom image from favorite
                     station['favicon'] = favorite_metadata.get('favicon')
                     station['image_filename'] = favorite_metadata.get('image_filename')
 
@@ -360,7 +360,7 @@ class StationManager:
         Gets statistics
 
         Returns:
-            Dict avec nombre de favoris, stations cassées et stations personnalisées
+            Dict with number of favorites, broken stations and custom stations
         """
         return {
             'favorites_count': len(self._favorites),
@@ -384,25 +384,25 @@ class StationManager:
         Adds custom station
 
         Args:
-            name: Nom de la station
-            url: URL du flux audio
-            country: Pays (défaut: "France")
-            genre: Genre musical (défaut: "Variety")
-            image_filename: Nom du fichier image uploadé (ex: "abc123.jpg")
-            bitrate: Bitrate en kbps (défaut: 128)
-            codec: Codec audio (défaut: "MP3")
+            name: Station name
+            url: Audio stream URL
+            country: Country (default: "France")
+            genre: Music genre (default: "Variety")
+            image_filename: Uploaded image file name (e.g.: "abc123.jpg")
+            bitrate: Bitrate in kbps (default: 128)
+            codec: Audio codec (default: "MP3")
 
         Returns:
-            Dict avec success et la station créée ou erreur
+            Dict with success and the created station or error
         """
         if not name or not url:
-            return {"success": False, "error": "name et url requis"}
+            return {"success": False, "error": "name and url required"}
 
         try:
-            # Generate unique ID avec préfixe "custom_"
+            # Generate unique ID with prefix "custom_"
             station_id = f"custom_{uuid.uuid4()}"
 
-            # Build image URL (sera servie par /api/radio/images/{filename})
+            # Build image URL (will be served by /api/radio/images/{filename})
             favicon_url = f"/api/radio/images/{image_filename}" if image_filename else ""
 
             # Create station
@@ -413,7 +413,7 @@ class StationManager:
                 "country": country.strip(),
                 "genre": genre.strip(),
                 "favicon": favicon_url,
-                "image_filename": image_filename,  # Stocker aussi le nom de fichier
+                "image_filename": image_filename,  # Also store the file name
                 "bitrate": bitrate,
                 "codec": codec.strip(),
                 "is_custom": True,
@@ -426,7 +426,7 @@ class StationManager:
             self._custom_stations.append(station)
             self.logger.info(f"Added custom station: {name} ({station_id}) with image: {image_filename}")
 
-            # Sauvegarder
+            # Save
             success = await self._save()
 
             if success and self.state_machine:
@@ -447,20 +447,20 @@ class StationManager:
 
     async def remove_custom_station(self, station_id: str) -> bool:
         """
-        Deletes custom station et son image associée
+        Deletes custom station and its associated image
 
         Args:
-            station_id: ID de la station à supprimer
+            station_id: Station ID to delete
 
         Returns:
-            True si suppression réussie
+            True if deletion successful
         """
         if not station_id or not station_id.startswith("custom_"):
             self.logger.warning(f"Invalid custom station ID: {station_id}")
             return False
 
         try:
-            # Find station to get le nom de l'image
+            # Find station to get the image name
             station_to_remove = None
             for station in self._custom_stations:
                 if station.get('id') == station_id:
@@ -471,7 +471,7 @@ class StationManager:
                 self.logger.warning(f"Custom station {station_id} not found")
                 return False
 
-            # Delete associated image si elle existe
+            # Delete associated image if it exists
             image_filename = station_to_remove.get('image_filename')
             if image_filename:
                 await self.image_manager.delete_image(image_filename)
@@ -490,7 +490,7 @@ class StationManager:
 
             self.logger.info(f"Removed custom station {station_id}")
 
-            # Sauvegarder
+            # Save
             success = await self._save()
 
             if success and self.state_machine:
@@ -500,7 +500,7 @@ class StationManager:
                     "source": "radio"
                 })
 
-            # Also remove from favorites si présent
+            # Also remove from favorites if present
             if self.is_favorite(station_id):
                 await self.remove_favorite(station_id)
 
@@ -515,7 +515,7 @@ class StationManager:
         Gets all custom stations
 
         Returns:
-            Liste des stations personnalisées
+            List of custom stations
         """
         return self._custom_stations.copy()
 
@@ -524,10 +524,10 @@ class StationManager:
         Gets custom station by ID
 
         Args:
-            station_id: ID de la station
+            station_id: Station ID
 
         Returns:
-            Station ou None si introuvable
+            Station or None if not found
         """
         for station in self._custom_stations:
             if station.get('id') == station_id:
