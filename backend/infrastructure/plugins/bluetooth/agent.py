@@ -1,5 +1,5 @@
 """
-Agent Bluetooth pour accepter automatiquement les connexions - Version concise
+Bluetooth agent pour accepter automatiquement les connexions - Version concise
 """
 import logging
 import uuid
@@ -8,7 +8,7 @@ from dbus_next.service import ServiceInterface, method
 from dbus_next.constants import BusType
 
 class BluetoothAgent(ServiceInterface):
-    """Agent Bluetooth avec mode NoInputNoOutput"""
+    """Bluetooth agent avec mode NoInputNoOutput"""
 
     def __init__(self):
         self.logger = logging.getLogger("plugin.bluetooth.agent")
@@ -18,50 +18,50 @@ class BluetoothAgent(ServiceInterface):
         self.registered = False
     
     async def register(self) -> bool:
-        """Enregistre l'agent auprès de BlueZ"""
+        """Registers agent auprès de BlueZ"""
         try:
-            # Connecter au bus système
+            # Connect to bus système
             self.bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
             
             # Exporter l'interface
             self.bus.export(self.path, self)
             
-            # Obtenir l'interface AgentManager1
+            # Get interface AgentManager1
             introspect = await self.bus.introspect('org.bluez', '/org/bluez')
             agent_manager = self.bus.get_proxy_object('org.bluez', '/org/bluez', introspect)
             agent_manager_iface = agent_manager.get_interface('org.bluez.AgentManager1')
             
-            # Enregistrer l'agent
+            # Register agent
             await agent_manager_iface.call_register_agent(self.path, 'NoInputNoOutput')
             await agent_manager_iface.call_request_default_agent(self.path)
             
             self.registered = True
             return True
         except Exception as e:
-            self.logger.error(f"Erreur enregistrement agent: {e}")
+            self.logger.error(f"Error enregistrement agent: {e}")
             return False
     
     async def unregister(self) -> bool:
-        """Désenregistre l'agent auprès de BlueZ"""
+        """Unregisters agent auprès de BlueZ"""
         if not self.registered or not self.bus:
             return True
         
         try:
-            # Obtenir l'interface AgentManager1
+            # Get interface AgentManager1
             introspect = await self.bus.introspect('org.bluez', '/org/bluez')
             agent_manager = self.bus.get_proxy_object('org.bluez', '/org/bluez', introspect)
             agent_manager_iface = agent_manager.get_interface('org.bluez.AgentManager1')
             
-            # Désenregistrer l'agent
+            # Unregister agent
             await agent_manager_iface.call_unregister_agent(self.path)
             
-            # Nettoyer les ressources
+            # Clean les ressources
             self.bus.unexport(self.path)
             self.registered = False
             
             return True
         except Exception as e:
-            self.logger.error(f"Erreur désenregistrement: {e}")
+            self.logger.error(f"Error désenregistrement: {e}")
             return False
     
     # Méthodes de l'interface Agent1 (implémentation minimale)

@@ -1,6 +1,6 @@
 # backend/infrastructure/services/equalizer_service.py
 """
-Service Equalizer OPTIM pour Milo - Gestion alsaequal via amixer
+Optimized Equalizer service for Milo - alsaequal management via amixer
 """
 import asyncio
 import logging
@@ -8,9 +8,9 @@ import re
 from typing import Dict, List, Any, Optional
 
 class EqualizerService:
-    """Service de gestion de l'equalizer alsaequal - Version OPTIM"""
-    
-    # Configuration des bandes d'equalizer
+    """Alsaequal equalizer management service - Optimized version"""
+
+    # Equalizer bands configuration
     BANDS = [
         {"id": "00", "freq": "31 Hz"},
         {"id": "01", "freq": "63 Hz"}, 
@@ -29,23 +29,23 @@ class EqualizerService:
         self.settings_service = settings_service
     
     def _format_frequency_display(self, freq: str) -> str:
-        """Formate les fréquences pour un affichage simplifié"""
+        """Format frequencies for simplified display"""
         freq = freq.strip()
-        
+
         if "kHz" in freq:
-            # Extraire le nombre avant "kHz"
+            # Extract number before "kHz"
             number = freq.replace("kHz", "").strip()
             return f"{number}K"
         elif "Hz" in freq:
-            # Extraire le nombre avant "Hz"
+            # Extract number before "Hz"
             number = freq.replace("Hz", "").strip()
             return number
-        
-        # Fallback : retourner tel quel
+
+        # Fallback: return as is
         return freq
-    
+
     async def get_all_bands(self) -> List[Dict[str, Any]]:
-        """Récupère les valeurs de toutes les bandes"""
+        """Get all band values"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "amixer", "-D", "equal", "scontents",
@@ -65,15 +65,15 @@ class EqualizerService:
             return []
     
     def _parse_amixer_output(self, output: str) -> List[Dict[str, Any]]:
-        """Parse la sortie d'amixer pour extraire les valeurs"""
+        """Parse amixer output to extract values"""
         bands = []
         lines = output.split('\n')
         current_band = None
-        
+
         for line in lines:
             line = line.strip()
-            
-            # Détecter le début d'une bande
+
+            # Detect band start
             if line.startswith("Simple mixer control"):
                 match = re.search(r"'(\d+)\.\s+([\d\w\s]+)',", line)
                 if match:
@@ -83,59 +83,59 @@ class EqualizerService:
                         "id": band_id,
                         "freq": freq,
                         "display_name": self._format_frequency_display(freq),
-                        "value": 66 
+                        "value": 66
                     }
-            
-            # Extraire la valeur (prendre Left comme référence)
+
+            # Extract value (use Left as reference)
             elif line.startswith("Front Left:") and current_band:
                 match = re.search(r"Playback (\d+) \[(\d+)%\]", line)
                 if match:
                     current_band["value"] = int(match.group(2))
                     bands.append(current_band)
                     current_band = None
-        
+
         return bands
-    
+
     async def set_band_value(self, band_id: str, value: int) -> bool:
-        """Modifie la valeur d'une bande spécifique"""
+        """Set a specific band value"""
         try:
             # Validation
             if not (0 <= value <= 100):
                 self.logger.error(f"Invalid value {value}, must be 0-100")
                 return False
-            
-            # Trouver la bande
+
+            # Find band
             band_info = next((b for b in self.BANDS if b["id"] == band_id), None)
             if not band_info:
                 self.logger.error(f"Unknown band ID: {band_id}")
                 return False
-            
-            # Construire le nom du contrôle
+
+            # Build control name
             control_name = f"{band_id}. {band_info['freq']}"
-            
-            # Commande amixer
+
+            # amixer command
             proc = await asyncio.create_subprocess_exec(
                 "amixer", "-D", "equal", "sset", control_name, f"{value}%",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            
+
             stdout, stderr = await proc.communicate()
-            
+
             if proc.returncode != 0:
                 error_msg = stderr.decode().strip()
                 self.logger.error(f"amixer set error: {error_msg}")
                 return False
-            
+
             self.logger.debug(f"Set band {control_name} to {value}%")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error setting band {band_id}: {e}")
             return False
-    
+
     async def reset_all_bands(self, value: int = 66) -> bool:
-        """Remet toutes les bandes à une valeur donnée (66% par défaut)"""
+        """Reset all bands to a given value (66% by default)"""
         try:
             success_count = 0
             
@@ -151,7 +151,7 @@ class EqualizerService:
             return False
     
     async def is_available(self) -> bool:
-        """Vérifie si l'equalizer est disponible"""
+        """Check if equalizer is available"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "amixer", "-D", "equal", "scontents",
@@ -164,22 +164,22 @@ class EqualizerService:
             return False
 
     async def save_current_bands(self) -> bool:
-        """Sauvegarde les valeurs actuelles de l'equalizer dans settings"""
+        """Save current equalizer values to settings"""
         try:
             if not self.settings_service:
                 self.logger.error("SettingsService not available, cannot save bands")
                 return False
 
-            # Récupérer les valeurs actuelles
+            # Get current values
             current_bands = await self.get_all_bands()
             if not current_bands:
                 self.logger.warning("No bands to save")
                 return False
 
-            # Formater pour la sauvegarde (seulement id et value)
+            # Format for saving (only id and value)
             bands_to_save = [{"id": band["id"], "value": band["value"]} for band in current_bands]
 
-            # Sauvegarder dans settings
+            # Save to settings
             await self.settings_service.set_setting('equalizer.saved_bands', bands_to_save)
             self.logger.info(f"Saved {len(bands_to_save)} equalizer bands to settings")
             return True
@@ -189,19 +189,19 @@ class EqualizerService:
             return False
 
     async def restore_saved_bands(self) -> bool:
-        """Restaure les valeurs de l'equalizer depuis settings"""
+        """Restore equalizer values from settings"""
         try:
             if not self.settings_service:
                 self.logger.error("SettingsService not available, cannot restore bands")
                 return False
 
-            # Récupérer les valeurs sauvegardées
+            # Get saved values
             saved_bands = await self.settings_service.get_setting('equalizer.saved_bands')
             if not saved_bands:
                 self.logger.info("No saved bands found, skipping restore")
-                return True  # Pas une erreur, juste rien à restaurer
+                return True  # Not an error, just nothing to restore
 
-            # Restaurer chaque bande
+            # Restore each band
             success_count = 0
             for band_data in saved_bands:
                 band_id = band_data.get("id")
@@ -217,9 +217,9 @@ class EqualizerService:
         except Exception as e:
             self.logger.error(f"Error restoring bands: {e}")
             return False
-    
+
     async def get_equalizer_status(self) -> Dict[str, Any]:
-        """Récupère l'état complet de l'equalizer"""
+        """Get complete equalizer status"""
         try:
             available = await self.is_available()
             if not available:

@@ -1,5 +1,5 @@
 """
-Client API Radio Browser avec cache pour limiter les appels
+Radio Browser API client with caching to limit calls
 """
 import asyncio
 import aiohttp
@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 class RadioBrowserAPI:
     """
-    Client async pour l'API Radio Browser
+    Async client for Radio Browser API
 
     API Doc: https://api.radio-browser.info/
     Utilise all.api.radio-browser.info pour répartition de charge automatique
@@ -37,7 +37,7 @@ class RadioBrowserAPI:
         self._favicon_quality_cache: Dict[str, tuple[int, int, datetime]] = {}
 
     async def _ensure_session(self) -> None:
-        """Crée la session aiohttp si nécessaire"""
+        """Creates aiohttp session if needed"""
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession(
                 headers={
@@ -46,14 +46,14 @@ class RadioBrowserAPI:
             )
 
     async def close(self) -> None:
-        """Ferme la session aiohttp"""
+        """Closes aiohttp session"""
         if self.session and not self.session.closed:
             await self.session.close()
             self.session = None
 
     async def _fetch_stations_by_country(self, country_code: str) -> List[Dict[str, Any]]:
         """
-        Récupère toutes les stations d'un pays via l'API
+        Gets all stations d'un pays via l'API
 
         Args:
             country_code: Code pays ISO (ex: "FR", "GB")
@@ -83,7 +83,7 @@ class RadioBrowserAPI:
 
     async def _fetch_stations_by_query(self, query: str) -> List[Dict[str, Any]]:
         """
-        Récupère toutes les stations correspondant à une recherche via l'API
+        Gets all stations correspondant à une recherche via l'API
         Recherche globale parmi toutes les stations de tous les pays
 
         Args:
@@ -107,14 +107,14 @@ class RadioBrowserAPI:
                 stations = await resp.json()
                 self.logger.debug(f"Fetched {len(stations)} stations for query '{query}'")
 
-                # Filtrer et normaliser
+                # Filter and normalize
                 valid_stations = []
                 for station in stations:
                     if self._is_valid_station(station):
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Dédupliquer et trier par score
+                # Deduplicate and sort par score
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}'")
@@ -130,7 +130,7 @@ class RadioBrowserAPI:
 
     async def _fetch_station_by_id(self, station_id: str) -> Optional[Dict[str, Any]]:
         """
-        Récupère une station par son ID via l'API
+        Gets station by ID via l'API
 
         Args:
             station_id: UUID de la station
@@ -171,7 +171,7 @@ class RadioBrowserAPI:
 
     async def _fetch_top_stations(self, limit: int = 500) -> List[Dict[str, Any]]:
         """
-        Récupère les stations les plus populaires via l'API
+        Gets most popular stations via l'API
         (basé sur les votes)
 
         Args:
@@ -194,7 +194,7 @@ class RadioBrowserAPI:
                 stations = await resp.json()
                 self.logger.debug(f"Fetched {len(stations)} top stations")
 
-                # Filtrer et normaliser
+                # Filter and normalize
                 valid_stations = []
                 for station in stations:
                     if self._is_valid_station(station):
@@ -217,7 +217,7 @@ class RadioBrowserAPI:
 
     def _is_valid_station(self, station: Dict[str, Any]) -> bool:
         """
-        Vérifie si une station est valide
+        Checks if station is valid
 
         Args:
             station: Dict station depuis API
@@ -234,7 +234,7 @@ class RadioBrowserAPI:
 
     def _get_favicon_quality(self, url: str) -> int:
         """
-        Évalue la qualité d'un favicon pour prioriser les meilleures sources
+        Evaluates quality d'un favicon pour prioriser les meilleures sources
 
         Args:
             url: URL du favicon
@@ -304,7 +304,7 @@ class RadioBrowserAPI:
 
     async def _evaluate_favicon_with_head(self, favicon_url: str) -> tuple[int, int]:
         """
-        Évalue la qualité d'un favicon via requête HTTP HEAD (légère, sans télécharger l'image)
+        Evaluates quality d'un favicon via requête HTTP HEAD (légère, sans télécharger l'image)
 
         Vérifie :
         - Disponibilité (status 200)
@@ -323,7 +323,7 @@ class RadioBrowserAPI:
         if not favicon_url:
             return (-1, 0)
 
-        # Vérifier le cache d'abord
+        # Check cache first
         if favicon_url in self._favicon_quality_cache:
             cached_score, cached_size, cached_time = self._favicon_quality_cache[favicon_url]
             # Cache valide pendant la durée du cache des stations
@@ -380,7 +380,7 @@ class RadioBrowserAPI:
                     quality_score += 20000   # JPEG = qualité moyenne
                 # else: image/x-icon ou autre = pas de bonus (file_size uniquement)
 
-                # Mettre en cache
+                # Cache
                 self._favicon_quality_cache[favicon_url] = (quality_score, file_size, datetime.now())
 
                 self.logger.debug(
@@ -401,7 +401,7 @@ class RadioBrowserAPI:
 
     def _normalize_station(self, station: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Normalise une station depuis le format API vers format Milo
+        Normalizes a station depuis le format API vers format Milo
 
         Args:
             station: Station au format Radio Browser API
@@ -433,7 +433,7 @@ class RadioBrowserAPI:
 
     def _compare_station_quality(self, station1: Dict[str, Any], station2: Dict[str, Any]) -> int:
         """
-        Compare la qualité de deux stations pour dédupliquer
+        Compares quality de deux stations pour dédupliquer
 
         Args:
             station1: Première station
@@ -459,8 +459,8 @@ class RadioBrowserAPI:
 
     async def _deduplicate_stations(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Déduplique une liste de stations par nom (case-insensitive)
-        Pour chaque groupe de doublons, fusionne la meilleure URL audio avec la meilleure image
+        Deduplicates station list par nom (case-insensitive)
+        For each group of duplicates, fusionne la meilleure URL audio avec la meilleure image
 
         Stratégie optimisée (SANS requêtes HTTP HEAD bloquantes):
         1. Groupe toutes les versions d'une même station par nom
@@ -477,7 +477,7 @@ class RadioBrowserAPI:
         if not stations:
             return []
 
-        # Grouper toutes les versions de chaque station par nom
+        # Group all versions de chaque station par nom
         stations_by_name = {}
 
         for station in stations:
@@ -488,23 +488,23 @@ class RadioBrowserAPI:
 
             stations_by_name[station_key].append(station)
 
-        # Pour chaque groupe de doublons, créer une station fusionnée
+        # For each group of duplicates, créer une station fusionnée
         deduplicated = []
 
         for station_name, versions in stations_by_name.items():
             if len(versions) == 1:
-                # Pas de doublons, garder telle quelle
+                # No duplicates, garder telle quelle
                 deduplicated.append(versions[0])
             else:
-                # Plusieurs versions : fusionner meilleur audio + meilleure image
+                # Multiple versions : fusionner meilleur audio + meilleure image
 
-                # 1. Trouver la version avec le meilleur flux audio (score + bitrate)
+                # 1. Find version with best audio stream (score + bitrate)
                 best_audio = max(
                     versions,
                     key=lambda s: (s.get('score', 0), s.get('bitrate', 0))
                 )
 
-                # 2. Trouver le meilleur favicon basé sur URL quality uniquement (rapide)
+                # 2. Find best favicon basé sur URL quality uniquement (rapide)
                 best_favicon = ""
                 best_favicon_quality = -1
 
@@ -516,13 +516,13 @@ class RadioBrowserAPI:
                         best_favicon_quality = url_quality
                         best_favicon = favicon
 
-                # 3. Créer la station fusionnée (meilleur audio + meilleure image)
+                # 3. Create merged station (meilleur audio + meilleure image)
                 merged_station = best_audio.copy()
                 merged_station['favicon'] = best_favicon
 
                 deduplicated.append(merged_station)
 
-                # Log concis pour debug (seulement si doublons fusionnés)
+                # Concise log for debug (seulement si doublons fusionnés)
                 if len(versions) > 1:
                     self.logger.debug(
                         f"🔀 Merged {len(versions)} versions of '{versions[0]['name']}' "
@@ -530,7 +530,7 @@ class RadioBrowserAPI:
                         f"favicon_quality={best_favicon_quality})"
                     )
 
-        # Trier par popularité (votes + clics)
+        # Sort by popularity (votes + clics)
         sorted_stations = sorted(
             deduplicated,
             key=lambda s: s.get('score', 0),
@@ -550,7 +550,7 @@ class RadioBrowserAPI:
         limit: int = 10000
     ) -> Dict[str, Any]:
         """
-        Construit intelligemment les paramètres de recherche pour l'API RadioBrowser
+        Builds intelligently les paramètres de recherche pour l'API RadioBrowser
 
         Args:
             query: Terme de recherche
@@ -569,7 +569,7 @@ class RadioBrowserAPI:
             "hidebroken": "true"  # Masquer les stations non fonctionnelles
         }
 
-        # Ajouter les filtres actifs
+        # Add active filters
         if query:
             # Utiliser SEULEMENT name pour le query (substring matching par défaut)
             # Ne PAS mettre dans tag aussi → évite AND logic trop restrictive
@@ -590,7 +590,7 @@ class RadioBrowserAPI:
         description: str = "search"
     ) -> List[Dict[str, Any]]:
         """
-        Appel API unifié avec les paramètres de recherche
+        Unified API call avec les paramètres de recherche
 
         Args:
             params: Paramètres de recherche construits par _build_search_params()
@@ -618,14 +618,14 @@ class RadioBrowserAPI:
                 stations = await resp.json()
                 self.logger.debug(f"Fetched {len(stations)} raw stations [{description}]")
 
-                # Filtrer et normaliser
+                # Filter and normalize
                 valid_stations = []
                 for station in stations:
                     if self._is_valid_station(station):
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Dédupliquer et trier
+                # Deduplicate and sort
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 # Debug: Log favicons après déduplication
@@ -660,7 +660,7 @@ class RadioBrowserAPI:
         limit: int = 10000
     ) -> Dict[str, Any]:
         """
-        Recherche unifiée de stations avec filtres (inclut les stations personnalisées)
+        Unified station search avec filtres (inclut les stations personnalisées)
 
         Stratégie:
         1. Construit les paramètres de recherche optimaux
@@ -695,22 +695,22 @@ class RadioBrowserAPI:
             self.logger.debug("No filters, loading top 500 stations")
             all_stations = await self._fetch_top_stations(limit=500)
         else:
-            # Construire les paramètres de recherche
+            # Build search parameters
             search_params = self._build_search_params(query, country, genre)
 
-            # Appel API unifié
+            # Unified API call
             all_stations = await self._fetch_with_search_params(search_params, search_desc)
 
-        # Ajouter les stations personnalisées
+        # Add custom stations
         if self.station_manager:
             custom_stations = self.station_manager.get_custom_stations()
             # Les stations personnalisées sont ajoutées en premier (priorité)
             all_stations = custom_stations + all_stations
 
-        # Total avant limitation
+        # Total before limit
         total = len(all_stations)
 
-        # Limiter résultats
+        # Limit results
         limited_results = all_stations[:limit]
 
         self.logger.info(f"📊 Final: {total} stations (returning {len(limited_results)})")
@@ -722,7 +722,7 @@ class RadioBrowserAPI:
 
     async def get_station_by_id(self, station_id: str) -> Optional[Dict[str, Any]]:
         """
-        Récupère une station par son ID (inclut les stations personnalisées)
+        Gets station by ID (inclut les stations personnalisées)
 
         Args:
             station_id: UUID de la station
@@ -730,21 +730,21 @@ class RadioBrowserAPI:
         Returns:
             Station ou None si introuvable
         """
-        # Vérifier d'abord si c'est une station personnalisée
+        # First check if custom station
         if station_id.startswith("custom_") and self.station_manager:
             custom_station = self.station_manager.get_custom_station_by_id(station_id)
             if custom_station:
                 return custom_station
 
-        # Récupérer directement depuis l'API
+        # Get directly from API
         station = await self._fetch_station_by_id(station_id)
 
         return station
 
     async def get_stations_by_ids(self, station_ids: List[str]) -> List[Dict[str, Any]]:
         """
-        Récupère plusieurs stations par leurs IDs en batch (inclut les stations personnalisées)
-        Pour les stations avec favicons manquants/mauvais, fait une recherche par nom
+        Gets multiple stations by IDs en batch (inclut les stations personnalisées)
+        For stations with missing favicons/mauvais, fait une recherche par nom
         pour trouver de meilleures versions. Applique la déduplication finale.
 
         Args:
@@ -759,18 +759,18 @@ class RadioBrowserAPI:
         stations = []
         stations_needing_better_favicon = []
 
-        # Séparer les stations custom des stations normales
+        # Separate custom stations des stations normales
         custom_ids = [sid for sid in station_ids if sid.startswith("custom_")]
         regular_ids = [sid for sid in station_ids if not sid.startswith("custom_")]
 
-        # Récupérer les stations custom
+        # Get custom stations
         if custom_ids and self.station_manager:
             for station_id in custom_ids:
                 custom_station = self.station_manager.get_custom_station_by_id(station_id)
                 if custom_station:
                     stations.append(custom_station)
 
-        # Récupérer les stations normales
+        # Get regular stations
         for station_id in regular_ids:
             # Récupérer depuis l'API
             station = await self._fetch_station_by_id(station_id)
@@ -783,7 +783,7 @@ class RadioBrowserAPI:
                 if favicon_quality < 20:  # Seuil bas = pas de favicon ou de mauvaise qualité
                     stations_needing_better_favicon.append(station)
 
-        # Pour les stations avec favicons manquants/mauvais, chercher de meilleures versions par nom
+        # For stations with missing favicons/mauvais, chercher de meilleures versions par nom
         if stations_needing_better_favicon:
             self.logger.info(f"Searching better favicons for {len(stations_needing_better_favicon)} stations")
 
@@ -803,11 +803,11 @@ class RadioBrowserAPI:
 
                     additional_stations.extend(matching_results)
 
-            # Ajouter les versions alternatives trouvées
+            # Add found alternative versions
             stations.extend(additional_stations)
             self.logger.info(f"Found {len(additional_stations)} alternative versions with better favicons")
 
-        # IMPORTANT : Appliquer la déduplication pour fusionner les versions et garder les meilleurs favicons
+        # IMPORTANT : Apply deduplication pour fusionner les versions et garder les meilleurs favicons
         # La déduplication va comparer toutes les versions de chaque station (ID + alternatives par nom)
         # et garder le meilleur favicon pour chaque station unique
         deduplicated_stations = await self._deduplicate_stations(stations)
@@ -816,7 +816,7 @@ class RadioBrowserAPI:
 
     async def increment_station_clicks(self, station_id: str) -> bool:
         """
-        Incrémente le compteur de clicks pour une station
+        Increments click counter pour une station
 
         L'API Radio Browser utilise ce compteur pour le ranking.
 
@@ -842,7 +842,7 @@ class RadioBrowserAPI:
 
     async def _fetch_stations_by_country_name(self, country_name: str) -> List[Dict[str, Any]]:
         """
-        Récupère toutes les stations d'un pays via l'API (par nom de pays)
+        Gets all stations d'un pays via l'API (par nom de pays)
 
         Args:
             country_name: Nom du pays (ex: "France", "Japan")
@@ -865,14 +865,14 @@ class RadioBrowserAPI:
                 stations = await resp.json()
                 self.logger.debug(f"Fetched {len(stations)} stations from {country_name}")
 
-                # Filtrer et normaliser
+                # Filter and normalize
                 valid_stations = []
                 for station in stations:
                     if self._is_valid_station(station):
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Dédupliquer et trier par score
+                # Deduplicate and sort par score
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for {country_name}")
@@ -888,7 +888,7 @@ class RadioBrowserAPI:
 
     async def _fetch_stations_by_genre(self, genre: str) -> List[Dict[str, Any]]:
         """
-        Récupère toutes les stations d'un genre via l'API
+        Gets all stations d'un genre via l'API
 
         Args:
             genre: Genre musical (ex: "pop", "rock", "jazz")
@@ -910,14 +910,14 @@ class RadioBrowserAPI:
                 stations = await resp.json()
                 self.logger.debug(f"Fetched {len(stations)} stations for genre {genre}")
 
-                # Filtrer et normaliser
+                # Filter and normalize
                 valid_stations = []
                 for station in stations:
                     if self._is_valid_station(station):
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Dédupliquer et trier par score
+                # Deduplicate and sort par score
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for genre {genre}")
@@ -933,14 +933,14 @@ class RadioBrowserAPI:
 
     async def _fetch_stations_by_country_and_genre(self, country_name: str, genre: str) -> List[Dict[str, Any]]:
         """
-        Récupère les stations d'un pays ET d'un genre via l'API
+        Gets stations from a country AND genre via API
 
         Args:
-            country_name: Nom du pays (ex: "France", "Japan")
-            genre: Genre musical (ex: "pop", "rock")
+            country_name: Country name (e.g. "France", "Japan")
+            genre: Music genre (e.g. "pop", "rock")
 
         Returns:
-            Liste des stations normalisées et filtrées
+            List of normalized and filtered stations
         """
         await self._ensure_session()
 
@@ -956,14 +956,14 @@ class RadioBrowserAPI:
                 stations = await resp.json()
                 self.logger.debug(f"Fetched {len(stations)} stations from {country_name} with genre {genre}")
 
-                # Filtrer et normaliser
+                # Filter and normalize
                 valid_stations = []
                 for station in stations:
                     if self._is_valid_station(station):
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Dédupliquer et trier par score
+                # Deduplicate and sort par score
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for {country_name} + {genre}")
@@ -979,14 +979,14 @@ class RadioBrowserAPI:
 
     async def _fetch_stations_by_query_and_genre(self, query: str, genre: str) -> List[Dict[str, Any]]:
         """
-        Récupère les stations correspondant à une recherche ET un genre via l'API
+        Gets stations matching a search query AND genre via API
 
         Args:
-            query: Terme de recherche (nom de station)
-            genre: Genre musical (ex: "pop", "rock")
+            query: Search term (station name)
+            genre: Music genre (e.g. "pop", "rock")
 
         Returns:
-            Liste des stations normalisées et filtrées
+            List of normalized and filtered stations
         """
         await self._ensure_session()
 
@@ -1002,14 +1002,14 @@ class RadioBrowserAPI:
                 stations = await resp.json()
                 self.logger.debug(f"Fetched {len(stations)} stations for query '{query}' with genre {genre}")
 
-                # Filtrer et normaliser
+                # Filter and normalize
                 valid_stations = []
                 for station in stations:
                     if self._is_valid_station(station):
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Dédupliquer et trier par score
+                # Deduplicate and sort par score
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}' + genre {genre}")
@@ -1025,24 +1025,24 @@ class RadioBrowserAPI:
 
     async def get_available_countries(self) -> List[Dict[str, Any]]:
         """
-        Récupère la liste de tous les pays disponibles depuis Radio Browser API
+        Gets list of all available countries depuis Radio Browser API
         Avec cache 24h + retry logic + fallback
 
         Returns:
             Liste des pays avec nom et nombre de stations
             Format: [{"name": "France", "stationcount": 2345}, ...]
         """
-        # Vérifier le cache d'abord
+        # Check cache first
         if self._countries_cache and self._countries_cache_timestamp:
             cache_age = datetime.now() - self._countries_cache_timestamp
             if cache_age < self._countries_cache_duration:
                 self.logger.debug(f"Using cached countries ({len(self._countries_cache)} countries, age: {cache_age})")
                 return self._countries_cache
 
-        # Cache expiré ou absent, essayer de fetch
+        # Cache expired or absent, essayer de fetch
         await self._ensure_session()
 
-        # Tenter 3 fois avec retry
+        # Try 3 times with retry
         for attempt in range(1, 4):
             try:
                 self.logger.info(f"Attempt {attempt}/3 fetching countries from Radio Browser API...")
@@ -1053,25 +1053,25 @@ class RadioBrowserAPI:
                         if attempt < 3:
                             await asyncio.sleep(2)  # Attendre 2s avant retry
                             continue
-                        # Dernière tentative échouée, utiliser fallback
+                        # Last attempt failed, utiliser fallback
                         break
 
                     countries = await resp.json()
-                    # Filtrer les pays avec au moins 80 stations
+                    # Filter countries with at least 80 stations
                     filtered_countries = [
                         {"name": c.get("name", ""), "stationcount": c.get("stationcount", 0)}
                         for c in countries
                         if c.get("stationcount", 0) >= 80 and c.get("name")
                     ]
 
-                    # Trier par nombre de stations (décroissant)
+                    # Sort by station count (décroissant)
                     sorted_countries = sorted(
                         filtered_countries,
                         key=lambda c: c["stationcount"],
                         reverse=True
                     )
 
-                    # Mettre en cache
+                    # Cache
                     self._countries_cache = sorted_countries
                     self._countries_cache_timestamp = datetime.now()
 
@@ -1089,13 +1089,13 @@ class RadioBrowserAPI:
                     await asyncio.sleep(2)  # Attendre 2s avant retry
                     continue
 
-        # Toutes les tentatives ont échoué
-        # Utiliser le cache périmé s'il existe
+        # All attempts failed
+        # Use stale cache s'il existe
         if self._countries_cache:
             cache_age = datetime.now() - self._countries_cache_timestamp if self._countries_cache_timestamp else None
             self.logger.warning(f"⚠️ API unreachable, using stale cache ({len(self._countries_cache)} countries, age: {cache_age})")
             return self._countries_cache
 
-        # Pas de cache, retourner liste vide
+        # No cache, retourner liste vide
         self.logger.error("❌ API unreachable and no cache available, returning empty list")
         return []

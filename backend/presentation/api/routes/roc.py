@@ -1,43 +1,41 @@
 """
-Routes API spécifiques pour le plugin ROC.
+API routes for ROC plugin
 """
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 from backend.domain.audio_state import PluginState
 
-# Créer un router dédié pour ROC
 router = APIRouter(
-    prefix="/api/roc", 
+    prefix="/api/roc",
     tags=["roc"],
     responses={404: {"description": "Not found"}},
 )
 
-# Référence au plugin ROC (sera injectée via l'injection de dépendances)
 roc_plugin_dependency = None
 
 def setup_roc_routes(plugin_provider):
     """
-    Configure les routes ROC avec une référence au plugin.
-    
+    Configures ROC routes with plugin reference
+
     Args:
-        plugin_provider: Fonction qui retourne une instance du plugin ROC
+        plugin_provider: Function that returns ROC plugin instance
     """
     global roc_plugin_dependency
     roc_plugin_dependency = plugin_provider
     return router
 
 def get_roc_plugin():
-    """Dépendance pour obtenir le plugin ROC"""
+    """Dependency to get ROC plugin"""
     if roc_plugin_dependency is None:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="ROC plugin not initialized. Call setup_roc_routes first."
         )
     return roc_plugin_dependency()
 
 @router.get("/status")
 async def get_roc_status(plugin = Depends(get_roc_plugin)):
-    """Récupère le statut actuel du récepteur ROC"""
+    """Gets current ROC receiver status"""
     try:
         status = await plugin.get_status()
         
@@ -65,27 +63,27 @@ async def get_roc_status(plugin = Depends(get_roc_plugin)):
 
 @router.post("/restart")
 async def restart_roc_service(plugin = Depends(get_roc_plugin)):
-    """Redémarre le service ROC"""
+    """Restarts ROC service"""
     try:
         result = await plugin.handle_command("restart", {})
-        
+
         return {
             "status": "success" if result.get("success") else "error",
-            "message": result.get("message", "Service redémarré"),
+            "message": result.get("message", "Service restarted"),
             "details": result
         }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur lors du redémarrage: {str(e)}"
+            "message": f"Restart error: {str(e)}"
         }
 
 @router.get("/logs")
 async def get_roc_logs(plugin = Depends(get_roc_plugin)):
-    """Récupère les logs du service ROC"""
+    """Gets ROC service logs"""
     try:
         result = await plugin.handle_command("get_logs", {})
-        
+
         if result.get("success"):
             return {
                 "status": "success",
@@ -94,25 +92,25 @@ async def get_roc_logs(plugin = Depends(get_roc_plugin)):
         else:
             return {
                 "status": "error",
-                "message": result.get("error", "Impossible de récupérer les logs")
+                "message": result.get("error", "Unable to retrieve logs")
             }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur lors de la récupération des logs: {str(e)}"
+            "message": f"Log retrieval error: {str(e)}"
         }
 
 @router.get("/info")
 async def get_roc_info(plugin = Depends(get_roc_plugin)):
-    """Récupère les informations de configuration ROC"""
+    """Gets ROC configuration information"""
     try:
         status = await plugin.get_status()
-        
+
         return {
             "status": "ok",
             "configuration": {
                 "rtp_port": status.get("rtp_port", 10001),
-                "rs8m_port": status.get("rs8m_port", 10002), 
+                "rs8m_port": status.get("rs8m_port", 10002),
                 "rtcp_port": status.get("rtcp_port", 10003),
                 "audio_output": status.get("audio_output", "hw:1,0")
             },
@@ -125,16 +123,16 @@ async def get_roc_info(plugin = Depends(get_roc_plugin)):
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur lors de la récupération des informations: {str(e)}"
+            "message": f"Information retrieval error: {str(e)}"
         }
-        
-        
+
+
 @router.get("/connections")
 async def get_roc_connections(plugin = Depends(get_roc_plugin)):
-    """Récupère la liste des connexions actives"""
+    """Gets list of active connections"""
     try:
         result = await plugin.handle_command("get_connections", {})
-        
+
         if result.get("success"):
             return {
                 "status": "success",
@@ -144,10 +142,10 @@ async def get_roc_connections(plugin = Depends(get_roc_plugin)):
         else:
             return {
                 "status": "error",
-                "message": result.get("error", "Impossible de récupérer les connexions")
+                "message": result.get("error", "Unable to retrieve connections")
             }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur lors de la récupération des connexions: {str(e)}"
+            "message": f"Connection retrieval error: {str(e)}"
         }

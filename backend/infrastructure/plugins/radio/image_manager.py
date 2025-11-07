@@ -1,5 +1,5 @@
 """
-Gestionnaire d'images pour les stations radio personnalisées
+Manager d'images pour les stations radio personnalisées
 """
 import os
 import io
@@ -13,7 +13,7 @@ import aiofiles
 
 class ImageManager:
     """
-    Gère le stockage, validation et nettoyage des images de stations radio
+    Manages le stockage, validation et nettoyage des images de stations radio
     """
 
     # Répertoire de stockage des images
@@ -33,7 +33,7 @@ class ImageManager:
         self._ensure_directory()
 
     def _ensure_directory(self) -> None:
-        """Crée le répertoire d'images s'il n'existe pas"""
+        """Creates directory d'images s'il n'existe pas"""
         try:
             self.IMAGES_DIR.mkdir(parents=True, exist_ok=True)
             self.logger.debug(f"Images directory ready: {self.IMAGES_DIR}")
@@ -46,7 +46,7 @@ class ImageManager:
         filename: str
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
-        Valide et sauvegarde une image
+        Validates and saves an image
 
         Args:
             file_content: Contenu binaire du fichier
@@ -59,7 +59,7 @@ class ImageManager:
             - error_message: Message d'erreur si échec
         """
         try:
-            # 1. Vérifier la taille du fichier
+            # 1. Verify la taille du fichier
             file_size = len(file_content)
             if file_size > self.MAX_FILE_SIZE_BYTES:
                 return False, None, f"Image trop volumineuse ({file_size / 1024 / 1024:.1f}MB). Maximum: {self.MAX_FILE_SIZE_MB}MB"
@@ -67,12 +67,12 @@ class ImageManager:
             if file_size == 0:
                 return False, None, "Fichier vide"
 
-            # 2. Vérifier l'extension du fichier
+            # 2. Verify l'extension du fichier
             original_ext = Path(filename).suffix.lower()
             if original_ext not in self.ALLOWED_EXTENSIONS:
                 return False, None, f"Format non supporté. Formats acceptés: {', '.join(self.ALLOWED_EXTENSIONS)}"
 
-            # 3. Ouvrir et valider l'image avec PIL
+            # 3. Open and validate l'image avec PIL
             try:
                 image = Image.open(io.BytesIO(file_content))
                 image.verify()  # Vérifie que c'est une vraie image
@@ -80,11 +80,11 @@ class ImageManager:
                 # Rouvrir après verify() (verify() ferme l'image)
                 image = Image.open(io.BytesIO(file_content))
 
-                # Vérifier le format
+                # Verify le format
                 if image.format not in self.ALLOWED_FORMATS:
                     return False, None, f"Format d'image non supporté: {image.format}"
 
-                # Vérifier les dimensions
+                # Verify les dimensions
                 width, height = image.size
                 if width > self.MAX_DIMENSIONS[0] or height > self.MAX_DIMENSIONS[1]:
                     return False, None, f"Image trop grande ({width}x{height}). Maximum: {self.MAX_DIMENSIONS[0]}x{self.MAX_DIMENSIONS[1]}px"
@@ -96,12 +96,12 @@ class ImageManager:
                 self.logger.warning(f"Image validation failed: {e}")
                 return False, None, "Fichier invalide ou corrompu"
 
-            # 4. Générer un nom de fichier unique
+            # 4. Generate name de fichier unique
             unique_id = uuid.uuid4().hex[:12]
             saved_filename = f"{unique_id}{original_ext}"
             file_path = self.IMAGES_DIR / saved_filename
 
-            # 5. Sauvegarder le fichier
+            # 5. Save le fichier
             async with aiofiles.open(file_path, 'wb') as f:
                 await f.write(file_content)
 
@@ -110,11 +110,11 @@ class ImageManager:
 
         except Exception as e:
             self.logger.error(f"Error saving image: {e}")
-            return False, None, f"Erreur lors de la sauvegarde: {str(e)}"
+            return False, None, f"Error lors de la sauvegarde: {str(e)}"
 
     async def delete_image(self, filename: str) -> bool:
         """
-        Supprime une image du stockage
+        Deletes an image du stockage
 
         Args:
             filename: Nom du fichier à supprimer (ex: "abc123.jpg")
@@ -128,7 +128,7 @@ class ImageManager:
         try:
             file_path = self.IMAGES_DIR / filename
 
-            # Vérifier que le fichier est bien dans notre répertoire (sécurité)
+            # Verify que le fichier est bien dans notre répertoire (sécurité)
             if not file_path.resolve().is_relative_to(self.IMAGES_DIR.resolve()):
                 self.logger.warning(f"Attempted path traversal: {filename}")
                 return False
@@ -147,7 +147,7 @@ class ImageManager:
 
     def get_image_path(self, filename: str) -> Optional[Path]:
         """
-        Récupère le chemin complet d'une image
+        Gets path complet d'une image
 
         Args:
             filename: Nom du fichier
@@ -161,7 +161,7 @@ class ImageManager:
         try:
             file_path = self.IMAGES_DIR / filename
 
-            # Vérifier sécurité
+            # Verify sécurité
             if not file_path.resolve().is_relative_to(self.IMAGES_DIR.resolve()):
                 self.logger.warning(f"Attempted path traversal: {filename}")
                 return None
@@ -176,7 +176,7 @@ class ImageManager:
 
     async def cleanup_orphaned_images(self, used_filenames: list[str]) -> int:
         """
-        Nettoie les images orphelines (sans station associée)
+        Cleans up orphaned images (sans station associée)
 
         Args:
             used_filenames: Liste des noms de fichiers actuellement utilisés

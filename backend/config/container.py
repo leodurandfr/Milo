@@ -1,6 +1,6 @@
-# backend/config/container.py - Injection SettingsService dans LibrespotPlugin et ScreenController
+# backend/config/container.py
 """
-Conteneur d'injection de dépendances - Version avec SettingsService injecté
+Dependency injection container with SettingsService injection
 """
 from dependency_injector import containers, providers
 from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
@@ -23,11 +23,11 @@ from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
 
 class Container(containers.DeclarativeContainer):
-    """Conteneur d'injection de dépendances pour Milo - Version avec SettingsService injecté"""
-    
+    """Dependency injection container for Milo with SettingsService injection"""
+
     config = providers.Configuration()
-    
-    # Services centraux
+
+    # Core services
     systemd_manager = providers.Singleton(SystemdServiceManager)
     snapcast_service = providers.Singleton(SnapcastService)
     settings_service = providers.Singleton(SettingsService)
@@ -44,21 +44,21 @@ class Container(containers.DeclarativeContainer):
         ws_manager=websocket_manager
     )
     
-    # Machine à états unifiée
+    # Unified state machine
     audio_state_machine = providers.Singleton(
         UnifiedAudioStateMachine,
         routing_service=providers.Self,
         websocket_handler=websocket_event_handler
     )
-    
-    # Service de routage audio avec SettingsService et EqualizerService
+
+    # Audio routing service with SettingsService and EqualizerService
     audio_routing_service = providers.Singleton(
         AudioRoutingService,
         settings_service=settings_service,
         equalizer_service=equalizer_service
     )
-    
-    # Service WebSocket Snapcast
+
+    # Snapcast WebSocket service
     snapcast_websocket_service = providers.Singleton(
         SnapcastWebSocketService,
         state_machine=audio_state_machine,
@@ -66,16 +66,16 @@ class Container(containers.DeclarativeContainer):
         host="localhost",
         port=1780
     )
-    
-    # Service Volume avec SettingsService injecté
+
+    # Volume service with SettingsService injection
     volume_service = providers.Singleton(
         VolumeService,
         state_machine=audio_state_machine,
         snapcast_service=snapcast_service,
         settings_service=settings_service
     )
-    
-    # Contrôleurs hardware avec SettingsService
+
+    # Hardware controllers with SettingsService
     rotary_controller = providers.Singleton(
         RotaryVolumeController,
         volume_service=volume_service,
@@ -83,16 +83,16 @@ class Container(containers.DeclarativeContainer):
         dt_pin=27,
         sw_pin=23
     )
-    
-    # MODIFIÉ : Injection SettingsService et HardwareService dans ScreenController
+
+    # ScreenController with SettingsService and HardwareService injection
     screen_controller = providers.Singleton(
         ScreenController,
         state_machine=audio_state_machine,
         settings_service=settings_service,
         hardware_service=hardware_service
     )
-    
-    # MODIFIÉ : Plugins audio avec SettingsService au lieu de config statique
+
+    # Audio plugins with SettingsService instead of static config
     librespot_plugin = providers.Singleton(
         LibrespotPlugin,
         config=providers.Dict({
@@ -137,55 +137,55 @@ class Container(containers.DeclarativeContainer):
         settings_service=settings_service
     )
 
-    # Configuration post-création
+    # Post-creation configuration
     @providers.Callable
     def initialize_services():
         """
-        Initialise les services après création - ORDRE CRITIQUE
+        Initialize services after creation - CRITICAL ORDER
 
-        ⚠️  ATTENTION: L'ordre d'exécution de cette fonction est CRITIQUE.
-        Ne pas modifier sans comprendre les dépendances circulaires.
+        WARNING: The execution order of this function is CRITICAL.
+        Do not modify without understanding circular dependencies.
 
-        ORDRE D'INITIALISATION:
+        INITIALIZATION ORDER:
 
-        1. Récupération des instances depuis le container
-           - Les instances sont créées par dependency-injector en mode Singleton
-           - À ce stade, les dépendances circulaires ne sont PAS résolues
+        1. Retrieve instances from container
+           - Instances are created by dependency-injector in Singleton mode
+           - At this stage, circular dependencies are NOT resolved
 
-        2. Résolution manuelle des dépendances circulaires
-           - routing_service ↔ state_machine (besoin mutuel)
-           - routing_service ↔ snapcast_websocket_service (besoin mutuel)
+        2. Manual resolution of circular dependencies
+           - routing_service ↔ state_machine (mutual need)
+           - routing_service ↔ snapcast_websocket_service (mutual need)
            - state_machine → plugins (via callback)
 
-        3. Enregistrement des plugins dans la state machine
-           - DOIT être fait AVANT l'initialisation asynchrone
-           - Les plugins doivent être disponibles avant que routing_service.initialize() ne s'exécute
+        3. Register plugins in state machine
+           - MUST be done BEFORE async initialization
+           - Plugins must be available before routing_service.initialize() runs
 
-        4. Initialisation asynchrone en parallèle
-           - Les services s'initialisent en parallèle via asyncio.gather()
-           - Les services critiques (routing_service, volume_service) provoquent un échec si erreur
-           - Les services non-critiques loggent l'erreur mais ne bloquent pas le démarrage
+        4. Parallel async initialization
+           - Services initialize in parallel via asyncio.gather()
+           - Critical services (routing_service, volume_service) cause failure on error
+           - Non-critical services log error but don't block startup
 
-        DÉPENDANCES CIRCULAIRES:
+        CIRCULAR DEPENDENCIES:
 
         state_machine ←→ routing_service
-        - state_machine a besoin de routing_service pour sync l'état multiroom/equalizer
-        - routing_service a besoin de state_machine pour broadcaster les événements et accéder aux plugins
+        - state_machine needs routing_service to sync multiroom/equalizer state
+        - routing_service needs state_machine to broadcast events and access plugins
 
         routing_service ←→ snapcast_websocket_service
-        - routing_service contrôle le démarrage/arrêt de snapcast_websocket_service
-        - snapcast_websocket_service a besoin de routing_service pour connaître l'état multiroom
+        - routing_service controls snapcast_websocket_service start/stop
+        - snapcast_websocket_service needs routing_service to know multiroom state
 
-        MODIFICATION DE CETTE FONCTION:
-        Si vous devez ajouter un nouveau service ou modifier l'ordre:
-        1. Identifiez les dépendances du nouveau service
-        2. Ajoutez-le APRÈS la résolution de ses dépendances circulaires
-        3. Ajoutez-le dans init_async() seulement s'il a une méthode initialize() asynchrone
-        4. Testez le démarrage complet de l'application
+        MODIFYING THIS FUNCTION:
+        If you need to add a new service or modify the order:
+        1. Identify the new service dependencies
+        2. Add it AFTER resolving its circular dependencies
+        3. Add it in init_async() only if it has an async initialize() method
+        4. Test complete application startup
 
         """
         # ============================================================
-        # ÉTAPE 1: Récupération des instances (ordre non-critique)
+        # STEP 1: Retrieve instances (order non-critical)
         # ============================================================
         state_machine = container.audio_state_machine()
         routing_service = container.audio_routing_service()
@@ -195,31 +195,31 @@ class Container(containers.DeclarativeContainer):
         snapcast_websocket_service = container.snapcast_websocket_service()
 
         # ============================================================
-        # ÉTAPE 2: Résolution des dépendances circulaires (ORDRE CRITIQUE)
+        # STEP 2: Resolve circular dependencies (CRITICAL ORDER)
         # ============================================================
 
         # 2.1 - routing_service → state_machine.get_plugin()
-        #       Permet à routing_service de redémarrer les plugins actifs
+        #       Allows routing_service to restart active plugins
         routing_service.set_plugin_callback(lambda source: state_machine.get_plugin(source))
 
         # 2.2 - routing_service ↔ snapcast_websocket_service
-        #       Permet le contrôle du cycle de vie du WebSocket Snapcast
+        #       Enables Snapcast WebSocket lifecycle control
         routing_service.set_snapcast_websocket_service(snapcast_websocket_service)
 
         # 2.3 - routing_service → snapcast_service
-        #       Permet l'auto-configuration des groupes Snapcast lors de l'activation multiroom
+        #       Enables auto-configuration of Snapcast groups when multiroom is activated
         routing_service.set_snapcast_service(container.snapcast_service())
 
         # 2.4 - routing_service → state_machine
-        #       Permet à routing_service de broadcaster les événements de routage
+        #       Allows routing_service to broadcast routing events
         routing_service.set_state_machine(state_machine)
 
-        # 2.5 - state_machine ← routing_service (référence circulaire)
-        #       Permet à state_machine de synchroniser l'état multiroom/equalizer
+        # 2.5 - state_machine ← routing_service (circular reference)
+        #       Allows state_machine to synchronize multiroom/equalizer state
         state_machine.routing_service = routing_service
 
         # ============================================================
-        # ÉTAPE 3: Enregistrement des plugins (DOIT être fait AVANT init_async)
+        # STEP 3: Register plugins (MUST be done BEFORE init_async)
         # ============================================================
         state_machine.register_plugin(AudioSource.LIBRESPOT, container.librespot_plugin())
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
@@ -227,22 +227,22 @@ class Container(containers.DeclarativeContainer):
         state_machine.register_plugin(AudioSource.RADIO, container.radio_plugin())
 
         # ============================================================
-        # ÉTAPE 4: Initialisation asynchrone en parallèle
+        # STEP 4: Parallel async initialization
         # ============================================================
         import asyncio
 
         async def init_async():
             """
-            Initialisation asynchrone avec gestion d'erreurs et garantie d'exécution
+            Async initialization with error handling and execution guarantee
 
-            Cette fonction s'exécute en parallèle pour optimiser le temps de démarrage.
-            Les services critiques (routing_service, volume_service) provoquent un échec total si erreur.
-            Les services non-critiques loggent l'erreur mais ne bloquent pas le démarrage.
+            This function runs in parallel to optimize startup time.
+            Critical services (routing_service, volume_service) cause total failure on error.
+            Non-critical services log the error but don't block startup.
             """
             import logging
             logger = logging.getLogger(__name__)
 
-            # Liste des services à initialiser (ordre non-critique, s'exécutent en parallèle)
+            # List of services to initialize (order non-critical, run in parallel)
             services = [
                 ("routing_service", routing_service.initialize()),
                 ("volume_service", volume_service.initialize()),
@@ -251,28 +251,28 @@ class Container(containers.DeclarativeContainer):
                 ("snapcast_websocket_service", snapcast_websocket_service.initialize())
             ]
 
-            # Exécuter toutes les initialisations en parallèle avec gather
+            # Run all initializations in parallel with gather
             results = await asyncio.gather(
                 *[coro for _, coro in services],
                 return_exceptions=True
             )
 
-            # Logger les résultats individuellement
+            # Log results individually
             for (service_name, _), result in zip(services, results):
                 if isinstance(result, Exception):
                     logger.error("%s initialization failed: %s", service_name, result)
                 else:
                     logger.info("%s initialized successfully", service_name)
 
-            # Vérifier si des services critiques ont échoué
+            # Check if critical services failed
             critical_services = ["routing_service", "volume_service"]
             for i, (service_name, _) in enumerate(services):
                 if service_name in critical_services and isinstance(results[i], Exception):
                     logger.critical("Critical service %s failed to initialize", service_name)
                     raise results[i]
 
-        # Créer la task d'initialisation (sera attendue dans main.py lifespan)
+        # Create initialization task (will be awaited in main.py lifespan)
         container._init_task = asyncio.create_task(init_async())
 
-# Création et configuration du conteneur
+# Container creation and configuration
 container = Container()

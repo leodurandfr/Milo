@@ -1,6 +1,6 @@
 # backend/presentation/api/routes/librespot.py
 """
-Routes API spécifiques pour le plugin librespot - Version nettoyée sans auto-disconnect
+API routes for librespot plugin
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
@@ -10,32 +10,30 @@ import aiohttp
 from typing import Dict, Any, Optional
 from backend.domain.audio_state import PluginState
 
-# Créer un router dédié pour librespot
 router = APIRouter(
     prefix="/librespot",
     tags=["librespot"],
     responses={404: {"description": "Not found"}},
 )
 
-# Référence au plugin librespot (sera injectée via l'injection de dépendances)
 librespot_plugin_dependency = None
 
 def setup_librespot_routes(plugin_provider):
     """
-    Configure les routes librespot avec une référence au plugin.
-    
+    Configures librespot routes with plugin reference
+
     Args:
-        plugin_provider: Fonction qui retourne une instance du plugin librespot
+        plugin_provider: Function that returns librespot plugin instance
     """
     global librespot_plugin_dependency
     librespot_plugin_dependency = plugin_provider
     return router
 
 def get_librespot_plugin():
-    """Dépendance pour obtenir le plugin librespot"""
+    """Dependency to get librespot plugin"""
     if librespot_plugin_dependency is None:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="Librespot plugin not initialized. Call setup_librespot_routes first."
         )
     return librespot_plugin_dependency()
@@ -43,24 +41,21 @@ def get_librespot_plugin():
 @router.get("/fresh-status")
 async def get_fresh_librespot_status():
     """
-    Récupère le statut frais directement depuis l'API go-librespot.
-    Cet endpoint appelle l'API go-librespot côté serveur pour éviter les problèmes CORS.
+    Gets fresh status directly from go-librespot API
+    This endpoint calls go-librespot API server-side to avoid CORS issues
     """
     try:
-        # URL de l'API go-librespot (configurable via le plugin)
         api_url = "http://localhost:3678/status"
-        
-        # Timeout court pour éviter les blocages
+
         timeout = aiohttp.ClientTimeout(total=3)
-        
+
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(api_url) as response:
                 if response.status == 200:
                     fresh_data = await response.json()
-                    
-                    # Transformer les données au format Milo
+
                     transformed_metadata = {}
-                    
+
                     if fresh_data.get("track"):
                         track = fresh_data["track"]
                         transformed_metadata = {
@@ -72,8 +67,7 @@ async def get_fresh_librespot_status():
                             "position": track.get("position", 0),
                             "uri": track.get("uri"),
                         }
-                    
-                    # Ajouter l'état de lecture
+
                     transformed_metadata["is_playing"] = not fresh_data.get("paused", True) and not fresh_data.get("stopped", True)
                     
                     return {
@@ -111,22 +105,20 @@ async def get_fresh_librespot_status():
 
 @router.get("/status")
 async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
-    """Récupère le statut actuel de go-librespot avec toutes les métadonnées"""
+    """Gets current go-librespot status with all metadata"""
     try:
-        # Force toujours une mise à jour depuis l'API pour avoir l'état le plus récent
         if plugin.session:
             await plugin._refresh_metadata()
-        
-        # Récupérer les informations de statut complètes
+
         status = await plugin.get_status()
-        
+
         return {
             "status": "ok",
             "is_active": plugin.current_state == PluginState.CONNECTED,
             "plugin_state": plugin.current_state.value,
             "device_connected": status.get("device_connected", False),
             "is_playing": status.get("is_playing", False),
-            "metadata": status.get("metadata", {}), 
+            "metadata": status.get("metadata", {}),
             "ws_connected": status.get("ws_connected", False),
             "auto_disconnect_config": status.get("auto_disconnect_config", {})
         }
@@ -144,86 +136,85 @@ async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
 
 @router.post("/connect")
 async def restart_librespot_connection(plugin = Depends(get_librespot_plugin)):
-    """Redémarre la connexion avec go-librespot"""
+    """Restarts connection with go-librespot"""
     try:
         result = await plugin.handle_command("refresh_metadata", {})
-        
+
         if result.get("success"):
             return {
                 "status": "success",
-                "message": "Connexion à go-librespot redémarrée avec succès",
+                "message": "Connection to go-librespot restarted successfully",
                 "details": result
             }
         else:
             return {
                 "status": "warning",
-                "message": f"Problème lors du rafraîchissement des métadonnées: {result.get('error')}",
+                "message": f"Problem refreshing metadata: {result.get('error')}",
                 "details": result
             }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur lors du redémarrage de la connexion: {str(e)}"
+            "message": f"Connection restart error: {str(e)}"
         }
 
 @router.post("/restart")
 async def restart_go_librespot(plugin = Depends(get_librespot_plugin)):
-    """Redémarre complètement le processus go-librespot"""
+    """Completely restarts go-librespot process"""
     try:
         result = await plugin.handle_command("restart", {})
-        
+
         return {
             "status": "success" if result.get("success") else "error",
-            "message": result.get("message", "Redémarrage terminé"),
+            "message": result.get("message", "Restart completed"),
             "details": result
         }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur inattendue: {str(e)}"
+            "message": f"Unexpected error: {str(e)}"
         }
 
 @router.post("/force-disconnect")
 async def force_librespot_disconnect(plugin = Depends(get_librespot_plugin)):
-    """Force l'envoi d'un événement de déconnexion pour librespot"""
+    """Forces sending of disconnect event for librespot"""
     try:
         result = await plugin.handle_command("force_disconnect", {})
-        
+
         return {
             "status": "success" if result.get("success") else "error",
-            "message": result.get("message", "Déconnexion forcée"),
+            "message": result.get("message", "Forced disconnect"),
             "details": result
         }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur lors de l'envoi de l'événement de déconnexion: {str(e)}"
+            "message": f"Disconnect event error: {str(e)}"
         }
-        
+
 @router.get("/logs")
 async def get_librespot_logs(
     lines: int = Query(20, gt=0, le=200),
     plugin = Depends(get_librespot_plugin)
 ):
-    """Récupère les dernières lignes des logs de go-librespot"""
+    """Gets last lines of go-librespot logs"""
     try:
-        # Vérifier si le processus est en cours d'exécution
         process_info = await plugin.get_process_info()
-        
+
         if not process_info.get("running"):
             return {
                 "status": "error",
-                "message": "Le processus go-librespot n'est pas en cours d'exécution"
+                "message": "The go-librespot process is not running"
             }
-        
+
         return {
             "status": "warning",
-            "message": "La récupération des logs n'est pas encore implémentée dans la nouvelle structure",
+            "message": "Log retrieval not yet implemented in new structure",
             "process_info": process_info
         }
-    
+
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Erreur inattendue: {str(e)}"
+            "message": f"Unexpected error: {str(e)}"
         }

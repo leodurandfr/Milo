@@ -1,5 +1,5 @@
 """
-Routes API principales pour la gestion audio - Version OPTIM avec validation et rate limiting
+Main API routes for audio management
 """
 from fastapi import APIRouter, HTTPException, Request
 from slowapi import Limiter
@@ -7,22 +7,21 @@ from slowapi.util import get_remote_address
 from backend.domain.audio_state import AudioSource
 from backend.presentation.api.models import AudioControlRequest
 
-# Limiter pour les endpoints critiques
 limiter = Limiter(key_func=get_remote_address)
 
 def create_router(state_machine):
-    """Crée le router avec les dépendances injectées"""
+    """Creates router with injected dependencies"""
     router = APIRouter(prefix="/api/audio", tags=["audio"])
 
     @router.get("/state")
     async def get_current_state():
-        """Récupère l'état actuel du système audio"""
+        """Gets current audio system state"""
         return await state_machine.get_current_state()
 
     @router.post("/source/{source_name}")
-    @limiter.limit("20/minute")  # Max 20 changements de source par minute
+    @limiter.limit("20/minute")
     async def change_audio_source(request: Request, source_name: str):
-        """Change la source audio active avec rate limiting"""
+        """Changes active audio source with rate limiting"""
         try:
             source = AudioSource(source_name)
             success = await state_machine.transition_to_source(source)
@@ -31,9 +30,9 @@ def create_router(state_machine):
             raise HTTPException(status_code=400, detail=f"Invalid source: {source_name}")
 
     @router.post("/control/{source_name}")
-    @limiter.limit("60/minute")  # Max 60 commandes par minute
+    @limiter.limit("60/minute")
     async def control_source(request: Request, source_name: str, control_request: AudioControlRequest):
-        """Envoie une commande à une source spécifique avec validation et rate limiting"""
+        """Sends command to specific source with validation and rate limiting"""
         try:
             source = AudioSource(source_name)
             plugin = state_machine.plugins.get(source)

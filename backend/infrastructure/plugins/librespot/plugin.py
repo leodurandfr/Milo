@@ -1,6 +1,6 @@
 # backend/infrastructure/plugins/librespot/plugin.py
 """
-Plugin librespot avec support 0 = désactivé pour auto_disconnect
+Librespot plugin with 0 = disabled support for auto_disconnect
 """
 import os
 import yaml
@@ -14,7 +14,7 @@ from backend.domain.audio_state import PluginState
 from backend.infrastructure.plugins.plugin_utils import WebSocketManager
 
 class LibrespotPlugin(UnifiedAudioPlugin):
-    """Plugin Spotify via go-librespot avec support 0 = désactivé"""
+    """Spotify plugin via go-librespot with 0 = disabled support"""
     
     def __init__(self, config: Dict[str, Any], state_machine=None, settings_service=None):
         super().__init__("librespot", state_machine)
@@ -23,7 +23,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         self.config_path = os.path.expanduser(config.get("config_path"))
         self.settings_service = settings_service
         
-        # Configuration de la déconnexion automatique (depuis SettingsService)
+        # Auto-disconnect configuration (depuis SettingsService)
         self.auto_disconnect_enabled = True
         self.pause_disconnect_delay = 10.0
         
@@ -36,16 +36,16 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         self._device_connected = False
         self._ws_connected = False
         
-        # Timer de déconnexion automatique après pause
+        # Auto-disconnect timer after pause
         self._pause_disconnect_timer = None
         
-        # Créer le gestionnaire WebSocket
+        # Create WebSocket manager
         self.ws_manager = WebSocketManager(self.logger)
     
     async def _do_initialize(self) -> bool:
-        """Initialisation avec lecture config depuis SettingsService"""
+        """Initialization with config reading from SettingsService"""
         try:
-            # Vérifier l'existence du service
+            # Check service existence
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "list-unit-files", self.service_name,
                 stdout=asyncio.subprocess.PIPE,
@@ -54,9 +54,9 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             stdout, _ = await proc.communicate()
             
             if proc.returncode != 0 or self.service_name not in stdout.decode():
-                raise RuntimeError(f"Service {self.service_name} non trouvé")
+                raise RuntimeError(f"Service {} not found")
             
-            # Lire la configuration pour récupérer le device actuel
+            # Read configuration to get current device
             with open(self.config_path, 'r') as f:
                 config = yaml.safe_load(f)
             
@@ -69,26 +69,26 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             self.api_url = f"http://{addr}:{port}"
             self.ws_url = f"ws://{addr}:{port}/events"
             
-            # Charger la config depuis SettingsService
+            # Load config from SettingsService
             await self._load_settings_config()
             
             self.logger.info(f"Spotify disconnect config: enabled={self.auto_disconnect_enabled}, delay={self.pause_disconnect_delay}s")
             
             return True
         except Exception as e:
-            self.logger.error(f"Erreur d'initialisation: {e}")
+            self.logger.error(f"Initialization error: {e}")
             return False
     
     async def _load_settings_config(self):
-        """Charge la configuration depuis SettingsService avec support 0 = désactivé"""
+        """Loads configuration from SettingsService avec support 0 = désactivé"""
         if self.settings_service:
             try:
                 spotify_delay = await self.settings_service.get_setting('spotify.auto_disconnect_delay')
                 if spotify_delay is not None:
-                    # MODIFIÉ : Support 0 = désactivé
+                    # MODIFIÉ : 0 = disabled support
                     if spotify_delay == 0.0:
                         self.auto_disconnect_enabled = False
-                        self.pause_disconnect_delay = 10.0  # Valeur par défaut pour affichage
+                        self.pause_disconnect_delay = 10.0  # Default value for display
                         self.logger.info("Spotify auto-disconnect DISABLED (delay = 0)")
                     else:
                         self.auto_disconnect_enabled = True
@@ -100,35 +100,35 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 self.logger.error(f"Error loading Spotify settings: {e}")
     
     async def _do_start(self) -> bool:
-        """Démarrage spécifique à go-librespot"""
+        """Specific go-librespot startup"""
         try:
-            # Démarrer le service
+            # Start service
             if not await self.control_service(self.service_name, "start"):
                 return False
             
-            # Reset état au démarrage
+            # Reset state at startup
             self._device_connected = False
             self._is_playing = False
             self._metadata = {}
             self._cancel_pause_timer()
             
-            # Créer la session HTTP
+            # Create HTTP session
             self.session = aiohttp.ClientSession()
             
-            # Démarrer la connexion WebSocket
+            # Start WebSocket connection
             await self._start_websocket()
             
             return True
         except Exception as e:
-            self.logger.error(f"Erreur démarrage: {e}")
+            self.logger.error(f"Start error: {e}")
             return False
     
     async def restart(self) -> bool:
-        """Redémarre go-librespot avec reset d'état et reconnexion WebSocket"""
+        """Restarts go-librespot avec reset d'état et reconnexion WebSocket"""
         try:
             self.logger.info("Restarting librespot service")
 
-            # Annuler le timer de déconnexion
+            # Cancel disconnect timer
             self._cancel_pause_timer()
 
             # Reset état avant redémarrage
@@ -136,27 +136,27 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             self._is_playing = False
             self._metadata = {}
 
-            # Arrêter l'ancienne connexion WebSocket
+            # Stop old connection WebSocket
             if self.ws_manager:
                 await self.ws_manager.stop()
 
-            # Redémarrer le service
+            # Restart service
             success = await self.control_service(self.service_name, "restart")
 
             if not success:
                 self.logger.error(f"Failed to restart service {self.service_name}")
                 return False
 
-            # Attendre que le nouveau service soit prêt
+            # Wait for new service to be ready
             await asyncio.sleep(0.5)
 
-            # Reconnexion WebSocket au nouveau processus
+            # WebSocket reconnection to new process
             if self.session:
                 await self._start_websocket()
             else:
                 self.logger.warning("No session available, skipping WebSocket reconnection")
 
-            # Notifier le changement d'état APRÈS le restart (sans attendre pour éviter deadlock)
+            # Notify change d'état APRÈS le restart (sans attendre pour éviter deadlock)
             async def notify_ready_state():
                 await asyncio.sleep(0.1)
                 await self.notify_state_change(PluginState.READY, {"device_connected": False})
@@ -170,23 +170,23 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return False
     
     async def stop(self) -> bool:
-        """Arrête le plugin"""
+        """Stops the plugin"""
         try:
-            # Annuler le timer de déconnexion
+            # Cancel disconnect timer
             self._cancel_pause_timer()
 
-            # Arrêter le WebSocket
+            # Stop WebSocket
             await self.ws_manager.stop()
 
-            # Fermer la session HTTP
+            # Close HTTP session
             if self.session:
                 await self.session.close()
                 self.session = None
 
-            # Arrêter le service
+            # Stop service
             await self.control_service(self.service_name, "stop")
 
-            # Réinitialiser l'état
+            # Reset state
             self._ws_connected = False
             self._device_connected = False
             self._is_playing = False
@@ -195,18 +195,18 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             await self.notify_state_change(PluginState.INACTIVE)
             return True
         except Exception as e:
-            self.logger.error(f"Erreur arrêt: {e}")
+            self.logger.error(f"Stop error: {e}")
             return False
 
     async def set_auto_disconnect_config(self, enabled: bool, delay: float = None, save_to_settings: bool = True) -> bool:
-        """Configure la déconnexion automatique avec support 0 = désactivé"""
+        """Configures auto-disconnect avec support 0 = désactivé"""
         old_enabled = self.auto_disconnect_enabled
         old_delay = self.pause_disconnect_delay
         
-        # MODIFIÉ : Gérer delay = 0 comme désactivé
+        # MODIFIÉ : Handle delay = 0 as disabled
         if delay is not None and delay == 0:
             self.auto_disconnect_enabled = False
-            self.pause_disconnect_delay = 10.0  # Valeur par défaut pour affichage
+            self.pause_disconnect_delay = 10.0  # Default value for display
             self.logger.info("Auto-disconnect DISABLED (delay = 0)")
         elif delay is not None:
             self.auto_disconnect_enabled = enabled
@@ -216,15 +216,15 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             self.auto_disconnect_enabled = enabled
             self.logger.info(f"Auto-disconnect enabled state changed: {enabled}")
         
-        # Sauvegarder dans SettingsService si demandé
+        # Save to SettingsService si demandé
         if save_to_settings and self.settings_service:
             try:
-                # Sauvegarder 0 si désactivé, sinon la vraie valeur
+                # Save 0 if disabled, sinon la vraie valeur
                 save_value = 0.0 if not self.auto_disconnect_enabled else self.pause_disconnect_delay
                 success = await self.settings_service.set_setting('spotify.auto_disconnect_delay', save_value)
                 if not success:
                     self.logger.error("Failed to save Spotify config to settings")
-                    # Restaurer les anciennes valeurs
+                    # Restore old values
                     self.auto_disconnect_enabled = old_enabled
                     self.pause_disconnect_delay = old_delay
                     return False
@@ -234,7 +234,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 self.pause_disconnect_delay = old_delay
                 return False
         
-        # Gestion du timer en cours
+        # Management of running timer
         if (self._pause_disconnect_timer and 
             not self._pause_disconnect_timer.done() and 
             self._device_connected and 
@@ -242,14 +242,14 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             
             self._cancel_pause_timer()
             
-            # Redémarrer le timer seulement si activé
+            # Restart timer only if enabled
             if self.auto_disconnect_enabled:
                 self.logger.info(f"Restarting pause timer with new delay: {self.pause_disconnect_delay}s")
                 self._start_pause_timer()
             else:
                 self.logger.info("Timer cancelled (auto-disconnect disabled)")
         
-        # Annuler le timer si on désactive complètement
+        # Cancel timer if disabling complètement
         elif not self.auto_disconnect_enabled and self._pause_disconnect_timer:
             self._cancel_pause_timer()
             self.logger.info("Timer cancelled (auto-disconnect disabled)")
@@ -257,7 +257,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         return True
     
     def get_auto_disconnect_config(self) -> Dict[str, Any]:
-        """Récupère la configuration de déconnexion automatique"""
+        """Gets configuration de déconnexion automatique"""
         return {
             "enabled": self.auto_disconnect_enabled,
             "delay": self.pause_disconnect_delay,
@@ -265,22 +265,22 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         }
     
     def _cancel_pause_timer(self) -> None:
-        """Annule le timer de déconnexion automatique"""
+        """Cancels auto-disconnect timer"""
         if self._pause_disconnect_timer:
             self._pause_disconnect_timer.cancel()
             self._pause_disconnect_timer = None
             self.logger.debug("Pause disconnect timer cancelled")
     
     def _start_pause_timer(self) -> None:
-        """Démarre le timer de déconnexion automatique après pause"""
+        """Starts auto-disconnect timer après pause"""
         if not self.auto_disconnect_enabled:
             self.logger.debug("Auto-disconnect disabled, skipping timer")
             return
 
-        # Annuler le timer existant s'il y en a un
+        # Cancel existing timer s'il y en a un
         self._cancel_pause_timer()
 
-        # Créer un nouveau timer
+        # Create new timer
         async def disconnect_after_pause():
             try:
                 await asyncio.sleep(self.pause_disconnect_delay)
@@ -295,20 +295,20 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         self.logger.debug(f"Started pause disconnect timer ({self.pause_disconnect_delay}s)")
     
     async def _start_websocket(self) -> None:
-        """Démarre la connexion WebSocket"""
+        """Starts WebSocket connection"""
         async def connect_func():
             try:
                 await self._refresh_metadata()
                 return True
             except Exception as e:
-                self.logger.error(f"Erreur connexion: {e}")
+                self.logger.error(f"Connection error: {e}")
                 return False
                 
         async def process_func():
             try:
                 async with self.session.ws_connect(self.ws_url) as ws:
                     self._ws_connected = True
-                    self.logger.info(f"WebSocket connecté à {self.ws_url}")
+                    self.logger.info(f"WebSocket connected à {self.ws_url}")
                     
                     async for msg in ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
@@ -316,14 +316,14 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                         elif msg.type == aiohttp.WSMsgType.ERROR:
                             break
             except Exception as e:
-                self.logger.error(f"Erreur WebSocket: {e}")
+                self.logger.error(f"WebSocket error: {e}")
             finally:
                 self._ws_connected = False
         
         await self.ws_manager.start(connect_func, process_func)
     
     async def _handle_event(self, event: Dict[str, Any]) -> None:
-        """Traite un événement WebSocket"""
+        """Processes a WebSocket event"""
         event_type = event.get("type")
         data = event.get("data", {})
         
@@ -341,15 +341,15 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             await handler()
     
     async def _handle_active_state(self):
-        """Traite l'événement 'device active'"""
+        """Processes event 'device active'"""
         self._device_connected = True
-        # Enrichir avec la position actuelle
+        # Enrich with current position
         await self._refresh_metadata()
         await self.notify_state_change(PluginState.CONNECTED, self._metadata)
     
     async def _handle_inactive_state(self):
-        """Traite l'événement 'device inactive'"""
-        # Annuler le timer de déconnexion car l'appareil est déjà inactif
+        """Processes event 'device inactive'"""
+        # Cancel disconnect timer car l'appareil est déjà inactif
         self._cancel_pause_timer()
         
         self._device_connected = False
@@ -364,10 +364,10 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         
         # Gestion du timer de déconnexion automatique
         if is_playing:
-            # Musique en cours de lecture → annuler le timer
+            # Music playing → annuler le timer
             self._cancel_pause_timer()
         else:
-            # Musique en pause → démarrer le timer de déconnexion (si activé)
+            # Music paused → démarrer le timer de déconnexion (si activé)
             self._start_pause_timer()
         
         # Enrichir avec position actuelle
@@ -377,12 +377,12 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         await self.notify_state_change(PluginState.CONNECTED, self._metadata)
     
     async def _handle_metadata_update(self):
-        """Traite l'événement de mise à jour des métadonnées"""
+        """Processes event de mise à jour des métadonnées"""
         await self._refresh_metadata()
         await self.notify_state_change(PluginState.CONNECTED, self._metadata)
     
     async def _handle_seek_update(self, data):
-        """Traite l'événement de recherche dans la piste"""
+        """Processes event de recherche dans la piste"""
         if self._metadata:
             self._metadata["position"] = data.get("position", 0)
             
@@ -392,7 +392,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
         })
     
     async def _refresh_metadata(self) -> bool:
-        """Rafraîchit les métadonnées depuis l'API REST"""
+        """Refreshes metadata from REST API"""
         if not self.session:
             return False
             
@@ -403,11 +403,11 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                     
                 data = await resp.json()
                 
-                # Mettre à jour l'état de connexion
+                # Update connection state
                 self._device_connected = bool(data.get("track"))
                 self._is_playing = not data.get("paused", True)
                 
-                # Extraire les métadonnées
+                # Extract metadata
                 if data.get("track"):
                     track = data["track"]
                     self._metadata = {
@@ -425,11 +425,11 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 
                 return True
         except Exception as e:
-            self.logger.error(f"Erreur rafraîchissement métadonnées: {e}")
+            self.logger.error(f"Metadata refresh error: {e}")
             return False
     
     async def handle_command(self, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Traite les commandes"""
+        """Processes commands"""
         if command == "restart_service":
             return await self._restart_service()
             
@@ -437,7 +437,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             success = await self._refresh_metadata()
             return self.format_response(
                 success=success,
-                message="Métadonnées rafraîchies" if success else "Échec du rafraîchissement",
+                message="Metadata refreshed" if success else "Refresh failed",
                 metadata=self._metadata
             )
             
@@ -451,20 +451,20 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             payload = {"uri": data.get("uri")} if data.get("uri") else {}
             return await self._send_command(command, payload)
             
-        return self.format_response(False, error=f"Commande non supportée: {command}")
+        return self.format_response(False, error=f"Unsupported command: {command}")
     
     async def _restart_service(self) -> Dict[str, Any]:
-        """Redémarre le service"""
+        """Restarts service"""
         success = await self.control_service(self.service_name, "restart")
         return self.format_response(
             success=success,
-            message="Service redémarré" if success else "Échec du redémarrage"
+            message="Service restarted" if success else "Restart failed"
         )
     
     async def _send_command(self, command: str, payload: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Envoie une commande à l'API REST"""
+        """Sends command to REST API"""
         if not self.session:
-            return self.format_response(False, error="Session inactive")
+            return self.format_response(False, error="Inactive session")
             
         try:
             async with self.session.post(
@@ -476,7 +476,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             return self.format_response(False, error=str(e))
     
     async def get_status(self) -> Dict[str, Any]:
-        """Récupère l'état actuel du plugin"""
+        """Gets current plugin state"""
         try:
             service_status = await self.service_manager.get_status(self.service_name)
             
@@ -491,7 +491,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
                 "auto_disconnect_config": self.get_auto_disconnect_config()
             }
         except Exception as e:
-            self.logger.error(f"Erreur status: {e}")
+            self.logger.error(f"Status error: {e}")
             return {
                 "device_connected": False,
                 "ws_connected": False,
@@ -507,7 +507,7 @@ class LibrespotPlugin(UnifiedAudioPlugin):
             }
     
     async def get_initial_state(self) -> Dict[str, Any]:
-        """État initial pour les WebSockets"""
+        """Initial state for WebSockets"""
         if self.session:
             await self._refresh_metadata()
         

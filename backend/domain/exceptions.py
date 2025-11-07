@@ -1,116 +1,126 @@
 # backend/domain/exceptions.py
 """
-Hiérarchie d'exceptions custom pour Milo - Permet une gestion d'erreurs uniforme
+Custom exception hierarchy for Milo - enables unified error handling.
 """
 
 class MiloException(Exception):
-    """Exception de base pour toutes les erreurs Milo"""
+    """Base exception for all Milo errors."""
     def __init__(self, message: str, details: dict = None):
         self.message = message
         self.details = details or {}
         super().__init__(self.message)
 
 
-# === Erreurs récupérables ===
+# ============================================================================
+# RECOVERABLE ERRORS
+# ============================================================================
 
 class MiloRecoverableException(MiloException):
-    """Erreur récupérable - le système peut continuer à fonctionner"""
+    """Recoverable error - system can continue operating."""
     pass
 
 
 class ServiceUnavailableException(MiloRecoverableException):
-    """Un service externe n'est pas disponible (snapcast, systemd, etc.)"""
+    """External service is unavailable (snapcast, systemd, etc.)."""
     pass
 
 
 class DeviceNotFoundException(MiloRecoverableException):
-    """Device audio introuvable"""
+    """Audio device not found."""
     pass
 
 
 class PluginNotReadyException(MiloRecoverableException):
-    """Plugin pas encore initialisé"""
+    """Plugin not yet initialized."""
     pass
 
 
 class TransitionInProgressException(MiloRecoverableException):
-    """Une transition est déjà en cours"""
+    """A transition is already in progress."""
     pass
 
 
-# === Erreurs critiques ===
+# ============================================================================
+# CRITICAL ERRORS
+# ============================================================================
 
 class MiloCriticalException(MiloException):
-    """Erreur critique - nécessite intervention ou redémarrage"""
+    """Critical error - requires intervention or restart."""
     pass
 
 
 class StateCorruptionException(MiloCriticalException):
-    """État système corrompu ou incohérent"""
+    """System state is corrupted or inconsistent."""
     pass
 
 
 class InitializationFailedException(MiloCriticalException):
-    """Échec d'initialisation d'un composant critique"""
+    """Critical component initialization failed."""
     pass
 
 
 class DependencyInjectionException(MiloCriticalException):
-    """Erreur dans l'injection de dépendances (résolution circulaire, etc.)"""
+    """Dependency injection error (circular resolution, etc.)."""
     pass
 
 
-# === Erreurs de configuration ===
+# ============================================================================
+# CONFIGURATION ERRORS
+# ============================================================================
 
 class MiloConfigurationException(MiloException):
-    """Erreur de configuration"""
+    """Configuration error."""
     pass
 
 
 class InvalidSettingsException(MiloConfigurationException):
-    """Settings invalides"""
+    """Invalid settings."""
     pass
 
 
 class InvalidCommandException(MiloConfigurationException):
-    """Commande invalide ou paramètres incorrects"""
+    """Invalid command or incorrect parameters."""
     pass
 
 
-# === Erreurs de transition ===
+# ============================================================================
+# TRANSITION ERRORS
+# ============================================================================
 
 class TransitionException(MiloException):
-    """Erreur durant une transition de source audio"""
+    """Error during audio source transition."""
     pass
 
 
 class TransitionTimeoutException(TransitionException):
-    """Timeout durant une transition"""
+    """Timeout during transition."""
     pass
 
 
 class SourceStartFailedException(TransitionException):
-    """Échec du démarrage d'une source"""
+    """Audio source failed to start."""
     pass
 
 
 class SourceStopFailedException(TransitionException):
-    """Échec de l'arrêt d'une source"""
+    """Audio source failed to stop."""
     pass
 
 
-# === Erreurs de routage ===
+# ============================================================================
+# ROUTING ERRORS
+# ============================================================================
 
 class RoutingException(MiloException):
-    """Erreur de routage audio"""
+    """Audio routing error."""
     pass
 
 
 class MultiroomActivationException(RoutingException):
-    """Échec d'activation du multiroom"""
+    """Multiroom activation failed."""
     pass
 
 
 class EqualizerActivationException(RoutingException):
-    """Échec d'activation de l'equalizer"""
+    """Equalizer activation failed."""
     pass

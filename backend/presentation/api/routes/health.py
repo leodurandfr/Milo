@@ -1,25 +1,24 @@
 # backend/presentation/api/routes/health.py
 """
-Health check endpoint simple pour monitoring
+Health check endpoint for monitoring
 """
 import time
 from fastapi import APIRouter
 from typing import Dict, Any
 
 def create_health_router(state_machine, routing_service, snapcast_service):
-    """Crée le router health check"""
+    """Creates health check router"""
     router = APIRouter(prefix="/api", tags=["health"])
 
     @router.get("/health")
     async def health_check() -> Dict[str, Any]:
-        """Endpoint de santé simple pour monitoring"""
+        """Simple health endpoint for monitoring"""
         checks = {
             "status": "healthy",
             "timestamp": time.time(),
             "services": {}
         }
 
-        # Check state machine
         try:
             state = await state_machine.get_current_state()
             checks["services"]["state_machine"] = {
@@ -34,7 +33,6 @@ def create_health_router(state_machine, routing_service, snapcast_service):
             }
             checks["status"] = "unhealthy"
 
-        # Check routing
         try:
             routing_state = routing_service.get_state()
             checks["services"]["routing"] = {
@@ -48,7 +46,6 @@ def create_health_router(state_machine, routing_service, snapcast_service):
             }
             checks["status"] = "unhealthy"
 
-        # Check snapcast (si multiroom activé)
         try:
             routing_state = routing_service.get_state()
             if routing_state.get('multiroom_enabled', False):
@@ -72,8 +69,6 @@ def create_health_router(state_machine, routing_service, snapcast_service):
                 "error": str(e)
             }
             checks["status"] = "degraded"
-
-        # Check plugins
         plugin_status = {}
         for source, plugin in state_machine.plugins.items():
             if plugin:
@@ -94,7 +89,7 @@ def create_health_router(state_machine, routing_service, snapcast_service):
 
     @router.get("/ping")
     async def ping() -> Dict[str, str]:
-        """Endpoint simple pour vérifier que l'API répond"""
+        """Simple endpoint to verify API is responding"""
         return {"status": "ok", "message": "pong"}
 
     return router
