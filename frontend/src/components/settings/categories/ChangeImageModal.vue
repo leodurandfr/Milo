@@ -1,7 +1,7 @@
 <template>
   <section class="settings-section">
     <form @submit.prevent="handleSubmit" class="change-image-form">
-        <!-- Sélection de la station (recherche) -->
+        <!-- Station selection (search) -->
         <div class="form-group">
           <label class="text-mono">Chercher une station favorite</label>
           <input v-model="stationName" type="text" class="form-input text-body-small"
@@ -10,7 +10,7 @@
           <p v-if="foundStation" class="search-info success text-mono">✅ Station sélectionnée : {{ foundStation.name }}</p>
           <p v-else-if="favoriteStations.length === 0" class="search-info error text-mono">⚠️ Aucune station favorite trouvée</p>
 
-          <!-- Suggestions de stations favorites -->
+          <!-- Favorite station suggestions -->
           <div v-if="matchingStations.length > 0 && showSuggestions" class="suggestions-list">
             <p class="suggestions-label text-mono">Stations favorites ({{ matchingStations.length }}) :</p>
             <button
@@ -28,7 +28,7 @@
           </div>
         </div>
 
-        <!-- Image actuelle (si trouvée) -->
+        <!-- Current image (if found) -->
         <div v-if="foundStation" class="current-image-section">
           <label class="text-mono">Image actuelle</label>
           <div class="current-image-preview">
@@ -40,7 +40,7 @@
           </div>
         </div>
 
-        <!-- Nouvelle image -->
+        <!-- New image -->
         <div class="form-group">
           <label class="text-mono">Nouvelle image *</label>
           <div class="image-upload-container">
@@ -52,7 +52,7 @@
                 <p class="text-mono">Cliquez pour choisir</p>
               </div>
 
-              <!-- Remove button if image selected -->
+              <!-- Remove button if an image is selected -->
               <button v-if="selectedFile" type="button" class="remove-image-btn" @click="removeImage">
                 ✕
               </button>
@@ -97,10 +97,10 @@ import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const emit = defineEmits(['back', 'success']);
 
-// Liste des stations favorites chargées
+// List of favorite stations loaded
 const favoriteStations = ref([]);
 
-// Charger les stations favorites au montage de la modal
+// Load favorite stations when the modal is mounted
 onMounted(async () => {
   try {
     const response = await axios.get('/api/radio/stations', {
@@ -123,14 +123,14 @@ const isSubmitting = ref(false);
 const errorMessage = ref('');
 const showSuggestions = ref(false);
 
-// Suggestions de stations favorites pendant la frappe
+// Favorite station suggestions while typing
 const matchingStations = computed(() => {
-  // Si pas de recherche, afficher toutes les stations favorites
+  // If no search, show all favorite stations
   if (!stationName.value.trim()) {
     return favoriteStations.value;
   }
 
-  // Sinon, filtrer par le terme de recherche
+  // Otherwise, filter by the search term
   const query = stationName.value.toLowerCase();
   return favoriteStations.value.filter(s =>
     s.name.toLowerCase().includes(query)
@@ -138,10 +138,10 @@ const matchingStations = computed(() => {
 });
 
 function searchStation() {
-  // Juste pour afficher les suggestions (le filtrage se fait dans matchingStations)
+  // Only to show suggestions (filtering happens in matchingStations)
   showSuggestions.value = true;
 
-  // Réinitialiser la station sélectionnée si on modifie le texte
+  // Reset the selected station if the text changes
   if (foundStation.value && foundStation.value.name !== stationName.value) {
     foundStation.value = null;
   }
@@ -150,7 +150,7 @@ function searchStation() {
 function selectSuggestion(station) {
   stationName.value = station.name;
   foundStation.value = station;
-  showSuggestions.value = false; // Masquer les suggestions après sélection
+  showSuggestions.value = false; // Hide suggestions after selection
 }
 
 function handleFileSelect(event) {

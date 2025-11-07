@@ -1,9 +1,5 @@
 <template>
-  <div 
-    class="app-icon" 
-    :style="iconStyle"
-    :class="{ 'size-large': props.size === 'large' || props.size === 72 }"
-  >
+  <div class="app-icon" :style="iconStyle" :class="{ 'size-large': props.size === 'large' || props.size === 72 }">
     <div class="app-icon-content">
       <div v-html="svgContent" class="app-icon-svg" />
     </div>
@@ -11,14 +7,14 @@
 </template>
 
 <script>
-// Compteur global pour générer des IDs uniques pour chaque instance
+// Global counter to generate unique IDs for each instance
 let instanceCounter = 0;
 </script>
 
 <script setup>
 import { computed } from 'vue';
 
-// Générer un ID unique pour cette instance du composant
+// Generate a unique ID for this component instance
 const instanceId = ++instanceCounter;
 
 const props = defineProps({
@@ -38,7 +34,7 @@ const props = defineProps({
   }
 });
 
-// === MAPPING DES ICÔNES ===
+
 const iconMapping = {
   'librespot': 'spotify',
   'roc': 'macos',
@@ -49,34 +45,35 @@ const iconMapping = {
   'settings': 'settings'
 };
 
-const svgModules = import.meta.glob('@/assets/app-icons/*.svg', { 
+const svgModules = import.meta.glob('@/assets/app-icons/*.svg', {
   query: '?raw',
-  eager: true 
+  eager: true
 });
 
 const prepareSvg = (svgString, prefix) => {
   let result = svgString;
-  
-  // Extraire et reconstruire la balise <svg> sans width/height
+
+  // Extract and rebuild the <svg> tag without width/height
   const svgTagMatch = result.match(/<svg([^>]*)>/);
   if (svgTagMatch) {
     let svgAttributes = svgTagMatch[1];
-    // Retirer width et height
+        // Remove width and height
+
     svgAttributes = svgAttributes.replace(/\s*width="[^"]*"/g, '');
     svgAttributes = svgAttributes.replace(/\s*height="[^"]*"/g, '');
-    // Remplacer la balise svg originale
+    // Replace the original svg tag
     result = result.replace(/<svg[^>]*>/, `<svg${svgAttributes}>`);
   }
-  
-  // Rendre les IDs uniques
+
+  // Make IDs unique
   const idPattern = /id="([^"]+)"/g;
   const ids = new Set();
   let match;
-  
+
   while ((match = idPattern.exec(result)) !== null) {
     ids.add(match[1]);
   }
-  
+
   ids.forEach(id => {
     const newId = `${prefix}-${id}`;
     result = result.replace(new RegExp(`id="${id}"`, 'g'), `id="${newId}"`);
@@ -84,7 +81,7 @@ const prepareSvg = (svgString, prefix) => {
     result = result.replace(new RegExp(`clip-path="url\\(#${id}\\)"`, 'g'), `clip-path="url(#${newId})"`);
     result = result.replace(new RegExp(`filter="url\\(#${id}\\)"`, 'g'), `filter="url(#${newId})"`);
   });
-  
+
   return result;
 };
 
@@ -124,7 +121,7 @@ const loadingIcon = `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.o
 
 const iconStyle = computed(() => {
   let sizeInPx = 32;
-  
+
   if (typeof props.size === 'number') {
     sizeInPx = props.size;
   } else if (typeof props.size === 'string') {
@@ -135,7 +132,7 @@ const iconStyle = computed(() => {
       default: sizeInPx = 32;
     }
   }
-  
+
   return {
     width: `${sizeInPx}px`,
     height: `${sizeInPx}px`,
@@ -148,7 +145,7 @@ const svgContent = computed(() => {
     return loadingIcon;
   }
 
-  // Utiliser le mapping pour trouver le bon fichier SVG
+  // Use the mapping to find the correct SVG file
   const iconFileName = iconMapping[props.name] || props.name;
   const icon = appIconsOriginal[iconFileName];
 
@@ -157,7 +154,7 @@ const svgContent = computed(() => {
     return '';
   }
 
-  // Appliquer prepareSvg avec un préfixe unique pour cette instance
+  // Apply prepareSvg with a unique prefix for this instance
   return prepareSvg(icon, `${iconFileName}-${instanceId}`);
 });
 </script>

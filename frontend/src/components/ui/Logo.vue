@@ -67,7 +67,6 @@ const sizeClass = computed(() => ({
   pointer-events: none;
 }
 
-/* === POSITIONS DE BASE === */
 .logo-center {
   top: 50%;
   transform: translateX(-50%) translateY(-50%);
@@ -78,15 +77,14 @@ const sizeClass = computed(() => ({
   transform: translateX(-50%);
 }
 
-/* === ÉTATS DE VISIBILITÉ === */
+/* === VISIBILITY STATES === */
 
-/* Masquage standard avec scale */
 .logo-hidden:not(.logo-librespot-hide):not(.logo-librespot-show) {
   opacity: 0;
   transform: translateX(-50%) translateY(-50%) scale(0.8);
 }
 
-/* Mode librespot-hide : disparition avec translateY depuis la position actuelle */
+/* Mode librespot-hide */
 .logo-librespot-hide.logo-hidden {
   opacity: 0;
 }
@@ -99,15 +97,14 @@ const sizeClass = computed(() => ({
   transform: translateX(-50%) translateY(-24px);
 }
 
-/* Mode librespot-show : réapparition depuis translateY(-24px) vers position normale */
+/* Mode librespot-show  */
 .logo-librespot-show.logo-top {
-  /* Position finale normale, l'animation CSS va gérer la transition */
   top: var(--space-06);
   transform: translateX(-50%);
   opacity: 1;
 }
 
-/* === TAILLES === */
+/* === SIZES === */
 .logo-svg {
   display: block;
   transition: all var(--transition-spring-soft);
@@ -129,7 +126,7 @@ const sizeClass = computed(() => ({
     height: 40px;
   }
   
-  /* Ajuster translateY pour mobile */
+
   .logo-librespot-hide.logo-hidden.logo-center {
     transform: translateX(-50%) translateY(-50%) translateY(-16px);
   }

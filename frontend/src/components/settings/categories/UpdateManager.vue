@@ -1,7 +1,7 @@
 <!-- frontend/src/components/settings/categories/UpdateManager.vue -->
 <template>
   <div class="update-manager">
-    <!-- Programmes locaux (Milo principal) -->
+    <!-- Local programs (main Milo) -->
     <section class="update-section">
       <div v-if="localProgramsLoading" class="loading-state">
         <div class="loading-message text-mono">
@@ -41,7 +41,7 @@
             </div>
           </div>
 
-          <!-- Message de progression si mise à jour en cours -->
+          <!-- Progress message if an update is in progress -->
           <div v-if="isLocalUpdating('milo')" class="update-progress">
             <div class="progress-bar">
               <div class="progress-fill" :style="{ width: getLocalUpdateProgress('milo') + '%' }"></div>
@@ -57,7 +57,7 @@
             {{ $t('updates.update') }}
           </Button>
 
-          <!-- Détails d'erreur si nécessaire -->
+          <!-- Error details if needed -->
           <div v-if="localPrograms.milo.installed?.errors?.length" class="program-errors">
             <details class="error-details">
               <summary class="text-mono">{{ $t('updates.errorDetails') }}</summary>
@@ -95,7 +95,7 @@
             </div>
           </div>
 
-          <!-- Message de progression si mise à jour en cours -->
+          <!-- Progress message if an update is in progress -->
           <div v-if="isLocalUpdating(key)" class="update-progress">
             <div class="progress-bar">
               <div class="progress-fill" :style="{ width: getLocalUpdateProgress(key) + '%' }"></div>
@@ -111,7 +111,7 @@
             {{ $t('updates.update') }}
           </Button>
 
-          <!-- Détails d'erreur si nécessaire -->
+          <!-- Error details if needed -->
           <div v-if="program.installed?.errors?.length" class="program-errors">
             <details class="error-details">
               <summary class="text-mono">{{ $t('updates.errorDetails') }}</summary>
@@ -126,7 +126,7 @@
       </div>
     </section>
 
-    <!-- Satellites connectés -->
+    <!-- Connected satellites -->
     <section v-if="isMultiroomEnabled" class="update-section">
       <h1 class="heading-2">{{ $t('updates.satellitesTitle') }}</h1>
 
@@ -171,7 +171,7 @@
             </div>
           </div>
 
-          <!-- Message de progression si mise à jour en cours -->
+          <!-- Progress message if an update is in progress -->
           <div v-if="isSatelliteUpdating(satellite.hostname)" class="update-progress">
             <div class="progress-bar">
               <div class="progress-fill" :style="{ width: getSatelliteUpdateProgress(satellite.hostname) + '%' }"></div>
@@ -206,7 +206,7 @@ const unifiedStore = useUnifiedAudioStore();
 
 const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_enabled);
 
-// États locaux
+// Local state
 const localPrograms = ref({});
 const localProgramsLoading = ref(false);
 const localProgramsError = ref(false);
@@ -215,7 +215,7 @@ const satellites = ref([]);
 const satellitesLoading = ref(false);
 const satellitesError = ref(false);
 
-// États pour les mises à jour
+// Update states
 const localUpdateStates = ref({});
 const localCompletedUpdates = ref(new Set());
 
@@ -224,7 +224,7 @@ const satelliteCompletedUpdates = ref(new Set());
 
 const supportedLocalUpdates = ['milo', 'go-librespot', 'snapserver', 'snapclient'];
 
-// === PROGRAMMES LOCAUX ===
+// === LOCAL PROGRAMS ===
 
 async function loadLocalPrograms() {
   if (localProgramsLoading.value) return;
@@ -442,7 +442,7 @@ onMounted(async () => {
   await loadLocalPrograms();
   await loadSatellites();
 
-  // Enregistrer les listeners WebSocket
+  // Register WebSocket listeners
   Object.entries(wsListeners).forEach(([eventType, handler]) => {
     on('programs', eventType, handler);
   });

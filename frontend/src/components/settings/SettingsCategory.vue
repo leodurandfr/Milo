@@ -11,7 +11,6 @@
 import { computed } from 'vue';
 import Icon from '@/components/ui/Icon.vue';
 
-// Import des icônes settings
 import languagesIcon from '@/assets/settings-icons/languages.svg';
 import applicationsIcon from '@/assets/settings-icons/applications.svg';
 import volumeIcon from '@/assets/settings-icons/volume.svg';

@@ -1,15 +1,15 @@
 <!-- frontend/src/components/navigation/BottomNavigation.vue -->
 <template>
-  <!-- Zone de drag invisible -->
+  <!-- Invisible drag zone -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click.stop="onDragZoneClick"></div>
 
-  <!-- Indicateur de drag -->
+  <!-- Drag indicator -->
   <div class="dock-indicator" :class="{ hidden: isVisible, visible: showDragIndicator }" @click.stop="onIndicatorClick">
   </div>
 
-  <!-- Dock de navigation -->
+  <!-- Navigation dock -->
   <nav ref="dockContainer" class="dock-container" :class="{ visible: isVisible, 'fully-visible': isFullyVisible }">
-    <!-- Additional Apps - Mobile uniquement -->
+    <!-- Additional Apps - Mobile only -->
     <div v-if="additionalAppsInDOM && additionalDockApps.length > 0" ref="additionalAppsContainer"
       class="additional-apps-container mobile-only" :class="{ visible: showAdditionalApps }">
 
@@ -22,7 +22,7 @@
     </div>
 
     <div ref="dock" class="dock">
-      <!-- Volume Controls - Mobile uniquement -->
+      <!-- Volume Controls - Mobile only -->
       <div class="volume-controls mobile-only">
         <button v-for="{ icon, handler, delta } in volumeControlsWithSteps" :key="icon"
           @pointerdown="(e) => onVolumeHoldStart(delta, e)" @pointerup="onVolumeHoldEnd"
@@ -33,7 +33,7 @@
 
       <!-- App Container -->
       <div class="app-container">
-        <!-- Mobile: 3 premières apps du dock (mix audio + features) -->
+        <!-- Mobile: first 3 dock apps (audio mix + features) -->
         <button
           v-for="({ id, icon }, index) in dockApps"
           :key="`mobile-${id}`"
@@ -61,14 +61,14 @@
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
-        <!-- Séparateur - Desktop uniquement, toujours affiché si on a des features -->
+        <!-- Separator - Desktop only, always shown if we have features -->
         <div
           v-if="enabledFeatures.length > 0"
           :style="{ transitionDelay: `${0.1 + enabledAudioPlugins.length * 0.05}s` }"
           class="dock-separator desktop-only">
         </div>
 
-        <!-- Mobile: Toggle Additional Apps (si plus de 3 apps) -->
+        <!-- Mobile: Toggle Additional Apps (if more than 3 apps) -->
         <button
           v-if="additionalDockApps.length > 0"
           @click="handleToggleClick"
@@ -92,7 +92,7 @@
         </button>
       </div>
 
-      <!-- Indicateur d'élément actif -->
+      <!-- Active item indicator -->
       <div ref="activeIndicator" class="active-indicator" :style="indicatorStyle"></div>
     </div>
   </nav>
@@ -111,22 +111,22 @@ const instance = getCurrentInstance();
 const $t = instance.appContext.config.globalProperties.$t;
 const { on } = useWebSocket();
 
-// === CONFIGURATION STATIQUE ===
+// === STATIC CONFIGURATION ===
 const ALL_AUDIO_SOURCES = ['librespot', 'bluetooth', 'roc', 'radio'];
 
 
-// Actions avec titres réactifs
+// Actions with reactive titles
 const ALL_ADDITIONAL_ACTIONS = computed(() => [
   { id: 'multiroom', icon: 'multiroom', title: t('multiroom.title'), handler: () => emit('open-snapcast') },
   { id: 'equalizer', icon: 'equalizer', title: t('equalizer.title'), handler: () => emit('open-equalizer') },
   { id: 'settings', icon: 'settings', title: t('common.settings'), handler: () => emit('open-settings') }
 ]);
 
-// === CONFIGURATION DYNAMIQUE ===
+// === DYNAMIC CONFIGURATION ===
 const enabledApps = ref(["librespot", "bluetooth", "roc", "radio", "multiroom", "equalizer", "settings"]);
 const mobileVolumeSteps = ref(5);
 
-// Computed pour séparer audio plugins et features
+// Computed to separate audio plugins and features
 const enabledAudioPlugins = computed(() => {
   return ALL_AUDIO_SOURCES
     .filter(source => enabledApps.value.includes(source))
@@ -138,12 +138,12 @@ const enabledFeatures = computed(() => {
     .filter(action => enabledApps.value.includes(action.id));
 });
 
-// Toutes les apps activées dans l'ordre (pour mobile)
+// All enabled apps in order (for mobile)
 const allEnabledApps = computed(() => {
   return [...enabledAudioPlugins.value, ...enabledFeatures.value];
 });
 
-// Diviser en deux groupes : si ≤4 apps, toutes dans le dock, sinon 3 premières dans le dock et le reste dans additional (pour mobile)
+// Split into two groups: if ≤4 apps, all in dock; otherwise first 3 in dock and the rest in “additional” (for mobile)
 const dockApps = computed(() => {
   const total = allEnabledApps.value.length;
   return total <= 4 ? allEnabledApps.value : allEnabledApps.value.slice(0, 3);
@@ -153,7 +153,7 @@ const additionalDockApps = computed(() => {
   return total <= 4 ? [] : allEnabledApps.value.slice(3);
 });
 
-// === STORE ET CONTRÔLES ===
+// === STORE AND CONTROLS ===
 const unifiedStore = useUnifiedAudioStore();
 
 const volumeControlsWithSteps = computed(() => [
@@ -161,10 +161,10 @@ const volumeControlsWithSteps = computed(() => [
   { icon: 'plus', handler: () => unifiedStore.adjustVolume(mobileVolumeSteps.value), delta: mobileVolumeSteps.value }
 ]);
 
-// === ÉMISSIONS ===
+// === EMISSIONS ===
 const emit = defineEmits(['open-snapcast', 'open-equalizer', 'open-settings']);
 
-// === REFS PRINCIPAUX ===
+// === MAIN REFS ===
 const dragZone = ref(null);
 const dockContainer = ref(null);
 const dock = ref(null);
@@ -173,25 +173,25 @@ const additionalAppsContainer = ref(null);
 const mobileDockItems = ref([]);
 const desktopDockItems = ref([]);
 
-// === ÉTAT GLOBAL ===
+// === GLOBAL STATE ===
 const isVisible = ref(false);
 const isFullyVisible = ref(false);
 const showAdditionalApps = ref(false);
 const showDragIndicator = ref(false);
 const additionalAppsInDOM = ref(false);
 
-// === GESTION DU DRAG ===
+// === DRAG MANAGEMENT ===
 const isDragging = ref(false);
 const gestureHasMoved = ref(false);
 const gestureStartPosition = ref({ x: 0, y: 0 });
 const MOVE_THRESHOLD = 10;
 
-// Variables de drag
+// Drag variables
 let dragStartY = 0, dragCurrentY = 0, dragStartTime = 0;
 let dragActionTaken = ref(false);
 let isDraggingAdditional = false, additionalDragStartY = 0, additionalDragMoved = false;
 
-// === GESTION VOLUME HOLD ===
+// === VOLUME HOLD MANAGEMENT ===
 const volumeStartTimer = ref(null);
 const volumeRepeatTimer = ref(null);
 const isVolumeHolding = ref(false);
@@ -204,16 +204,16 @@ let hideTimeout = null, additionalHideTimeout = null, clickTimeout = null, dragG
 
 // === COMPUTED ===
 const activeSourceIndex = computed(() => {
-  // Sur desktop, chercher dans les audio plugins uniquement
-  // Sur mobile, chercher uniquement dans les sources audio visibles dans dockApps
+  // On desktop, search only among audio plugins
+  // On mobile, search only among audio sources visible in dockApps
   if (isDesktop()) {
     return enabledAudioPlugins.value.findIndex(app => app.id === unifiedStore.systemState.active_source);
   } else {
-    // En mobile: trouver l'index de la source active parmi TOUTES les apps du dock
-    // Mais seulement si c'est une source audio
+    // On mobile: find the index of the active source among ALL dock apps
+    // But only if it's an audio source
     const currentSource = unifiedStore.systemState.active_source;
     if (!ALL_AUDIO_SOURCES.includes(currentSource)) {
-      return -1; // Pas une source audio, pas d'indicateur
+      return -1; // Not an audio source, no indicator
     }
     return dockApps.value.findIndex(app => app.id === currentSource);
   }
@@ -225,7 +225,7 @@ const indicatorStyle = ref({
   transition: 'all var(--transition-spring)'
 });
 
-// === UTILITAIRES ===
+// === UTILITIES ===
 const getEventY = (e) => e.type.includes('touch') || e.pointerType === 'touch'
   ? (e.touches?.[0]?.clientY || e.changedTouches?.[0]?.clientY || e.clientY) : e.clientY;
 
@@ -253,7 +253,7 @@ const resetGestureState = () => {
   gestureStartPosition.value = { x: 0, y: 0 };
 };
 
-// === GESTION VOLUME HOLD ===
+// === VOLUME HOLD MANAGEMENT ===
 const onVolumeHoldStart = (delta, event) => {
   if (volumePointerType.value && volumePointerType.value !== event.pointerType) {
     return;
@@ -319,7 +319,7 @@ const onVolumeHoldEnd = (event) => {
   volumeActionTaken.value = false;
 };
 
-// === GESTION DOCK ===
+// === DOCK MANAGEMENT ===
 const showDock = () => {
   if (isVisible.value) return;
   isVisible.value = true;
@@ -342,7 +342,7 @@ const hideDock = () => {
   resetGestureState();
 };
 
-// === GESTION DRAG AMÉLIORÉE ===
+// === IMPROVED DRAG HANDLING ===
 const onDragStart = (e) => {
   isDragging.value = true;
   dragStartY = getEventY(e);
@@ -361,14 +361,14 @@ const onDragStart = (e) => {
 const onDragMove = (e) => {
   if (isDraggingAdditional) {
     const deltaY = getEventY(e) - additionalDragStartY;
-    // Marquer qu'un mouvement a été détecté
+    // Mark that a movement was detected
     if (Math.abs(deltaY) > 5) {
       additionalDragMoved = true;
       e.preventDefault();
     }
-    // Détecter mouvement significatif pour fermer
+    // Detect significant movement to close
     if (Math.abs(deltaY) >= 20 && deltaY > 0) {
-      e.preventDefault(); // Empêcher le scroll
+      e.preventDefault(); // Prevent scroll
       closeAdditionalApps();
       isDraggingAdditional = false;
       additionalDragMoved = false;
@@ -381,7 +381,7 @@ const onDragMove = (e) => {
   const currentY = getEventY(e);
   const currentX = getEventX(e);
 
-  // Vérifier mouvement pour annuler volume hold
+  // Check movement to cancel volume hold
   if (!gestureHasMoved.value) {
     const deltaX = Math.abs(currentX - gestureStartPosition.value.x);
     const deltaY = Math.abs(currentY - gestureStartPosition.value.y);
@@ -392,13 +392,13 @@ const onDragMove = (e) => {
     }
   }
 
-  // Logique de drag améliorée
+  // Improved drag logic
   dragCurrentY = currentY;
   const deltaY = dragStartY - dragCurrentY;
   const dragDuration = Date.now() - dragStartTime;
   const velocity = Math.abs(deltaY) / Math.max(dragDuration, 1);
 
-  // Seuil adaptatif selon la vitesse
+  // Adaptive threshold based on speed
   let threshold = 30;
   if (velocity >= 0.5) {
     threshold = Math.max(20, 30 - (velocity * 10));
@@ -437,7 +437,7 @@ const onDragEnd = () => {
   resetHideTimer();
 };
 
-// === GESTION CLICS ===
+// === CLICK MANAGEMENT ===
 const onClickOutside = (event) => {
   if (!isVisible.value ||
     (dockContainer.value && dockContainer.value.contains(event.target)) ||
@@ -463,13 +463,13 @@ const onIndicatorClick = () => {
 const handleAppClick = (appId, index) => {
   resetHideTimer();
 
-  // Si c'est une source audio, changer la source
+  // If it's an audio source, change the source
   const isAudioSource = ALL_AUDIO_SOURCES.includes(appId);
   if (isAudioSource) {
     moveIndicatorTo(index);
     unifiedStore.changeSource(appId);
   } else {
-    // Sinon, exécuter le handler de l'action
+    // Otherwise, run the action handler
     const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
     if (action && action.handler) {
       action.handler();
@@ -478,7 +478,7 @@ const handleAppClick = (appId, index) => {
 };
 
 const handleAdditionalAppClick = (appId) => {
-  // Ignorer le clic si un drag vient d'avoir lieu
+  // Ignore click if a drag just occurred
   if (additionalDragMoved) {
     additionalDragMoved = false;
     return;
@@ -486,12 +486,12 @@ const handleAdditionalAppClick = (appId) => {
 
   resetHideTimer();
 
-  // Si c'est une source audio, changer la source
+  // If it's an audio source, change the source
   const isAudioSource = ALL_AUDIO_SOURCES.includes(appId);
   if (isAudioSource) {
     unifiedStore.changeSource(appId);
   } else {
-    // Sinon, exécuter le handler de l'action
+    // Otherwise, run the action handler
     const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
     if (action && action.handler) {
       action.handler();
@@ -500,7 +500,7 @@ const handleAdditionalAppClick = (appId) => {
 };
 
 const getAppTitle = (appId) => {
-  // Traductions pour les sources audio
+  // Translations for audio sources
   const audioSourceTitles = {
     'librespot': t('applications.spotify'),
     'bluetooth': t('applications.bluetooth'),
@@ -508,17 +508,17 @@ const getAppTitle = (appId) => {
     'radio': t('audioSources.radio')
   };
 
-  // Si c'est une source audio, retourner la traduction
+  // If it's an audio source, return the translation
   if (ALL_AUDIO_SOURCES.includes(appId)) {
     return audioSourceTitles[appId] || appId;
   }
 
-  // Sinon, chercher dans les actions
+  // Otherwise, look in actions
   const action = ALL_ADDITIONAL_ACTIONS.value.find(a => a.id === appId);
   return action?.title || appId;
 };
 
-// === INDICATEUR ACTIF ===
+// === ACTIVE INDICATOR ===
 const getDockItems = () => isDesktop() ? desktopDockItems.value : mobileDockItems.value;
 
 const updateActiveIndicator = () => {
@@ -565,7 +565,7 @@ const moveIndicatorTo = (index) => {
   });
 };
 
-// === GESTION ADDITIONAL APPS ===
+// === ADDITIONAL APPS MANAGEMENT ===
 const toggleAdditionalApps = () => {
   if (!showAdditionalApps.value) {
     additionalAppsInDOM.value = true;
@@ -592,7 +592,7 @@ const handleToggleClick = (event) => {
   toggleAdditionalApps();
 };
 
-// === GESTION ADDITIONAL DRAG ===
+// === ADDITIONAL DRAG MANAGEMENT ===
 const onAdditionalDragStart = (e) => {
   if (!showAdditionalApps.value) return;
   isDraggingAdditional = true;
@@ -616,7 +616,7 @@ const removeAdditionalDragEvents = () => {
   }
 };
 
-// === EFFETS VISUELS ===
+// === VISUAL EFFECTS ===
 const addPressEffect = (e) => {
   const button = e.target.closest('button');
   if (!button || button.disabled) return;
@@ -624,7 +624,7 @@ const addPressEffect = (e) => {
   setTimeout(() => button.classList.remove('is-pressed'), 150);
 };
 
-// === CHARGEMENT CONFIG ===
+// === LOAD CONFIG ===
 const loadDockConfig = async () => {
   try {
     const response = await fetch('/api/settings/dock-apps');
@@ -649,7 +649,7 @@ const loadVolumeStepsConfig = async () => {
   }
 };
 
-// === ÉVÉNEMENTS GLOBAUX ===
+// === GLOBAL EVENTS ===
 const setupDragEvents = () => {
   const zone = dragZone.value;
   const dockEl = dock.value;

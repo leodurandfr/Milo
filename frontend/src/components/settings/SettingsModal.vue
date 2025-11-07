@@ -1,7 +1,7 @@
 <!-- frontend/src/components/settings/SettingsModal.vue -->
 <template>
   <div class="settings-modal">
-    <!-- Vue Home : Liste des catégories -->
+    <!-- Home view: list of categories -->
     <div v-if="currentView === 'home'" class="view-home">
       <ModalHeader :title="t('settings.title')" />
 
@@ -60,42 +60,42 @@
           </template>
         </IconButton>
 
-        <!-- Placeholder pour nombre impair d'IconButton en mode desktop -->
+        <!-- Placeholder for an odd number of IconButtons on desktop -->
         <div v-if="shouldShowPlaceholder" class="icon-button-placeholder"></div>
       </div>
     </div>
 
-    <!-- Vue Langues -->
+    <!-- Languages view -->
     <div v-else-if="currentView === 'languages'" class="view-detail">
       <ModalHeader :title="t('settings.languages')" show-back @back="goToHome" />
       <LanguageSettings />
     </div>
 
-    <!-- Vue Applications -->
+    <!-- Applications view -->
     <div v-else-if="currentView === 'apps'" class="view-detail">
       <ModalHeader :title="t('settings.applications')" show-back @back="goToHome" />
       <ApplicationsSettings />
     </div>
 
-    <!-- Vue Volume -->
+    <!-- Volume view -->
     <div v-else-if="currentView === 'volume'" class="view-detail">
       <ModalHeader :title="t('settings.volume')" show-back @back="goToHome" />
       <VolumeSettings />
     </div>
 
-    <!-- Vue Écran -->
+    <!-- Screen view -->
     <div v-else-if="currentView === 'screen'" class="view-detail">
       <ModalHeader :title="t('settings.screen')" show-back @back="goToHome" />
       <ScreenSettings />
     </div>
 
-    <!-- Vue Spotify -->
+    <!-- Spotify view -->
     <div v-else-if="currentView === 'spotify'" class="view-detail">
       <ModalHeader :title="t('spotifySettings.title')" show-back @back="goToHome" />
       <SpotifySettings />
     </div>
 
-    <!-- Vue Multiroom -->
+    <!-- Multiroom view -->
     <div v-else-if="currentView === 'multiroom'" class="view-detail">
       <ModalHeader :title="t('multiroom.title')" show-back @back="goToHome">
         <template #actions>
@@ -110,31 +110,31 @@
       <MultiroomSettings />
     </div>
 
-    <!-- Vue Radio -->
+    <!-- Radio view -->
     <div v-else-if="currentView === 'radio'" class="view-detail">
       <ModalHeader title="Radio" show-back @back="goToHome" />
       <RadioSettings ref="radioSettingsRef" @go-to-add-station="goToView('radio-add')" @go-to-change-image="goToView('radio-change-image')" />
     </div>
 
-    <!-- Vue Radio - Ajouter une station -->
+    <!-- Radio view - Add a station -->
     <div v-else-if="currentView === 'radio-add'" class="view-detail">
       <ModalHeader title="Ajouter une station" show-back @back="handleBackFromRadioModal" />
       <AddStationModal @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
     </div>
 
-    <!-- Vue Radio - Changer une image -->
+    <!-- Radio view - Change an image -->
     <div v-else-if="currentView === 'radio-change-image'" class="view-detail">
       <ModalHeader title="Changer l'image" show-back @back="handleBackFromRadioModal" />
       <ChangeImageModal @back="handleBackFromRadioModal" @success="handleRadioImageChanged" />
     </div>
 
-    <!-- Vue Mises à jour -->
+    <!-- Updates view -->
     <div v-else-if="currentView === 'updates'" class="view-detail">
       <ModalHeader :title="t('settings.updates')" show-back @back="goToHome" />
       <UpdateManager />
     </div>
 
-    <!-- Vue Informations -->
+    <!-- Information view -->
     <div v-else-if="currentView === 'info'" class="view-detail">
       <ModalHeader :title="t('settings.information')" show-back @back="goToHome" />
       <InfoSettings />
@@ -155,7 +155,7 @@ import Toggle from '@/components/ui/Toggle.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
 
-// Import des icônes settings
+// Import settings icons
 import languagesIcon from '@/assets/settings-icons/languages.svg';
 import applicationsIcon from '@/assets/settings-icons/applications.svg';
 import volumeIcon from '@/assets/settings-icons/volume.svg';
@@ -196,14 +196,14 @@ function goToHome() {
   currentView.value = 'home';
 }
 
-// Gestion navigation Radio
+// Radio navigation handling
 function handleBackFromRadioModal() {
   currentView.value = 'radio';
 }
 
 function handleRadioStationAdded(station) {
   console.log('✅ Station ajoutée:', station);
-  // Recharger les données de RadioSettings
+  // Reload RadioSettings data
   if (radioSettingsRef.value) {
     radioSettingsRef.value.loadCustomStations();
   }
@@ -213,10 +213,10 @@ function handleRadioStationAdded(station) {
 async function handleRadioImageChanged(station) {
   console.log('✅ Image modifiée:', station);
 
-  // Recharger les favoris dans radioStore pour mettre à jour RadioSource
+  // Reload favorites in radioStore to update RadioSource
   await radioStore.loadStations(true);
 
-  // Recharger les données de RadioSettings pour la vue settings
+  // Reload RadioSettings data for the settings view
   if (radioSettingsRef.value) {
     radioSettingsRef.value.loadCustomStations();
   }
@@ -224,15 +224,15 @@ async function handleRadioImageChanged(station) {
   currentView.value = 'radio';
 }
 
-// Placeholder pour grille impaire
+// Placeholder for odd grid
 const shouldShowPlaceholder = computed(() => {
-  // Compte le nombre d'IconButton visibles
+  // Count the number of visible IconButtons
   let count = 6; // Base: Languages, Applications, Volume, Screen, Updates, Information
   if (settingsStore.dockApps.librespot) count++;
   if (settingsStore.dockApps.multiroom) count++;
   if (settingsStore.dockApps.radio) count++;
 
-  // Retourne true si impair
+  // Return true if odd
   return count % 2 !== 0;
 });
 
@@ -257,19 +257,19 @@ let lastMultiroomState = isMultiroomActive.value;
 const watcherInterval = setInterval(() => {
   if (lastMultiroomState !== isMultiroomActive.value) {
     lastMultiroomState = isMultiroomActive.value;
-    // Réinitialiser le toggling quand le changement d'état est terminé
+    // Reset toggling when the state change is complete
     isMultiroomToggling.value = false;
   }
 }, 100);
 
 onMounted(async () => {
-  // Pré-chargement de tous les settings en parallèle
+  // Preload all settings in parallel
   await Promise.all([
     i18n.initializeLanguage(),
     settingsStore.loadAllSettings()
   ]);
 
-  // Note: Les settings snapcast sont maintenant chargés directement par MultiroomSettings.vue via snapcastStore
+  // Note: Snapcast settings are now loaded directly by MultiroomSettings.vue via snapcastStore
 
   on('routing', 'multiroom_enabling', handleMultiroomEnabling);
   on('routing', 'multiroom_disabling', handleMultiroomDisabling);
@@ -301,7 +301,7 @@ onUnmounted(() => {
   gap: var(--space-01);
 }
 
-/* Placeholder pour grille impaire */
+/* Placeholder for odd grid */
 .icon-button-placeholder {
   background: var(--color-background-neutral-50);
   border-radius: var(--radius-05);
@@ -313,7 +313,7 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
   }
 
-  /* Masquer le placeholder en mode mobile */
+  /* Hide placeholder on mobile */
   .icon-button-placeholder {
     display: none;
   }

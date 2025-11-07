@@ -1,7 +1,7 @@
 <!-- frontend/src/components/settings/categories/ScreenSettings.vue -->
 <template>
   <div class="settings-container">
-    <!-- Luminosité -->
+    <!-- Brightness -->
     <section class="settings-section">
       <div class="screen-group">
         <h2 class="heading-2 text-body">{{ t('screenSettings.brightness') }}</h2>
@@ -17,7 +17,7 @@
       </div>
     </section>
 
-    <!-- Mise en veille automatique -->
+    <!-- Auto sleep -->
     <section class="settings-section">
       <div class="screen-group">
         <h2 class="heading-2 text-body">{{ t('screenSettings.autoSleep') }}</h2>
@@ -52,14 +52,14 @@ const { on } = useWebSocket();
 const { updateSetting, clearAllTimers } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
-// Refs locales pour une réactivité instantanée
+// Local refs for instant responsiveness
 const config = ref({
   brightness_on: 5,
   timeout_enabled: true,
   timeout_seconds: 900
 });
 
-// Synchroniser les refs locales avec le store au montage
+// Sync local refs with the store on mount
 function syncFromStore() {
   config.value.brightness_on = settingsStore.screenBrightness.brightness_on;
   config.value.timeout_enabled = settingsStore.screenTimeout.screen_timeout_enabled;
@@ -106,7 +106,7 @@ function setScreenTimeout(value) {
   });
 }
 
-// WebSocket listeners - mettent à jour le store ET les refs locales
+// WebSocket listeners - update both the store AND local refs
 const wsListeners = {
   screen_timeout_changed: (msg) => {
     if (msg.data?.config) {
@@ -129,7 +129,7 @@ const wsListeners = {
 };
 
 onMounted(() => {
-  // Synchroniser avec le store au montage
+  // Sync with the store on mount
   syncFromStore();
 
   // Register WebSocket listeners

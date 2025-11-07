@@ -1,4 +1,4 @@
-<!-- App.vue - Version avec i18n WebSocket -->
+<!-- App.vue - Version with i18n WebSocket -->
 <template>
   <div class="app-container">
     <router-view />
@@ -48,7 +48,7 @@ const unifiedStore = useUnifiedAudioStore();
 const { on, onReconnect } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
 
-// Activer la détection d'activité écran (touch, souris, clavier)
+// Enable screen activity detection (touch, mouse, keyboard)
 useScreenActivity();
 
 const volumeBar = ref(null);
@@ -56,7 +56,7 @@ const isSnapcastOpen = ref(false);
 const isEqualizerOpen = ref(false);
 const isSettingsOpen = ref(false);
 
-// Provide pour les composants enfants
+// Provide for child components
 provide('openSnapcast', () => isSnapcastOpen.value = true);
 provide('openEqualizer', () => isEqualizerOpen.value = true);
 provide('openSettings', () => isSettingsOpen.value = true);
@@ -70,17 +70,17 @@ provide('closeModals', () => {
 const cleanupFunctions = [];
 
 onMounted(async () => {
-  // Charger les infos hardware AVANT tout le reste (critique pour VirtualKeyboard)
+  // Load hardware info BEFORE everything else (critical for VirtualKeyboard)
   await loadHardwareInfo();
 
-  // Configuration initiale
+  // Initial configuration
   unifiedStore.setVolumeBarRef(volumeBar);
 
-  // Setup des listeners
+  // Setup listeners
   const visibilityCleanup = unifiedStore.setupVisibilityListener();
   cleanupFunctions.push(visibilityCleanup);
   
-  // Événements WebSocket - Audio
+  // WebSocket events - Audio
   cleanupFunctions.push(
     on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
@@ -91,7 +91,7 @@ onMounted(async () => {
     on('plugin', 'metadata', (event) => unifiedStore.updateState(event))
   );
 
-  // Événements WebSocket - i18n
+  // WebSocket events - i18n
   cleanupFunctions.push(
     on('settings', 'language_changed', (event) => {
       console.log('Received language_changed WebSocket event:', event);
@@ -104,14 +104,14 @@ onMounted(async () => {
     })
   );
 
-  // Reconnexion WebSocket
+  // WebSocket reconnect
   cleanupFunctions.push(
     onReconnect(() => {
       console.log('WebSocket reconnected - full state sync incoming');
     })
   );
 
-  // État initial
+  // Initial state
   unifiedStore.refreshState();
 });
 

@@ -1,5 +1,5 @@
 <template>
-  <!-- Variante "image" : Image seule pour grille de favoris -->
+  <!-- "image" variant: Image only for favorites grid -->
   <div v-if="variant === 'image'" :class="['station-image', {
     active: isActive,
     playing: isPlaying,
@@ -16,7 +16,7 @@
     </div>
   </div>
 
-  <!-- Variante "card" : Layout horizontal pour listes -->
+  <!-- "card" variant: Horizontal layout for lists -->
   <div v-else-if="variant === 'card'" :class="['station-card', {
     active: isActive,
     playing: isPlaying,
@@ -39,15 +39,15 @@
     <!-- Loading spinner -->
     <div v-if="isLoading" class="loading-spinner-small"></div>
 
-    <!-- Actions personnalisées (0, 1 ou 2 boutons) -->
+    <!-- Custom actions (0, 1 or 2 buttons) -->
     <div v-else-if="$slots.actions" class="actions-wrapper">
       <slot name="actions"></slot>
     </div>
   </div>
 
-  <!-- Variante "now-playing" : Lecteur avec contrôles -->
+  <!-- "now-playing" variant: Player with controls -->
   <div v-else-if="variant === 'now-playing'" class="now-playing">
-    <!-- Background image - très zoomée et blurrée -->
+    <!-- Background image - heavily zoomed and blurred -->
     <div class="station-art-background">
       <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="background-station-favicon" />
     </div>
@@ -66,12 +66,12 @@
 
     <div v-if="showControls" class="controls-wrapper">
       <CircularIcon :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="overlay" @click="$emit('favorite')" />
-      <!-- Desktop: Button avec texte -->
+      <!-- Desktop: Button with text -->
       <Button v-if="!isMobile" variant="background-light" :left-icon="isPlaying ? 'stop' : 'play'"
         @click="$emit('play')">
         {{ isPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio') }}
       </Button>
-      <!-- Mobile: CircularIcon sans texte -->
+      <!-- Mobile: CircularIcon without text -->
       <CircularIcon v-else :icon="isPlaying ? 'stop' : 'play'" variant="overlay" @click="$emit('play')" />
     </div>
   </div>
@@ -86,7 +86,7 @@ import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const { t } = useI18n();
 
-// Détection responsive pour desktop vs mobile
+// Responsive detection for desktop vs mobile
 const isMobile = ref(false);
 
 const updateMediaQuery = () => {
@@ -144,17 +144,17 @@ defineEmits(['click', 'play', 'favorite']);
 const imageError = ref(false);
 
 function getFaviconUrl(faviconUrl) {
-  // Pas de favicon
+  // No favicon
   if (!faviconUrl) {
     return '';
   }
 
-  // Image locale déjà hébergée par le backend
+  // Local image already hosted by the backend
   if (faviconUrl.startsWith('/api/radio/images/')) {
     return faviconUrl;
   }
 
-  // Image externe : utiliser le proxy backend pour éviter CORS
+  // External image: use backend proxy to avoid CORS
   return `/api/radio/favicon?url=${encodeURIComponent(faviconUrl)}`;
 }
 
@@ -164,7 +164,7 @@ function handleImageError() {
 </script>
 
 <style scoped>
-/* === VARIANTE "IMAGE" : Image seule pour grille === */
+/* === "IMAGE" VARIANT: Image only for grid === */
 .station-image {
   aspect-ratio: 1 / 1;
   width: 100%;
@@ -208,7 +208,7 @@ function handleImageError() {
   display: flex;
 }
 
-/* Loading overlay pour les stations en mode image */
+
 .loading-overlay {
   position: absolute;
   inset: 0;
@@ -221,7 +221,7 @@ function handleImageError() {
   z-index: 10;
 }
 
-/* Spinner pour mode image (overlay) */
+
 .loading-spinner {
   width: 40px;
   height: 40px;
@@ -231,7 +231,7 @@ function handleImageError() {
   animation: spin 0.8s linear infinite;
 }
 
-/* === VARIANTE "CARD" : Layout horizontal === */
+/* === "CARD" VARIANT: Horizontal layout === */
 .station-card {
   display: flex;
   flex-direction: row;
@@ -331,7 +331,7 @@ function handleImageError() {
   text-overflow: ellipsis;
 }
 
-/* Actions wrapper pour boutons personnalisés */
+
 .actions-wrapper {
   display: flex;
   flex-direction: row;
@@ -340,7 +340,7 @@ function handleImageError() {
   flex-shrink: 0;
 }
 
-/* Spinner pour mode card (petit, à la place du bouton) */
+
 .loading-spinner-small {
   flex-shrink: 0;
   width: 40px;
@@ -351,7 +351,7 @@ function handleImageError() {
   animation: spin 0.8s linear infinite;
 }
 
-/* Réduire légèrement l'opacité des stations en loading */
+
 .station-image.loading,
 .station-card.loading {
   opacity: 0.9;
@@ -363,9 +363,9 @@ function handleImageError() {
   }
 }
 
-/* === VARIANTE "NOW-PLAYING" : Lecteur avec contrôles === */
+/* === "NOW-PLAYING" VARIANT: Player with controls === */
 
-/* Background image - très zoomée et blurrée (commun Desktop + Mobile) */
+
 .now-playing .station-art-background {
   position: absolute;
   top: 50%;
@@ -439,7 +439,7 @@ function handleImageError() {
   margin: 0;
 }
 
-/* Desktop : Layout vertical */
+/* Desktop: Vertical layout */
 .now-playing {
   top: var(--space-07);
   right: var(--space-06);
@@ -515,7 +515,7 @@ function handleImageError() {
   z-index: 1;
 }
 
-/* Mobile : Layout horizontal sticky en bas */
+/* Mobile: Horizontal sticky layout at bottom */
 @media (max-aspect-ratio: 4/3) {
   .now-playing {
     position: fixed;

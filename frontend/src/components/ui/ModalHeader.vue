@@ -76,7 +76,6 @@ function handleBack() {
   padding: var(--space-04);
 }
 
-/* Padding quand icône présente (desktop) */
 .modal-header.has-icon {
   padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
 }
@@ -115,12 +114,10 @@ function handleBack() {
     min-height: 64px;
   }
 
-  /* Padding quand icône présente (mobile) */
   .modal-header.has-icon {
     padding: var(--space-03);
   }
 
-  /* Taille de l'icône en mobile : 40x40px */
   .header-icon {
     width: 40px !important;
     height: 40px !important;

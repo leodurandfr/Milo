@@ -1,10 +1,10 @@
-// frontend/src/services/i18n.js - Service de traduction avec codes standardisés
+// frontend/src/services/i18n.js - Translation service with standardized codes
 import { ref } from 'vue';
 import axios from 'axios';
 
 class I18nService {
   constructor() {
-    this.currentLanguage = ref('french'); // Code standardisé
+    this.currentLanguage = ref('french'); // Standardized code
     this.translations = new Map();
     this.fallbackLanguage = 'english';
     this.isInitialized = false;
@@ -75,7 +75,7 @@ class I18nService {
     return key;
   }
 
-  // Initialiser la langue depuis le serveur
+  // Initialize language from the server
   async initializeLanguage() {
     if (this.isInitialized) return;
 
@@ -95,13 +95,13 @@ class I18nService {
       }
     } catch (error) {
       console.error('Error initializing language from server:', error);
-      // Garder le français par défaut
+      // Keep French as default
     } finally {
       this.isInitialized = true;
     }
   }
 
-  // Changer la langue via API (diffusion WebSocket automatique)
+  // Change language via API (automatic WebSocket broadcast)
   async setLanguage(language) {
     try {
       const response = await axios.post('/api/settings/language', { language });
@@ -117,7 +117,7 @@ class I18nService {
     }
   }
 
-  // Appelé depuis les événements WebSocket
+  // Called from WebSocket events
   async handleLanguageChanged(newLanguage) {
     if (newLanguage !== this.currentLanguage.value) {
       await this.loadTranslations(newLanguage);
@@ -144,10 +144,10 @@ class I18nService {
   }
 }
 
-// Instance singleton
+// Singleton instance
 export const i18n = new I18nService();
 
-// Composable pour l'utilisation dans les composants
+// Composable for use inside components
 export function useI18n() {
   return {
     t: i18n.t.bind(i18n),

@@ -1,25 +1,25 @@
 <template>
   <div v-if="isVisible" class="screensaver-overlay" :class="{ closing: isClosing }" @click.stop="handleClose" @touchstart.stop="handleClose">
-    <!-- Background noir plein écran -->
+    <!-- Full-screen black background -->
     <div class="station-art-background">
       <img v-if="currentStation?.favicon" :src="currentStation.favicon" alt="" class="background-station" />
     </div>
 
-    <!-- Card centrée avec animation progressive -->
+    <!-- Centered card with progressive animation -->
     <div class="now-playing-card stagger-1">
-      <!-- Background image - très zoomée et blurrée (à l'intérieur de la card) -->
+      <!-- Background image - heavily zoomed and blurred (inside the card) -->
       <div class="station-art-background-card">
         <img v-if="currentStation?.favicon" :src="currentStation.favicon" alt="" class="background-station-favicon" />
       </div>
 
-      <!-- Image de la station (animation stagger 2) -->
+      <!-- Station image (stagger 2 animation) -->
       <div class="station-art stagger-2">
         <img v-if="currentStation?.favicon" :src="currentStation.favicon" alt="Station logo"
           class="current-station-favicon" @error="handleImageError" />
         <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo" :class="{ visible: !currentStation?.favicon || imageError }" />
       </div>
 
-      <!-- Infos de la station (animation stagger 3) -->
+      <!-- Station info (stagger 3 animation) -->
       <div class="station-info stagger-3">
         <p class="station-name display-1">{{ currentStation?.name || 'Station inconnue' }}</p>
         <p class="station-meta text-mono">
@@ -53,7 +53,7 @@ const isClosing = ref(false);
 
 const currentStation = computed(() => radioStore.currentStation);
 
-// Calculer la qualité audio si disponible
+// Compute audio quality if available
 const audioQuality = computed(() => {
   if (!currentStation.value) return null;
 
@@ -70,14 +70,14 @@ const audioQuality = computed(() => {
 });
 
 function handleClose(event) {
-  // Empêcher la propagation pour éviter les clics derrière
+  // Prevent propagation to avoid clicks behind
   event.preventDefault();
   event.stopPropagation();
 
-  // Déclencher l'animation de fermeture
+  // Trigger closing animation
   isClosing.value = true;
 
-  // Attendre la fin de l'animation (300ms) avant de fermer vraiment
+  // Wait for the end of the animation (300ms) before actually closing
   setTimeout(() => {
     isClosing.value = false;
     emit('close');
@@ -88,7 +88,7 @@ function handleImageError() {
   imageError.value = true;
 }
 
-// Réinitialiser isClosing quand le screensaver réapparaît
+// Reset isClosing when the screensaver reappears
 watch(() => props.isVisible, (visible) => {
   if (visible) {
     isClosing.value = false;
@@ -97,7 +97,6 @@ watch(() => props.isVisible, (visible) => {
 </script>
 
 <style scoped>
-/* Fond noir plein écran avec fade-in/out */
 .screensaver-overlay {
   position: fixed;
   top: 0;
@@ -110,12 +109,10 @@ watch(() => props.isVisible, (visible) => {
   justify-content: center;
   cursor: pointer;
   z-index: 7000;
-
-  /* Animation fade-in de l'overlay */
   animation: fadeIn 400ms ease-out;
 }
 
-/* Animation de fermeture */
+/* Closing animation */
 .screensaver-overlay.closing {
   animation: fadeOut 300ms ease-out forwards;
 }
@@ -138,14 +135,13 @@ watch(() => props.isVisible, (visible) => {
   }
 }
 
-/* Masquer le screensaver en mode mobile/portrait */
+/* Hide the screensaver in mobile/portrait mode */
 @media (max-aspect-ratio: 4/3) {
   .screensaver-overlay {
     display: none !important;
   }
 }
 
-/* Card centrée - même style que now-playing mais en paysage */
 .now-playing-card {
   position: relative;
   display: flex;
@@ -177,7 +173,6 @@ watch(() => props.isVisible, (visible) => {
   pointer-events: none;
 }
 
-/* Background image plein écran (derrière tout) */
 .station-art-background {
   position: absolute;
   top: 50%;
@@ -205,7 +200,6 @@ watch(() => props.isVisible, (visible) => {
   opacity: 0.1;
 }
 
-/* Background image à l'intérieur de la card */
 .station-art-background-card {
   position: absolute;
   top: 50%;
@@ -232,7 +226,7 @@ watch(() => props.isVisible, (visible) => {
   filter: blur(60px);
   opacity: 0.5;
 }
-/* Image de la station */
+
 .station-art {
   overflow: hidden;
   display: flex;
@@ -272,7 +266,6 @@ watch(() => props.isVisible, (visible) => {
   display: flex;
 }
 
-/* Informations de la station */
 .station-info {
   position: relative;
   z-index: 1;
@@ -298,9 +291,8 @@ watch(() => props.isVisible, (visible) => {
   color: var(--color-text-contrast-50);
 }
 
-/* === STAGGERING AVEC SPRING === */
+/* === STAGGERING WITH SPRING === */
 
-/* États initiaux : tous les éléments sont cachés */
 .stagger-1,
 .stagger-2,
 .stagger-3 {
@@ -313,7 +305,7 @@ watch(() => props.isVisible, (visible) => {
   transform: translateY(var(--space-05));
 }
 
-/* Animation avec deux effets séparés */
+
 .screensaver-overlay .stagger-1,
 .screensaver-overlay .stagger-2,
 .screensaver-overlay .stagger-3 {
@@ -322,19 +314,16 @@ watch(() => props.isVisible, (visible) => {
     stagger-opacity 0.4s ease forwards;
 }
 
-/* Délais échelonnés après le fade-in de l'overlay (400ms) */
 .screensaver-overlay .stagger-1 { animation-delay: 400ms; }
 .screensaver-overlay .stagger-2 { animation-delay: 500ms; }
 .screensaver-overlay .stagger-3 { animation-delay: 600ms; }
 
-/* Animation spring pour le transform */
 @keyframes stagger-transform {
   to {
     transform: translateY(0) scale(1);
   }
 }
 
-/* Animation ease pour l'opacité */
 @keyframes stagger-opacity {
   to {
     opacity: 1;

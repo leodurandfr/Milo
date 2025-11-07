@@ -1,10 +1,10 @@
-<!-- AudioSourceView.vue - Version corrigée pour centrage et transitions -->
+<!-- AudioSourceView.vue - Fixed version for centering and transitions -->
 <template>
   <div class="audio-source-view">
-    <!-- Transition SIMPLIFIÉE sans position absolute -->
+    <!-- SIMPLIFIED transition without absolute positioning -->
     <Transition name="audio-content" mode="out-in">
 
-      <!-- LibrespotView avec key forcée -->
+      <!-- LibrespotView with forced key -->
       <div v-if="shouldShowLibrespot" :key="librespotKey" class="librespot-container">
         <LibrespotSource />
       </div>
@@ -56,13 +56,13 @@ const props = defineProps({
   }
 });
 
-// Émissions
+// Emits
 const emit = defineEmits(['disconnect']);
 
-// État d'attente initial (1000ms)
+// Initial waiting state (1000ms)
 const showInitialDelay = ref(true);
 
-// === LOGIQUE DE DÉCISION SIMPLIFIÉE ===
+// === SIMPLIFIED DECISION LOGIC ===
 const displayedSource = computed(() => {
   if (props.transitioning && props.targetSource) {
     return props.targetSource;
@@ -97,13 +97,13 @@ const shouldShowRadio = computed(() => {
 const shouldShowPluginStatus = computed(() => {
   if (showInitialDelay.value) return false;
 
-  // Transition en cours
+  // Transition in progress
   if (props.transitioning) return true;
 
-  // Sources bluetooth/roc
+  // bluetooth/roc sources
   if (['bluetooth', 'roc'].includes(displayedSource.value)) return true;
 
-  // Librespot sans conditions complètes
+  // Librespot without complete conditions
   if (displayedSource.value === 'librespot') {
     return !hasCompleteTrackInfo.value || props.pluginState !== 'connected';
   }
@@ -111,9 +111,9 @@ const shouldShowPluginStatus = computed(() => {
   return false;
 });
 
-// === PROPRIÉTÉS POUR PLUGINSTATUS ===
+// === PROPERTIES FOR PLUGINSTATUS ===
 const currentPluginType = computed(() => {
-  // Éviter "none" qui n'est pas une valeur valide pour les composants
+  // Avoid "none" which is not a valid value for components
   const source = displayedSource.value;
   return source === 'none' ? 'librespot' : source;
 });
@@ -130,25 +130,25 @@ const currentDeviceName = computed(() => {
     case 'bluetooth':
       return metadata.device_name || '';
     case 'roc':
-      // Support pour plusieurs clients : retourner l'array ou un string unique
+      // Support multiple clients: return the array or a single string
       return metadata.client_names || metadata.client_name || [];
     default:
       return '';
   }
 });
 
-// Clé FORCÉE pour garantir les transitions ready ↔ connected
+// FORCED key to guarantee ready ↔ connected transitions
 const pluginStatusKey = computed(() => {
   return `${currentPluginType.value}-${currentPluginState.value}-${!!currentDeviceName.value}`;
 });
 
-// Key spécifique pour LibrespotView pour forcer les transitions
+// Specific key for LibrespotView to force transitions
 const librespotKey = computed(() => {
-  // Changer de key quand on passe de PluginStatus à LibrespotView
+  // Change key when switching from PluginStatus to LibrespotView
   return shouldShowLibrespot.value ? 'librespot-connected' : 'librespot-hidden';
 });
 
-// Key spécifique pour RadioView
+// Specific key for RadioView
 const radioKey = computed(() => {
   return shouldShowRadio.value ? 'radio-active' : 'radio-hidden';
 });
@@ -157,7 +157,7 @@ const radioKey = computed(() => {
 onMounted(() => {
   // console.log('🚀 AudioSourceView mounted - SIMPLIFIED');
 
-  // Attente initiale de 1000ms
+  // Initial 1000ms wait
   setTimeout(() => {
     showInitialDelay.value = false;
   }, 1000);
@@ -174,17 +174,17 @@ onMounted(() => {
   position: relative;
 }
 
-/* === CONTAINERS POUR LAYOUTS SPÉCIFIQUES === */
+/* === CONTAINERS FOR SPECIFIC LAYOUTS === */
 
-/* === CONTAINERS SIMPLIFIÉS === */
+/* === SIMPLIFIED CONTAINERS === */
 
-/* LibrespotView : plein écran naturel */
+/* LibrespotView: natural full-screen */
 .librespot-container {
   width: 100%;
   height: 100%;
 }
 
-/* PluginStatus : centré naturel */
+/* PluginStatus: naturally centered */
 .plugin-status-container {
   width: 100%;
   height: 100%;
@@ -194,7 +194,7 @@ onMounted(() => {
   padding: var(--space-05);
 }
 
-/* === TRANSITIONS AVEC DIRECTIONS FORCÉES === */
+/* === TRANSITIONS WITH FORCED DIRECTIONS === */
 
 .audio-content-enter-active {
   transition: all var(--transition-spring);
@@ -204,7 +204,7 @@ onMounted(() => {
   transition: all var(--transition-fast);
 }
 
-/* Direction par défaut : TOUJOURS du bas vers le haut */
+/* Default direction: ALWAYS bottom to top */
 .audio-content-enter-from {
   opacity: 0;
   transform: translateY(var(--space-06)) scale(0.98);
@@ -221,9 +221,9 @@ onMounted(() => {
   transform: translateY(0) scale(1);
 }
 
-/* Force supplémentaire pour LibrespotView avec priorité maximale */
+/* Extra force for LibrespotView with maximum priority */
 .librespot-container {
-  /* Reset position par défaut pour éviter la mémorisation */
+  /* Default position reset to avoid memorization */
   transform: translateY(0) scale(1);
 }
 

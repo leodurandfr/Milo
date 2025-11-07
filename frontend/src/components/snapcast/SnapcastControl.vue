@@ -2,7 +2,7 @@
 <template>
   <div class="clients-container" :class="{ opening: isOpening }" :style="{ height: containerHeight }">
     <div class="clients-list" ref="clientsListRef" :class="{ 'with-background': showBackground }">
-      <!-- MESSAGE : Multiroom désactivé -->
+      <!-- MESSAGE: Multiroom disabled -->
       <Transition name="message">
         <div v-if="showMessage" key="message" class="message-content">
           <Icon name="multiroom" :size="96" color="var(--color-background-glass)" />
@@ -10,7 +10,7 @@
         </div>
       </Transition>
 
-      <!-- CLIENTS : Skeletons OU Items réels -->
+      <!-- CLIENTS: Skeletons OR real items -->
       <Transition name="clients">
         <div v-if="!showMessage" key="clients" class="clients-wrapper">
           <SnapclientItem v-for="(client, index) in displayClients" :key="index" :client="client"
@@ -37,11 +37,11 @@ const clientsListRef = ref(null);
 const containerHeight = ref('0px');
 const isOpening = ref(true);
 
-// États locaux pour les transitions multiroom
+// Local state for multiroom transitions
 const isMultiroomTransitioning = ref(false);
 const isMultiroomDeactivating = ref(false);
 
-// Constantes de hauteur
+// Height constants
 const ITEM_HEIGHT_DESKTOP = 72;
 const ITEM_HEIGHT_MOBILE = 116;
 const GAP_DESKTOP = 8;
@@ -61,16 +61,16 @@ function calculateInitialHeight(clientsCount) {
 // === COMPUTED ===
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
-// État local pour le toggling
+// Local state for toggling
 const isTogglingMultiroom = ref(false);
 
 const showMessage = computed(() => {
-  // Si on est en train de désactiver, afficher le message immédiatement
+  // If we are deactivating, show the message immediately
   if (isTogglingMultiroom.value && isMultiroomDeactivating.value) {
     return true;
   }
 
-  // Pendant l'activation, ne pas afficher le message
+  // During activation, do not show the message
   if (isTogglingMultiroom.value || isMultiroomTransitioning.value) {
     return false;
   }
@@ -82,17 +82,17 @@ const showBackground = computed(() => {
   return showMessage.value;
 });
 
-// Force le mode loading pendant le toggling ou le chargement
-// Mais pas pendant la désactivation (on laisse juste faire le fade-out)
+// Force loading mode during toggling or loading
+// But not during deactivation (we just let the fade-out happen)
 const shouldShowLoading = computed(() => {
   if (isTogglingMultiroom.value && isMultiroomDeactivating.value) {
-    return false; // Pas de skeletons lors de la désactivation
+    return false; // No skeletons during deactivation
   }
   return snapcastStore.isLoading || isTogglingMultiroom.value;
 });
 
 const displayClients = computed(() => {
-  // Si on active le multiroom, afficher des placeholders vides pour les skeletons
+  // If we are activating multiroom, show empty placeholders for skeletons
   if (isTogglingMultiroom.value && !isMultiroomDeactivating.value) {
     return Array.from({ length: snapcastStore.lastKnownClientCount }, (_, i) => ({
       id: `placeholder-${i}`,
@@ -184,7 +184,7 @@ async function handleMultiroomDisabling() {
   isTogglingMultiroom.value = true;
   isMultiroomDeactivating.value = true;
   snapcastStore.isLoading = false;
-  // Les clients seront vidés après la fin du toggling via le watcher
+  // Clients will be cleared after the end of toggling via the watcher
 }
 
 // === LIFECYCLE ===
@@ -198,11 +198,11 @@ onMounted(async () => {
   }
 
   if (isMultiroomActive.value) {
-    // Pré-charger le cache de manière synchrone pour obtenir le bon nombre de clients
+    // Preload cache synchronously to get the correct number of clients
     snapcastStore.preloadCache();
-    // Définir la hauteur immédiatement avec le nombre correct de clients
+    // Set the height immediately with the correct number of clients
     containerHeight.value = `${calculateInitialHeight(snapcastStore.clients.length || snapcastStore.lastKnownClientCount)}px`;
-    // Charger les clients frais en arrière-plan
+    // Load fresh clients in the background
     await snapcastStore.loadClients();
   } else {
     containerHeight.value = `${calculateInitialHeight(snapcastStore.lastKnownClientCount)}px`;
@@ -211,7 +211,7 @@ onMounted(async () => {
   await nextTick();
   setupResizeObserver();
 
-  // Désactiver la classe 'opening' après l'animation de la modal
+  // Disable the 'opening' class after the modal animation
   setTimeout(() => {
     isOpening.value = false;
   }, 700);
@@ -236,19 +236,19 @@ onUnmounted(() => {
 });
 
 // === WATCHERS ===
-// Watcher pour détecter quand le store est en transition (appel API en cours)
+// Watcher to detect when the store is transitioning (API call in progress)
 watch(() => unifiedStore.systemState.transitioning, (isTransitioning, wasTransitioning) => {
   if (isTransitioning && !wasTransitioning) {
-    // Début d'une transition : déclencher immédiatement l'animation
+    // Start of a transition: trigger the animation immediately
     const currentMultiroomState = isMultiroomActive.value;
 
     if (currentMultiroomState) {
-      // On est en train de désactiver le multiroom
+      // We are deactivating multiroom
       isTogglingMultiroom.value = true;
       isMultiroomDeactivating.value = true;
       snapcastStore.isLoading = false;
     } else {
-      // On est en train d'activer le multiroom
+      // We are activating multiroom
       isTogglingMultiroom.value = true;
       isMultiroomTransitioning.value = true;
       snapcastStore.isLoading = true;
@@ -267,16 +267,16 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
     isMultiroomTransitioning.value = false;
     isTogglingMultiroom.value = false;
   } else if (!newValue && oldValue) {
-    // Désactivation : réinitialiser immédiatement pour afficher le message
+    // Deactivation: reset immediately to show the message
     isMultiroomDeactivating.value = false;
     isTogglingMultiroom.value = false;
   }
 });
 
-// Nettoyer les clients après la fin du toggling de désactivation
+// Clean clients after deactivation toggling ends
 watch(isTogglingMultiroom, (isToggling, wasToggling) => {
   if (!isToggling && wasToggling && !isMultiroomActive.value) {
-    // Fin du toggling de désactivation : vider les clients
+    // End of deactivation toggling: clear clients
     snapcastStore.clients = [];
     snapcastStore.clearCache();
   }

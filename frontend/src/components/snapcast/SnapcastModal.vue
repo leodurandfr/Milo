@@ -29,7 +29,6 @@ import SnapcastControl from './SnapcastControl.vue';
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
-// État local pour le toggling
 const isMultiroomToggling = ref(false);
 
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -52,7 +51,7 @@ let lastMultiroomState = isMultiroomActive.value;
 const watcherInterval = setInterval(() => {
   if (lastMultiroomState !== isMultiroomActive.value) {
     lastMultiroomState = isMultiroomActive.value;
-    // Réinitialiser le toggling quand le changement d'état est terminé
+
     isMultiroomToggling.value = false;
   }
 }, 100);

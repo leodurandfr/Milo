@@ -1,21 +1,21 @@
 // frontend/src/composables/useScreenActivity.js
 /**
- * Composable pour détecter l'activité écran (touch, souris, clavier)
- * et notifier le backend pour reset le timer de mise en veille.
+ * Composable to detect screen activity (touch, mouse, keyboard)
+ * and notify the backend to reset the sleep timer.
  *
- * Fonctionne avec tous les types d'écrans (tactiles ou non).
+ * Works with all screen types (touch or not).
  */
 import { onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
 
 let lastActivityTime = 0;
-const THROTTLE_DELAY = 2000; // 2 secondes minimum entre chaque notification
+const THROTTLE_DELAY = 2000; // Minimum 2 seconds between each notification
 
 export function useScreenActivity() {
   const notifyActivity = async () => {
     const now = Date.now();
 
-    // Throttle: ignorer si moins de 2s depuis la dernière notification
+    // Throttle: ignore if less than 2s since last notification
     if (now - lastActivityTime < THROTTLE_DELAY) {
       return;
     }
@@ -25,21 +25,21 @@ export function useScreenActivity() {
     try {
       await axios.post('/api/settings/screen-activity');
     } catch (error) {
-      // Silent fail - ne pas polluer la console avec ces erreurs
-      // Le backend log déjà les erreurs si nécessaire
+      // Silent fail - do not pollute the console with these errors
+      // The backend already logs errors if necessary
       console.debug('Failed to notify screen activity:', error);
     }
   };
 
   const setupListeners = () => {
-    // Événements tactiles (mobile/tablette/écran tactile)
+    // Touch events (mobile/tablet/touchscreen)
     document.addEventListener('touchstart', notifyActivity, { passive: true });
 
-    // Événements souris (desktop/écran tactile avec curseur)
+    // Mouse events (desktop/touchscreen with cursor)
     document.addEventListener('mousedown', notifyActivity, { passive: true });
     document.addEventListener('mousemove', notifyActivity, { passive: true });
 
-    // Événements clavier (optionnel, pour accessibilité)
+    // Keyboard events (optional, for accessibility)
     document.addEventListener('keydown', notifyActivity, { passive: true });
   };
 

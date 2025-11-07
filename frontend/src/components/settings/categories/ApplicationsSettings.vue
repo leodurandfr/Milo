@@ -3,7 +3,7 @@
   <div class="settings-container">
 
     <section class="settings-section">
-      <!-- Sources audio -->
+      <!-- Audio sources -->
       <div class="setting-item-container">
         <p class="app-group-title text-mono">{{ t('audioSources.title') }}</p>
 
@@ -49,7 +49,7 @@
           </IconButton>
         </div>
       </div>
-      <!-- Fonctionnalités -->
+      <!-- Features -->
       <div class="setting-item-container">
         <p class="app-group-title text-mono">{{ t('applications.features') }}</p>
 
@@ -101,7 +101,7 @@ const { on } = useWebSocket();
 const { debouncedUpdate } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
-// Utilisation du store
+// Using the store
 const config = computed(() => settingsStore.dockApps);
 
 function canDisableAudioSource(sourceId) {
@@ -125,13 +125,13 @@ function updateDockApps() {
 const handleDockAppsChanged = (msg) => {
   if (msg.data?.config?.enabled_apps) {
     const enabledApps = msg.data.config.enabled_apps;
-    // Mettre à jour le store
+    // Update the store
     settingsStore.updateDockApps(enabledApps);
   }
 };
 
 onMounted(() => {
-  // Plus besoin de charger la config, elle est déjà dans le store
+  // No need to load the config here; it's already in the store
   on('settings', 'dock_apps_changed', handleDockAppsChanged);
 });
 </script>
@@ -169,7 +169,7 @@ onMounted(() => {
   gap: var(--space-01);
 }
 
-/* Surcharge : boutons avec toggle gardent le même fond et bordure même si actifs */
+/* Override: buttons with a toggle keep the same background and border even when active */
 .app-list :deep(.icon-button.active) {
   background: var(--color-background);
   box-shadow: inset 0 0 0 1px var(--color-border);

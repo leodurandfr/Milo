@@ -3,28 +3,28 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 
 /**
- * Composable pour gérer les informations hardware du système
- * État partagé entre toutes les instances du composable
+ * Composable to manage system hardware information
+ * State is shared across all composable instances
  */
 
-// État global partagé
+// Shared global state
 const hardwareInfo = ref(null);
 const isLoading = ref(false);
 const error = ref(null);
 
 export function useHardwareConfig() {
   /**
-   * Charge les informations hardware depuis l'API
-   * Les données sont mises en cache après le premier chargement
-   * @param {boolean} forceReload - Force le rechargement même si les données sont en cache
+   * Load hardware information from the API
+   * Data is cached after the first load
+   * @param {boolean} forceReload - Force reload even if data is cached
    */
   async function loadHardwareInfo(forceReload = false) {
-    // Si déjà chargé et pas de forceReload, retourner immédiatement
+    // If already loaded and no forceReload, return immediately
     if (hardwareInfo.value && !forceReload) {
       return hardwareInfo.value;
     }
 
-    // Si déjà en cours de chargement, attendre
+    // If already loading, wait
     if (isLoading.value) {
       return new Promise((resolve) => {
         const checkLoaded = setInterval(() => {
@@ -41,7 +41,7 @@ export function useHardwareConfig() {
 
     try {
       const response = await axios.get('/api/settings/hardware-info', {
-        // Désactiver le cache du navigateur pour toujours obtenir les données fraîches
+        // Disable browser cache to always get fresh data
         headers: {
           'Cache-Control': 'no-cache',
           'Pragma': 'no-cache'
@@ -57,7 +57,7 @@ export function useHardwareConfig() {
     } catch (err) {
       error.value = err.message;
       console.error('Error loading hardware info:', err);
-      // Valeur par défaut en cas d'erreur
+      // Default value in case of error
       hardwareInfo.value = {
         screen_type: 'none',
         screen_resolution: { width: null, height: null }
@@ -69,14 +69,14 @@ export function useHardwareConfig() {
   }
 
   /**
-   * Force le rechargement des données hardware
+   * Force reload of hardware data
    */
   function reload() {
     return loadHardwareInfo(true);
   }
 
   /**
-   * Computed properties pour un accès facile
+   * Computed properties for easy access
    */
   const screenType = computed(() => hardwareInfo.value?.screen_type || 'none');
   const screenResolution = computed(() => hardwareInfo.value?.screen_resolution || { width: null, height: null });

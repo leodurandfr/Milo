@@ -86,24 +86,20 @@ function onNext(e) {
   height: 90px;
 }
 
-/* Animation de press pour les boutons de contrôle */
 .control-button:active {
   transform: scale(0.8);
   opacity: 0.5;
   transition: transform 0.1s ease, opacity 0.1s ease;
 }
 
-/* Couleurs des icônes */
 .icon-primary {
   color: var(--color-text);
   pointer-events: none;
-  /* L'icône ne capture pas les clics */
 }
 
 .icon-secondary {
   color: var(--color-text-light);
   pointer-events: none;
-  /* L'icône ne capture pas les clics */
 }
 
 @media (max-aspect-ratio: 4/3) {}

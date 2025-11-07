@@ -3,7 +3,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 
-// Constantes des bandes d'égaliseur
+// Equalizer band constants
 const STATIC_BANDS = [
   { id: "00", freq: "31 Hz", display_name: "31" },
   { id: "01", freq: "63 Hz", display_name: "63" },
@@ -22,14 +22,14 @@ const THROTTLE_DELAY = 100;
 const FINAL_DELAY = 300;
 
 export const useEqualizerStore = defineStore('equalizer', () => {
-  // === ÉTAT ===
+  // === STATE ===
   const bands = ref([]);
   const isLoading = ref(false);
   const isUpdating = ref(false);
   const isResetting = ref(false);
   const bandsLoaded = ref(false);
 
-  // Gestion du throttling
+  // Throttling management
   const bandThrottleMap = new Map();
 
   // === COMPUTED ===
@@ -37,7 +37,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === INITIALIZATION ===
   function initializeBands() {
-    // Initialiser avec les valeurs par défaut (seront remplacées par l'API)
+    // Initialize with default values (will be replaced by the API)
     bands.value = STATIC_BANDS.map(band => ({
       ...band,
       value: DEFAULT_VALUE
@@ -97,7 +97,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
       ]);
 
       if (statusData?.available && bandsData.length > 0) {
-        // Mettre à jour vers les vraies valeurs depuis l'API
+        // Update to real values from the API
         bands.value = bands.value.map(band => {
           const apiBand = bandsData.find(b => b.id === band.id);
           return {
@@ -199,7 +199,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
     if (event.data.band_changed) {
       const { band_id, value } = event.data;
       const band = bands.value.find(b => b.id === band_id);
-      // Ne pas mettre à jour si on est en train de throttler (évite les conflits)
+      // Do not update if throttling is in progress (avoids conflicts)
       if (band && bandThrottleMap.size === 0) {
         band.value = value;
       }
@@ -208,7 +208,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   function handleReset(event) {
     if (event.data.reset) {
-      // Ne pas mettre à jour si on est en train de throttler
+      // Do not update if throttling is in progress
       if (bandThrottleMap.size === 0) {
         bands.value.forEach(band => {
           band.value = event.data.reset_value;
@@ -224,7 +224,7 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   return {
-    // État
+    // State
     bands,
     isLoading,
     isUpdating,

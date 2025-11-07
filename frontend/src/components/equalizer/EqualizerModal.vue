@@ -2,7 +2,7 @@
 <template>
   <div class="equalizer-modal">
     <div class="screen-main">
-      <!-- Header avec toggle -->
+      <!-- Header with toggle -->
       <ModalHeader :title="$t('equalizer.title')">
         <template #actions>
           <CircularIcon
@@ -21,10 +21,10 @@
         </template>
       </ModalHeader>
 
-      <!-- Contenu principal avec hauteur animée -->
+      <!-- Main content with animated height -->
       <div class="content-container" :style="{ height: containerHeight }">
         <div class="content-wrapper" ref="contentWrapperRef" :class="{ 'with-background': !isEqualizerEnabled }">
-          <!-- MESSAGE : Égaliseur désactivé -->
+          <!-- MESSAGE: Equalizer disabled -->
           <Transition name="message">
             <div v-if="!isEqualizerEnabled" key="message" class="message-content">
               <Icon name="equalizer" :size="96" color="var(--color-background-glass)" />
@@ -32,7 +32,7 @@
             </div>
           </Transition>
 
-          <!-- EQUALIZER : Controls -->
+          <!-- EQUALIZER: Controls -->
           <Transition name="controls">
             <div v-if="isEqualizerEnabled" key="controls" class="equalizer-controls">
               <RangeSliderEqualizer
@@ -73,9 +73,9 @@ const unifiedStore = useUnifiedAudioStore();
 const equalizerStore = useEqualizerStore();
 const { on } = useWebSocket();
 
-// État local pour le toggling et l'UI optimiste
+// Local state for toggling and optimistic UI
 const isEqualizerToggling = ref(false);
-const localEqualizerEnabled = ref(false); // État local pour l'UI instantanée
+const localEqualizerEnabled = ref(false); // Local state for instant UI
 
 // UI states
 const isMobile = ref(false);
@@ -92,7 +92,7 @@ const isEqualizerEnabled = computed({
 });
 const sliderOrientation = computed(() => isMobile.value ? 'horizontal' : 'vertical');
 
-// === DÉTECTION MOBILE ===
+// === MOBILE DETECTION ===
 function updateMobileStatus() {
   const aspectRatio = window.innerWidth / window.innerHeight;
   isMobile.value = aspectRatio <= 4 / 3;
@@ -110,7 +110,7 @@ function setupResizeObserver() {
     if (entries[0]) {
       const newHeight = entries[0].contentRect.height;
 
-      // Première fois : initialiser sans transition
+      // First time: initialize without transition
       if (isFirstResize) {
         containerHeight.value = `${newHeight}px`;
         isFirstResize = false;
@@ -130,7 +130,7 @@ function setupResizeObserver() {
   }
 }
 
-// === GESTION DES BANDES ===
+// === BAND MANAGEMENT ===
 function handleBandInput(bandId, value) {
   equalizerStore.updateBand(bandId, value);
 }
@@ -144,23 +144,23 @@ async function handleResetAllBands() {
 }
 
 async function handleEqualizerToggle(enabled) {
-  // Optimistic update : changer l'UI immédiatement
+  // Optimistic update: change the UI immediately
   const previousState = localEqualizerEnabled.value;
   localEqualizerEnabled.value = enabled;
   isEqualizerToggling.value = true;
 
   try {
-    // Lancer l'appel API en arrière-plan
+    // Launch the API call in the background
     const success = await unifiedStore.setEqualizerEnabled(enabled);
 
     if (!success) {
-      // Si échec, revenir à l'état précédent
+      // On failure, revert to previous state
       localEqualizerEnabled.value = previousState;
       isEqualizerToggling.value = false;
     }
-    // Si succès, le watcher se chargera de synchroniser et débloquer
+    // On success, the watcher will sync and unlock
   } catch (error) {
-    // Si erreur, revenir à l'état précédent
+    // On error, revert to previous state
     console.error('Error toggling equalizer:', error);
     localEqualizerEnabled.value = previousState;
     isEqualizerToggling.value = false;
@@ -181,31 +181,31 @@ function handleEqualizerDisabling() {
   isEqualizerToggling.value = true;
 }
 
-// === WATCHER POUR SYNCHRONISER AVEC LE BACKEND ===
-// Watcher pour synchroniser avec le backend via WebSocket
-let lastStoreState = null; // Sera initialisé au premier tick
+// === WATCHER TO SYNC WITH BACKEND ===
+// Watcher to synchronize with the backend via WebSocket
+let lastStoreState = null; // Will be initialized on the first tick
 const watcherInterval = setInterval(() => {
   const currentStoreState = unifiedStore.systemState.equalizer_enabled;
 
-  // Initialiser lastStoreState au premier passage
+  // Initialize lastStoreState on first pass
   if (lastStoreState === null) {
     lastStoreState = currentStoreState;
     return;
   }
 
-  // Détecter changement dans le store (confirmation backend via WebSocket)
+  // Detect change in the store (backend confirmation via WebSocket)
   if (lastStoreState !== currentStoreState) {
     lastStoreState = currentStoreState;
 
-    // Synchroniser l'état local avec le store
+    // Sync local state with the store
     localEqualizerEnabled.value = currentStoreState;
 
-    // Débloquer le toggle
+    // Unlock the toggle
     isEqualizerToggling.value = false;
 
-    // Gérer les données de l'égaliseur
+    // Handle equalizer data
     if (currentStoreState) {
-      // Activation : charger les bandes
+      // Activation: load bands
       equalizerStore.bandsLoaded = false;
 
       nextTick(async () => {
@@ -213,7 +213,7 @@ const watcherInterval = setInterval(() => {
         equalizerStore.bandsLoaded = true;
       });
     } else {
-      // Désactivation : nettoyer
+      // Deactivation: clean up
       equalizerStore.bandsLoaded = false;
       equalizerStore.cleanup();
     }
@@ -225,20 +225,20 @@ onMounted(async () => {
   updateMobileStatus();
   window.addEventListener('resize', updateMobileStatus);
 
-  // Initialiser l'état local AVANT de charger
+  // Initialize local state BEFORE loading
   localEqualizerEnabled.value = unifiedStore.systemState.equalizer_enabled;
 
-  // Initialiser les bandes immédiatement
+  // Initialize bands immediately
   equalizerStore.initializeBands();
 
-  // Si l'égaliseur est déjà activé, charger les données
+  // If the equalizer is already enabled, load the data
   if (localEqualizerEnabled.value) {
     equalizerStore.bandsLoaded = false;
     await equalizerStore.loadBands();
     equalizerStore.bandsLoaded = true;
   }
 
-  // Setup ResizeObserver après le prochain tick pour que la ref soit disponible
+  // Setup ResizeObserver after the next tick so the ref is available
   await nextTick();
   setupResizeObserver();
 
@@ -321,7 +321,7 @@ onUnmounted(() => {
   overflow-x: auto;
 }
 
-/* Transitions pour message */
+/* Transitions for message */
 .message-enter-active {
   transition: opacity 300ms ease, transform 300ms ease;
 }
@@ -342,7 +342,7 @@ onUnmounted(() => {
   transform: translateY(-12px);
 }
 
-/* Transitions pour controls */
+/* Transitions for controls */
 .controls-enter-active {
   transition: opacity 300ms ease 100ms, transform 300ms ease 100ms;
 }
@@ -363,7 +363,7 @@ onUnmounted(() => {
   transform: translateY(-12px);
 }
 
-/* Animation de chargement des sliders */
+/* Loading animation for sliders */
 .equalizer-controls :deep(.range-slider) {
   opacity: 1;
   transition: opacity 300ms ease;

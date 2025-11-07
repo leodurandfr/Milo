@@ -67,7 +67,7 @@ function handleToggle(event) {
   display: inline-block;
 }
 
-/* Taille par défaut - Desktop */
+/* Default - Desktop */
 .toggle--default {
   width: 70px;
   height: 40px;
@@ -84,7 +84,7 @@ function handleToggle(event) {
   transform: translateX(30px);
 }
 
-/* Taille compacte - Desktop */
+/* Compact - Desktop */
 .toggle--compact {
   width: 62px;
   height: 32px;
@@ -126,7 +126,7 @@ function handleToggle(event) {
   transition: transform 0.2s ease;
 }
 
-/* Variantes de couleurs */
+/* Colors */
 .toggle--primary .slider {
   background-color: var(--color-text-light);
 }
@@ -143,14 +143,13 @@ function handleToggle(event) {
   background-color: var(--color-background-contrast);
 }
 
-/* État désactivé */
+/* Disabled */
 input:disabled + .slider {
   background-color: #999;
   cursor: not-allowed;
 }
 
-/* Responsive - Mobile (aspect ratio < 4/3) */
-/* Sur mobile, toutes les tailles utilisent les mêmes dimensions */
+/* Responsive  */
 @media (max-aspect-ratio: 4/3) {
   .toggle--default,
   .toggle--compact {

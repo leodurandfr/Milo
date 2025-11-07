@@ -1,10 +1,10 @@
-// frontend/src/stores/unifiedAudioStore.js - Version nettoyée sans états UI
+// frontend/src/stores/unifiedAudioStore.js - Cleaned version without UI states
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
-  // === ÉTAT SYSTÈME UNIQUE ===
+  // === SINGLE SYSTEM STATE ===
   const systemState = ref({
     active_source: 'none',
     plugin_state: 'inactive',
@@ -16,7 +16,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     equalizer_enabled: false
   });
 
-  // === ÉTAT VOLUME ===
+  // === VOLUME STATE ===
   const volumeState = ref({
     currentVolume: 0
   });
@@ -24,11 +24,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   let volumeBarRef = null;
   let lastWebSocketUpdate = 0;
 
-  // === GETTERS ===
-  // Note: Tous les getters ont été supprimés car ils étaient de simples alias.
-  // Utilisez directement systemState.active_source, systemState.metadata, etc.
 
-  // === ACTIONS AUDIO ===
+  // === AUDIO ACTIONS ===
   async function changeSource(source) {
     try {
       console.log('🚀 CHANGING SOURCE TO:', source);
@@ -75,7 +72,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  // === ACTIONS VOLUME ===
+  // === VOLUME ACTIONS ===
   async function setVolume(volume, showBar = true) {
     try {
       const response = await axios.post('/api/volume/set', {
@@ -113,16 +110,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return await adjustVolume(-5);
   }
 
-  // === REFRESH (WebSocket uniquement - pas de polling HTTP) ===
-  // Note: L'état est synchronisé automatiquement via WebSocket.
-  // Cette fonction est conservée uniquement pour compatibilité mais ne fait plus de polling HTTP.
+  // === REFRESH (WebSocket only - no HTTP polling) ===
+  // Note: State is automatically synchronized via WebSocket.
+  // This function is kept only for compatibility and no longer performs HTTP polling.
   async function refreshState() {
     console.log('ℹ️ refreshState called - state synchronized via WebSocket only');
     return true;
   }
 
-  // === GESTION VISIBILITÉ ===
-  // Note: Plus besoin de polling au retour de focus - le WebSocket maintient l'état à jour
+  // === VISIBILITY MANAGEMENT ===
+  // Note: No need for polling when returning to focus – WebSocket keeps state up to date
   function setupVisibilityListener() {
     const visibilityHandler = () => {
       if (!document.hidden) {
@@ -139,41 +136,41 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     };
   }
 
-  // === MISE À JOUR D'ÉTAT ===
+  // === STATE UPDATE ===
   function updateSystemState(newState, source = 'unknown') {
-    // Validation défensive des valeurs reçues du WebSocket
-    // Note: Cette validation est une mesure de sécurité défensive côté frontend.
-    // Elle ne devrait jamais être nécessaire si le backend fonctionne correctement,
-    // mais protège contre les corruptions de données en transit.
+    // Defensive validation of values received from WebSocket
+    // Note: This validation is a defensive frontend safety measure.
+    // It should never be needed if the backend works correctly,
+    // but it protects against data corruption in transit.
     const validSources = ['none', 'librespot', 'bluetooth', 'roc', 'radio'];
     const validStates = ['inactive', 'ready', 'connected', 'error'];
 
-    // Valider active_source
+    // Validate active_source
     const activeSource = validSources.includes(newState.active_source)
       ? newState.active_source
       : 'none';
 
-    // Valider plugin_state
+    // Validate plugin_state
     const pluginState = validStates.includes(newState.plugin_state)
       ? newState.plugin_state
       : 'inactive';
 
-    // Valider transitioning (doit être boolean)
+    // Validate transitioning (must be boolean)
     const transitioning = typeof newState.transitioning === 'boolean'
       ? newState.transitioning
       : false;
 
-    // Valider target_source
+    // Validate target_source
     const targetSource = newState.target_source && validSources.includes(newState.target_source)
       ? newState.target_source
       : null;
 
-    // Valider metadata (doit être objet)
+    // Validate metadata (must be object)
     const metadata = newState.metadata && typeof newState.metadata === 'object' && !Array.isArray(newState.metadata)
       ? newState.metadata
       : {};
 
-    // Valider multiroom_enabled et equalizer_enabled (doivent être boolean)
+    // Validate multiroom_enabled and equalizer_enabled (must be boolean)
     const multiroomEnabled = typeof newState.multiroom_enabled === 'boolean'
       ? newState.multiroom_enabled
       : systemState.value.multiroom_enabled;
@@ -193,7 +190,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       equalizer_enabled: equalizerEnabled
     };
 
-    // Log warning si validation a modifié des valeurs
+    // Log warning if validation changed values
     if (activeSource !== newState.active_source || pluginState !== newState.plugin_state) {
       console.warn('⚠️ Invalid WebSocket data received:', {
         received: { active_source: newState.active_source, plugin_state: newState.plugin_state },
@@ -229,7 +226,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   return {
-    // État
+    // State
     systemState,
     volumeState,
 

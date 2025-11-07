@@ -29,30 +29,30 @@ const props = defineProps({
 const emit = defineEmits(['seek']);
 
 const progressContainer = ref(null);
-const containerWidth = ref(400); // Valeur par défaut
+const containerWidth = ref(400);
 
-// Computed pour garantir une valeur numérique valide
+// Computed to guarantee a valid numeric value
 const progressPercent = computed(() => {
   const val = parseFloat(props.progressPercentage);
   return isNaN(val) ? 0 : Math.min(100, Math.max(0, val));
 });
 
-// Computed pour les styles de la barre de progression
+// Computed for progress bar styles
 const progressStyle = computed(() => {
   const percent = progressPercent.value;
   const height = 8;
   
-  // Largeur réelle que devrait avoir la barre à ce pourcentage
+  // Actual width the bar should have at this percentage
   const actualWidth = (percent / 100) * containerWidth.value;
   
   if (actualWidth <= height) {
-    // Mode cercle : déplacement de -8px à 0px
+    // Circle mode: movement from -8px to 0px
     return {
       width: `${height}px`,
       left: `${actualWidth - height}px`
     };
   } else {
-    // Mode barre normale
+    // Normal bar mode
     return {
       width: `${percent}%`,
       left: '0px'
