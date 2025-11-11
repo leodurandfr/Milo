@@ -116,7 +116,7 @@ class MpvController:
             try:
                 # Read up to 10 lines max to find the right response
                 for _ in range(10):
-                    response_line = await asyncio.wait_for(self.reader.readline(), timeout=2.0)
+                    response_line = await asyncio.wait_for(self.reader.readline(), timeout=5.0)
                     if not response_line:
                         break
 
