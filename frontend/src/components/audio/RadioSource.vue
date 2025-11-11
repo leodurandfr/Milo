@@ -141,28 +141,35 @@
 
       <!-- List of stations -->
       <div class="stations-list">
-        <div v-if="transitionState === 'loading'" class="loading-state">
-          <p>{{ t('audioSources.radioSource.loadingStations') }}</p>
-        </div>
-
-        <!-- Error message with retry button -->
-        <div v-else-if="radioStore.hasError && displayedStations.length === 0 && transitionState === 'idle'"
-          class="error-state">
-          <div class="error-icon">⚠️</div>
-          <p class="heading-2">{{ t('audioSources.radioSource.connectionError') }}</p>
-          <p class="text-body-small" style="color: var(--color-text-secondary);">{{
-            t('audioSources.radioSource.cannotLoadStations') }}
-          </p>
-          <Button variant="toggle" :active="false" @click="retrySearch">
-            {{ t('audioSources.radioSource.retry') }}
-          </Button>
-        </div>
-
-        <div v-else-if="displayedStations.length === 0 && transitionState === 'idle'" class="empty-list">
-          <div class="empty-icon"><img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" />
+        <!-- Loading state -->
+        <div v-if="transitionState === 'loading' || radioStore.loading" class="message-wrapper">
+          <div class="message-content">
+            <Icon name="radio" :size="96" color="var(--color-background-glass)" />
+            <p class="text-mono">{{ t('audioSources.radioSource.loadingStations') }}</p>
           </div>
-          <p class="heading-2">{{ isSearchMode ? t('audioSources.radioSource.noStationsFound') :
-            t('audioSources.radioSource.noFavorites') }}</p>
+        </div>
+
+        <!-- Error state -->
+        <div v-else-if="radioStore.hasError && displayedStations.length === 0" class="message-wrapper">
+          <div class="message-content">
+            <Icon name="stop" :size="96" color="var(--color-background-glass)" />
+            <p class="text-mono">{{ t('audioSources.radioSource.connectionError') }}</p>
+            <p class="text-body-small" style="color: var(--color-text-secondary);">{{
+              t('audioSources.radioSource.cannotLoadStations') }}
+            </p>
+            <Button variant="toggle" :active="false" @click="retrySearch">
+              {{ t('audioSources.radioSource.retry') }}
+            </Button>
+          </div>
+        </div>
+
+        <!-- Empty state -->
+        <div v-else-if="displayedStations.length === 0" class="message-wrapper">
+          <div class="message-content">
+            <Icon name="radio" :size="96" color="var(--color-background-glass)" />
+            <p class="text-mono">{{ isSearchMode ? t('audioSources.radioSource.noStationsFound') :
+              t('audioSources.radioSource.noFavorites') }}</p>
+          </div>
         </div>
 
         <div v-else-if="transitionState !== 'loading'" class="stations-grid" :class="{
@@ -225,6 +232,7 @@ import AddStationModal from '@/components/settings/categories/AddStationModal.vu
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import StationCard from '@/components/audio/StationCard.vue';
+import Icon from '@/components/ui/Icon.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const radioStore = useRadioStore();
@@ -297,6 +305,9 @@ const remainingStations = computed(() => {
 // === NAVIGATION ===
 async function openSearch() {
   console.log('🔍 Opening search mode. Available countries:', availableCountries.value.length);
+
+  // CRITICAL: Set loading BEFORE changing mode to prevent flash of "no stations" message
+  radioStore.loading = true;
   isSearchMode.value = true;
 
   // Load countries if not yet loaded
@@ -304,8 +315,8 @@ async function openSearch() {
     await loadAvailableCountries();
   }
 
-  // Load top 500 stations (uses cache if already loaded)
-  radioStore.loadStations(false);
+  // Load top 500 stations
+  await radioStore.loadStations(false);
 }
 
 function closeSearch() {
@@ -743,31 +754,37 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 
-.loading-state,
-.empty-list,
-.error-state {
+/* Message wrapper (loading, error, empty states) */
+.message-wrapper {
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
+}
+
+.message-content {
   display: flex;
-  height: 100%;
+  min-height: 232px;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
-  padding: var(--space-07);
+  align-items: center;
   gap: var(--space-04);
+  padding: var(--space-05);
+}
+
+.message-content .text-mono,
+.message-content .heading-2 {
+  text-align: center;
   color: var(--color-text-secondary);
+}
+
+.message-content .text-body-small {
   text-align: center;
 }
 
-.empty-icon,
-.error-icon {
-  font-size: 64px;
-  opacity: 0.5;
-}
-
-.empty-icon img {
-  width: 64px;
-  height: 64px;
-  object-fit: cover;
-  opacity: 0.5;
+/* Mobile: increase height for better visibility */
+@media (max-aspect-ratio: 4/3) {
+  .message-content {
+    min-height: 364px;
+  }
 }
 
 .stations-grid {

@@ -7,6 +7,7 @@ export const useRadioStore = defineStore('radio', () => {
   // === STATE ===
   const currentStation = ref(null);
   const loading = ref(false);
+  const hasError = ref(false);
 
   // Active filters
   const searchQuery = ref('');
@@ -22,6 +23,56 @@ export const useRadioStore = defineStore('radio', () => {
 
   // Stations currently visible (for progressive rendering)
   const visibleStations = ref([]);
+
+  // Top stations cache (for instant display when no filters are applied)
+  const topStationsCache = ref(null);
+  const topStationsCacheTimestamp = ref(null);
+  const CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+  const BACKGROUND_REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+  const LOCALSTORAGE_KEY = 'milo_radio_top_stations';
+  const LOCALSTORAGE_TIMESTAMP_KEY = 'milo_radio_top_stations_timestamp';
+
+  // === LOCALSTORAGE HELPERS ===
+
+  /**
+   * Load top stations from localStorage
+   * Returns { stations, timestamp } or null if not found/invalid
+   */
+  function loadFromLocalStorage() {
+    try {
+      const stationsJson = localStorage.getItem(LOCALSTORAGE_KEY);
+      const timestampStr = localStorage.getItem(LOCALSTORAGE_TIMESTAMP_KEY);
+
+      if (!stationsJson || !timestampStr) {
+        return null;
+      }
+
+      const stations = JSON.parse(stationsJson);
+      const timestamp = parseInt(timestampStr, 10);
+
+      if (!Array.isArray(stations) || isNaN(timestamp)) {
+        return null;
+      }
+
+      return { stations, timestamp };
+    } catch (error) {
+      console.warn('⚠️ Failed to load from localStorage:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Save top stations to localStorage
+   */
+  function saveToLocalStorage(stations, timestamp) {
+    try {
+      localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(stations));
+      localStorage.setItem(LOCALSTORAGE_TIMESTAMP_KEY, timestamp.toString());
+    } catch (error) {
+      // Quota exceeded or localStorage unavailable
+      console.warn('⚠️ Failed to save to localStorage:', error.message);
+    }
+  }
 
   // AbortController to cancel ongoing requests
   let currentAbortController = null;
@@ -55,12 +106,15 @@ export const useRadioStore = defineStore('radio', () => {
 
   /**
    * Load stations according to active filters
-   * Always makes an API call (no cache)
+   * Uses cache when available (top stations only)
    */
   async function loadStations(favoritesOnly = false) {
+    // IMPORTANT: Set loading state immediately to prevent flash of "no stations" message
+    loading.value = true;
+    hasError.value = false;
+
     if (favoritesOnly) {
       // Load favorites
-      loading.value = true;
       try {
         const response = await axios.get('/api/radio/stations', {
           params: { limit: 10000, favorites_only: true }
@@ -71,9 +125,70 @@ export const useRadioStore = defineStore('radio', () => {
         return true;
       } catch (error) {
         console.error('❌ Error loading favorites:', error);
+        hasError.value = true;
         return false;
       } finally {
         loading.value = false;
+      }
+    }
+
+    // Check if this is a top stations request (no filters applied)
+    const isTopStationsRequest = !searchQuery.value && !countryFilter.value && !genreFilter.value;
+
+    // If requesting top stations, check cache first
+    if (isTopStationsRequest) {
+      // Try memory cache first
+      if (topStationsCache.value && topStationsCacheTimestamp.value) {
+        const cacheAge = Date.now() - topStationsCacheTimestamp.value;
+
+        if (cacheAge < CACHE_DURATION_MS) {
+          // Cache is valid, use it immediately
+          console.log(`✅ Using cached top stations (age: ${Math.round(cacheAge / 1000)}s)`);
+          currentStations.value = topStationsCache.value;
+          currentTotal.value = topStationsCache.value.length;
+          visibleStations.value = topStationsCache.value.slice(0, 40);
+
+          // If cache is getting old (> 5 min), refresh in background
+          if (cacheAge > BACKGROUND_REFRESH_THRESHOLD_MS) {
+            console.log('🔄 Cache is aging, triggering background refresh');
+            refreshTopStationsInBackground();
+          }
+
+          loading.value = false;
+          return true;
+        }
+
+        // Cache expired, proceed with normal API call
+        console.log(`⏰ Cache expired (age: ${Math.round(cacheAge / 1000)}s), fetching fresh data`);
+      } else {
+        // Memory cache empty, try localStorage as fallback
+        const localStorageData = loadFromLocalStorage();
+
+        if (localStorageData) {
+          const { stations, timestamp } = localStorageData;
+          const cacheAge = Date.now() - timestamp;
+
+          console.log(`📦 Using localStorage fallback (age: ${Math.round(cacheAge / 1000)}s, ${stations.length} stations)`);
+
+          // Display immediately from localStorage
+          currentStations.value = stations;
+          currentTotal.value = stations.length;
+          visibleStations.value = stations.slice(0, 40);
+
+          // Also populate memory cache
+          topStationsCache.value = stations;
+          topStationsCacheTimestamp.value = timestamp;
+
+          // Always refresh in background when using localStorage
+          // (since it could be old data from previous session)
+          console.log('🔄 Triggering background refresh to get latest data');
+          refreshTopStationsInBackground();
+
+          loading.value = false;
+          return true;
+        }
+
+        console.log('📭 No cache available, fetching from API');
       }
     }
 
@@ -87,8 +202,13 @@ export const useRadioStore = defineStore('radio', () => {
     currentAbortController = new AbortController();
     const signal = currentAbortController.signal;
 
-    // Load from API
-    loading.value = true;
+    // Load from API (loading already set to true at function start)
+
+    // IMPORTANT: Clear old data BEFORE API call to prevent showing stale data during loading
+    visibleStations.value = [];
+    currentStations.value = [];
+    currentTotal.value = 0;
+
     try {
       const params = {
         limit: 10000,
@@ -109,6 +229,15 @@ export const useRadioStore = defineStore('radio', () => {
       // Initialize visible stations with the first 40
       visibleStations.value = response.data.stations.slice(0, 40);
 
+      // If this was a top stations request, cache the results
+      if (isTopStationsRequest) {
+        const now = Date.now();
+        topStationsCache.value = response.data.stations;
+        topStationsCacheTimestamp.value = now;
+        saveToLocalStorage(response.data.stations, now);
+        console.log(`💾 Cached ${response.data.stations.length} top stations (memory + localStorage)`);
+      }
+
       console.log(`✅ Loaded ${response.data.stations.length} stations (total: ${response.data.total})`);
       return true;
     } catch (error) {
@@ -119,6 +248,7 @@ export const useRadioStore = defineStore('radio', () => {
       }
 
       console.error('❌ Error loading stations:', error);
+      hasError.value = true;
       currentStations.value = [];
       currentTotal.value = 0;
       visibleStations.value = [];
@@ -126,6 +256,45 @@ export const useRadioStore = defineStore('radio', () => {
     } finally {
       loading.value = false;
       currentAbortController = null;
+    }
+  }
+
+  /**
+   * Refresh top stations in background without blocking UI
+   * Used when cache is getting old but still valid
+   */
+  async function refreshTopStationsInBackground() {
+    console.log('🔄 Starting background refresh of top stations');
+
+    try {
+      const response = await axios.get('/api/radio/stations', {
+        params: { limit: 10000, favorites_only: false }
+      });
+
+      // Update cache silently
+      const now = Date.now();
+      topStationsCache.value = response.data.stations;
+      topStationsCacheTimestamp.value = now;
+      saveToLocalStorage(response.data.stations, now);
+
+      // If user is still viewing top stations (no filters), update the display
+      const isStillViewingTopStations = !searchQuery.value && !countryFilter.value && !genreFilter.value;
+      if (isStillViewingTopStations && currentStations.value.length > 0) {
+        // Only update if data actually changed (compare first station ID)
+        if (currentStations.value[0]?.id !== response.data.stations[0]?.id) {
+          currentStations.value = response.data.stations;
+          currentTotal.value = response.data.total;
+          // Preserve current scroll position by keeping visibleStations as is
+          console.log('✅ Background refresh complete, display updated');
+        } else {
+          console.log('✅ Background refresh complete, no changes');
+        }
+      } else {
+        console.log('✅ Background refresh complete, cache updated');
+      }
+    } catch (error) {
+      // Silent failure, keep using old cache
+      console.warn('⚠️ Background refresh failed, keeping old cache:', error.message);
     }
   }
 
@@ -438,6 +607,7 @@ export const useRadioStore = defineStore('radio', () => {
     // State
     currentStation,
     loading,
+    hasError,
     searchQuery,
     countryFilter,
     genreFilter,
