@@ -57,7 +57,7 @@ function handleBack() {
 .modal-header {
   display: flex;
   background: var(--color-background-contrast);
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-06);
   padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05);
   min-height: 72px;
   align-items: center;
@@ -72,12 +72,10 @@ function handleBack() {
   color: var(--color-text);
 }
 
-.modal-header.has-back {
-  padding: var(--space-04);
-}
 
-.modal-header.has-icon {
-  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
+.modal-header.has-icon,
+.modal-header.has-back {
+  padding: var(--space-03);
 }
 
 .modal-header h2 {
@@ -88,7 +86,7 @@ function handleBack() {
 .back-modal-header {
   display: flex;
   align-items: center;
-  gap: var(--space-04);
+  gap: var(--space-03);
   flex: 1;
 }
 
@@ -112,6 +110,8 @@ function handleBack() {
 @media (max-aspect-ratio: 4/3) {
   .modal-header {
     min-height: 64px;
+    padding: var(--space-04) var(--space-04) var(--space-04) var(--space-06);
+    border-radius: var(--radius-05);
   }
 
   .modal-header.has-icon {

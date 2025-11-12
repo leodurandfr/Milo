@@ -287,9 +287,10 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: visible;
-  border-radius: var(--radius-04);
   transition: background 400ms ease;
   position: relative;
+    border-radius: var(--radius-06);
+
 }
 
 .content-wrapper.with-background {
@@ -313,7 +314,7 @@ onUnmounted(() => {
 
 .equalizer-controls {
   background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-06);
   display: flex;
   justify-content: space-between;
   gap: var(--space-02);
@@ -380,6 +381,7 @@ onUnmounted(() => {
 
   .equalizer-controls {
     flex-direction: column;
+    border-radius: var(--radius-05);
   }
 }
 </style>

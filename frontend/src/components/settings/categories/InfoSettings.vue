@@ -98,7 +98,7 @@ onUnmounted(() => {
 <style scoped>
 .settings-section {
   background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-06);
   padding: var(--space-05-fixed) var(--space-05);
   display: flex;
   flex-direction: column;
@@ -135,6 +135,10 @@ onUnmounted(() => {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
+  .settings-section {
+    border-radius: var(--radius-05);
+  }
+
   .info-grid {
     grid-template-columns: 1fr;
   }

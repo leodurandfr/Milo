@@ -61,7 +61,7 @@ export default {
 
 <style scoped>
 .btn {
-    padding: var(--space-02) var(--space-04);
+    padding: var(--space-03) var(--space-04);
     text-align: center;
     border: none;
     cursor: pointer;
@@ -69,6 +69,7 @@ export default {
     border-radius: var(--radius-04);
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: var(--space-01);
 }
 

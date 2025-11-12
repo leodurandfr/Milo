@@ -373,7 +373,7 @@ onUnmounted(() => {
 .modal-container {
   position: relative;
   background: var(--color-background-neutral-50);
-  border-radius: var(--radius-07);
+  border-radius: var(--radius-08);
   width: 100%;
   max-width: 768px;
   max-height: 100%;
@@ -389,7 +389,7 @@ onUnmounted(() => {
   padding: 2px;
   opacity: 0.8;
   background: var(--stroke-glass);
-  border-radius: var(--radius-07);
+  border-radius: var(--radius-08);
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -413,8 +413,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-radius: var(--radius-07);
   touch-action: pan-y;
+  border-radius: var(--radius-08);
 }
 
 
@@ -439,7 +439,16 @@ onUnmounted(() => {
   .modal-container {
     max-width: none;
   }
+  
+  .modal-container, 
+  .modal-content,
+  .modal-container::before {
+    border-radius: var(--radius-07);
+  }
+
 }
+
+
 
 .ios-app .modal-overlay {
   padding: 112px var(--space-02) var(--space-02) var(--space-02);

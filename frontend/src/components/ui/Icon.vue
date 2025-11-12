@@ -111,8 +111,8 @@ export default {
 
 /* Responsive : apply on SVG */
 .icon :deep(.svg-responsive) {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
 }
 
 @media (max-aspect-ratio: 4/3) {

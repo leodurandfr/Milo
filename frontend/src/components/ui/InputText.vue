@@ -133,7 +133,7 @@ defineExpose({
   align-items: center;
   width: 100%;
   flex: 1;
-  padding: var(--space-03) var(--space-05);
+  padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
   background: var(--color-background-neutral);
   gap: var(--space-01);

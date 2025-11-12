@@ -86,7 +86,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: var(--space-03) var(--space-05);
+  padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
   color: var(--color-text-secondary);
   background: var(--color-background-neutral);
