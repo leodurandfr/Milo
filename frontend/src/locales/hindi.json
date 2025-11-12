@@ -18,7 +18,7 @@
     "radioSource": {
       "favoritesTitle": "पसंदीदा रेडियो",
       "discoverTitle": "रेडियो खोजें",
-      "searchPlaceholder": "खोजें...",
+      "searchPlaceholder": "खोजें",
       "allCountries": "सभी देश",
       "loadingCountries": "देश लोड हो रहे हैं...",
       "allGenres": "सभी शैलियां",
@@ -28,8 +28,6 @@
       "retry": "पुनः प्रयास करें",
       "noStationsFound": "कोई स्टेशन नहीं मिला",
       "noFavorites": "कोई पसंदीदा रेडियो नहीं",
-      "loadMore": "और लोड करें",
-      "remaining": "शेष",
       "stationNoImage": "बिना छवि के स्टेशन",
       "playRadio": "रेडियो चलाएं",
       "stopRadio": "रेडियो बंद करें"

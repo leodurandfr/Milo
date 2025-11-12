@@ -18,7 +18,7 @@
     "radioSource": {
       "favoritesTitle": "Radio preferite",
       "discoverTitle": "Scopri radio",
-      "searchPlaceholder": "Cerca...",
+      "searchPlaceholder": "Cerca",
       "allCountries": "Tutti i paesi",
       "loadingCountries": "Caricamento paesi...",
       "allGenres": "Tutti i generi",
@@ -28,8 +28,6 @@
       "retry": "Riprova",
       "noStationsFound": "Nessuna stazione trovata",
       "noFavorites": "Nessuna radio preferita",
-      "loadMore": "Carica altro",
-      "remaining": "rimanenti",
       "stationNoImage": "Stazione senza immagine",
       "playRadio": "Riproduci radio",
       "stopRadio": "Ferma radio"

@@ -420,27 +420,6 @@ onUnmounted(() => {
   font-size: var(--font-size-small);
 }
 
-.client-name-input {
-  padding: var(--space-02) var(--space-03);
-  border: 2px solid var(--color-background-glass);
-  border-radius: var(--radius-03);
-  background: var(--color-background-neutral);
-  color: var(--color-text);
-  transition: border-color var(--transition-fast);
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-
-.client-name-input:focus {
-  outline: none;
-  border-color: var(--color-brand);
-}
-
-.client-name-input::placeholder {
-  color: var(--color-text-light);
-}
-
 .presets-buttons {
   display: flex;
   gap: var(--space-02);

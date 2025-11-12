@@ -1,23 +1,18 @@
 <!-- frontend/src/components/ui/InputText.vue -->
 <template>
-  <input
-    ref="inputRef"
-    :type="type"
-    :value="modelValue"
-    :placeholder="placeholder"
-    :disabled="disabled"
-    :maxlength="maxlength"
-    :class="inputClass"
-    @input="handleInput"
-    @focus="handleFocus"
-    @blur="handleBlur"
-  />
+  <div class="input-wrapper">
+    <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
+      :maxlength="maxlength" :class="inputClass" @input="handleInput" @focus="handleFocus"
+      @blur="handleBlur" />
+    <Icon v-if="icon" :name="icon" :size="iconSize" class="input-icon" />
+  </div>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
+import Icon from '@/components/ui/Icon.vue';
 
 const props = defineProps({
   modelValue: {
@@ -43,6 +38,14 @@ const props = defineProps({
   inputClass: {
     type: String,
     default: 'text-body'
+  },
+  icon: {
+    type: String,
+    default: ''
+  },
+  iconSize: {
+    type: Number,
+    default: 24
   }
 });
 
@@ -124,18 +127,53 @@ defineExpose({
 </script>
 
 <style scoped>
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  flex: 1;
+  padding: var(--space-03) var(--space-05);
+  border-radius: var(--radius-04);
+  background: var(--color-background-neutral);
+  gap: var(--space-01);
+  -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
+  -moz-box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
+  box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
+  transition: box-shadow var(--transition-fast);
+}
+
+.input-wrapper:focus-within {
+  -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
+  -moz-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
+  box-shadow: inset 0px 0px 0px 2px var(--color-brand);
+}
 
 input {
   width: 100%;
+  flex: 1;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  color: var(--color-text);
+  background: transparent;
   outline: none;
+  box-shadow: none;
+  min-width: 0;
 }
 
-input:focus {
-  border-color: var(--color-brand);
+input::placeholder {
+  color: var(--color-text-secondary);
 }
 
 input:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.input-icon {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  pointer-events: none;
 }
 </style>
