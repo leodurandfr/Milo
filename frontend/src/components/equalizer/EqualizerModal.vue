@@ -5,19 +5,10 @@
       <!-- Header with toggle -->
       <ModalHeader :title="$t('equalizer.title')">
         <template #actions>
-          <CircularIcon
-            v-if="isEqualizerEnabled"
-            icon="reset"
-            variant="dark"
-            :disabled="equalizerStore.isResetting"
-            @click="handleResetAllBands"
-          />
-          <Toggle
-            v-model="isEqualizerEnabled"
-            variant="primary"
-            :disabled="unifiedStore.systemState.transitioning || isEqualizerToggling"
-            @change="handleEqualizerToggle"
-          />
+          <CircularIcon v-if="isEqualizerEnabled" icon="reset" variant="dark" :disabled="equalizerStore.isResetting"
+            @click="handleResetAllBands" />
+          <Toggle v-model="isEqualizerEnabled" variant="primary"
+            :disabled="unifiedStore.systemState.transitioning || isEqualizerToggling" @change="handleEqualizerToggle" />
         </template>
       </ModalHeader>
 
@@ -35,21 +26,11 @@
           <!-- EQUALIZER: Controls -->
           <Transition name="controls">
             <div v-if="isEqualizerEnabled" key="controls" class="equalizer-controls">
-              <RangeSliderEqualizer
-                v-for="band in equalizerStore.bands"
-                :key="band.id"
-                v-model="band.value"
-                :label="band.display_name"
-                :orientation="sliderOrientation"
-                :min="0"
-                :max="100"
-                :step="1"
-                unit="%"
+              <RangeSliderEqualizer v-for="band in equalizerStore.bands" :key="band.id" v-model="band.value"
+                :label="band.display_name" :orientation="sliderOrientation" :min="0" :max="100" :step="1" unit="%"
                 :disabled="equalizerStore.isUpdating || !equalizerStore.bandsLoaded"
-                :class="{ 'slider-loading': !equalizerStore.bandsLoaded }"
-                @input="handleBandInput(band.id, $event)"
-                @change="handleBandChange(band.id, $event)"
-              />
+                :class="{ 'slider-loading': !equalizerStore.bandsLoaded }" @input="handleBandInput(band.id, $event)"
+                @change="handleBandChange(band.id, $event)" />
             </div>
           </Transition>
         </div>
@@ -289,7 +270,7 @@ onUnmounted(() => {
   overflow: visible;
   transition: background 400ms ease;
   position: relative;
-    border-radius: var(--radius-06);
+  border-radius: var(--radius-06);
 
 }
 
@@ -374,6 +355,17 @@ onUnmounted(() => {
   opacity: 0.5;
 }
 
+/* Exception pour le CircularIcon dark */
+:deep(.circular-icon.circular-icon--dark) {
+  width: 40px;
+  height: 40px;
+}
+
+:deep(.circular-icon.circular-icon--dark svg) {
+  width: 28px;
+  height: 28px;
+}
+
 @media (max-aspect-ratio: 4/3) {
   .message-content {
     min-height: 364px;
@@ -382,6 +374,17 @@ onUnmounted(() => {
   .equalizer-controls {
     flex-direction: column;
     border-radius: var(--radius-05);
+  }
+
+  /* Exception pour le CircularIcon dark */
+  :deep(.circular-icon.circular-icon--dark) {
+    width: 32px;
+    height: 32px;
+  }
+
+  :deep(.circular-icon.circular-icon--dark svg) {
+    width: 20px;
+    height: 20px;
   }
 }
 </style>
