@@ -31,8 +31,8 @@
         <StationCard v-for="station in customStations" :key="station.id" :station="station" variant="card"
           :show-country="true" image-size="medium">
           <template #actions>
-            <CircularIcon v-if="station.image_filename" icon="close" variant="neutral" @click="confirmRemoveImage(station)"
-              :title="$t('radioSettings.removeImage')" />
+            <CircularIcon v-if="station.image_filename" icon="close" variant="neutral"
+              @click="confirmRemoveImage(station)" :title="$t('radioSettings.removeImage')" />
             <CircularIcon icon="trash" variant="neutral" @click="confirmDelete(station)"
               :title="$t('radioSettings.deleteStation')" />
           </template>
@@ -66,7 +66,8 @@
         <h3 class="text-body">{{ $t('radioSettings.removeImageConfirm') }}</h3>
         <p class="text-mono">{{ stationToRemoveImage.name }}</p>
         <p class="text-mono" style="color: var(--color-text-secondary); font-size: var(--font-size-small);">
-          {{ stationToRemoveImage.id.startsWith('custom_') ? $t('radioSettings.imageWillBeDeleted') : $t('radioSettings.imageWillBeDeletedAndRestored') }}
+          {{ stationToRemoveImage.id.startsWith('custom_') ? $t('radioSettings.imageWillBeDeleted') :
+            $t('radioSettings.imageWillBeDeletedAndRestored') }}
         </p>
         <div class="confirm-actions">
           <Button variant="secondary" @click="stationToRemoveImage = null">{{ $t('radioSettings.cancel') }}</Button>
@@ -189,7 +190,7 @@ onMounted(() => {
 
 .settings-section {
   background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-06);
   padding: var(--space-05-fixed) var(--space-05);
   display: flex;
   flex-direction: column;
@@ -285,6 +286,10 @@ onMounted(() => {
 
 /* Responsive */
 @media (max-width: 600px) {
+  .settings-section {
+    border-radius: var(--radius-05);
+  }
+
   .station-item {
     flex-direction: column;
     align-items: flex-start;
@@ -293,11 +298,12 @@ onMounted(() => {
   .station-actions {
     align-self: flex-end;
   }
+
   .stations-list {
-  display: grid;
-  grid-template-columns: repeat(1, minmax(0, 1fr));
-  gap: var(--space-01);
-}
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: var(--space-01);
+  }
 
 }
 </style>

@@ -229,7 +229,7 @@ async function handleSubmit() {
 <style scoped>
 .settings-section {
   background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-06);
   padding: var(--space-05-fixed) var(--space-05);
 }
 

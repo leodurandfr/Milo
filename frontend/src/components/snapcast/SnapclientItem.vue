@@ -151,7 +151,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-06);
   gap: var(--space-04);
   padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05);
   background: var(--color-background-neutral);
@@ -322,6 +322,7 @@ onUnmounted(() => {
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-03);
+    border-radius: var(--radius-05);
   }
 
   .client-name-wrapper {

@@ -43,8 +43,8 @@
               <AppIcon name="radio" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.radio" variant="primary" size="compact" :disabled="!canDisableAudioSource('radio')"
-                @change="updateDockApps" />
+              <Toggle v-model="config.radio" variant="primary" size="compact"
+                :disabled="!canDisableAudioSource('radio')" @change="updateDockApps" />
             </template>
           </IconButton>
         </div>
@@ -145,7 +145,7 @@ onMounted(() => {
 
 .settings-section {
   background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-06);
   padding: var(--space-05-fixed) var(--space-05);
   display: flex;
   flex-direction: column;
@@ -177,6 +177,10 @@ onMounted(() => {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
+  .settings-section {
+    border-radius: var(--radius-05);
+  }
+
   .app-list {
     display: flex;
     flex-direction: column;

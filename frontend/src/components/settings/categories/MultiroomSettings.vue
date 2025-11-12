@@ -15,77 +15,82 @@
         <!-- SETTINGS: Sections visible only if multiroom is enabled -->
         <Transition name="settings">
           <div v-if="isMultiroomActive" key="settings" class="settings-container">
-        <!-- Multiroom speakers -->
-        <section class="settings-section">
-      <div class="multiroom-group">
-        <h2 class="heading-2 text-body">{{ t('multiroom.speakers') }}</h2>
+            <!-- Multiroom speakers -->
+            <section class="settings-section">
+              <div class="multiroom-group">
+                <h2 class="heading-2 text-body">{{ t('multiroom.speakers') }}</h2>
 
-        <div v-if="snapcastStore.isLoading" class="loading-state">
-          <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
-        </div>
+                <div v-if="snapcastStore.isLoading" class="loading-state">
+                  <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
+                </div>
 
-        <div v-else-if="sortedSnapcastClients.length === 0" class="no-clients-state">
-          <p class="text-mono">{{ t('multiroom.noSpeakers') }}</p>
-        </div>
+                <div v-else-if="sortedSnapcastClients.length === 0" class="no-clients-state">
+                  <p class="text-mono">{{ t('multiroom.noSpeakers') }}</p>
+                </div>
 
-        <div v-else class="clients-list" :style="clientsGridStyle">
-          <div v-for="(client, index) in sortedSnapcastClients" :key="client.id" class="client-config-item"
-            :style="getClientGridStyle(index)">
-            <div class="client-info-wrapper">
-              <span class="client-hostname text-mono">{{ client.host }}</span>
-              <InputText v-model="clientNames[client.id]" :placeholder="client.host"
-                input-class="client-name-input text-body" :maxlength="50"
-                @blur="handleInputBlur(client.id)" />
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+                <div v-else class="clients-list" :style="clientsGridStyle">
+                  <div v-for="(client, index) in sortedSnapcastClients" :key="client.id" class="client-config-item"
+                    :style="getClientGridStyle(index)">
+                    <div class="client-info-wrapper">
+                      <span class="client-hostname text-mono">{{ client.host }}</span>
+                      <InputText v-model="clientNames[client.id]" :placeholder="client.host"
+                        input-class="client-name-input text-body" :maxlength="50" @blur="handleInputBlur(client.id)" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
 
-    <!-- Audio presets -->
-    <section class="settings-section">
-      <div class="multiroom-group">
-        <h2 class="heading-2 text-body">{{ t('multiroomSettings.presets') }}</h2>
-        <div class="presets-buttons">
-          <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle" :active="isPresetActive(preset)"
-            :disabled="snapcastStore.isApplyingServerConfig" @click="applyPreset(preset)">
-            {{ preset.name }}
-          </Button>
-        </div>
-      </div>
-    </section>
+            <!-- Audio presets -->
+            <section class="settings-section">
+              <div class="multiroom-group">
+                <h2 class="heading-2 text-body">{{ t('multiroomSettings.presets') }}</h2>
+                <div class="presets-buttons">
+                  <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle"
+                    :active="isPresetActive(preset)" :disabled="snapcastStore.isApplyingServerConfig"
+                    @click="applyPreset(preset)">
+                    {{ preset.name }}
+                  </Button>
+                </div>
+              </div>
+            </section>
 
-    <!-- Advanced settings -->
-    <section class="settings-section">
-      <div class="multiroom-group">
-        <h2 class="heading-2 text-body">{{ t('multiroomSettings.advanced') }}</h2>
+            <!-- Advanced settings -->
+            <section class="settings-section">
+              <div class="multiroom-group">
+                <h2 class="heading-2 text-body">{{ t('multiroomSettings.advanced') }}</h2>
 
-        <div class="form-group">
-          <label class="text-mono">{{ t('multiroomSettings.globalBuffer') }}</label>
-          <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50" value-unit="ms" />
-        </div>
+                <div class="form-group">
+                  <label class="text-mono">{{ t('multiroomSettings.globalBuffer') }}</label>
+                  <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
+                    value-unit="ms" />
+                </div>
 
-        <div class="form-group">
-          <label class="text-mono">{{ t('multiroomSettings.chunkSize') }}</label>
-          <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5" value-unit="ms" />
-        </div>
+                <div class="form-group">
+                  <label class="text-mono">{{ t('multiroomSettings.chunkSize') }}</label>
+                  <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
+                    value-unit="ms" />
+                </div>
 
-        <div class="form-group">
-          <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
-          <div class="codec-buttons">
-            <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'opus'" @click="selectCodec('opus')">
-              Opus
-            </Button>
-            <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'flac'" @click="selectCodec('flac')">
-              FLAC
-            </Button>
-            <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'pcm'" @click="selectCodec('pcm')">
-              PCM
-            </Button>
-          </div>
-        </div>
-      </div>
-    </section>
+                <div class="form-group">
+                  <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
+                  <div class="codec-buttons">
+                    <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'opus'"
+                      @click="selectCodec('opus')">
+                      Opus
+                    </Button>
+                    <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'flac'"
+                      @click="selectCodec('flac')">
+                      FLAC
+                    </Button>
+                    <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'pcm'"
+                      @click="selectCodec('pcm')">
+                      PCM
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </section>
 
             <Button v-if="snapcastStore.hasServerConfigChanges" variant="primary" class="apply-button-sticky"
               :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
@@ -346,7 +351,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: visible;
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-07);
   transition: background 400ms ease;
   position: relative;
 }
@@ -378,7 +383,7 @@ onUnmounted(() => {
 
 .settings-section {
   background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-06);
   padding: var(--space-05-fixed) var(--space-05);
   display: flex;
   flex-direction: column;
@@ -504,6 +509,10 @@ onUnmounted(() => {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
+
+  .settings-section {
+    border-radius: var(--radius-05);
+  }
 
   .codec-buttons,
   .presets-buttons {

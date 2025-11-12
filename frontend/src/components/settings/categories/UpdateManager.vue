@@ -2,7 +2,7 @@
 <template>
   <div class="update-manager">
     <!-- Local programs (main Milo) -->
-    <section class="update-section">
+    <section class="settings-section">
       <div v-if="localProgramsLoading" class="loading-state">
         <div class="loading-message text-mono">
           {{ $t('updates.checking') }}
@@ -27,15 +27,20 @@
               <p class="program-description text-mono">{{ $t(localPrograms.milo.description) }}</p>
             </div>
 
-            <div v-if="localPrograms.milo.update_available && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')" class="version-update">
+            <div
+              v-if="localPrograms.milo.update_available && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')"
+              class="version-update">
               <span class="version-update-label text-mono">{{ $t('updates.latestVersion') }}</span>
-              <span class="version-update-value text-mono">{{ getLocalLatestVersion(localPrograms.milo) || '...' }}</span>
+              <span class="version-update-value text-mono">{{ getLocalLatestVersion(localPrograms.milo) || '...'
+                }}</span>
             </div>
 
             <div class="version-info">
               <span class="version-label text-mono">{{ $t('updates.installed') }}</span>
-              <span class="version-value text-mono" :class="{ 'version-uptodate': !localPrograms.milo.update_available, 'version-outdated': localPrograms.milo.update_available }">
-                <span v-if="getLocalInstalledVersion(localPrograms.milo)">{{ getLocalInstalledVersion(localPrograms.milo) }}</span>
+              <span class="version-value text-mono"
+                :class="{ 'version-uptodate': !localPrograms.milo.update_available, 'version-outdated': localPrograms.milo.update_available }">
+                <span v-if="getLocalInstalledVersion(localPrograms.milo)">{{
+                  getLocalInstalledVersion(localPrograms.milo) }}</span>
                 <span v-else class="text-error">{{ $t('updates.notAvailable') }}</span>
               </span>
             </div>
@@ -49,10 +54,9 @@
             <p class="progress-message text-mono">{{ getLocalUpdateMessage('milo') }}</p>
           </div>
 
-          <Button v-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')"
-            variant="primary"
-            @click="startLocalUpdate('milo')"
-            :disabled="isAnyUpdateInProgress()"
+          <Button
+            v-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')"
+            variant="primary" @click="startLocalUpdate('milo')" :disabled="isAnyUpdateInProgress()"
             class="update-button">
             {{ $t('updates.update') }}
           </Button>
@@ -75,51 +79,52 @@
         <div class="programs-container">
           <template v-for="(program, key) in localPrograms" :key="key">
             <div v-if="key !== 'milo'" class="program-item">
-          <div class="program-header">
-            <div class="program-info">
-              <h3 class="program-name text-body">{{ program.name }}</h3>
-              <p class="program-description text-mono">{{ $t(program.description) }}</p>
-            </div>
+              <div class="program-header">
+                <div class="program-info">
+                  <h3 class="program-name text-body">{{ program.name }}</h3>
+                  <p class="program-description text-mono">{{ $t(program.description) }}</p>
+                </div>
 
-            <div v-if="program.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)" class="version-update">
-              <span class="version-update-label text-mono">{{ $t('updates.latestVersion') }}</span>
-              <span class="version-update-value text-mono">{{ getLocalLatestVersion(program) || '...' }}</span>
-            </div>
+                <div v-if="program.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)"
+                  class="version-update">
+                  <span class="version-update-label text-mono">{{ $t('updates.latestVersion') }}</span>
+                  <span class="version-update-value text-mono">{{ getLocalLatestVersion(program) || '...' }}</span>
+                </div>
 
-            <div class="version-info">
-              <span class="version-label text-mono">{{ $t('updates.installed') }}</span>
-              <span class="version-value text-mono" :class="{ 'version-uptodate': !program.update_available, 'version-outdated': program.update_available }">
-                <span v-if="getLocalInstalledVersion(program)">{{ getLocalInstalledVersion(program) }}</span>
-                <span v-else class="text-error">{{ $t('updates.notAvailable') }}</span>
-              </span>
-            </div>
-          </div>
+                <div class="version-info">
+                  <span class="version-label text-mono">{{ $t('updates.installed') }}</span>
+                  <span class="version-value text-mono"
+                    :class="{ 'version-uptodate': !program.update_available, 'version-outdated': program.update_available }">
+                    <span v-if="getLocalInstalledVersion(program)">{{ getLocalInstalledVersion(program) }}</span>
+                    <span v-else class="text-error">{{ $t('updates.notAvailable') }}</span>
+                  </span>
+                </div>
+              </div>
 
-          <!-- Progress message if an update is in progress -->
-          <div v-if="isLocalUpdating(key)" class="update-progress">
-            <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: getLocalUpdateProgress(key) + '%' }"></div>
-            </div>
-            <p class="progress-message text-mono">{{ getLocalUpdateMessage(key) }}</p>
-          </div>
+              <!-- Progress message if an update is in progress -->
+              <div v-if="isLocalUpdating(key)" class="update-progress">
+                <div class="progress-bar">
+                  <div class="progress-fill" :style="{ width: getLocalUpdateProgress(key) + '%' }"></div>
+                </div>
+                <p class="progress-message text-mono">{{ getLocalUpdateMessage(key) }}</p>
+              </div>
 
-          <Button v-if="program.update_available && canUpdateLocal(key) && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)"
-            variant="primary"
-            @click="startLocalUpdate(key)"
-            :disabled="isAnyUpdateInProgress()"
-            class="update-button">
-            {{ $t('updates.update') }}
-          </Button>
+              <Button
+                v-if="program.update_available && canUpdateLocal(key) && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)"
+                variant="primary" @click="startLocalUpdate(key)" :disabled="isAnyUpdateInProgress()"
+                class="update-button">
+                {{ $t('updates.update') }}
+              </Button>
 
-          <!-- Error details if needed -->
-          <div v-if="program.installed?.errors?.length" class="program-errors">
-            <details class="error-details">
-              <summary class="text-mono">{{ $t('updates.errorDetails') }}</summary>
-              <ul class="error-list">
-                <li v-for="error in program.installed.errors" :key="error" class="text-mono">{{ error }}</li>
-              </ul>
-            </details>
-          </div>
+              <!-- Error details if needed -->
+              <div v-if="program.installed?.errors?.length" class="program-errors">
+                <details class="error-details">
+                  <summary class="text-mono">{{ $t('updates.errorDetails') }}</summary>
+                  <ul class="error-list">
+                    <li v-for="error in program.installed.errors" :key="error" class="text-mono">{{ error }}</li>
+                  </ul>
+                </details>
+              </div>
             </div>
           </template>
         </div>
@@ -127,7 +132,7 @@
     </section>
 
     <!-- Connected satellites -->
-    <section v-if="isMultiroomEnabled" class="update-section">
+    <section v-if="isMultiroomEnabled" class="settings-section">
       <h1 class="heading-2">{{ $t('updates.satellitesTitle') }}</h1>
 
       <div v-if="satellitesLoading" class="loading-state">
@@ -157,14 +162,17 @@
               <p class="program-description text-mono">{{ $t('updates.multiroomClient') }} {{ satellite.hostname }}</p>
             </div>
 
-            <div v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)" class="version-update">
+            <div
+              v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)"
+              class="version-update">
               <span class="version-update-label text-mono">{{ $t('updates.latestVersion') }}</span>
               <span class="version-update-value text-mono">{{ satellite.latest_version || '...' }}</span>
             </div>
 
             <div class="version-info">
               <span class="version-label text-mono">{{ $t('updates.installed') }}</span>
-              <span class="version-value text-mono" :class="{ 'version-uptodate': !satellite.update_available, 'version-outdated': satellite.update_available }">
+              <span class="version-value text-mono"
+                :class="{ 'version-uptodate': !satellite.update_available, 'version-outdated': satellite.update_available }">
                 <span v-if="satellite.snapclient_version">{{ satellite.snapclient_version }}</span>
                 <span v-else class="text-error">{{ $t('updates.notAvailable') }}</span>
               </span>
@@ -179,10 +187,9 @@
             <p class="progress-message text-mono">{{ getSatelliteUpdateMessage(satellite.hostname) }}</p>
           </div>
 
-          <Button v-if="satellite.update_available && satellite.online && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)"
-            variant="primary"
-            @click="startSatelliteUpdate(satellite.hostname)"
-            :disabled="isAnyUpdateInProgress()"
+          <Button
+            v-if="satellite.update_available && satellite.online && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)"
+            variant="primary" @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()"
             class="update-button">
             {{ $t('updates.update') }}
           </Button>
@@ -456,9 +463,9 @@ onMounted(async () => {
   gap: var(--space-02);
 }
 
-.update-section {
+.settings-section {
   background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-06);
   padding: var(--space-06) var(--space-05);
   display: flex;
   flex-direction: column;
@@ -629,6 +636,10 @@ onMounted(async () => {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
+  .settings-section {
+    border-radius: var(--radius-05);
+  }
+
   .program-header {
     flex-wrap: wrap;
   }

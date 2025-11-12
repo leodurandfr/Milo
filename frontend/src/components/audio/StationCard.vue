@@ -65,14 +65,14 @@
     </div>
 
     <div v-if="showControls" class="controls-wrapper">
-      <CircularIcon :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="overlay" @click="$emit('favorite')" />
+      <CircularIcon :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="background-light" @click="$emit('favorite')" />
       <!-- Desktop: Button with text -->
       <Button v-if="!isMobile" variant="background-light" :left-icon="isPlaying ? 'stop' : 'play'"
         @click="$emit('play')">
         {{ isPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio') }}
       </Button>
       <!-- Mobile: CircularIcon without text -->
-      <CircularIcon v-else :icon="isPlaying ? 'stop' : 'play'" variant="overlay" @click="$emit('play')" />
+      <CircularIcon v-else :icon="isPlaying ? 'stop' : 'play'" variant="background-light" @click="$emit('play')" />
     </div>
   </div>
 </template>

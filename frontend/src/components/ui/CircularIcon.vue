@@ -26,7 +26,7 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'light',
-    validator: (value) => ['light', 'dark', 'overlay'].includes(value)
+    validator: (value) => ['light', 'dark', 'overlay', 'primary', 'secondary', 'toggle', 'background-light'].includes(value)
   },
   disabled: {
     type: Boolean,
@@ -47,10 +47,10 @@ function handleClick() {
 
 <style scoped>
 .circular-icon {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   border: none;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-04);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -63,7 +63,7 @@ function handleClick() {
 }
 
 .circular-icon--light {
-  background: var(--color-background-strong);
+  background: var(--color-background);
 }
 
 .circular-icon--dark {
@@ -78,6 +78,41 @@ function handleClick() {
   color: var(--color-text-contrast);
 }
 
+.circular-icon--primary {
+  background: var(--color-brand);
+}
+
+.circular-icon--primary .circular-icon__icon {
+  color: var(--color-text-contrast);
+}
+
+.circular-icon--secondary {
+  background: var(--color-background-strong);
+}
+
+.circular-icon--secondary .circular-icon__icon {
+  color: var(--color-text-secondary);
+}
+
+.circular-icon--toggle {
+  background: var(--color-background-neutral);
+  -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
+  -moz-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
+  box-shadow: inset 0px 0px 0px 2px var(--color-brand);
+}
+
+.circular-icon--toggle .circular-icon__icon {
+  color: var(--color-brand);
+}
+
+.circular-icon--background-light {
+  background: var(--color-background-neutral-12);
+}
+
+.circular-icon--background-light .circular-icon__icon {
+  color: var(--color-text-contrast);
+}
+
 .circular-icon:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -85,8 +120,8 @@ function handleClick() {
 
 @media (max-aspect-ratio: 4/3) {
   .circular-icon {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
   }
 }
 </style>
