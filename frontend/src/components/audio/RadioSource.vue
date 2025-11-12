@@ -19,7 +19,7 @@
       <div v-if="isSearchMode" class="search-section">
         <div class="filters">
           <InputText v-model="radioStore.searchQuery" :placeholder="t('audioSources.radioSource.searchPlaceholder')"
-            input-class="filter-input search-input text-body-small" @update:modelValue="handleSearch" />
+            input-class="text-body-small" icon="search" :icon-size="24" @update:modelValue="handleSearch" />
           <Dropdown
             v-model="radioStore.countryFilter"
             :options="countryOptions"
@@ -97,14 +97,6 @@
             @play="playStation(station.id)" />
         </div>
 
-        <!-- "Load more" button -->
-        <div v-if="hasMoreStations" class="load-more">
-          <Button variant="toggle" :active="false" @click="loadMore">
-            {{ t('audioSources.radioSource.loadMore') }} ({{ remainingStations }} {{
-              t('audioSources.radioSource.remaining')
-            }})
-          </Button>
-        </div>
       </div>
     </div>
 
@@ -194,19 +186,6 @@ const displayedStations = computed(() => {
   }
 });
 
-const hasMoreStations = computed(() => {
-  if (isSearchMode.value) {
-    return radioStore.hasMoreStations;
-  }
-  return false; // No pagination for favorites
-});
-
-const remainingStations = computed(() => {
-  if (isSearchMode.value) {
-    return radioStore.remainingStations;
-  }
-  return 0;
-});
 
 // Country options for dropdown
 const countryOptions = computed(() => {
@@ -361,11 +340,6 @@ function closeSearch() {
   }
 }
 
-// === ACTIONS ===
-function loadMore() {
-  radioStore.loadMore();
-}
-
 // === TRANSITION ANIMATIONS ===
 async function performTransition() {
   // If the list is empty, no need for exit animation
@@ -451,9 +425,9 @@ function handleScroll() {
   const scrollPercentage = (scrollTop + clientHeight) / scrollHeight;
 
   // Load more when reaching 80% of scroll
-  if (scrollPercentage > 0.8 && hasMoreStations.value && !radioStore.loading) {
+  if (scrollPercentage > 0.8 && radioStore.hasMoreStations && !radioStore.loading) {
     console.log('📻 Scroll threshold reached, loading more...');
-    loadMore();
+    radioStore.loadMore();
   }
 }
 
@@ -775,32 +749,9 @@ onBeforeUnmount(() => {
 }
 
 .filters {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--space-01);
-  color: var(--color-text-secondary);
-}
-
-.filter-input {
-  width: 100%;
-  flex: 1;
-  padding: var(--space-03) var(--space-04);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-04);
-  color: var(--color-text-secondary);
-  background: var(--color-background-neutral);
-  transition: border-color var(--transition-fast);
-}
-
-.filter-input:focus {
-  outline: none;
-  border-color: var(--color-brand);
-}
-
-.search-input {
-  color: var(--color-text);
-}
-
-.search-input::placeholder {
   color: var(--color-text-secondary);
 }
 
@@ -862,13 +813,6 @@ onBeforeUnmount(() => {
   gap: var(--space-03);
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
-
-
-.load-more {
-  padding-bottom: var(--space-06);
-  text-align: center;
-}
-
 
 /* === TRANSITION ANIMATIONS === */
 @keyframes fadeOutUp {
@@ -956,7 +900,7 @@ onBeforeUnmount(() => {
   }
 
   .filters {
-    flex-direction: column;
+        grid-template-columns: repeat(1, 1fr);
   }
 }
 </style>

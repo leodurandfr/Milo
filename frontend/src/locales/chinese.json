@@ -18,7 +18,7 @@
     "radioSource": {
       "favoritesTitle": "喜爱的广播",
       "discoverTitle": "发现广播",
-      "searchPlaceholder": "搜索...",
+      "searchPlaceholder": "搜索",
       "allCountries": "所有国家",
       "loadingCountries": "正在加载国家...",
       "allGenres": "所有类型",
@@ -28,8 +28,6 @@
       "retry": "重试",
       "noStationsFound": "未找到电台",
       "noFavorites": "没有喜爱的广播",
-      "loadMore": "加载更多",
-      "remaining": "剩余",
       "stationNoImage": "无图片的电台",
       "playRadio": "播放电台",
       "stopRadio": "停止电台"

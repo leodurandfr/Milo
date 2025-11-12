@@ -1,25 +1,16 @@
 <!-- frontend/src/components/ui/Dropdown.vue -->
 <template>
   <div ref="dropdownRef" class="dropdown">
-    <button
-      type="button"
-      class="dropdown-trigger text-body-small"
-      :class="{ 'is-open': isOpen }"
-      @click="toggleDropdown"
-    >
+    <button type="button" class="dropdown-trigger text-body-small" :class="{ 'is-open': isOpen }"
+      @click="toggleDropdown">
       <span class="dropdown-label">{{ selectedLabel }}</span>
       <Icon name="caretDown" :size="24" class="dropdown-icon" />
     </button>
 
     <Transition name="dropdown-menu">
       <div v-if="isOpen" class="dropdown-menu">
-        <div
-          v-for="(option, index) in options"
-          :key="option.value"
-          class="dropdown-item text-body-small"
-          :class="{ 'is-selected': option.value === modelValue }"
-          @click="selectOption(option.value)"
-        >
+        <div v-for="(option, index) in options" :key="option.value" class="dropdown-item text-body-small"
+          :class="{ 'is-selected': option.value === modelValue }" @click="selectOption(option.value)">
           {{ option.label }}
         </div>
       </div>
@@ -95,19 +86,24 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: var(--space-03) var(--space-04);
-  border: 1px solid var(--color-border);
+  padding: var(--space-03) var(--space-05);
   border-radius: var(--radius-04);
   color: var(--color-text-secondary);
   background: var(--color-background-neutral);
-  transition: border-color var(--transition-fast);
   cursor: pointer;
   outline: none;
-  gap: var(--space-02);
+  gap: var(--space-01);
+  transition: box-shadow var(--transition-fast);
+
+  -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
+  -moz-box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
+  box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
 }
 
 .dropdown-trigger:focus {
   border-color: var(--color-brand);
+  box-shadow: inset 0 0 0 2px var(--color-brand);
+
 }
 
 .dropdown-label {
@@ -116,6 +112,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .dropdown-icon {
@@ -126,6 +123,7 @@ onBeforeUnmount(() => {
 
 .dropdown-trigger.is-open .dropdown-icon {
   transform: rotate(180deg);
+
 }
 
 .dropdown-menu {
@@ -138,7 +136,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-04);
   box-shadow: var(--shadow-02);
-  max-height: 300px;
+  max-height: 340px;
   overflow-y: auto;
 }
 
@@ -168,7 +166,6 @@ onBeforeUnmount(() => {
 
 .dropdown-item.is-selected {
   color: var(--color-brand);
-  background: var(--color-background-strong);
 }
 
 /* Transition animations */
@@ -188,20 +185,5 @@ onBeforeUnmount(() => {
 .dropdown-menu-leave-to {
   opacity: 0;
   transform: translateY(-8px);
-}
-
-/* Scrollbar styling */
-.dropdown-menu::-webkit-scrollbar {
-  width: 4px;
-}
-
-.dropdown-menu::-webkit-scrollbar-track {
-  background: transparent;
-
-}
-
-.dropdown-menu::-webkit-scrollbar-thumb {
-  background: #000;
-  border-radius: var(--radius-full);
 }
 </style>
