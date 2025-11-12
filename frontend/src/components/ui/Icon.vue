@@ -30,6 +30,7 @@ import searchIcon from '@/assets/icons/search.svg?raw';
 import stopIcon from '@/assets/icons/stop.svg?raw';
 import heartIcon from '@/assets/icons/heart.svg?raw';
 import heartOffIcon from '@/assets/icons/heart-off.svg?raw';
+import caretDownIcon from '@/assets/icons/caret-down.svg?raw';
 
 
 const icons = {
@@ -47,6 +48,7 @@ const icons = {
   close: closeIcon,
   caretLeft : caretLeftIcon,
   caretRight : caretRightIcon,
+  caretDown : caretDownIcon,
   multiroom : multiroomIcon,
   equalizer : equalizerIcon,
   radio : radioIcon,

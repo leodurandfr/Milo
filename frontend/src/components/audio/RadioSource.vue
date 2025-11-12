@@ -20,122 +20,17 @@
         <div class="filters">
           <InputText v-model="radioStore.searchQuery" :placeholder="t('audioSources.radioSource.searchPlaceholder')"
             input-class="filter-input search-input text-body-small" @update:modelValue="handleSearch" />
-          <select v-model="radioStore.countryFilter" class="filter-input filter-select text-body-small"
-            @change="handleSearch">
-            <option value="">{{ t('audioSources.radioSource.allCountries') }}</option>
-            <option v-if="availableCountries.length === 0" disabled>{{ t('audioSources.radioSource.loadingCountries')
-              }}
-            </option>
-            <option v-for="country in availableCountries" :key="country.name" :value="country.name">
-              {{ country.name }}
-            </option>
-          </select>
+          <Dropdown
+            v-model="radioStore.countryFilter"
+            :options="countryOptions"
+            @change="handleSearch"
+          />
 
-          <select v-model="radioStore.genreFilter" class="filter-input filter-select text-body-small"
-            @change="handleSearch">
-            <option value="">{{ t('audioSources.radioSource.allGenres') }}</option>
-            <option value="pop">Pop</option>
-            <option value="rock">Rock</option>
-            <option value="news">News</option>
-            <option value="classical">Classical</option>
-            <option value="talk">Talk</option>
-            <option value="dance">Dance</option>
-            <option value="oldies">Oldies</option>
-            <option value="80s">80s</option>
-            <option value="jazz">Jazz</option>
-            <option value="90s">90s</option>
-            <option value="electronic">Electronic</option>
-            <option value="classic rock">Classic Rock</option>
-            <option value="country">Country</option>
-            <option value="pop rock">Pop Rock</option>
-            <option value="house">House</option>
-            <option value="alternative">Alternative</option>
-            <option value="metal">Metal</option>
-            <option value="soul">Soul</option>
-            <option value="indie">Indie</option>
-            <option value="chillout">Chillout</option>
-            <option value="techno">Techno</option>
-            <option value="folk">Folk</option>
-            <option value="disco">Disco</option>
-            <option value="ambient">Ambient</option>
-            <option value="blues">Blues</option>
-            <option value="alternative rock">Alternative Rock</option>
-            <option value="rap">Rap</option>
-            <option value="hiphop">HipHop</option>
-            <option value="lounge">Lounge</option>
-            <option value="trance">Trance</option>
-            <option value="latin pop">Latin Pop</option>
-            <option value="60s">60s</option>
-            <option value="edm">EDM</option>
-            <option value="smooth jazz">Smooth Jazz</option>
-            <option value="reggaeton">Reggaeton</option>
-            <option value="tropical">Tropical</option>
-            <option value="hard rock">Hard Rock</option>
-            <option value="reggae">Reggae</option>
-            <option value="rnb">RnB</option>
-            <option value="hip-hop">Hip-Hop</option>
-            <option value="deep house">Deep House</option>
-            <option value="schlager">Schlager</option>
-            <option value="70s">70s</option>
-            <option value="punk">Punk</option>
-            <option value="urban">Urban</option>
-            <option value="latin">Latin</option>
-            <option value="latin music">Latin Music</option>
-            <option value="r&b">R&B</option>
-            <option value="eurodance">Eurodance</option>
-            <option value="2010s">2010s</option>
-            <option value="1990s">1990s</option>
-            <option value="merengue">Merengue</option>
-            <option value="new wave">New Wave</option>
-            <option value="pop dance">Pop Dance</option>
-            <option value="classic jazz">Classic Jazz</option>
-            <option value="funk">Funk</option>
-            <option value="grunge">Grunge</option>
-            <option value="minimal">Minimal</option>
-            <option value="ska">Ska</option>
-            <option value="italo disco">Italo Disco</option>
-            <option value="singer-songwriter">Singer-Songwriter</option>
-            <option value="opera">Opera</option>
-            <option value="americana">Americana</option>
-            <option value="darkwave">Darkwave</option>
-            <option value="afrobeats">Afrobeats</option>
-            <option value="bossa nova">Bossa Nova</option>
-            <option value="celtic">Celtic</option>
-            <option value="lo-fi">Lo-Fi</option>
-            <option value="nu disco">Nu Disco</option>
-            <option value="acoustic">Acoustic</option>
-            <option value="folk rock">Folk Rock</option>
-            <option value="progressive rock">Progressive Rock</option>
-            <option value="art rock">Art Rock</option>
-            <option value="psychedelic rock">Psychedelic Rock</option>
-            <option value="britpop">Britpop</option>
-            <option value="drum and bass">Drum And Bass</option>
-            <option value="dubstep">Dubstep</option>
-            <option value="trap">Trap</option>
-            <option value="tech house">Tech House</option>
-            <option value="jazz fusion">Jazz Fusion</option>
-            <option value="downtempo">Downtempo</option>
-            <option value="chill">Chill</option>
-            <option value="new age">New Age</option>
-            <option value="world music">World Music</option>
-            <option value="garage">Garage</option>
-            <option value="progressive house">Progressive House</option>
-            <option value="trip-hop">Trip-Hop</option>
-            <option value="minimal techno">Minimal Techno</option>
-            <option value="psychedelic">Psychedelic</option>
-            <option value="power metal">Power Metal</option>
-            <option value="thrash metal">Thrash Metal</option>
-            <option value="death metal">Death Metal</option>
-            <option value="hardcore">Hardcore</option>
-            <option value="stoner rock">Stoner Rock</option>
-            <option value="synthwave">Synthwave</option>
-            <option value="smooth lounge">Smooth Lounge</option>
-            <option value="dancehall">Dancehall</option>
-            <option value="dub">Dub</option>
-            <option value="roots">Roots</option>
-            <option value="salsa">Salsa</option>
-            <option value="bachata">Bachata</option>
-          </select>
+          <Dropdown
+            v-model="radioStore.genreFilter"
+            :options="genreOptions"
+            @change="handleSearch"
+          />
         </div>
       </div>
 
@@ -202,6 +97,14 @@
             @play="playStation(station.id)" />
         </div>
 
+        <!-- "Load more" button -->
+        <div v-if="hasMoreStations" class="load-more">
+          <Button variant="toggle" :active="false" @click="loadMore">
+            {{ t('audioSources.radioSource.loadMore') }} ({{ remainingStations }} {{
+              t('audioSources.radioSource.remaining')
+            }})
+          </Button>
+        </div>
       </div>
     </div>
 
@@ -232,6 +135,7 @@ import CircularIcon from '@/components/ui/CircularIcon.vue';
 import AddStationModal from '@/components/settings/categories/AddStationModal.vue';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
+import Dropdown from '@/components/ui/Dropdown.vue';
 import StationCard from '@/components/audio/StationCard.vue';
 import Icon from '@/components/ui/Icon.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
@@ -297,6 +201,136 @@ const hasMoreStations = computed(() => {
   return false; // No pagination for favorites
 });
 
+const remainingStations = computed(() => {
+  if (isSearchMode.value) {
+    return radioStore.remainingStations;
+  }
+  return 0;
+});
+
+// Country options for dropdown
+const countryOptions = computed(() => {
+  const options = [{ label: t('audioSources.radioSource.allCountries'), value: '' }];
+
+  if (availableCountries.value.length === 0) {
+    options.push({ label: t('audioSources.radioSource.loadingCountries'), value: '', disabled: true });
+  }
+
+  availableCountries.value.forEach(country => {
+    options.push({ label: country.name, value: country.name });
+  });
+
+  return options;
+});
+
+// Genre options for dropdown
+const genreOptions = computed(() => {
+  return [
+    { label: t('audioSources.radioSource.allGenres'), value: '' },
+    { label: 'Pop', value: 'pop' },
+    { label: 'Rock', value: 'rock' },
+    { label: 'News', value: 'news' },
+    { label: 'Classical', value: 'classical' },
+    { label: 'Talk', value: 'talk' },
+    { label: 'Dance', value: 'dance' },
+    { label: 'Oldies', value: 'oldies' },
+    { label: '80s', value: '80s' },
+    { label: 'Jazz', value: 'jazz' },
+    { label: '90s', value: '90s' },
+    { label: 'Electronic', value: 'electronic' },
+    { label: 'Classic Rock', value: 'classic rock' },
+    { label: 'Country', value: 'country' },
+    { label: 'Pop Rock', value: 'pop rock' },
+    { label: 'House', value: 'house' },
+    { label: 'Alternative', value: 'alternative' },
+    { label: 'Metal', value: 'metal' },
+    { label: 'Soul', value: 'soul' },
+    { label: 'Indie', value: 'indie' },
+    { label: 'Chillout', value: 'chillout' },
+    { label: 'Techno', value: 'techno' },
+    { label: 'Folk', value: 'folk' },
+    { label: 'Disco', value: 'disco' },
+    { label: 'Ambient', value: 'ambient' },
+    { label: 'Blues', value: 'blues' },
+    { label: 'Alternative Rock', value: 'alternative rock' },
+    { label: 'Rap', value: 'rap' },
+    { label: 'HipHop', value: 'hiphop' },
+    { label: 'Lounge', value: 'lounge' },
+    { label: 'Trance', value: 'trance' },
+    { label: 'Latin Pop', value: 'latin pop' },
+    { label: '60s', value: '60s' },
+    { label: 'EDM', value: 'edm' },
+    { label: 'Smooth Jazz', value: 'smooth jazz' },
+    { label: 'Reggaeton', value: 'reggaeton' },
+    { label: 'Tropical', value: 'tropical' },
+    { label: 'Hard Rock', value: 'hard rock' },
+    { label: 'Reggae', value: 'reggae' },
+    { label: 'RnB', value: 'rnb' },
+    { label: 'Hip-Hop', value: 'hip-hop' },
+    { label: 'Deep House', value: 'deep house' },
+    { label: 'Schlager', value: 'schlager' },
+    { label: '70s', value: '70s' },
+    { label: 'Punk', value: 'punk' },
+    { label: 'Urban', value: 'urban' },
+    { label: 'Latin', value: 'latin' },
+    { label: 'Latin Music', value: 'latin music' },
+    { label: 'R&B', value: 'r&b' },
+    { label: 'Eurodance', value: 'eurodance' },
+    { label: '2010s', value: '2010s' },
+    { label: '1990s', value: '1990s' },
+    { label: 'Merengue', value: 'merengue' },
+    { label: 'New Wave', value: 'new wave' },
+    { label: 'Pop Dance', value: 'pop dance' },
+    { label: 'Classic Jazz', value: 'classic jazz' },
+    { label: 'Funk', value: 'funk' },
+    { label: 'Grunge', value: 'grunge' },
+    { label: 'Minimal', value: 'minimal' },
+    { label: 'Ska', value: 'ska' },
+    { label: 'Italo Disco', value: 'italo disco' },
+    { label: 'Singer-Songwriter', value: 'singer-songwriter' },
+    { label: 'Opera', value: 'opera' },
+    { label: 'Americana', value: 'americana' },
+    { label: 'Darkwave', value: 'darkwave' },
+    { label: 'Afrobeats', value: 'afrobeats' },
+    { label: 'Bossa Nova', value: 'bossa nova' },
+    { label: 'Celtic', value: 'celtic' },
+    { label: 'Lo-Fi', value: 'lo-fi' },
+    { label: 'Nu Disco', value: 'nu disco' },
+    { label: 'Acoustic', value: 'acoustic' },
+    { label: 'Folk Rock', value: 'folk rock' },
+    { label: 'Progressive Rock', value: 'progressive rock' },
+    { label: 'Art Rock', value: 'art rock' },
+    { label: 'Psychedelic Rock', value: 'psychedelic rock' },
+    { label: 'Britpop', value: 'britpop' },
+    { label: 'Drum And Bass', value: 'drum and bass' },
+    { label: 'Dubstep', value: 'dubstep' },
+    { label: 'Trap', value: 'trap' },
+    { label: 'Tech House', value: 'tech house' },
+    { label: 'Jazz Fusion', value: 'jazz fusion' },
+    { label: 'Downtempo', value: 'downtempo' },
+    { label: 'Chill', value: 'chill' },
+    { label: 'New Age', value: 'new age' },
+    { label: 'World Music', value: 'world music' },
+    { label: 'Garage', value: 'garage' },
+    { label: 'Progressive House', value: 'progressive house' },
+    { label: 'Trip-Hop', value: 'trip-hop' },
+    { label: 'Minimal Techno', value: 'minimal techno' },
+    { label: 'Psychedelic', value: 'psychedelic' },
+    { label: 'Power Metal', value: 'power metal' },
+    { label: 'Thrash Metal', value: 'thrash metal' },
+    { label: 'Death Metal', value: 'death metal' },
+    { label: 'Hardcore', value: 'hardcore' },
+    { label: 'Stoner Rock', value: 'stoner rock' },
+    { label: 'Synthwave', value: 'synthwave' },
+    { label: 'Smooth Lounge', value: 'smooth lounge' },
+    { label: 'Dancehall', value: 'dancehall' },
+    { label: 'Dub', value: 'dub' },
+    { label: 'Roots', value: 'roots' },
+    { label: 'Salsa', value: 'salsa' },
+    { label: 'Bachata', value: 'bachata' }
+  ];
+});
+
 // === NAVIGATION ===
 async function openSearch() {
   console.log('🔍 Opening search mode. Available countries:', availableCountries.value.length);
@@ -325,6 +359,11 @@ function closeSearch() {
   if (radioStore.favoriteStations.length === 0) {
     radioStore.loadStations(true);
   }
+}
+
+// === ACTIONS ===
+function loadMore() {
+  radioStore.loadMore();
 }
 
 // === TRANSITION ANIMATIONS ===
@@ -414,7 +453,7 @@ function handleScroll() {
   // Load more when reaching 80% of scroll
   if (scrollPercentage > 0.8 && hasMoreStations.value && !radioStore.loading) {
     console.log('📻 Scroll threshold reached, loading more...');
-    radioStore.loadMore();
+    loadMore();
   }
 }
 
@@ -472,8 +511,9 @@ function handlePointerDown(event) {
   const isSlider = event.target.closest('input[type="range"]');
   const isButton = event.target.closest('button');
   const isInput = event.target.closest('input, select, textarea');
+  const isDropdown = event.target.closest('.dropdown');
 
-  if (isSlider || isButton || isInput) {
+  if (isSlider || isButton || isInput || isDropdown) {
     return;
   }
 
