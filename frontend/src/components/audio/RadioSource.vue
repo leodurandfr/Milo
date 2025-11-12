@@ -142,7 +142,10 @@
       <!-- List of stations -->
       <div class="stations-list">
         <!-- Loading state -->
-        <div v-if="transitionState === 'loading' || radioStore.loading" class="message-wrapper">
+        <div v-if="transitionState === 'loading' || radioStore.loading" class="message-wrapper" :class="{
+          'message-fading-in': messageState === 'fading-in',
+          'message-fading-out': messageState === 'fading-out'
+        }">
           <div class="message-content">
             <Icon name="radio" :size="96" color="var(--color-background-glass)" />
             <p class="text-mono">{{ t('audioSources.radioSource.loadingStations') }}</p>
@@ -150,7 +153,10 @@
         </div>
 
         <!-- Error state -->
-        <div v-else-if="radioStore.hasError && displayedStations.length === 0" class="message-wrapper">
+        <div v-else-if="radioStore.hasError && displayedStations.length === 0" class="message-wrapper" :class="{
+          'message-fading-in': messageState === 'fading-in',
+          'message-fading-out': messageState === 'fading-out'
+        }">
           <div class="message-content">
             <Icon name="stop" :size="96" color="var(--color-background-glass)" />
             <p class="text-mono">{{ t('audioSources.radioSource.connectionError') }}</p>
@@ -164,7 +170,10 @@
         </div>
 
         <!-- Empty state -->
-        <div v-else-if="displayedStations.length === 0" class="message-wrapper">
+        <div v-else-if="displayedStations.length === 0" class="message-wrapper" :class="{
+          'message-fading-in': messageState === 'fading-in',
+          'message-fading-out': messageState === 'fading-out'
+        }">
           <div class="message-content">
             <Icon name="radio" :size="96" color="var(--color-background-glass)" />
             <p class="text-mono">{{ isSearchMode ? t('audioSources.radioSource.noStationsFound') :
@@ -193,14 +202,6 @@
             @play="playStation(station.id)" />
         </div>
 
-        <!-- "Load more" button -->
-        <div v-if="hasMoreStations" class="load-more">
-          <Button variant="toggle" :active="false" @click="loadMore">
-            {{ t('audioSources.radioSource.loadMore') }} ({{ remainingStations }} {{
-              t('audioSources.radioSource.remaining')
-            }})
-          </Button>
-        </div>
       </div>
     </div>
 
@@ -244,6 +245,7 @@ const isSearchMode = ref(false);
 const searchDebounceTimer = ref(null);
 const availableCountries = ref([]); // Dynamic list of available countries
 const transitionState = ref('idle'); // States: 'idle', 'fading-out', 'loading', 'fading-in'
+const messageState = ref('idle'); // States: 'idle', 'fading-in', 'fading-out'
 const isFirstAppearance = ref(true); // Track if this is the first time now-playing appears
 const isInitialAnimating = ref(true); // Track if initial spring animation is running
 
@@ -295,13 +297,6 @@ const hasMoreStations = computed(() => {
   return false; // No pagination for favorites
 });
 
-const remainingStations = computed(() => {
-  if (isSearchMode.value) {
-    return radioStore.remainingStations;
-  }
-  return 0;
-});
-
 // === NAVIGATION ===
 async function openSearch() {
   console.log('🔍 Opening search mode. Available countries:', availableCountries.value.length);
@@ -332,39 +327,63 @@ function closeSearch() {
   }
 }
 
-// === ACTIONS ===
-function loadMore() {
-  radioStore.loadMore();
-}
-
 // === TRANSITION ANIMATIONS ===
 async function performTransition() {
   // If the list is empty, no need for exit animation
   if (displayedStations.value.length === 0) {
+    // 1. Fade in loading message
     transitionState.value = 'loading';
+    messageState.value = 'fading-in';
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // 2. Show loading message (keep it visible)
+    messageState.value = 'idle';
+
+    // 3. Load new stations
     await radioStore.loadStations(false);
+
+    // 4. Fade out loading message
+    messageState.value = 'fading-out';
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // 5. Fade in results or empty message
+    messageState.value = 'fading-in';
     transitionState.value = 'fading-in';
     await new Promise(resolve => setTimeout(resolve, 400));
+
+    // 6. Return to idle
+    messageState.value = 'idle';
     transitionState.value = 'idle';
     return;
   }
 
   // Complete animation sequence
-  // 1. Fade out to top (300ms)
+  // 1. Fade out stations to top (300ms)
   transitionState.value = 'fading-out';
   await new Promise(resolve => setTimeout(resolve, 300));
 
-  // 2. Display loading message
+  // 2. Fade in loading message
   transitionState.value = 'loading';
+  messageState.value = 'fading-in';
+  await new Promise(resolve => setTimeout(resolve, 300));
 
-  // 3. Load new stations
+  // 3. Show loading message (keep it visible)
+  messageState.value = 'idle';
+
+  // 4. Load new stations
   await radioStore.loadStations(false);
 
-  // 4. Fade in from bottom (400ms)
+  // 5. Fade out loading message
+  messageState.value = 'fading-out';
+  await new Promise(resolve => setTimeout(resolve, 300));
+
+  // 6. Fade in results or empty message
+  messageState.value = 'fading-in';
   transitionState.value = 'fading-in';
   await new Promise(resolve => setTimeout(resolve, 400));
 
-  // 5. Return to normal state
+  // 7. Return to normal state
+  messageState.value = 'idle';
   transitionState.value = 'idle';
 }
 
@@ -395,7 +414,7 @@ function handleScroll() {
   // Load more when reaching 80% of scroll
   if (scrollPercentage > 0.8 && hasMoreStations.value && !radioStore.loading) {
     console.log('📻 Scroll threshold reached, loading more...');
-    loadMore();
+    radioStore.loadMore();
   }
 }
 
@@ -842,6 +861,37 @@ onBeforeUnmount(() => {
 
 .stations-grid.transition-fading-in {
   animation: fadeInUp 400ms ease-out forwards;
+}
+
+/* === MESSAGE ANIMATIONS === */
+@keyframes messageFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes messageFadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+}
+
+.message-wrapper.message-fading-in {
+  animation: messageFadeIn 300ms ease-out forwards;
+}
+
+.message-wrapper.message-fading-out {
+  animation: messageFadeOut 300ms ease-out forwards;
 }
 
 
