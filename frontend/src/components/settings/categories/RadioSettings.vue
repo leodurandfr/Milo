@@ -1,7 +1,17 @@
 <template>
   <div class="radio-settings-container">
     <section class="settings-section">
-      <!-- Section 1: Modified Stations (from RadioBrowserAPI favorites) -->
+      <!-- Section 1: Unmodified Favorites -->
+      <template v-if="unmodifiedFavorites.length > 0">
+        <h2 class="heading-2 text-body">{{ $t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
+
+        <div class="stations-list">
+          <StationCard v-for="station in unmodifiedFavorites" :key="station.id" :station="station" variant="card"
+            :show-country="true" image-size="medium" @click="$emit('edit-station', station)" />
+        </div>
+      </template>
+
+      <!-- Section 2: Modified Stations (from RadioBrowserAPI favorites) -->
       <h2 class="heading-2 text-body">{{ $t('radioSettings.modifiedStationsTitle') }}</h2>
 
       <div v-if="modifiedStations.length > 0" class="stations-list">
@@ -19,7 +29,7 @@
       </div>
 
 
-      <!-- Section 2: Added Stations (manually created) -->
+      <!-- Section 3: Added Stations (manually created) -->
       <h2 class="heading-2 text-body">{{ $t('radioSettings.addedStationsTitle') }}</h2>
 
       <div v-if="addedStations.length > 0" class="stations-list">
@@ -37,9 +47,6 @@
       </div>
 
 
-      <Button variant="primary" @click="$emit('go-to-edit-station')">
-        {{ $t('radioSettings.editStation') }}
-      </Button>
       <Button variant="primary" @click="$emit('go-to-add-station')">
         {{ $t('radioSettings.addStation') }}
       </Button>
@@ -82,7 +89,7 @@ import Button from '@/components/ui/Button.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 import StationCard from '@/components/audio/StationCard.vue';
 
-defineEmits(['go-to-add-station', 'go-to-edit-station', 'edit-station']);
+defineEmits(['go-to-add-station', 'edit-station']);
 
 const radioStore = useRadioStore();
 const stationToDelete = ref(null);
@@ -90,7 +97,13 @@ const stationToRestore = ref(null);
 
 // Local lists loaded from the API
 const customStationsDict = ref({}); // Dict of station_id → custom metadata
+const allFavorites = ref([]); // All favorites from API
 const updateCounter = ref(0); // Force re-render counter
+
+// Unmodified favorites: favorites that are NOT in customStationsDict
+const unmodifiedFavorites = computed(() => {
+  return allFavorites.value.filter(station => !customStationsDict.value[station.id]);
+});
 
 // Modified stations: RadioBrowser favorites that have been modified
 // These are entries in customStationsDict with RadioBrowser UUID keys (not starting with "custom_")
@@ -121,8 +134,25 @@ async function loadCustomStations() {
   }
 }
 
+async function loadAllFavorites() {
+  // Load all favorites (including unmodified ones)
+  try {
+    const response = await axios.get('/api/radio/stations', {
+      params: { favorites_only: true, limit: 10000 }
+    });
+    allFavorites.value = response.data.stations || [];
+  } catch (error) {
+    console.error('Erreur chargement favoris:', error);
+    allFavorites.value = [];
+  }
+}
+
+async function loadAllData() {
+  await Promise.all([loadCustomStations(), loadAllFavorites()]);
+}
+
 // Expose loadCustomStations so SettingsModal can reload data
-defineExpose({ loadCustomStations });
+defineExpose({ loadCustomStations: loadAllData });
 
 function confirmDeleteStation(station) {
   stationToDelete.value = station;
@@ -135,7 +165,7 @@ async function deleteStation() {
 
   if (success) {
     console.log('✅ Station supprimée');
-    await loadCustomStations();
+    await loadAllData();
   } else {
     console.error('❌ Échec suppression station');
   }
@@ -162,9 +192,8 @@ async function restoreStation() {
       // Wait a bit for backend to save, then reload
       await new Promise(resolve => setTimeout(resolve, 200));
 
-      // Force reload by clearing and reloading
-      customStationsDict.value = {};
-      await loadCustomStations();
+      // Force reload all data
+      await loadAllData();
 
       // Force re-render by incrementing counter
       updateCounter.value++;
@@ -179,7 +208,7 @@ async function restoreStation() {
 }
 
 onMounted(() => {
-  loadCustomStations();
+  loadAllData();
 });
 </script>
 

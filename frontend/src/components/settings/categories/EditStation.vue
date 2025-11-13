@@ -1,107 +1,77 @@
 <template>
   <section class="settings-section">
-    <form @submit.prevent="handleSubmit" class="edit-station-form">
-        <!-- Station selection (search) -->
+    <form @submit.prevent="handleSubmit" class="station-form">
+        <!-- Image Upload Section -->
         <div class="form-group">
-          <label class="text-mono">Chercher une station à éditer</label>
-          <input v-model="stationName" type="text" class="form-input text-body-small"
-            placeholder="Tapez pour filtrer..." @input="searchStation" @focus="showSuggestions = true" />
-
-          <p v-if="selectedStation" class="search-info success text-mono">✅ Station sélectionnée : {{ selectedStation.name }}</p>
-          <p v-else-if="allStations.length === 0" class="search-info error text-mono">⚠️ Aucune station trouvée</p>
-
-          <!-- Station suggestions -->
-          <div v-if="matchingStations.length > 0 && showSuggestions" class="suggestions-list">
-            <p class="suggestions-label text-mono">Stations ({{ matchingStations.length }}) :</p>
-            <button
-              v-for="station in matchingStations"
-              :key="station.id"
-              type="button"
-              class="suggestion-item"
-              :class="{ 'selected': selectedStation?.id === station.id }"
-              @click="selectSuggestion(station)"
-            >
-              <img v-if="station.favicon" :src="station.favicon" alt="" class="suggestion-img" />
-              <div v-else class="suggestion-placeholder">📻</div>
-              <div class="suggestion-details">
-                <span class="suggestion-name text-body-small">{{ station.name }}</span>
-                <span class="suggestion-type text-mono">{{ station.id.startsWith('custom_') ? 'Station ajoutée' : 'Station favorite' }}</span>
+          <label class="text-mono">Image de la station (optionnel)</label>
+          <div class="image-upload-container">
+            <!-- Preview -->
+            <div class="image-preview" :class="{ 'has-image': currentImageUrl || imagePreview || selectedFile }">
+              <img v-if="imagePreview" :src="imagePreview" alt="Aperçu" class="preview-img" />
+              <img v-else-if="currentImageUrl" :src="currentImageUrl" alt="Image actuelle" class="preview-img" />
+              <div v-else class="preview-placeholder">
+                <img :src="placeholderImg" alt="Station sans image" class="placeholder-icon" />
+                <p class="text-mono">Cliquez pour choisir</p>
               </div>
+
+              <!-- Remove button if image selected -->
+              <button v-if="selectedFile || currentImageUrl" type="button" class="remove-image-btn" @click="removeImage">
+                ✕
+              </button>
+            </div>
+
+            <!-- Hidden file input -->
+            <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+              @change="handleFileSelect" class="file-input" />
+
+            <!-- Click zone -->
+            <button type="button" class="upload-btn" @click="$refs.fileInput.click()">
+              {{ selectedFile || currentImageUrl ? 'Changer l\'image' : 'Choisir une image' }}
             </button>
+
+            <p class="file-info text-mono">JPG, PNG, WEBP, GIF - Max 5MB</p>
           </div>
         </div>
 
-        <!-- Edit form (appears once a station is selected) -->
-        <template v-if="selectedStation">
-          <!-- Image Upload Section -->
+        <!-- Station Details -->
+        <div class="form-group">
+          <label class="text-mono">Nom de la station *</label>
+          <input v-model="formData.name" type="text" required class="form-input text-body-small"
+            placeholder="Ex: RTL" />
+        </div>
+
+        <div class="form-group">
+          <label class="text-mono">URL du flux audio *</label>
+          <input v-model="formData.url" type="url" required class="form-input text-body-small"
+            placeholder="Ex: http://streaming.radio.fr/stream" />
+        </div>
+
+        <div class="form-row">
           <div class="form-group">
-            <label class="text-mono">Image de la station</label>
-            <div class="image-upload-container">
-              <!-- Preview -->
-              <div class="image-preview" :class="{ 'has-image': imagePreview || selectedFile || formData.currentImage }">
-                <img v-if="imagePreview" :src="imagePreview" alt="Aperçu" class="preview-img" />
-                <img v-else-if="formData.currentImage" :src="formData.currentImage" alt="Image actuelle" class="preview-img" />
-                <div v-else class="preview-placeholder">
-                  <img :src="placeholderImg" alt="Station sans image" class="placeholder-icon" />
-                  <p class="text-mono">Cliquez pour choisir</p>
-                </div>
-
-                <!-- Remove button if new image selected or current image exists -->
-                <button v-if="selectedFile || formData.currentImage" type="button" class="remove-image-btn" @click="removeImage">
-                  ✕
-                </button>
-              </div>
-
-              <!-- Hidden file input -->
-              <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif"
-                @change="handleFileSelect" class="file-input" />
-
-              <!-- Click zone -->
-              <button type="button" class="upload-btn" @click="$refs.fileInput.click()">
-                {{ selectedFile ? 'Changer l\'image' : (formData.currentImage ? 'Modifier l\'image' : 'Choisir une image') }}
-              </button>
-
-              <p class="file-info text-mono">JPG, PNG, WEBP, GIF - Max 10MB</p>
-            </div>
-          </div>
-
-          <!-- Station Details -->
-          <div class="form-group">
-            <label class="text-mono">Nom de la station *</label>
-            <input v-model="formData.name" type="text" required class="form-input text-body-small"
-              placeholder="Ex: RTL" />
+            <label class="text-mono">Pays</label>
+            <select v-model="formData.country" class="form-input text-body-small">
+              <option value="France">France</option>
+              <option value="United Kingdom">Royaume-Uni</option>
+              <option value="United States">États-Unis</option>
+              <option value="Germany">Allemagne</option>
+              <option value="Spain">Espagne</option>
+              <option value="Italy">Italie</option>
+            </select>
           </div>
 
           <div class="form-group">
-            <label class="text-mono">URL du flux audio *</label>
-            <input v-model="formData.url" type="url" required class="form-input text-body-small"
-              placeholder="Ex: http://streaming.radio.fr/stream" />
+            <label class="text-mono">Genre</label>
+            <select v-model="formData.genre" class="form-input text-body-small">
+              <option value="Variety">Variété</option>
+              <option value="Pop">Pop</option>
+              <option value="Rock">Rock</option>
+              <option value="Jazz">Jazz</option>
+              <option value="Classical">Classique</option>
+              <option value="Electronic">Electronic</option>
+              <option value="News">News</option>
+            </select>
           </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label class="text-mono">Pays</label>
-              <input v-model="formData.country" type="text" class="form-input text-body-small"
-                placeholder="Ex: France" />
-            </div>
-
-            <div class="form-group">
-              <label class="text-mono">Genre</label>
-              <input v-model="formData.genre" type="text" class="form-input text-body-small"
-                placeholder="Ex: Pop, Rock, Jazz..." />
-            </div>
-          </div>
-
-          <!-- Info message about what will happen -->
-          <div class="info-message text-mono">
-            <template v-if="isCustomStation">
-              ℹ️ Cette station personnalisée sera modifiée directement.
-            </template>
-            <template v-else>
-              ℹ️ Les métadonnées de cette station favorite seront modifiées tout en préservant son score.
-            </template>
-          </div>
-        </template>
+        </div>
 
         <!-- Error Message -->
         <div v-if="errorMessage" class="error-message text-mono">
@@ -113,8 +83,8 @@
           <Button variant="secondary" @click="$emit('back')" :disabled="isSubmitting">
             Annuler
           </Button>
-          <Button variant="primary" type="submit" :disabled="isSubmitting || !selectedStation || !formData.name || !formData.url">
-            {{ isSubmitting ? 'Modification en cours...' : 'Enregistrer' }}
+          <Button variant="primary" type="submit" :disabled="isSubmitting || !formData.name || !formData.url">
+            {{ isSubmitting ? 'Enregistrement...' : 'Enregistrer' }}
           </Button>
         </div>
       </form>
@@ -122,9 +92,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, onMounted, watch } from 'vue';
 import Button from '@/components/ui/Button.vue';
-import axios from 'axios';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const props = defineProps({
@@ -136,151 +105,50 @@ const props = defineProps({
 
 const emit = defineEmits(['back', 'success']);
 
-// Lists of stations loaded
-const customStations = ref([]); // Manually added stations (custom_xxx)
-const favoriteStations = ref([]); // All favorites (including modified ones)
-
-// All stations (custom + favorites)
-const allStations = computed(() => [...customStations.value, ...favoriteStations.value]);
-
-// Load stations when the modal is mounted
-onMounted(async () => {
-  try {
-    // Load custom stations dict from API
-    const customResponse = await axios.get('/api/radio/custom');
-    const customDict = customResponse.data || {};
-
-    // Convert dict to array, keeping only manually added stations (custom_xxx)
-    customStations.value = Object.entries(customDict)
-      .filter(([id, _]) => id.startsWith('custom_'))
-      .map(([id, metadata]) => ({ ...metadata, id }));
-
-    // Load ALL favorite stations (API returns them with correct metadata - modified if applicable)
-    const favoritesResponse = await axios.get('/api/radio/stations', {
-      params: { favorites_only: true, limit: 10000 }
-    });
-    favoriteStations.value = favoritesResponse.data.stations || [];
-
-    console.log(`✅ Chargé ${customStations.value.length} stations custom et ${favoriteStations.value.length} favorites`);
-
-    // If a preselected station is provided, auto-select it
-    if (props.preselectedStation) {
-      selectSuggestion(props.preselectedStation);
-    }
-  } catch (error) {
-    console.error('❌ Erreur chargement stations:', error);
-  }
-});
-
 const fileInput = ref(null);
-const stationName = ref('');
-const selectedStation = ref(null);
 const selectedFile = ref(null);
 const imagePreview = ref(null);
+const currentImageUrl = ref('');
+const shouldRemoveImage = ref(false);
 const isSubmitting = ref(false);
 const errorMessage = ref('');
-const showSuggestions = ref(false);
 
 const formData = reactive({
   name: '',
   url: '',
   country: 'France',
-  genre: 'Variety',
-  currentImage: null, // URL of current image
-  removeCurrentImage: false // Flag to remove current image
+  genre: 'Variety'
 });
 
-// Check if selected station is custom
-const isCustomStation = computed(() => {
-  return selectedStation.value?.id.startsWith('custom_');
-});
-
-// Station suggestions while typing
-const matchingStations = computed(() => {
-  // If no search, show all stations
-  if (!stationName.value.trim()) {
-    return allStations.value;
-  }
-
-  // Otherwise, filter by the search term
-  const query = stationName.value.toLowerCase();
-  return allStations.value.filter(s =>
-    s.name.toLowerCase().includes(query)
-  );
-});
-
-function searchStation() {
-  // Only to show suggestions (filtering happens in matchingStations)
-  showSuggestions.value = true;
-
-  // Reset the selected station if the text changes
-  if (selectedStation.value && selectedStation.value.name !== stationName.value) {
-    selectedStation.value = null;
-  }
-}
-
-async function selectSuggestion(station) {
-  stationName.value = station.name;
-  selectedStation.value = station;
-  showSuggestions.value = false; // Hide suggestions after selection
-
-  console.log('🔍 Station brute reçue:', station);
-
-  // Populate form with station data
-  formData.name = station.name || '';
-
-  // Try to get URL from station object
-  let stationUrl = station.url || station.url_resolved || station.urlResolved || '';
-
-  // If URL is missing and it's not a custom station, fetch complete station data from API
-  if (!stationUrl && !station.id.startsWith('custom_')) {
-    try {
-      console.log('🔄 URL manquante, récupération depuis l\'API...');
-      const response = await axios.get(`/api/radio/station/${station.id}`);
-      const fullStation = response.data;
-      console.log('✅ Données complètes reçues:', fullStation);
-
-      // Update with complete data
-      stationUrl = fullStation.url || fullStation.url_resolved || fullStation.urlResolved || '';
-      formData.country = fullStation.country || formData.country;
-
-      // Update genre from full station data
-      let fullGenreValue = fullStation.genre || fullStation.tags || station.genre || 'Variety';
-      if (fullGenreValue && typeof fullGenreValue === 'string' && fullGenreValue.includes(',')) {
-        fullGenreValue = fullGenreValue.split(',')[0].trim();
-      }
-      formData.genre = fullGenreValue;
-    } catch (error) {
-      console.error('❌ Erreur récupération station complète:', error);
-    }
-  }
-
-  formData.url = stationUrl;
-  formData.country = station.country || station.countrycode || 'France';
-
-  // For genre: try tags first, then genre, or use station.tags as fallback
-  // Radio Browser API uses 'tags' field which can be a comma-separated string
-  let genreValue = station.genre || station.tags || 'Variety';
-  // If tags is a comma-separated string, take the first tag
-  if (genreValue && typeof genreValue === 'string' && genreValue.includes(',')) {
-    genreValue = genreValue.split(',')[0].trim();
-  }
-  formData.genre = genreValue;
-
-  formData.currentImage = station.favicon || null;
-  formData.removeCurrentImage = false;
-
-  // Reset file selection
+// Initialize form with preselected station data
+function initializeForm() {
+  // Reset image-related fields
   selectedFile.value = null;
   imagePreview.value = null;
+  shouldRemoveImage.value = false;
+  currentImageUrl.value = '';
 
-  console.log('✅ Station sélectionnée:', {
-    name: formData.name,
-    url: formData.url,
-    country: formData.country,
-    genre: formData.genre
-  });
+  if (props.preselectedStation) {
+    formData.name = props.preselectedStation.name || '';
+    formData.url = props.preselectedStation.url || props.preselectedStation.url_resolved || '';
+    formData.country = props.preselectedStation.country || 'France';
+    formData.genre = props.preselectedStation.genre || 'Variety';
+
+    // Set current image URL if exists
+    if (props.preselectedStation.favicon) {
+      currentImageUrl.value = props.preselectedStation.favicon;
+    }
+  }
 }
+
+// Watch for changes to preselectedStation prop
+watch(() => props.preselectedStation, () => {
+  initializeForm();
+}, { immediate: true });
+
+onMounted(() => {
+  initializeForm();
+});
 
 function handleFileSelect(event) {
   const file = event.target.files[0];
@@ -296,15 +164,15 @@ function handleFileSelect(event) {
     return;
   }
 
-  // Validate file size (10MB max)
-  const maxSize = 10 * 1024 * 1024; // 10MB
+  // Validate file size (5MB max)
+  const maxSize = 5 * 1024 * 1024; // 5MB
   if (file.size > maxSize) {
-    errorMessage.value = 'Image trop volumineuse. Maximum 10MB.';
+    errorMessage.value = 'Image trop volumineuse. Maximum 5MB.';
     return;
   }
 
   selectedFile.value = file;
-  formData.removeCurrentImage = false;
+  shouldRemoveImage.value = false;
   errorMessage.value = '';
 
   // Create preview
@@ -318,59 +186,49 @@ function handleFileSelect(event) {
 function removeImage() {
   selectedFile.value = null;
   imagePreview.value = null;
-  formData.currentImage = null;
-  formData.removeCurrentImage = true;
+  currentImageUrl.value = '';
+  shouldRemoveImage.value = true;
   if (fileInput.value) {
     fileInput.value.value = '';
   }
 }
 
 async function handleSubmit() {
-  if (isSubmitting.value || !selectedStation.value) return;
+  if (isSubmitting.value || !props.preselectedStation) return;
 
   errorMessage.value = '';
   isSubmitting.value = true;
 
   try {
-    // Prepare form data with multipart for image upload
-    const submitData = new FormData();
-    submitData.append('station_id', selectedStation.value.id);
-    submitData.append('name', formData.name.trim());
-    submitData.append('url', formData.url.trim());
-    submitData.append('country', formData.country);
-    submitData.append('genre', formData.genre);
+    const formDataToSend = new FormData();
+    formDataToSend.append('station_id', props.preselectedStation.id);
+    formDataToSend.append('name', formData.name.trim());
+    formDataToSend.append('url', formData.url.trim());
+    formDataToSend.append('country', formData.country);
+    formDataToSend.append('genre', formData.genre);
+    formDataToSend.append('remove_image', shouldRemoveImage.value.toString());
 
-    // Handle image
     if (selectedFile.value) {
-      submitData.append('image', selectedFile.value);
-    } else if (formData.removeCurrentImage) {
-      submitData.append('remove_image', 'true');
+      formDataToSend.append('image', selectedFile.value);
     }
 
-    // Different endpoint depending on whether it's a custom station or favorite
-    let response;
-    if (isCustomStation.value) {
-      // Update existing custom station (manually added)
-      response = await axios.put('/api/radio/custom/update', submitData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-    } else {
-      // Modify favorite metadata (preserves score)
-      response = await axios.post('/api/radio/favorites/modify-metadata', submitData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-    }
+    const response = await fetch('/api/radio/favorites/modify-metadata', {
+      method: 'POST',
+      body: formDataToSend
+    });
 
-    if (response.data.success) {
-      console.log('✅ Station modifiée avec succès');
-      emit('success', response.data.station);
+    const data = await response.json();
+
+    if (data.success) {
+      console.log('✅ Station modifiée avec succès:', data.station);
+      emit('success', data.station);
       emit('back');
     } else {
-      errorMessage.value = response.data.error || 'Échec de la modification';
+      errorMessage.value = data.error || 'Échec de la modification de la station';
     }
   } catch (error) {
     console.error('❌ Erreur modification station:', error);
-    errorMessage.value = error.response?.data?.detail || error.message || 'Une erreur est survenue';
+    errorMessage.value = error.message || 'Une erreur est survenue';
   } finally {
     isSubmitting.value = false;
   }
@@ -384,7 +242,7 @@ async function handleSubmit() {
   padding: var(--space-05-fixed) var(--space-05);
 }
 
-.edit-station-form {
+.station-form {
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
@@ -418,98 +276,6 @@ async function handleSubmit() {
 .form-input:focus {
   outline: none;
   border-color: var(--color-brand);
-}
-
-.search-info {
-  font-size: var(--font-size-small);
-  margin-top: var(--space-01);
-}
-
-.search-info.success {
-  color: #4caf50;
-}
-
-.search-info.error {
-  color: rgb(244, 67, 54);
-}
-
-/* Suggestions */
-.suggestions-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-  margin-top: var(--space-02);
-  padding: var(--space-02);
-  background: var(--color-background);
-  border: 2px solid var(--color-background-glass);
-  border-radius: var(--radius-03);
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.suggestions-label {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
-  margin-bottom: var(--space-01);
-}
-
-.suggestion-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-02);
-  padding: var(--space-02);
-  background: var(--color-background-neutral);
-  border: 2px solid transparent;
-  border-radius: var(--radius-03);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  text-align: left;
-}
-
-.suggestion-item:hover {
-  background: var(--color-background);
-  border-color: var(--color-brand);
-  transform: translateX(4px);
-}
-
-.suggestion-item.selected {
-  background: var(--color-background);
-  border-color: var(--color-brand);
-  box-shadow: 0 0 0 3px rgba(var(--color-brand-rgb), 0.1);
-}
-
-.suggestion-img {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-02);
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.suggestion-placeholder {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  flex-shrink: 0;
-}
-
-.suggestion-details {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-  flex: 1;
-}
-
-.suggestion-name {
-  color: var(--color-text);
-}
-
-.suggestion-type {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
 }
 
 /* Image Upload */
@@ -609,16 +375,6 @@ async function handleSubmit() {
   transform: scale(1.1);
 }
 
-/* Info Message */
-.info-message {
-  padding: var(--space-03);
-  background: rgba(33, 150, 243, 0.1);
-  border: 2px solid rgba(33, 150, 243, 0.3);
-  border-radius: var(--radius-04);
-  color: #2196f3;
-  font-size: var(--font-size-small);
-}
-
 /* Error Message */
 .error-message {
   padding: var(--space-03);
@@ -646,5 +402,6 @@ async function handleSubmit() {
     width: 150px;
     height: 150px;
   }
+
 }
 </style>

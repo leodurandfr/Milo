@@ -853,11 +853,33 @@ class StationManager:
             return {"success": False, "error": "name and url required"}
 
         try:
-            # Build image URL
-            favicon_url = f"/api/radio/images/{image_filename}" if image_filename else ""
+            # Get existing custom metadata if any
+            existing_metadata = self._modified_metadata.get(station_id, {})
 
             # Get original metadata for score/votes (if exists)
             original = self._favorites_cache.get(station_id, {})
+
+            # Build image URL
+            # If image_filename is None, preserve existing image (from custom metadata or original)
+            # If image_filename is "", explicitly remove image
+            # If image_filename has a value, use new image
+            if image_filename is None:
+                # Preserve existing image: first check custom metadata, then original
+                if existing_metadata.get("favicon"):
+                    favicon_url = existing_metadata.get("favicon", "")
+                    final_image_filename = existing_metadata.get("image_filename", "")
+                else:
+                    # First time editing: preserve original favicon
+                    favicon_url = original.get("favicon", "")
+                    final_image_filename = ""
+            elif image_filename == "":
+                # Explicitly remove image
+                favicon_url = ""
+                final_image_filename = ""
+            else:
+                # Use new image
+                favicon_url = f"/api/radio/images/{image_filename}"
+                final_image_filename = image_filename
 
             # Create custom metadata entry
             custom_metadata = {
@@ -866,7 +888,7 @@ class StationManager:
                 "country": country.strip(),
                 "genre": genre.strip(),
                 "favicon": favicon_url,
-                "image_filename": image_filename or "",
+                "image_filename": final_image_filename,
                 "bitrate": original.get("bitrate", 128),
                 "codec": original.get("codec", "MP3"),
                 "votes": original.get("votes", 0),
