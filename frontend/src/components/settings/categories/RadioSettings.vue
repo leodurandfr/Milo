@@ -8,7 +8,7 @@
         <StationCard v-for="station in existingStationsWithModifiedImage" :key="station.id" :station="station"
           variant="card" :show-country="true" image-size="medium">
           <template #actions>
-            <CircularIcon icon="close" variant="neutral" @click="confirmRemoveImage(station)"
+            <CircularIcon icon="close" variant="light" @click="confirmRemoveImage(station)"
               :title="$t('radioSettings.restoreOriginalImage')" />
           </template>
         </StationCard>
@@ -18,8 +18,8 @@
         {{ $t('radioSettings.noModifiedImages') }}
       </div>
 
-      <Button variant="primary" @click="$emit('go-to-change-image')">
-        {{ $t('radioSettings.changeStationImage') }}
+      <Button variant="primary" @click="$emit('go-to-edit-station')">
+        {{ $t('radioSettings.editStation') }}
       </Button>
     </section>
 
@@ -31,9 +31,7 @@
         <StationCard v-for="station in customStations" :key="station.id" :station="station" variant="card"
           :show-country="true" image-size="medium">
           <template #actions>
-            <CircularIcon v-if="station.image_filename" icon="close" variant="neutral"
-              @click="confirmRemoveImage(station)" :title="$t('radioSettings.removeImage')" />
-            <CircularIcon icon="trash" variant="neutral" @click="confirmDelete(station)"
+            <CircularIcon icon="close" variant="light" @click="confirmDelete(station)"
               :title="$t('radioSettings.deleteStation')" />
           </template>
         </StationCard>
@@ -86,7 +84,7 @@ import Button from '@/components/ui/Button.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 import StationCard from '@/components/audio/StationCard.vue';
 
-defineEmits(['go-to-add-station', 'go-to-change-image']);
+defineEmits(['go-to-add-station', 'go-to-edit-station']);
 
 const radioStore = useRadioStore();
 const stationToDelete = ref(null);

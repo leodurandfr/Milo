@@ -671,6 +671,182 @@ async def get_custom_stations():
         raise HTTPException(status_code=500, detail=f"Erreur récupération stations personnalisées: {str(e)}")
 
 
+@router.put("/custom/update")
+async def update_custom_station(
+    station_id: str = Form(...),
+    name: str = Form(...),
+    url: str = Form(...),
+    country: str = Form("France"),
+    genre: str = Form("Variety"),
+    image: Optional[UploadFile] = File(None),
+    remove_image: str = Form("false")
+):
+    """
+    Update an existing custom station
+
+    Args:
+        station_id: Station ID to update (must be a custom station)
+        name: New station name
+        url: New audio stream URL
+        country: New country
+        genre: New music genre
+        image: New image file (optional)
+        remove_image: "true" to remove current image
+
+    Returns:
+        The updated station
+    """
+    try:
+        plugin = container.radio_plugin()
+
+        # Verify it's a custom station
+        if not station_id.startswith("custom_"):
+            raise HTTPException(
+                status_code=400,
+                detail="Seules les stations personnalisées peuvent être modifiées"
+            )
+
+        # Check if station exists
+        existing_station = plugin.station_manager.get_custom_station_by_id(station_id)
+        if not existing_station:
+            raise HTTPException(status_code=404, detail="Station personnalisée introuvable")
+
+        image_filename = None
+        should_remove_image = remove_image.lower() == "true"
+
+        # If a new image is provided, validate and save it
+        if image and image.filename:
+            # Read file content
+            file_content = await image.read()
+
+            # Validate and save the image
+            success, saved_filename, error = await plugin.station_manager.image_manager.validate_and_save_image(
+                file_content=file_content,
+                filename=image.filename
+            )
+
+            if not success:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Erreur image: {error}"
+                )
+
+            image_filename = saved_filename
+
+        # Update the station
+        result = await plugin.station_manager.update_custom_station(
+            station_id=station_id,
+            name=name,
+            url=url,
+            country=country,
+            genre=genre,
+            image_filename=image_filename,
+            remove_image=should_remove_image
+        )
+
+        if not result.get("success"):
+            # On failure, delete the newly uploaded image if any
+            if image_filename:
+                await plugin.station_manager.image_manager.delete_image(image_filename)
+
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Échec modification station personnalisée")
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur modification station personnalisée: {str(e)}")
+
+
+@router.post("/custom/from-favorite")
+async def create_custom_from_favorite(
+    station_id: str = Form(...),
+    name: str = Form(...),
+    url: str = Form(...),
+    country: str = Form("France"),
+    genre: str = Form("Variety"),
+    image: Optional[UploadFile] = File(None),
+    remove_image: str = Form("false")
+):
+    """
+    Create a custom station from a favorite station
+    This allows "editing" favorite stations by creating a custom version
+
+    Args:
+        station_id: Original favorite station ID
+        name: Station name (can be modified)
+        url: Audio stream URL (can be modified)
+        country: Country (can be modified)
+        genre: Music genre (can be modified)
+        image: New image file (optional)
+        remove_image: "true" to not include original image
+
+    Returns:
+        The created custom station
+    """
+    try:
+        plugin = container.radio_plugin()
+
+        # Verify it's a favorite station
+        if not plugin.station_manager.is_favorite(station_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Seules les stations favorites peuvent être converties"
+            )
+
+        image_filename = None
+
+        # If a new image is provided, validate and save it
+        if image and image.filename:
+            # Read file content
+            file_content = await image.read()
+
+            # Validate and save the image
+            success, saved_filename, error = await plugin.station_manager.image_manager.validate_and_save_image(
+                file_content=file_content,
+                filename=image.filename
+            )
+
+            if not success:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Erreur image: {error}"
+                )
+
+            image_filename = saved_filename
+
+        # Create the custom station
+        result = await plugin.station_manager.create_custom_from_favorite(
+            station_id=station_id,
+            name=name,
+            url=url,
+            country=country,
+            genre=genre,
+            image_filename=image_filename
+        )
+
+        if not result.get("success"):
+            # On failure, delete the newly uploaded image if any
+            if image_filename:
+                await plugin.station_manager.image_manager.delete_image(image_filename)
+
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Échec création station personnalisée")
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur création station personnalisée: {str(e)}")
+
+
 @router.get("/images/{filename}")
 async def get_station_image(filename: str):
     """

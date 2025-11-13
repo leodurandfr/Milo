@@ -177,6 +177,7 @@
     "restoreOriginalImage": "Originalbild wiederherstellen",
     "noModifiedImages": "Kein Sender mit geändertem Bild",
     "changeStationImage": "Senderbild ändern",
+    "editStation": "Einen Sender bearbeiten",
     "addedStationsTitle": "Hinzugefügte Sender",
     "removeImage": "Bild entfernen",
     "deleteStation": "Sender löschen",

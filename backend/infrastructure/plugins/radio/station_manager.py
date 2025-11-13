@@ -533,3 +533,181 @@ class StationManager:
             if station.get('id') == station_id:
                 return station.copy()
         return None
+
+    async def update_custom_station(
+        self,
+        station_id: str,
+        name: str,
+        url: str,
+        country: str = "France",
+        genre: str = "Variety",
+        image_filename: Optional[str] = None,
+        remove_image: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Updates an existing custom station
+
+        Args:
+            station_id: Station ID to update
+            name: New station name
+            url: New audio stream URL
+            country: New country
+            genre: New music genre
+            image_filename: New image file name (if changing image)
+            remove_image: If True, removes the current image
+
+        Returns:
+            Dict with success and the updated station or error
+        """
+        if not station_id or not station_id.startswith("custom_"):
+            return {"success": False, "error": "Invalid custom station ID"}
+
+        if not name or not url:
+            return {"success": False, "error": "name and url required"}
+
+        try:
+            # Find the station
+            station_index = None
+            old_station = None
+            for i, station in enumerate(self._custom_stations):
+                if station.get('id') == station_id:
+                    station_index = i
+                    old_station = station
+                    break
+
+            if station_index is None:
+                return {"success": False, "error": "Custom station not found"}
+
+            # Handle image changes
+            old_image_filename = old_station.get('image_filename', '')
+            new_image_filename = image_filename if image_filename else old_image_filename
+
+            # If removing image, delete the old one
+            if remove_image and old_image_filename:
+                await self.image_manager.delete_image(old_image_filename)
+                new_image_filename = ''
+            elif image_filename and image_filename != old_image_filename:
+                # If changing to a new image, delete the old one
+                if old_image_filename:
+                    await self.image_manager.delete_image(old_image_filename)
+
+            # Build new favicon URL
+            favicon_url = f"/api/radio/images/{new_image_filename}" if new_image_filename else ""
+
+            # Update station
+            updated_station = {
+                "id": station_id,
+                "name": name.strip(),
+                "url": url.strip(),
+                "country": country.strip(),
+                "genre": genre.strip(),
+                "favicon": favicon_url,
+                "image_filename": new_image_filename,
+                "bitrate": old_station.get('bitrate', 128),
+                "codec": old_station.get('codec', 'MP3'),
+                "is_custom": True,
+                "votes": 0,
+                "clickcount": 0,
+                "score": 0
+            }
+
+            # Replace in list
+            self._custom_stations[station_index] = updated_station
+            self.logger.info(f"Updated custom station: {name} ({station_id})")
+
+            # Save
+            success = await self._save()
+
+            if success and self.state_machine:
+                await self.state_machine.broadcast_event("radio", "custom_station_updated", {
+                    "station": updated_station,
+                    "source": "radio"
+                })
+
+            return {
+                "success": success,
+                "station": updated_station
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error updating custom station: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def create_custom_from_favorite(
+        self,
+        station_id: str,
+        name: str,
+        url: str,
+        country: str = "France",
+        genre: str = "Variety",
+        image_filename: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Creates a new custom station from a favorite station
+        This allows "editing" favorite stations by creating a custom version
+
+        Args:
+            station_id: Original favorite station ID
+            name: Station name (can be modified)
+            url: Audio stream URL (can be modified)
+            country: Country (can be modified)
+            genre: Music genre (can be modified)
+            image_filename: New image file name (optional)
+
+        Returns:
+            Dict with success and the created station or error
+        """
+        if not name or not url:
+            return {"success": False, "error": "name and url required"}
+
+        try:
+            # Create the new custom station (same as add_custom_station)
+            new_station_id = f"custom_{uuid.uuid4()}"
+
+            # Build image URL
+            favicon_url = f"/api/radio/images/{image_filename}" if image_filename else ""
+
+            # Create station
+            station = {
+                "id": new_station_id,
+                "name": name.strip(),
+                "url": url.strip(),
+                "country": country.strip(),
+                "genre": genre.strip(),
+                "favicon": favicon_url,
+                "image_filename": image_filename or "",
+                "bitrate": 128,
+                "codec": "MP3",
+                "is_custom": True,
+                "votes": 0,
+                "clickcount": 0,
+                "score": 0,
+                "created_from": station_id  # Track the original station
+            }
+
+            # Add to list
+            self._custom_stations.append(station)
+            self.logger.info(f"Created custom station from favorite: {name} ({new_station_id}) from {station_id}")
+
+            # Save
+            success = await self._save()
+
+            if success and self.state_machine:
+                await self.state_machine.broadcast_event("radio", "custom_station_added", {
+                    "station": station,
+                    "custom_stations_count": len(self._custom_stations),
+                    "source": "radio"
+                })
+
+            # Remove custom image from the original favorite if it had one
+            if self.is_favorite(station_id):
+                await self.remove_favorite_image(station_id)
+
+            return {
+                "success": success,
+                "station": station
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error creating custom station from favorite: {e}")
+            return {"success": False, "error": str(e)}

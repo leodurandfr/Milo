@@ -113,19 +113,19 @@
     <!-- Radio view -->
     <div v-else-if="currentView === 'radio'" class="view-detail">
       <ModalHeader title="Radio" show-back @back="goToHome" />
-      <RadioSettings ref="radioSettingsRef" @go-to-add-station="goToView('radio-add')" @go-to-change-image="goToView('radio-change-image')" />
+      <RadioSettings ref="radioSettingsRef" @go-to-add-station="goToView('radio-add')" @go-to-edit-station="goToView('radio-edit')" />
     </div>
 
     <!-- Radio view - Add a station -->
     <div v-else-if="currentView === 'radio-add'" class="view-detail">
       <ModalHeader title="Ajouter une station" show-back @back="handleBackFromRadioModal" />
-      <AddStationModal @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
+      <AddRadioStation @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
     </div>
 
-    <!-- Radio view - Change an image -->
-    <div v-else-if="currentView === 'radio-change-image'" class="view-detail">
-      <ModalHeader title="Changer l'image" show-back @back="handleBackFromRadioModal" />
-      <ChangeImageModal @back="handleBackFromRadioModal" @success="handleRadioImageChanged" />
+    <!-- Radio view - Edit a station -->
+    <div v-else-if="currentView === 'radio-edit'" class="view-detail">
+      <ModalHeader title="Éditer une station" show-back @back="handleBackFromRadioModal" />
+      <EditStation @back="handleBackFromRadioModal" @success="handleRadioStationEdited" />
     </div>
 
     <!-- Updates view -->
@@ -171,8 +171,8 @@ import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue'
 import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
 import MultiroomSettings from '@/components/settings/categories/MultiroomSettings.vue';
 import RadioSettings from '@/components/settings/categories/RadioSettings.vue';
-import AddStationModal from '@/components/settings/categories/AddStationModal.vue';
-import ChangeImageModal from '@/components/settings/categories/ChangeImageModal.vue';
+import AddRadioStation from '@/components/settings/categories/AddRadioStation.vue';
+import EditStation from '@/components/settings/categories/EditStation.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 
@@ -210,8 +210,8 @@ function handleRadioStationAdded(station) {
   currentView.value = 'radio';
 }
 
-async function handleRadioImageChanged(station) {
-  console.log('✅ Image modifiée:', station);
+async function handleRadioStationEdited(station) {
+  console.log('✅ Station éditée:', station);
 
   // Reload favorites in radioStore to update RadioSource
   await radioStore.loadStations(true);
