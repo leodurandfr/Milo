@@ -701,11 +701,46 @@ class RadioBrowserAPI:
             # Unified API call
             all_stations = await self._fetch_with_search_params(search_params, search_desc)
 
-        # Add custom stations
+        # Add manually created stations (not modified favorites)
+        # Modified favorites are already enriched in the normal API flow via station_manager
         if self.station_manager:
-            custom_stations = self.station_manager.get_custom_stations()
-            # Custom stations are added first (priority)
-            all_stations = custom_stations + all_stations
+            manual_stations_dict = self.station_manager.get_manual_stations()
+
+            # Apply same filters as RadioBrowserAPI stations
+            filtered_custom = []
+            # Iterate over manual stations (custom_xxx IDs)
+            for station_id, station in manual_stations_dict.items():
+                # Add ID to station metadata for consistency
+                station = {**station, 'id': station_id}
+                matches = True
+
+                # Check query match (in name or genre)
+                if query:
+                    query_lower = query.lower()
+                    name_match = query_lower in station.get('name', '').lower()
+                    genre_match = query_lower in station.get('genre', '').lower()
+                    if not (name_match or genre_match):
+                        matches = False
+
+                # Check country match
+                if country and matches:
+                    if country.lower() not in station.get('country', '').lower():
+                        matches = False
+
+                # Check genre match
+                if genre and matches:
+                    if genre.lower() not in station.get('genre', '').lower():
+                        matches = False
+
+                if matches:
+                    filtered_custom.append(station)
+
+            # Merge and sort by score (custom stations have score=0, so they appear last)
+            all_stations = all_stations + filtered_custom
+            all_stations = sorted(all_stations, key=lambda s: s.get('score', 0), reverse=True)
+
+            if filtered_custom:
+                self.logger.info(f"✅ Added {len(filtered_custom)} manually-added custom station(s)")
 
         # Total before limit
         total = len(all_stations)

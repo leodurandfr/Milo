@@ -1,38 +1,33 @@
 <template>
   <div class="radio-settings-container">
-    <!-- Section 1: Stations with modified image -->
     <section class="settings-section">
-      <h2 class="heading-2 text-body">{{ $t('radioSettings.modifiedImagesTitle') }}</h2>
+      <!-- Section 1: Modified Stations (from RadioBrowserAPI favorites) -->
+      <h2 class="heading-2 text-body">{{ $t('radioSettings.modifiedStationsTitle') }}</h2>
 
-      <div v-if="existingStationsWithModifiedImage.length > 0" class="stations-list">
-        <StationCard v-for="station in existingStationsWithModifiedImage" :key="station.id" :station="station"
+      <div v-if="modifiedStations.length > 0" class="stations-list">
+        <StationCard v-for="station in modifiedStations" :key="`${station.id}-${station.name}-${updateCounter}`" :station="station"
           variant="card" :show-country="true" image-size="medium">
           <template #actions>
-            <CircularIcon icon="threeDots" variant="light" @click="$emit('edit-station', station)"
-              :title="$t('radioSettings.editStation')" />
-            <CircularIcon icon="close" variant="light" @click="confirmRemoveImage(station)"
-              :title="$t('radioSettings.restoreOriginalImage')" />
+            <CircularIcon icon="threeDots" variant="light" @click="$emit('edit-station', station)" />
+            <CircularIcon icon="close" variant="light" @click="confirmRestoreStation(station)" />
           </template>
         </StationCard>
       </div>
 
       <div v-else class="empty-state text-mono">
-        {{ $t('radioSettings.noModifiedImages') }}
+        {{ $t('radioSettings.noModifiedStations') }}
       </div>
 
 
-
-      <!--Added stations -->
+      <!-- Section 2: Added Stations (manually created) -->
       <h2 class="heading-2 text-body">{{ $t('radioSettings.addedStationsTitle') }}</h2>
 
-      <div v-if="customStations.length > 0" class="stations-list">
-        <StationCard v-for="station in customStations" :key="station.id" :station="station" variant="card"
+      <div v-if="addedStations.length > 0" class="stations-list">
+        <StationCard v-for="station in addedStations" :key="station.id" :station="station" variant="card"
           :show-country="true" image-size="medium">
           <template #actions>
-            <CircularIcon icon="threeDots" variant="light" @click="$emit('edit-station', station)"
-              :title="$t('radioSettings.editStation')" />
-            <CircularIcon icon="close" variant="light" @click="confirmDelete(station)"
-              :title="$t('radioSettings.deleteStation')" />
+            <CircularIcon icon="threeDots" variant="light" @click="$emit('edit-station', station)" />
+            <CircularIcon icon="close" variant="light" @click="confirmDeleteStation(station)" />
           </template>
         </StationCard>
       </div>
@@ -50,7 +45,7 @@
       </Button>
     </section>
 
-    <!-- Delete Confirmation Modal -->
+    <!-- Delete Added Station Confirmation Modal -->
     <div v-if="stationToDelete" class="modal-overlay" @click.self="stationToDelete = null">
       <div class="confirm-modal">
         <h3 class="text-body">{{ $t('radioSettings.deleteStationConfirm') }}</h3>
@@ -62,18 +57,17 @@
       </div>
     </div>
 
-    <!-- Remove Image Confirmation Modal -->
-    <div v-if="stationToRemoveImage" class="modal-overlay" @click.self="stationToRemoveImage = null">
+    <!-- Restore Modified Station Confirmation Modal -->
+    <div v-if="stationToRestore" class="modal-overlay" @click.self="stationToRestore = null">
       <div class="confirm-modal">
-        <h3 class="text-body">{{ $t('radioSettings.removeImageConfirm') }}</h3>
-        <p class="text-mono">{{ stationToRemoveImage.name }}</p>
+        <h3 class="text-body">{{ $t('radioSettings.restoreStationConfirm') }}</h3>
+        <p class="text-mono">{{ stationToRestore.name }}</p>
         <p class="text-mono" style="color: var(--color-text-secondary); font-size: var(--font-size-small);">
-          {{ stationToRemoveImage.id.startsWith('custom_') ? $t('radioSettings.imageWillBeDeleted') :
-            $t('radioSettings.imageWillBeDeletedAndRestored') }}
+          {{ $t('radioSettings.modificationsWillBeLost') }}
         </p>
         <div class="confirm-actions">
-          <Button variant="secondary" @click="stationToRemoveImage = null">{{ $t('radioSettings.cancel') }}</Button>
-          <button class="btn-danger" @click="removeImage">{{ $t('radioSettings.delete') }}</button>
+          <Button variant="secondary" @click="stationToRestore = null">{{ $t('radioSettings.cancel') }}</Button>
+          <button class="btn-danger" @click="restoreStation">{{ $t('radioSettings.delete') }}</button>
         </div>
       </div>
     </div>
@@ -92,55 +86,45 @@ defineEmits(['go-to-add-station', 'go-to-edit-station', 'edit-station']);
 
 const radioStore = useRadioStore();
 const stationToDelete = ref(null);
-const stationToRemoveImage = ref(null);
+const stationToRestore = ref(null);
 
 // Local lists loaded from the API
-const customStations = ref([]);
-const favoriteStations = ref([]);
+const customStationsDict = ref({}); // Dict of station_id → custom metadata
+const updateCounter = ref(0); // Force re-render counter
 
-// Favorite stations with modified image (non-custom)
-const existingStationsWithModifiedImage = computed(() => {
-  return favoriteStations.value.filter(s =>
-    s.image_filename && !s.id.startsWith('custom_')
-  );
+// Modified stations: RadioBrowser favorites that have been modified
+// These are entries in customStationsDict with RadioBrowser UUID keys (not starting with "custom_")
+const modifiedStations = computed(() => {
+  const _ = updateCounter.value;
+  return Object.entries(customStationsDict.value)
+    .filter(([id, _]) => !id.startsWith('custom_'))
+    .map(([id, metadata]) => ({ ...metadata, id }));
 });
 
-// Custom stations with image
-const customStationsWithImage = computed(() => {
-  return customStations.value.filter(s => s.image_filename);
-});
-
-// Custom stations without uploaded image
-const customStationsWithoutImage = computed(() => {
-  return customStations.value.filter(s => !s.image_filename);
+// Added stations: custom stations created manually
+// These are entries in customStationsDict with keys starting with "custom_"
+const addedStations = computed(() => {
+  const _ = updateCounter.value;
+  return Object.entries(customStationsDict.value)
+    .filter(([id, _]) => id.startsWith('custom_'))
+    .map(([id, metadata]) => ({ ...metadata, id }));
 });
 
 async function loadCustomStations() {
-  // Load custom stations
+  // Load custom stations dict (contains both modified favorites and manually added stations)
   try {
     const customResponse = await axios.get('/api/radio/custom');
-    customStations.value = customResponse.data;
+    customStationsDict.value = customResponse.data || {};
   } catch (error) {
     console.error('Erreur chargement stations personnalisées:', error);
-    customStations.value = [];
-  }
-
-  // Load favorite stations to detect those with modified images
-  try {
-    const favoritesResponse = await axios.get('/api/radio/stations', {
-      params: { favorites_only: true, limit: 10000 }
-    });
-    favoriteStations.value = favoritesResponse.data.stations;
-  } catch (error) {
-    console.error('Erreur chargement favoris:', error);
-    favoriteStations.value = [];
+    customStationsDict.value = {};
   }
 }
 
 // Expose loadCustomStations so SettingsModal can reload data
 defineExpose({ loadCustomStations });
 
-function confirmDelete(station) {
+function confirmDeleteStation(station) {
   stationToDelete.value = station;
 }
 
@@ -159,23 +143,39 @@ async function deleteStation() {
   stationToDelete.value = null;
 }
 
-function confirmRemoveImage(station) {
-  stationToRemoveImage.value = station;
+function confirmRestoreStation(station) {
+  stationToRestore.value = station;
 }
 
-async function removeImage() {
-  if (!stationToRemoveImage.value) return;
+async function restoreStation() {
+  if (!stationToRestore.value) return;
 
-  const result = await radioStore.removeStationImage(stationToRemoveImage.value.id);
+  // Call new endpoint to restore favorite metadata
+  const formData = new FormData();
+  formData.append('station_id', stationToRestore.value.id);
 
-  if (result.success) {
-    console.log('✅ Image supprimée');
-    loadCustomStations();
-  } else {
-    console.error('❌ Échec suppression image:', result.error);
+  try {
+    const response = await axios.post('/api/radio/favorites/restore-metadata', formData);
+
+    if (response.data.success) {
+      console.log('✅ Station restaurée');
+      // Wait a bit for backend to save, then reload
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Force reload by clearing and reloading
+      customStationsDict.value = {};
+      await loadCustomStations();
+
+      // Force re-render by incrementing counter
+      updateCounter.value++;
+    } else {
+      console.error('❌ Échec restauration station');
+    }
+  } catch (error) {
+    console.error('❌ Erreur restauration:', error);
   }
 
-  stationToRemoveImage.value = null;
+  stationToRestore.value = null;
 }
 
 onMounted(() => {

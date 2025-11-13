@@ -173,21 +173,16 @@
     "unknown": "Unbekannt"
   },
   "radioSettings": {
-    "modifiedImagesTitle": "Sender mit geändertem Bild",
-    "restoreOriginalImage": "Originalbild wiederherstellen",
-    "noModifiedImages": "Kein Sender mit geändertem Bild",
-    "changeStationImage": "Senderbild ändern",
-    "editStation": "Einen Sender bearbeiten",
+    "modifiedStationsTitle": "Geänderte Sender",
+    "noModifiedStations": "Keine geänderten Sender",
+    "restoreStationConfirm": "Originalsender wiederherstellen?",
+    "modificationsWillBeLost": "Alle Änderungen gehen verloren und der Originalsender wird wiederhergestellt.",
     "addedStationsTitle": "Hinzugefügte Sender",
-    "removeImage": "Bild entfernen",
-    "deleteStation": "Sender löschen",
     "noAddedStations": "Kein Sender hinzugefügt. Klicken Sie auf \"Sender hinzufügen\", um zu beginnen.",
     "addStation": "Sender hinzufügen",
+    "editStation": "Einen Sender bearbeiten",
     "deleteStationConfirm": "Sender löschen?",
     "cancel": "Abbrechen",
-    "delete": "Löschen",
-    "removeImageConfirm": "Importiertes Bild entfernen?",
-    "imageWillBeDeleted": "Das Bild wird gelöscht.",
-    "imageWillBeDeletedAndRestored": "Das Bild wird gelöscht und der Sender kehrt zu seinem Originalbild zurück."
+    "delete": "Löschen"
   }
 }

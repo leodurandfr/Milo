@@ -85,6 +85,9 @@ class RadioPlugin(UnifiedAudioPlugin):
             # Initialize components
             await self.station_manager.initialize()
 
+            # Connect radio_api to station_manager for metadata fetching
+            self.station_manager.radio_api = self.radio_api
+
             self.logger.info("Radio plugin initialized")
             return True
 
