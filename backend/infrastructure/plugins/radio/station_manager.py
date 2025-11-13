@@ -11,11 +11,33 @@ class StationManager:
     """
     Manages favorites, broken stations and custom stations with persistence via RadioDataService
 
-    Storage in radio_data.json:
+    Storage in radio_data.json (three-tier architecture):
     {
-        "favorites": [
-            {
-                "id": "station_id1",
+        "favorites": ["station_id1", "station_id2", ...],
+        "modified_metadata": {
+            "station_id1": {
+                "name": "RTL (Custom Name)",
+                "url": "http://...",
+                "genre": "Custom Genre",
+                "favicon": "/api/radio/images/abc123.jpg",
+                "image_filename": "abc123.jpg"
+            }
+        },
+        "manual_stations": {
+            "custom_uuid": {
+                "name": "Ma Radio",
+                "url": "http://...",
+                "country": "France",
+                "genre": "Variety",
+                "favicon": "/api/radio/images/def456.jpg",
+                "image_filename": "def456.jpg",
+                "bitrate": 128,
+                "codec": "MP3",
+                "is_custom": true
+            }
+        },
+        "favorites_cache": {
+            "station_id1": {
                 "name": "RTL",
                 "url": "http://...",
                 "country": "France",
@@ -27,22 +49,8 @@ class StationManager:
                 "clickcount": 200,
                 "score": 300
             }
-        ],
-        "broken_stations": ["station_id3", "station_id4", ...],
-        "custom_stations": [
-            {
-                "id": "custom_uuid",
-                "name": "Ma Radio",
-                "url": "http://...",
-                "country": "France",
-                "genre": "Variety",
-                "favicon": "/api/radio/images/abc123.jpg",
-                "image_filename": "abc123.jpg",
-                "bitrate": 128,
-                "codec": "MP3",
-                "is_custom": true
-            }
-        ]
+        },
+        "broken_stations": ["station_id3", "station_id4", ...]
     }
     """
 
@@ -52,11 +60,14 @@ class StationManager:
         self.state_machine = state_machine
         self.image_manager = ImageManager()
 
-        # Local cache
-        self._favorites: List[Dict[str, Any]] = []  # List of stations with complete metadata
+        # Local cache - Three-tier architecture with separated concerns
+        self._favorites: List[str] = []  # List of station IDs
+        self._modified_metadata: Dict[str, Dict[str, Any]] = {}  # RadioBrowser UUID → custom metadata overrides
+        self._manual_stations: Dict[str, Dict[str, Any]] = {}  # custom_xxx → manually created stations
+        self._favorites_cache: Dict[str, Dict[str, Any]] = {}  # ID → API metadata cache
         self._broken_stations: Set[str] = set()
-        self._custom_stations: List[Dict[str, Any]] = []
         self._loaded = False
+        self.radio_api = None  # Will be set by RadioPlugin after initialization
 
     async def initialize(self) -> None:
         """Loads state from RadioDataService"""
@@ -69,13 +80,16 @@ class StationManager:
                 data = await self.radio_data_service.load_data()
 
                 self._favorites = data.get('favorites', [])
+                self._modified_metadata = data.get('modified_metadata', {})
+                self._manual_stations = data.get('manual_stations', {})
+                self._favorites_cache = data.get('favorites_cache', {})
                 self._broken_stations = set(data.get('broken_stations', []))
-                self._custom_stations = data.get('custom_stations', [])
 
                 self.logger.info(
                     f"Loaded {len(self._favorites)} favorites, "
                     f"{len(self._broken_stations)} broken, "
-                    f"{len(self._custom_stations)} custom stations"
+                    f"{len(self._modified_metadata)} modified metadata, "
+                    f"{len(self._manual_stations)} manual stations"
                 )
             else:
                 self.logger.warning("RadioDataService not available, using empty state")
@@ -85,8 +99,10 @@ class StationManager:
         except Exception as e:
             self.logger.error(f"Error loading station manager state: {e}")
             self._favorites = []
+            self._modified_metadata = {}
+            self._manual_stations = {}
+            self._favorites_cache = {}
             self._broken_stations = set()
-            self._custom_stations = []
             self._loaded = True
 
     async def _save(self) -> bool:
@@ -97,21 +113,67 @@ class StationManager:
         try:
             data = {
                 "favorites": self._favorites,
-                "broken_stations": list(self._broken_stations),
-                "custom_stations": self._custom_stations
+                "modified_metadata": self._modified_metadata,
+                "manual_stations": self._manual_stations,
+                "favorites_cache": self._favorites_cache,
+                "broken_stations": list(self._broken_stations)
             }
             return await self.radio_data_service.save_data(data)
         except Exception as e:
             self.logger.error(f"Error saving radio data: {e}")
             return False
 
+    async def get_station_metadata(self, station_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Gets station metadata with priority chain:
+        1. Modified metadata (user overrides for RadioBrowser stations)
+        2. Manual stations (user-created stations)
+        3. Favorites cache (API cache)
+        4. Fetch from API + cache
+
+        Args:
+            station_id: Station ID
+
+        Returns:
+            Station metadata dict or None
+        """
+        # Priority 1: Modified metadata (overrides for existing RadioBrowser stations)
+        if station_id in self._modified_metadata:
+            metadata = self._modified_metadata[station_id].copy()
+            metadata['id'] = station_id
+            return metadata
+
+        # Priority 2: Manual stations (user-created stations with custom_xxx IDs)
+        if station_id in self._manual_stations:
+            metadata = self._manual_stations[station_id].copy()
+            metadata['id'] = station_id
+            return metadata
+
+        # Priority 3: Cache
+        if station_id in self._favorites_cache:
+            metadata = self._favorites_cache[station_id].copy()
+            metadata['id'] = station_id
+            return metadata
+
+        # Priority 4: Fetch from API (RadioBrowser stations)
+        # If we reach here and it's a RadioBrowser UUID, fetch from API
+        if self.radio_api:
+            metadata = await self.radio_api._fetch_station_by_id(station_id)
+            if metadata:
+                # Cache it
+                self._favorites_cache[station_id] = metadata
+                await self._save()
+                return metadata
+
+        return None
+
     async def add_favorite(self, station_id: str, station: Optional[Dict[str, Any]] = None) -> bool:
         """
-        Adds station to favorites with its complete metadata
+        Adds station to favorites and caches its metadata
 
         Args:
             station_id: Station UUID
-            station: Complete dict of the station with metadata (recommended)
+            station: Complete dict of the station with metadata (will be cached)
 
         Returns:
             True if addition successful
@@ -120,18 +182,23 @@ class StationManager:
             return False
 
         # Check if already in favorites
-        if any(f.get('id') == station_id for f in self._favorites):
+        if station_id in self._favorites:
             self.logger.debug(f"Station {station_id} already in favorites")
             return True
 
-        # If station provided, add it with complete metadata
-        if station:
-            self._favorites.append(station)
-            self.logger.info(f"Added station {station.get('name')} to favorites with metadata")
+        # Add ID to favorites list
+        self._favorites.append(station_id)
+
+        # Cache metadata if provided (and not already in modified_metadata or manual_stations)
+        if station and station_id not in self._modified_metadata and station_id not in self._manual_stations:
+            # Remove id from station dict to avoid duplication
+            cached_station = station.copy()
+            if 'id' in cached_station:
+                del cached_station['id']
+            self._favorites_cache[station_id] = cached_station
+            self.logger.info(f"Added station {station.get('name')} to favorites with cached metadata")
         else:
-            # Fallback: add only ID (metadata will be fetched on demand)
-            self._favorites.append({"id": station_id})
-            self.logger.warning(f"Added station {station_id} to favorites WITHOUT metadata (will need API fetch)")
+            self.logger.info(f"Added station {station_id} to favorites")
 
         success = await self._save()
 
@@ -147,7 +214,7 @@ class StationManager:
 
     async def remove_favorite(self, station_id: str) -> bool:
         """
-        Removes station from favorites
+        Removes station from favorites (but keeps custom metadata and cache)
 
         Args:
             station_id: Station UUID
@@ -158,14 +225,14 @@ class StationManager:
         if not station_id:
             return False
 
-        original_count = len(self._favorites)
-        self._favorites = [f for f in self._favorites if f.get('id') != station_id]
-
-        if len(self._favorites) == original_count:
+        if station_id not in self._favorites:
             self.logger.debug(f"Station {station_id} not in favorites")
             return True
 
-        self.logger.info(f"Removed station {station_id} from favorites")
+        # Remove from favorites list only (keep custom_stations and favorites_cache)
+        self._favorites.remove(station_id)
+
+        self.logger.info(f"Removed station {station_id} from favorites (custom metadata preserved)")
 
         success = await self._save()
 
@@ -189,7 +256,7 @@ class StationManager:
         Returns:
             True if favorite
         """
-        return any(f.get('id') == station_id for f in self._favorites)
+        return station_id in self._favorites
 
     def get_favorites(self) -> List[str]:
         """
@@ -198,17 +265,22 @@ class StationManager:
         Returns:
             List of favorite station IDs
         """
-        return [f.get('id') for f in self._favorites if f.get('id')]
+        return self._favorites.copy()
 
-    def get_favorites_with_metadata(self) -> List[Dict[str, Any]]:
+    async def get_favorites_with_metadata(self) -> List[Dict[str, Any]]:
         """
-        Gets favorite stations with their metadata from local cache
+        Gets favorite stations with their complete metadata
 
         Returns:
-            List of stations with complete metadata
+            List of stations with complete metadata (custom > cache > API)
         """
-        # Favorites are already stored with complete metadata
-        return self._favorites.copy()
+        result = []
+        for station_id in self._favorites:
+            metadata = await self.get_station_metadata(station_id)
+            if metadata:
+                metadata['is_favorite'] = True
+                result.append(metadata)
+        return result
 
     def is_favorite(self, station_id: str) -> bool:
         """
@@ -220,7 +292,7 @@ class StationManager:
         Returns:
             True if station is favorite
         """
-        return any(f.get('id') == station_id for f in self._favorites)
+        return station_id in self._favorites
 
     async def update_favorite_image(self, station_id: str, image_filename: str) -> bool:
         """
@@ -233,21 +305,32 @@ class StationManager:
         Returns:
             True if update successful
         """
-        for favorite in self._favorites:
-            if favorite.get('id') == station_id:
-                # Delete old image if it exists
-                old_image = favorite.get('image_filename')
-                if old_image:
-                    await self.image_manager.delete_image(old_image)
+        if station_id not in self._favorites:
+            return False
 
-                # Update with new image
-                favorite['image_filename'] = image_filename
-                favorite['favicon'] = f"/api/radio/images/{image_filename}"
+        # Get current metadata (from custom, cache, or API)
+        current_metadata = await self.get_station_metadata(station_id)
+        if not current_metadata:
+            return False
 
-                self.logger.info(f"Updated image for favorite station {station_id}")
-                return await self._save()
+        # Delete old image if it exists in modified metadata
+        if station_id in self._modified_metadata:
+            old_image = self._modified_metadata[station_id].get('image_filename')
+            if old_image:
+                await self.image_manager.delete_image(old_image)
 
-        return False
+        # Update/create modified metadata with new image
+        self._modified_metadata[station_id] = {
+            **current_metadata,
+            'image_filename': image_filename,
+            'favicon': f"/api/radio/images/{image_filename}"
+        }
+        # Remove 'id' and 'is_favorite' keys as they're not stored in the dict value
+        self._modified_metadata[station_id].pop('id', None)
+        self._modified_metadata[station_id].pop('is_favorite', None)
+
+        self.logger.info(f"Updated image for favorite station {station_id}")
+        return await self._save()
 
     async def remove_favorite_image(self, station_id: str) -> bool:
         """
@@ -259,21 +342,29 @@ class StationManager:
         Returns:
             True if deletion successful
         """
-        for favorite in self._favorites:
-            if favorite.get('id') == station_id:
-                # Delete image file if exists
-                old_image = favorite.get('image_filename')
-                if old_image:
-                    await self.image_manager.delete_image(old_image)
+        if station_id not in self._favorites:
+            return False
 
-                # Reset image fields
-                favorite['image_filename'] = ""
-                favorite['favicon'] = ""
+        # Delete image file if exists in modified metadata
+        if station_id in self._modified_metadata:
+            old_image = self._modified_metadata[station_id].get('image_filename')
+            if old_image:
+                await self.image_manager.delete_image(old_image)
 
-                self.logger.info(f"Removed image for favorite station {station_id}")
-                return await self._save()
+            # Get current metadata and update with empty image
+            current_metadata = await self.get_station_metadata(station_id)
+            if current_metadata:
+                self._modified_metadata[station_id] = {
+                    **current_metadata,
+                    'image_filename': "",
+                    'favicon': ""
+                }
+                # Remove 'id' and 'is_favorite' keys as they're not stored in the dict value
+                self._modified_metadata[station_id].pop('id', None)
+                self._modified_metadata[station_id].pop('is_favorite', None)
 
-        return False
+        self.logger.info(f"Removed image for favorite station {station_id}")
+        return await self._save()
 
     async def mark_as_broken(self, station_id: str) -> bool:
         """
@@ -333,25 +424,46 @@ class StationManager:
 
     def enrich_with_favorite_status(self, stations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Enriches stations with favorite status and custom images
+        Enriches stations with favorite status and merges custom metadata if exists
 
         Args:
             stations: List of stations
 
         Returns:
-            Enriched list with 'is_favorite' key and custom images if available
+            Enriched list with 'is_favorite' key and custom metadata merged
         """
         for station in stations:
             station_id = station.get('id')
-            station['is_favorite'] = self.is_favorite(station_id)
 
-            # If favorite, copy custom image data
-            if station['is_favorite']:
-                favorite_metadata = next((f for f in self._favorites if f.get('id') == station_id), None)
-                if favorite_metadata and favorite_metadata.get('image_filename'):
-                    # Override with custom image from favorite
-                    station['favicon'] = favorite_metadata.get('favicon')
-                    station['image_filename'] = favorite_metadata.get('image_filename')
+            # Add favorite status
+            station['is_favorite'] = station_id in self._favorites
+
+            # Merge modified metadata if exists (overrides for RadioBrowser stations)
+            if station_id in self._modified_metadata:
+                custom = self._modified_metadata[station_id]
+
+                # Preserve original score/votes from API if custom doesn't have them
+                preserved_score = station.get('score', 0)
+                preserved_votes = station.get('votes', 0)
+                preserved_clickcount = station.get('clickcount', 0)
+
+                # Merge modified metadata
+                station.update(custom)
+                station['id'] = station_id  # Preserve ID
+
+                # Restore score/votes if custom doesn't have them
+                if not custom.get('score'):
+                    station['score'] = preserved_score
+                if not custom.get('votes'):
+                    station['votes'] = preserved_votes
+                if not custom.get('clickcount'):
+                    station['clickcount'] = preserved_clickcount
+
+            # Merge manual station metadata if exists (for custom_xxx IDs)
+            elif station_id in self._manual_stations:
+                custom = self._manual_stations[station_id]
+                station.update(custom)
+                station['id'] = station_id  # Preserve ID
 
         return stations
 
@@ -360,12 +472,13 @@ class StationManager:
         Gets statistics
 
         Returns:
-            Dict with number of favorites, broken stations and custom stations
+            Dict with number of favorites, broken stations, modified metadata and manual stations
         """
         return {
             'favorites_count': len(self._favorites),
             'broken_stations_count': len(self._broken_stations),
-            'custom_stations_count': len(self._custom_stations)
+            'modified_metadata_count': len(self._modified_metadata),
+            'manual_stations_count': len(self._manual_stations)
         }
 
     # === Custom stations management ===
@@ -422,9 +535,9 @@ class StationManager:
                 "score": 0
             }
 
-            # Add to list
-            self._custom_stations.append(station)
-            self.logger.info(f"Added custom station: {name} ({station_id}) with image: {image_filename}")
+            # Add to dict (manual stations)
+            self._manual_stations[station_id] = station
+            self.logger.info(f"Added manual station: {name} ({station_id}) with image: {image_filename}")
 
             # Save
             success = await self._save()
@@ -432,7 +545,7 @@ class StationManager:
             if success and self.state_machine:
                 await self.state_machine.broadcast_event("radio", "custom_station_added", {
                     "station": station,
-                    "custom_stations_count": len(self._custom_stations),
+                    "custom_stations_count": len(self._manual_stations),
                     "source": "radio"
                 })
 
@@ -460,15 +573,11 @@ class StationManager:
             return False
 
         try:
-            # Find station to get the image name
-            station_to_remove = None
-            for station in self._custom_stations:
-                if station.get('id') == station_id:
-                    station_to_remove = station
-                    break
+            # Get station from dict (manual stations only)
+            station_to_remove = self._manual_stations.get(station_id)
 
             if not station_to_remove:
-                self.logger.warning(f"Custom station {station_id} not found")
+                self.logger.warning(f"Manual station {station_id} not found")
                 return False
 
             # Delete associated image if it exists
@@ -477,18 +586,10 @@ class StationManager:
                 await self.image_manager.delete_image(image_filename)
                 self.logger.info(f"Deleted image {image_filename} for station {station_id}")
 
-            # Remove station from list
-            original_count = len(self._custom_stations)
-            self._custom_stations = [
-                s for s in self._custom_stations
-                if s.get('id') != station_id
-            ]
+            # Remove station from dict
+            del self._manual_stations[station_id]
 
-            if len(self._custom_stations) == original_count:
-                self.logger.warning(f"Custom station {station_id} not found in list")
-                return False
-
-            self.logger.info(f"Removed custom station {station_id}")
+            self.logger.info(f"Removed manual station {station_id}")
 
             # Save
             success = await self._save()
@@ -496,7 +597,7 @@ class StationManager:
             if success and self.state_machine:
                 await self.state_machine.broadcast_event("radio", "custom_station_removed", {
                     "station_id": station_id,
-                    "custom_stations_count": len(self._custom_stations),
+                    "custom_stations_count": len(self._manual_stations),
                     "source": "radio"
                 })
 
@@ -510,18 +611,27 @@ class StationManager:
             self.logger.error(f"Error removing custom station: {e}")
             return False
 
-    def get_custom_stations(self) -> List[Dict[str, Any]]:
+    def get_modified_metadata(self) -> Dict[str, Dict[str, Any]]:
         """
-        Gets all custom stations
+        Gets all modified metadata (overrides for RadioBrowser stations)
 
         Returns:
-            List of custom stations
+            Dict of station_id → modified metadata
         """
-        return self._custom_stations.copy()
+        return self._modified_metadata.copy()
+
+    def get_manual_stations(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Gets all manually created stations (custom_xxx IDs)
+
+        Returns:
+            Dict of station_id → manual station metadata
+        """
+        return self._manual_stations.copy()
 
     def get_custom_station_by_id(self, station_id: str) -> Optional[Dict[str, Any]]:
         """
-        Gets custom station by ID
+        Gets custom station by ID (works for both modified and manual stations)
 
         Args:
             station_id: Station ID
@@ -529,9 +639,18 @@ class StationManager:
         Returns:
             Station or None if not found
         """
-        for station in self._custom_stations:
-            if station.get('id') == station_id:
-                return station.copy()
+        # Check modified metadata first
+        if station_id in self._modified_metadata:
+            station = self._modified_metadata[station_id].copy()
+            station['id'] = station_id
+            return station
+
+        # Then check manual stations
+        if station_id in self._manual_stations:
+            station = self._manual_stations[station_id].copy()
+            station['id'] = station_id
+            return station
+
         return None
 
     async def update_custom_station(
@@ -566,17 +685,11 @@ class StationManager:
             return {"success": False, "error": "name and url required"}
 
         try:
-            # Find the station
-            station_index = None
-            old_station = None
-            for i, station in enumerate(self._custom_stations):
-                if station.get('id') == station_id:
-                    station_index = i
-                    old_station = station
-                    break
+            # Get the station from dict (manual stations only)
+            old_station = self._manual_stations.get(station_id)
 
-            if station_index is None:
-                return {"success": False, "error": "Custom station not found"}
+            if not old_station:
+                return {"success": False, "error": "Manual station not found"}
 
             # Handle image changes
             old_image_filename = old_station.get('image_filename', '')
@@ -608,12 +721,13 @@ class StationManager:
                 "is_custom": True,
                 "votes": 0,
                 "clickcount": 0,
-                "score": 0
+                "score": 0,
+                "source_station_id": old_station.get('source_station_id', '')  # Preserve original station tracking
             }
 
-            # Replace in list
-            self._custom_stations[station_index] = updated_station
-            self.logger.info(f"Updated custom station: {name} ({station_id})")
+            # Update in dict (manual stations)
+            self._manual_stations[station_id] = updated_station
+            self.logger.info(f"Updated manual station: {name} ({station_id})")
 
             # Save
             success = await self._save()
@@ -682,12 +796,12 @@ class StationManager:
                 "votes": 0,
                 "clickcount": 0,
                 "score": 0,
-                "created_from": station_id  # Track the original station
+                "source_station_id": station_id  # Track the original station
             }
 
-            # Add to list
-            self._custom_stations.append(station)
-            self.logger.info(f"Created custom station from favorite: {name} ({new_station_id}) from {station_id}")
+            # Add to dict (manual stations)
+            self._manual_stations[new_station_id] = station
+            self.logger.info(f"Created manual station from favorite: {name} ({new_station_id}) from {station_id}")
 
             # Save
             success = await self._save()
@@ -695,7 +809,7 @@ class StationManager:
             if success and self.state_machine:
                 await self.state_machine.broadcast_event("radio", "custom_station_added", {
                     "station": station,
-                    "custom_stations_count": len(self._custom_stations),
+                    "custom_stations_count": len(self._manual_stations),
                     "source": "radio"
                 })
 
@@ -710,4 +824,130 @@ class StationManager:
 
         except Exception as e:
             self.logger.error(f"Error creating custom station from favorite: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def modify_favorite_metadata(
+        self,
+        station_id: str,
+        name: str,
+        url: str,
+        country: str = "France",
+        genre: str = "Variety",
+        image_filename: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Creates/updates custom metadata for a station (works for both favorites and non-favorites)
+
+        Args:
+            station_id: Station ID
+            name: New station name
+            url: New audio stream URL
+            country: New country
+            genre: New music genre
+            image_filename: New image file name (optional)
+
+        Returns:
+            Dict with success and the modified station or error
+        """
+        if not name or not url:
+            return {"success": False, "error": "name and url required"}
+
+        try:
+            # Build image URL
+            favicon_url = f"/api/radio/images/{image_filename}" if image_filename else ""
+
+            # Get original metadata for score/votes (if exists)
+            original = self._favorites_cache.get(station_id, {})
+
+            # Create custom metadata entry
+            custom_metadata = {
+                "name": name.strip(),
+                "url": url.strip(),
+                "country": country.strip(),
+                "genre": genre.strip(),
+                "favicon": favicon_url,
+                "image_filename": image_filename or "",
+                "bitrate": original.get("bitrate", 128),
+                "codec": original.get("codec", "MP3"),
+                "votes": original.get("votes", 0),
+                "clickcount": original.get("clickcount", 0),
+                "score": original.get("score", 0)
+            }
+
+            # Save to modified_metadata (overrides for RadioBrowser stations)
+            self._modified_metadata[station_id] = custom_metadata
+            self.logger.info(f"Modified station metadata: {name} ({station_id})")
+
+            # Save
+            success = await self._save()
+
+            # Build response with full station data
+            station_data = custom_metadata.copy()
+            station_data['id'] = station_id
+            station_data['is_favorite'] = station_id in self._favorites
+
+            if success and self.state_machine:
+                await self.state_machine.broadcast_event("radio", "favorite_modified", {
+                    "station": station_data,
+                    "source": "radio"
+                })
+
+            return {
+                "success": success,
+                "station": station_data
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error modifying station metadata: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def restore_favorite_metadata(self, station_id: str, radio_api=None) -> Dict[str, Any]:
+        """
+        Restores original metadata by deleting custom metadata
+
+        Args:
+            station_id: Station ID
+            radio_api: RadioBrowserAPI instance to refresh cache (optional)
+
+        Returns:
+            Dict with success and error if any
+        """
+        try:
+            # Check if station has modified metadata
+            if station_id not in self._modified_metadata:
+                return {"success": False, "error": "Station has no modified metadata"}
+
+            # Delete custom image if exists
+            old_image = self._modified_metadata[station_id].get('image_filename')
+            if old_image:
+                await self.image_manager.delete_image(old_image)
+
+            # Remove modified metadata
+            del self._modified_metadata[station_id]
+            self.logger.info(f"Restored station metadata to original: {station_id}")
+
+            # Optionally refresh cache from API
+            if radio_api:
+                original_station = await radio_api._fetch_station_by_id(station_id)
+                if original_station:
+                    # Update cache with fresh data from API
+                    cached = original_station.copy()
+                    if 'id' in cached:
+                        del cached['id']
+                    self._favorites_cache[station_id] = cached
+                    self.logger.info(f"Refreshed cache from API: {original_station['name']}")
+
+            # Save
+            success = await self._save()
+
+            if success and self.state_machine:
+                await self.state_machine.broadcast_event("radio", "favorite_restored", {
+                    "station_id": station_id,
+                    "source": "radio"
+                })
+
+            return {"success": True}
+
+        except Exception as e:
+            self.logger.error(f"Error restoring favorite metadata: {e}")
             return {"success": False, "error": str(e)}

@@ -179,10 +179,12 @@ const bufferingStationId = computed(() => {
 // Displayed stations - favorites or search results depending on mode
 const displayedStations = computed(() => {
   if (isSearchMode.value) {
-    return radioStore.displayedStations;
+    // Search mode: ONLY show search results from RadioBrowserAPI
+    // Never show favoriteStations (which includes custom stations)
+    return radioStore.displayedStations || [];
   } else {
-    // Favorites mode: display all favorites (no pagination)
-    return radioStore.favoriteStations;
+    // Favorites mode: display all favorites (including custom stations)
+    return radioStore.favoriteStations || [];
   }
 });
 
@@ -314,7 +316,7 @@ const genreOptions = computed(() => {
 async function openSearch() {
   console.log('🔍 Opening search mode. Available countries:', availableCountries.value.length);
 
-  // CRITICAL: Set loading BEFORE changing mode to prevent flash of "no stations" message
+  // CRITICAL: Set loading AND switch mode immediately to prevent showing favorites
   radioStore.loading = true;
   isSearchMode.value = true;
 
@@ -323,7 +325,7 @@ async function openSearch() {
     await loadAvailableCountries();
   }
 
-  // Load top 500 stations
+  // Load top 500 stations (this will clear visibleStations immediately)
   await radioStore.loadStations(false);
 }
 

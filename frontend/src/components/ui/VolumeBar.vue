@@ -96,7 +96,7 @@ onMounted(() => {
   left: 0.5px;
   right: 0.5px;
   height: 100%;
-  background: var(--color-background-neutral);
+  background: var(--color-background-neutral-32);
   border-radius: var(--radius-full);
   z-index: 0;
 }
@@ -104,7 +104,7 @@ onMounted(() => {
 .volume-slider .text-mono {
   height: 100%;
   align-content: center;
-  color: var(--color-text-secondary);
+  color: var(--color-text-light);
   margin-left: var(--space-04);
   position: absolute;
   z-index: 2;

@@ -173,21 +173,16 @@
     "unknown": "Desconhecido"
   },
   "radioSettings": {
-    "modifiedImagesTitle": "Estações com imagem modificada",
-    "restoreOriginalImage": "Restaurar imagem original",
-    "noModifiedImages": "Nenhuma estação com imagem modificada",
-    "changeStationImage": "Alterar imagem da estação",
-    "editStation": "Editar uma estação",
+    "modifiedStationsTitle": "Estações modificadas",
+    "noModifiedStations": "Nenhuma estação modificada",
+    "restoreStationConfirm": "Restaurar estação original?",
+    "modificationsWillBeLost": "Todas as modificações serão perdidas e a estação original será restaurada.",
     "addedStationsTitle": "Estações adicionadas",
-    "removeImage": "Remover imagem",
-    "deleteStation": "Eliminar estação",
     "noAddedStations": "Nenhuma estação adicionada. Clique em \"Adicionar estação\" para começar.",
     "addStation": "Adicionar estação",
+    "editStation": "Editar uma estação",
     "deleteStationConfirm": "Eliminar estação?",
     "cancel": "Cancelar",
-    "delete": "Eliminar",
-    "removeImageConfirm": "Remover imagem importada?",
-    "imageWillBeDeleted": "A imagem será eliminada.",
-    "imageWillBeDeletedAndRestored": "A imagem será eliminada e a estação voltará à sua imagem original."
+    "delete": "Eliminar"
   }
 }

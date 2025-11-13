@@ -85,36 +85,35 @@ async def search_stations(
         plugin = container.radio_plugin()
 
         if favorites_only:
-            # Load directly from local cache (radio_data.json)
-            # Favorites are already stored with complete metadata
-            stations = plugin.station_manager.get_favorites_with_metadata()
+            # Load favorites (now including modified favorites with custom_metadata)
+            favorites = await plugin.station_manager.get_favorites_with_metadata()
 
             # If no favorites, return an empty list
-            if not stations:
+            if not favorites:
                 return {"stations": [], "total": 0}
 
             # Filter if needed
             if query:
                 query_lower = query.lower()
-                stations = [
-                    s for s in stations
+                favorites = [
+                    s for s in favorites
                     if query_lower in s['name'].lower() or query_lower in s['genre'].lower()
                 ]
 
             if country:
                 country_lower = country.lower()
-                stations = [s for s in stations if country_lower in s['country'].lower()]
+                favorites = [s for s in favorites if country_lower in s['country'].lower()]
 
             if genre:
                 genre_lower = genre.lower()
-                stations = [s for s in stations if genre_lower in s['genre'].lower()]
+                favorites = [s for s in favorites if genre_lower in s['genre'].lower()]
 
-            # Enrich with favorite status (already done for cached_stations, but required for fetched)
-            enriched_stations = plugin.station_manager.enrich_with_favorite_status(stations[:limit])
+            # Enrich with favorite status (already favorites, but ensures is_favorite flag)
+            enriched_stations = plugin.station_manager.enrich_with_favorite_status(favorites[:limit])
 
             return {
                 "stations": enriched_stations,
-                "total": len(stations)
+                "total": len(favorites)
             }
 
         else:
@@ -310,20 +309,11 @@ async def get_favorites():
     """
     try:
         plugin = container.radio_plugin()
-        favorite_ids = plugin.station_manager.get_favorites()
 
-        if not favorite_ids:
-            return []
+        # Use the new async method that handles priority chain (custom > cache > API)
+        favorites = await plugin.station_manager.get_favorites_with_metadata()
 
-        # Load station details
-        stations = []
-        for station_id in favorite_ids:
-            station = await plugin.radio_api.get_station_by_id(station_id)
-            if station:
-                station['is_favorite'] = True
-                stations.append(station)
-
-        return stations
+        return favorites
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur récupération favoris: {str(e)}")
@@ -592,7 +582,7 @@ async def update_station_image(
             raise HTTPException(status_code=500, detail="Échec de la mise à jour de l'image")
 
         # Retrieve the updated station
-        favorites = plugin.station_manager.get_favorites_with_metadata()
+        favorites = await plugin.station_manager.get_favorites_with_metadata()
         station = next((f for f in favorites if f.get('id') == station_id), None)
 
         return {
@@ -637,7 +627,7 @@ async def remove_station_image(
             raise HTTPException(status_code=500, detail="Échec de la suppression de l'image")
 
         # Retrieve the updated station
-        favorites = plugin.station_manager.get_favorites_with_metadata()
+        favorites = await plugin.station_manager.get_favorites_with_metadata()
         station = next((f for f in favorites if f.get('id') == station_id), None)
 
         return {
@@ -655,17 +645,17 @@ async def remove_station_image(
 @router.get("/custom")
 async def get_custom_stations():
     """
-    Retrieve all custom stations
+    Retrieve all manually created custom stations (custom_xxx IDs)
 
     Returns:
-        List of custom stations
+        Dict of station_id → manual station metadata
     """
     try:
         plugin = container.radio_plugin()
-        custom_stations = plugin.station_manager.get_custom_stations()
+        manual_stations = plugin.station_manager.get_manual_stations()
 
-        # Enrich with favorite status
-        return plugin.station_manager.enrich_with_favorite_status(custom_stations)
+        # Return dict directly (frontend expects dict now)
+        return manual_stations
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur récupération stations personnalisées: {str(e)}")
@@ -845,6 +835,98 @@ async def create_custom_from_favorite(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur création station personnalisée: {str(e)}")
+
+
+@router.post("/favorites/modify-metadata")
+async def modify_favorite_metadata(
+    station_id: str = Form(...),
+    name: str = Form(...),
+    url: str = Form(...),
+    country: str = Form("France"),
+    genre: str = Form("Variety"),
+    image: Optional[UploadFile] = File(None),
+    remove_image: str = Form("false")
+):
+    """
+    Modifies metadata of a favorite station while preserving its score
+
+    Unlike creating a custom station, this directly modifies the favorite
+    and preserves votes/clickcount/score from RadioBrowserAPI
+    """
+    try:
+        plugin = container.radio_plugin()
+
+        image_filename = None
+        should_remove_image = remove_image.lower() == "true"
+
+        # If a new image is provided, validate and save it
+        if image and image.filename:
+            # Read file content
+            file_content = await image.read()
+
+            # Validate and save the image
+            success, saved_filename, error = await plugin.station_manager.image_manager.validate_and_save_image(
+                file_content=file_content,
+                filename=image.filename
+            )
+
+            if not success:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Erreur image: {error}"
+                )
+
+            image_filename = saved_filename
+
+        # Modify favorite metadata
+        result = await plugin.station_manager.modify_favorite_metadata(
+            station_id=station_id,
+            name=name,
+            url=url,
+            country=country,
+            genre=genre,
+            image_filename=image_filename if image_filename else ("" if should_remove_image else None)
+        )
+
+        if result["success"]:
+            return {
+                "success": True,
+                "station": result["station"]
+            }
+        else:
+            # On failure, delete the newly uploaded image if any
+            if image_filename:
+                await plugin.station_manager.image_manager.delete_image(image_filename)
+
+            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error modifying favorite: {str(e)}")
+
+
+@router.post("/favorites/restore-metadata")
+async def restore_favorite_metadata(station_id: str = Form(...)):
+    """
+    Restores original metadata of a modified favorite station
+    """
+    try:
+        plugin = container.radio_plugin()
+        result = await plugin.station_manager.restore_favorite_metadata(
+            station_id=station_id,
+            radio_api=plugin.radio_api
+        )
+
+        if result["success"]:
+            return {"success": True}
+        else:
+            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error restoring favorite: {str(e)}")
 
 
 @router.get("/images/{filename}")

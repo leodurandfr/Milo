@@ -27,14 +27,21 @@ class RadioDataService:
         Loads radio_data.json or migrates from milo_settings.json
 
         Returns:
-            Dict with favorites, broken_stations, custom_stations
+            Dict with favorites, custom_stations, favorites_cache, broken_stations
         """
         try:
             if os.path.exists(self.data_file):
                 # File exists, load it
                 async with self._file_lock:
                     async with aiofiles.open(self.data_file, 'r', encoding='utf-8') as f:
-                        return json.loads(await f.read())
+                        data = json.loads(await f.read())
+                        # Ensure new structure keys exist (for backwards compatibility)
+                        if 'favorites_cache' not in data:
+                            data['favorites_cache'] = {}
+                        if isinstance(data.get('custom_stations'), list):
+                            # Old format: convert list to dict
+                            data['custom_stations'] = {}
+                        return data
             else:
                 # First time: migrate from milo_settings.json
                 self.logger.info("radio_data.json not found, migrating from milo_settings.json")
@@ -42,10 +49,10 @@ class RadioDataService:
 
         except json.JSONDecodeError as e:
             self.logger.error(f"JSON error in radio_data.json: {e}")
-            return {"favorites": [], "broken_stations": [], "custom_stations": []}
+            return {"favorites": [], "broken_stations": [], "custom_stations": {}, "favorites_cache": {}}
         except Exception as e:
             self.logger.error(f"Error loading radio_data.json: {e}")
-            return {"favorites": [], "broken_stations": [], "custom_stations": []}
+            return {"favorites": [], "broken_stations": [], "custom_stations": {}, "favorites_cache": {}}
 
     async def save_data(self, data: Dict[str, Any]) -> bool:
         """
@@ -131,7 +138,8 @@ class RadioDataService:
             migrated = {
                 "favorites": new_favorites,
                 "broken_stations": broken_stations,
-                "custom_stations": custom_stations
+                "custom_stations": custom_stations,
+                "favorites_cache": {}  # Empty cache, will be populated on first load
             }
 
             # Save immediately
@@ -142,4 +150,4 @@ class RadioDataService:
 
         except Exception as e:
             self.logger.error(f"Migration error: {e}")
-            return {"favorites": [], "broken_stations": [], "custom_stations": []}
+            return {"favorites": [], "broken_stations": [], "custom_stations": {}, "favorites_cache": {}}

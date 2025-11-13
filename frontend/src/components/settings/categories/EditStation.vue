@@ -98,7 +98,7 @@
               ℹ️ Cette station personnalisée sera modifiée directement.
             </template>
             <template v-else>
-              ℹ️ Une nouvelle station personnalisée sera créée à partir de cette station favorite.
+              ℹ️ Les métadonnées de cette station favorite seront modifiées tout en préservant son score.
             </template>
           </div>
         </template>
@@ -137,8 +137,8 @@ const props = defineProps({
 const emit = defineEmits(['back', 'success']);
 
 // Lists of stations loaded
-const customStations = ref([]);
-const favoriteStations = ref([]);
+const customStations = ref([]); // Manually added stations (custom_xxx)
+const favoriteStations = ref([]); // All favorites (including modified ones)
 
 // All stations (custom + favorites)
 const allStations = computed(() => [...customStations.value, ...favoriteStations.value]);
@@ -146,15 +146,20 @@ const allStations = computed(() => [...customStations.value, ...favoriteStations
 // Load stations when the modal is mounted
 onMounted(async () => {
   try {
-    // Load custom stations
+    // Load custom stations dict from API
     const customResponse = await axios.get('/api/radio/custom');
-    customStations.value = customResponse.data;
+    const customDict = customResponse.data || {};
 
-    // Load favorite stations
+    // Convert dict to array, keeping only manually added stations (custom_xxx)
+    customStations.value = Object.entries(customDict)
+      .filter(([id, _]) => id.startsWith('custom_'))
+      .map(([id, metadata]) => ({ ...metadata, id }));
+
+    // Load ALL favorite stations (API returns them with correct metadata - modified if applicable)
     const favoritesResponse = await axios.get('/api/radio/stations', {
       params: { favorites_only: true, limit: 10000 }
     });
-    favoriteStations.value = favoritesResponse.data.stations;
+    favoriteStations.value = favoritesResponse.data.stations || [];
 
     console.log(`✅ Chargé ${customStations.value.length} stations custom et ${favoriteStations.value.length} favorites`);
 
@@ -342,16 +347,16 @@ async function handleSubmit() {
       submitData.append('remove_image', 'true');
     }
 
-    // Different endpoint depending on whether it's a custom station or not
+    // Different endpoint depending on whether it's a custom station or favorite
     let response;
     if (isCustomStation.value) {
-      // Update existing custom station
+      // Update existing custom station (manually added)
       response = await axios.put('/api/radio/custom/update', submitData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
     } else {
-      // Create new custom station from favorite
-      response = await axios.post('/api/radio/custom/from-favorite', submitData, {
+      // Modify favorite metadata (preserves score)
+      response = await axios.post('/api/radio/favorites/modify-metadata', submitData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
     }

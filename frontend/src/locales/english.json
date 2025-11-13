@@ -173,21 +173,16 @@
     "unknown": "Unknown"
   },
   "radioSettings": {
-    "modifiedImagesTitle": "Stations with modified image",
-    "restoreOriginalImage": "Restore original image",
-    "noModifiedImages": "No station with modified image",
-    "changeStationImage": "Change station image",
-    "editStation": "Edit a station",
+    "modifiedStationsTitle": "Modified stations",
+    "noModifiedStations": "No modified stations",
+    "restoreStationConfirm": "Restore original station?",
+    "modificationsWillBeLost": "All modifications will be lost and the original station will be restored.",
     "addedStationsTitle": "Added stations",
-    "removeImage": "Remove image",
-    "deleteStation": "Delete station",
     "noAddedStations": "No station added. Click \"Add station\" to begin.",
     "addStation": "Add station",
+    "editStation": "Edit a station",
     "deleteStationConfirm": "Delete station?",
     "cancel": "Cancel",
-    "delete": "Delete",
-    "removeImageConfirm": "Remove imported image?",
-    "imageWillBeDeleted": "The image will be deleted.",
-    "imageWillBeDeletedAndRestored": "The image will be deleted and the station will revert to its original image."
+    "delete": "Delete"
   }
 }
