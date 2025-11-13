@@ -81,31 +81,14 @@
           <div class="form-row">
             <div class="form-group">
               <label class="text-mono">Pays</label>
-              <select v-model="formData.country" class="form-input text-body-small">
-                <option value="France">France</option>
-                <option value="United Kingdom">Royaume-Uni</option>
-                <option value="United States">États-Unis</option>
-                <option value="Germany">Allemagne</option>
-                <option value="Spain">Espagne</option>
-                <option value="Italy">Italie</option>
-                <option value="Belgium">Belgique</option>
-                <option value="Netherlands">Pays-Bas</option>
-                <option value="Switzerland">Suisse</option>
-              </select>
+              <input v-model="formData.country" type="text" class="form-input text-body-small"
+                placeholder="Ex: France" />
             </div>
 
             <div class="form-group">
               <label class="text-mono">Genre</label>
-              <select v-model="formData.genre" class="form-input text-body-small">
-                <option value="Variety">Variété</option>
-                <option value="Pop">Pop</option>
-                <option value="Rock">Rock</option>
-                <option value="Jazz">Jazz</option>
-                <option value="Classical">Classique</option>
-                <option value="Electronic">Electronic</option>
-                <option value="News">News</option>
-                <option value="Talk">Talk</option>
-              </select>
+              <input v-model="formData.genre" type="text" class="form-input text-body-small"
+                placeholder="Ex: Pop, Rock, Jazz..." />
             </div>
           </div>
 
@@ -144,6 +127,13 @@ import Button from '@/components/ui/Button.vue';
 import axios from 'axios';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
+const props = defineProps({
+  preselectedStation: {
+    type: Object,
+    default: null
+  }
+});
+
 const emit = defineEmits(['back', 'success']);
 
 // Lists of stations loaded
@@ -167,6 +157,11 @@ onMounted(async () => {
     favoriteStations.value = favoritesResponse.data.stations;
 
     console.log(`✅ Chargé ${customStations.value.length} stations custom et ${favoriteStations.value.length} favorites`);
+
+    // If a preselected station is provided, auto-select it
+    if (props.preselectedStation) {
+      selectSuggestion(props.preselectedStation);
+    }
   } catch (error) {
     console.error('❌ Erreur chargement stations:', error);
   }
@@ -219,22 +214,67 @@ function searchStation() {
   }
 }
 
-function selectSuggestion(station) {
+async function selectSuggestion(station) {
   stationName.value = station.name;
   selectedStation.value = station;
   showSuggestions.value = false; // Hide suggestions after selection
 
+  console.log('🔍 Station brute reçue:', station);
+
   // Populate form with station data
-  formData.name = station.name;
-  formData.url = station.url;
-  formData.country = station.country || 'France';
-  formData.genre = station.tags || station.genre || 'Variety';
+  formData.name = station.name || '';
+
+  // Try to get URL from station object
+  let stationUrl = station.url || station.url_resolved || station.urlResolved || '';
+
+  // If URL is missing and it's not a custom station, fetch complete station data from API
+  if (!stationUrl && !station.id.startsWith('custom_')) {
+    try {
+      console.log('🔄 URL manquante, récupération depuis l\'API...');
+      const response = await axios.get(`/api/radio/station/${station.id}`);
+      const fullStation = response.data;
+      console.log('✅ Données complètes reçues:', fullStation);
+
+      // Update with complete data
+      stationUrl = fullStation.url || fullStation.url_resolved || fullStation.urlResolved || '';
+      formData.country = fullStation.country || formData.country;
+
+      // Update genre from full station data
+      let fullGenreValue = fullStation.genre || fullStation.tags || station.genre || 'Variety';
+      if (fullGenreValue && typeof fullGenreValue === 'string' && fullGenreValue.includes(',')) {
+        fullGenreValue = fullGenreValue.split(',')[0].trim();
+      }
+      formData.genre = fullGenreValue;
+    } catch (error) {
+      console.error('❌ Erreur récupération station complète:', error);
+    }
+  }
+
+  formData.url = stationUrl;
+  formData.country = station.country || station.countrycode || 'France';
+
+  // For genre: try tags first, then genre, or use station.tags as fallback
+  // Radio Browser API uses 'tags' field which can be a comma-separated string
+  let genreValue = station.genre || station.tags || 'Variety';
+  // If tags is a comma-separated string, take the first tag
+  if (genreValue && typeof genreValue === 'string' && genreValue.includes(',')) {
+    genreValue = genreValue.split(',')[0].trim();
+  }
+  formData.genre = genreValue;
+
   formData.currentImage = station.favicon || null;
   formData.removeCurrentImage = false;
 
   // Reset file selection
   selectedFile.value = null;
   imagePreview.value = null;
+
+  console.log('✅ Station sélectionnée:', {
+    name: formData.name,
+    url: formData.url,
+    country: formData.country,
+    genre: formData.genre
+  });
 }
 
 function handleFileSelect(event) {

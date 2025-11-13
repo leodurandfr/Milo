@@ -113,7 +113,7 @@
     <!-- Radio view -->
     <div v-else-if="currentView === 'radio'" class="view-detail">
       <ModalHeader title="Radio" show-back @back="goToHome" />
-      <RadioSettings ref="radioSettingsRef" @go-to-add-station="goToView('radio-add')" @go-to-edit-station="goToView('radio-edit')" />
+      <RadioSettings ref="radioSettingsRef" @go-to-add-station="goToView('radio-add')" @go-to-edit-station="goToView('radio-edit')" @edit-station="handleEditStation" />
     </div>
 
     <!-- Radio view - Add a station -->
@@ -125,7 +125,7 @@
     <!-- Radio view - Edit a station -->
     <div v-else-if="currentView === 'radio-edit'" class="view-detail">
       <ModalHeader title="Éditer une station" show-back @back="handleBackFromRadioModal" />
-      <EditStation @back="handleBackFromRadioModal" @success="handleRadioStationEdited" />
+      <EditStation :preselected-station="stationToEdit" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" />
     </div>
 
     <!-- Updates view -->
@@ -187,6 +187,7 @@ const radioStore = useRadioStore();
 // Navigation
 const currentView = ref('home');
 const radioSettingsRef = ref(null);
+const stationToEdit = ref(null);
 
 function goToView(view) {
   currentView.value = view;
@@ -199,6 +200,12 @@ function goToHome() {
 // Radio navigation handling
 function handleBackFromRadioModal() {
   currentView.value = 'radio';
+  stationToEdit.value = null; // Reset station to edit
+}
+
+function handleEditStation(station) {
+  stationToEdit.value = station;
+  currentView.value = 'radio-edit';
 }
 
 function handleRadioStationAdded(station) {
@@ -221,6 +228,7 @@ async function handleRadioStationEdited(station) {
     radioSettingsRef.value.loadCustomStations();
   }
 
+  stationToEdit.value = null; // Reset station to edit
   currentView.value = 'radio';
 }
 
