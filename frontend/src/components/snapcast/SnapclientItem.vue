@@ -159,8 +159,8 @@ onUnmounted(() => {
 
 /* === CLIENT NAME WRAPPER === */
 .client-name-wrapper {
-  min-width: 112px;
-  max-width: 112px;
+  min-width: 144px;
+  max-width: 144px;
   height: 28px;
   position: relative;
   display: flex;

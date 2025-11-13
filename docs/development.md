@@ -358,7 +358,7 @@ The Radio plugin (`backend/infrastructure/plugins/radio/`) is a complete, produc
 - Frontend integration (search, filters, modals, screensaver)
 
 **API routes:** 25+ endpoints including search, favorites, custom stations, image uploads
-**Frontend components:** RadioSource.vue, RadioScreensaver.vue, AddStationModal.vue, ChangeImageModal.vue, RadioSettings.vue
+**Frontend components:** RadioSource.vue, RadioScreensaver.vue, AddRadioStation.vue, ChangeRadioStationImage.vue, RadioSettings.vue
 **Store:** radioStore.js (Pinia) with full state management
 
 This is an excellent reference for building a complex audio source plugin with external dependencies, data persistence, and rich UI interactions.

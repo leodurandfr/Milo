@@ -124,7 +124,7 @@ import useWebSocket from '@/services/websocket';
 import { useI18n } from '@/services/i18n';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
-import AddStationModal from '@/components/settings/categories/AddStationModal.vue';
+import AddRadioStation from '@/components/settings/categories/AddRadioStation.vue';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';

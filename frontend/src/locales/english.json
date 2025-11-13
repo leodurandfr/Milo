@@ -177,6 +177,7 @@
     "restoreOriginalImage": "Restore original image",
     "noModifiedImages": "No station with modified image",
     "changeStationImage": "Change station image",
+    "editStation": "Edit a station",
     "addedStationsTitle": "Added stations",
     "removeImage": "Remove image",
     "deleteStation": "Delete station",
