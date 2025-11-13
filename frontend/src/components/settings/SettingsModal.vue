@@ -113,7 +113,7 @@
     <!-- Radio view -->
     <div v-else-if="currentView === 'radio'" class="view-detail">
       <ModalHeader title="Radio" show-back @back="goToHome" />
-      <RadioSettings ref="radioSettingsRef" @go-to-add-station="goToView('radio-add')" @go-to-edit-station="goToView('radio-edit')" @edit-station="handleEditStation" />
+      <RadioSettings ref="radioSettingsRef" @go-to-add-station="goToView('radio-add')" @edit-station="handleEditStation" />
     </div>
 
     <!-- Radio view - Add a station -->
@@ -124,7 +124,7 @@
 
     <!-- Radio view - Edit a station -->
     <div v-else-if="currentView === 'radio-edit'" class="view-detail">
-      <ModalHeader title="Éditer une station" show-back @back="handleBackFromRadioModal" />
+      <ModalHeader :title="`Modifier ${stationToEdit?.name || 'la station'}`" show-back @back="handleBackFromRadioModal" />
       <EditStation :preselected-station="stationToEdit" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" />
     </div>
 

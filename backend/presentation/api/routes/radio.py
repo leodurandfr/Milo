@@ -645,17 +645,22 @@ async def remove_station_image(
 @router.get("/custom")
 async def get_custom_stations():
     """
-    Retrieve all manually created custom stations (custom_xxx IDs)
+    Retrieve all custom stations (both modified metadata and manually created stations)
 
     Returns:
-        Dict of station_id → manual station metadata
+        Dict of station_id → metadata (merged from modified_metadata and manual_stations)
     """
     try:
         plugin = container.radio_plugin()
+
+        # Get both dictionaries
+        modified_metadata = plugin.station_manager.get_modified_metadata()
         manual_stations = plugin.station_manager.get_manual_stations()
 
-        # Return dict directly (frontend expects dict now)
-        return manual_stations
+        # Merge both dictionaries (manual_stations will override if same key)
+        all_custom_stations = {**modified_metadata, **manual_stations}
+
+        return all_custom_stations
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur récupération stations personnalisées: {str(e)}")
