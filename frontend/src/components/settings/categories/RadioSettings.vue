@@ -8,6 +8,8 @@
         <StationCard v-for="station in existingStationsWithModifiedImage" :key="station.id" :station="station"
           variant="card" :show-country="true" image-size="medium">
           <template #actions>
+            <CircularIcon icon="threeDots" variant="light" @click="$emit('edit-station', station)"
+              :title="$t('radioSettings.editStation')" />
             <CircularIcon icon="close" variant="light" @click="confirmRemoveImage(station)"
               :title="$t('radioSettings.restoreOriginalImage')" />
           </template>
@@ -18,19 +20,17 @@
         {{ $t('radioSettings.noModifiedImages') }}
       </div>
 
-      <Button variant="primary" @click="$emit('go-to-edit-station')">
-        {{ $t('radioSettings.editStation') }}
-      </Button>
-    </section>
 
-    <!-- Section 2: Added stations -->
-    <section class="settings-section">
+
+      <!--Added stations -->
       <h2 class="heading-2 text-body">{{ $t('radioSettings.addedStationsTitle') }}</h2>
 
       <div v-if="customStations.length > 0" class="stations-list">
         <StationCard v-for="station in customStations" :key="station.id" :station="station" variant="card"
           :show-country="true" image-size="medium">
           <template #actions>
+            <CircularIcon icon="threeDots" variant="light" @click="$emit('edit-station', station)"
+              :title="$t('radioSettings.editStation')" />
             <CircularIcon icon="close" variant="light" @click="confirmDelete(station)"
               :title="$t('radioSettings.deleteStation')" />
           </template>
@@ -41,6 +41,10 @@
         {{ $t('radioSettings.noAddedStations') }}
       </div>
 
+
+      <Button variant="primary" @click="$emit('go-to-edit-station')">
+        {{ $t('radioSettings.editStation') }}
+      </Button>
       <Button variant="primary" @click="$emit('go-to-add-station')">
         {{ $t('radioSettings.addStation') }}
       </Button>
@@ -84,7 +88,7 @@ import Button from '@/components/ui/Button.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 import StationCard from '@/components/audio/StationCard.vue';
 
-defineEmits(['go-to-add-station', 'go-to-edit-station']);
+defineEmits(['go-to-add-station', 'go-to-edit-station', 'edit-station']);
 
 const radioStore = useRadioStore();
 const stationToDelete = ref(null);

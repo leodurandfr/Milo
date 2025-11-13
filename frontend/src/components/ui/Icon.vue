@@ -31,7 +31,6 @@ import stopIcon from '@/assets/icons/stop.svg?raw';
 import heartIcon from '@/assets/icons/heart.svg?raw';
 import heartOffIcon from '@/assets/icons/heart-off.svg?raw';
 import caretDownIcon from '@/assets/icons/caret-down.svg?raw';
-import trashIcon from '@/assets/icons/trash.svg?raw';
 
 
 const icons = {
@@ -57,7 +56,7 @@ const icons = {
   stop : stopIcon,
   heart : heartIcon,
   heartOff : heartOffIcon,
-  trash : trashIcon
+
 
 };
 
