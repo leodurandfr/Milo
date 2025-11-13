@@ -65,7 +65,8 @@
     </div>
 
     <div v-if="showControls" class="controls-wrapper">
-      <CircularIcon :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="background-light" @click="$emit('favorite')" />
+      <CircularIcon :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="background-light"
+        @click="$emit('favorite')" />
       <!-- Desktop: Button with text -->
       <Button v-if="!isMobile" variant="background-light" :left-icon="isPlaying ? 'stop' : 'play'"
         @click="$emit('play')">
@@ -363,6 +364,47 @@ function handleImageError() {
   }
 }
 
+/* Desktop: Vertical layout */
+.now-playing {
+  top: var(--space-07);
+  right: var(--space-06);
+  margin: var(--space-07) var(--space-07) 0 0;
+  display: flex;
+  justify-content: space-between;
+  overflow: hidden;
+  width: 310px;
+  height: calc(100% - 2 * var(--space-07));
+  max-height: 560px;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: var(--space-04);
+  padding: var(--space-04);
+  background: var(--color-text);
+  border-radius: var(--radius-07);
+  backdrop-filter: blur(16px);
+}
+
+.now-playing .station-art-background .background-station-favicon {
+  filter: blur(96px) saturate(1.6) contrast(1) brightness(0.6);
+}
+
+.now-playing::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  opacity: 0.8;
+  background: var(--stroke-glass);
+  border-radius: var(--radius-07);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+  pointer-events: none;
+}
+
 /* === "NOW-PLAYING" VARIANT: Player with controls === */
 
 
@@ -439,47 +481,6 @@ function handleImageError() {
   margin: 0;
 }
 
-/* Desktop: Vertical layout */
-.now-playing {
-  top: var(--space-07);
-  right: var(--space-06);
-  margin: var(--space-07) var(--space-07) 0 0;
-  display: flex;
-  justify-content: space-between;
-  overflow: hidden;
-  width: 310px;
-  height: calc(100% - 2 * var(--space-07));
-  max-height: 560px;
-  flex-shrink: 0;
-  flex-direction: column;
-  gap: var(--space-04);
-  padding: var(--space-04);
-  background: var(--color-text);
-  border-radius: var(--radius-07);
-  backdrop-filter: blur(16px);
-}
-
-.now-playing .station-art-background .background-station-favicon {
-  filter: blur(60px);
-  opacity: 0.72;
-}
-
-.now-playing::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 2px;
-  opacity: 0.8;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-07);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: -1;
-  pointer-events: none;
-}
 
 .now-playing .station-art {
   width: 100%;
@@ -524,12 +525,11 @@ function handleImageError() {
     left: 50%;
     transform: translateX(-50%);
     width: calc(100% - var(--space-02) * 2);
-
     height: auto;
     flex-direction: row;
     align-items: center;
     gap: var(--space-03);
-    padding: var(--space-03);
+    padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
     border-radius: var(--radius-06);
     box-shadow: 0 var(--space-04) var(--space-07) rgba(0, 0, 0, 0.2);
     z-index: 1000;
@@ -564,5 +564,17 @@ function handleImageError() {
   .controls-wrapper {
     flex-direction: row;
   }
+
+  /* Réduire la taille des CircularIcon et de leurs icônes en mobile */
+  .controls-wrapper :deep(.circular-icon--background-light) {
+    width: 40px;
+    height: 40px;
+  }
+
+  .controls-wrapper :deep(.svg-responsive) {
+    width: 28px;
+    height: 28px;
+  }
+
 }
 </style>

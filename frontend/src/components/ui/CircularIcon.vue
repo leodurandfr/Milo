@@ -122,6 +122,7 @@ function handleClick() {
   .circular-icon {
     width: 40px;
     height: 40px;
+    border-radius: var(--radius-03);
   }
 }
 </style>
