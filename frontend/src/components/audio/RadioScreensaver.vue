@@ -196,8 +196,8 @@ watch(() => props.isVisible, (visible) => {
   min-height: 200%;
   object-fit: contain;
   transform: scale(2);
-  filter: blur(60px);
-  opacity: 0.1;
+  filter: blur(64px) saturate(1.5) contrast(1.5) brightness(0.5);
+  opacity: 0.16;
 }
 
 .station-art-background-card {
@@ -223,8 +223,7 @@ watch(() => props.isVisible, (visible) => {
   min-height: 200%;
   object-fit: contain;
   transform: scale(2);
-  filter: blur(60px);
-  opacity: 0.5;
+  filter: blur(96px) saturate(1.6) contrast(1) brightness(0.6);
 }
 
 .station-art {
