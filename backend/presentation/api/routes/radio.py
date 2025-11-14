@@ -46,11 +46,11 @@ class AddCustomStationRequest(BaseModel):
     """Request to add a custom station"""
     name: str
     url: str
-    country: str = "France"
-    genre: str = "Variety"
+    country: str = ""
+    genre: str = ""
     favicon: str = ""
-    bitrate: int = 128
-    codec: str = "MP3"
+    bitrate: int = 0
+    codec: str = ""
 
 
 class RemoveCustomStationRequest(BaseModel):
@@ -430,10 +430,10 @@ async def get_countries():
 async def add_custom_station(
     name: str = Form(...),
     url: str = Form(...),
-    country: str = Form("France"),
-    genre: str = Form("Variety"),
-    bitrate: int = Form(128),
-    codec: str = Form("MP3"),
+    country: str = Form(""),
+    genre: str = Form(""),
+    bitrate: int = Form(0),
+    codec: str = Form(""),
     image: Optional[UploadFile] = File(None)
 ):
     """
@@ -442,10 +442,10 @@ async def add_custom_station(
     Args:
         name: Station name
         url: Audio stream URL
-        country: Country (default: "France")
-        genre: Music genre (default: "Variety")
-        bitrate: Bitrate in kbps (default: 128)
-        codec: Audio codec (default: "MP3")
+        country: Country (optional)
+        genre: Music genre (optional)
+        bitrate: Bitrate in kbps (optional)
+        codec: Audio codec (optional)
         image: Image file (optional, max 5MB, formats: JPG, PNG, WEBP, GIF)
 
     Returns:
@@ -671,8 +671,8 @@ async def update_custom_station(
     station_id: str = Form(...),
     name: str = Form(...),
     url: str = Form(...),
-    country: str = Form("France"),
-    genre: str = Form("Variety"),
+    country: str = Form(""),
+    genre: str = Form(""),
     image: Optional[UploadFile] = File(None),
     remove_image: str = Form("false")
 ):
@@ -762,8 +762,8 @@ async def create_custom_from_favorite(
     station_id: str = Form(...),
     name: str = Form(...),
     url: str = Form(...),
-    country: str = Form("France"),
-    genre: str = Form("Variety"),
+    country: str = Form(""),
+    genre: str = Form(""),
     image: Optional[UploadFile] = File(None),
     remove_image: str = Form("false")
 ):
@@ -847,10 +847,10 @@ async def modify_favorite_metadata(
     station_id: str = Form(...),
     name: str = Form(...),
     url: str = Form(...),
-    country: str = Form("France"),
-    genre: str = Form("Variety"),
-    codec: str = Form("MP3"),
-    bitrate: int = Form(128),
+    country: str = Form(""),
+    genre: str = Form(""),
+    codec: str = Form(""),
+    bitrate: int = Form(0),
     image: Optional[UploadFile] = File(None),
     remove_image: str = Form("false")
 ):

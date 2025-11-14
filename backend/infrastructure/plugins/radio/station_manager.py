@@ -487,11 +487,11 @@ class StationManager:
         self,
         name: str,
         url: str,
-        country: str = "France",
-        genre: str = "Variety",
+        country: str = "",
+        genre: str = "",
         image_filename: str = "",
-        bitrate: int = 128,
-        codec: str = "MP3"
+        bitrate: int = 0,
+        codec: str = ""
     ) -> Dict[str, Any]:
         """
         Adds custom station
@@ -499,8 +499,8 @@ class StationManager:
         Args:
             name: Station name
             url: Audio stream URL
-            country: Country (default: "France")
-            genre: Music genre (default: "Variety")
+            country: Country (optional)
+            genre: Music genre (optional)
             image_filename: Uploaded image file name (e.g.: "abc123.jpg")
             bitrate: Bitrate in kbps (default: 128)
             codec: Audio codec (default: "MP3")
@@ -658,8 +658,8 @@ class StationManager:
         station_id: str,
         name: str,
         url: str,
-        country: str = "France",
-        genre: str = "Variety",
+        country: str = "",
+        genre: str = "",
         image_filename: Optional[str] = None,
         remove_image: bool = False
     ) -> Dict[str, Any]:
@@ -716,8 +716,8 @@ class StationManager:
                 "genre": genre.strip(),
                 "favicon": favicon_url,
                 "image_filename": new_image_filename,
-                "bitrate": old_station.get('bitrate', 128),
-                "codec": old_station.get('codec', 'MP3'),
+                "bitrate": old_station.get('bitrate', 0),
+                "codec": old_station.get('codec', ''),
                 "is_custom": True,
                 "votes": 0,
                 "clickcount": 0,
@@ -752,8 +752,8 @@ class StationManager:
         station_id: str,
         name: str,
         url: str,
-        country: str = "France",
-        genre: str = "Variety",
+        country: str = "",
+        genre: str = "",
         image_filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -790,8 +790,8 @@ class StationManager:
                 "genre": genre.strip(),
                 "favicon": favicon_url,
                 "image_filename": image_filename or "",
-                "bitrate": 128,
-                "codec": "MP3",
+                "bitrate": 0,
+                "codec": "",
                 "is_custom": True,
                 "votes": 0,
                 "clickcount": 0,
@@ -831,10 +831,10 @@ class StationManager:
         station_id: str,
         name: str,
         url: str,
-        country: str = "France",
-        genre: str = "Variety",
-        codec: str = "MP3",
-        bitrate: int = 128,
+        country: str = "",
+        genre: str = "",
+        codec: str = "",
+        bitrate: int = 0,
         image_filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -844,10 +844,10 @@ class StationManager:
             station_id: Station ID
             name: New station name
             url: New audio stream URL
-            country: New country
-            genre: New music genre
-            codec: Audio codec (default: "MP3")
-            bitrate: Bitrate in kbps (default: 128)
+            country: New country (optional)
+            genre: New music genre (optional)
+            codec: Audio codec (optional)
+            bitrate: Bitrate in kbps (optional)
             image_filename: New image file name (optional)
 
         Returns:

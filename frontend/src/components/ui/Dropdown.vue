@@ -1,14 +1,16 @@
 <!-- frontend/src/components/ui/Dropdown.vue -->
 <template>
   <div ref="dropdownRef" class="dropdown">
-    <button type="button" class="dropdown-trigger text-body-small" :class="{ 'is-open': isOpen }"
+    <button type="button" class="dropdown-trigger text-body-small"
+      :class="{ 'is-open': isOpen, 'has-selection': modelValue }"
+      :disabled="disabled"
       @click="toggleDropdown">
       <span class="dropdown-label">{{ selectedLabel }}</span>
       <Icon name="caretDown" :size="24" class="dropdown-icon" />
     </button>
 
     <Transition name="dropdown-menu">
-      <div v-if="isOpen" class="dropdown-menu">
+      <div v-if="isOpen" class="dropdown-menu" :class="{ 'open-upward': openUpward }">
         <div v-for="(option, index) in options" :key="option.value" class="dropdown-item text-body-small"
           :class="{ 'is-selected': option.value === modelValue }" @click="selectOption(option.value)">
           {{ option.label }}
@@ -35,6 +37,10 @@ const props = defineProps({
   placeholder: {
     type: String,
     default: 'Select an option'
+  },
+  disabled: {
+    type: Boolean,
+    default: false
   }
 });
 
@@ -42,14 +48,61 @@ const emit = defineEmits(['update:modelValue', 'change']);
 
 const dropdownRef = ref(null);
 const isOpen = ref(false);
+const openUpward = ref(false);
 
 const selectedLabel = computed(() => {
   const selected = props.options.find(opt => opt.value === props.modelValue);
   return selected ? selected.label : props.placeholder;
 });
 
+function calculateDropdownDirection() {
+  if (!dropdownRef.value) return;
+
+  const BOTTOM_MARGIN = 24; // Minimum margin in pixels
+  const MENU_MAX_HEIGHT = 340; // Max height of dropdown menu
+
+  // Get dropdown position
+  const triggerRect = dropdownRef.value.getBoundingClientRect();
+
+  // Find the scrollable parent container
+  let scrollableParent = dropdownRef.value.parentElement;
+  while (scrollableParent) {
+    const style = window.getComputedStyle(scrollableParent);
+    const overflowY = style.overflowY;
+
+    if (overflowY === 'auto' || overflowY === 'scroll') {
+      break;
+    }
+    scrollableParent = scrollableParent.parentElement;
+  }
+
+  // If no scrollable parent found, use viewport
+  if (!scrollableParent) {
+    const spaceBelow = window.innerHeight - triggerRect.bottom;
+    const spaceAbove = triggerRect.top;
+    openUpward.value = spaceBelow < (MENU_MAX_HEIGHT + BOTTOM_MARGIN) && spaceAbove > MENU_MAX_HEIGHT;
+    return;
+  }
+
+  // Calculate space relative to scrollable parent
+  const parentRect = scrollableParent.getBoundingClientRect();
+  const spaceBelow = parentRect.bottom - triggerRect.bottom;
+  const spaceAbove = triggerRect.top - parentRect.top;
+
+  // Open upward if not enough space below and enough space above
+  openUpward.value = spaceBelow < (MENU_MAX_HEIGHT + BOTTOM_MARGIN) && spaceAbove > MENU_MAX_HEIGHT;
+}
+
 function toggleDropdown() {
   isOpen.value = !isOpen.value;
+
+  // Calculate direction when opening
+  if (isOpen.value) {
+    // Wait for next tick to ensure DOM is updated
+    setTimeout(() => {
+      calculateDropdownDirection();
+    }, 0);
+  }
 }
 
 function selectOption(value) {
@@ -88,7 +141,6 @@ onBeforeUnmount(() => {
   width: 100%;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
-  color: var(--color-text-secondary);
   background: var(--color-background-neutral);
   cursor: pointer;
   outline: none;
@@ -103,7 +155,11 @@ onBeforeUnmount(() => {
 .dropdown-trigger:focus {
   border-color: var(--color-brand);
   box-shadow: inset 0 0 0 2px var(--color-brand);
+}
 
+.dropdown-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .dropdown-label {
@@ -113,6 +169,11 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  color: var(--color-text-light);
+}
+
+.dropdown-trigger.has-selection .dropdown-label {
+  color: var(--color-text);
 }
 
 .dropdown-icon {
@@ -140,10 +201,15 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 
+.dropdown-menu.open-upward {
+  top: auto;
+  bottom: calc(100% + var(--space-01));
+}
+
 .dropdown-item {
   position: relative;
   padding: var(--space-03) var(--space-04);
-  color: var(--color-text-secondary);
+  color: var(--color-text);
   cursor: pointer;
   transition:
     background-color var(--transition-fast),
@@ -180,13 +246,28 @@ onBeforeUnmount(() => {
   transform-origin: top;
 }
 
+.dropdown-menu.open-upward.dropdown-menu-enter-active,
+.dropdown-menu.open-upward.dropdown-menu-leave-active {
+  transform-origin: bottom;
+}
+
 .dropdown-menu-enter-from {
   opacity: 0;
   transform: translateY(-8px);
 }
 
+.dropdown-menu.open-upward.dropdown-menu-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
 .dropdown-menu-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+
+.dropdown-menu.open-upward.dropdown-menu-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }
 </style>
