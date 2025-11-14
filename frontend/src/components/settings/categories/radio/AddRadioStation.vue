@@ -67,7 +67,7 @@
 
           <div class="form-group">
             <label class="text-mono">Bitrate (kbps)</label>
-            <InputText v-model.number="formData.bitrate" type="number" input-class="text-body-small"
+            <InputText v-model="formData.bitrate" type="number" input-class="text-body-small"
               placeholder="Ex: 128, 192, 320" />
           </div>
         </div>
@@ -114,7 +114,7 @@ const formData = reactive({
   url: '',
   country: 'France',
   genre: 'Variety',
-  bitrate: 128,
+  bitrate: '128',
   codec: 'MP3'
 });
 
@@ -197,7 +197,7 @@ async function handleSubmit() {
       url: formData.url.trim(),
       country: formData.country,
       genre: formData.genre,
-      bitrate: formData.bitrate,
+      bitrate: parseInt(formData.bitrate, 10),
       codec: formData.codec,
       image: selectedFile.value // File object or null
     };
