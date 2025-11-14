@@ -1,4 +1,4 @@
-<template>
+<!-- <template>
   <section class="settings-section">
     <form @submit.prevent="handleSubmit" class="change-image-form">
         <!-- Station selection (search) -->
@@ -486,4 +486,4 @@ async function handleSubmit() {
   justify-content: flex-end;
   padding-top: var(--space-02);
 }
-</style>
+</style> -->

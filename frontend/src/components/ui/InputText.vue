@@ -137,9 +137,9 @@ defineExpose({
   border-radius: var(--radius-04);
   background: var(--color-background-neutral);
   gap: var(--space-01);
-  -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
-  -moz-box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
-  box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
+  -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-border);
+  -moz-box-shadow: inset 0px 0px 0px 2px var(--color-border);
+  box-shadow: inset 0px 0px 0px 2px var(--color-border);
   transition: box-shadow var(--transition-fast);
 }
 

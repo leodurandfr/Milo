@@ -833,6 +833,8 @@ class StationManager:
         url: str,
         country: str = "France",
         genre: str = "Variety",
+        codec: str = "MP3",
+        bitrate: int = 128,
         image_filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -844,6 +846,8 @@ class StationManager:
             url: New audio stream URL
             country: New country
             genre: New music genre
+            codec: Audio codec (default: "MP3")
+            bitrate: Bitrate in kbps (default: 128)
             image_filename: New image file name (optional)
 
         Returns:
@@ -889,8 +893,8 @@ class StationManager:
                 "genre": genre.strip(),
                 "favicon": favicon_url,
                 "image_filename": final_image_filename,
-                "bitrate": original.get("bitrate", 128),
-                "codec": original.get("codec", "MP3"),
+                "bitrate": bitrate,
+                "codec": codec.strip(),
                 "votes": original.get("votes", 0),
                 "clickcount": original.get("clickcount", 0),
                 "score": original.get("score", 0)

@@ -36,40 +36,40 @@
         <!-- Station Details -->
         <div class="form-group">
           <label class="text-mono">Nom de la station *</label>
-          <input v-model="formData.name" type="text" required class="form-input text-body-small"
+          <InputText v-model="formData.name" type="text" input-class="text-body-small"
             placeholder="Ex: RTL" />
         </div>
 
         <div class="form-group">
           <label class="text-mono">URL du flux audio *</label>
-          <input v-model="formData.url" type="url" required class="form-input text-body-small"
+          <InputText v-model="formData.url" type="url" input-class="text-body-small"
             placeholder="Ex: http://streaming.radio.fr/stream" />
         </div>
 
         <div class="form-row">
           <div class="form-group">
             <label class="text-mono">Pays</label>
-            <select v-model="formData.country" class="form-input text-body-small">
-              <option value="France">France</option>
-              <option value="United Kingdom">Royaume-Uni</option>
-              <option value="United States">États-Unis</option>
-              <option value="Germany">Allemagne</option>
-              <option value="Spain">Espagne</option>
-              <option value="Italy">Italie</option>
-            </select>
+            <Dropdown v-model="formData.country" :options="countryOptions" />
           </div>
 
           <div class="form-group">
             <label class="text-mono">Genre</label>
-            <select v-model="formData.genre" class="form-input text-body-small">
-              <option value="Variety">Variété</option>
-              <option value="Pop">Pop</option>
-              <option value="Rock">Rock</option>
-              <option value="Jazz">Jazz</option>
-              <option value="Classical">Classique</option>
-              <option value="Electronic">Electronic</option>
-              <option value="News">News</option>
-            </select>
+            <InputText v-model="formData.genre" type="text" input-class="text-body-small"
+              placeholder="Ex: Pop, Rock, Jazz" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="text-mono">Codec</label>
+            <InputText v-model="formData.codec" type="text" input-class="text-body-small"
+              placeholder="Ex: MP3, AAC, OGG" />
+          </div>
+
+          <div class="form-group">
+            <label class="text-mono">Bitrate (kbps)</label>
+            <InputText v-model.number="formData.bitrate" type="number" input-class="text-body-small"
+              placeholder="Ex: 128, 192, 320" />
           </div>
         </div>
 
@@ -102,9 +102,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue';
+import { ref, reactive, onMounted, watch, computed } from 'vue';
 import Button from '@/components/ui/Button.vue';
+import Dropdown from '@/components/ui/Dropdown.vue';
+import InputText from '@/components/ui/InputText.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
+import axios from 'axios';
 
 const props = defineProps({
   preselectedStation: {
@@ -127,13 +130,39 @@ const shouldRemoveImage = ref(false);
 const isSubmitting = ref(false);
 const errorMessage = ref('');
 const isConfirmingRestore = ref(false);
+const availableCountries = ref([]);
 let lastClickTime = 0;
 
 const formData = reactive({
   name: '',
   url: '',
   country: 'France',
-  genre: 'Variety'
+  genre: 'Variety',
+  codec: 'MP3',
+  bitrate: 128
+});
+
+// Load available countries from API
+async function loadAvailableCountries() {
+  try {
+    const response = await axios.get('/api/radio/countries');
+    availableCountries.value = response.data;
+    console.log(`📍 Loaded ${availableCountries.value.length} countries`);
+  } catch (error) {
+    console.error('❌ Error loading countries:', error);
+    availableCountries.value = [];
+  }
+}
+
+// Convert countries to dropdown format
+const countryOptions = computed(() => {
+  if (availableCountries.value.length === 0) {
+    return [{ label: 'Chargement...', value: 'France' }];
+  }
+  return availableCountries.value.map(country => ({
+    label: country.name,
+    value: country.name
+  }));
 });
 
 // Initialize form with preselected station data
@@ -149,6 +178,8 @@ function initializeForm() {
     formData.url = props.preselectedStation.url || props.preselectedStation.url_resolved || '';
     formData.country = props.preselectedStation.country || 'France';
     formData.genre = props.preselectedStation.genre || 'Variety';
+    formData.codec = props.preselectedStation.codec || 'MP3';
+    formData.bitrate = props.preselectedStation.bitrate || 128;
 
     // Set current image URL if exists
     if (props.preselectedStation.favicon) {
@@ -170,6 +201,7 @@ watch([() => formData.name, () => formData.url, () => formData.country, () => fo
 
 onMounted(() => {
   initializeForm();
+  loadAvailableCountries();
 });
 
 function handleFileSelect(event) {
@@ -249,6 +281,8 @@ async function handleSubmit() {
     formDataToSend.append('url', formData.url.trim());
     formDataToSend.append('country', formData.country);
     formDataToSend.append('genre', formData.genre);
+    formDataToSend.append('codec', formData.codec);
+    formDataToSend.append('bitrate', formData.bitrate.toString());
     formDataToSend.append('remove_image', shouldRemoveImage.value.toString());
 
     if (selectedFile.value) {
@@ -305,20 +339,6 @@ async function handleSubmit() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-03);
-}
-
-.form-input {
-  padding: var(--space-02) var(--space-03);
-  border: 2px solid var(--color-background-glass);
-  border-radius: var(--radius-03);
-  background: var(--color-background-neutral);
-  color: var(--color-text);
-  transition: border-color var(--transition-fast);
-}
-
-.form-input:focus {
-  outline: none;
-  border-color: var(--color-brand);
 }
 
 /* Image Upload */

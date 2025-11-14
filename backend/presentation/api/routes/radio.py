@@ -849,6 +849,8 @@ async def modify_favorite_metadata(
     url: str = Form(...),
     country: str = Form("France"),
     genre: str = Form("Variety"),
+    codec: str = Form("MP3"),
+    bitrate: int = Form(128),
     image: Optional[UploadFile] = File(None),
     remove_image: str = Form("false")
 ):
@@ -890,6 +892,8 @@ async def modify_favorite_metadata(
             url=url,
             country=country,
             genre=genre,
+            codec=codec,
+            bitrate=bitrate,
             image_filename=image_filename if image_filename else ("" if should_remove_image else None)
         )
 
