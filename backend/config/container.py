@@ -8,6 +8,7 @@ from backend.infrastructure.plugins.librespot import LibrespotPlugin
 from backend.infrastructure.plugins.roc import RocPlugin
 from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
 from backend.infrastructure.plugins.radio import RadioPlugin
+from backend.infrastructure.plugins.podcast import PodcastPlugin
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 from backend.infrastructure.services.audio_routing_service import AudioRoutingService
 from backend.infrastructure.services.snapcast_service import SnapcastService
@@ -137,6 +138,18 @@ class Container(containers.DeclarativeContainer):
         settings_service=settings_service
     )
 
+    podcast_plugin = providers.Singleton(
+        PodcastPlugin,
+        config=providers.Dict({
+            "service_name": "milo-podcast.service",
+            "ipc_socket": "/run/milo/podcast-ipc.sock",
+            "taddy_user_id": "3671",
+            "taddy_api_key": "c065f2bf5d26b1bc2e8d0c39b4c5d086fcfec81bc3ec86503a5a63356277639ce66b01e88f9c152aacf85e7ebe3cc7a7bd"
+        }),
+        state_machine=audio_state_machine,
+        settings_service=settings_service
+    )
+
     # Post-creation configuration
     @providers.Callable
     def initialize_services():
@@ -225,6 +238,7 @@ class Container(containers.DeclarativeContainer):
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
         state_machine.register_plugin(AudioSource.ROC, container.roc_plugin())
         state_machine.register_plugin(AudioSource.RADIO, container.radio_plugin())
+        state_machine.register_plugin(AudioSource.PODCAST, container.podcast_plugin())
 
         # ============================================================
         # STEP 4: Parallel async initialization
