@@ -89,6 +89,15 @@
           >
             {{ isConfirmingRestore ? 'Confirmer' : 'Restaurer la station' }}
           </Button>
+          <Button
+            v-if="canDelete"
+            variant="secondary"
+            :class="{ 'delete-btn': !isConfirmingDelete, 'delete-btn-confirm': isConfirmingDelete }"
+            @click="handleDeleteClick"
+            :disabled="isSubmitting"
+          >
+            {{ isConfirmingDelete ? 'Confirmer' : 'Supprimer la station' }}
+          </Button>
           <div class="spacer"></div>
           <Button variant="secondary" @click="$emit('back')" :disabled="isSubmitting">
             Annuler
@@ -117,10 +126,14 @@ const props = defineProps({
   canRestore: {
     type: Boolean,
     default: false
+  },
+  canDelete: {
+    type: Boolean,
+    default: false
   }
 });
 
-const emit = defineEmits(['back', 'success', 'restore']);
+const emit = defineEmits(['back', 'success', 'restore', 'delete']);
 
 const fileInput = ref(null);
 const selectedFile = ref(null);
@@ -130,6 +143,7 @@ const shouldRemoveImage = ref(false);
 const isSubmitting = ref(false);
 const errorMessage = ref('');
 const isConfirmingRestore = ref(false);
+const isConfirmingDelete = ref(false);
 const availableCountries = ref([]);
 let lastClickTime = 0;
 
@@ -192,11 +206,13 @@ function initializeForm() {
 watch(() => props.preselectedStation, () => {
   initializeForm();
   isConfirmingRestore.value = false;
+  isConfirmingDelete.value = false;
 }, { immediate: true });
 
 // Reset confirmation state if user modifies form data
 watch([() => formData.name, () => formData.url, () => formData.country, () => formData.genre, selectedFile], () => {
   isConfirmingRestore.value = false;
+  isConfirmingDelete.value = false;
 });
 
 onMounted(() => {
@@ -265,6 +281,27 @@ function handleRestoreClick() {
   } else {
     // First click - show confirmation state
     isConfirmingRestore.value = true;
+  }
+}
+
+function handleDeleteClick() {
+  const now = Date.now();
+
+  // Debounce: ignore clicks within 600ms of the last click
+  if (now - lastClickTime < 600) {
+    return;
+  }
+
+  // Update last click time
+  lastClickTime = now;
+
+  if (isConfirmingDelete.value) {
+    // Second click - confirm and emit delete event
+    emit('delete');
+    isConfirmingDelete.value = false;
+  } else {
+    // First click - show confirmation state
+    isConfirmingDelete.value = true;
   }
 }
 
@@ -464,13 +501,22 @@ async function handleSubmit() {
   color: rgb(244, 67, 54);
 }
 
-
 .form-actions .restore-btn-confirm {
   background: rgb(244, 67, 54);
   color: white;
   border: 2px solid rgb(244, 67, 54);
 }
 
+.form-actions .delete-btn {
+  border: 2px solid rgba(244, 67, 54, 0.3);
+  color: rgb(244, 67, 54);
+}
+
+.form-actions .delete-btn-confirm {
+  background: rgb(244, 67, 54);
+  color: white;
+  border: 2px solid rgb(244, 67, 54);
+}
 
 /* Mobile responsive */
 @media (max-width: 600px) {
