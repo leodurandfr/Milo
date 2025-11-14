@@ -190,9 +190,9 @@ const currentView = ref('home');
 const radioSettingsRef = ref(null);
 const stationToEdit = ref(null);
 
-// Check if the station can be restored (only modified stations, not custom ones)
+// Check if the station can be restored (only modified stations)
 const canRestoreStation = computed(() => {
-  return stationToEdit.value && !stationToEdit.value.id.startsWith('custom_');
+  return stationToEdit.value?._canRestore === true;
 });
 
 function goToView(view) {
