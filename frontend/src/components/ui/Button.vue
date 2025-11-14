@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/Button.vue -->
 <template>
-    <button :class="buttonClasses" :disabled="disabled" @click="handleClick">
+    <button :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
         <Icon v-if="leftIcon" :name="leftIcon" :size="32" />
         <slot></slot>
     </button>
@@ -19,6 +19,11 @@ export default {
             type: String,
             default: 'primary',
             validator: (value) => ['primary', 'secondary', 'toggle', 'background-light'].includes(value)
+        },
+        type: {
+            type: String,
+            default: 'button',
+            validator: (value) => ['button', 'submit', 'reset'].includes(value)
         },
         disabled: {
             type: Boolean,

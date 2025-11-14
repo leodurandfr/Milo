@@ -125,7 +125,7 @@
     <!-- Radio view - Edit a station -->
     <div v-else-if="currentView === 'radio-edit'" class="view-detail">
       <ModalHeader :title="`Modifier ${stationToEdit?.name || 'la station'}`" show-back @back="handleBackFromRadioModal" />
-      <EditStation :preselected-station="stationToEdit" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" />
+      <EditStation :preselected-station="stationToEdit" :can-restore="canRestoreStation" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation" />
     </div>
 
     <!-- Updates view -->
@@ -150,6 +150,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
 import useWebSocket from '@/services/websocket';
+import axios from 'axios';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import IconButton from '@/components/ui/IconButton.vue';
@@ -189,6 +190,11 @@ const currentView = ref('home');
 const radioSettingsRef = ref(null);
 const stationToEdit = ref(null);
 
+// Check if the station can be restored (only modified stations, not custom ones)
+const canRestoreStation = computed(() => {
+  return stationToEdit.value && !stationToEdit.value.id.startsWith('custom_');
+});
+
 function goToView(view) {
   currentView.value = view;
 }
@@ -206,6 +212,40 @@ function handleBackFromRadioModal() {
 function handleEditStation(station) {
   stationToEdit.value = station;
   currentView.value = 'radio-edit';
+}
+
+async function handleRestoreStation() {
+  if (!stationToEdit.value) return;
+
+  try {
+    // Call API to restore favorite metadata
+    const formData = new FormData();
+    formData.append('station_id', stationToEdit.value.id);
+
+    const response = await axios.post('/api/radio/favorites/restore-metadata', formData);
+
+    if (response.data.success) {
+      // Wait a bit for backend to save
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Reload favorites in radioStore to update RadioSource
+      await radioStore.loadStations(true);
+
+      // Return to radio settings
+      currentView.value = 'radio';
+      stationToEdit.value = null;
+
+      // After the view changes, reload the data
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (radioSettingsRef.value) {
+        await radioSettingsRef.value.loadCustomStations();
+      }
+    } else {
+      console.error('❌ Échec restauration station');
+    }
+  } catch (error) {
+    console.error('❌ Erreur restauration:', error);
+  }
 }
 
 function handleRadioStationAdded(station) {

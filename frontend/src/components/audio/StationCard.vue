@@ -248,9 +248,6 @@ function handleImageError() {
   min-width: 0;
 }
 
-.station-card:hover {
-  background: var(--color-background);
-}
 
 .station-card.active {
   border-color: var(--color-brand);
