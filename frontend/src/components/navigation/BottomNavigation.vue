@@ -112,7 +112,7 @@ const $t = instance.appContext.config.globalProperties.$t;
 const { on } = useWebSocket();
 
 // === STATIC CONFIGURATION ===
-const ALL_AUDIO_SOURCES = ['librespot', 'bluetooth', 'roc', 'radio'];
+const ALL_AUDIO_SOURCES = ['librespot', 'bluetooth', 'roc', 'radio', 'podcast'];
 
 
 // Actions with reactive titles
@@ -123,7 +123,7 @@ const ALL_ADDITIONAL_ACTIONS = computed(() => [
 ]);
 
 // === DYNAMIC CONFIGURATION ===
-const enabledApps = ref(["librespot", "bluetooth", "roc", "radio", "multiroom", "equalizer", "settings"]);
+const enabledApps = ref(["librespot", "bluetooth", "roc", "radio", "podcast", "multiroom", "equalizer", "settings"]);
 const mobileVolumeSteps = ref(5);
 
 // Computed to separate audio plugins and features
@@ -505,7 +505,8 @@ const getAppTitle = (appId) => {
     'librespot': t('applications.spotify'),
     'bluetooth': t('applications.bluetooth'),
     'roc': t('applications.macOS'),
-    'radio': t('audioSources.radio')
+    'radio': t('audioSources.radio'),
+    'podcast': 'Podcasts'
   };
 
   // If it's an audio source, return the translation
@@ -630,7 +631,7 @@ const loadDockConfig = async () => {
     const response = await fetch('/api/settings/dock-apps');
     const data = await response.json();
     if (data.status === 'success') {
-      enabledApps.value = data.config.enabled_apps || ["librespot", "bluetooth", "roc", "radio", "multiroom", "equalizer", "settings"];
+      enabledApps.value = data.config.enabled_apps || ["librespot", "bluetooth", "roc", "radio", "podcast", "multiroom", "equalizer", "settings"];
     }
   } catch (error) {
     console.error('Error loading dock config:', error);

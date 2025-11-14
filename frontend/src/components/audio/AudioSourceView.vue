@@ -12,6 +12,9 @@
       <!-- RadioView -->
       <RadioSource v-else-if="shouldShowRadio" :key="radioKey" />
 
+      <!-- PodcastView -->
+      <PodcastSource v-else-if="shouldShowPodcast" :key="podcastKey" />
+
       <!-- PluginStatus -->
       <div v-else-if="shouldShowPluginStatus" :key="pluginStatusKey" class="plugin-status-container">
         <AudioSourceStatus :plugin-type="currentPluginType" :plugin-state="currentPluginState"
@@ -26,6 +29,7 @@
 import { computed, ref, onMounted } from 'vue';
 import LibrespotSource from './LibrespotSource.vue';
 import RadioSource from './RadioSource.vue';
+import PodcastSource from './PodcastSource.vue';
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
 // Props
@@ -94,6 +98,13 @@ const shouldShowRadio = computed(() => {
     !props.transitioning;
 });
 
+const shouldShowPodcast = computed(() => {
+  if (showInitialDelay.value) return false;
+
+  return displayedSource.value === 'podcast' &&
+    !props.transitioning;
+});
+
 const shouldShowPluginStatus = computed(() => {
   if (showInitialDelay.value) return false;
 
@@ -151,6 +162,11 @@ const librespotKey = computed(() => {
 // Specific key for RadioView
 const radioKey = computed(() => {
   return shouldShowRadio.value ? 'radio-active' : 'radio-hidden';
+});
+
+// Specific key for PodcastView
+const podcastKey = computed(() => {
+  return shouldShowPodcast.value ? 'podcast-active' : 'podcast-hidden';
 });
 
 // === LIFECYCLE ===
