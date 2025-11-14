@@ -125,7 +125,7 @@
     <!-- Radio view - Edit a station -->
     <div v-else-if="currentView === 'radio-edit'" class="view-detail">
       <ModalHeader :title="`Modifier ${stationToEdit?.name || 'la station'}`" show-back @back="handleBackFromRadioModal" />
-      <EditStation :preselected-station="stationToEdit" :can-restore="canRestoreStation" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation" />
+      <EditStation :preselected-station="stationToEdit" :can-restore="canRestoreStation" :can-delete="canDeleteStation" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation" @delete="handleDeleteStation" />
     </div>
 
     <!-- Updates view -->
@@ -195,6 +195,11 @@ const canRestoreStation = computed(() => {
   return stationToEdit.value?._canRestore === true;
 });
 
+// Check if the station can be deleted (only manually added stations)
+const canDeleteStation = computed(() => {
+  return stationToEdit.value?._canDelete === true;
+});
+
 function goToView(view) {
   currentView.value = view;
 }
@@ -245,6 +250,38 @@ async function handleRestoreStation() {
     }
   } catch (error) {
     console.error('❌ Erreur restauration:', error);
+  }
+}
+
+async function handleDeleteStation() {
+  if (!stationToEdit.value) return;
+
+  try {
+    const success = await radioStore.removeCustomStation(stationToEdit.value.id);
+
+    if (success) {
+      console.log('✅ Station supprimée');
+
+      // Wait a bit for backend to save
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Reload favorites in radioStore to update RadioSource
+      await radioStore.loadStations(true);
+
+      // Return to radio settings
+      currentView.value = 'radio';
+      stationToEdit.value = null;
+
+      // After the view changes, reload the data
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (radioSettingsRef.value) {
+        await radioSettingsRef.value.loadCustomStations();
+      }
+    } else {
+      console.error('❌ Échec suppression station');
+    }
+  } catch (error) {
+    console.error('❌ Erreur suppression:', error);
   }
 }
 

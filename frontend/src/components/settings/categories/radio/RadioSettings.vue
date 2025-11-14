@@ -16,11 +16,7 @@
 
       <div v-if="modifiedStations.length > 0" class="stations-list">
         <StationCard v-for="station in modifiedStations" :key="`${station.id}-${station.name}-${updateCounter}`" :station="station"
-          variant="card" :show-country="true" image-size="medium">
-          <template #actions>
-            <CircularIcon icon="threeDots" variant="light" @click="$emit('edit-station', { ...station, _canRestore: true })" />
-          </template>
-        </StationCard>
+          variant="card" :show-country="true" image-size="medium" @click="$emit('edit-station', { ...station, _canRestore: true })" />
       </div>
 
       <div v-else class="empty-state text-mono">
@@ -33,30 +29,13 @@
 
       <div v-if="addedStations.length > 0" class="stations-list">
         <StationCard v-for="station in addedStations" :key="station.id" :station="station" variant="card"
-          :show-country="true" image-size="medium">
-          <template #actions>
-            <CircularIcon icon="threeDots" variant="light" @click="$emit('edit-station', station)" />
-            <CircularIcon icon="close" variant="light" @click="confirmDeleteStation(station)" />
-          </template>
-        </StationCard>
+          :show-country="true" image-size="medium" @click="$emit('edit-station', { ...station, _canDelete: true })" />
       </div>
 
       <Button variant="primary" @click="$emit('go-to-add-station')">
         {{ $t('radioSettings.addStation') }}
       </Button>
     </section>
-
-    <!-- Delete Added Station Confirmation Modal -->
-    <div v-if="stationToDelete" class="modal-overlay" @click.self="stationToDelete = null">
-      <div class="confirm-modal">
-        <h3 class="text-body">{{ $t('radioSettings.deleteStationConfirm') }}</h3>
-        <p class="text-mono">{{ stationToDelete.name }}</p>
-        <div class="confirm-actions">
-          <Button variant="secondary" @click="stationToDelete = null">{{ $t('radioSettings.cancel') }}</Button>
-          <button class="btn-danger" @click="deleteStation">{{ $t('radioSettings.delete') }}</button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -65,13 +44,11 @@ import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { useRadioStore } from '@/stores/radioStore';
 import Button from '@/components/ui/Button.vue';
-import CircularIcon from '@/components/ui/CircularIcon.vue';
 import StationCard from '@/components/audio/StationCard.vue';
 
 defineEmits(['go-to-add-station', 'edit-station']);
 
 const radioStore = useRadioStore();
-const stationToDelete = ref(null);
 
 // Local lists loaded from the API
 const customStationsDict = ref({}); // Dict of station_id → custom metadata
@@ -132,25 +109,6 @@ async function loadAllData() {
 // Expose loadCustomStations so SettingsModal can reload data
 defineExpose({ loadCustomStations: loadAllData });
 
-function confirmDeleteStation(station) {
-  stationToDelete.value = station;
-}
-
-async function deleteStation() {
-  if (!stationToDelete.value) return;
-
-  const success = await radioStore.removeCustomStation(stationToDelete.value.id);
-
-  if (success) {
-    console.log('✅ Station supprimée');
-    await loadAllData();
-  } else {
-    console.error('❌ Échec suppression station');
-  }
-
-  stationToDelete.value = null;
-}
-
 onMounted(() => {
   loadAllData();
 });
@@ -187,76 +145,6 @@ onMounted(() => {
   background: var(--color-background);
   border-radius: var(--radius-04);
   border: 2px dashed var(--color-border);
-}
-
-/* Delete confirmation modal */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 5001;
-}
-
-.confirm-modal {
-  background: var(--color-background-neutral-50);
-  border-radius: var(--radius-07);
-  padding: var(--space-06);
-  max-width: 400px;
-  width: 90%;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
-}
-
-.confirm-modal h3 {
-  color: var(--color-text);
-  font-weight: 600;
-}
-
-.confirm-modal p {
-  color: var(--color-text-secondary);
-}
-
-.confirm-actions {
-  display: flex;
-  gap: var(--space-03);
-  justify-content: flex-end;
-}
-
-.btn-secondary,
-.btn-danger {
-  padding: var(--space-03) var(--space-05);
-  border-radius: var(--radius-04);
-  font-size: var(--font-size-body);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  border: none;
-}
-
-.btn-secondary {
-  background: var(--color-background-neutral);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-}
-
-.btn-secondary:hover {
-  background: var(--color-background);
-}
-
-.btn-danger {
-  background: #ff4444;
-  color: white;
-}
-
-.btn-danger:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(255, 68, 68, 0.3);
 }
 
 /* Responsive */
