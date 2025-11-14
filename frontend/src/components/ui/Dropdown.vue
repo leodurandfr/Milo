@@ -80,7 +80,7 @@ function calculateDropdownDirection() {
   if (!scrollableParent) {
     const spaceBelow = window.innerHeight - triggerRect.bottom;
     const spaceAbove = triggerRect.top;
-    openUpward.value = spaceBelow < (MENU_MAX_HEIGHT + BOTTOM_MARGIN) && spaceAbove > MENU_MAX_HEIGHT;
+    openUpward.value = spaceBelow < (MENU_MAX_HEIGHT + BOTTOM_MARGIN) && spaceAbove > spaceBelow;
     return;
   }
 
@@ -89,8 +89,8 @@ function calculateDropdownDirection() {
   const spaceBelow = parentRect.bottom - triggerRect.bottom;
   const spaceAbove = triggerRect.top - parentRect.top;
 
-  // Open upward if not enough space below and enough space above
-  openUpward.value = spaceBelow < (MENU_MAX_HEIGHT + BOTTOM_MARGIN) && spaceAbove > MENU_MAX_HEIGHT;
+  // Open upward if not enough space below and more space above than below
+  openUpward.value = spaceBelow < (MENU_MAX_HEIGHT + BOTTOM_MARGIN) && spaceAbove > spaceBelow;
 }
 
 function toggleDropdown() {
