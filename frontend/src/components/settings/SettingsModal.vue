@@ -171,9 +171,9 @@ import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue'
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
 import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
 import MultiroomSettings from '@/components/settings/categories/MultiroomSettings.vue';
-import RadioSettings from '@/components/settings/categories/RadioSettings.vue';
-import AddRadioStation from '@/components/settings/categories/AddRadioStation.vue';
-import EditStation from '@/components/settings/categories/EditStation.vue';
+import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
+import AddRadioStation from '@/components/settings/categories/radio/AddRadioStation.vue';
+import EditStation from '@/components/settings/categories/radio/EditStation.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 

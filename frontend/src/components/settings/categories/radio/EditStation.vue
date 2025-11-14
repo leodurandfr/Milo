@@ -68,7 +68,7 @@
 
           <div class="form-group">
             <label class="text-mono">Bitrate (kbps)</label>
-            <InputText v-model.number="formData.bitrate" type="number" input-class="text-body-small"
+            <InputText v-model="formData.bitrate" type="number" input-class="text-body-small"
               placeholder="Ex: 128, 192, 320" />
           </div>
         </div>
@@ -139,7 +139,7 @@ const formData = reactive({
   country: 'France',
   genre: 'Variety',
   codec: 'MP3',
-  bitrate: 128
+  bitrate: '128'
 });
 
 // Load available countries from API
@@ -179,7 +179,7 @@ function initializeForm() {
     formData.country = props.preselectedStation.country || 'France';
     formData.genre = props.preselectedStation.genre || 'Variety';
     formData.codec = props.preselectedStation.codec || 'MP3';
-    formData.bitrate = props.preselectedStation.bitrate || 128;
+    formData.bitrate = String(props.preselectedStation.bitrate || 128);
 
     // Set current image URL if exists
     if (props.preselectedStation.favicon) {
@@ -282,7 +282,7 @@ async function handleSubmit() {
     formDataToSend.append('country', formData.country);
     formDataToSend.append('genre', formData.genre);
     formDataToSend.append('codec', formData.codec);
-    formDataToSend.append('bitrate', formData.bitrate.toString());
+    formDataToSend.append('bitrate', parseInt(formData.bitrate, 10));
     formDataToSend.append('remove_image', shouldRemoveImage.value.toString());
 
     if (selectedFile.value) {
