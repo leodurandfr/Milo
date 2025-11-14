@@ -18,7 +18,7 @@
         <StationCard v-for="station in modifiedStations" :key="`${station.id}-${station.name}-${updateCounter}`" :station="station"
           variant="card" :show-country="true" image-size="medium">
           <template #actions>
-            <CircularIcon icon="threeDots" variant="light" @click="$emit('edit-station', station)" />
+            <CircularIcon icon="threeDots" variant="light" @click="$emit('edit-station', { ...station, _canRestore: true })" />
           </template>
         </StationCard>
       </div>
