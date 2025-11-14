@@ -95,9 +95,9 @@ onBeforeUnmount(() => {
   gap: var(--space-01);
   transition: box-shadow var(--transition-fast);
 
-  -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
-  -moz-box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
-  box-shadow: inset 0px 0px 0px 2px var(--color-background-neutral);
+  -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-border);
+  -moz-box-shadow: inset 0px 0px 0px 2px var(--color-border);
+  box-shadow: inset 0px 0px 0px 2px var(--color-border);
 }
 
 .dropdown-trigger:focus {
@@ -148,6 +148,9 @@ onBeforeUnmount(() => {
   transition:
     background-color var(--transition-fast),
     color var(--transition-fast);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dropdown-item::after {
