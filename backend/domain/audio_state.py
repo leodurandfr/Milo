@@ -14,6 +14,7 @@ class AudioSource(Enum):
     BLUETOOTH = "bluetooth"
     ROC = "roc"
     RADIO = "radio"
+    PODCAST = "podcast"
 
 
 class PluginState(Enum):
