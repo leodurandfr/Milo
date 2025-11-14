@@ -49,7 +49,7 @@
         <div class="form-row">
           <div class="form-group">
             <label class="text-mono">Pays</label>
-            <Dropdown v-model="formData.country" :options="countryOptions" />
+            <Dropdown v-model="formData.country" :options="countryOptions" placeholder="Choisir un pays" />
           </div>
 
           <div class="form-group">
@@ -150,10 +150,10 @@ let lastClickTime = 0;
 const formData = reactive({
   name: '',
   url: '',
-  country: 'France',
-  genre: 'Variety',
-  codec: 'MP3',
-  bitrate: '128'
+  country: '',
+  genre: '',
+  codec: '',
+  bitrate: ''
 });
 
 // Load available countries from API
@@ -171,7 +171,7 @@ async function loadAvailableCountries() {
 // Convert countries to dropdown format
 const countryOptions = computed(() => {
   if (availableCountries.value.length === 0) {
-    return [{ label: 'Chargement...', value: 'France' }];
+    return [{ label: 'Chargement...', value: '' }];
   }
   return availableCountries.value.map(country => ({
     label: country.name,
@@ -190,10 +190,10 @@ function initializeForm() {
   if (props.preselectedStation) {
     formData.name = props.preselectedStation.name || '';
     formData.url = props.preselectedStation.url || props.preselectedStation.url_resolved || '';
-    formData.country = props.preselectedStation.country || 'France';
-    formData.genre = props.preselectedStation.genre || 'Variety';
-    formData.codec = props.preselectedStation.codec || 'MP3';
-    formData.bitrate = String(props.preselectedStation.bitrate || 128);
+    formData.country = props.preselectedStation.country || '';
+    formData.genre = props.preselectedStation.genre || '';
+    formData.codec = props.preselectedStation.codec || '';
+    formData.bitrate = String(props.preselectedStation.bitrate || '');
 
     // Set current image URL if exists
     if (props.preselectedStation.favicon) {

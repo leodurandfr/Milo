@@ -163,7 +163,7 @@ input {
 }
 
 input::placeholder {
-  color: var(--color-text-secondary);
+  color: var(--color-text-light);
 }
 
 input:disabled {

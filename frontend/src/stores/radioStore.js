@@ -449,10 +449,10 @@ export const useRadioStore = defineStore('radio', () => {
       const formData = new FormData();
       formData.append('name', stationData.name);
       formData.append('url', stationData.url);
-      formData.append('country', stationData.country || 'France');
-      formData.append('genre', stationData.genre || 'Variety');
-      formData.append('bitrate', stationData.bitrate || 128);
-      formData.append('codec', stationData.codec || 'MP3');
+      formData.append('country', stationData.country || '');
+      formData.append('genre', stationData.genre || '');
+      formData.append('bitrate', stationData.bitrate || 0);
+      formData.append('codec', stationData.codec || '');
 
       if (stationData.image) {
         formData.append('image', stationData.image);

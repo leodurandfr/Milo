@@ -48,7 +48,7 @@
         <div class="form-row">
           <div class="form-group">
             <label class="text-mono">Pays</label>
-            <Dropdown v-model="formData.country" :options="countryOptions" />
+            <Dropdown v-model="formData.country" :options="countryOptions" placeholder="Choisir un pays" />
           </div>
 
           <div class="form-group">
@@ -112,10 +112,10 @@ const availableCountries = ref([]);
 const formData = reactive({
   name: '',
   url: '',
-  country: 'France',
-  genre: 'Variety',
-  bitrate: '128',
-  codec: 'MP3'
+  country: '',
+  genre: '',
+  bitrate: '',
+  codec: ''
 });
 
 // Load available countries from API
@@ -133,7 +133,7 @@ async function loadAvailableCountries() {
 // Convert countries to dropdown format
 const countryOptions = computed(() => {
   if (availableCountries.value.length === 0) {
-    return [{ label: 'Chargement...', value: 'France' }];
+    return [{ label: 'Chargement...', value: '' }];
   }
   return availableCountries.value.map(country => ({
     label: country.name,
