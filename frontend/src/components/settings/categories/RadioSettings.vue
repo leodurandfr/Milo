@@ -19,7 +19,6 @@
           variant="card" :show-country="true" image-size="medium">
           <template #actions>
             <CircularIcon icon="threeDots" variant="light" @click="$emit('edit-station', station)" />
-            <CircularIcon icon="close" variant="light" @click="confirmRestoreStation(station)" />
           </template>
         </StationCard>
       </div>
@@ -30,7 +29,7 @@
 
 
       <!-- Section 3: Added Stations (manually created) -->
-      <h2 class="heading-2 text-body">{{ $t('radioSettings.addedStationsTitle') }}</h2>
+      <h2 v-if="addedStations.length > 0" class="heading-2 text-body">{{ $t('radioSettings.addedStationsTitle') }}</h2>
 
       <div v-if="addedStations.length > 0" class="stations-list">
         <StationCard v-for="station in addedStations" :key="station.id" :station="station" variant="card"
@@ -41,11 +40,6 @@
           </template>
         </StationCard>
       </div>
-
-      <div v-else class="empty-state text-mono">
-        {{ $t('radioSettings.noAddedStations') }}
-      </div>
-
 
       <Button variant="primary" @click="$emit('go-to-add-station')">
         {{ $t('radioSettings.addStation') }}
@@ -60,21 +54,6 @@
         <div class="confirm-actions">
           <Button variant="secondary" @click="stationToDelete = null">{{ $t('radioSettings.cancel') }}</Button>
           <button class="btn-danger" @click="deleteStation">{{ $t('radioSettings.delete') }}</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Restore Modified Station Confirmation Modal -->
-    <div v-if="stationToRestore" class="modal-overlay" @click.self="stationToRestore = null">
-      <div class="confirm-modal">
-        <h3 class="text-body">{{ $t('radioSettings.restoreStationConfirm') }}</h3>
-        <p class="text-mono">{{ stationToRestore.name }}</p>
-        <p class="text-mono" style="color: var(--color-text-secondary); font-size: var(--font-size-small);">
-          {{ $t('radioSettings.modificationsWillBeLost') }}
-        </p>
-        <div class="confirm-actions">
-          <Button variant="secondary" @click="stationToRestore = null">{{ $t('radioSettings.cancel') }}</Button>
-          <button class="btn-danger" @click="restoreStation">{{ $t('radioSettings.delete') }}</button>
         </div>
       </div>
     </div>
@@ -93,7 +72,6 @@ defineEmits(['go-to-add-station', 'edit-station']);
 
 const radioStore = useRadioStore();
 const stationToDelete = ref(null);
-const stationToRestore = ref(null);
 
 // Local lists loaded from the API
 const customStationsDict = ref({}); // Dict of station_id → custom metadata
@@ -171,40 +149,6 @@ async function deleteStation() {
   }
 
   stationToDelete.value = null;
-}
-
-function confirmRestoreStation(station) {
-  stationToRestore.value = station;
-}
-
-async function restoreStation() {
-  if (!stationToRestore.value) return;
-
-  // Call new endpoint to restore favorite metadata
-  const formData = new FormData();
-  formData.append('station_id', stationToRestore.value.id);
-
-  try {
-    const response = await axios.post('/api/radio/favorites/restore-metadata', formData);
-
-    if (response.data.success) {
-      console.log('✅ Station restaurée');
-      // Wait a bit for backend to save, then reload
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      // Force reload all data
-      await loadAllData();
-
-      // Force re-render by incrementing counter
-      updateCounter.value++;
-    } else {
-      console.error('❌ Échec restauration station');
-    }
-  } catch (error) {
-    console.error('❌ Erreur restauration:', error);
-  }
-
-  stationToRestore.value = null;
 }
 
 onMounted(() => {

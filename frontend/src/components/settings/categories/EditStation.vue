@@ -80,6 +80,16 @@
 
         <!-- Actions -->
         <div class="form-actions">
+          <Button
+            v-if="canRestore"
+            variant="secondary"
+            :class="{ 'restore-btn': !isConfirmingRestore, 'restore-btn-confirm': isConfirmingRestore }"
+            @click="handleRestoreClick"
+            :disabled="isSubmitting"
+          >
+            {{ isConfirmingRestore ? 'Confirmer' : 'Restaurer la station' }}
+          </Button>
+          <div class="spacer"></div>
           <Button variant="secondary" @click="$emit('back')" :disabled="isSubmitting">
             Annuler
           </Button>
@@ -100,10 +110,14 @@ const props = defineProps({
   preselectedStation: {
     type: Object,
     default: null
+  },
+  canRestore: {
+    type: Boolean,
+    default: false
   }
 });
 
-const emit = defineEmits(['back', 'success']);
+const emit = defineEmits(['back', 'success', 'restore']);
 
 const fileInput = ref(null);
 const selectedFile = ref(null);
@@ -112,6 +126,8 @@ const currentImageUrl = ref('');
 const shouldRemoveImage = ref(false);
 const isSubmitting = ref(false);
 const errorMessage = ref('');
+const isConfirmingRestore = ref(false);
+let lastClickTime = 0;
 
 const formData = reactive({
   name: '',
@@ -144,7 +160,13 @@ function initializeForm() {
 // Watch for changes to preselectedStation prop
 watch(() => props.preselectedStation, () => {
   initializeForm();
+  isConfirmingRestore.value = false;
 }, { immediate: true });
+
+// Reset confirmation state if user modifies form data
+watch([() => formData.name, () => formData.url, () => formData.country, () => formData.genre, selectedFile], () => {
+  isConfirmingRestore.value = false;
+});
 
 onMounted(() => {
   initializeForm();
@@ -190,6 +212,27 @@ function removeImage() {
   shouldRemoveImage.value = true;
   if (fileInput.value) {
     fileInput.value.value = '';
+  }
+}
+
+function handleRestoreClick() {
+  const now = Date.now();
+
+  // Debounce: ignore clicks within 600ms of the last click
+  if (now - lastClickTime < 600) {
+    return;
+  }
+
+  // Update last click time
+  lastClickTime = now;
+
+  if (isConfirmingRestore.value) {
+    // Second click - confirm and emit restore event
+    emit('restore');
+    isConfirmingRestore.value = false;
+  } else {
+    // First click - show confirmation state
+    isConfirmingRestore.value = true;
   }
 }
 
@@ -391,6 +434,23 @@ async function handleSubmit() {
   justify-content: flex-end;
   padding-top: var(--space-02);
 }
+
+.form-actions .spacer {
+  flex: 1;
+}
+
+.form-actions .restore-btn {
+  border: 2px solid rgba(244, 67, 54, 0.3);
+  color: rgb(244, 67, 54);
+}
+
+
+.form-actions .restore-btn-confirm {
+  background: rgb(244, 67, 54);
+  color: white;
+  border: 2px solid rgb(244, 67, 54);
+}
+
 
 /* Mobile responsive */
 @media (max-width: 600px) {
