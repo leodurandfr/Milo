@@ -131,7 +131,7 @@ import AddRadioStation from '@/components/settings/categories/radio/AddRadioStat
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
-import StationCard from '@/components/audio/StationCard.vue';
+import StationCard from '@/components/radio/StationCard.vue';
 import Icon from '@/components/ui/Icon.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
