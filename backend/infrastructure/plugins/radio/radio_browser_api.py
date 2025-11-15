@@ -7,6 +7,7 @@ import logging
 import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
+from backend.infrastructure.plugins.radio.genres import extract_valid_genre
 
 
 class RadioBrowserAPI:
@@ -422,7 +423,7 @@ class RadioBrowserAPI:
             'name': station.get('name'),
             'url': station.get('url_resolved'),
             'country': station.get('country', 'Unknown'),
-            'genre': (station.get('tags', 'Variety').split(',')[0].strip() if station.get('tags') else 'Variety'),
+            'genre': extract_valid_genre(station.get('tags', '')),
             'favicon': favicon,
             'bitrate': station.get('bitrate', 0),
             'codec': station.get('codec', 'Unknown'),
