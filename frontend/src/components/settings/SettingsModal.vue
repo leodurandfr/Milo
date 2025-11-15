@@ -118,14 +118,14 @@
 
     <!-- Radio view - Add a station -->
     <div v-else-if="currentView === 'radio-add'" class="view-detail">
-      <ModalHeader title="Ajouter une station" show-back @back="handleBackFromRadioModal" />
-      <AddRadioStation @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
+      <ModalHeader :title="$t('radio.manageStation.addStationTitle')" show-back @back="handleBackFromRadioModal" />
+      <ManageStation mode="add" @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
     </div>
 
     <!-- Radio view - Edit a station -->
     <div v-else-if="currentView === 'radio-edit'" class="view-detail">
-      <ModalHeader :title="`Modifier ${stationToEdit?.name || 'la station'}`" show-back @back="handleBackFromRadioModal" />
-      <EditStation :preselected-station="stationToEdit" :can-restore="canRestoreStation" :can-delete="canDeleteStation" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation" @delete="handleDeleteStation" />
+      <ModalHeader :title="$t('radio.manageStation.editStationTitle')" show-back @back="handleBackFromRadioModal" />
+      <ManageStation mode="edit" :station="stationToEdit" :can-restore="canRestoreStation" :can-delete="canDeleteStation" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation" @delete="handleDeleteStation" />
     </div>
 
     <!-- Updates view -->
@@ -172,8 +172,7 @@ import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue'
 import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
 import MultiroomSettings from '@/components/settings/categories/MultiroomSettings.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
-import AddRadioStation from '@/components/settings/categories/radio/AddRadioStation.vue';
-import EditStation from '@/components/settings/categories/radio/EditStation.vue';
+import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 

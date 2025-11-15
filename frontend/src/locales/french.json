@@ -172,7 +172,11 @@
     "language": "Langue",
     "unknown": "Inconnu",
     "cancel": "Annuler",
-    "save": "Enregistrer"
+    "save": "Enregistrer",
+    "saving": "Enregistrement...",
+    "confirm": "Confirmer",
+    "restore": "Restaurer",
+    "delete": "Supprimer"
   },
   "radio": {
     "edit_station_title": "Modifier {name}",
@@ -191,7 +195,36 @@
     "image_too_large": "Image trop volumineuse. Maximum 5MB.",
     "edit_failed": "Échec de la modification de la station",
     "error_occurred": "Une erreur est survenue",
-    "saving": "Enregistrement en cours..."
+    "saving": "Enregistrement en cours...",
+    "manageStation": {
+      "name": "Nom de la station",
+      "namePlaceholder": "Ex: RTL",
+      "image": "Image de la station",
+      "chooseImage": "Choisir une image",
+      "url": "URL du flux audio",
+      "urlPlaceholder": "Ex: http://streaming.radio.fr/stream",
+      "country": "Pays",
+      "selectCountry": "Choisir un pays",
+      "genre": "Genre",
+      "genrePlaceholder": "Ex: Pop, Rock, Jazz",
+      "codec": "Codec",
+      "codecPlaceholder": "Ex: MP3, AAC, OGG",
+      "bitrate": "Bitrate (kbps)",
+      "bitratePlaceholder": "Ex: 128, 192, 320",
+      "add": "Ajouter",
+      "adding": "Ajout en cours...",
+      "confirmRestore": "Confirmer la restauration",
+      "confirmDelete": "Confirmer la suppression",
+      "loading": "Chargement...",
+      "invalidImageFormat": "Format d'image non supporté. Utilisez JPG, PNG, WEBP ou GIF.",
+      "imageTooLarge": "Image trop volumineuse. Maximum 5MB.",
+      "noStationToEdit": "Aucune station à modifier",
+      "editFailed": "Échec de la modification de la station",
+      "addFailed": "Échec de l'ajout de la station",
+      "errorOccurred": "Une erreur est survenue",
+      "addStationTitle": "Ajouter une station",
+      "editStationTitle": "Modifier la station"
+    }
   },
   "radioSettings": {
     "unmodifiedFavoritesTitle": "Favoris non modifiés",

@@ -173,7 +173,11 @@
     "language": "Sprache",
     "unknown": "Unbekannt",
     "cancel": "Abbrechen",
-    "save": "Speichern"
+    "save": "Speichern",
+    "saving": "Wird gespeichert...",
+    "confirm": "Bestätigen",
+    "restore": "Wiederherstellen",
+    "delete": "Löschen"
   },
   "radio": {
     "edit_station_title": "{name} bearbeiten",
@@ -192,7 +196,36 @@
     "image_too_large": "Bild zu groß. Maximum 5MB.",
     "edit_failed": "Sender konnte nicht bearbeitet werden",
     "error_occurred": "Ein Fehler ist aufgetreten",
-    "saving": "Wird gespeichert..."
+    "saving": "Wird gespeichert...",
+    "manageStation": {
+      "name": "Sendername",
+      "namePlaceholder": "z.B: WDR",
+      "image": "Senderbild",
+      "chooseImage": "Bild auswählen",
+      "url": "Stream-URL",
+      "urlPlaceholder": "z.B: http://streaming.radio.de/stream",
+      "country": "Land",
+      "selectCountry": "Land auswählen",
+      "genre": "Genre",
+      "genrePlaceholder": "z.B: Pop, Rock, Jazz",
+      "codec": "Codec",
+      "codecPlaceholder": "z.B: MP3, AAC, OGG",
+      "bitrate": "Bitrate (kbps)",
+      "bitratePlaceholder": "z.B: 128, 192, 320",
+      "add": "Hinzufügen",
+      "adding": "Wird hinzugefügt...",
+      "confirmRestore": "Wiederherstellung bestätigen",
+      "confirmDelete": "Löschen bestätigen",
+      "loading": "Wird geladen...",
+      "invalidImageFormat": "Nicht unterstütztes Bildformat. Verwenden Sie JPG, PNG, WEBP oder GIF.",
+      "imageTooLarge": "Bild zu groß. Maximum 5MB.",
+      "noStationToEdit": "Kein Sender zum Bearbeiten",
+      "editFailed": "Sender konnte nicht bearbeitet werden",
+      "addFailed": "Sender konnte nicht hinzugefügt werden",
+      "errorOccurred": "Ein Fehler ist aufgetreten",
+      "addStationTitle": "Sender hinzufügen",
+      "editStationTitle": "Sender bearbeiten"
+    }
   },
   "radioSettings": {
     "unmodifiedFavoritesTitle": "Unveränderte Favoriten",

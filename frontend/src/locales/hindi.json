@@ -173,7 +173,11 @@
     "language": "भाषा",
     "unknown": "अज्ञात",
     "cancel": "रद्द करें",
-    "save": "सहेजें"
+    "save": "सहेजें",
+    "saving": "सहेजा जा रहा है...",
+    "confirm": "पुष्टि करें",
+    "restore": "पुनर्स्थापित",
+    "delete": "हटाएं"
   },
   "radio": {
     "edit_station_title": "{name} संपादित करें",
@@ -192,7 +196,36 @@
     "image_too_large": "छवि बहुत बड़ी है। अधिकतम 5MB।",
     "edit_failed": "स्टेशन संपादित करने में विफल",
     "error_occurred": "एक त्रुटि हुई",
-    "saving": "सहेजा जा रहा है..."
+    "saving": "सहेजा जा रहा है...",
+    "manageStation": {
+      "name": "स्टेशन का नाम",
+      "namePlaceholder": "उदाहरण: ऑल इंडिया रेडियो",
+      "image": "स्टेशन छवि",
+      "chooseImage": "एक छवि चुनें",
+      "url": "स्ट्रीम URL",
+      "urlPlaceholder": "उदाहरण: http://streaming.radio.in/stream",
+      "country": "देश",
+      "selectCountry": "एक देश चुनें",
+      "genre": "शैली",
+      "genrePlaceholder": "उदाहरण: पॉप, रॉक, जैज़",
+      "codec": "कोडेक",
+      "codecPlaceholder": "उदाहरण: MP3, AAC, OGG",
+      "bitrate": "बिटरेट (kbps)",
+      "bitratePlaceholder": "उदाहरण: 128, 192, 320",
+      "add": "जोड़ें",
+      "adding": "जोड़ा जा रहा है...",
+      "confirmRestore": "पुनर्स्थापना की पुष्टि करें",
+      "confirmDelete": "हटाने की पुष्टि करें",
+      "loading": "लोड हो रहा है...",
+      "invalidImageFormat": "असमर्थित छवि प्रारूप। JPG, PNG, WEBP या GIF का उपयोग करें।",
+      "imageTooLarge": "छवि बहुत बड़ी है। अधिकतम 5MB।",
+      "noStationToEdit": "संपादित करने के लिए कोई स्टेशन नहीं",
+      "editFailed": "स्टेशन संपादित करने में विफल",
+      "addFailed": "स्टेशन जोड़ने में विफल",
+      "errorOccurred": "एक त्रुटि हुई",
+      "addStationTitle": "एक स्टेशन जोड़ें",
+      "editStationTitle": "स्टेशन संपादित करें"
+    }
   },
   "radioSettings": {
     "unmodifiedFavoritesTitle": "अपरिवर्तित पसंदीदा",

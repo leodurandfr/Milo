@@ -173,7 +173,11 @@
     "language": "Language",
     "unknown": "Unknown",
     "cancel": "Cancel",
-    "save": "Save"
+    "save": "Save",
+    "saving": "Saving...",
+    "confirm": "Confirm",
+    "restore": "Restore",
+    "delete": "Delete"
   },
   "radio": {
     "edit_station_title": "Edit {name}",
@@ -192,7 +196,36 @@
     "image_too_large": "Image too large. Maximum 5MB.",
     "edit_failed": "Failed to edit station",
     "error_occurred": "An error occurred",
-    "saving": "Saving..."
+    "saving": "Saving...",
+    "manageStation": {
+      "name": "Station name",
+      "namePlaceholder": "Ex: BBC Radio",
+      "image": "Station image",
+      "chooseImage": "Choose an image",
+      "url": "Stream URL",
+      "urlPlaceholder": "Ex: http://streaming.radio.com/stream",
+      "country": "Country",
+      "selectCountry": "Select a country",
+      "genre": "Genre",
+      "genrePlaceholder": "Ex: Pop, Rock, Jazz",
+      "codec": "Codec",
+      "codecPlaceholder": "Ex: MP3, AAC, OGG",
+      "bitrate": "Bitrate (kbps)",
+      "bitratePlaceholder": "Ex: 128, 192, 320",
+      "add": "Add",
+      "adding": "Adding...",
+      "confirmRestore": "Confirm restore",
+      "confirmDelete": "Confirm delete",
+      "loading": "Loading...",
+      "invalidImageFormat": "Unsupported image format. Use JPG, PNG, WEBP or GIF.",
+      "imageTooLarge": "Image too large. Maximum 5MB.",
+      "noStationToEdit": "No station to edit",
+      "editFailed": "Failed to edit station",
+      "addFailed": "Failed to add station",
+      "errorOccurred": "An error occurred",
+      "addStationTitle": "Add a station",
+      "editStationTitle": "Edit station"
+    }
   },
   "radioSettings": {
     "unmodifiedFavoritesTitle": "Unmodified favorites",

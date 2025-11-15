@@ -21,7 +21,7 @@ export default {
         variant: {
             type: String,
             default: 'primary',
-            validator: (value) => ['primary', 'secondary', 'toggle', 'background-light'].includes(value)
+            validator: (value) => ['primary', 'secondary', 'toggle', 'background-light', 'important'].includes(value)
         },
         type: {
             type: String,
@@ -143,6 +143,20 @@ export default {
 }
 
 .btn--background-light.btn--disabled {
+    background-color: var(--color-background);
+    color: var(--color-text-light);
+}
+
+/* Important variant */
+.btn--important.btn--default {
+    background-color: var(--color-background-neutral);
+    color: var(--color-important);
+    -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-important);
+    -moz-box-shadow: inset 0px 0px 0px 2px var(--color-important);
+    box-shadow: inset 0px 0px 0px 2px var(--color-important);
+}
+
+.btn--important.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
 }
