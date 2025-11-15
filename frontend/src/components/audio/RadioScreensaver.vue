@@ -1,5 +1,6 @@
 <template>
-  <div v-if="isVisible" class="screensaver-overlay" :class="{ closing: isClosing }" @click.stop="handleClose" @touchstart.stop="handleClose">
+  <div v-if="isVisible" class="screensaver-overlay" :class="{ closing: isClosing }" @click.stop="handleClose"
+    @touchstart.stop="handleClose">
     <!-- Full-screen black background -->
     <div class="station-art-background">
       <img v-if="currentStation?.favicon" :src="currentStation.favicon" alt="" class="background-station" />
@@ -16,7 +17,8 @@
       <div class="station-art stagger-2">
         <img v-if="currentStation?.favicon" :src="currentStation.favicon" alt="Station logo"
           class="current-station-favicon" @error="handleImageError" />
-        <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo" :class="{ visible: !currentStation?.favicon || imageError }" />
+        <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo"
+          :class="{ visible: !currentStation?.favicon || imageError }" />
       </div>
 
       <!-- Station info (stagger 3 animation) -->
@@ -151,6 +153,7 @@ watch(() => props.isVisible, (visible) => {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -160,6 +163,7 @@ watch(() => props.isVisible, (visible) => {
   from {
     opacity: 1;
   }
+
   to {
     opacity: 0;
   }
@@ -258,7 +262,6 @@ watch(() => props.isVisible, (visible) => {
 }
 
 .station-art {
-  background: var(--color-background-neutral);
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -271,6 +274,12 @@ watch(() => props.isVisible, (visible) => {
   height: 240px;
   border-radius: var(--radius-06);
 }
+
+.station-art img {
+  background: var(--color-background-neutral);
+}
+
+
 
 .station-art .current-station-favicon {
   width: 100%;
@@ -345,9 +354,17 @@ watch(() => props.isVisible, (visible) => {
     stagger-opacity 0.4s ease forwards;
 }
 
-.screensaver-overlay .stagger-1 { animation-delay: 400ms; }
-.screensaver-overlay .stagger-2 { animation-delay: 500ms; }
-.screensaver-overlay .stagger-3 { animation-delay: 600ms; }
+.screensaver-overlay .stagger-1 {
+  animation-delay: 400ms;
+}
+
+.screensaver-overlay .stagger-2 {
+  animation-delay: 500ms;
+}
+
+.screensaver-overlay .stagger-3 {
+  animation-delay: 600ms;
+}
 
 @keyframes stagger-transform {
   to {
