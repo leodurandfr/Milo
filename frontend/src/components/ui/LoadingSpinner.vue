@@ -115,12 +115,4 @@ ${backgroundRect}
   height: 100% !important;
   display: block;
 }
-
-@media (max-aspect-ratio: 4/3) {
-  .loading-spinner {
-    width: 64px !important;
-    height: 64px !important;
-    --spinner-size: 64px;
-  }
-}
 </style>
