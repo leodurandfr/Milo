@@ -120,7 +120,7 @@ const displayedStatusLines = computed(() => {
       case 'librespot':
         return [t('status.loadingOf'), t('audioSources.spotify')];
       case 'radio':
-        return [t('status.loadingOf'), t('audioSources.radio')];
+        return [t('status.loadingOfFeminine'), t('audioSources.radio')];
       default:
         return [t('status.loading')];
     }

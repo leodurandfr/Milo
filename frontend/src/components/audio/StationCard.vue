@@ -68,12 +68,13 @@
       <CircularIcon :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="background-light"
         @click="$emit('favorite')" />
       <!-- Desktop: Button with text -->
-      <Button v-if="!isMobile" variant="background-light" :left-icon="isPlaying ? 'stop' : 'play'"
-        :loading="isLoading" @click="$emit('play')">
+      <Button v-if="!isMobile" variant="background-light" :left-icon="isPlaying ? 'stop' : 'play'" :loading="isLoading"
+        @click="$emit('play')">
         {{ isPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio') }}
       </Button>
       <!-- Mobile: CircularIcon without text -->
-      <CircularIcon v-else :icon="isPlaying ? 'stop' : 'play'" variant="background-light" :loading="isLoading" @click="$emit('play')" />
+      <CircularIcon v-else :icon="isPlaying ? 'stop' : 'play'" variant="background-light" :loading="isLoading"
+        @click="$emit('play')" />
     </div>
   </div>
 </template>
@@ -231,7 +232,6 @@ function handleImageError() {
   cursor: pointer;
   transition: transform var(--transition-fast);
   position: relative;
-  background: var(--color-background-neutral);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -409,6 +409,10 @@ function handleImageError() {
   backdrop-filter: blur(16px);
 }
 
+.station-art img {
+  background: var(--color-background-neutral);
+}
+
 .now-playing .station-art-background .background-station-favicon {
   filter: blur(96px) saturate(1.6) contrast(1) brightness(0.6);
 }
@@ -426,7 +430,7 @@ function handleImageError() {
     linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  z-index: -1;
+  z-index: 1;
   pointer-events: none;
 }
 
@@ -510,8 +514,6 @@ function handleImageError() {
 .now-playing .station-art {
   width: 100%;
   border-radius: var(--radius-05);
-  background: var(--color-background-neutral);
-
 }
 
 .now-playing .station-info {
@@ -542,6 +544,7 @@ function handleImageError() {
   justify-content: space-between;
   z-index: 1;
 }
+
 .controls-wrapper .btn {
   width: 100%;
 }
@@ -570,6 +573,7 @@ function handleImageError() {
     height: 48px;
     border-radius: var(--radius-03);
   }
+
 
   .now-playing .station-info {
     flex: 1;
