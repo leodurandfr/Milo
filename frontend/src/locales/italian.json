@@ -53,6 +53,7 @@
     "loading": "Avvio...",
     "loadingOf": "Avvio",
     "loadingOfMasculine": "Avvio",
+    "loadingOfFeminine": "Avvio",
     "ready": "Pronto per connettersi",
     "readyToStream": "Pronto per lo streaming",
     "waiting": "In attesa...",

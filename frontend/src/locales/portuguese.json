@@ -53,6 +53,7 @@
     "loading": "Iniciando...",
     "loadingOf": "Iniciando",
     "loadingOfMasculine": "Iniciando",
+    "loadingOfFeminine": "Iniciando",
     "ready": "Pronto para conectar",
     "readyToStream": "Pronto para transmitir",
     "waiting": "Aguardando...",

@@ -199,7 +199,7 @@ watch(() => props.isVisible, (visible) => {
     linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  z-index: -1;
+  z-index: 1;
   pointer-events: none;
 }
 
