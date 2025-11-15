@@ -56,6 +56,7 @@ function handleClick() {
 .circular-icon {
   width: 48px;
   height: 48px;
+  aspect-ratio: 1 / 1;
   border: none;
   border-radius: var(--radius-04);
   cursor: pointer;

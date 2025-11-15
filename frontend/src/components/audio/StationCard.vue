@@ -403,7 +403,7 @@ function handleImageError() {
   flex-direction: column;
   gap: var(--space-04);
   padding: var(--space-04);
-  background: var(--color-text);
+  background: var(--color-background-contrast);
   border-radius: var(--radius-07);
   backdrop-filter: blur(16px);
 }
@@ -509,6 +509,8 @@ function handleImageError() {
 .now-playing .station-art {
   width: 100%;
   border-radius: var(--radius-05);
+  background: var(--color-background-neutral);
+
 }
 
 .now-playing .station-info {
@@ -538,6 +540,9 @@ function handleImageError() {
   gap: var(--space-02);
   justify-content: space-between;
   z-index: 1;
+}
+.controls-wrapper .btn {
+  width: 100%;
 }
 
 /* Mobile: Horizontal sticky layout at bottom */

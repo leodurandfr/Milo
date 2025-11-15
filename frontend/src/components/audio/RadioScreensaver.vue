@@ -232,6 +232,7 @@ watch(() => props.isVisible, (visible) => {
 
 .station-art-background-card {
   position: absolute;
+  background: var(--color-background-contrast);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -257,6 +258,7 @@ watch(() => props.isVisible, (visible) => {
 }
 
 .station-art {
+  background: var(--color-background-neutral);
   overflow: hidden;
   display: flex;
   align-items: center;
