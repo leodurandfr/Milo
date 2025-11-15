@@ -187,17 +187,24 @@ const displayedStations = computed(() => {
     // Search mode: ONLY show search results from RadioBrowserAPI
     // Never show favoriteStations (which includes custom stations)
     stations = radioStore.displayedStations || [];
+
+    // Sort by popularity (clicks) - descending order
+    return [...stations].sort((a, b) => {
+      const clicksA = a.votes || 0;
+      const clicksB = b.votes || 0;
+      return clicksB - clicksA; // Higher clicks first
+    });
   } else {
     // Favorites mode: display all favorites (including custom stations)
     stations = radioStore.favoriteStations || [];
-  }
 
-  // Sort alphabetically by station name (case-insensitive)
-  return [...stations].sort((a, b) => {
-    const nameA = (a.name || '').toLowerCase();
-    const nameB = (b.name || '').toLowerCase();
-    return nameA.localeCompare(nameB);
-  });
+    // Sort alphabetically by station name (case-insensitive)
+    return [...stations].sort((a, b) => {
+      const nameA = (a.name || '').toLowerCase();
+      const nameB = (b.name || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+  }
 });
 
 
