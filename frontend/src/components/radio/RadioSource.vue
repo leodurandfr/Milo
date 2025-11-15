@@ -20,16 +20,18 @@
       <div v-if="isSearchMode" class="search-section">
         <div class="filters">
           <InputText v-model="radioStore.searchQuery" :placeholder="t('audioSources.radioSource.searchPlaceholder')"
-            input-class="text-body-small" icon="search" :icon-size="24" @update:modelValue="handleSearch" />
+            size="small" icon="search" :icon-size="24" @update:modelValue="handleSearch" />
           <Dropdown
             v-model="radioStore.countryFilter"
             :options="countryOptions"
+            size="small"
             @change="handleSearch"
           />
 
           <Dropdown
             v-model="radioStore.genreFilter"
             :options="genreOptions"
+            size="small"
             @change="handleSearch"
           />
         </div>

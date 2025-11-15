@@ -143,7 +143,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, inject, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -185,10 +185,18 @@ const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 const radioStore = useRadioStore();
 
+// Inject modal scroll reset function
+const resetScroll = inject('modalResetScroll', () => {});
+
 // Navigation
 const currentView = ref('home');
 const radioSettingsRef = ref(null);
 const stationToEdit = ref(null);
+
+// Reset scroll position when navigating between views
+watch(currentView, () => {
+  resetScroll();
+});
 
 // Check if the station can be restored (only modified stations)
 const canRestoreStation = computed(() => {
