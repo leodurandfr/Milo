@@ -21,13 +21,13 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 import uvicorn
 
-# Configuration de base
+# Basic configuration
 SNAPCLIENT_VERSION_REGEX = r"v(\d+\.\d+\.\d+)"
 GITHUB_REPO = "badaix/snapcast"
 API_PORT = 8001
 UPDATE_IN_PROGRESS = False
 
-# Configuration du logging
+# Logging configuration
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -37,18 +37,18 @@ logger = logging.getLogger(__name__)
 # FastAPI app
 app = FastAPI(
     title="Milo Sat API",
-    description="API pour la gestion des satellites Milo",
+    description="API for Milo satellite management",
     version="1.0.0"
 )
 
 class SnapclientManager:
-    """Gestionnaire pour les opérations snapclient"""
+    """Manager for snapclient operations"""
     
     def __init__(self):
         self.logger = logging.getLogger(f"{__name__}.SnapclientManager")
     
     async def get_installed_version(self) -> Optional[str]:
-        """Récupère la version installée de snapclient"""
+        """Gets the installed version of snapclient"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "snapclient", "--version",
@@ -70,7 +70,7 @@ class SnapclientManager:
             return None
 
     async def get_latest_github_version(self) -> Optional[str]:
-        """Récupère la dernière version depuis GitHub"""
+        """Gets the latest version from GitHub"""
         try:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
@@ -84,7 +84,7 @@ class SnapclientManager:
                         if match:
                             return match.group(1)
 
-                        # Fallback: retourner tag_name sans le 'v'
+                        # Fallback: return tag_name without the 'v'
                         return tag_name.lstrip('v')
 
                     return None
@@ -94,7 +94,7 @@ class SnapclientManager:
             return None
 
     async def _get_debian_codename(self) -> str:
-        """Détecte la version Debian du système (bookworm, trixie, etc.)"""
+        """Detects the system's Debian version (bookworm, trixie, etc.)"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "bash", "-c", "source /etc/os-release && echo $VERSION_CODENAME",
@@ -117,7 +117,7 @@ class SnapclientManager:
             return "bookworm"
 
     async def is_service_running(self) -> bool:
-        """Vérifie si le service snapclient est en cours d'exécution"""
+        """Checks if the snapclient service is running"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "is-active", "milo-sat-snapclient.service",
@@ -133,7 +133,7 @@ class SnapclientManager:
             return False
     
     async def update_snapclient(self, target_version: str) -> Dict[str, Any]:
-        """Met à jour snapclient depuis GitHub avec résolution APT des dépendances"""
+        """Updates snapclient from GitHub with APT dependency resolution"""
         global UPDATE_IN_PROGRESS
 
         if UPDATE_IN_PROGRESS:
@@ -143,31 +143,31 @@ class SnapclientManager:
             UPDATE_IN_PROGRESS = True
             self.logger.info(f"Starting snapclient update to version {target_version}")
 
-            # Récupérer la version actuelle avant mise à jour
+            # Get current version before update
             old_version = await self.get_installed_version()
 
-            # 1. Télécharger le .deb depuis GitHub
+            # 1. Download the .deb from GitHub
             download_result = await self._download_snapclient_deb(target_version)
             if not download_result["success"]:
                 return download_result
 
-            # 2. Arrêter le service
+            # 2. Stop the service
             stop_result = await self._stop_snapclient_service()
             if not stop_result:
                 return {"success": False, "error": "Failed to stop snapclient service"}
 
-            # 3. Installer le .deb avec APT (qui résout les dépendances automatiquement)
+            # 3. Install the .deb with APT (which resolves dependencies automatically)
             install_result = await self._install_deb_with_apt(download_result["deb_path"])
             if not install_result["success"]:
                 return install_result
 
-            # 4. Redémarrer le service
+            # 4. Restart the service
             start_result = await self._start_snapclient_service()
             if not start_result:
                 return {"success": False, "error": "Failed to start snapclient service"}
 
-            # 5. Vérifier la mise à jour
-            await asyncio.sleep(3)  # Attendre que le service soit stable
+            # 5. Verify the update
+            await asyncio.sleep(3)  # Wait for the service to stabilize
             new_version = await self.get_installed_version()
 
             if new_version == target_version:
@@ -190,14 +190,14 @@ class SnapclientManager:
 
         finally:
             UPDATE_IN_PROGRESS = False
-            # Nettoyer les fichiers temporaires
+            # Clean up temporary files
             if 'download_result' in locals() and download_result.get("temp_dir"):
                 shutil.rmtree(download_result["temp_dir"], ignore_errors=True)
 
     async def _download_snapclient_deb(self, version: str) -> Dict[str, Any]:
-        """Télécharge le package .deb snapclient depuis GitHub avec détection auto de Debian"""
+        """Downloads the snapclient .deb package from GitHub with auto Debian detection"""
         try:
-            # Détecter la version Debian
+            # Detect Debian version
             debian_codename = await self._get_debian_codename()
 
             temp_dir = tempfile.mkdtemp()
@@ -230,7 +230,7 @@ class SnapclientManager:
             return {"success": False, "error": str(e)}
 
     async def _install_deb_with_apt(self, deb_path: str) -> Dict[str, Any]:
-        """Installe un package .deb avec apt install (résout automatiquement les dépendances)"""
+        """Installs a .deb package with apt install (automatically resolves dependencies)"""
         try:
             env = {
                 "DEBIAN_FRONTEND": "noninteractive",
@@ -238,7 +238,7 @@ class SnapclientManager:
                 "APT_LISTCHANGES_FRONTEND": "none"
             }
 
-            # Étape 1 : Mettre à jour la liste des paquets
+            # Step 1: Update package list
             self.logger.info("Updating APT package list...")
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "-E", "apt", "update",
@@ -248,7 +248,7 @@ class SnapclientManager:
             )
             await proc.communicate()
 
-            # Étape 2 : Installer le .deb avec apt install (résout automatiquement les dépendances)
+            # Step 2: Install the .deb with apt install (automatically resolves dependencies)
             self.logger.info(f"Installing {Path(deb_path).name} with automatic dependency resolution...")
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "-E", "apt", "install", "-y", deb_path,
@@ -272,7 +272,7 @@ class SnapclientManager:
             return {"success": False, "error": str(e)}
     
     async def _stop_snapclient_service(self) -> bool:
-        """Arrête le service snapclient"""
+        """Stops the snapclient service"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "stop", "milo-sat-snapclient.service",
@@ -288,7 +288,7 @@ class SnapclientManager:
             return False
     
     async def _start_snapclient_service(self) -> bool:
-        """Démarre le service snapclient"""
+        """Starts the snapclient service"""
         try:
             proc = await asyncio.create_subprocess_exec(
                 "sudo", "systemctl", "start", "milo-sat-snapclient.service",
@@ -301,10 +301,10 @@ class SnapclientManager:
             if proc.returncode != 0:
                 return False
             
-            # Attendre que le service soit vraiment démarré
+            # Wait for the service to be actually started
             await asyncio.sleep(2)
             
-            # Vérifier l'état
+            # Check the status
             is_running = await self.is_service_running()
             return is_running
             
@@ -312,11 +312,11 @@ class SnapclientManager:
             self.logger.error(f"Failed to start snapclient service: {e}")
             return False
 
-# Instance globale du gestionnaire
+# Global manager instance
 snapclient_manager = SnapclientManager()
 
 def get_system_uptime() -> int:
-    """Récupère l'uptime du système en secondes"""
+    """Gets the system uptime in seconds"""
     try:
         with open('/proc/uptime', 'r') as f:
             uptime_seconds = float(f.readline().split()[0])
@@ -325,14 +325,14 @@ def get_system_uptime() -> int:
         return 0
 
 def get_hostname() -> str:
-    """Récupère le hostname du système"""
+    """Gets the system hostname"""
     return platform.node()
 
-# Routes API
+# API Routes
 
 @app.get("/health")
 async def health_check():
-    """Endpoint de santé basique"""
+    """Basic health endpoint"""
     return {
         "status": "healthy",
         "timestamp": int(time.time()),
@@ -341,7 +341,7 @@ async def health_check():
 
 @app.get("/status")
 async def get_status():
-    """Récupère le statut complet du satellite"""
+    """Gets the complete satellite status"""
     try:
         hostname = get_hostname()
         uptime = get_system_uptime()
@@ -366,7 +366,7 @@ async def get_status():
 
 @app.get("/version")
 async def get_version():
-    """Récupère uniquement la version de snapclient"""
+    """Gets only the snapclient version"""
     try:
         version = await snapclient_manager.get_installed_version()
         
@@ -388,19 +388,19 @@ async def get_version():
 
 @app.post("/update")
 async def update_snapclient(background_tasks: BackgroundTasks):
-    """Lance la mise à jour de snapclient depuis GitHub"""
+    """Starts the snapclient update from GitHub"""
     global UPDATE_IN_PROGRESS
 
     if UPDATE_IN_PROGRESS:
         raise HTTPException(status_code=409, detail="Update already in progress")
 
     try:
-        # Récupérer la dernière version disponible sur GitHub
+        # Get the latest available version on GitHub
         latest_version = await snapclient_manager.get_latest_github_version()
         if not latest_version:
             raise HTTPException(status_code=500, detail="Could not determine latest version")
 
-        # Vérifier si une mise à jour est nécessaire
+        # Check if an update is needed
         current_version = await snapclient_manager.get_installed_version()
         if current_version == latest_version:
             return {
@@ -410,7 +410,7 @@ async def update_snapclient(background_tasks: BackgroundTasks):
                 "latest_version": latest_version
             }
 
-        # Lancer la mise à jour en arrière-plan
+        # Start the update in background
         async def do_update():
             result = await snapclient_manager.update_snapclient(latest_version)
             logger.info(f"Update completed: {result}")
@@ -432,13 +432,13 @@ async def update_snapclient(background_tasks: BackgroundTasks):
 
 @app.get("/update/status")
 async def get_update_status():
-    """Récupère le statut de la mise à jour en cours"""
+    """Gets the status of the ongoing update"""
     return {
         "update_in_progress": UPDATE_IN_PROGRESS,
         "timestamp": int(time.time())
     }
 
-# Point d'entrée principal
+# Main entry point
 if __name__ == "__main__":
     logger.info(f"Starting Milo Sat API on port {API_PORT}")
     logger.info(f"Hostname: {get_hostname()}")

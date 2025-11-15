@@ -1,5 +1,5 @@
 #!/bin/bash
-# Milo Sat - Installation Script v1.2 (avec uninstall + volume par défaut)
+# Milo Sat - Installation Script v1.2 (with uninstall + default volume)
 
 set -e
 
@@ -10,7 +10,7 @@ MILO_SAT_DATA_DIR="/var/lib/milo-sat"
 MILO_SAT_REPO_BASE="https://raw.githubusercontent.com/leodurandfr/Milo/main/milo-sat"
 REBOOT_REQUIRED=false
 
-# Variables pour stocker les choix utilisateur
+# Variables to store user choices
 USER_HOSTNAME_CHOICE=""
 USER_HIFIBERRY_CHOICE=""
 HIFIBERRY_OVERLAY=""
@@ -97,7 +97,7 @@ collect_user_choices() {
     log_info "Configuration du satellite Milo - Répondez aux questions suivantes :"
     echo ""
     
-    # 1. Choix du hostname
+    # 1. Hostname choice
     echo "Choisissez un numéro pour ce satellite (01-99):"
     while true; do
         read -p "Numéro du satellite [01]: " USER_HOSTNAME_CHOICE
@@ -112,7 +112,7 @@ collect_user_choices() {
         fi
     done
     
-    # 2. Choix de la carte HiFiBerry
+    # 2. HiFiBerry card choice
     echo ""
     log_info "Configuration de la carte audio HiFiBerry..."
     echo ""
@@ -240,8 +240,8 @@ create_milo_sat_user() {
 install_snapclient() {
     log_info "Installation de Snapclient..."
 
-    # Installer snapclient depuis les dépôts Debian
-    # Cela résout automatiquement les dépendances selon la version de Debian
+    # Install snapclient from Debian repositories
+    # This automatically resolves dependencies according to the Debian version
     export DEBIAN_FRONTEND=noninteractive
     sudo apt install -y snapclient
 
@@ -277,7 +277,7 @@ configure_alsa() {
     log_info "Configuration ALSA..."
     
     sudo tee /etc/asound.conf > /dev/null << 'EOF'
-# Configuration ALSA pour Milo Sat
+# ALSA configuration for Milo Sat
 pcm.!default {
     type plug
     slave.pcm {
@@ -364,7 +364,7 @@ configure_sudoers() {
     log_info "Configuration des permissions sudo pour milo-sat..."
     
     sudo tee /etc/sudoers.d/milo-sat > /dev/null << 'EOF'
-# Milo Sat - Permissions pour les mises à jour automatiques
+# Milo Sat - Permissions for automatic updates
 milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop milo-sat-snapclient.service
 milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl start milo-sat-snapclient.service
 milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active milo-sat-snapclient.service
@@ -428,7 +428,7 @@ finalize_installation() {
     fi
 }
 
-# === FONCTION UNINSTALL ===
+# === UNINSTALL FUNCTION ===
 
 uninstall_milo_sat() {
     echo -e "${YELLOW}"
@@ -453,33 +453,33 @@ uninstall_milo_sat() {
     log_info "Début de la désinstallation..."
     echo ""
     
-    # 1. Arrêter et désactiver les services
+    # 1. Stop and disable services
     log_info "Arrêt des services..."
     sudo systemctl stop milo-sat.service 2>/dev/null || true
     sudo systemctl stop milo-sat-snapclient.service 2>/dev/null || true
     sudo systemctl disable milo-sat.service 2>/dev/null || true
     sudo systemctl disable milo-sat-snapclient.service 2>/dev/null || true
     
-    # 2. Supprimer les fichiers de service
+    # 2. Remove service files
     log_info "Suppression des services systemd..."
     sudo rm -f /etc/systemd/system/milo-sat.service
     sudo rm -f /etc/systemd/system/milo-sat-snapclient.service
     sudo systemctl daemon-reload
     
-    # 3. Supprimer les règles sudoers
+    # 3. Remove sudoers rules
     log_info "Suppression des règles sudoers..."
     sudo rm -f /etc/sudoers.d/milo-sat
     
-    # 4. Désinstaller Snapclient
+    # 4. Uninstall Snapclient
     log_info "Désinstallation de Snapclient..."
     sudo apt remove -y snapclient 2>/dev/null || true
     sudo apt autoremove -y
     
-    # 5. Supprimer la configuration ALSA
+    # 5. Remove ALSA configuration
     log_info "Suppression de la configuration ALSA..."
     sudo rm -f /etc/asound.conf
     
-    # 6. Restaurer config.txt (retirer HiFiBerry)
+    # 6. Restore config.txt (remove HiFiBerry)
     log_info "Restauration de la configuration audio..."
     local config_file="/boot/firmware/config.txt"
     if [[ ! -f "$config_file" ]]; then
@@ -490,7 +490,7 @@ uninstall_milo_sat() {
         sudo sed -i '/# Milo Sat - HiFiBerry Audio/d' "$config_file"
         sudo sed -i '/dtoverlay=hifiberry-/d' "$config_file"
         
-        # Réactiver l'audio intégré
+        # Re-enable built-in audio
         if ! grep -q "^dtparam=audio=on" "$config_file"; then
             echo "dtparam=audio=on" | sudo tee -a "$config_file" > /dev/null
         fi
@@ -498,18 +498,18 @@ uninstall_milo_sat() {
         REBOOT_REQUIRED=true
     fi
     
-    # 7. Supprimer les répertoires de l'application
+    # 7. Remove application directories
     log_info "Suppression des fichiers de l'application..."
     sudo rm -rf "$MILO_SAT_APP_DIR"
     sudo rm -rf "$MILO_SAT_DATA_DIR"
     
-    # 8. Supprimer l'utilisateur milo-sat
+    # 8. Remove milo-sat user
     log_info "Suppression de l'utilisateur milo-sat..."
     if id "$MILO_SAT_USER" &>/dev/null; then
         sudo userdel -r "$MILO_SAT_USER" 2>/dev/null || true
     fi
     
-    # 9. Restaurer le hostname par défaut (optionnel)
+    # 9. Restore default hostname (optional)
     local current_hostname=$(hostname)
     if [[ "$current_hostname" == milo-sat-* ]]; then
         log_info "Restauration du hostname par défaut..."
@@ -551,10 +551,10 @@ uninstall_milo_sat() {
     fi
 }
 
-# === FONCTION PRINCIPALE ===
+# === MAIN FUNCTION ===
 
 main() {
-    # Vérifier si mode uninstall
+    # Check if uninstall mode
     if [[ "$1" == "--uninstall" ]]; then
         show_banner
         check_root
@@ -562,7 +562,7 @@ main() {
         exit 0
     fi
     
-    # Installation normale
+    # Normal installation
     show_banner
     
     check_root
