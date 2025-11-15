@@ -1,18 +1,21 @@
 <!-- frontend/src/components/ui/Button.vue -->
 <template>
     <button :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
-        <Icon v-if="leftIcon" :name="leftIcon" :size="32" />
+        <LoadingSpinner v-if="loading" :size="32" />
+        <Icon v-else-if="leftIcon" :name="leftIcon" :size="32" />
         <slot></slot>
     </button>
 </template>
 
 <script>
 import Icon from './Icon.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 export default {
     name: 'Button',
     components: {
-        Icon
+        Icon,
+        LoadingSpinner
     },
     props: {
         variant: {
@@ -36,6 +39,10 @@ export default {
         leftIcon: {
             type: String,
             default: null
+        },
+        loading: {
+            type: Boolean,
+            default: false
         }
     },
     computed: {
@@ -43,7 +50,7 @@ export default {
             const baseClasses = 'btn text-body'
             const variantClass = `btn--${this.variant}`
             const stateClass = this.getStateClass()
-            const iconClass = this.leftIcon ? 'btn--with-icon' : ''
+            const iconClass = (this.leftIcon || this.loading) ? 'btn--with-icon' : ''
 
             return `${baseClasses} ${variantClass} ${stateClass} ${iconClass}`.trim()
         }

@@ -12,7 +12,7 @@
 
     <!-- Loading overlay -->
     <div v-if="isLoading" class="loading-overlay">
-      <div class="loading-spinner"></div>
+      <LoadingSpinner :size="48" />
     </div>
   </div>
 
@@ -35,7 +35,7 @@
     </div>
 
     <!-- Loading spinner -->
-    <div v-if="isLoading" class="loading-spinner-small"></div>
+    <LoadingSpinner v-if="isLoading" :size="48" variant="background" />
 
     <!-- Custom actions (0, 1 or 2 buttons) -->
     <div v-else-if="$slots.actions" class="actions-wrapper">
@@ -67,7 +67,7 @@
         @click="$emit('favorite')" />
       <!-- Desktop: Button with text -->
       <Button v-if="!isMobile" variant="background-light" :left-icon="isPlaying ? 'stop' : 'play'"
-        @click="$emit('play')">
+        :loading="isLoading" @click="$emit('play')">
         {{ isPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio') }}
       </Button>
       <!-- Mobile: CircularIcon without text -->
@@ -81,6 +81,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 import Button from '@/components/ui/Button.vue';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const { t } = useI18n();
@@ -274,16 +275,6 @@ function handleImageError() {
   z-index: 10;
 }
 
-
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.2);
-  border-top-color: var(--color-brand);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
 /* === "CARD" VARIANT: Horizontal layout === */
 .station-card {
   display: flex;
@@ -390,27 +381,9 @@ function handleImageError() {
   flex-shrink: 0;
 }
 
-
-.loading-spinner-small {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--color-border);
-  border-top-color: var(--color-brand);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-
 .station-image.loading,
 .station-card.loading {
   opacity: 0.9;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* Desktop: Vertical layout */

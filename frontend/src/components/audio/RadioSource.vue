@@ -1,3 +1,4 @@
+<!-- RadioSource.vue -->
 <template>
   <div class="radio-source-wrapper">
     <div ref="radioContainer" class="radio-container stagger-1" :class="{ 'is-initial-animating': isInitialAnimating }">
@@ -110,7 +111,7 @@
     ]">
       <StationCard v-if="radioStore.currentStation" :class="{ 'first-appearance-mobile': isFirstAppearance }"
         :station="radioStore.currentStation" variant="now-playing" :show-controls="true"
-        :is-playing="isCurrentlyPlaying" @play="handlePlayPause" @favorite="handleFavorite" />
+        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" @play="handlePlayPause" @favorite="handleFavorite" />
     </div>
   </div>
 </template>
