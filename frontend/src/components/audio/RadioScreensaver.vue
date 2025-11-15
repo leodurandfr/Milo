@@ -23,10 +23,8 @@
       <div class="station-info stagger-3">
         <p class="station-name display-1">{{ currentStation?.name || 'Station inconnue' }}</p>
         <p class="station-meta text-mono">
-          <span v-if="currentStation?.genre">{{ currentStation.genre }}</span>
-          <span v-if="currentStation?.genre && audioQuality"> • </span>
-          <span v-if="audioQuality">{{ audioQuality }}</span>
-          <span v-if="!currentStation?.genre && !audioQuality">En direct</span>
+          <span v-if="metadataDisplay">{{ metadataDisplay }}</span>
+          <span v-else>En direct</span>
         </p>
       </div>
     </div>
@@ -53,19 +51,51 @@ const isClosing = ref(false);
 
 const currentStation = computed(() => radioStore.currentStation);
 
+// Helper function to capitalize first letter
+function capitalizeGenre(genre) {
+  if (!genre) return '';
+  return genre.charAt(0).toUpperCase() + genre.slice(1);
+}
+
+// Compute capitalized genre
+const displayGenre = computed(() => {
+  return capitalizeGenre(currentStation.value?.genre);
+});
+
 // Compute audio quality if available
 const audioQuality = computed(() => {
   if (!currentStation.value) return null;
 
   const bitrate = currentStation.value.bitrate;
-  const codec = currentStation.value.codec;
 
-  if (bitrate && codec) {
-    return `${bitrate} kbps ${codec}`;
-  } else if (bitrate) {
+  if (bitrate && bitrate > 0) {
     return `${bitrate} kbps`;
   }
 
+  return null;
+});
+
+// Compute metadata display: genre • bitrate
+const metadataDisplay = computed(() => {
+  const genre = displayGenre.value;
+  const quality = audioQuality.value;
+
+  // Both genre and quality
+  if (genre && quality) {
+    return `${genre} • ${quality}`;
+  }
+
+  // Only genre
+  if (genre) {
+    return genre;
+  }
+
+  // Only quality
+  if (quality) {
+    return quality;
+  }
+
+  // Neither - show fallback
   return null;
 });
 

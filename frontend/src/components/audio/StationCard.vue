@@ -31,9 +31,7 @@
 
     <div class="station-details">
       <p class="station-title text-body">{{ station.name }}</p>
-      <p class="station-subtitle text-mono">
-        <template v-if="showCountry && station.country">{{ station.country }} • </template>{{ station.genre }}
-      </p>
+      <p v-if="cardMetadata" class="station-subtitle text-mono">{{ cardMetadata }}</p>
     </div>
 
     <!-- Loading spinner -->
@@ -61,7 +59,7 @@
 
     <div class="station-info">
       <p class="station-name display-1">{{ station.name }}</p>
-      <p class="station-meta text-mono">{{ station.country }} • {{ station.genre }}</p>
+      <p v-if="nowPlayingMetadata" class="station-meta text-mono">{{ nowPlayingMetadata }}</p>
     </div>
 
     <div v-if="showControls" class="controls-wrapper">
@@ -143,6 +141,60 @@ const props = defineProps({
 defineEmits(['click', 'play', 'favorite']);
 
 const imageError = ref(false);
+
+// Helper function to capitalize first letter
+function capitalizeGenre(genre) {
+  if (!genre) return '';
+  return genre.charAt(0).toUpperCase() + genre.slice(1);
+}
+
+// Computed metadata for now-playing variant: genre + bitrate
+const nowPlayingMetadata = computed(() => {
+  const genre = capitalizeGenre(props.station?.genre);
+  const bitrate = props.station?.bitrate;
+
+  // Both genre and bitrate
+  if (genre && bitrate && bitrate > 0) {
+    return `${genre} • ${bitrate} kbps`;
+  }
+
+  // Only genre
+  if (genre) {
+    return genre;
+  }
+
+  // Only bitrate
+  if (bitrate && bitrate > 0) {
+    return `${bitrate} kbps`;
+  }
+
+  // Neither - return empty string
+  return '';
+});
+
+// Computed metadata for card variant: country + genre
+const cardMetadata = computed(() => {
+  const country = props.station?.country;
+  const genre = capitalizeGenre(props.station?.genre);
+
+  // Both country and genre
+  if (country && genre) {
+    return `${country} • ${genre}`;
+  }
+
+  // Only country
+  if (country) {
+    return country;
+  }
+
+  // Only genre
+  if (genre) {
+    return genre;
+  }
+
+  // Neither - return empty string
+  return '';
+});
 
 function getFaviconUrl(faviconUrl) {
   // No favicon

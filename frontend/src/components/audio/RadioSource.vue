@@ -93,8 +93,8 @@
           <StationCard v-else v-for="station in displayedStations" :key="`search-${station.id}`" :station="station"
             variant="card" :is-active="radioStore.currentStation?.id === station.id"
             :is-playing="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
-            :is-loading="bufferingStationId === station.id" :show-controls="true" @click="playStation(station.id)"
-            @play="playStation(station.id)" />
+            :is-loading="bufferingStationId === station.id" :show-controls="true" :show-country="true"
+            @click="playStation(station.id)" @play="playStation(station.id)" />
         </div>
 
       </div>
@@ -122,6 +122,7 @@ import { useRadioStore } from '@/stores/radioStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import { useI18n } from '@/services/i18n';
+import { genreOptions as createGenreOptions } from '@/constants/music_genres';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 import AddRadioStation from '@/components/settings/categories/radio/AddRadioStation.vue';
@@ -178,14 +179,23 @@ const bufferingStationId = computed(() => {
 
 // Displayed stations - favorites or search results depending on mode
 const displayedStations = computed(() => {
+  let stations = [];
+
   if (isSearchMode.value) {
     // Search mode: ONLY show search results from RadioBrowserAPI
     // Never show favoriteStations (which includes custom stations)
-    return radioStore.displayedStations || [];
+    stations = radioStore.displayedStations || [];
   } else {
     // Favorites mode: display all favorites (including custom stations)
-    return radioStore.favoriteStations || [];
+    stations = radioStore.favoriteStations || [];
   }
+
+  // Sort alphabetically by station name (case-insensitive)
+  return [...stations].sort((a, b) => {
+    const nameA = (a.name || '').toLowerCase();
+    const nameB = (b.name || '').toLowerCase();
+    return nameA.localeCompare(nameB);
+  });
 });
 
 
@@ -206,110 +216,7 @@ const countryOptions = computed(() => {
 
 // Genre options for dropdown
 const genreOptions = computed(() => {
-  return [
-    { label: t('audioSources.radioSource.allGenres'), value: '' },
-    { label: 'Pop', value: 'pop' },
-    { label: 'Rock', value: 'rock' },
-    { label: 'News', value: 'news' },
-    { label: 'Classical', value: 'classical' },
-    { label: 'Talk', value: 'talk' },
-    { label: 'Dance', value: 'dance' },
-    { label: 'Oldies', value: 'oldies' },
-    { label: '80s', value: '80s' },
-    { label: 'Jazz', value: 'jazz' },
-    { label: '90s', value: '90s' },
-    { label: 'Electronic', value: 'electronic' },
-    { label: 'Classic Rock', value: 'classic rock' },
-    { label: 'Country', value: 'country' },
-    { label: 'Pop Rock', value: 'pop rock' },
-    { label: 'House', value: 'house' },
-    { label: 'Alternative', value: 'alternative' },
-    { label: 'Metal', value: 'metal' },
-    { label: 'Soul', value: 'soul' },
-    { label: 'Indie', value: 'indie' },
-    { label: 'Chillout', value: 'chillout' },
-    { label: 'Techno', value: 'techno' },
-    { label: 'Folk', value: 'folk' },
-    { label: 'Disco', value: 'disco' },
-    { label: 'Ambient', value: 'ambient' },
-    { label: 'Blues', value: 'blues' },
-    { label: 'Alternative Rock', value: 'alternative rock' },
-    { label: 'Rap', value: 'rap' },
-    { label: 'HipHop', value: 'hiphop' },
-    { label: 'Lounge', value: 'lounge' },
-    { label: 'Trance', value: 'trance' },
-    { label: 'Latin Pop', value: 'latin pop' },
-    { label: '60s', value: '60s' },
-    { label: 'EDM', value: 'edm' },
-    { label: 'Smooth Jazz', value: 'smooth jazz' },
-    { label: 'Reggaeton', value: 'reggaeton' },
-    { label: 'Tropical', value: 'tropical' },
-    { label: 'Hard Rock', value: 'hard rock' },
-    { label: 'Reggae', value: 'reggae' },
-    { label: 'RnB', value: 'rnb' },
-    { label: 'Hip-Hop', value: 'hip-hop' },
-    { label: 'Deep House', value: 'deep house' },
-    { label: 'Schlager', value: 'schlager' },
-    { label: '70s', value: '70s' },
-    { label: 'Punk', value: 'punk' },
-    { label: 'Urban', value: 'urban' },
-    { label: 'Latin', value: 'latin' },
-    { label: 'Latin Music', value: 'latin music' },
-    { label: 'R&B', value: 'r&b' },
-    { label: 'Eurodance', value: 'eurodance' },
-    { label: '2010s', value: '2010s' },
-    { label: '1990s', value: '1990s' },
-    { label: 'Merengue', value: 'merengue' },
-    { label: 'New Wave', value: 'new wave' },
-    { label: 'Pop Dance', value: 'pop dance' },
-    { label: 'Classic Jazz', value: 'classic jazz' },
-    { label: 'Funk', value: 'funk' },
-    { label: 'Grunge', value: 'grunge' },
-    { label: 'Minimal', value: 'minimal' },
-    { label: 'Ska', value: 'ska' },
-    { label: 'Italo Disco', value: 'italo disco' },
-    { label: 'Singer-Songwriter', value: 'singer-songwriter' },
-    { label: 'Opera', value: 'opera' },
-    { label: 'Americana', value: 'americana' },
-    { label: 'Darkwave', value: 'darkwave' },
-    { label: 'Afrobeats', value: 'afrobeats' },
-    { label: 'Bossa Nova', value: 'bossa nova' },
-    { label: 'Celtic', value: 'celtic' },
-    { label: 'Lo-Fi', value: 'lo-fi' },
-    { label: 'Nu Disco', value: 'nu disco' },
-    { label: 'Acoustic', value: 'acoustic' },
-    { label: 'Folk Rock', value: 'folk rock' },
-    { label: 'Progressive Rock', value: 'progressive rock' },
-    { label: 'Art Rock', value: 'art rock' },
-    { label: 'Psychedelic Rock', value: 'psychedelic rock' },
-    { label: 'Britpop', value: 'britpop' },
-    { label: 'Drum And Bass', value: 'drum and bass' },
-    { label: 'Dubstep', value: 'dubstep' },
-    { label: 'Trap', value: 'trap' },
-    { label: 'Tech House', value: 'tech house' },
-    { label: 'Jazz Fusion', value: 'jazz fusion' },
-    { label: 'Downtempo', value: 'downtempo' },
-    { label: 'Chill', value: 'chill' },
-    { label: 'New Age', value: 'new age' },
-    { label: 'World Music', value: 'world music' },
-    { label: 'Garage', value: 'garage' },
-    { label: 'Progressive House', value: 'progressive house' },
-    { label: 'Trip-Hop', value: 'trip-hop' },
-    { label: 'Minimal Techno', value: 'minimal techno' },
-    { label: 'Psychedelic', value: 'psychedelic' },
-    { label: 'Power Metal', value: 'power metal' },
-    { label: 'Thrash Metal', value: 'thrash metal' },
-    { label: 'Death Metal', value: 'death metal' },
-    { label: 'Hardcore', value: 'hardcore' },
-    { label: 'Stoner Rock', value: 'stoner rock' },
-    { label: 'Synthwave', value: 'synthwave' },
-    { label: 'Smooth Lounge', value: 'smooth lounge' },
-    { label: 'Dancehall', value: 'dancehall' },
-    { label: 'Dub', value: 'dub' },
-    { label: 'Roots', value: 'roots' },
-    { label: 'Salsa', value: 'salsa' },
-    { label: 'Bachata', value: 'bachata' }
-  ];
+  return createGenreOptions(t, t('audioSources.radioSource.allGenres'));
 });
 
 // === NAVIGATION ===

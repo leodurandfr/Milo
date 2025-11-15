@@ -954,14 +954,16 @@ class StationManager:
 
             # Optionally refresh cache from API
             if radio_api:
-                original_station = await radio_api._fetch_station_by_id(station_id)
-                if original_station:
-                    # Update cache with fresh data from API
-                    cached = original_station.copy()
+                # Use get_stations_by_ids() instead of _fetch_station_by_id()
+                # This applies deduplication and finds the best favicon
+                stations = await radio_api.get_stations_by_ids([station_id])
+                if stations:
+                    # Update cache with fresh data from API (includes best favicon)
+                    cached = stations[0].copy()
                     if 'id' in cached:
                         del cached['id']
                     self._favorites_cache[station_id] = cached
-                    self.logger.info(f"Refreshed cache from API: {original_station['name']}")
+                    self.logger.info(f"Refreshed cache from API with best favicon: {stations[0]['name']}")
 
             # Save
             success = await self._save()
