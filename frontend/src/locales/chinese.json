@@ -173,7 +173,11 @@
     "language": "语言",
     "unknown": "未知",
     "cancel": "取消",
-    "save": "保存"
+    "save": "保存",
+    "saving": "正在保存...",
+    "confirm": "确认",
+    "restore": "恢复",
+    "delete": "删除"
   },
   "radio": {
     "edit_station_title": "编辑 {name}",
@@ -192,7 +196,36 @@
     "image_too_large": "图片太大。最大5MB。",
     "edit_failed": "编辑电台失败",
     "error_occurred": "发生错误",
-    "saving": "正在保存..."
+    "saving": "正在保存...",
+    "manageStation": {
+      "name": "电台名称",
+      "namePlaceholder": "例：中国之声",
+      "image": "电台图片",
+      "chooseImage": "选择图片",
+      "url": "流媒体URL",
+      "urlPlaceholder": "例：http://streaming.radio.cn/stream",
+      "country": "国家",
+      "selectCountry": "选择国家",
+      "genre": "类型",
+      "genrePlaceholder": "例：流行、摇滚、爵士",
+      "codec": "编解码器",
+      "codecPlaceholder": "例：MP3、AAC、OGG",
+      "bitrate": "比特率 (kbps)",
+      "bitratePlaceholder": "例：128、192、320",
+      "add": "添加",
+      "adding": "正在添加...",
+      "confirmRestore": "确认恢复",
+      "confirmDelete": "确认删除",
+      "loading": "正在加载...",
+      "invalidImageFormat": "不支持的图片格式。请使用JPG、PNG、WEBP或GIF。",
+      "imageTooLarge": "图片太大。最大5MB。",
+      "noStationToEdit": "没有要编辑的电台",
+      "editFailed": "编辑电台失败",
+      "addFailed": "添加电台失败",
+      "errorOccurred": "发生错误",
+      "addStationTitle": "添加电台",
+      "editStationTitle": "编辑电台"
+    }
   },
   "radioSettings": {
     "unmodifiedFavoritesTitle": "未修改的收藏",

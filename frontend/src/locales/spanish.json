@@ -173,7 +173,11 @@
     "language": "Idioma",
     "unknown": "Desconocido",
     "cancel": "Cancelar",
-    "save": "Guardar"
+    "save": "Guardar",
+    "saving": "Guardando...",
+    "confirm": "Confirmar",
+    "restore": "Restaurar",
+    "delete": "Eliminar"
   },
   "radio": {
     "edit_station_title": "Editar {name}",
@@ -192,7 +196,36 @@
     "image_too_large": "Imagen demasiado grande. Máximo 5MB.",
     "edit_failed": "Error al editar la estación",
     "error_occurred": "Ha ocurrido un error",
-    "saving": "Guardando..."
+    "saving": "Guardando...",
+    "manageStation": {
+      "name": "Nombre de la estación",
+      "namePlaceholder": "Ej: Radio Nacional",
+      "image": "Imagen de la estación",
+      "chooseImage": "Elegir una imagen",
+      "url": "URL del stream",
+      "urlPlaceholder": "Ej: http://streaming.radio.es/stream",
+      "country": "País",
+      "selectCountry": "Seleccionar un país",
+      "genre": "Género",
+      "genrePlaceholder": "Ej: Pop, Rock, Jazz",
+      "codec": "Códec",
+      "codecPlaceholder": "Ej: MP3, AAC, OGG",
+      "bitrate": "Bitrate (kbps)",
+      "bitratePlaceholder": "Ej: 128, 192, 320",
+      "add": "Añadir",
+      "adding": "Añadiendo...",
+      "confirmRestore": "Confirmar restauración",
+      "confirmDelete": "Confirmar eliminación",
+      "loading": "Cargando...",
+      "invalidImageFormat": "Formato de imagen no compatible. Use JPG, PNG, WEBP o GIF.",
+      "imageTooLarge": "Imagen demasiado grande. Máximo 5MB.",
+      "noStationToEdit": "Ninguna estación para editar",
+      "editFailed": "Error al editar la estación",
+      "addFailed": "Error al añadir la estación",
+      "errorOccurred": "Ha ocurrido un error",
+      "addStationTitle": "Añadir una estación",
+      "editStationTitle": "Editar estación"
+    }
   },
   "radioSettings": {
     "unmodifiedFavoritesTitle": "Favoritos sin modificar",

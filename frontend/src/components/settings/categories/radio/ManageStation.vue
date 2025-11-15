@@ -4,15 +4,15 @@
       <!-- Station Name and Image Section -->
       <div class="station-header-row">
         <div class="form-group">
-          <label class="text-mono">Nom de la station *</label>
-          <InputText v-model="formData.name" type="text" size="small" placeholder="Ex: RTL" />
+          <label class="text-mono">{{ $t('radio.manageStation.name') }} *</label>
+          <InputText v-model="formData.name" type="text" size="small" :placeholder="$t('radio.manageStation.namePlaceholder')" />
         </div>
 
         <div class="image-upload-group">
           <div class="form-group">
-            <label class="text-mono">Image de la station</label>
+            <label class="text-mono">{{ $t('radio.manageStation.image') }}</label>
             <Button variant="toggle" size="small" :active="true" class="full-width-btn" @click="$refs.fileInput.click()">
-              Choisir une image
+              {{ $t('radio.manageStation.chooseImage') }}
             </Button>
           </div>
           <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif"
@@ -28,35 +28,35 @@
       </div>
 
       <div class="form-group">
-        <label class="text-mono">URL du flux audio *</label>
+        <label class="text-mono">{{ $t('radio.manageStation.url') }} *</label>
         <InputText v-model="formData.url" type="url" size="small"
-          placeholder="Ex: http://streaming.radio.fr/stream" />
+          :placeholder="$t('radio.manageStation.urlPlaceholder')" />
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label class="text-mono">Pays</label>
-          <Dropdown v-model="formData.country" :options="countryOptions" size="small" placeholder="Choisir un pays" />
+          <label class="text-mono">{{ $t('radio.manageStation.country') }}</label>
+          <Dropdown v-model="formData.country" :options="countryOptions" size="small" :placeholder="$t('radio.manageStation.selectCountry')" />
         </div>
 
         <div class="form-group">
-          <label class="text-mono">Genre</label>
+          <label class="text-mono">{{ $t('radio.manageStation.genre') }}</label>
           <InputText v-model="formData.genre" type="text" size="small"
-            placeholder="Ex: Pop, Rock, Jazz" />
+            :placeholder="$t('radio.manageStation.genrePlaceholder')" />
         </div>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label class="text-mono">Codec</label>
+          <label class="text-mono">{{ $t('radio.manageStation.codec') }}</label>
           <InputText v-model="formData.codec" type="text" size="small"
-            placeholder="Ex: MP3, AAC, OGG" />
+            :placeholder="$t('radio.manageStation.codecPlaceholder')" />
         </div>
 
         <div class="form-group">
-          <label class="text-mono">Bitrate (kbps)</label>
+          <label class="text-mono">{{ $t('radio.manageStation.bitrate') }}</label>
           <InputText v-model="formData.bitrate" type="number" size="small"
-            placeholder="Ex: 128, 192, 320" />
+            :placeholder="$t('radio.manageStation.bitratePlaceholder')" />
         </div>
       </div>
 
@@ -66,23 +66,25 @@
       </div>
 
       <!-- Actions -->
-      <div class="form-actions">
-        <Button v-if="canRestore" variant="secondary" size="small"
-          :class="{ 'restore-btn': !isConfirmingRestore, 'restore-btn-confirm': isConfirmingRestore }"
-          @click="handleRestoreClick" :disabled="isSubmitting">
-          {{ isConfirmingRestore ? 'Confirmer' : 'Restaurer la station' }}
+      <div class="form-actions" :class="{ 'two-buttons': !canRestore && !canDelete }">
+        <div v-if="canRestore || canDelete" class="left-actions">
+          <Button v-if="canRestore" variant="important" size="small"
+            @click="handleRestoreClick" :disabled="isSubmitting">
+            {{ isConfirmingRestore ? $t('radio.manageStation.confirmRestore') : $t('common.restore') }}
+          </Button>
+          <Button v-if="canDelete" variant="important" size="small"
+            @click="handleDeleteClick" :disabled="isSubmitting">
+            {{ isConfirmingDelete ? $t('radio.manageStation.confirmDelete') : $t('common.delete') }}
+          </Button>
+          <Button variant="secondary" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
+            {{ $t('common.cancel') }}
+          </Button>
+        </div>
+        <Button v-else variant="secondary" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
+          {{ $t('common.cancel') }}
         </Button>
-        <Button v-if="canDelete" variant="secondary" size="small"
-          :class="{ 'delete-btn': !isConfirmingDelete, 'delete-btn-confirm': isConfirmingDelete }"
-          @click="handleDeleteClick" :disabled="isSubmitting">
-          {{ isConfirmingDelete ? 'Confirmer' : 'Supprimer la station' }}
-        </Button>
-        <div class="spacer"></div>
-        <Button variant="secondary" size="small" @click="$emit('back')" :disabled="isSubmitting">
-          Annuler
-        </Button>
-        <Button variant="primary" size="small" type="submit" :disabled="isSubmitting || !formData.name || !formData.url">
-          {{ isSubmitting ? 'Enregistrement...' : 'Enregistrer' }}
+        <Button variant="primary" size="small" class="save-btn" type="submit" :disabled="isSubmitting || !formData.name || !formData.url">
+          {{ submitButtonText }}
         </Button>
       </div>
     </form>
@@ -91,6 +93,9 @@
 
 <script setup>
 import { ref, reactive, onMounted, watch, computed } from 'vue';
+import { useI18n } from '@/services/i18n';
+import { useRadioStore } from '@/stores/radioStore';
+import { countryOptions as createCountryOptions } from '@/constants/countries';
 import Button from '@/components/ui/Button.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import InputText from '@/components/ui/InputText.vue';
@@ -98,7 +103,12 @@ import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 import axios from 'axios';
 
 const props = defineProps({
-  preselectedStation: {
+  mode: {
+    type: String,
+    default: 'add',
+    validator: v => ['add', 'edit'].includes(v)
+  },
+  station: {
     type: Object,
     default: null
   },
@@ -113,6 +123,9 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['back', 'success', 'restore', 'delete']);
+
+const { t } = useI18n();
+const radioStore = useRadioStore();
 
 const fileInput = ref(null);
 const selectedFile = ref(null);
@@ -135,6 +148,16 @@ const formData = reactive({
   bitrate: ''
 });
 
+// Computed properties
+const isEditMode = computed(() => props.mode === 'edit');
+
+const submitButtonText = computed(() => {
+  if (isSubmitting.value) {
+    return isEditMode.value ? t('common.saving') : t('radio.manageStation.adding');
+  }
+  return isEditMode.value ? t('common.save') : t('radio.manageStation.add');
+});
+
 // Load available countries from API
 async function loadAvailableCountries() {
   try {
@@ -147,18 +170,18 @@ async function loadAvailableCountries() {
   }
 }
 
-// Convert countries to dropdown format
+// Convert countries to dropdown format with translations
 const countryOptions = computed(() => {
   if (availableCountries.value.length === 0) {
-    return [{ label: 'Chargement...', value: '' }];
+    return [{ label: t('radio.manageStation.loading'), value: '' }];
   }
-  return availableCountries.value.map(country => ({
-    label: country.name,
-    value: country.name
-  }));
+  // Use createCountryOptions helper to generate translated country names
+  const translatedOptions = createCountryOptions(t, availableCountries.value, '');
+  // Remove the first "All countries" option since it's not needed in station form
+  return translatedOptions.slice(1);
 });
 
-// Initialize form with preselected station data
+// Initialize form with station data (for edit mode)
 function initializeForm() {
   // Reset image-related fields
   selectedFile.value = null;
@@ -166,23 +189,31 @@ function initializeForm() {
   shouldRemoveImage.value = false;
   currentImageUrl.value = '';
 
-  if (props.preselectedStation) {
-    formData.name = props.preselectedStation.name || '';
-    formData.url = props.preselectedStation.url || props.preselectedStation.url_resolved || '';
-    formData.country = props.preselectedStation.country || '';
-    formData.genre = props.preselectedStation.genre || '';
-    formData.codec = props.preselectedStation.codec || '';
-    formData.bitrate = String(props.preselectedStation.bitrate || '');
+  if (props.station && isEditMode.value) {
+    formData.name = props.station.name || '';
+    formData.url = props.station.url || props.station.url_resolved || '';
+    formData.country = props.station.country || '';
+    formData.genre = props.station.genre || '';
+    formData.codec = props.station.codec || '';
+    formData.bitrate = String(props.station.bitrate || '');
 
     // Set current image URL if exists
-    if (props.preselectedStation.favicon) {
-      currentImageUrl.value = props.preselectedStation.favicon;
+    if (props.station.favicon) {
+      currentImageUrl.value = props.station.favicon;
     }
+  } else {
+    // Reset form for add mode
+    formData.name = '';
+    formData.url = '';
+    formData.country = '';
+    formData.genre = '';
+    formData.codec = '';
+    formData.bitrate = '';
   }
 }
 
-// Watch for changes to preselectedStation prop
-watch(() => props.preselectedStation, () => {
+// Watch for changes to station prop
+watch(() => props.station, () => {
   initializeForm();
   isConfirmingRestore.value = false;
   isConfirmingDelete.value = false;
@@ -209,14 +240,14 @@ function handleFileSelect(event) {
   // Validate file type
   const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
   if (!validTypes.includes(file.type)) {
-    errorMessage.value = 'Format d\'image non supporté. Utilisez JPG, PNG, WEBP ou GIF.';
+    errorMessage.value = t('radio.manageStation.invalidImageFormat');
     return;
   }
 
   // Validate file size (5MB max)
   const maxSize = 5 * 1024 * 1024; // 5MB
   if (file.size > maxSize) {
-    errorMessage.value = 'Image trop volumineuse. Maximum 5MB.';
+    errorMessage.value = t('radio.manageStation.imageTooLarge');
     return;
   }
 
@@ -285,43 +316,72 @@ function handleDeleteClick() {
 }
 
 async function handleSubmit() {
-  if (isSubmitting.value || !props.preselectedStation) return;
+  if (isSubmitting.value) return;
 
   errorMessage.value = '';
   isSubmitting.value = true;
 
   try {
-    const formDataToSend = new FormData();
-    formDataToSend.append('station_id', props.preselectedStation.id);
-    formDataToSend.append('name', formData.name.trim());
-    formDataToSend.append('url', formData.url.trim());
-    formDataToSend.append('country', formData.country);
-    formDataToSend.append('genre', formData.genre);
-    formDataToSend.append('codec', formData.codec);
-    formDataToSend.append('bitrate', parseInt(formData.bitrate, 10));
-    formDataToSend.append('remove_image', shouldRemoveImage.value.toString());
+    if (isEditMode.value) {
+      // Edit mode - use existing modify-metadata endpoint
+      if (!props.station) {
+        errorMessage.value = t('radio.manageStation.noStationToEdit');
+        return;
+      }
 
-    if (selectedFile.value) {
-      formDataToSend.append('image', selectedFile.value);
-    }
+      const formDataToSend = new FormData();
+      formDataToSend.append('station_id', props.station.id);
+      formDataToSend.append('name', formData.name.trim());
+      formDataToSend.append('url', formData.url.trim());
+      formDataToSend.append('country', formData.country);
+      formDataToSend.append('genre', formData.genre);
+      formDataToSend.append('codec', formData.codec);
+      formDataToSend.append('bitrate', parseInt(formData.bitrate, 10) || 0);
+      formDataToSend.append('remove_image', shouldRemoveImage.value.toString());
 
-    const response = await fetch('/api/radio/favorites/modify-metadata', {
-      method: 'POST',
-      body: formDataToSend
-    });
+      if (selectedFile.value) {
+        formDataToSend.append('image', selectedFile.value);
+      }
 
-    const data = await response.json();
+      const response = await fetch('/api/radio/favorites/modify-metadata', {
+        method: 'POST',
+        body: formDataToSend
+      });
 
-    if (data.success) {
-      console.log('✅ Station modifiée avec succès:', data.station);
-      emit('success', data.station);
-      emit('back');
+      const data = await response.json();
+
+      if (data.success) {
+        console.log('✅ Station modifiée avec succès:', data.station);
+        emit('success', data.station);
+        emit('back');
+      } else {
+        errorMessage.value = data.error || t('radio.manageStation.editFailed');
+      }
     } else {
-      errorMessage.value = data.error || 'Échec de la modification de la station';
+      // Add mode - use radioStore.addCustomStation
+      const stationData = {
+        name: formData.name.trim(),
+        url: formData.url.trim(),
+        country: formData.country,
+        genre: formData.genre,
+        bitrate: parseInt(formData.bitrate, 10) || 0,
+        codec: formData.codec,
+        image: selectedFile.value // File object or null
+      };
+
+      const result = await radioStore.addCustomStation(stationData);
+
+      if (result.success) {
+        console.log('✅ Station ajoutée avec succès:', result.station);
+        emit('success', result.station);
+        emit('back');
+      } else {
+        errorMessage.value = result.error || t('radio.manageStation.addFailed');
+      }
     }
   } catch (error) {
-    console.error('❌ Erreur modification station:', error);
-    errorMessage.value = error.message || 'Une erreur est survenue';
+    console.error('❌ Erreur station:', error);
+    errorMessage.value = error.message || t('radio.manageStation.errorOccurred');
   } finally {
     isSubmitting.value = false;
   }
@@ -361,7 +421,7 @@ async function handleSubmit() {
 .station-header-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-04);
+  gap: var(--space-03);
   align-items: start;
 }
 
@@ -410,34 +470,29 @@ async function handleSubmit() {
 .form-actions {
   display: flex;
   gap: var(--space-03);
-  justify-content: flex-end;
   padding-top: var(--space-02);
 }
 
-.form-actions .spacer {
+/* When only 2 buttons (Cancel + Save): each takes 50% */
+.form-actions.two-buttons .cancel-btn,
+.form-actions.two-buttons .save-btn {
   flex: 1;
 }
 
-.form-actions .restore-btn {
-  border: 2px solid rgba(244, 67, 54, 0.3);
-  color: rgb(244, 67, 54);
+/* When 3+ buttons: use grid for equal 50/50 split */
+.form-actions:not(.two-buttons) {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
 }
 
-.form-actions .restore-btn-confirm {
-  background: rgb(244, 67, 54);
-  color: white;
-  border: 2px solid rgb(244, 67, 54);
+/* Left actions wrapper (Restore/Delete + Cancel) */
+.left-actions {
+  display: flex;
+  gap: var(--space-03);
 }
 
-.form-actions .delete-btn {
-  border: 2px solid rgba(244, 67, 54, 0.3);
-  color: rgb(244, 67, 54);
-}
-
-.form-actions .delete-btn-confirm {
-  background: rgb(244, 67, 54);
-  color: white;
-  border: 2px solid rgb(244, 67, 54);
+.left-actions .btn {
+  flex: 1;
 }
 
 /* Mobile responsive */
@@ -452,6 +507,15 @@ async function handleSubmit() {
 
   .favicon-preview {
     justify-content: flex-start;
+  }
+
+  .form-actions:not(.two-buttons) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .form-actions:not(.two-buttons) .save-btn {
+    width: 100%;
   }
 }
 </style>
