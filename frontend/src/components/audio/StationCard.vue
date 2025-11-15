@@ -71,7 +71,7 @@
         {{ isPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio') }}
       </Button>
       <!-- Mobile: CircularIcon without text -->
-      <CircularIcon v-else :icon="isPlaying ? 'stop' : 'play'" variant="background-light" @click="$emit('play')" />
+      <CircularIcon v-else :icon="isPlaying ? 'stop' : 'play'" variant="background-light" :loading="isLoading" @click="$emit('play')" />
     </div>
   </div>
 </template>
@@ -79,6 +79,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
+import { getTranslatedCountryName } from '@/constants/countries';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 import Button from '@/components/ui/Button.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
@@ -176,16 +177,17 @@ const nowPlayingMetadata = computed(() => {
 // Computed metadata for card variant: country + genre
 const cardMetadata = computed(() => {
   const country = props.station?.country;
+  const translatedCountry = country ? getTranslatedCountryName(t, country) : '';
   const genre = capitalizeGenre(props.station?.genre);
 
   // Both country and genre
-  if (country && genre) {
-    return `${country} • ${genre}`;
+  if (translatedCountry && genre) {
+    return `${translatedCountry} • ${genre}`;
   }
 
   // Only country
-  if (country) {
-    return country;
+  if (translatedCountry) {
+    return translatedCountry;
   }
 
   // Only genre
