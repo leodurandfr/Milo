@@ -124,6 +124,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import { useI18n } from '@/services/i18n';
 import { genreOptions as createGenreOptions } from '@/constants/music_genres';
+import { countryOptions as createCountryOptions } from '@/constants/countries';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 import AddRadioStation from '@/components/settings/categories/radio/AddRadioStation.vue';
@@ -202,17 +203,16 @@ const displayedStations = computed(() => {
 
 // Country options for dropdown
 const countryOptions = computed(() => {
-  const options = [{ label: t('audioSources.radioSource.allCountries'), value: '' }];
-
   if (availableCountries.value.length === 0) {
-    options.push({ label: t('audioSources.radioSource.loadingCountries'), value: '', disabled: true });
+    // No countries loaded yet, show loading message
+    return [
+      { label: t('audioSources.radioSource.allCountries'), value: '' },
+      { label: t('audioSources.radioSource.loadingCountries'), value: '', disabled: true }
+    ];
   }
 
-  availableCountries.value.forEach(country => {
-    options.push({ label: country.name, value: country.name });
-  });
-
-  return options;
+  // Use createCountryOptions helper to generate translated country names
+  return createCountryOptions(t, availableCountries.value, t('audioSources.radioSource.allCountries'));
 });
 
 // Genre options for dropdown

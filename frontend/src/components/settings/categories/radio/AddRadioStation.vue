@@ -93,6 +93,8 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue';
 import { useRadioStore } from '@/stores/radioStore';
+import { useI18n } from '@/services/i18n';
+import { countryOptions as createCountryOptions } from '@/constants/countries';
 import Button from '@/components/ui/Button.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import InputText from '@/components/ui/InputText.vue';
@@ -101,6 +103,7 @@ import axios from 'axios';
 
 const emit = defineEmits(['back', 'success']);
 const radioStore = useRadioStore();
+const { t } = useI18n();
 
 const fileInput = ref(null);
 const selectedFile = ref(null);
@@ -130,15 +133,16 @@ async function loadAvailableCountries() {
   }
 }
 
-// Convert countries to dropdown format
+// Convert countries to dropdown format with translations
 const countryOptions = computed(() => {
   if (availableCountries.value.length === 0) {
     return [{ label: 'Chargement...', value: '' }];
   }
-  return availableCountries.value.map(country => ({
-    label: country.name,
-    value: country.name
-  }));
+  // Use createCountryOptions helper to generate translated country names
+  // Note: No "All countries" option needed here, just the list of countries
+  const translatedOptions = createCountryOptions(t, availableCountries.value, '');
+  // Remove the first "All countries" option since it's not needed in add station form
+  return translatedOptions.slice(1);
 });
 
 onMounted(() => {
