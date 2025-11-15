@@ -106,11 +106,11 @@ function addActivityListeners() {
 
 // Remove activity listeners
 function removeActivityListeners() {
-  document.removeEventListener('pointermove', handleUserActivity);
-  document.removeEventListener('pointerdown', handleUserActivity);
-  document.removeEventListener('wheel', handleUserActivity);
-  document.removeEventListener('touchstart', handleUserActivity);
-  document.removeEventListener('touchmove', handleUserActivity);
+  document.removeEventListener('pointermove', handleUserActivity, { passive: true });
+  document.removeEventListener('pointerdown', handleUserActivity, { passive: true });
+  document.removeEventListener('wheel', handleUserActivity, { passive: true });
+  document.removeEventListener('touchstart', handleUserActivity, { passive: true });
+  document.removeEventListener('touchmove', handleUserActivity, { passive: true });
 }
 
 // Close the screensaver
