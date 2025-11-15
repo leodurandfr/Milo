@@ -27,6 +27,11 @@
         @error="handleImageError" />
       <img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" class="logo-placeholder"
         :class="{ visible: !station.favicon || imageError }" />
+
+      <!-- Loading overlay -->
+      <div v-if="isLoading" class="loading-overlay">
+        <LoadingSpinner :size="32" />
+      </div>
     </div>
 
     <div class="station-details">
@@ -34,11 +39,8 @@
       <p v-if="cardMetadata" class="station-subtitle text-mono">{{ cardMetadata }}</p>
     </div>
 
-    <!-- Loading spinner -->
-    <LoadingSpinner v-if="isLoading" :size="48" variant="background" />
-
     <!-- Custom actions (0, 1 or 2 buttons) -->
-    <div v-else-if="$slots.actions" class="actions-wrapper">
+    <div v-if="$slots.actions" class="actions-wrapper">
       <slot name="actions"></slot>
     </div>
   </div>
@@ -273,7 +275,6 @@ function handleImageError() {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-05);
   z-index: 10;
 }
 
