@@ -44,7 +44,7 @@ import Logo from '@/components/ui/Logo.vue';
 
 import Modal from '@/components/ui/Modal.vue';
 import SettingsModal from '@/components/settings/SettingsModal.vue';
-import RadioScreensaver from '@/components/audio/RadioScreensaver.vue';
+import RadioScreensaver from '@/components/radio/RadioScreensaver.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 

@@ -44,7 +44,7 @@ import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
 import { useRadioStore } from '@/stores/radioStore';
 import Button from '@/components/ui/Button.vue';
-import StationCard from '@/components/audio/StationCard.vue';
+import StationCard from '@/components/radio/StationCard.vue';
 
 defineEmits(['go-to-add-station', 'edit-station']);
 
