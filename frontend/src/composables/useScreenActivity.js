@@ -44,10 +44,10 @@ export function useScreenActivity() {
   };
 
   const removeListeners = () => {
-    document.removeEventListener('touchstart', notifyActivity);
-    document.removeEventListener('mousedown', notifyActivity);
-    document.removeEventListener('mousemove', notifyActivity);
-    document.removeEventListener('keydown', notifyActivity);
+    document.removeEventListener('touchstart', notifyActivity, { passive: true });
+    document.removeEventListener('mousedown', notifyActivity, { passive: true });
+    document.removeEventListener('mousemove', notifyActivity, { passive: true });
+    document.removeEventListener('keydown', notifyActivity, { passive: true });
   };
 
   onMounted(() => {
