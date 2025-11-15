@@ -34,7 +34,7 @@
                     <div class="client-info-wrapper">
                       <span class="client-hostname text-mono">{{ client.host }}</span>
                       <InputText v-model="clientNames[client.id]" :placeholder="client.host"
-                        input-class="client-name-input text-body" :maxlength="50" @blur="handleInputBlur(client.id)" />
+                        size="small" :maxlength="50" @blur="handleInputBlur(client.id)" />
                     </div>
                   </div>
                 </div>
@@ -46,7 +46,7 @@
               <div class="multiroom-group">
                 <h2 class="heading-2 text-body">{{ t('multiroomSettings.presets') }}</h2>
                 <div class="presets-buttons">
-                  <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle"
+                  <Button v-for="preset in audioPresets" :key="preset.id" variant="toggle" size="small"
                     :active="isPresetActive(preset)" :disabled="snapcastStore.isApplyingServerConfig"
                     @click="applyPreset(preset)">
                     {{ preset.name }}
@@ -75,15 +75,15 @@
                 <div class="form-group">
                   <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
                   <div class="codec-buttons">
-                    <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'opus'"
+                    <Button variant="toggle" size="small" :active="snapcastStore.serverConfig.codec === 'opus'"
                       @click="selectCodec('opus')">
                       Opus
                     </Button>
-                    <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'flac'"
+                    <Button variant="toggle" size="small" :active="snapcastStore.serverConfig.codec === 'flac'"
                       @click="selectCodec('flac')">
                       FLAC
                     </Button>
-                    <Button variant="toggle" :active="snapcastStore.serverConfig.codec === 'pcm'"
+                    <Button variant="toggle" size="small" :active="snapcastStore.serverConfig.codec === 'pcm'"
                       @click="selectCodec('pcm')">
                       PCM
                     </Button>
@@ -92,7 +92,7 @@
               </div>
             </section>
 
-            <Button v-if="snapcastStore.hasServerConfigChanges" variant="primary" class="apply-button-sticky"
+            <Button v-if="snapcastStore.hasServerConfigChanges" variant="primary" size="small" class="apply-button-sticky"
               :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
               {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
             </Button>

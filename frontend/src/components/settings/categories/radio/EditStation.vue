@@ -1,112 +1,91 @@
 <template>
   <section class="settings-section">
     <form @submit.prevent="handleSubmit" class="station-form">
-        <!-- Image Upload Section -->
-        <div class="form-group">
-          <label class="text-mono">Image de la station (optionnel)</label>
-          <div class="image-upload-container">
-            <!-- Preview -->
-            <div class="image-preview" :class="{ 'has-image': currentImageUrl || imagePreview || selectedFile }">
-              <img v-if="imagePreview" :src="imagePreview" alt="Aperçu" class="preview-img" />
-              <img v-else-if="currentImageUrl" :src="currentImageUrl" alt="Image actuelle" class="preview-img" />
-              <div v-else class="preview-placeholder">
-                <img :src="placeholderImg" alt="Station sans image" class="placeholder-icon" />
-                <p class="text-mono">Cliquez pour choisir</p>
-              </div>
-
-              <!-- Remove button if image selected -->
-              <button v-if="selectedFile || currentImageUrl" type="button" class="remove-image-btn" @click="removeImage">
-                ✕
-              </button>
-            </div>
-
-            <!-- Hidden file input -->
-            <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif"
-              @change="handleFileSelect" class="file-input" />
-
-            <!-- Click zone -->
-            <button type="button" class="upload-btn" @click="$refs.fileInput.click()">
-              {{ selectedFile || currentImageUrl ? 'Changer l\'image' : 'Choisir une image' }}
-            </button>
-
-            <p class="file-info text-mono">JPG, PNG, WEBP, GIF - Max 5MB</p>
-          </div>
-        </div>
-
-        <!-- Station Details -->
+      <!-- Station Name and Image Section -->
+      <div class="station-header-row">
         <div class="form-group">
           <label class="text-mono">Nom de la station *</label>
-          <InputText v-model="formData.name" type="text" input-class="text-body-small"
-            placeholder="Ex: RTL" />
+          <InputText v-model="formData.name" type="text" size="small" placeholder="Ex: RTL" />
+        </div>
+
+        <div class="image-upload-group">
+          <div class="form-group">
+            <label class="text-mono">Image de la station</label>
+            <Button variant="toggle" size="small" :active="true" class="full-width-btn" @click="$refs.fileInput.click()">
+              Choisir une image
+            </Button>
+          </div>
+          <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif"
+            @change="handleFileSelect" class="file-input" />
+
+          <div class="favicon-preview">
+            <img v-if="imagePreview" :src="imagePreview" alt="Aperçu" class="favicon-img" />
+            <img v-else-if="currentImageUrl" :src="currentImageUrl" alt="Image actuelle" class="favicon-img" />
+            <img v-else :src="placeholderImg" alt="Station sans image" class="favicon-img" />
+          </div>
+        </div>
+
+      </div>
+
+      <div class="form-group">
+        <label class="text-mono">URL du flux audio *</label>
+        <InputText v-model="formData.url" type="url" size="small"
+          placeholder="Ex: http://streaming.radio.fr/stream" />
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="text-mono">Pays</label>
+          <Dropdown v-model="formData.country" :options="countryOptions" size="small" placeholder="Choisir un pays" />
         </div>
 
         <div class="form-group">
-          <label class="text-mono">URL du flux audio *</label>
-          <InputText v-model="formData.url" type="url" input-class="text-body-small"
-            placeholder="Ex: http://streaming.radio.fr/stream" />
+          <label class="text-mono">Genre</label>
+          <InputText v-model="formData.genre" type="text" size="small"
+            placeholder="Ex: Pop, Rock, Jazz" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="text-mono">Codec</label>
+          <InputText v-model="formData.codec" type="text" size="small"
+            placeholder="Ex: MP3, AAC, OGG" />
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label class="text-mono">Pays</label>
-            <Dropdown v-model="formData.country" :options="countryOptions" placeholder="Choisir un pays" />
-          </div>
-
-          <div class="form-group">
-            <label class="text-mono">Genre</label>
-            <InputText v-model="formData.genre" type="text" input-class="text-body-small"
-              placeholder="Ex: Pop, Rock, Jazz" />
-          </div>
+        <div class="form-group">
+          <label class="text-mono">Bitrate (kbps)</label>
+          <InputText v-model="formData.bitrate" type="number" size="small"
+            placeholder="Ex: 128, 192, 320" />
         </div>
+      </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label class="text-mono">Codec</label>
-            <InputText v-model="formData.codec" type="text" input-class="text-body-small"
-              placeholder="Ex: MP3, AAC, OGG" />
-          </div>
+      <!-- Error Message -->
+      <div v-if="errorMessage" class="error-message text-mono">
+        ❌ {{ errorMessage }}
+      </div>
 
-          <div class="form-group">
-            <label class="text-mono">Bitrate (kbps)</label>
-            <InputText v-model="formData.bitrate" type="number" input-class="text-body-small"
-              placeholder="Ex: 128, 192, 320" />
-          </div>
-        </div>
-
-        <!-- Error Message -->
-        <div v-if="errorMessage" class="error-message text-mono">
-          ❌ {{ errorMessage }}
-        </div>
-
-        <!-- Actions -->
-        <div class="form-actions">
-          <Button
-            v-if="canRestore"
-            variant="secondary"
-            :class="{ 'restore-btn': !isConfirmingRestore, 'restore-btn-confirm': isConfirmingRestore }"
-            @click="handleRestoreClick"
-            :disabled="isSubmitting"
-          >
-            {{ isConfirmingRestore ? 'Confirmer' : 'Restaurer la station' }}
-          </Button>
-          <Button
-            v-if="canDelete"
-            variant="secondary"
-            :class="{ 'delete-btn': !isConfirmingDelete, 'delete-btn-confirm': isConfirmingDelete }"
-            @click="handleDeleteClick"
-            :disabled="isSubmitting"
-          >
-            {{ isConfirmingDelete ? 'Confirmer' : 'Supprimer la station' }}
-          </Button>
-          <div class="spacer"></div>
-          <Button variant="secondary" @click="$emit('back')" :disabled="isSubmitting">
-            Annuler
-          </Button>
-          <Button variant="primary" type="submit" :disabled="isSubmitting || !formData.name || !formData.url">
-            {{ isSubmitting ? 'Enregistrement...' : 'Enregistrer' }}
-          </Button>
-        </div>
-      </form>
+      <!-- Actions -->
+      <div class="form-actions">
+        <Button v-if="canRestore" variant="secondary" size="small"
+          :class="{ 'restore-btn': !isConfirmingRestore, 'restore-btn-confirm': isConfirmingRestore }"
+          @click="handleRestoreClick" :disabled="isSubmitting">
+          {{ isConfirmingRestore ? 'Confirmer' : 'Restaurer la station' }}
+        </Button>
+        <Button v-if="canDelete" variant="secondary" size="small"
+          :class="{ 'delete-btn': !isConfirmingDelete, 'delete-btn-confirm': isConfirmingDelete }"
+          @click="handleDeleteClick" :disabled="isSubmitting">
+          {{ isConfirmingDelete ? 'Confirmer' : 'Supprimer la station' }}
+        </Button>
+        <div class="spacer"></div>
+        <Button variant="secondary" size="small" @click="$emit('back')" :disabled="isSubmitting">
+          Annuler
+        </Button>
+        <Button variant="primary" size="small" type="submit" :disabled="isSubmitting || !formData.name || !formData.url">
+          {{ isSubmitting ? 'Enregistrement...' : 'Enregistrer' }}
+        </Button>
+      </div>
+    </form>
   </section>
 </template>
 
@@ -378,101 +357,44 @@ async function handleSubmit() {
   gap: var(--space-03);
 }
 
-/* Image Upload */
-.image-upload-container {
+/* Station Header Row (Name + Image) */
+.station-header-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-04);
+  align-items: start;
+}
+
+.image-upload-group {
   display: flex;
-  flex-direction: column;
   gap: var(--space-03);
-  align-items: center;
+  justify-content: space-between;
 }
 
-.image-preview {
-  width: 200px;
-  height: 200px;
-  border-radius: var(--radius-05);
-  overflow: hidden;
-  background: var(--color-background-neutral);
-  border: 2px dashed var(--color-background-glass);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  transition: border-color var(--transition-fast);
+.image-upload-group .form-group {
+  flex: 1;
 }
 
-.image-preview.has-image {
-  border-style: solid;
-  border-color: var(--color-brand);
-}
-
-.preview-img {
+.full-width-btn {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
-.preview-placeholder {
+.favicon-preview {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-02);
-  color: var(--color-text-secondary);
+  align-items: flex-start;
+  justify-content: center;
 }
 
-.placeholder-icon {
-  font-size: 48px;
-  width: 80px;
-  height: 80px;
+.favicon-img {
+  width: 76px;
+  height: 76px;
   object-fit: cover;
+  border-radius: var(--radius-03);
+  background: var(--color-background-strong);
 }
 
 .file-input {
   display: none;
-}
-
-.upload-btn {
-  padding: var(--space-03) var(--space-05);
-  background: var(--color-background-neutral);
-  border: 2px solid var(--color-background-glass);
-  border-radius: var(--radius-03);
-  color: var(--color-text);
-  font-size: var(--font-size-body);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.upload-btn:hover {
-  background: var(--color-background);
-  border-color: var(--color-brand);
-  transform: translateY(-2px);
-}
-
-.file-info {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
-}
-
-.remove-image-btn {
-  position: absolute;
-  top: var(--space-02);
-  right: var(--space-02);
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-full);
-  background: rgba(0, 0, 0, 0.7);
-  color: white;
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform var(--transition-fast);
-  z-index: 10;
-}
-
-.remove-image-btn:hover {
-  transform: scale(1.1);
 }
 
 /* Error Message */
@@ -524,10 +446,12 @@ async function handleSubmit() {
     grid-template-columns: 1fr;
   }
 
-  .image-preview {
-    width: 150px;
-    height: 150px;
+  .station-header-row {
+    grid-template-columns: 1fr;
   }
 
+  .favicon-preview {
+    justify-content: flex-start;
+  }
 }
 </style>

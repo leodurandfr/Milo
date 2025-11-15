@@ -43,11 +43,17 @@ export default {
         loading: {
             type: Boolean,
             default: false
+        },
+        size: {
+            type: String,
+            default: 'default',
+            validator: (value) => ['default', 'small'].includes(value)
         }
     },
     computed: {
         buttonClasses() {
-            const baseClasses = 'btn text-body'
+            const textClass = this.size === 'small' ? 'text-body-small' : 'text-body'
+            const baseClasses = `btn ${textClass}`
             const variantClass = `btn--${this.variant}`
             const stateClass = this.getStateClass()
             const iconClass = (this.leftIcon || this.loading) ? 'btn--with-icon' : ''
