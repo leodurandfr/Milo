@@ -1,13 +1,15 @@
 <!-- frontend/src/components/ui/CircularIcon.vue -->
 <template>
-  <button 
+  <button
     class="circular-icon"
     :class="[`circular-icon--${variant}`]"
     :disabled="disabled"
     @click="handleClick"
   >
-    <Icon 
-      :name="icon" 
+    <LoadingSpinner v-if="loading" :size="24" />
+    <Icon
+      v-else
+      :name="icon"
       :color="color"
       responsive
       class="circular-icon__icon"
@@ -17,6 +19,7 @@
 
 <script setup>
 import Icon from '@/components/ui/Icon.vue';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const props = defineProps({
   icon: {
@@ -35,6 +38,10 @@ const props = defineProps({
   color: {
     type: String,
     default: null
+  },
+  loading: {
+    type: Boolean,
+    default: false
   }
 });
 
