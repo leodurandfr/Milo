@@ -107,8 +107,7 @@
     <div :class="[
       'now-playing-wrapper',
       {
-        'has-station': radioStore.currentStation,
-        'hiding': radioStore.currentStation && !showNowPlaying
+        'has-station': radioStore.currentStation
       }
     ]">
       <StationCard v-if="radioStore.currentStation"
@@ -147,8 +146,7 @@ const availableCountries = ref([]); // Dynamic list of available countries
 const transitionState = ref('idle'); // States: 'idle', 'fading-out', 'loading', 'fading-in'
 const messageState = ref('idle'); // States: 'idle', 'fading-in', 'fading-out'
 const isInitialAnimating = ref(true); // Track if initial spring animation is running
-const showNowPlaying = ref(true); // Control visibility of now-playing (hides after 10s of stop)
-const hideNowPlayingTimer = ref(null); // Timer for auto-hiding now-playing
+const clearStationTimer = ref(null); // Timer for auto-clearing station after inactivity
 
 // Reference for animations and scroll
 const radioContainer = ref(null);
@@ -445,22 +443,19 @@ function handlePointerUp(event) {
 }
 
 // === NOW PLAYING ANIMATION ===
-// Watch for playback state to auto-hide now-playing after 10 seconds of stop
+// Watch for playback state to auto-clear station after 10 seconds of stop
 watch(isCurrentlyPlaying, (isPlaying) => {
   // Clear any existing timer
-  if (hideNowPlayingTimer.value) {
-    clearTimeout(hideNowPlayingTimer.value);
-    hideNowPlayingTimer.value = null;
+  if (clearStationTimer.value) {
+    clearTimeout(clearStationTimer.value);
+    clearStationTimer.value = null;
   }
 
-  if (isPlaying) {
-    // Playing: show now-playing immediately
-    showNowPlaying.value = true;
-  } else if (radioStore.currentStation) {
-    // Stopped with a station: start 30-second timer to hide
-    hideNowPlayingTimer.value = setTimeout(() => {
-      showNowPlaying.value = false;
-    }, 30000);
+  if (!isPlaying && radioStore.currentStation) {
+    // Stopped with a station: start 60-second timer to clear
+    clearStationTimer.value = setTimeout(() => {
+      radioStore.clearCurrentStation();
+    }, 60000);
   }
 }, { immediate: true });
 
@@ -541,10 +536,10 @@ onMounted(async () => {
 
 // Clean up listeners on unmount
 onBeforeUnmount(() => {
-  // Clear hide now-playing timer
-  if (hideNowPlayingTimer.value) {
-    clearTimeout(hideNowPlayingTimer.value);
-    hideNowPlayingTimer.value = null;
+  // Clear station timer
+  if (clearStationTimer.value) {
+    clearTimeout(clearStationTimer.value);
+    clearStationTimer.value = null;
   }
 
   if (radioContainer.value) {
@@ -612,17 +607,6 @@ onBeforeUnmount(() => {
     opacity 0.4s ease;
 }
 
-/* Desktop: hiding animation (reverse of appearance) */
-.now-playing-wrapper.hiding {
-  width: 0;
-  opacity: 0;
-  transform: translateX(100px);
-  transition:
-    width var(--transition-normal),
-    transform var(--transition-normal),
-    opacity var(--transition-normal);
-}
-
 /* Mobile: now-playing is position fixed, so the wrapper must be transparent */
 @media (max-aspect-ratio: 4/3) {
 
@@ -635,15 +619,6 @@ onBeforeUnmount(() => {
     transition:
       transform var(--transition-spring),
       opacity 0.4s ease;
-  }
-
-  /* Mobile: hiding animation */
-  .now-playing-wrapper.hiding :deep(.now-playing) {
-    opacity: 0;
-    transform: translateX(-50%) translateY(var(--space-07));
-    transition:
-      transform var(--transition-fast),
-      opacity var(--transition-fast);
   }
 }
 
