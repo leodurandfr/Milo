@@ -108,10 +108,10 @@
       'now-playing-wrapper',
       {
         'has-station': radioStore.currentStation,
-        'first-appearance': radioStore.currentStation && isFirstAppearance
+        'hiding': radioStore.currentStation && !showNowPlaying
       }
     ]">
-      <StationCard v-if="radioStore.currentStation" :class="{ 'first-appearance-mobile': isFirstAppearance }"
+      <StationCard v-if="radioStore.currentStation"
         :station="radioStore.currentStation" variant="now-playing" :show-controls="true"
         :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" @play="handlePlayPause" @favorite="handleFavorite" />
     </div>
@@ -146,8 +146,9 @@ const searchDebounceTimer = ref(null);
 const availableCountries = ref([]); // Dynamic list of available countries
 const transitionState = ref('idle'); // States: 'idle', 'fading-out', 'loading', 'fading-in'
 const messageState = ref('idle'); // States: 'idle', 'fading-in', 'fading-out'
-const isFirstAppearance = ref(true); // Track if this is the first time now-playing appears
 const isInitialAnimating = ref(true); // Track if initial spring animation is running
+const showNowPlaying = ref(true); // Control visibility of now-playing (hides after 10s of stop)
+const hideNowPlayingTimer = ref(null); // Timer for auto-hiding now-playing
 
 // Reference for animations and scroll
 const radioContainer = ref(null);
@@ -444,15 +445,24 @@ function handlePointerUp(event) {
 }
 
 // === NOW PLAYING ANIMATION ===
-// Watch for first station appearance and disable animation after it completes
-watch(() => radioStore.currentStation, (newStation) => {
-  if (newStation && isFirstAppearance.value) {
-    // Wait for animation to complete (700ms spring + 200ms delay = 900ms)
-    setTimeout(() => {
-      isFirstAppearance.value = false;
-    }, 900);
+// Watch for playback state to auto-hide now-playing after 10 seconds of stop
+watch(isCurrentlyPlaying, (isPlaying) => {
+  // Clear any existing timer
+  if (hideNowPlayingTimer.value) {
+    clearTimeout(hideNowPlayingTimer.value);
+    hideNowPlayingTimer.value = null;
   }
-});
+
+  if (isPlaying) {
+    // Playing: show now-playing immediately
+    showNowPlaying.value = true;
+  } else if (radioStore.currentStation) {
+    // Stopped with a station: start 30-second timer to hide
+    hideNowPlayingTimer.value = setTimeout(() => {
+      showNowPlaying.value = false;
+    }, 30000);
+  }
+}, { immediate: true });
 
 // === WEBSOCKET SYNC ===
 // Listen for metadata updates
@@ -531,6 +541,12 @@ onMounted(async () => {
 
 // Clean up listeners on unmount
 onBeforeUnmount(() => {
+  // Clear hide now-playing timer
+  if (hideNowPlayingTimer.value) {
+    clearTimeout(hideNowPlayingTimer.value);
+    hideNowPlayingTimer.value = null;
+  }
+
   if (radioContainer.value) {
     radioContainer.value.removeEventListener('scroll', handleScroll);
 
@@ -590,14 +606,21 @@ onBeforeUnmount(() => {
   opacity: 1;
   overflow: visible;
   transform: translateX(0);
+  transition:
+    width var(--transition-spring),
+    transform var(--transition-spring),
+    opacity 0.4s ease;
 }
 
-/* Desktop: with station - FIRST appearance (animated) */
-.now-playing-wrapper.has-station.first-appearance {
+/* Desktop: hiding animation (reverse of appearance) */
+.now-playing-wrapper.hiding {
+  width: 0;
+  opacity: 0;
+  transform: translateX(100px);
   transition:
-    width var(--transition-spring) 200ms,
-    transform var(--transition-spring) 200ms,
-    opacity 0.4s ease 200ms;
+    width var(--transition-normal),
+    transform var(--transition-normal),
+    opacity var(--transition-normal);
 }
 
 /* Mobile: now-playing is position fixed, so the wrapper must be transparent */
@@ -607,20 +630,20 @@ onBeforeUnmount(() => {
     display: contents;
   }
 
-  /* Mobile stagger animation for now-playing (first appearance) */
-  :deep(.now-playing.first-appearance-mobile) {
-    opacity: 0;
-    transform: translateX(-50%) translateY(var(--space-07));
-    animation:
-      stagger-transform-mobile var(--transition-spring) forwards,
-      stagger-opacity 0.4s ease forwards;
-    animation-delay: 200ms;
+  /* Mobile: now-playing animation (show/hide) */
+  .now-playing-wrapper.has-station :deep(.now-playing) {
+    transition:
+      transform var(--transition-spring),
+      opacity 0.4s ease;
   }
 
-  @keyframes stagger-transform-mobile {
-    to {
-      transform: translateX(-50%) translateY(0);
-    }
+  /* Mobile: hiding animation */
+  .now-playing-wrapper.hiding :deep(.now-playing) {
+    opacity: 0;
+    transform: translateX(-50%) translateY(var(--space-07));
+    transition:
+      transform var(--transition-fast),
+      opacity var(--transition-fast);
   }
 }
 
