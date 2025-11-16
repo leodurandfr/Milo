@@ -50,6 +50,7 @@ export default {
             validator: (value) => ['default', 'small'].includes(value)
         }
     },
+    emits: ['click'],
     computed: {
         buttonClasses() {
             const textClass = this.size === 'small' ? 'text-body-small' : 'text-body'
