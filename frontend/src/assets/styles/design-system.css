@@ -1,6 +1,6 @@
 :root {
     /* === COULEURS PRINCIPALES === */
-    --color-brand: #EF642E;
+    --color-brand: #FF6428;
 
     --color-text: #171917;
     --color-text-secondary: #767C76;
@@ -23,6 +23,7 @@
     --color-background-modal: #78787852;
     --color-background-radio: #E1DBCA;
     --color-border: #1618160a;
+    --color-important: #FF2828;
 
 
 

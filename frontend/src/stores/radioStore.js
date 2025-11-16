@@ -603,6 +603,12 @@ export const useRadioStore = defineStore('radio', () => {
     }
   }
 
+  function clearCurrentStation() {
+    // Clear current station (used to reset state after inactivity)
+    console.log('📻 Clearing current station');
+    currentStation.value = null;
+  }
+
   return {
     // State
     currentStation,
@@ -634,6 +640,7 @@ export const useRadioStore = defineStore('radio', () => {
     removeCustomStation,
     removeStationImage,
     updateFromWebSocket,
-    handleFavoriteEvent
+    handleFavoriteEvent,
+    clearCurrentStation
   };
 });

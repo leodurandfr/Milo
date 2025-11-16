@@ -1,8 +1,8 @@
 <!-- frontend/src/components/ui/Dropdown.vue -->
 <template>
   <div ref="dropdownRef" class="dropdown">
-    <button type="button" class="dropdown-trigger text-body-small"
-      :class="{ 'is-open': isOpen, 'has-selection': modelValue }"
+    <button type="button" class="dropdown-trigger"
+      :class="[textClass, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
       <span class="dropdown-label">{{ selectedLabel }}</span>
@@ -11,8 +11,8 @@
 
     <Transition name="dropdown-menu">
       <div v-if="isOpen" class="dropdown-menu" :class="{ 'open-upward': openUpward }">
-        <div v-for="(option, index) in options" :key="option.value" class="dropdown-item text-body-small"
-          :class="{ 'is-selected': option.value === modelValue }" @click="selectOption(option.value)">
+        <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
+          :class="[textClass, { 'is-selected': option.value === modelValue }]" @click="selectOption(option.value)">
           {{ option.label }}
         </div>
       </div>
@@ -41,6 +41,11 @@ const props = defineProps({
   disabled: {
     type: Boolean,
     default: false
+  },
+  size: {
+    type: String,
+    default: 'default',
+    validator: (value) => ['default', 'small'].includes(value)
   }
 });
 
@@ -49,6 +54,10 @@ const emit = defineEmits(['update:modelValue', 'change']);
 const dropdownRef = ref(null);
 const isOpen = ref(false);
 const openUpward = ref(false);
+
+const textClass = computed(() => {
+  return props.size === 'small' ? 'text-body-small' : 'text-body';
+});
 
 const selectedLabel = computed(() => {
   const selected = props.options.find(opt => opt.value === props.modelValue);

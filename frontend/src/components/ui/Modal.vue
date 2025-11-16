@@ -15,7 +15,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick, provide } from 'vue';
 import IconButtonFloating from './IconButtonFloating.vue';
 
 const props = defineProps({
@@ -40,6 +40,13 @@ const closeButton = ref(null);
 // Animation state
 const isVisible = ref(false);
 const isAnimating = ref(false);
+
+// Provide a function to reset scroll position (for multi-level modal navigation)
+provide('modalResetScroll', () => {
+  if (modalContent.value) {
+    modalContent.value.scrollTop = 0;
+  }
+});
 
 // Variables to cancel ongoing timeouts
 let animationTimeouts = [];

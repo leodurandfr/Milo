@@ -13,7 +13,7 @@ MILO_USER="milo"
 MILO_HOME="/home/$MILO_USER"
 MILO_APP_DIR="$MILO_HOME/milo"
 MILO_DATA_DIR="/var/lib/milo"
-MILO_REPO="https://github.com/Leshauts/Milo.git"
+MILO_REPO="https://github.com/leodurandfr/Milo.git"
 REQUIRED_HOSTNAME="milo"
 REBOOT_REQUIRED=false
 

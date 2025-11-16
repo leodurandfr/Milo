@@ -1,24 +1,27 @@
 <!-- frontend/src/components/ui/Button.vue -->
 <template>
     <button :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
-        <Icon v-if="leftIcon" :name="leftIcon" :size="32" />
+        <LoadingSpinner v-if="loading" :size="32" />
+        <Icon v-else-if="leftIcon" :name="leftIcon" :size="32" />
         <slot></slot>
     </button>
 </template>
 
 <script>
 import Icon from './Icon.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
 
 export default {
     name: 'Button',
     components: {
-        Icon
+        Icon,
+        LoadingSpinner
     },
     props: {
         variant: {
             type: String,
             default: 'primary',
-            validator: (value) => ['primary', 'secondary', 'toggle', 'background-light'].includes(value)
+            validator: (value) => ['primary', 'secondary', 'toggle', 'background-light', 'important'].includes(value)
         },
         type: {
             type: String,
@@ -36,14 +39,25 @@ export default {
         leftIcon: {
             type: String,
             default: null
+        },
+        loading: {
+            type: Boolean,
+            default: false
+        },
+        size: {
+            type: String,
+            default: 'default',
+            validator: (value) => ['default', 'small'].includes(value)
         }
     },
+    emits: ['click'],
     computed: {
         buttonClasses() {
-            const baseClasses = 'btn text-body'
+            const textClass = this.size === 'small' ? 'text-body-small' : 'text-body'
+            const baseClasses = `btn ${textClass}`
             const variantClass = `btn--${this.variant}`
             const stateClass = this.getStateClass()
-            const iconClass = this.leftIcon ? 'btn--with-icon' : ''
+            const iconClass = (this.leftIcon || this.loading) ? 'btn--with-icon' : ''
 
             return `${baseClasses} ${variantClass} ${stateClass} ${iconClass}`.trim()
         }
@@ -130,6 +144,20 @@ export default {
 }
 
 .btn--background-light.btn--disabled {
+    background-color: var(--color-background);
+    color: var(--color-text-light);
+}
+
+/* Important variant */
+.btn--important.btn--default {
+    background-color: var(--color-background-neutral);
+    color: var(--color-important);
+    -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-important);
+    -moz-box-shadow: inset 0px 0px 0px 2px var(--color-important);
+    box-shadow: inset 0px 0px 0px 2px var(--color-important);
+}
+
+.btn--important.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
 }

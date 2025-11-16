@@ -27,8 +27,8 @@
 
 <script setup>
 import { computed, ref, onMounted } from 'vue';
-import LibrespotSource from './LibrespotSource.vue';
-import RadioSource from './RadioSource.vue';
+import LibrespotSource from '../librespot/LibrespotSource.vue';
+import RadioSource from '../radio/RadioSource.vue';
 import PodcastSource from './PodcastSource.vue';
 import AudioSourceStatus from './AudioSourceStatus.vue';
 

@@ -121,9 +121,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === VISIBILITY MANAGEMENT ===
   // Note: No need for polling when returning to focus – WebSocket keeps state up to date
   function setupVisibilityListener() {
+    let lastVisibilityLog = 0;
+    const DEBOUNCE_MS = 100; // Prevent duplicate logs from visibilitychange + focus firing together
+
     const visibilityHandler = () => {
       if (!document.hidden) {
-        console.log('ℹ️ App visible - state already synchronized via WebSocket');
+        const now = Date.now();
+        if (now - lastVisibilityLog > DEBOUNCE_MS) {
+          lastVisibilityLog = now;
+          console.log('ℹ️ App visible - state already synchronized via WebSocket');
+        }
       }
     };
 
@@ -131,8 +138,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     window.addEventListener('focus', visibilityHandler, { passive: true });
 
     return () => {
-      document.removeEventListener('visibilitychange', visibilityHandler);
-      window.removeEventListener('focus', visibilityHandler);
+      document.removeEventListener('visibilitychange', visibilityHandler, { passive: true });
+      window.removeEventListener('focus', visibilityHandler, { passive: true });
     };
   }
 

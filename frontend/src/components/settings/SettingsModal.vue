@@ -118,14 +118,14 @@
 
     <!-- Radio view - Add a station -->
     <div v-else-if="currentView === 'radio-add'" class="view-detail">
-      <ModalHeader title="Ajouter une station" show-back @back="handleBackFromRadioModal" />
-      <AddRadioStation @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
+      <ModalHeader :title="$t('radio.manageStation.addStationTitle')" show-back @back="handleBackFromRadioModal" />
+      <ManageStation mode="add" @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
     </div>
 
     <!-- Radio view - Edit a station -->
     <div v-else-if="currentView === 'radio-edit'" class="view-detail">
-      <ModalHeader :title="`Modifier ${stationToEdit?.name || 'la station'}`" show-back @back="handleBackFromRadioModal" />
-      <EditStation :preselected-station="stationToEdit" :can-restore="canRestoreStation" :can-delete="canDeleteStation" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation" @delete="handleDeleteStation" />
+      <ModalHeader :title="$t('radio.manageStation.editStationTitle')" show-back @back="handleBackFromRadioModal" />
+      <ManageStation mode="edit" :station="stationToEdit" :can-restore="canRestoreStation" :can-delete="canDeleteStation" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation" @delete="handleDeleteStation" />
     </div>
 
     <!-- Updates view -->
@@ -143,7 +143,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, inject, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -172,8 +172,7 @@ import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue'
 import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
 import MultiroomSettings from '@/components/settings/categories/MultiroomSettings.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
-import AddRadioStation from '@/components/settings/categories/radio/AddRadioStation.vue';
-import EditStation from '@/components/settings/categories/radio/EditStation.vue';
+import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 
@@ -185,10 +184,18 @@ const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 const radioStore = useRadioStore();
 
+// Inject modal scroll reset function
+const resetScroll = inject('modalResetScroll', () => {});
+
 // Navigation
 const currentView = ref('home');
 const radioSettingsRef = ref(null);
 const stationToEdit = ref(null);
+
+// Reset scroll position when navigating between views
+watch(currentView, () => {
+  resetScroll();
+});
 
 // Check if the station can be restored (only modified stations)
 const canRestoreStation = computed(() => {
