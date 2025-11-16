@@ -27,6 +27,33 @@
               Episodes
             </Button>
           </div>
+
+          <!-- Filter Grid -->
+          <div class="filter-grid">
+            <Dropdown
+              v-model="podcastStore.countryFilter"
+              :options="countryOptions"
+              size="small"
+              @change="handleFilterChange" />
+
+            <Dropdown
+              v-model="podcastStore.genreFilter"
+              :options="genreOptions"
+              size="small"
+              @change="handleFilterChange" />
+
+            <Dropdown
+              v-model="podcastStore.languageFilter"
+              :options="languageOptions"
+              size="small"
+              @change="handleFilterChange" />
+
+            <Dropdown
+              v-model="podcastStore.sortBy"
+              :options="sortOptions"
+              size="small"
+              @change="handleFilterChange" />
+          </div>
         </div>
       </div>
 
@@ -77,10 +104,19 @@
             <CircularIcon :icon="podcast.is_subscribed ? 'check' : 'plus'" variant="light"
               @click.stop="toggleSubscription(podcast)" />
           </div>
+
+          <!-- Loading More Indicator -->
+          <div v-if="podcastStore.isLoadingMore" class="loading-more">
+            <Icon name="podcast" :size="48" color="var(--color-background-glass)" />
+            <p class="text-mono">Chargement...</p>
+          </div>
+
+          <!-- Scroll Sentinel -->
+          <div ref="scrollSentinel" class="scroll-sentinel"></div>
         </div>
 
         <!-- Search Results: Episodes OR Favorites OR Subscription Episodes -->
-        <div v-else-if="(viewMode === 'search' && searchType === 'episodes') || viewMode === 'favorites' || (viewMode === 'podcast' && selectedPodcastEpisodes.length > 0)" class="episodes-list">
+        <div v-else-if="(viewMode === 'search' && searchType === 'episodes') || viewMode === 'favorites' || viewMode === 'podcast'" class="episodes-list">
           <EpisodeCard v-for="episode in displayItems" :key="episode.uuid" :episode="episode" variant="card"
             :is-active="podcastStore.currentEpisode?.uuid === episode.uuid"
             :is-playing="podcastStore.currentEpisode?.uuid === episode.uuid && podcastStore.isPlaying"
@@ -92,6 +128,15 @@
             @click="podcastStore.loadMoreEpisodes()" :disabled="podcastStore.loadingEpisodes">
             {{ podcastStore.loadingEpisodes ? 'Loading...' : 'Load More Episodes' }}
           </Button>
+
+          <!-- Loading More Indicator for search -->
+          <div v-if="viewMode === 'search' && podcastStore.isLoadingMore" class="loading-more">
+            <Icon name="podcast" :size="48" color="var(--color-background-glass)" />
+            <p class="text-mono">Chargement...</p>
+          </div>
+
+          <!-- Scroll Sentinel for search -->
+          <div v-if="viewMode === 'search'" ref="scrollSentinel" class="scroll-sentinel"></div>
         </div>
 
         <!-- Subscriptions View -->
@@ -133,7 +178,11 @@ import CircularIcon from '@/components/ui/CircularIcon.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Button from '@/components/ui/Button.vue';
 import Icon from '@/components/ui/Icon.vue';
+import Dropdown from '@/components/ui/Dropdown.vue';
 import EpisodeCard from '@/components/audio/EpisodeCard.vue';
+import { createPodcastCountryOptions } from '@/constants/podcast_countries';
+import { createPodcastGenreOptions } from '@/constants/podcast_genres';
+import { createPodcastLanguageOptions } from '@/constants/podcast_languages';
 
 const podcastStore = usePodcastStore();
 const unifiedStore = useUnifiedAudioStore();
@@ -142,7 +191,16 @@ const { on } = useWebSocket();
 const viewMode = ref('search'); // 'search', 'podcast', 'subscriptions', 'favorites'
 const searchType = ref('podcasts'); // 'podcasts' or 'episodes'
 const searchDebounceTimer = ref(null);
-const selectedPodcastEpisodes = ref([]);
+const scrollSentinel = ref(null);
+
+// Dropdown options
+const countryOptions = computed(() => createPodcastCountryOptions('Tous les pays'));
+const genreOptions = computed(() => createPodcastGenreOptions('Tous les genres'));
+const languageOptions = computed(() => createPodcastLanguageOptions('Toutes les langues'));
+const sortOptions = computed(() => [
+  { label: 'Plus pertinent', value: 'EXACTNESS' },
+  { label: 'Plus populaire', value: 'POPULARITY' }
+]);
 
 // Display items based on current view
 const displayItems = computed(() => {
@@ -177,6 +235,10 @@ function handleSearch() {
     clearTimeout(searchDebounceTimer.value);
   }
 
+  // Reset pagination for new search
+  podcastStore.currentPage = 1;
+  podcastStore.hasMoreResults = true;
+
   searchDebounceTimer.value = setTimeout(async () => {
     if (podcastStore.searchQuery.trim()) {
       await podcastStore.search(podcastStore.searchQuery, searchType.value);
@@ -184,6 +246,18 @@ function handleSearch() {
       podcastStore.searchResults = [];
     }
   }, 500);
+}
+
+// Handle filter change
+function handleFilterChange() {
+  // Reset pagination
+  podcastStore.currentPage = 1;
+  podcastStore.hasMoreResults = true;
+
+  // Trigger search if there's a query
+  if (podcastStore.searchQuery.trim()) {
+    handleSearch();
+  }
 }
 
 function setSearchType(type) {
@@ -258,6 +332,31 @@ onMounted(() => {
 
   // Refresh status on mount
   podcastStore.refreshStatus();
+
+  // Setup infinite scroll observer
+  if (scrollSentinel.value) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting && viewMode.value === 'search' && podcastStore.searchQuery.trim()) {
+          // Load more results when sentinel becomes visible
+          podcastStore.loadMoreResults();
+        }
+      },
+      {
+        root: null, // Use viewport as root
+        rootMargin: '100px', // Trigger 100px before reaching sentinel
+        threshold: 0.1
+      }
+    );
+
+    observer.observe(scrollSentinel.value);
+
+    // Cleanup on unmount
+    return () => {
+      observer.disconnect();
+    };
+  }
 });
 </script>
 
@@ -291,6 +390,12 @@ onMounted(() => {
 
 .search-type-toggle {
   display: flex;
+  gap: var(--space-02);
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-02);
 }
 
@@ -394,6 +499,23 @@ onMounted(() => {
   flex-direction: column;
   gap: var(--space-03);
   padding: var(--space-02);
+}
+
+/* Loading More Indicator */
+.loading-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-02);
+  padding: var(--space-05);
+  grid-column: 1 / -1; /* Span all columns in grid */
+}
+
+/* Scroll Sentinel (invisible trigger for infinite scroll) */
+.scroll-sentinel {
+  height: 1px;
+  grid-column: 1 / -1; /* Span all columns in grid */
 }
 
 /* Now Playing Panel */

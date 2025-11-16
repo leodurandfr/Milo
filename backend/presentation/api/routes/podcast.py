@@ -43,16 +43,24 @@ class FavoriteEpisodeRequest(BaseModel):
 @router.get("/search/podcasts")
 async def search_podcasts(
     term: str = Query("", description="Search term"),
-    sort_by: str = Query("POPULARITY", description="Sort by POPULARITY or EXACTNESS"),
-    limit: int = Query(50, ge=1, le=100, description="Max number of results")
+    sort_by: str = Query("EXACTNESS", description="Sort by EXACTNESS or POPULARITY"),
+    limit: int = Query(25, ge=1, le=25, description="Max number of results per page (max 25)"),
+    page: int = Query(1, ge=1, le=20, description="Page number (1-20)"),
+    country: str = Query("", description="Country filter (Taddy enum, e.g., FRANCE)"),
+    genre: str = Query("", description="Genre filter (Taddy enum, e.g., PODCASTSERIES_NEWS)"),
+    language: str = Query("", description="Language filter (Taddy enum, e.g., FRENCH)")
 ):
     """
     Search podcasts
 
     Args:
         term: Search term
-        sort_by: POPULARITY or EXACTNESS
-        limit: Max number of results (1-100)
+        sort_by: EXACTNESS or POPULARITY (default: EXACTNESS)
+        limit: Max number of results per page (max 25, Taddy API constraint)
+        page: Page number (1-20)
+        country: Country filter (Taddy enum)
+        genre: Genre filter (Taddy enum)
+        language: Language filter (Taddy enum)
 
     Returns:
         Dict with results and total: {results: [...], total: int}
@@ -67,7 +75,11 @@ async def search_podcasts(
             term=term,
             filter_type="PODCASTSERIES",
             sort_by=sort_by,
-            limit=limit
+            limit=limit,
+            page=page,
+            filter_country=country or None,
+            filter_genre=genre or None,
+            filter_language=language or None
         )
 
         # Enrich with subscription status
@@ -85,16 +97,24 @@ async def search_podcasts(
 @router.get("/search/episodes")
 async def search_episodes(
     term: str = Query("", description="Search term"),
-    sort_by: str = Query("POPULARITY", description="Sort by POPULARITY or EXACTNESS"),
-    limit: int = Query(50, ge=1, le=100, description="Max number of results")
+    sort_by: str = Query("EXACTNESS", description="Sort by EXACTNESS or POPULARITY"),
+    limit: int = Query(25, ge=1, le=25, description="Max number of results per page (max 25)"),
+    page: int = Query(1, ge=1, le=20, description="Page number (1-20)"),
+    country: str = Query("", description="Country filter (Taddy enum, e.g., FRANCE)"),
+    genre: str = Query("", description="Genre filter (Taddy enum, e.g., PODCASTSERIES_NEWS)"),
+    language: str = Query("", description="Language filter (Taddy enum, e.g., FRENCH)")
 ):
     """
     Search episodes
 
     Args:
         term: Search term
-        sort_by: POPULARITY or EXACTNESS
-        limit: Max number of results (1-100)
+        sort_by: EXACTNESS or POPULARITY (default: EXACTNESS)
+        limit: Max number of results per page (max 25, Taddy API constraint)
+        page: Page number (1-20)
+        country: Country filter (Taddy enum)
+        genre: Genre filter (Taddy enum)
+        language: Language filter (Taddy enum)
 
     Returns:
         Dict with results and total: {results: [...], total: int}
@@ -109,7 +129,11 @@ async def search_episodes(
             term=term,
             filter_type="PODCASTEPISODE",
             sort_by=sort_by,
-            limit=limit
+            limit=limit,
+            page=page,
+            filter_country=country or None,
+            filter_genre=genre or None,
+            filter_language=language or None
         )
 
         # Enrich with favorite status
@@ -230,16 +254,6 @@ async def play_episode(request: PlayEpisodeRequest):
         Success status
     """
     try:
-        # Get state machine to switch to podcast source
-        state_machine = container.state_machine()
-
-        # Request source switch to podcast
-        await state_machine.request_source_switch(AudioSource.PODCAST)
-
-        # Wait a bit for the switch to complete
-        import asyncio
-        await asyncio.sleep(0.5)
-
         # Get plugin and play episode
         plugin = container.podcast_plugin()
         success = await plugin.play_episode(request.episode_uuid)

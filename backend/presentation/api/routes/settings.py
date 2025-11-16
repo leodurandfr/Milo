@@ -270,12 +270,12 @@ def create_settings_router(
             enabled_apps = payload.get('enabled_apps', [])
             
             # Basic validation
-            valid_apps = ["librespot", "bluetooth", "roc", "radio", "multiroom", "equalizer", "settings"]
+            valid_apps = ["librespot", "bluetooth", "roc", "radio", "podcast", "multiroom", "equalizer", "settings"]
             if not isinstance(enabled_apps, list) or not all(app in valid_apps for app in enabled_apps):
                 raise HTTPException(status_code=400, detail="Invalid enabled_apps list")
 
             # At least one audio source must be enabled
-            audio_sources = ["librespot", "bluetooth", "roc", "radio"]
+            audio_sources = ["librespot", "bluetooth", "roc", "radio", "podcast"]
             enabled_audio_sources = [app for app in enabled_apps if app in audio_sources]
             if not enabled_audio_sources:
                 raise HTTPException(status_code=400, detail="At least one audio source must be enabled")
@@ -311,7 +311,7 @@ def create_settings_router(
                     logger.info(f"Processing disable for app: {app}")
                     
                     # === AUDIO SOURCES ===
-                    if app in ['librespot', 'bluetooth', 'roc', 'radio']:
+                    if app in ['librespot', 'bluetooth', 'roc', 'radio', 'podcast']:
                         current_source = state_machine.system_state.active_source.value
                         
                         if app == current_source:
@@ -391,7 +391,7 @@ def create_settings_router(
                     logger.info(f"Processing enable for app: {app}")
                     
                     # === AUDIO SOURCES: DO NOTHING ===
-                    if app in ['librespot', 'bluetooth', 'roc', 'radio']:
+                    if app in ['librespot', 'bluetooth', 'roc', 'radio', 'podcast']:
                         operations_log.append(f"App {app} enabled (no service start needed)")
                         logger.info(f"App {app} enabled in dock (services will start on source change)")
                     

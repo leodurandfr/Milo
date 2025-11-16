@@ -242,3 +242,34 @@ class MpvController:
             "playing": await self.is_playing() if self.is_connected else False
         }
 
+    async def pause(self) -> bool:
+        """
+        Pauses playback
+
+        Returns:
+            True if successful
+        """
+        return await self.set_property("pause", True)
+
+    async def resume(self) -> bool:
+        """
+        Resumes playback
+
+        Returns:
+            True if successful
+        """
+        return await self.set_property("pause", False)
+
+    async def seek(self, position: float) -> bool:
+        """
+        Seeks to a specific position
+
+        Args:
+            position: Position in seconds
+
+        Returns:
+            True if successful
+        """
+        response = await self._send_command("seek", position, "absolute")
+        return response is not None and response.get('error') == 'success'
+

@@ -32,7 +32,7 @@ class PodcastPlugin(UnifiedAudioPlugin):
 
         self.config = config
         self.service_name = config.get("service_name", "milo-podcast.service")
-        self.ipc_socket_path = config.get("ipc_socket", "/tmp/milo-podcast-ipc.sock")
+        self.ipc_socket_path = config.get("ipc_socket", "/run/milo/podcast-ipc.sock")
         self.settings_service = settings_service
 
         # Taddy API credentials
@@ -77,14 +77,10 @@ class PodcastPlugin(UnifiedAudioPlugin):
             stdout, _ = await proc.communicate()
 
             if proc.returncode != 0 or self.service_name not in stdout.decode():
-                self.logger.warning(
+                raise RuntimeError(
                     f"Service {self.service_name} not found. "
-                    f"Will use Radio service as fallback"
+                    f"Please create the systemd service for podcast playback."
                 )
-                # Fallback to radio service
-                self.service_name = "milo-radio.service"
-                self.ipc_socket_path = "/tmp/milo-radio-ipc.sock"
-                self.mpv = MpvController(self.ipc_socket_path)
 
             # Check that mpv is installed
             proc = await asyncio.create_subprocess_exec(
@@ -346,10 +342,10 @@ class PodcastPlugin(UnifiedAudioPlugin):
                 self.logger.info(f"Resuming from {start_position}s")
 
             # Play episode with mpv
-            success = await self.mpv.play(audio_url)
+            success = await self.mpv.load_stream(audio_url)
 
             if not success:
-                self.logger.error("mpv play failed")
+                self.logger.error("mpv load_stream failed")
                 return False
 
             # Seek to saved position if resuming
@@ -450,7 +446,7 @@ class PodcastPlugin(UnifiedAudioPlugin):
     async def get_status(self) -> Dict[str, Any]:
         """Get current plugin status"""
         return {
-            "state": self.get_state().value,
+            "state": self.current_state.value,
             "current_episode": self.current_episode,
             "is_playing": self._is_playing,
             "is_buffering": self._is_buffering,
