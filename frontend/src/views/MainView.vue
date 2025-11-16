@@ -44,7 +44,7 @@ import Logo from '@/components/ui/Logo.vue';
 
 import Modal from '@/components/ui/Modal.vue';
 import SettingsModal from '@/components/settings/SettingsModal.vue';
-import RadioScreensaver from '@/components/audio/RadioScreensaver.vue';
+import RadioScreensaver from '@/components/radio/RadioScreensaver.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 
@@ -106,11 +106,11 @@ function addActivityListeners() {
 
 // Remove activity listeners
 function removeActivityListeners() {
-  document.removeEventListener('pointermove', handleUserActivity);
-  document.removeEventListener('pointerdown', handleUserActivity);
-  document.removeEventListener('wheel', handleUserActivity);
-  document.removeEventListener('touchstart', handleUserActivity);
-  document.removeEventListener('touchmove', handleUserActivity);
+  document.removeEventListener('pointermove', handleUserActivity, { passive: true });
+  document.removeEventListener('pointerdown', handleUserActivity, { passive: true });
+  document.removeEventListener('wheel', handleUserActivity, { passive: true });
+  document.removeEventListener('touchstart', handleUserActivity, { passive: true });
+  document.removeEventListener('touchmove', handleUserActivity, { passive: true });
 }
 
 // Close the screensaver

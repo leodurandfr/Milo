@@ -1,3 +1,4 @@
+<!-- RadioSource.vue -->
 <template>
   <div class="radio-source-wrapper">
     <div ref="radioContainer" class="radio-container stagger-1" :class="{ 'is-initial-animating': isInitialAnimating }">
@@ -19,16 +20,18 @@
       <div v-if="isSearchMode" class="search-section">
         <div class="filters">
           <InputText v-model="radioStore.searchQuery" :placeholder="t('audioSources.radioSource.searchPlaceholder')"
-            input-class="text-body-small" icon="search" :icon-size="24" @update:modelValue="handleSearch" />
+            size="small" icon="search" :icon-size="24" @update:modelValue="handleSearch" />
           <Dropdown
             v-model="radioStore.countryFilter"
             :options="countryOptions"
+            size="small"
             @change="handleSearch"
           />
 
           <Dropdown
             v-model="radioStore.genreFilter"
             :options="genreOptions"
+            size="small"
             @change="handleSearch"
           />
         </div>
@@ -93,8 +96,8 @@
           <StationCard v-else v-for="station in displayedStations" :key="`search-${station.id}`" :station="station"
             variant="card" :is-active="radioStore.currentStation?.id === station.id"
             :is-playing="radioStore.currentStation?.id === station.id && isCurrentlyPlaying"
-            :is-loading="bufferingStationId === station.id" :show-controls="true" @click="playStation(station.id)"
-            @play="playStation(station.id)" />
+            :is-loading="bufferingStationId === station.id" :show-controls="true" :show-country="true"
+            @click="playStation(station.id)" @play="playStation(station.id)" />
         </div>
 
       </div>
@@ -104,13 +107,12 @@
     <div :class="[
       'now-playing-wrapper',
       {
-        'has-station': radioStore.currentStation,
-        'first-appearance': radioStore.currentStation && isFirstAppearance
+        'has-station': radioStore.currentStation
       }
     ]">
-      <StationCard v-if="radioStore.currentStation" :class="{ 'first-appearance-mobile': isFirstAppearance }"
+      <StationCard v-if="radioStore.currentStation"
         :station="radioStore.currentStation" variant="now-playing" :show-controls="true"
-        :is-playing="isCurrentlyPlaying" @play="handlePlayPause" @favorite="handleFavorite" />
+        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" @play="handlePlayPause" @favorite="handleFavorite" />
     </div>
   </div>
 </template>
@@ -122,13 +124,14 @@ import { useRadioStore } from '@/stores/radioStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import { useI18n } from '@/services/i18n';
+import { genreOptions as createGenreOptions } from '@/constants/music_genres';
+import { countryOptions as createCountryOptions } from '@/constants/countries';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
-import AddRadioStation from '@/components/settings/categories/radio/AddRadioStation.vue';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
-import StationCard from '@/components/audio/StationCard.vue';
+import StationCard from '@/components/radio/StationCard.vue';
 import Icon from '@/components/ui/Icon.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
@@ -142,8 +145,8 @@ const searchDebounceTimer = ref(null);
 const availableCountries = ref([]); // Dynamic list of available countries
 const transitionState = ref('idle'); // States: 'idle', 'fading-out', 'loading', 'fading-in'
 const messageState = ref('idle'); // States: 'idle', 'fading-in', 'fading-out'
-const isFirstAppearance = ref(true); // Track if this is the first time now-playing appears
 const isInitialAnimating = ref(true); // Track if initial spring animation is running
+const clearStationTimer = ref(null); // Timer for auto-clearing station after inactivity
 
 // Reference for animations and scroll
 const radioContainer = ref(null);
@@ -178,138 +181,50 @@ const bufferingStationId = computed(() => {
 
 // Displayed stations - favorites or search results depending on mode
 const displayedStations = computed(() => {
+  let stations = [];
+
   if (isSearchMode.value) {
     // Search mode: ONLY show search results from RadioBrowserAPI
     // Never show favoriteStations (which includes custom stations)
-    return radioStore.displayedStations || [];
+    stations = radioStore.displayedStations || [];
+
+    // Sort by popularity (clicks) - descending order
+    return [...stations].sort((a, b) => {
+      const clicksA = a.votes || 0;
+      const clicksB = b.votes || 0;
+      return clicksB - clicksA; // Higher clicks first
+    });
   } else {
     // Favorites mode: display all favorites (including custom stations)
-    return radioStore.favoriteStations || [];
+    stations = radioStore.favoriteStations || [];
+
+    // Sort alphabetically by station name (case-insensitive)
+    return [...stations].sort((a, b) => {
+      const nameA = (a.name || '').toLowerCase();
+      const nameB = (b.name || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
   }
 });
 
 
 // Country options for dropdown
 const countryOptions = computed(() => {
-  const options = [{ label: t('audioSources.radioSource.allCountries'), value: '' }];
-
   if (availableCountries.value.length === 0) {
-    options.push({ label: t('audioSources.radioSource.loadingCountries'), value: '', disabled: true });
+    // No countries loaded yet, show loading message
+    return [
+      { label: t('audioSources.radioSource.allCountries'), value: '' },
+      { label: t('audioSources.radioSource.loadingCountries'), value: '', disabled: true }
+    ];
   }
 
-  availableCountries.value.forEach(country => {
-    options.push({ label: country.name, value: country.name });
-  });
-
-  return options;
+  // Use createCountryOptions helper to generate translated country names
+  return createCountryOptions(t, availableCountries.value, t('audioSources.radioSource.allCountries'));
 });
 
 // Genre options for dropdown
 const genreOptions = computed(() => {
-  return [
-    { label: t('audioSources.radioSource.allGenres'), value: '' },
-    { label: 'Pop', value: 'pop' },
-    { label: 'Rock', value: 'rock' },
-    { label: 'News', value: 'news' },
-    { label: 'Classical', value: 'classical' },
-    { label: 'Talk', value: 'talk' },
-    { label: 'Dance', value: 'dance' },
-    { label: 'Oldies', value: 'oldies' },
-    { label: '80s', value: '80s' },
-    { label: 'Jazz', value: 'jazz' },
-    { label: '90s', value: '90s' },
-    { label: 'Electronic', value: 'electronic' },
-    { label: 'Classic Rock', value: 'classic rock' },
-    { label: 'Country', value: 'country' },
-    { label: 'Pop Rock', value: 'pop rock' },
-    { label: 'House', value: 'house' },
-    { label: 'Alternative', value: 'alternative' },
-    { label: 'Metal', value: 'metal' },
-    { label: 'Soul', value: 'soul' },
-    { label: 'Indie', value: 'indie' },
-    { label: 'Chillout', value: 'chillout' },
-    { label: 'Techno', value: 'techno' },
-    { label: 'Folk', value: 'folk' },
-    { label: 'Disco', value: 'disco' },
-    { label: 'Ambient', value: 'ambient' },
-    { label: 'Blues', value: 'blues' },
-    { label: 'Alternative Rock', value: 'alternative rock' },
-    { label: 'Rap', value: 'rap' },
-    { label: 'HipHop', value: 'hiphop' },
-    { label: 'Lounge', value: 'lounge' },
-    { label: 'Trance', value: 'trance' },
-    { label: 'Latin Pop', value: 'latin pop' },
-    { label: '60s', value: '60s' },
-    { label: 'EDM', value: 'edm' },
-    { label: 'Smooth Jazz', value: 'smooth jazz' },
-    { label: 'Reggaeton', value: 'reggaeton' },
-    { label: 'Tropical', value: 'tropical' },
-    { label: 'Hard Rock', value: 'hard rock' },
-    { label: 'Reggae', value: 'reggae' },
-    { label: 'RnB', value: 'rnb' },
-    { label: 'Hip-Hop', value: 'hip-hop' },
-    { label: 'Deep House', value: 'deep house' },
-    { label: 'Schlager', value: 'schlager' },
-    { label: '70s', value: '70s' },
-    { label: 'Punk', value: 'punk' },
-    { label: 'Urban', value: 'urban' },
-    { label: 'Latin', value: 'latin' },
-    { label: 'Latin Music', value: 'latin music' },
-    { label: 'R&B', value: 'r&b' },
-    { label: 'Eurodance', value: 'eurodance' },
-    { label: '2010s', value: '2010s' },
-    { label: '1990s', value: '1990s' },
-    { label: 'Merengue', value: 'merengue' },
-    { label: 'New Wave', value: 'new wave' },
-    { label: 'Pop Dance', value: 'pop dance' },
-    { label: 'Classic Jazz', value: 'classic jazz' },
-    { label: 'Funk', value: 'funk' },
-    { label: 'Grunge', value: 'grunge' },
-    { label: 'Minimal', value: 'minimal' },
-    { label: 'Ska', value: 'ska' },
-    { label: 'Italo Disco', value: 'italo disco' },
-    { label: 'Singer-Songwriter', value: 'singer-songwriter' },
-    { label: 'Opera', value: 'opera' },
-    { label: 'Americana', value: 'americana' },
-    { label: 'Darkwave', value: 'darkwave' },
-    { label: 'Afrobeats', value: 'afrobeats' },
-    { label: 'Bossa Nova', value: 'bossa nova' },
-    { label: 'Celtic', value: 'celtic' },
-    { label: 'Lo-Fi', value: 'lo-fi' },
-    { label: 'Nu Disco', value: 'nu disco' },
-    { label: 'Acoustic', value: 'acoustic' },
-    { label: 'Folk Rock', value: 'folk rock' },
-    { label: 'Progressive Rock', value: 'progressive rock' },
-    { label: 'Art Rock', value: 'art rock' },
-    { label: 'Psychedelic Rock', value: 'psychedelic rock' },
-    { label: 'Britpop', value: 'britpop' },
-    { label: 'Drum And Bass', value: 'drum and bass' },
-    { label: 'Dubstep', value: 'dubstep' },
-    { label: 'Trap', value: 'trap' },
-    { label: 'Tech House', value: 'tech house' },
-    { label: 'Jazz Fusion', value: 'jazz fusion' },
-    { label: 'Downtempo', value: 'downtempo' },
-    { label: 'Chill', value: 'chill' },
-    { label: 'New Age', value: 'new age' },
-    { label: 'World Music', value: 'world music' },
-    { label: 'Garage', value: 'garage' },
-    { label: 'Progressive House', value: 'progressive house' },
-    { label: 'Trip-Hop', value: 'trip-hop' },
-    { label: 'Minimal Techno', value: 'minimal techno' },
-    { label: 'Psychedelic', value: 'psychedelic' },
-    { label: 'Power Metal', value: 'power metal' },
-    { label: 'Thrash Metal', value: 'thrash metal' },
-    { label: 'Death Metal', value: 'death metal' },
-    { label: 'Hardcore', value: 'hardcore' },
-    { label: 'Stoner Rock', value: 'stoner rock' },
-    { label: 'Synthwave', value: 'synthwave' },
-    { label: 'Smooth Lounge', value: 'smooth lounge' },
-    { label: 'Dancehall', value: 'dancehall' },
-    { label: 'Dub', value: 'dub' },
-    { label: 'Roots', value: 'roots' },
-    { label: 'Salsa', value: 'salsa' },
-    { label: 'Bachata', value: 'bachata' }
-  ];
+  return createGenreOptions(t, t('audioSources.radioSource.allGenres'));
 });
 
 // === NAVIGATION ===
@@ -528,15 +443,21 @@ function handlePointerUp(event) {
 }
 
 // === NOW PLAYING ANIMATION ===
-// Watch for first station appearance and disable animation after it completes
-watch(() => radioStore.currentStation, (newStation) => {
-  if (newStation && isFirstAppearance.value) {
-    // Wait for animation to complete (700ms spring + 200ms delay = 900ms)
-    setTimeout(() => {
-      isFirstAppearance.value = false;
-    }, 900);
+// Watch for playback state to auto-clear station after 10 seconds of stop
+watch(isCurrentlyPlaying, (isPlaying) => {
+  // Clear any existing timer
+  if (clearStationTimer.value) {
+    clearTimeout(clearStationTimer.value);
+    clearStationTimer.value = null;
   }
-});
+
+  if (!isPlaying && radioStore.currentStation) {
+    // Stopped with a station: start 60-second timer to clear
+    clearStationTimer.value = setTimeout(() => {
+      radioStore.clearCurrentStation();
+    }, 60000);
+  }
+}, { immediate: true });
 
 // === WEBSOCKET SYNC ===
 // Listen for metadata updates
@@ -615,6 +536,12 @@ onMounted(async () => {
 
 // Clean up listeners on unmount
 onBeforeUnmount(() => {
+  // Clear station timer
+  if (clearStationTimer.value) {
+    clearTimeout(clearStationTimer.value);
+    clearStationTimer.value = null;
+  }
+
   if (radioContainer.value) {
     radioContainer.value.removeEventListener('scroll', handleScroll);
 
@@ -674,14 +601,10 @@ onBeforeUnmount(() => {
   opacity: 1;
   overflow: visible;
   transform: translateX(0);
-}
-
-/* Desktop: with station - FIRST appearance (animated) */
-.now-playing-wrapper.has-station.first-appearance {
   transition:
-    width var(--transition-spring) 200ms,
-    transform var(--transition-spring) 200ms,
-    opacity 0.4s ease 200ms;
+    width var(--transition-spring),
+    transform var(--transition-spring),
+    opacity 0.4s ease;
 }
 
 /* Mobile: now-playing is position fixed, so the wrapper must be transparent */
@@ -691,20 +614,11 @@ onBeforeUnmount(() => {
     display: contents;
   }
 
-  /* Mobile stagger animation for now-playing (first appearance) */
-  :deep(.now-playing.first-appearance-mobile) {
-    opacity: 0;
-    transform: translateX(-50%) translateY(var(--space-07));
-    animation:
-      stagger-transform-mobile var(--transition-spring) forwards,
-      stagger-opacity 0.4s ease forwards;
-    animation-delay: 200ms;
-  }
-
-  @keyframes stagger-transform-mobile {
-    to {
-      transform: translateX(-50%) translateY(0);
-    }
+  /* Mobile: now-playing animation (show/hide) */
+  .now-playing-wrapper.has-station :deep(.now-playing) {
+    transition:
+      transform var(--transition-spring),
+      opacity 0.4s ease;
   }
 }
 

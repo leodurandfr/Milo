@@ -1,5 +1,6 @@
 <template>
-  <div v-if="isVisible" class="screensaver-overlay" :class="{ closing: isClosing }" @click.stop="handleClose" @touchstart.stop="handleClose">
+  <div v-if="isVisible" class="screensaver-overlay" :class="{ closing: isClosing }" @click.stop="handleClose"
+    @touchstart.stop="handleClose">
     <!-- Full-screen black background -->
     <div class="station-art-background">
       <img v-if="currentStation?.favicon" :src="currentStation.favicon" alt="" class="background-station" />
@@ -16,17 +17,16 @@
       <div class="station-art stagger-2">
         <img v-if="currentStation?.favicon" :src="currentStation.favicon" alt="Station logo"
           class="current-station-favicon" @error="handleImageError" />
-        <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo" :class="{ visible: !currentStation?.favicon || imageError }" />
+        <img :src="placeholderImg" alt="Station sans image" class="placeholder-logo"
+          :class="{ visible: !currentStation?.favicon || imageError }" />
       </div>
 
       <!-- Station info (stagger 3 animation) -->
       <div class="station-info stagger-3">
         <p class="station-name display-1">{{ currentStation?.name || 'Station inconnue' }}</p>
         <p class="station-meta text-mono">
-          <span v-if="currentStation?.genre">{{ currentStation.genre }}</span>
-          <span v-if="currentStation?.genre && audioQuality"> • </span>
-          <span v-if="audioQuality">{{ audioQuality }}</span>
-          <span v-if="!currentStation?.genre && !audioQuality">En direct</span>
+          <span v-if="metadataDisplay">{{ metadataDisplay }}</span>
+          <span v-else>En direct</span>
         </p>
       </div>
     </div>
@@ -53,19 +53,51 @@ const isClosing = ref(false);
 
 const currentStation = computed(() => radioStore.currentStation);
 
+// Helper function to capitalize first letter
+function capitalizeGenre(genre) {
+  if (!genre) return '';
+  return genre.charAt(0).toUpperCase() + genre.slice(1);
+}
+
+// Compute capitalized genre
+const displayGenre = computed(() => {
+  return capitalizeGenre(currentStation.value?.genre);
+});
+
 // Compute audio quality if available
 const audioQuality = computed(() => {
   if (!currentStation.value) return null;
 
   const bitrate = currentStation.value.bitrate;
-  const codec = currentStation.value.codec;
 
-  if (bitrate && codec) {
-    return `${bitrate} kbps ${codec}`;
-  } else if (bitrate) {
+  if (bitrate && bitrate > 0) {
     return `${bitrate} kbps`;
   }
 
+  return null;
+});
+
+// Compute metadata display: genre • bitrate
+const metadataDisplay = computed(() => {
+  const genre = displayGenre.value;
+  const quality = audioQuality.value;
+
+  // Both genre and quality
+  if (genre && quality) {
+    return `${genre} • ${quality}`;
+  }
+
+  // Only genre
+  if (genre) {
+    return genre;
+  }
+
+  // Only quality
+  if (quality) {
+    return quality;
+  }
+
+  // Neither - show fallback
   return null;
 });
 
@@ -121,6 +153,7 @@ watch(() => props.isVisible, (visible) => {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -130,6 +163,7 @@ watch(() => props.isVisible, (visible) => {
   from {
     opacity: 1;
   }
+
   to {
     opacity: 0;
   }
@@ -169,7 +203,7 @@ watch(() => props.isVisible, (visible) => {
     linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  z-index: -1;
+  z-index: 1;
   pointer-events: none;
 }
 
@@ -202,6 +236,7 @@ watch(() => props.isVisible, (visible) => {
 
 .station-art-background-card {
   position: absolute;
+  background: var(--color-background-contrast);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -239,6 +274,12 @@ watch(() => props.isVisible, (visible) => {
   height: 240px;
   border-radius: var(--radius-06);
 }
+
+.station-art img {
+  background: var(--color-background-neutral);
+}
+
+
 
 .station-art .current-station-favicon {
   width: 100%;
@@ -313,9 +354,17 @@ watch(() => props.isVisible, (visible) => {
     stagger-opacity 0.4s ease forwards;
 }
 
-.screensaver-overlay .stagger-1 { animation-delay: 400ms; }
-.screensaver-overlay .stagger-2 { animation-delay: 500ms; }
-.screensaver-overlay .stagger-3 { animation-delay: 600ms; }
+.screensaver-overlay .stagger-1 {
+  animation-delay: 400ms;
+}
+
+.screensaver-overlay .stagger-2 {
+  animation-delay: 500ms;
+}
+
+.screensaver-overlay .stagger-3 {
+  animation-delay: 600ms;
+}
 
 @keyframes stagger-transform {
   to {

@@ -35,9 +35,10 @@ const props = defineProps({
     type: Number,
     default: undefined
   },
-  inputClass: {
+  size: {
     type: String,
-    default: 'text-body'
+    default: 'default',
+    validator: (value) => ['default', 'small'].includes(value)
   },
   icon: {
     type: String,
@@ -54,6 +55,10 @@ const emit = defineEmits(['update:modelValue', 'focus', 'blur']);
 const inputRef = ref(null);
 const keyboard = useVirtualKeyboard();
 const { screenResolution } = useHardwareConfig();
+
+const inputClass = computed(() => {
+  return props.size === 'small' ? 'text-body-small' : 'text-body';
+});
 
 // Detect if the resolution matches (to show the virtual keyboard)
 const shouldShowKeyboard = computed(() => {

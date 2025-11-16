@@ -12,7 +12,7 @@
 
     <!-- Loading overlay -->
     <div v-if="isLoading" class="loading-overlay">
-      <div class="loading-spinner"></div>
+      <LoadingSpinner :size="48" />
     </div>
   </div>
 
@@ -27,20 +27,20 @@
         @error="handleImageError" />
       <img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" class="logo-placeholder"
         :class="{ visible: !station.favicon || imageError }" />
+
+      <!-- Loading overlay -->
+      <div v-if="isLoading" class="loading-overlay">
+        <LoadingSpinner :size="32" />
+      </div>
     </div>
 
     <div class="station-details">
       <p class="station-title text-body">{{ station.name }}</p>
-      <p class="station-subtitle text-mono">
-        <template v-if="showCountry && station.country">{{ station.country }} • </template>{{ station.genre }}
-      </p>
+      <p v-if="cardMetadata" class="station-subtitle text-mono">{{ cardMetadata }}</p>
     </div>
 
-    <!-- Loading spinner -->
-    <div v-if="isLoading" class="loading-spinner-small"></div>
-
     <!-- Custom actions (0, 1 or 2 buttons) -->
-    <div v-else-if="$slots.actions" class="actions-wrapper">
+    <div v-if="$slots.actions" class="actions-wrapper">
       <slot name="actions"></slot>
     </div>
   </div>
@@ -61,19 +61,20 @@
 
     <div class="station-info">
       <p class="station-name display-1">{{ station.name }}</p>
-      <p class="station-meta text-mono">{{ station.country }} • {{ station.genre }}</p>
+      <p v-if="nowPlayingMetadata" class="station-meta text-mono">{{ nowPlayingMetadata }}</p>
     </div>
 
     <div v-if="showControls" class="controls-wrapper">
       <CircularIcon :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="background-light"
         @click="$emit('favorite')" />
       <!-- Desktop: Button with text -->
-      <Button v-if="!isMobile" variant="background-light" :left-icon="isPlaying ? 'stop' : 'play'"
+      <Button v-if="!isMobile" variant="background-light" :left-icon="isPlaying ? 'stop' : 'play'" :loading="isLoading"
         @click="$emit('play')">
         {{ isPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio') }}
       </Button>
       <!-- Mobile: CircularIcon without text -->
-      <CircularIcon v-else :icon="isPlaying ? 'stop' : 'play'" variant="background-light" @click="$emit('play')" />
+      <CircularIcon v-else :icon="isPlaying ? 'stop' : 'play'" variant="background-light" :loading="isLoading"
+        @click="$emit('play')" />
     </div>
   </div>
 </template>
@@ -81,8 +82,10 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
+import { getTranslatedCountryName } from '@/constants/countries';
 import CircularIcon from '@/components/ui/CircularIcon.vue';
 import Button from '@/components/ui/Button.vue';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const { t } = useI18n();
@@ -144,6 +147,61 @@ defineEmits(['click', 'play', 'favorite']);
 
 const imageError = ref(false);
 
+// Helper function to capitalize first letter
+function capitalizeGenre(genre) {
+  if (!genre) return '';
+  return genre.charAt(0).toUpperCase() + genre.slice(1);
+}
+
+// Computed metadata for now-playing variant: genre + bitrate
+const nowPlayingMetadata = computed(() => {
+  const genre = capitalizeGenre(props.station?.genre);
+  const bitrate = props.station?.bitrate;
+
+  // Both genre and bitrate
+  if (genre && bitrate && bitrate > 0) {
+    return `${genre} • ${bitrate} kbps`;
+  }
+
+  // Only genre
+  if (genre) {
+    return genre;
+  }
+
+  // Only bitrate
+  if (bitrate && bitrate > 0) {
+    return `${bitrate} kbps`;
+  }
+
+  // Neither - return empty string
+  return '';
+});
+
+// Computed metadata for card variant: country + genre
+const cardMetadata = computed(() => {
+  const country = props.station?.country;
+  const translatedCountry = country ? getTranslatedCountryName(t, country) : '';
+  const genre = capitalizeGenre(props.station?.genre);
+
+  // Both country and genre
+  if (translatedCountry && genre) {
+    return `${translatedCountry} • ${genre}`;
+  }
+
+  // Only country
+  if (translatedCountry) {
+    return translatedCountry;
+  }
+
+  // Only genre
+  if (genre) {
+    return genre;
+  }
+
+  // Neither - return empty string
+  return '';
+});
+
 function getFaviconUrl(faviconUrl) {
   // No favicon
   if (!faviconUrl) {
@@ -174,7 +232,6 @@ function handleImageError() {
   cursor: pointer;
   transition: transform var(--transition-fast);
   position: relative;
-  background: var(--color-background-neutral);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -218,18 +275,7 @@ function handleImageError() {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-05);
   z-index: 10;
-}
-
-
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.2);
-  border-top-color: var(--color-brand);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
 }
 
 /* === "CARD" VARIANT: Horizontal layout === */
@@ -338,27 +384,9 @@ function handleImageError() {
   flex-shrink: 0;
 }
 
-
-.loading-spinner-small {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--color-border);
-  border-top-color: var(--color-brand);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-
 .station-image.loading,
 .station-card.loading {
   opacity: 0.9;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* Desktop: Vertical layout */
@@ -376,9 +404,13 @@ function handleImageError() {
   flex-direction: column;
   gap: var(--space-04);
   padding: var(--space-04);
-  background: var(--color-text);
+  background: var(--color-background-contrast);
   border-radius: var(--radius-07);
   backdrop-filter: blur(16px);
+}
+
+.station-art img {
+  background: var(--color-background-neutral);
 }
 
 .now-playing .station-art-background .background-station-favicon {
@@ -398,7 +430,7 @@ function handleImageError() {
     linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  z-index: -1;
+  z-index: 1;
   pointer-events: none;
 }
 
@@ -513,6 +545,10 @@ function handleImageError() {
   z-index: 1;
 }
 
+.controls-wrapper .btn {
+  width: 100%;
+}
+
 /* Mobile: Horizontal sticky layout at bottom */
 @media (max-aspect-ratio: 4/3) {
   .now-playing {
@@ -537,6 +573,7 @@ function handleImageError() {
     height: 48px;
     border-radius: var(--radius-03);
   }
+
 
   .now-playing .station-info {
     flex: 1;
