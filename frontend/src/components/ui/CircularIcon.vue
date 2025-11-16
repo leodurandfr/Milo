@@ -47,8 +47,8 @@ const props = defineProps({
 
 const emit = defineEmits(['click']);
 
-function handleClick() {
-  emit('click');
+function handleClick(event) {
+  emit('click', event);
 }
 </script>
 

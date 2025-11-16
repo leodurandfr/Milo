@@ -20,6 +20,17 @@ export const usePodcastStore = defineStore('podcast', () => {
   const loading = ref(false);
   const hasError = ref(false);
 
+  // Filters
+  const countryFilter = ref('');
+  const genreFilter = ref('');
+  const languageFilter = ref('');
+  const sortBy = ref('EXACTNESS');
+
+  // Pagination
+  const currentPage = ref(1);
+  const hasMoreResults = ref(true);
+  const isLoadingMore = ref(false);
+
   // Subscriptions
   const subscriptions = ref([]);
   const loadingSubscriptions = ref(false);
@@ -81,13 +92,20 @@ export const usePodcastStore = defineStore('podcast', () => {
   /**
    * Search podcasts or episodes
    */
-  async function search(query, type = 'podcasts', sortBy = 'POPULARITY') {
+  async function search(query, type = 'podcasts') {
     // Cancel previous request
     if (currentAbortController) {
       currentAbortController.abort();
     }
 
-    loading.value = true;
+    // If loading more, use isLoadingMore instead of loading
+    if (currentPage.value > 1) {
+      isLoadingMore.value = true;
+    } else {
+      loading.value = true;
+      searchResults.value = []; // Clear results for new search
+    }
+
     hasError.value = false;
     searchQuery.value = query;
     searchType.value = type;
@@ -98,13 +116,31 @@ export const usePodcastStore = defineStore('podcast', () => {
       const endpoint = type === 'podcasts' ? '/api/podcast/search/podcasts' : '/api/podcast/search/episodes';
 
       const response = await axios.get(endpoint, {
-        params: { term: query, sort_by: sortBy, limit: 50 },
+        params: {
+          term: query,
+          sort_by: sortBy.value,
+          limit: 25,
+          page: currentPage.value,
+          country: countryFilter.value,
+          genre: genreFilter.value,
+          language: languageFilter.value
+        },
         signal: currentAbortController.signal
       });
 
-      searchResults.value = response.data.results || [];
+      const newResults = response.data.results || [];
 
-      console.log(`✅ Found ${searchResults.value.length} ${type}`);
+      // Append or replace depending on page
+      if (currentPage.value === 1) {
+        searchResults.value = newResults;
+      } else {
+        searchResults.value.push(...newResults);
+      }
+
+      // Check if there are more results (if we got 25, there might be more)
+      hasMoreResults.value = newResults.length === 25 && currentPage.value < 20;
+
+      console.log(`✅ Found ${newResults.length} ${type} (page ${currentPage.value}, total ${searchResults.value.length})`);
       return true;
 
     } catch (error) {
@@ -115,11 +151,14 @@ export const usePodcastStore = defineStore('podcast', () => {
 
       console.error('❌ Error searching:', error);
       hasError.value = true;
-      searchResults.value = [];
+      if (currentPage.value === 1) {
+        searchResults.value = [];
+      }
       return false;
 
     } finally {
       loading.value = false;
+      isLoadingMore.value = false;
       currentAbortController = null;
     }
   }
@@ -509,6 +548,28 @@ export const usePodcastStore = defineStore('podcast', () => {
   }
 
   /**
+   * Load more results (next page)
+   */
+  async function loadMoreResults() {
+    if (isLoadingMore.value || !hasMoreResults.value) return;
+
+    currentPage.value++;
+    await search(searchQuery.value, searchType.value);
+  }
+
+  /**
+   * Reset filters to defaults
+   */
+  function resetFilters() {
+    countryFilter.value = '';
+    genreFilter.value = '';
+    languageFilter.value = '';
+    sortBy.value = 'EXACTNESS';
+    currentPage.value = 1;
+    hasMoreResults.value = true;
+  }
+
+  /**
    * Reset store to initial state
    */
   function reset() {
@@ -523,6 +584,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     selectedPodcastEpisodes.value = [];
     episodesPage.value = 1;
     hasMoreEpisodes.value = false;
+    resetFilters();
   }
 
   return {
@@ -547,6 +609,17 @@ export const usePodcastStore = defineStore('podcast', () => {
     hasMoreEpisodes,
     loadingEpisodes,
 
+    // Filters
+    countryFilter,
+    genreFilter,
+    languageFilter,
+    sortBy,
+
+    // Pagination
+    currentPage,
+    hasMoreResults,
+    isLoadingMore,
+
     // Getters
     isSubscribed,
     isFavorite,
@@ -558,6 +631,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     search,
     getPodcastSeries,
     loadMoreEpisodes,
+    loadMoreResults,
     playEpisode,
     pause,
     resume,
@@ -571,6 +645,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     loadFavorites,
     refreshStatus,
     handleStateUpdate,
+    resetFilters,
     reset,
 
     // Helpers

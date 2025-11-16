@@ -80,7 +80,9 @@ class TaddyAPI:
 
                 # Check for GraphQL errors
                 if "errors" in data:
-                    self.logger.error(f"GraphQL errors: {data['errors']}")
+                    error_messages = [err.get('message', str(err)) for err in data['errors']]
+                    self.logger.error(f"GraphQL errors from Taddy API: {error_messages}")
+                    self.logger.debug(f"Full error response: {data}")
                     return None
 
                 return data.get("data")
@@ -96,8 +98,12 @@ class TaddyAPI:
         self,
         term: str,
         filter_type: str = "PODCASTSERIES",
-        sort_by: str = "POPULARITY",
-        limit: int = 50
+        sort_by: str = "EXACTNESS",
+        limit: int = 25,
+        page: int = 1,
+        filter_country: str = None,
+        filter_genre: str = None,
+        filter_language: str = None
     ) -> Dict[str, Any]:
         """
         Search for podcasts or episodes
@@ -105,14 +111,22 @@ class TaddyAPI:
         Args:
             term: Search term
             filter_type: PODCASTSERIES or PODCASTEPISODE
-            sort_by: POPULARITY or EXACTNESS
-            limit: Max results (default 50)
+            sort_by: EXACTNESS or POPULARITY (default: EXACTNESS)
+            limit: Max results per page (max 25, Taddy API constraint)
+            page: Page number (1-20)
+            filter_country: Country filter (Taddy enum, e.g., "FRANCE")
+            filter_genre: Genre filter (Taddy enum, e.g., "PODCASTSERIES_NEWS")
+            filter_language: Language filter (Taddy enum, e.g., "FRENCH")
 
         Returns:
             Dict with podcasts/episodes and total count
         """
+        # Enforce Taddy API constraints
+        limit = min(limit, 25)  # Taddy max is 25
+        page = max(1, min(page, 20))  # Taddy pages 1-20
+
         # Check cache
-        cache_key = f"{term}_{filter_type}_{sort_by}_{limit}"
+        cache_key = f"{term}_{filter_type}_{sort_by}_{limit}_{page}_{filter_country}_{filter_genre}_{filter_language}"
         if cache_key in self._search_cache:
             cached_time, cached_data = self._search_cache[cache_key]
             if datetime.now() - cached_time < self.cache_duration:
@@ -152,13 +166,27 @@ class TaddyAPI:
                 }
             """
 
+        # Build optional filters
+        filters = []
+        if filter_country:
+            filters.append(f'filterForCountries: [{filter_country}]')
+        if filter_genre:
+            filters.append(f'filterForGenres: [{filter_genre}]')
+        if filter_language:
+            filters.append(f'filterForLanguages: [{filter_language}]')
+
+        filters_str = '\n                '.join(filters)
+        if filters_str:
+            filters_str = '\n                ' + filters_str
+
         query = f"""
         {{
             search(
                 term: "{term}"
-                filterForTypes: {filter_type}
+                filterForTypes: [{filter_type}]
                 sortBy: {sort_by}
-                limitPerType: {limit}
+                page: {page}
+                limitPerPage: {limit}{filters_str}
             ) {{
                 searchId
                 {result_field} {{
@@ -170,8 +198,13 @@ class TaddyAPI:
 
         data = await self._make_graphql_request(query)
 
-        if not data or "search" not in data:
-            return {"results": [], "total": 0}
+        if not data:
+            self.logger.warning(f"Search failed for '{term}' - no data returned from Taddy API")
+            return {"results": [], "total": 0, "error": "API request failed"}
+
+        if "search" not in data:
+            self.logger.warning(f"Search response missing 'search' field for '{term}'")
+            return {"results": [], "total": 0, "error": "Invalid API response"}
 
         search_data = data["search"]
         results = search_data.get(result_field, [])
