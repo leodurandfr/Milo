@@ -26,7 +26,8 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
             'librespot': AudioSource.LIBRESPOT,
             'roc': AudioSource.ROC,
             'bluetooth': AudioSource.BLUETOOTH,
-            'radio': AudioSource.RADIO
+            'radio': AudioSource.RADIO,
+            'podcast': AudioSource.PODCAST
         }
         return sources.get(self.name, AudioSource.NONE)
     

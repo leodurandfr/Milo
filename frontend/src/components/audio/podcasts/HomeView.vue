@@ -1,0 +1,208 @@
+<template>
+  <div class="home-view">
+    <!-- New episodes from subscriptions (Bloc 1) -->
+    <section v-if="latestSubscriptionEpisodes.length > 0" class="section">
+      <h3 class="section-title">Nouveaux épisodes des podcasts abonnés</h3>
+      <div class="episodes-list">
+        <EpisodeCard
+          v-for="episode in latestSubscriptionEpisodes.slice(0, 4)"
+          :key="episode.uuid"
+          :episode="episode"
+          @select="$emit('select-episode', episode.uuid)"
+          @play="$emit('play-episode', episode)"
+        />
+      </div>
+    </section>
+
+    <!-- Top Podcasts (Bloc 2) -->
+    <section class="section">
+      <h3 class="section-title">Classement des podcasts</h3>
+      <LoadingSpinner v-if="loadingTopCharts" />
+      <div v-else class="podcasts-grid">
+        <PodcastCard
+          v-for="podcast in topCharts.slice(0, 8)"
+          :key="podcast.uuid"
+          :podcast="podcast"
+          @select="$emit('select-podcast', podcast.uuid)"
+        />
+      </div>
+    </section>
+
+    <!-- Browse by Genre (Bloc 3) -->
+    <section class="section">
+      <h3 class="section-title">Parcourir par genre</h3>
+      <div class="genres-grid">
+        <div
+          v-for="genre in mainGenres"
+          :key="genre.value"
+          class="genre-card"
+          @click="browseGenre(genre.value)"
+        >
+          <span class="genre-emoji">{{ genre.emoji }}</span>
+          <span>{{ genre.label }}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Top Episodes (Bloc 4) -->
+    <section class="section">
+      <h3 class="section-title">Classement des épisodes</h3>
+      <LoadingSpinner v-if="loadingTopEpisodes" />
+      <div v-else class="episodes-list">
+        <EpisodeCard
+          v-for="episode in topEpisodes.slice(0, 6)"
+          :key="episode.uuid"
+          :episode="episode"
+          @select="$emit('select-episode', episode.uuid)"
+          @play="$emit('play-episode', episode)"
+        />
+      </div>
+    </section>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { usePodcastStore } from '@/stores/podcastStore'
+import PodcastCard from './PodcastCard.vue'
+import EpisodeCard from './EpisodeCard.vue'
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
+
+const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode', 'browse-genre'])
+
+const podcastStore = usePodcastStore()
+
+const loadingTopCharts = ref(false)
+const loadingTopEpisodes = ref(false)
+const topCharts = ref([])
+const topEpisodes = ref([])
+const latestSubscriptionEpisodes = ref([])
+
+const mainGenres = [
+  { value: 'PODCASTSERIES_NEWS', label: 'Actualités', emoji: '📰' },
+  { value: 'PODCASTSERIES_COMEDY', label: 'Comédie', emoji: '😂' },
+  { value: 'PODCASTSERIES_TRUE_CRIME', label: 'True Crime', emoji: '🔍' },
+  { value: 'PODCASTSERIES_TECHNOLOGY', label: 'Tech', emoji: '💻' },
+  { value: 'PODCASTSERIES_SPORTS', label: 'Sports', emoji: '🏆' },
+  { value: 'PODCASTSERIES_EDUCATION', label: 'Éducation', emoji: '🎓' },
+  { value: 'PODCASTSERIES_BUSINESS', label: 'Business', emoji: '💼' },
+  { value: 'PODCASTSERIES_HEALTH_AND_FITNESS', label: 'Santé', emoji: '❤️' }
+]
+
+function browseGenre(genreValue) {
+  // Find genre label
+  const genre = mainGenres.find(g => g.value === genreValue)
+  if (genre) {
+    emit('browse-genre', genreValue, genre.label)
+  }
+}
+
+async function loadData() {
+  const settings = podcastStore.settings
+  const country = settings.defaultCountry || 'FRANCE'
+
+  // Load latest episodes from subscriptions (Bloc 1)
+  try {
+    const latestResponse = await fetch('/api/podcast/subscriptions/latest-episodes?limit=10')
+    const latestData = await latestResponse.json()
+    latestSubscriptionEpisodes.value = latestData.results || []
+  } catch (error) {
+    console.error('Error loading subscription episodes:', error)
+  }
+
+  // Load top podcasts (Bloc 2)
+  loadingTopCharts.value = true
+  try {
+    const response = await fetch(`/api/podcast/discover/top-charts/${country}?content_type=PODCASTSERIES&limit=10`)
+    const data = await response.json()
+    topCharts.value = data.results || []
+  } catch (error) {
+    console.error('Error loading top charts:', error)
+  } finally {
+    loadingTopCharts.value = false
+  }
+
+  // Load top episodes (Bloc 4)
+  loadingTopEpisodes.value = true
+  try {
+    const response = await fetch(`/api/podcast/discover/top-charts/${country}?content_type=PODCASTEPISODE&limit=10`)
+    const data = await response.json()
+    topEpisodes.value = data.results || []
+  } catch (error) {
+    console.error('Error loading top episodes:', error)
+  } finally {
+    loadingTopEpisodes.value = false
+  }
+}
+
+onMounted(() => {
+  loadData()
+})
+</script>
+
+<style scoped>
+.home-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-06);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.section-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.podcasts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-03);
+}
+
+.episodes-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.genres-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-02);
+}
+
+.genre-emoji {
+  font-size: 24px;
+}
+
+.genre-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-02);
+  padding: var(--space-04);
+  background: var(--color-background-subtle);
+  border-radius: var(--radius-04);
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.genre-card:hover {
+  background: var(--color-background-neutral);
+  transform: translateY(-2px);
+}
+
+.genre-card span {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+  text-align: center;
+}
+</style>

@@ -1,0 +1,52 @@
+[Unit]
+Description=Milo Podcast Player (mpv)
+Documentation=https://mpv.io/manual/stable/
+After=sound.target milo-backend.service
+Requires=sound.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+
+# Create /run/milo/ automatically for IPC socket
+RuntimeDirectory=milo
+RuntimeDirectoryMode=0755
+
+# Load Milo environment variables (MILO_MODE and MILO_EQUALIZER)
+EnvironmentFile=/var/lib/milo/routing.env
+
+# ALSA device routes automatically based on mode
+ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE} MILO_EQUALIZER=${MILO_EQUALIZER}"'
+
+# Launch mpv in daemon mode with IPC socket
+ExecStart=/usr/bin/mpv \
+    --no-video \
+    --audio-device=alsa/milo_podcast \
+    --input-ipc-server=/run/milo/podcast-ipc.sock \
+    --idle=yes \
+    --msg-level=all=info \
+    --no-config \
+    --no-terminal \
+    --really-quiet
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Resource limits
+CPUQuota=50%
+MemoryMax=256M
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-podcast
+
+[Install]
+WantedBy=multi-user.target

@@ -57,6 +57,7 @@ class PodcastPlugin(UnifiedAudioPlugin):
         self._metadata = {}
         self._current_position = 0  # Current playback position in seconds
         self._current_duration = 0  # Total duration in seconds
+        self._playback_speed = 1.0  # Playback speed (0.5x - 2x)
 
         # Monitoring task
         self._monitor_task: Optional[asyncio.Task] = None
@@ -260,12 +261,19 @@ class PodcastPlugin(UnifiedAudioPlugin):
             self.logger.debug("Playback monitor cancelled")
 
     async def _save_progress(self) -> None:
-        """Save current playback progress"""
+        """Save current playback progress with full metadata"""
         if self.current_episode and self._current_position > 0:
+            # Extract podcast info
+            podcast_info = self.current_episode.get('podcast', {})
+
             await self.podcast_data_service.update_playback_progress(
-                self.current_episode['uuid'],
-                self._current_position,
-                self._current_duration
+                episode_uuid=self.current_episode['uuid'],
+                position=self._current_position,
+                duration=self._current_duration,
+                podcast_uuid=podcast_info.get('uuid', ''),
+                episode_name=self.current_episode.get('name', ''),
+                podcast_name=podcast_info.get('name', ''),
+                image_url=self.current_episode.get('image_url', '')
             )
             self.logger.debug(
                 f"Saved progress: {self._current_position}/{self._current_duration}s"
@@ -296,6 +304,9 @@ class PodcastPlugin(UnifiedAudioPlugin):
             "duration": self._current_duration,
             "is_playing": self._is_playing,
             "is_buffering": self._is_buffering,
+            "playback_speed": self._playback_speed,
+            # Include full episode object for frontend store
+            "current_episode": self.current_episode,
         }
 
         # Add podcast info if available
@@ -443,6 +454,42 @@ class PodcastPlugin(UnifiedAudioPlugin):
             self.logger.error(f"Error seeking: {e}")
             return False
 
+    async def set_speed(self, speed: float) -> bool:
+        """
+        Set playback speed
+
+        Args:
+            speed: Speed multiplier (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
+
+        Returns:
+            True if successful
+        """
+        try:
+            # Validate speed
+            valid_speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+            if speed not in valid_speeds:
+                self.logger.warning(f"Invalid speed {speed}, using nearest valid")
+                speed = min(valid_speeds, key=lambda x: abs(x - speed))
+
+            # Set mpv speed property
+            await self.mpv.set_property("speed", speed)
+            self._playback_speed = speed
+
+            # Save speed preference
+            await self.podcast_data_service.set_setting("playbackSpeed", speed)
+
+            await self.notify_state_change(
+                PluginState.CONNECTED,
+                self._build_metadata()
+            )
+
+            self.logger.info(f"Playback speed set to {speed}x")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error setting speed: {e}")
+            return False
+
     async def get_status(self) -> Dict[str, Any]:
         """Get current plugin status"""
         return {
@@ -452,6 +499,7 @@ class PodcastPlugin(UnifiedAudioPlugin):
             "is_buffering": self._is_buffering,
             "position": self._current_position,
             "duration": self._current_duration,
+            "playback_speed": self._playback_speed,
             "metadata": self._metadata
         }
 
@@ -502,6 +550,14 @@ class PodcastPlugin(UnifiedAudioPlugin):
                     await self.notify_state_change(PluginState.READY, {})
 
                 return {"success": True}
+
+            elif command == "set_speed":
+                speed = data.get("speed")
+                if speed is None:
+                    return {"success": False, "error": "speed required"}
+
+                success = await self.set_speed(float(speed))
+                return {"success": success, "speed": self._playback_speed}
 
             else:
                 return {"success": False, "error": f"Unknown command: {command}"}
