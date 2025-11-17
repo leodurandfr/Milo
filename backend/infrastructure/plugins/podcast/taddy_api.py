@@ -376,6 +376,79 @@ class TaddyAPI:
         self._set_cache(self._discovery_cache, cache_key, result)
         return result
 
+    async def get_popular_episodes_by_genre(
+        self,
+        genres: List[str],
+        language: str = "FRENCH",
+        limit: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Get popular episodes filtered by genre and language using search()
+
+        This is an alternative to getTopChartsByGenres which only filters
+        from Apple's top 200 episodes globally. This method searches all
+        episodes and sorts by popularity.
+
+        Args:
+            genres: List of genre enums (e.g., ['PODCASTSERIES_TECHNOLOGY'])
+            language: Language filter (default: FRENCH)
+            limit: Number of results (max 25)
+
+        Returns:
+            Dict with 'results' list of normalized episodes
+        """
+        limit = min(limit, 25)
+
+        cache_key = f"popular_episodes_{genres}_{language}_{limit}"
+        cached = self._check_cache(self._discovery_cache, cache_key)
+        if cached:
+            return cached
+
+        genres_str = ', '.join(genres)
+
+        query = f"""
+        {{
+          search(
+            filterForTypes: [PODCASTEPISODE]
+            filterForLanguages: [{language}]
+            filterForGenres: [{genres_str}]
+            sortBy: POPULARITY
+            limitPerPage: {limit}
+          ) {{
+            searchId
+            podcastEpisodes {{
+              uuid
+              name
+              description(shouldStripHtmlTags: true)
+              datePublished
+              duration
+              audioUrl
+              imageUrl
+              episodeType
+              podcastSeries {{
+                uuid
+                name
+                imageUrl
+              }}
+            }}
+          }}
+        }}
+        """
+
+        data = await self._make_graphql_request(query)
+        if not data or "search" not in data:
+            return {"results": [], "total": 0}
+
+        search_data = data["search"]
+        results = []
+
+        for episode in search_data.get("podcastEpisodes", []):
+            results.append(self._normalize_episode(episode))
+
+        result = {"results": results, "total": len(results)}
+        self._set_cache(self._discovery_cache, cache_key, result)
+        return result
+
     # ========== SEARCH QUERIES ==========
 
     async def search_mixed(

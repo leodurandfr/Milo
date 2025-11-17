@@ -17,14 +17,10 @@
       </div>
     </section>
 
-    <!-- Top episodes of the genre -->
-    <section class="section">
+    <!-- Top episodes of the genre (hidden if no results) -->
+    <section v-if="!loadingEpisodes && topEpisodes.length > 0" class="section">
       <h3 class="section-title">Top Épisodes {{ genreLabel }}</h3>
-      <LoadingSpinner v-if="loadingEpisodes" />
-      <div v-else-if="topEpisodes.length === 0" class="empty-state">
-        <p>Aucun épisode trouvé dans cette catégorie</p>
-      </div>
-      <div v-else class="episodes-list">
+      <div class="episodes-list">
         <EpisodeCard
           v-for="episode in topEpisodes.slice(0, 6)"
           :key="episode.uuid"
@@ -33,6 +29,10 @@
           @play="$emit('play-episode', episode)"
         />
       </div>
+    </section>
+    <section v-else-if="loadingEpisodes" class="section">
+      <h3 class="section-title">Top Épisodes {{ genreLabel }}</h3>
+      <LoadingSpinner />
     </section>
   </div>
 </template>
@@ -102,24 +102,14 @@ async function loadData() {
     loadingPodcasts.value = false
   }
 
-  // Load top episodes of this genre (try with country first, then without)
+  // Load popular episodes of this genre (using search with popularity sort)
   loadingEpisodes.value = true
   try {
-    // First try with country filter
-    let episodesResponse = await fetch(
-      `/api/podcast/discover/genres?genres=${props.genre}&country=${country}&content_type=PODCASTEPISODE&limit=10`
+    const episodesResponse = await fetch(
+      `/api/podcast/discover/popular-episodes?genres=${props.genre}&language=${language}&limit=10`
     )
-    let episodesData = await episodesResponse.json()
+    const episodesData = await episodesResponse.json()
     topEpisodes.value = episodesData.results || []
-
-    // If no results, try without country filter
-    if (topEpisodes.value.length === 0) {
-      episodesResponse = await fetch(
-        `/api/podcast/discover/genres?genres=${props.genre}&content_type=PODCASTEPISODE&limit=10`
-      )
-      episodesData = await episodesResponse.json()
-      topEpisodes.value = episodesData.results || []
-    }
   } catch (error) {
     console.error('Error loading genre episodes:', error)
   } finally {
