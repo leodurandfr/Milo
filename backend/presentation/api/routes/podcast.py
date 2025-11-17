@@ -157,6 +157,36 @@ async def get_top_by_genres(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/discover/popular-episodes")
+async def get_popular_episodes_by_genre(
+    genres: str = Query(..., description="Comma-separated genre list"),
+    language: str = Query("FRENCH", description="Language filter"),
+    limit: int = Query(10, ge=1, le=25)
+):
+    """
+    Get popular episodes filtered by genre and language.
+
+    Uses Taddy's search() with sortBy: POPULARITY to find episodes
+    from podcasts of the specified genre, sorted by popularity.
+    """
+    try:
+        plugin = container.podcast_plugin()
+
+        genre_list = [g.strip() for g in genres.split(",")]
+
+        result = await plugin.taddy_api.get_popular_episodes_by_genre(
+            genres=genre_list,
+            language=language,
+            limit=limit
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting popular episodes by genre: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # === Search Routes ===
 
 @router.get("/search")
