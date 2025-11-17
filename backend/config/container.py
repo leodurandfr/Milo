@@ -2,6 +2,8 @@
 """
 Dependency injection container with SettingsService injection
 """
+import json
+import os
 from dependency_injector import containers, providers
 from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
 from backend.infrastructure.plugins.librespot import LibrespotPlugin
@@ -138,13 +140,34 @@ class Container(containers.DeclarativeContainer):
         settings_service=settings_service
     )
 
+    # Load Taddy API credentials from secrets file
+    def _load_taddy_secrets():
+        secrets_file = '/var/lib/milo/secrets.json'
+        default_creds = {
+            "taddy_user_id": "",
+            "taddy_api_key": ""
+        }
+        try:
+            if os.path.exists(secrets_file):
+                with open(secrets_file, 'r') as f:
+                    secrets = json.load(f)
+                    return {
+                        "taddy_user_id": secrets.get("taddy_user_id", ""),
+                        "taddy_api_key": secrets.get("taddy_api_key", "")
+                    }
+        except Exception:
+            pass
+        return default_creds
+
+    _taddy_creds = _load_taddy_secrets()
+
     podcast_plugin = providers.Singleton(
         PodcastPlugin,
         config=providers.Dict({
             "service_name": "milo-podcast.service",
             "ipc_socket": "/run/milo/podcast-ipc.sock",
-            "taddy_user_id": "3671",
-            "taddy_api_key": "c065f2bf5d26b1bc2e8d0c39b4c5d086fcfec81bc3ec86503a5a63356277639ce66b01e88f9c152aacf85e7ebe3cc7a7bd"
+            "taddy_user_id": _taddy_creds["taddy_user_id"],
+            "taddy_api_key": _taddy_creds["taddy_api_key"]
         }),
         state_machine=audio_state_machine,
         settings_service=settings_service
