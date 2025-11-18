@@ -9,7 +9,7 @@
       </div>
       <div v-else class="podcasts-grid">
         <PodcastCard
-          v-for="podcast in topPodcasts.slice(0, 6)"
+          v-for="podcast in topPodcasts"
           :key="podcast.uuid"
           :podcast="podcast"
           @select="$emit('select-podcast', podcast.uuid)"
@@ -22,7 +22,7 @@
       <h3 class="section-title">Top Épisodes {{ genreLabel }}</h3>
       <div class="episodes-list">
         <EpisodeCard
-          v-for="episode in topEpisodes.slice(0, 6)"
+          v-for="episode in topEpisodes"
           :key="episode.uuid"
           :episode="episode"
           @select="$emit('select-episode', episode.uuid)"
@@ -65,54 +65,35 @@ const topPodcasts = ref([])
 const topEpisodes = ref([])
 
 async function loadData() {
-  const settings = podcastStore.settings
-  const country = settings.defaultCountry || 'FRANCE'
-  const language = settings.defaultLanguage || 'FRENCH'
-
-  // Load top podcasts of this genre (try with language first, then without)
+  // Use a single unified endpoint that fetches both podcasts and episodes
+  // Language is automatically retrieved from /var/lib/milo/settings.json
   loadingPodcasts.value = true
+  loadingEpisodes.value = true
+
   try {
-    // First try with language filter
-    let podcastsResponse = await fetch(
-      `/api/podcast/discover/popular?language=${language}&genres=${props.genre}&limit=10`
+    const response = await fetch(
+      `/api/podcast/discover/by-genre?genre=${props.genre}&podcasts_limit=5&episodes_limit=5`
     )
-    let podcastsData = await podcastsResponse.json()
-    topPodcasts.value = podcastsData.results || []
 
-    // If no results, try with country filter
-    if (topPodcasts.value.length === 0) {
-      podcastsResponse = await fetch(
-        `/api/podcast/discover/genres?genres=${props.genre}&country=${country}&content_type=PODCASTSERIES&limit=10`
-      )
-      podcastsData = await podcastsResponse.json()
-      topPodcasts.value = podcastsData.results || []
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
     }
 
-    // If still no results, try without any filter
-    if (topPodcasts.value.length === 0) {
-      podcastsResponse = await fetch(
-        `/api/podcast/discover/genres?genres=${props.genre}&content_type=PODCASTSERIES&limit=10`
-      )
-      podcastsData = await podcastsResponse.json()
-      topPodcasts.value = podcastsData.results || []
-    }
+    const data = await response.json()
+
+    // Update podcasts (always from Taddy with UUIDs)
+    topPodcasts.value = data.podcasts || []
+
+    // Update episodes (may be empty array if none found for this genre/language)
+    topEpisodes.value = data.episodes || []
+
+    console.log(`Loaded ${topPodcasts.value.length} podcasts and ${topEpisodes.value.length} episodes for genre ${props.genre} in language ${data.language}`)
   } catch (error) {
-    console.error('Error loading genre podcasts:', error)
+    console.error('Error loading genre content:', error)
+    topPodcasts.value = []
+    topEpisodes.value = []
   } finally {
     loadingPodcasts.value = false
-  }
-
-  // Load popular episodes of this genre (using search with popularity sort)
-  loadingEpisodes.value = true
-  try {
-    const episodesResponse = await fetch(
-      `/api/podcast/discover/popular-episodes?genres=${props.genre}&language=${language}&limit=10`
-    )
-    const episodesData = await episodesResponse.json()
-    topEpisodes.value = episodesData.results || []
-  } catch (error) {
-    console.error('Error loading genre episodes:', error)
-  } finally {
     loadingEpisodes.value = false
   }
 }
