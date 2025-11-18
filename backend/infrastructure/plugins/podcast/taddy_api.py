@@ -9,6 +9,76 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
 
+# Mapping des genres Taddy vers les IDs de genre iTunes RSS
+GENRE_TO_ITUNES_ID = {
+    'PODCASTSERIES_NEWS': 1489,
+    'PODCASTSERIES_COMEDY': 1303,
+    'PODCASTSERIES_TRUE_CRIME': 1488,
+    'PODCASTSERIES_TECHNOLOGY': 1318,
+    'PODCASTSERIES_SPORTS': 1545,
+    'PODCASTSERIES_EDUCATION': 1304,
+    'PODCASTSERIES_BUSINESS': 1321,
+    'PODCASTSERIES_HEALTH_AND_FITNESS': 1512,
+    'PODCASTSERIES_ARTS': 1301,
+    'PODCASTSERIES_KIDS_AND_FAMILY': 1305,
+    'PODCASTSERIES_MUSIC': 1310,
+    'PODCASTSERIES_RELIGION_AND_SPIRITUALITY': 1314,
+    'PODCASTSERIES_SCIENCE': 1315,
+    'PODCASTSERIES_SOCIETY_AND_CULTURE': 1324,
+    'PODCASTSERIES_TV_AND_FILM': 1309,
+}
+
+# Mapping des langues Milo (settings.json) vers les enums Taddy
+MILO_LANGUAGE_TO_TADDY = {
+    'english': 'ENGLISH',
+    'french': 'FRENCH',
+    'spanish': 'SPANISH',
+    'german': 'GERMAN',
+    'italian': 'ITALIAN',
+    'portuguese': 'PORTUGUESE',
+    'chinese': 'CHINESE',
+    'hindi': 'HINDI',
+}
+
+# Mapping des langues Milo vers codes pays iTunes RSS (pour Apple Podcasts charts)
+MILO_LANGUAGE_TO_ITUNES_COUNTRY = {
+    'english': 'us',      # United States
+    'french': 'fr',       # France
+    'spanish': 'es',      # Spain (ou 'mx' pour Mexico)
+    'german': 'de',       # Germany
+    'italian': 'it',      # Italy
+    'portuguese': 'br',   # Brazil (ou 'pt' pour Portugal)
+    'chinese': 'cn',      # China
+    'hindi': 'in',        # India
+}
+
+
+def map_milo_language_to_taddy(milo_language: str) -> str:
+    """
+    Convert Milo language setting to Taddy enum
+
+    Args:
+        milo_language: Language from /var/lib/milo/settings.json (e.g., 'french')
+
+    Returns:
+        Taddy language enum (e.g., 'FRENCH')
+    """
+    return MILO_LANGUAGE_TO_TADDY.get(milo_language.lower(), 'ENGLISH')
+
+
+def map_milo_language_to_itunes_country(milo_language: str) -> str:
+    """
+    Convert Milo language setting to iTunes RSS country code
+
+    Args:
+        milo_language: Language from /var/lib/milo/settings.json (e.g., 'french')
+
+    Returns:
+        iTunes country code (e.g., 'fr' for France)
+    """
+    return MILO_LANGUAGE_TO_ITUNES_COUNTRY.get(milo_language.lower(), 'us')
+
+
 class TaddyAPI:
     """
     Async client for Taddy GraphQL API
@@ -31,6 +101,7 @@ class TaddyAPI:
         self._series_cache: Dict[str, tuple[datetime, Any]] = {}
         self._episode_cache: Dict[str, tuple[datetime, Any]] = {}
         self._discovery_cache: Dict[str, tuple[datetime, Any]] = {}
+        self._itunes_lookup_cache: Dict[str, tuple[datetime, Optional[str]]] = {}  # {podcast_name: (timestamp, uuid)}
 
     async def _ensure_session(self) -> None:
         """Creates aiohttp session if needed"""
@@ -148,6 +219,7 @@ class TaddyAPI:
             popularityRankId
             podcastSeries {{
               uuid
+              itunesId
               name
               description(shouldStripHtmlTags: true)
               imageUrl
@@ -306,7 +378,8 @@ class TaddyAPI:
             return cached
 
         genres_str = ', '.join(genres)
-        country_filter = f'filterByCountry: {country}' if country else ''
+        # Only add country filter if provided (for PODCASTEPISODE only, per Taddy docs)
+        country_filter = f'filterByCountry: {country},' if country else ''
 
         if content_type == "PODCASTSERIES":
             fields = """
@@ -449,6 +522,139 @@ class TaddyAPI:
         self._set_cache(self._discovery_cache, cache_key, result)
         return result
 
+    async def get_itunes_top_podcasts_by_genre(
+        self,
+        genre: str,
+        country_code: str = "fr",
+        limit: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Get top podcasts from iTunes RSS feed for a specific genre
+
+        Returns the EXACT Apple Podcasts top charts for the specified country and genre.
+        This is the most reliable way to get the same results as shown on podcasts.apple.com
+
+        Args:
+            genre: Taddy genre enum (e.g., 'PODCASTSERIES_TECHNOLOGY')
+            country_code: iTunes country code (default: 'fr' for France)
+            limit: Number of results (max 200)
+
+        Returns:
+            Dict with 'results' list of podcast series with iTunes data (without UUIDs yet)
+        """
+        limit = min(limit, 200)
+
+        # Get iTunes genre ID from mapping
+        itunes_genre_id = GENRE_TO_ITUNES_ID.get(genre)
+        if not itunes_genre_id:
+            self.logger.warning(f"Unknown genre for iTunes mapping: {genre}")
+            return {"results": [], "total": 0}
+
+        cache_key = f"itunes_top_{genre}_{country_code}_{limit}"
+        cached = self._check_cache(self._discovery_cache, cache_key)
+        if cached:
+            return cached
+
+        # Ensure session exists
+        await self._ensure_session()
+
+        # Fetch from iTunes RSS API
+        url = f"https://itunes.apple.com/{country_code}/rss/toppodcasts/genre={itunes_genre_id}/limit={limit}/json"
+
+        try:
+            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    self.logger.error(f"iTunes RSS error: HTTP {resp.status}")
+                    return {"results": [], "total": 0}
+
+                # iTunes returns text/javascript instead of application/json
+                text = await resp.text()
+                import json as json_module
+                data = json_module.loads(text)
+                entries = data.get('feed', {}).get('entry', [])
+
+                results = []
+                for entry in entries:
+                    # Extract iTunes data
+                    itunes_id = entry.get('id', {}).get('attributes', {}).get('im:id')
+                    name = entry.get('im:name', {}).get('label', '')
+                    artist = entry.get('im:artist', {}).get('label', '')
+
+                    # Get image URL (take the largest one)
+                    images = entry.get('im:image', [])
+                    image_url = images[-1].get('label', '') if images else ''
+
+                    results.append({
+                        'itunes_id': itunes_id,
+                        'name': name,
+                        'artist': artist,
+                        'publisher': artist,
+                        'image_url': image_url,
+                        'source': 'itunes_rss',
+                        # UUID will be added during enrichment
+                        'uuid': None,
+                    })
+
+                result = {"results": results, "total": len(results)}
+                self._set_cache(self._discovery_cache, cache_key, result)
+                return result
+
+        except Exception as e:
+            self.logger.error(f"Error fetching iTunes RSS: {e}")
+            return {"results": [], "total": 0}
+
+    async def lookup_podcast_uuid_by_itunes_id(self, itunes_id: str, podcast_name: str = None) -> Optional[str]:
+        """
+        Lookup Taddy UUID for a podcast using its iTunes ID
+
+        Args:
+            itunes_id: iTunes ID from iTunes RSS
+            podcast_name: Optional podcast name for fallback search
+
+        Returns:
+            Taddy UUID if found, None otherwise
+        """
+        try:
+            # Search by podcast name (simple and effective)
+            if podcast_name:
+                # Limit to first 8 words (Taddy API limitation)
+                words = podcast_name.split()
+                search_term = ' '.join(words[:8])
+
+                result = await self.search_mixed(
+                    term=search_term,
+                    sort_by="EXACTNESS",
+                    limit=5
+                )
+
+                podcasts = result.get('podcasts', [])
+
+                # Strategy 1: Match by iTunes ID (most reliable)
+                if itunes_id:
+                    itunes_id_str = str(itunes_id)
+                    for podcast in podcasts:
+                        taddy_itunes_id = podcast.get('itunes_id')
+                        if taddy_itunes_id and str(taddy_itunes_id) == itunes_id_str:
+                            uuid = podcast.get('uuid')
+                            self.logger.debug(f"Found UUID {uuid} for iTunes ID {itunes_id}")
+                            return uuid
+
+                # Strategy 2: Match by name (fallback)
+                podcast_name_lower = podcast_name.lower().strip()
+                for podcast in podcasts:
+                    taddy_name_lower = podcast.get('name', '').lower().strip()
+                    if taddy_name_lower == podcast_name_lower:
+                        uuid = podcast.get('uuid')
+                        self.logger.debug(f"Found UUID {uuid} for name '{podcast_name}'")
+                        return uuid
+
+            self.logger.debug(f"No UUID found for iTunes ID {itunes_id} / name '{podcast_name}'")
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error looking up podcast UUID: {e}")
+            return None
+
     # ========== SEARCH QUERIES ==========
 
     async def search_mixed(
@@ -515,6 +721,7 @@ class TaddyAPI:
             searchId
             podcastSeries {{
               uuid
+              itunesId
               name
               description(shouldStripHtmlTags: true)
               imageUrl
@@ -1073,6 +1280,7 @@ class TaddyAPI:
 
         normalized = {
             'uuid': series.get('uuid'),
+            'itunes_id': series.get('itunesId'),  # Add iTunes ID from Taddy
             'name': series.get('name', 'Unknown Podcast'),
             'description': series.get('description', ''),
             'image_url': image_url,
