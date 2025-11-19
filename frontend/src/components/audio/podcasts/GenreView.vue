@@ -3,36 +3,18 @@
     <!-- Top podcasts of the genre -->
     <section class="section">
       <h3 class="section-title">Top Podcasts {{ genreLabel }}</h3>
-      <LoadingSpinner v-if="loadingPodcasts" />
+      <LoadingSpinner v-if="loading" />
       <div v-else-if="topPodcasts.length === 0" class="empty-state">
         <p>Aucun podcast trouvé dans cette catégorie</p>
       </div>
       <div v-else class="podcasts-grid">
         <PodcastCard
           v-for="podcast in topPodcasts"
-          :key="podcast.uuid"
+          :key="podcast.itunes_id || podcast.uuid"
           :podcast="podcast"
-          @select="$emit('select-podcast', podcast.uuid)"
+          @select="$emit('select-podcast', podcast)"
         />
       </div>
-    </section>
-
-    <!-- Top episodes of the genre (hidden if no results) -->
-    <section v-if="!loadingEpisodes && topEpisodes.length > 0" class="section">
-      <h3 class="section-title">Top Épisodes {{ genreLabel }}</h3>
-      <div class="episodes-list">
-        <EpisodeCard
-          v-for="episode in topEpisodes"
-          :key="episode.uuid"
-          :episode="episode"
-          @select="$emit('select-episode', episode.uuid)"
-          @play="$emit('play-episode', episode)"
-        />
-      </div>
-    </section>
-    <section v-else-if="loadingEpisodes" class="section">
-      <h3 class="section-title">Top Épisodes {{ genreLabel }}</h3>
-      <LoadingSpinner />
     </section>
   </div>
 </template>
@@ -41,7 +23,6 @@
 import { ref, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import PodcastCard from './PodcastCard.vue'
-import EpisodeCard from './EpisodeCard.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 
 const props = defineProps({
@@ -55,24 +36,22 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
+const emit = defineEmits(['select-podcast'])
 
 const podcastStore = usePodcastStore()
 
-const loadingPodcasts = ref(false)
-const loadingEpisodes = ref(false)
+const loading = ref(false)
 const topPodcasts = ref([])
-const topEpisodes = ref([])
 
 async function loadData() {
-  // Use a single unified endpoint that fetches both podcasts and episodes
+  // Fetch top podcasts for this genre
   // Language is automatically retrieved from /var/lib/milo/settings.json
-  loadingPodcasts.value = true
-  loadingEpisodes.value = true
+  // Default limit is 30 podcasts (configurable up to 200)
+  loading.value = true
 
   try {
     const response = await fetch(
-      `/api/podcast/discover/by-genre?genre=${props.genre}&podcasts_limit=5&episodes_limit=5`
+      `/api/podcast/discover/by-genre?genre=${props.genre}&limit=30`
     )
 
     if (!response.ok) {
@@ -81,20 +60,15 @@ async function loadData() {
 
     const data = await response.json()
 
-    // Update podcasts (always from Taddy with UUIDs)
+    // Update podcasts (from iTunes RSS with Taddy UUIDs)
     topPodcasts.value = data.podcasts || []
 
-    // Update episodes (may be empty array if none found for this genre/language)
-    topEpisodes.value = data.episodes || []
-
-    console.log(`Loaded ${topPodcasts.value.length} podcasts and ${topEpisodes.value.length} episodes for genre ${props.genre} in language ${data.language}`)
+    console.log(`Loaded ${topPodcasts.value.length} podcasts for genre ${props.genre} in ${data.language}/${data.country}`)
   } catch (error) {
     console.error('Error loading genre content:', error)
     topPodcasts.value = []
-    topEpisodes.value = []
   } finally {
-    loadingPodcasts.value = false
-    loadingEpisodes.value = false
+    loading.value = false
   }
 }
 
@@ -129,12 +103,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: var(--space-03);
-}
-
-.episodes-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
 }
 
 .empty-state {

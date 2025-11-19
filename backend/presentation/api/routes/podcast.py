@@ -226,26 +226,26 @@ async def get_popular_episodes_by_genre(
 @router.get("/discover/by-genre")
 async def get_content_by_genre(
     genre: str = Query(..., description="Genre (e.g., PODCASTSERIES_TECHNOLOGY)"),
-    podcasts_limit: int = Query(5, ge=1, le=200),
-    episodes_limit: int = Query(5, ge=1, le=25)
+    limit: int = Query(30, ge=1, le=200, description="Number of podcasts to return (default: 30, max: 200)")
 ):
     """
-    Get top podcasts and episodes for a specific genre using user's language.
+    Get top podcasts for a specific genre using user's language.
 
     This endpoint returns the EXACT same results as Apple Podcasts for the user's country.
 
     Process:
     - Retrieves top podcasts from iTunes RSS (Apple's official rankings by country+genre)
     - Enriches each podcast with Taddy UUID via lookup (by iTunes ID or name)
-    - Retrieves popular episodes from Taddy API filtered by language & genre
     - Uses the language setting from /var/lib/milo/settings.json
+
+    Note: Top episodes are not available via public APIs (Apple uses a private API).
+    Only top podcast series can be reliably retrieved.
 
     Returns:
         {
             "podcasts": [...],  # List of top podcasts from Apple Podcasts (with Taddy UUIDs)
-            "episodes": [...],  # List of popular episodes matching user's language
             "language": "FRENCH",  # Taddy language enum
-            "country": "FRANCE"  # iTunes country code used
+            "country": "fr"  # iTunes country code used
         }
     """
     try:
@@ -265,66 +265,60 @@ async def get_content_by_genre(
         taddy_language = map_milo_language_to_taddy(milo_language)
         itunes_country = map_milo_language_to_itunes_country(milo_language)
 
-        # Map iTunes country code to Taddy country enum
-        taddy_country = ITUNES_COUNTRY_TO_TADDY_COUNTRY.get(itunes_country)
-
         # Get top podcasts from iTunes RSS (EXACT Apple Podcasts rankings)
         # This is the most reliable way to match what users see on podcasts.apple.com
         podcasts_result = await plugin.taddy_api.get_itunes_top_podcasts_by_genre(
             genre=genre,
             country_code=itunes_country,
-            limit=podcasts_limit
+            limit=limit
         )
 
         podcasts = podcasts_result.get('results', [])
 
-        # Enrich each iTunes podcast with Taddy UUID for full functionality
-        subscriptions = await plugin.podcast_data_service.get_subscription_uuids()
-
-        for podcast in podcasts:
-            itunes_id = podcast.get('itunes_id')
-            podcast_name = podcast.get('name')
-
-            # Lookup Taddy UUID
-            uuid = await plugin.taddy_api.lookup_podcast_uuid_by_itunes_id(
-                itunes_id=itunes_id,
-                podcast_name=podcast_name
-            )
-
-            if uuid:
-                podcast['uuid'] = uuid
-                podcast['is_subscribed'] = uuid in subscriptions
-            else:
-                # Keep podcast even without UUID (user can see it but can't interact)
-                podcast['uuid'] = None
-                podcast['is_subscribed'] = False
-                logger.warning(f"No Taddy UUID found for iTunes podcast: {podcast_name} (ID: {itunes_id})")
-
-        # Get popular episodes using Taddy API with language filter
-        # This uses get_popular_episodes_by_genre which searches episodes by genre and language
-        episodes_result = await plugin.taddy_api.get_popular_episodes_by_genre(
-            genres=[genre],
-            language=taddy_language,
-            limit=episodes_limit
-        )
-
-        # Enrich episodes with playback progress
-        for episode in episodes_result.get('results', []):
-            progress = await plugin.podcast_data_service.get_playback_progress(episode.get('uuid'))
-            if progress:
-                episode['playback_progress'] = progress
-
+        # Return iTunes RSS data directly without UUID enrichment
+        # UUIDs will be fetched lazily when user clicks on a podcast (better performance)
         return {
             "podcasts": podcasts,
-            "episodes": episodes_result.get('results', []),
             "language": taddy_language,
-            "country": taddy_country or itunes_country
+            "country": itunes_country
         }
 
     except Exception as e:
         import traceback
         logger.error(f"Error getting content by genre: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/lookup/itunes/{itunes_id}")
+async def lookup_podcast_by_itunes_id(
+    itunes_id: str,
+    name: str = Query(None, description="Podcast name for fallback search")
+):
+    """
+    Lookup Taddy UUID for a podcast using its iTunes ID
+
+    This endpoint is used for lazy loading - when displaying podcasts from iTunes RSS,
+    we don't fetch UUIDs upfront. Instead, we fetch them on-demand when user clicks.
+    """
+    try:
+        plugin = container.podcast_plugin()
+
+        # Lookup UUID using iTunes ID and name
+        uuid = await plugin.taddy_api.lookup_podcast_uuid_by_itunes_id(
+            itunes_id=itunes_id,
+            podcast_name=name
+        )
+
+        if not uuid:
+            raise HTTPException(status_code=404, detail=f"No podcast found for iTunes ID: {itunes_id}")
+
+        return {"uuid": uuid, "itunes_id": itunes_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error looking up podcast by iTunes ID: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
