@@ -3,15 +3,16 @@
   <button
     class="circular-icon"
     :class="[`circular-icon--${variant}`]"
+    :style="{ width: `${size}px`, height: `${size}px` }"
     :disabled="disabled"
     @click="handleClick"
   >
-    <LoadingSpinner v-if="loading" :size="24" />
+    <LoadingSpinner v-if="loading" :size="Math.floor(size * 0.6)" />
     <Icon
       v-else
       :name="icon"
       :color="color"
-      responsive
+      :size="Math.floor(size * 0.6)"
       class="circular-icon__icon"
     />
   </button>
@@ -29,7 +30,11 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'light',
-    validator: (value) => ['light', 'dark', 'overlay', 'primary', 'secondary', 'toggle', 'background-light'].includes(value)
+    validator: (value) => ['light', 'dark', 'overlay', 'primary', 'secondary', 'toggle', 'background-light', 'background-contrast-08'].includes(value)
+  },
+  size: {
+    type: Number,
+    default: 48
   },
   disabled: {
     type: Boolean,
@@ -118,6 +123,14 @@ function handleClick(event) {
 }
 
 .circular-icon--background-light .circular-icon__icon {
+  color: var(--color-text-contrast);
+}
+
+.circular-icon--background-contrast-08 {
+  background: var(--color-background-contrast-08);
+}
+
+.circular-icon--background-contrast-08 .circular-icon__icon {
   color: var(--color-text-contrast);
 }
 

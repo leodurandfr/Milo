@@ -398,7 +398,7 @@ function handleImageError() {
   width: 310px;
   justify-content: space-between;
   overflow: hidden;
-  height: calc(100% - 2 * var(--space-07));
+  /* height: calc(100% - 2 * var(--space-07)); */
   max-height: 540px;
   flex-shrink: 0;
   flex-direction: column;

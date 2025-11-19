@@ -34,6 +34,8 @@ import caretDownIcon from '@/assets/icons/caret-down.svg?raw';
 import podcastIcon from '@/assets/app-icons/podcast.svg?raw';
 import listIcon from '@/assets/icons/list.svg?raw';
 import checkIcon from '@/assets/icons/check.svg?raw';
+import rewind15Icon from '@/assets/icons/rewind-15.svg?raw';
+import forward30Icon from '@/assets/icons/forward-30.svg?raw';
 
 
 const icons = {
@@ -62,6 +64,8 @@ const icons = {
   podcast : podcastIcon,
   list : listIcon,
   check : checkIcon,
+  rewind15 : rewind15Icon,
+  forward30 : forward30Icon,
 
 
 };

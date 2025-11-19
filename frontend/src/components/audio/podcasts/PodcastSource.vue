@@ -1,11 +1,12 @@
 <template>
   <div class="podcast-source-wrapper">
-    <div class="podcast-container">
+    <div class="podcast-container" :class="{ 'with-player': shouldShowPlayerLayout }">
       <!-- Header with navigation -->
       <ModalHeader
         :title="currentTitle"
         :showBack="currentView !== 'home'"
         icon="podcast"
+        variant="neutral"
         @back="goToHome"
       >
         <template #actions>
@@ -96,7 +97,7 @@
     </div>
 
     <!-- Player panel (always visible when playing) -->
-    <div :class="['player-wrapper', { 'has-episode': podcastStore.hasCurrentEpisode }]">
+    <div :class="['player-wrapper', { 'has-episode': shouldShowPlayerLayout }]">
       <PodcastPlayer
         v-if="podcastStore.hasCurrentEpisode"
         @select-podcast="openPodcastDetails"
@@ -107,7 +108,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import useWebSocket from '@/services/websocket'
 import ModalHeader from '@/components/ui/ModalHeader.vue'
@@ -132,6 +133,44 @@ onWsEvent('plugin', 'state_changed', (message) => {
     podcastStore.handleStateUpdate(message.data || {})
   }
 })
+
+// Player layout visibility control (similar to RadioSource)
+const shouldShowPlayerLayout = ref(false)
+const stopTimer = ref(null)
+
+// Auto-hide logic: show player while playing, hide 5s after stopping
+watch(() => podcastStore.isPlaying, (isPlaying) => {
+  // Clear any existing timer
+  if (stopTimer.value) {
+    clearTimeout(stopTimer.value)
+    stopTimer.value = null
+  }
+
+  if (isPlaying && podcastStore.hasCurrentEpisode) {
+    // Playing: show with animation delay for smooth CSS transition
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        shouldShowPlayerLayout.value = true
+      })
+    })
+  } else if (!isPlaying && podcastStore.hasCurrentEpisode) {
+    // Paused with an episode: keep showing for 5s before hiding
+    stopTimer.value = setTimeout(() => {
+      shouldShowPlayerLayout.value = false
+    }, 5000)
+  } else if (!podcastStore.hasCurrentEpisode) {
+    // No episode at all: hide immediately
+    shouldShowPlayerLayout.value = false
+  }
+}, { immediate: true })
+
+// Ensure layout stays stable when episode changes
+watch(() => podcastStore.currentEpisode, (newEpisode) => {
+  if (newEpisode && podcastStore.isPlaying) {
+    // If episode appears and we're playing, show layout immediately
+    shouldShowPlayerLayout.value = true
+  }
+}, { immediate: true })
 
 // Navigation state
 const currentView = ref('home')
@@ -267,15 +306,14 @@ onMounted(async () => {
   justify-content: center;
   width: 100%;
   height: 100%;
-  gap: var(--space-06);
   padding: 0 var(--space-06);
+  transition: all var(--transition-spring);
 }
 
 /* Main container: scrollable like radio-container */
 .podcast-container {
   position: relative;
-  width: 100%;
-  max-width: 800px;
+  width: 84%;
   max-height: 100%;
   display: flex;
   flex-direction: column;
@@ -283,9 +321,15 @@ onMounted(async () => {
   padding: var(--space-07) 0;
   gap: var(--space-04);
   min-height: 0;
-  flex: 1 1 auto;
-  flex-shrink: 1;
+  flex-shrink: 0;
   touch-action: pan-y;
+  transition: width 0.6s cubic-bezier(0.5, 0, 0, 1);
+}
+
+.podcast-container.with-player {
+  width: calc(100% - 310px - 24px);
+  margin-right: 24px;
+  transition: width var(--transition-spring);
 }
 
 /* Content area: no scroll, natural height */
@@ -293,42 +337,65 @@ onMounted(async () => {
   padding: 0 var(--space-04);
 }
 
-/* Player wrapper: similar to now-playing-wrapper */
+/* Player wrapper: matching radio's now-playing-wrapper exactly */
 .player-wrapper {
   width: 0;
+  max-width: 310px;
   opacity: 0;
-  overflow: hidden;
   flex-shrink: 0;
   transform: translateX(100px);
+  transition:
+    width 0.6s cubic-bezier(0.5, 0, 0, 1),
+    transform 0.6s cubic-bezier(0.5, 0, 0, 1),
+    opacity 0.6s cubic-bezier(0.5, 0, 0, 1);
+  pointer-events: none;
 }
 
 .player-wrapper.has-episode {
   width: 310px;
+  max-width: 310px;
   opacity: 1;
-  overflow: visible;
   transform: translateX(0);
   transition:
     width var(--transition-spring),
     transform var(--transition-spring),
-    opacity 0.4s ease;
+    opacity 0.4s ease-out;
+  pointer-events: all;
 }
 
 /* Mobile: player is position fixed, so the wrapper must be transparent */
 @media (max-aspect-ratio: 4/3) {
   .podcast-container {
+    width: 100%;
     max-width: none;
     padding-bottom: calc(var(--space-04) + 80px);
     padding-top: var(--space-09);
+  }
+
+  .podcast-container.with-player {
+    width: 100%;
+    margin-right: 0;
   }
 
   .player-wrapper {
     display: contents;
   }
 
+  /* Mobile: player animates from bottom */
+  .player-wrapper :deep(.podcast-player) {
+    transform: translate(-50%, 120px);
+    opacity: 0;
+    transition:
+      transform 0.6s cubic-bezier(0.5, 0, 0, 1),
+      opacity 0.6s cubic-bezier(0.5, 0, 0, 1);
+  }
+
   .player-wrapper.has-episode :deep(.podcast-player) {
+    transform: translate(-50%, 0);
+    opacity: 1;
     transition:
       transform var(--transition-spring),
-      opacity 0.4s ease;
+      opacity 0.4s ease-out;
   }
 }
 </style>
