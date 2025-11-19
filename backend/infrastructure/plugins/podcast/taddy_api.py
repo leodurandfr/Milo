@@ -89,7 +89,7 @@ class TaddyAPI:
 
     BASE_URL = "https://api.taddy.org"
 
-    def __init__(self, user_id: str, api_key: str, cache_duration_minutes: int = 60):
+    def __init__(self, user_id: str, api_key: str, cache_duration_minutes: int = 120):
         self.logger = logging.getLogger(__name__)
         self.user_id = user_id
         self.api_key = api_key
