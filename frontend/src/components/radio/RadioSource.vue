@@ -3,7 +3,7 @@
   <div class="radio-source-wrapper">
     <div ref="radioContainer" class="radio-container stagger-1" :class="{
       'is-initial-animating': isInitialAnimating,
-      'with-now-playing': radioStore.currentStation && (isNowPlayingVisible || hasRecentlyStopped)
+      'with-now-playing': shouldShowNowPlayingLayout
     }">
 
       <!-- ModalHeader: Favorites view -->
@@ -77,7 +77,7 @@
           'search-mode': isSearchMode,
           'transition-fading-out': transitionState === 'fading-out',
           'transition-fading-in': transitionState === 'fading-in',
-          'has-now-playing': radioStore.currentStation && (isNowPlayingVisible || hasRecentlyStopped)
+          'has-now-playing': shouldShowNowPlayingLayout
         }">
           <!-- Favorites mode: image-only display -->
           <StationCard v-if="!isSearchMode" v-for="station in displayedStations" :key="`fav-${station.id}`"
@@ -100,7 +100,7 @@
     <div :class="[
       'now-playing-wrapper',
       {
-        'has-station': radioStore.currentStation && (isNowPlayingVisible || hasRecentlyStopped)
+        'has-station': shouldShowNowPlayingLayout
       }
     ]">
       <StationCard v-show="radioStore.currentStation" :station="radioStore.currentStation"
@@ -139,8 +139,7 @@ const availableCountries = ref([]); // Dynamic list of available countries
 const transitionState = ref('idle'); // States: 'idle', 'fading-out', 'loading', 'fading-in'
 const messageState = ref('idle'); // States: 'idle', 'fading-in', 'fading-out'
 const isInitialAnimating = ref(true); // Track if initial spring animation is running
-const hasRecentlyStopped = ref(false); // True for 5s after stopping playback (controls .has-station class)
-const isNowPlayingVisible = ref(false); // Controls visibility animation (delayed for CSS transitions)
+const shouldShowNowPlayingLayout = ref(false); // Controls now-playing visibility, layout and animation
 const stopTimer = ref(null); // Timer for hiding now-playing after stop
 
 // Reference for animations and scroll
@@ -447,32 +446,32 @@ watch(isCurrentlyPlaying, (isPlaying) => {
   }
 
   if (isPlaying && radioStore.currentStation) {
-    // Playing: show with animation delay
-    hasRecentlyStopped.value = false;
-
-    // Force delay for CSS transition to work
+    // Playing: show with animation delay for CSS transition
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        isNowPlayingVisible.value = true;
+        shouldShowNowPlayingLayout.value = true;
       });
     });
   } else if (!isPlaying && radioStore.currentStation) {
-    // Stopped with a station: keep showing for 5s
-    hasRecentlyStopped.value = true;
-    isNowPlayingVisible.value = false;
-
+    // Stopped with a station: keep showing for 5s before hiding
     stopTimer.value = setTimeout(() => {
-      // Remove .has-station class after 5s (triggers CSS fade-out)
-      hasRecentlyStopped.value = false;
+      shouldShowNowPlayingLayout.value = false;
     }, 5000);
   } else if (!radioStore.currentStation) {
-    // No station at all: hide everything
-    hasRecentlyStopped.value = false;
-    isNowPlayingVisible.value = false;
+    // No station at all: hide everything immediately
+    shouldShowNowPlayingLayout.value = false;
   }
 }, { immediate: true });
 
-// No complex plugin_state watcher needed - visibility is controlled by is_playing + timer
+// === STABLE LAYOUT DURING STATION CHANGES ===
+// Ensure layout stays stable even when currentStation briefly becomes null during transitions
+watch(() => radioStore.currentStation, (newStation) => {
+  if (newStation && (isCurrentlyPlaying.value || isBuffering.value)) {
+    // If a station appears and we're playing/buffering, lock the layout immediately
+    shouldShowNowPlayingLayout.value = true;
+  }
+  // Note: Don't unlock here - let the isCurrentlyPlaying watcher handle unlocking
+}, { immediate: true });
 
 // === WEBSOCKET SYNC ===
 // Listen for metadata updates
@@ -671,7 +670,7 @@ onBeforeUnmount(() => {
 
 .radio-container {
   position: relative;
-  width: 80%;
+  width: 84%;
   max-height: 100%;
   display: flex;
   flex-direction: column;
