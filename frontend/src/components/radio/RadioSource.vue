@@ -3,7 +3,7 @@
   <div class="radio-source-wrapper">
     <div ref="radioContainer" class="radio-container stagger-1" :class="{
       'is-initial-animating': isInitialAnimating,
-      'with-now-playing': radioStore.currentStation && (isCurrentlyPlaying || hasRecentlyStopped)
+      'with-now-playing': radioStore.currentStation && (isNowPlayingVisible || hasRecentlyStopped)
     }">
 
       <!-- ModalHeader: Favorites view -->
@@ -24,19 +24,9 @@
         <div class="filters">
           <InputText v-model="radioStore.searchQuery" :placeholder="t('audioSources.radioSource.searchPlaceholder')"
             size="small" icon="search" :icon-size="24" @update:modelValue="handleSearch" />
-          <Dropdown
-            v-model="radioStore.countryFilter"
-            :options="countryOptions"
-            size="small"
-            @change="handleSearch"
-          />
+          <Dropdown v-model="radioStore.countryFilter" :options="countryOptions" size="small" @change="handleSearch" />
 
-          <Dropdown
-            v-model="radioStore.genreFilter"
-            :options="genreOptions"
-            size="small"
-            @change="handleSearch"
-          />
+          <Dropdown v-model="radioStore.genreFilter" :options="genreOptions" size="small" @change="handleSearch" />
         </div>
       </div>
 
@@ -87,7 +77,7 @@
           'search-mode': isSearchMode,
           'transition-fading-out': transitionState === 'fading-out',
           'transition-fading-in': transitionState === 'fading-in',
-          'has-now-playing': radioStore.currentStation
+          'has-now-playing': radioStore.currentStation && (isNowPlayingVisible || hasRecentlyStopped)
         }">
           <!-- Favorites mode: image-only display -->
           <StationCard v-if="!isSearchMode" v-for="station in displayedStations" :key="`fav-${station.id}`"
@@ -110,12 +100,12 @@
     <div :class="[
       'now-playing-wrapper',
       {
-        'has-station': radioStore.currentStation && (isCurrentlyPlaying || hasRecentlyStopped)
+        'has-station': radioStore.currentStation && (isNowPlayingVisible || hasRecentlyStopped)
       }
     ]">
-      <StationCard v-if="radioStore.currentStation && showNowPlaying"
-        :station="radioStore.currentStation" variant="now-playing" :show-controls="true"
-        :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" @play="handlePlayPause" @favorite="handleFavorite" />
+      <StationCard v-show="radioStore.currentStation" :station="radioStore.currentStation"
+        variant="now-playing" :show-controls="true" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering"
+        @play="handlePlayPause" @favorite="handleFavorite" />
     </div>
   </div>
 </template>
@@ -150,7 +140,7 @@ const transitionState = ref('idle'); // States: 'idle', 'fading-out', 'loading',
 const messageState = ref('idle'); // States: 'idle', 'fading-in', 'fading-out'
 const isInitialAnimating = ref(true); // Track if initial spring animation is running
 const hasRecentlyStopped = ref(false); // True for 5s after stopping playback (controls .has-station class)
-const showNowPlaying = ref(false); // Controls v-if (stays true during fade-out animation)
+const isNowPlayingVisible = ref(false); // Controls visibility animation (delayed for CSS transitions)
 const stopTimer = ref(null); // Timer for hiding now-playing after stop
 
 // Reference for animations and scroll
@@ -457,27 +447,28 @@ watch(isCurrentlyPlaying, (isPlaying) => {
   }
 
   if (isPlaying && radioStore.currentStation) {
-    // Playing: show immediately
-    showNowPlaying.value = true;
+    // Playing: show with animation delay
     hasRecentlyStopped.value = false;
+
+    // Force delay for CSS transition to work
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        isNowPlayingVisible.value = true;
+      });
+    });
   } else if (!isPlaying && radioStore.currentStation) {
     // Stopped with a station: keep showing for 5s
     hasRecentlyStopped.value = true;
-    showNowPlaying.value = true;
+    isNowPlayingVisible.value = false;
 
     stopTimer.value = setTimeout(() => {
-      // Step 1: Remove .has-station class (triggers CSS transition)
+      // Remove .has-station class after 5s (triggers CSS fade-out)
       hasRecentlyStopped.value = false;
-
-      // Step 2: Wait for transition, then remove from DOM
-      setTimeout(() => {
-        showNowPlaying.value = false;
-      }, 500); // Wait for CSS transition to complete
-    }, 5000); // 5 seconds for testing
+    }, 5000);
   } else if (!radioStore.currentStation) {
     // No station at all: hide everything
-    showNowPlaying.value = false;
     hasRecentlyStopped.value = false;
+    isNowPlayingVisible.value = false;
   }
 }, { immediate: true });
 
@@ -533,13 +524,6 @@ onMounted(async () => {
   if (unifiedStore.systemState.active_source === 'radio' && unifiedStore.systemState.metadata) {
     console.log('📻 Syncing currentStation from existing state on mount');
     radioStore.updateFromWebSocket(unifiedStore.systemState.metadata);
-
-    // Initialize showNowPlaying based on current state after sync
-    if (isCurrentlyPlaying.value && radioStore.currentStation) {
-      console.log('📻 Radio is playing on mount → showing now-playing');
-      showNowPlaying.value = true;
-      hasRecentlyStopped.value = false;
-    }
   }
 
   // Disable the initial animation flag after the spring animation finishes
@@ -654,10 +638,22 @@ onBeforeUnmount(() => {
   }
 
   /* Mobile: now-playing animation (show/hide) */
+  .now-playing-wrapper :deep(.now-playing) {
+    /* État initial : caché en bas */
+    transform: translate(-50%, 120px);
+    opacity: 0;
+    transition:
+      transform 0.6s cubic-bezier(0.5, 0, 0, 1),
+      opacity 0.6s cubic-bezier(0.5, 0, 0, 1);
+  }
+
   .now-playing-wrapper.has-station :deep(.now-playing) {
+    /* État visible : position normale */
+    transform: translate(-50%, 0);
+    opacity: 1;
     transition:
       transform var(--transition-spring),
-      opacity 0.4s ease;
+      opacity 0.4s ease-out;
   }
 }
 
@@ -815,6 +811,7 @@ onBeforeUnmount(() => {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -826,6 +823,7 @@ onBeforeUnmount(() => {
     opacity: 1;
     transform: translateY(0);
   }
+
   to {
     opacity: 0;
     transform: translateY(-20px);
@@ -843,12 +841,24 @@ onBeforeUnmount(() => {
 
 /* Mobile: Responsive adaptations */
 @media (max-aspect-ratio: 4/3) {
+  .radio-source-wrapper {
+    padding: 0 var(--space-05);
+  }
+
+
+
+  .radio-container.with-now-playing {
+    width: 100%;
+    margin-right: 0;
+  }
+
   .radio-container {
+    width: 100%;
     max-width: none;
     padding-bottom: calc(var(--space-04) + 80px);
     padding-top: var(--space-09);
   }
-  
+
   .stations-grid.has-now-playing {
     padding-bottom: 144px;
   }
@@ -862,7 +872,7 @@ onBeforeUnmount(() => {
   }
 
   .filters {
-        grid-template-columns: repeat(1, 1fr);
+    grid-template-columns: repeat(1, 1fr);
   }
 }
 </style>
