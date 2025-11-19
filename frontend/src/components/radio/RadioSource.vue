@@ -1,7 +1,10 @@
 <!-- RadioSource.vue -->
 <template>
   <div class="radio-source-wrapper">
-    <div ref="radioContainer" class="radio-container stagger-1" :class="{ 'is-initial-animating': isInitialAnimating }">
+    <div ref="radioContainer" class="radio-container stagger-1" :class="{
+      'is-initial-animating': isInitialAnimating,
+      'with-now-playing': radioStore.currentStation && (isCurrentlyPlaying || hasRecentlyStopped)
+    }">
 
       <!-- ModalHeader: Favorites view -->
       <ModalHeader v-if="!isSearchMode" :title="t('audioSources.radioSource.favoritesTitle')" variant="neutral"
@@ -620,6 +623,7 @@ onBeforeUnmount(() => {
 
 .now-playing-wrapper {
   width: 0;
+  max-width: 310px;
   opacity: 0;
   flex-shrink: 0;
   transform: translateX(100px);
@@ -632,6 +636,7 @@ onBeforeUnmount(() => {
 
 .now-playing-wrapper.has-station {
   width: 310px;
+  max-width: 310px;
   opacity: 1;
   transform: translateX(0);
   /* Apparition : spring bounce (dynamic entry) */
@@ -662,7 +667,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   width: 100%;
   height: 100%;
-  gap: var(--space-06);
+  /* gap: 24px; */
   padding: 0 var(--space-06);
   transition: all var(--transition-spring);
 
@@ -670,8 +675,7 @@ onBeforeUnmount(() => {
 
 .radio-container {
   position: relative;
-  width: 100%;
-  max-width: 768px;
+  width: 80%;
   max-height: 100%;
   display: flex;
   flex-direction: column;
@@ -679,9 +683,17 @@ onBeforeUnmount(() => {
   padding: var(--space-07) 0;
   gap: var(--space-04);
   min-height: 0;
-  flex: 1 1 auto;
-  flex-shrink: 1;
+  flex-shrink: 0;
   touch-action: pan-y;
+  /* Disparition : ease-out (smooth exit) - même timing que now-playing */
+  transition: width 0.6s cubic-bezier(0.5, 0, 0, 1);
+}
+
+.radio-container.with-now-playing {
+  width: calc(100% - 310px - 24px);
+  margin-right: 24px;
+  /* Apparition : spring bounce (dynamic entry) */
+  transition: width var(--transition-spring);
 }
 
 /* Allow content to overflow during spring animation with bounce */
