@@ -393,13 +393,13 @@ function handleImageError() {
 .now-playing {
   top: var(--space-07);
   right: var(--space-06);
-  margin: var(--space-07) var(--space-07) 0 0;
+  margin-top: var(--space-07);
   display: flex;
+  width: 310px;
   justify-content: space-between;
   overflow: hidden;
-  width: 310px;
   height: calc(100% - 2 * var(--space-07));
-  max-height: 560px;
+  max-height: 540px;
   flex-shrink: 0;
   flex-direction: column;
   gap: var(--space-04);
