@@ -155,8 +155,9 @@ const isLibrespotFullScreen = computed(() => {
 });
 
 const shouldShowLogo = computed(() => {
-  // Hide logo for both librespot AND radio
-  if (unifiedStore.systemState.active_source === 'radio') {
+  // Hide logo for librespot, radio, and podcast
+  if (unifiedStore.systemState.active_source === 'radio' ||
+      unifiedStore.systemState.active_source === 'podcast') {
     return false;
   }
   return !isLibrespotFullScreen.value;

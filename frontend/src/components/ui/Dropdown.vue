@@ -2,11 +2,11 @@
 <template>
   <div ref="dropdownRef" class="dropdown">
     <button type="button" class="dropdown-trigger"
-      :class="[textClass, { 'is-open': isOpen, 'has-selection': modelValue }]"
+      :class="[textClass, `dropdown-trigger--${variant}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
-      <span class="dropdown-label">{{ selectedLabel }}</span>
-      <Icon name="caretDown" :size="24" class="dropdown-icon" />
+      <span class="dropdown-label text-mono">{{ selectedLabel }}</span>
+      <Icon v-if="variant === 'default'" name="caretDown" :size="24" class="dropdown-icon" />
     </button>
 
     <Transition name="dropdown-menu">
@@ -46,6 +46,11 @@ const props = defineProps({
     type: String,
     default: 'default',
     validator: (value) => ['default', 'small'].includes(value)
+  },
+  variant: {
+    type: String,
+    default: 'default',
+    validator: (value) => ['default', 'minimal'].includes(value)
   }
 });
 
@@ -171,6 +176,25 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
+/* Minimal variant */
+.dropdown-trigger--minimal {
+  background: none;
+  border: none;
+  box-shadow: none;
+  min-width: auto;
+}
+
+.dropdown-trigger--minimal:focus {
+  box-shadow: none;
+}
+
+.dropdown-trigger--minimal .dropdown-label {
+  color: var(--color-text-contrast-50);
+  font-weight: normal;
+}
+
+
+
 .dropdown-label {
   flex: 1;
   text-align: left;
@@ -178,12 +202,11 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
-  color: var(--color-text-light);
 }
 
-.dropdown-trigger.has-selection .dropdown-label {
+/* .dropdown-trigger.has-selection .dropdown-label {
   color: var(--color-text);
-}
+} */
 
 .dropdown-icon {
   flex-shrink: 0;

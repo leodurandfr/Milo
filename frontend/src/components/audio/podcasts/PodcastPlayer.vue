@@ -1,66 +1,37 @@
 <template>
-  <div class="podcast-player" :class="{ open: isOpen }">
-    <div class="player-toggle" @click="togglePanel">
-      <Icon :name="isOpen ? 'caretRight' : 'caretLeft'" :size="20" />
+  <div class="podcast-player">
+    <div class="episode-art-background">
+      <img :src="episodeImage" alt="" class="background-episode-image" />
     </div>
 
     <div class="player-content">
       <img :src="episodeImage" :alt="episodeName" class="episode-image" />
 
       <div class="episode-info">
-        <h3 class="episode-name">{{ episodeName }}</h3>
-        <p
-          class="podcast-name"
-          @click="$emit('select-podcast', podcastStore.currentEpisode?.podcast?.uuid)"
-        >
+        <p class="episode-name text-body">{{ episodeName }}</p>
+        <p class="podcast-name text-mono" @click="$emit('select-podcast', podcastStore.currentEpisode?.podcast?.uuid)">
           {{ podcastName }}
         </p>
       </div>
 
       <!-- Progress bar -->
-      <div class="progress-section">
-        <RangeSlider
-          :min="0"
-          :max="podcastStore.currentDuration || 100"
-          :modelValue="podcastStore.currentPosition"
-          @update:modelValue="handleSeek"
-        />
-        <div class="time-display">
-          <span>{{ formatTime(podcastStore.currentPosition) }}</span>
-          <span>{{ formatTime(podcastStore.currentDuration) }}</span>
-        </div>
-      </div>
+      <ProgressBar :currentPosition="podcastStore.currentPosition" :duration="podcastStore.currentDuration"
+        :progressPercentage="progressPercentage" @seek="handleSeek" />
 
       <!-- Controls -->
       <div class="controls">
-        <Button variant="secondary" @click="seekBackward">
-          <Icon name="rewind" :size="24" />
-          <span class="control-label">-15s</span>
-        </Button>
+        <!-- Speed selector -->
+        <div class="speed-selector">
+          <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="minimal" size="small"
+            @change="handleSpeedChange" />
+        </div>
 
-        <Button variant="toggle" size="large" @click="togglePlayPause">
-          <Icon :name="podcastStore.isPlaying ? 'pause' : 'play'" :size="32" />
-        </Button>
-
-        <Button variant="secondary" @click="seekForward">
-          <Icon name="fastForward" :size="24" />
-          <span class="control-label">+30s</span>
-        </Button>
-      </div>
-
-      <!-- Speed control -->
-      <div class="speed-control">
-        <label>Vitesse</label>
-        <div class="speed-buttons">
-          <Button
-            v-for="speed in speeds"
-            :key="speed"
-            :variant="currentSpeed === speed ? 'toggle' : 'secondary'"
-            size="small"
-            @click="setSpeed(speed)"
-          >
-            {{ speed }}x
-          </Button>
+        <!-- Playback controls -->
+        <div class="playback-controls">
+          <CircularIcon icon="rewind15" variant="background-contrast-08" :size="40" @click="seekBackward" />
+          <CircularIcon :icon="podcastStore.isPlaying ? 'pause' : 'play'" variant="background-contrast-08" :size="56"
+            @click="togglePlayPause" />
+          <CircularIcon icon="forward30" variant="background-contrast-08" :size="40" @click="seekForward" />
         </div>
       </div>
     </div>
@@ -68,17 +39,30 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
-import Button from '@/components/ui/Button.vue'
-import Icon from '@/components/ui/Icon.vue'
-import RangeSlider from '@/components/ui/RangeSlider.vue'
+import CircularIcon from '@/components/ui/CircularIcon.vue'
+import Dropdown from '@/components/ui/Dropdown.vue'
+import ProgressBar from './ProgressBar.vue'
 
 defineEmits(['select-podcast', 'select-episode'])
 
 const podcastStore = usePodcastStore()
-const isOpen = ref(true)
 const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
+
+// Format speed options for Dropdown component
+const speedOptions = computed(() =>
+  speeds.map(speed => ({
+    label: `${speed}x`,
+    value: String(speed)
+  }))
+)
+
+// Selected speed as string for v-model
+const selectedSpeed = computed({
+  get: () => String(podcastStore.playbackSpeed || 1),
+  set: () => { } // Handled by @change event
+})
 
 const episodeImage = computed(() => {
   return podcastStore.currentEpisode?.image_url || '/default-episode.png'
@@ -96,9 +80,12 @@ const currentSpeed = computed(() => {
   return podcastStore.playbackSpeed || 1
 })
 
-function togglePanel() {
-  isOpen.value = !isOpen.value
-}
+const progressPercentage = computed(() => {
+  if (!podcastStore.currentDuration || podcastStore.currentDuration === 0) {
+    return 0
+  }
+  return (podcastStore.currentPosition / podcastStore.currentDuration) * 100
+})
 
 async function togglePlayPause() {
   if (podcastStore.isPlaying) {
@@ -125,53 +112,69 @@ async function handleSeek(position) {
   await podcastStore.seek(position)
 }
 
-async function setSpeed(speed) {
+async function handleSpeedChange(speedValue) {
+  const speed = parseFloat(speedValue)
   await podcastStore.setSpeed(speed)
-}
-
-function formatTime(seconds) {
-  if (!seconds) return '0:00'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  if (h > 0) {
-    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-  }
-  return `${m}:${s.toString().padStart(2, '0')}`
 }
 </script>
 
 <style scoped>
 .podcast-player {
-  position: fixed;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 320px;
+  display: flex;
+  width: 310px;
+  /* height: calc(100% - 2 * var(--space-07)); */
+  max-height: 540px;
+  flex-direction: column;
+  gap: var(--space-04);
+  padding: var(--space-04) var(--space-04) var(--space-05) var(--space-04);
   background: var(--color-background-contrast);
-  transform: translateX(280px);
-  transition: transform 0.3s ease;
-  z-index: 100;
-  display: flex;
+  border-radius: var(--radius-07);
+  backdrop-filter: blur(16px);
+  position: relative;
+  overflow: hidden;
 }
 
-.podcast-player.open {
-  transform: translateX(0);
+.podcast-player::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  opacity: 0.8;
+  background: var(--stroke-glass);
+  border-radius: var(--radius-07);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: 1;
+  pointer-events: none;
 }
 
-.player-toggle {
-  width: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  background: var(--color-background-subtle);
-  border-radius: var(--radius-04) 0 0 var(--radius-04);
+.episode-art-background {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: var(--radius-07);
+}
+
+.background-episode-image {
+  filter: blur(96px) saturate(1.6) contrast(1) brightness(0.6);
+  transform: scale(2);
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .player-content {
-  flex: 1;
-  padding: var(--space-04);
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
@@ -186,24 +189,25 @@ function formatTime(seconds) {
 }
 
 .episode-info {
-  text-align: center;
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  gap: var(--space-02);
 }
 
 .episode-name {
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
   color: var(--color-text-contrast);
-  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  overflow: hidden;
+  margin: 0;
 }
 
 .podcast-name {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  margin: var(--space-01) 0 0;
+  color: var(--color-text-contrast-50);
+  margin: 0;
   cursor: pointer;
 }
 
@@ -211,47 +215,115 @@ function formatTime(seconds) {
   color: var(--color-accent);
 }
 
-.progress-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.time-display {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-}
-
 .controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-04);
+  position: relative;
+}
+
+.playback-controls {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: var(--space-04);
 }
 
-.control-label {
-  font-size: var(--font-size-xs);
-  margin-top: var(--space-01);
-}
-
-.speed-control {
+.speed-selector {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
+  align-items: center;
+  position: absolute;
+  left: 0;
 }
 
-.speed-control label {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
+.speed-selector :deep(.dropdown) {
+  width: auto;
+  flex: none;
+}
+
+.speed-selector :deep(.dropdown-trigger--minimal) {
+  font-size: var(--font-size-h1);
+  min-width: 48px;
   text-align: center;
 }
 
-.speed-buttons {
-  display: flex;
-  justify-content: center;
-  gap: var(--space-01);
-  flex-wrap: wrap;
+.speed-selector :deep(.dropdown-menu) {
+  min-width: 100px;
+}
+
+.speed-selector :deep(.dropdown-label) {
+  text-align: center;
+  min-width: 48px;
+}
+
+.speed-selector :deep(.dropdown-trigger) {
+  padding: var(--space-02) 0;
+}
+/* Mobile responsive layout */
+@media (max-aspect-ratio: 4/3) {
+  .podcast-player {
+    position: fixed;
+    bottom: var(--space-08);
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - var(--space-02) * 2);
+    height: auto;
+    max-height: none;
+    flex-direction: row;
+    align-items: center;
+    padding: var(--space-03) var(--space-04);
+    border-radius: var(--radius-06);
+    box-shadow: 0 var(--space-04) var(--space-07) rgba(0, 0, 0, 0.2);
+  }
+
+  .episode-art-background {
+    border-radius: var(--radius-06);
+  }
+
+  .player-content {
+    flex-direction: row;
+    align-items: center;
+    overflow-y: visible;
+    gap: var(--space-03);
+  }
+
+  .episode-image {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    border-radius: var(--radius-03);
+    box-shadow: 0 var(--space-02) var(--space-04) rgba(0, 0, 0, 0.3);
+  }
+
+  .episode-info {
+    flex: 1;
+    text-align: left;
+    min-width: 0;
+  }
+
+  .episode-name {
+    font-size: var(--font-size-h1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    -webkit-line-clamp: unset;
+    -webkit-box-orient: unset;
+    display: block;
+  }
+
+  .podcast-name {
+    display: none;
+  }
+
+  .player-content :deep(.progress-bar),
+  .speed-selector {
+    display: none;
+  }
+
+  .controls {
+    gap: var(--space-02);
+    justify-content: center;
+  }
 }
 </style>

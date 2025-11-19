@@ -103,7 +103,7 @@
         'has-station': shouldShowNowPlayingLayout
       }
     ]">
-      <StationCard v-show="radioStore.currentStation" :station="radioStore.currentStation"
+      <StationCard v-if="radioStore.currentStation" :station="radioStore.currentStation"
         variant="now-playing" :show-controls="true" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering"
         @play="handlePlayPause" @favorite="handleFavorite" />
     </div>
