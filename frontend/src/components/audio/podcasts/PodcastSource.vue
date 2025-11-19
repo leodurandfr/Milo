@@ -200,9 +200,38 @@ function goBack() {
   }
 }
 
-function openPodcastDetails(uuid) {
+async function openPodcastDetails(podcastOrUuid) {
   previousView.value = currentView.value
-  selectedPodcastUuid.value = uuid
+
+  // Handle both UUID (string) and podcast object
+  if (typeof podcastOrUuid === 'string') {
+    // Direct UUID from subscriptions or search
+    selectedPodcastUuid.value = podcastOrUuid
+  } else if (podcastOrUuid && podcastOrUuid.uuid) {
+    // Podcast object with UUID already resolved
+    selectedPodcastUuid.value = podcastOrUuid.uuid
+  } else if (podcastOrUuid && podcastOrUuid.itunes_id) {
+    // Podcast object from iTunes RSS without UUID - need to lookup
+    try {
+      // Lookup UUID from iTunes ID (pass name for better matching)
+      const params = new URLSearchParams({ name: podcastOrUuid.name || '' })
+      const response = await fetch(`/api/podcast/lookup/itunes/${podcastOrUuid.itunes_id}?${params}`)
+      if (response.ok) {
+        const data = await response.json()
+        selectedPodcastUuid.value = data.uuid
+      } else {
+        console.error('Failed to lookup podcast UUID from iTunes ID')
+        return
+      }
+    } catch (error) {
+      console.error('Error looking up podcast UUID:', error)
+      return
+    }
+  } else {
+    console.error('Invalid podcast data:', podcastOrUuid)
+    return
+  }
+
   currentView.value = 'podcast-details'
 }
 
