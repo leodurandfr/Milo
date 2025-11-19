@@ -564,8 +564,8 @@ export const useRadioStore = defineStore('radio', () => {
         };
       }
     } else {
-      // No station playing
-      currentStation.value = null;
+      // No station playing - DON'T clear immediately to allow animation
+      // The timer will handle clearing after animation completes
     }
   }
 
@@ -604,7 +604,7 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   function clearCurrentStation() {
-    // Clear current station (used to reset state after inactivity)
+    // Clear current station
     console.log('📻 Clearing current station');
     currentStation.value = null;
   }

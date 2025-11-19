@@ -107,10 +107,10 @@
     <div :class="[
       'now-playing-wrapper',
       {
-        'has-station': radioStore.currentStation
+        'has-station': radioStore.currentStation && (isCurrentlyPlaying || hasRecentlyStopped)
       }
     ]">
-      <StationCard v-if="radioStore.currentStation"
+      <StationCard v-if="radioStore.currentStation && showNowPlaying"
         :station="radioStore.currentStation" variant="now-playing" :show-controls="true"
         :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" @play="handlePlayPause" @favorite="handleFavorite" />
     </div>
@@ -146,7 +146,9 @@ const availableCountries = ref([]); // Dynamic list of available countries
 const transitionState = ref('idle'); // States: 'idle', 'fading-out', 'loading', 'fading-in'
 const messageState = ref('idle'); // States: 'idle', 'fading-in', 'fading-out'
 const isInitialAnimating = ref(true); // Track if initial spring animation is running
-const clearStationTimer = ref(null); // Timer for auto-clearing station after inactivity
+const hasRecentlyStopped = ref(false); // True for 5s after stopping playback (controls .has-station class)
+const showNowPlaying = ref(false); // Controls v-if (stays true during fade-out animation)
+const stopTimer = ref(null); // Timer for hiding now-playing after stop
 
 // Reference for animations and scroll
 const radioContainer = ref(null);
@@ -442,22 +444,41 @@ function handlePointerUp(event) {
   }
 }
 
-// === NOW PLAYING ANIMATION ===
-// Watch for playback state to auto-clear station after 10 seconds of stop
+// === NOW PLAYING VISIBILITY ===
+// Show now-playing for 5s after stopping, CSS handles the fade-out animation
 watch(isCurrentlyPlaying, (isPlaying) => {
   // Clear any existing timer
-  if (clearStationTimer.value) {
-    clearTimeout(clearStationTimer.value);
-    clearStationTimer.value = null;
+  if (stopTimer.value) {
+    clearTimeout(stopTimer.value);
+    stopTimer.value = null;
   }
 
-  if (!isPlaying && radioStore.currentStation) {
-    // Stopped with a station: start 60-second timer to clear
-    clearStationTimer.value = setTimeout(() => {
-      radioStore.clearCurrentStation();
-    }, 60000);
+  if (isPlaying && radioStore.currentStation) {
+    // Playing: show immediately
+    showNowPlaying.value = true;
+    hasRecentlyStopped.value = false;
+  } else if (!isPlaying && radioStore.currentStation) {
+    // Stopped with a station: keep showing for 5s
+    hasRecentlyStopped.value = true;
+    showNowPlaying.value = true;
+
+    stopTimer.value = setTimeout(() => {
+      // Step 1: Remove .has-station class (triggers CSS transition)
+      hasRecentlyStopped.value = false;
+
+      // Step 2: Wait for transition, then remove from DOM
+      setTimeout(() => {
+        showNowPlaying.value = false;
+      }, 500); // Wait for CSS transition to complete
+    }, 5000); // 5 seconds for testing
+  } else if (!radioStore.currentStation) {
+    // No station at all: hide everything
+    showNowPlaying.value = false;
+    hasRecentlyStopped.value = false;
   }
 }, { immediate: true });
+
+// No complex plugin_state watcher needed - visibility is controlled by is_playing + timer
 
 // === WEBSOCKET SYNC ===
 // Listen for metadata updates
@@ -506,10 +527,16 @@ onMounted(async () => {
   await radioStore.loadStations(true); // Load only favorites at startup
 
   // IMPORTANT: Sync currentStation from current backend state
-  // in case a station is already playing
   if (unifiedStore.systemState.active_source === 'radio' && unifiedStore.systemState.metadata) {
     console.log('📻 Syncing currentStation from existing state on mount');
     radioStore.updateFromWebSocket(unifiedStore.systemState.metadata);
+
+    // Initialize showNowPlaying based on current state after sync
+    if (isCurrentlyPlaying.value && radioStore.currentStation) {
+      console.log('📻 Radio is playing on mount → showing now-playing');
+      showNowPlaying.value = true;
+      hasRecentlyStopped.value = false;
+    }
   }
 
   // Disable the initial animation flag after the spring animation finishes
@@ -536,10 +563,10 @@ onMounted(async () => {
 
 // Clean up listeners on unmount
 onBeforeUnmount(() => {
-  // Clear station timer
-  if (clearStationTimer.value) {
-    clearTimeout(clearStationTimer.value);
-    clearStationTimer.value = null;
+  // Clear stop timer
+  if (stopTimer.value) {
+    clearTimeout(stopTimer.value);
+    stopTimer.value = null;
   }
 
   if (radioContainer.value) {
@@ -591,20 +618,24 @@ onBeforeUnmount(() => {
 .now-playing-wrapper {
   width: 0;
   opacity: 0;
-  overflow: hidden;
   flex-shrink: 0;
   transform: translateX(100px);
+  /* Disparition : ease-out (smooth exit) */
+  transition:
+    width 0.6s cubic-bezier(0.5, 0, 0, 1),
+    transform 0.6s cubic-bezier(0.5, 0, 0, 1),
+    opacity 0.6s cubic-bezier(0.5, 0, 0, 1);
 }
 
 .now-playing-wrapper.has-station {
   width: 310px;
   opacity: 1;
-  overflow: visible;
   transform: translateX(0);
+  /* Apparition : spring bounce (dynamic entry) */
   transition:
     width var(--transition-spring),
     transform var(--transition-spring),
-    opacity 0.4s ease;
+    opacity 0.4s ease-out;
 }
 
 /* Mobile: now-playing is position fixed, so the wrapper must be transparent */
