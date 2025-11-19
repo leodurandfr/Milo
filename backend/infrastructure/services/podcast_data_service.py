@@ -436,12 +436,12 @@ class PodcastDataService:
             return cached.get('data')
         return None
 
-    async def clean_old_cache(self, max_age_seconds: int = 3600) -> int:
+    async def clean_old_cache(self, max_age_seconds: int = 7200) -> int:
         """
         Remove cached entries older than max_age_seconds
 
         Args:
-            max_age_seconds: Maximum age in seconds (default 1 hour)
+            max_age_seconds: Maximum age in seconds (default 2 hours)
 
         Returns:
             Number of entries removed
