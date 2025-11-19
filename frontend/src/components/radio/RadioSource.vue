@@ -569,6 +569,9 @@ onBeforeUnmount(() => {
     stopTimer.value = null;
   }
 
+  // Clear current station to prevent showing stale data when returning to Radio plugin
+  radioStore.clearCurrentStation();
+
   if (radioContainer.value) {
     radioContainer.value.removeEventListener('scroll', handleScroll);
 
