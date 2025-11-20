@@ -4,11 +4,11 @@
       <!-- Header with navigation -->
       <ModalHeader :title="currentTitle" :subtitle="currentSubtitle" :showBack="currentView !== 'home'" icon="podcast"
         variant="background-neutral" @back="goToHome">
-        <template #actions="{ iconType }">
-          <IconButton v-if="currentView === 'home'" icon="heart" :type="iconType" :active="false"
+        <template #actions="{ iconVariant }">
+          <IconButton v-if="currentView === 'home'" icon="heart" :variant="iconVariant" :active="false"
             @click="goToSubscriptions" />
-          <IconButton v-if="currentView === 'home'" icon="search" :type="iconType" @click="goToSearch" />
-          <IconButton v-if="currentView === 'home'" icon="list" :type="iconType" @click="goToQueue" />
+          <IconButton v-if="currentView === 'home'" icon="search" :variant="iconVariant" @click="goToSearch" />
+          <IconButton v-if="currentView === 'home'" icon="list" :variant="iconVariant" @click="goToQueue" />
         </template>
       </ModalHeader>
 

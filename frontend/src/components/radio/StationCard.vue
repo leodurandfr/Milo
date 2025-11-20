@@ -65,7 +65,7 @@
     </div>
 
     <div v-if="showControls" class="controls-wrapper">
-      <IconButton :icon="station.is_favorite ? 'heart' : 'heartOff'" type="dark"
+      <IconButton :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="dark"
         @click="$emit('favorite')" />
       <!-- Desktop: Button with text -->
       <Button v-if="!isMobile" variant="dark" :left-icon="isPlaying ? 'stop' : 'play'" :loading="isLoading"
@@ -73,7 +73,7 @@
         {{ isPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio') }}
       </Button>
       <!-- Mobile: CircularIcon without text -->
-      <IconButton v-else :icon="isPlaying ? 'stop' : 'play'" type="dark" :loading="isLoading"
+      <IconButton v-else :icon="isPlaying ? 'stop' : 'play'" variant="dark" :loading="isLoading"
         @click="$emit('play')" />
     </div>
   </div>

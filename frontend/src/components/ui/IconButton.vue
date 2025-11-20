@@ -3,7 +3,7 @@
   <button
     class="icon-button"
     :class="[
-      `icon-button--${type}`,
+      `icon-button--${variant}`,
       `icon-button--${size}`,
       { 'icon-button--loading': loading }
     ]"
@@ -30,7 +30,7 @@ const props = defineProps({
     type: String,
     required: true
   },
-  type: {
+  variant: {
     type: String,
     default: 'default',
     validator: (value) => ['default', 'light', 'dark', 'rounded'].includes(value)
@@ -56,23 +56,18 @@ const props = defineProps({
 
 const emit = defineEmits(['click']);
 
-// Icon sizes based on button size
+// Pass size identifier to SvgIcon for responsive CSS sizing
 const iconSize = computed(() => {
-  const sizes = {
-    small: 16,
-    medium: 32,
-    large: 32
-  };
-  return sizes[props.size];
+  return props.size;
 });
 
-// Icon color based on type (if not overridden by color prop)
+// Icon color based on variant (if not overridden by color prop)
 const iconColor = computed(() => {
-  if (props.type === 'dark') {
+  if (props.variant === 'dark') {
     return 'var(--color-text-contrast)';
-  } else if (props.type === 'rounded') {
+  } else if (props.variant === 'rounded') {
     return 'var(--color-text)';
-  } else if (props.type === 'light') {
+  } else if (props.variant === 'light') {
     return 'var(--color-text-light)';
   } else {
     // default
@@ -131,6 +126,10 @@ function handleClick(event) {
     padding: 6px;
     border-radius: var(--radius-03);
   }
+
+  .icon-button--rounded {
+    padding: 8px;
+  }
 }
 
 /* === TYPES === */
@@ -151,6 +150,8 @@ function handleClick(event) {
   border-radius: 50% !important;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  width: fit-content;
+  aspect-ratio: 1 / 1;
 }
 
 /* Glass border effect for rounded type */

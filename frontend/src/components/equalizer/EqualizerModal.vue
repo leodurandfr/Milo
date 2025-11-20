@@ -4,10 +4,10 @@
     <div class="screen-main">
       <!-- Header with toggle -->
       <ModalHeader :title="$t('equalizer.title')">
-        <template #actions="{ iconType }">
-          <IconButton v-if="isEqualizerEnabled" icon="reset" :type="iconType" :disabled="equalizerStore.isResetting"
+        <template #actions="{ iconVariant }">
+          <IconButton v-if="isEqualizerEnabled" icon="reset" :variant="iconVariant" :disabled="equalizerStore.isResetting"
             @click="handleResetAllBands" />
-          <Toggle v-model="isEqualizerEnabled" :type="iconType"
+          <Toggle v-model="isEqualizerEnabled"
             :disabled="unifiedStore.systemState.transitioning || isEqualizerToggling" @change="handleEqualizerToggle" />
         </template>
       </ModalHeader>

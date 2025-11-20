@@ -92,10 +92,10 @@
               </div>
             </section>
 
-            <Button v-if="snapcastStore.hasServerConfigChanges" type="dark" size="small" class="apply-button-sticky"
+            <Button v-if="snapcastStore.hasServerConfigChanges" variant="primary" size="small" class="apply-button-sticky"
               :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
               {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
-            </Button>
+           </Button>
           </div>
         </Transition>
       </div>

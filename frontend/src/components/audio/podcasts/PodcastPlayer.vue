@@ -28,7 +28,7 @@
 
         <!-- Playback controls -->
         <div class="playback-controls">
-          <IconButton icon="rewind15" type="dark" size="small" @click="seekBackward" />
+          <IconButton icon="rewind15" variant="dark" size="small" @click="seekBackward" />
 
           <!-- Loading spinner during buffering -->
           <div v-if="podcastStore.isBuffering" class="play-button-wrapper">
@@ -36,10 +36,10 @@
           </div>
 
           <!-- Play/Pause button when not buffering -->
-          <IconButton v-else :icon="podcastStore.isPlaying ? 'pause' : 'play'" type="dark" size="large"
+          <IconButton v-else :icon="podcastStore.isPlaying ? 'pause' : 'play'" variant="dark" size="large"
             @click="togglePlayPause" />
 
-          <IconButton icon="forward30" type="dark" size="small" @click="seekForward" />
+          <IconButton icon="forward30" variant="dark" size="small" @click="seekForward" />
         </div>
       </div>
     </div>

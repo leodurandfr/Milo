@@ -2,7 +2,7 @@
 <template>
   <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" @click.self="handleOverlayClick">
     <div ref="modalContainer" class="modal-container">
-      <IconButton ref="closeButton" class="close-btn-position" icon="close" type="rounded" size="large"
+      <IconButton ref="closeButton" class="close-btn-position" icon="close" variant="rounded" size="large"
         aria-label="Fermer" @click="close" />
 
       <!-- Content -->

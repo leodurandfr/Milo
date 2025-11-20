@@ -9,8 +9,8 @@
       <!-- ModalHeader: Favorites view -->
       <ModalHeader v-if="!isSearchMode" :title="t('audioSources.radioSource.favoritesTitle')" variant="background-neutral"
         icon="radio">
-        <template #actions="{ iconType }">
-          <IconButton icon="search" :type="iconType" @click="openSearch" />
+        <template #actions="{ iconVariant }">
+          <IconButton icon="search" :variant="iconVariant" @click="openSearch" />
         </template>
       </ModalHeader>
 

@@ -16,7 +16,7 @@
         </div>
       </div>
 
-      <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" type="light" :size="40"
+      <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="light" :size="40"
         :loading="isCurrentEpisodeBuffering" :disabled="isCurrentEpisodeBuffering" @click.stop="handlePlayClick" />
     </div>
   </div>

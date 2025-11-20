@@ -101,17 +101,6 @@ export default {
     padding: var(--space-02) var(--space-04) var(--space-02) var(--space-02);
 }
 
-/* === PRIMARY variant === */
-.btn--primary.btn--default {
-    background-color: var(--color-brand);
-    color: var(--color-text-contrast);
-}
-
-.btn--primary.btn--disabled {
-    background-color: var(--color-background);
-    color: var(--color-text-light);
-}
-
 /* === DEFAULT variant === */
 .btn--default.btn--default {
     background-color: var(--color-background-strong);
@@ -119,6 +108,17 @@ export default {
 }
 
 .btn--default.btn--disabled {
+    background-color: var(--color-background);
+    color: var(--color-text-light);
+}
+
+/* === PRIMARY variant === */
+.btn--primary.btn--default {
+    background-color: var(--color-brand);
+    color: var(--color-text-contrast);
+}
+
+.btn--primary.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
 }
@@ -149,8 +149,9 @@ export default {
 
 /* === IMPORTANT variant === */
 .btn--important.btn--default {
-    background-color: var(--color-important);
-    color: var(--color-text-contrast);
+    background-color: var(--color-background-neutral);
+    color: var(--color-brand);
+    box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
 .btn--important.btn--disabled {
