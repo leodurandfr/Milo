@@ -240,6 +240,9 @@
     "cancel": "取消",
     "delete": "删除"
   },
+  "podcasts": {
+    "top30": "前20名"
+  },
   "countries": {
     "usa": "美国",
     "germany": "德国",

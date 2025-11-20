@@ -791,7 +791,7 @@
   function getPopularityBadge(rank) {
     if (!rank) return null;
     const num = parseInt(rank.split('_')[1]);
-    if (num <= 200) return { text: 'TOP 200', class: 'badge-gold' };
+    if (num <= 200) return { text: 'Top 300', class: 'badge-gold' };
     if (num <= 1000) return { text: 'TOP 1K', class: 'badge-silver' };
     // etc.
   }

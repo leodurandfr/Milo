@@ -4,7 +4,7 @@
  * Most common languages listed first, then alphabetical
  */
 
-// Top 20 most common languages (in order of podcast availability)
+// Top 30 most common languages (in order of podcast availability)
 const COMMON_LANGUAGES = [
   { label: 'Français', value: 'FRENCH' },
   { label: 'Anglais', value: 'ENGLISH' },

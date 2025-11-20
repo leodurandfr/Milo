@@ -18,11 +18,9 @@
     </div>
 
     <div class="card-info">
-      <h3 class="podcast-name">{{ podcast.name }}</h3>
-      <p v-if="podcast.publisher" class="podcast-publisher">{{ podcast.publisher }}</p>
-      <p v-if="showEpisodeCount" class="episode-count">
-        {{ podcast.total_episodes || 0 }} épisodes
-      </p>
+      <span v-if="position" class="podcast-position text-mono">{{ position }}</span>
+      <h3 class="podcast-name text-body-small">{{ podcast.name }}</h3>
+      <p v-if="podcast.publisher" class="podcast-publisher text-mono">{{ podcast.publisher }}</p>
     </div>
 
     <div v-if="showActions" class="card-actions" @click.stop>
@@ -55,6 +53,10 @@ const props = defineProps({
   podcast: {
     type: Object,
     required: true
+  },
+  position: {
+    type: Number,
+    default: null
   },
   showActions: {
     type: Boolean,
@@ -93,11 +95,13 @@ function handleImageError() {
 .podcast-card {
   display: flex;
   flex-direction: column;
-  background: var(--color-background-subtle);
+  background: var(--color-background-neutral);
   border-radius: var(--radius-04);
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  padding: var(--space-03);
+  gap: var(--space-03);
 }
 
 .podcast-card:hover {
@@ -113,6 +117,7 @@ function handleImageError() {
   position: relative;
   aspect-ratio: 1;
   overflow: hidden;
+  border-radius: var(--radius-03);
 }
 
 .card-image img {
@@ -125,10 +130,11 @@ function handleImageError() {
   position: absolute;
   top: var(--space-02);
   right: var(--space-02);
-  background: var(--color-accent);
-  color: white;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
+  background: var(--color-brand);
+  color: var(--color-text-contrast);
+  font-family: 'Neue Montreal Medium';
+  font-size: var(--font-size-mono);
+  font-weight: 500;
   padding: var(--space-01) var(--space-02);
   border-radius: var(--radius-02);
 }
@@ -138,22 +144,22 @@ function handleImageError() {
   bottom: var(--space-02);
   right: var(--space-02);
   background: var(--color-success);
-  color: white;
+  color: var(--color-text-contrast);
   width: 24px;
   height: 24px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .card-info {
-  padding: var(--space-03);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
 }
 
 .podcast-name {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
   color: var(--color-text);
   margin: 0;
   display: -webkit-box;
@@ -162,23 +168,21 @@ function handleImageError() {
   overflow: hidden;
 }
 
+.podcast-position {
+  color: var(--color-brand);
+  margin: 0;
+}
+
 .podcast-publisher {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  margin: var(--space-01) 0 0;
+  color: var(--color-text-secondary);
+  margin: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.episode-count {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  margin: var(--space-01) 0 0;
-}
-
 .card-actions {
-  padding: 0 var(--space-03) var(--space-03);
+  padding: 0;
 }
 
 .is-subscribed {

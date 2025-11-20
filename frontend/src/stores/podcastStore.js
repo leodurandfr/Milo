@@ -177,6 +177,15 @@ export const usePodcastStore = defineStore('podcast', () => {
     }
   }
 
+  // === CLEAR STATE ===
+  function clearState() {
+    // Clear all podcast state (called when switching away from podcast source)
+    currentEpisode.value = null
+    currentPosition.value = 0
+    currentDuration.value = 0
+    playbackState.value = 'stopped'
+  }
+
   // === RETURN ===
   return {
     // State
@@ -204,6 +213,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     loadSettings,
     updateSettings,
     handleStateUpdate,
-    handlePluginEvent
+    handlePluginEvent,
+    clearState
   }
 })

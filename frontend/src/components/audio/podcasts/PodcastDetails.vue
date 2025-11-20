@@ -41,6 +41,7 @@
             :episode="episode"
             @select="$emit('select-episode', episode.uuid)"
             @play="$emit('play-episode', episode)"
+            @pause="handlePause"
           />
         </div>
       </div>
@@ -50,6 +51,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
+import { usePodcastStore } from '@/stores/podcastStore'
 import EpisodeCard from './EpisodeCard.vue'
 import Button from '@/components/ui/Button.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
@@ -62,6 +64,11 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['back', 'play-episode', 'select-episode'])
+const podcastStore = usePodcastStore()
+
+async function handlePause() {
+  await podcastStore.pause()
+}
 
 const loading = ref(false)
 const podcast = ref(null)

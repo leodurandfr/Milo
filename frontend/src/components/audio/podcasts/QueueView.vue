@@ -14,6 +14,7 @@
           :episode="formatQueueEpisode(episode)"
           @select="$emit('select-episode', episode.episodeUuid)"
           @play="$emit('play-episode', formatQueueEpisode(episode))"
+          @pause="handlePause"
         />
         <div class="queue-actions">
           <Button
@@ -40,12 +41,18 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { usePodcastStore } from '@/stores/podcastStore'
 import EpisodeCard from './EpisodeCard.vue'
 import Button from '@/components/ui/Button.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import Icon from '@/components/ui/Icon.vue'
 
 const emit = defineEmits(['select-episode', 'play-episode'])
+const podcastStore = usePodcastStore()
+
+async function handlePause() {
+  await podcastStore.pause()
+}
 
 const loading = ref(false)
 const episodes = ref([])

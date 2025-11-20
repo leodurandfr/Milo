@@ -5300,7 +5300,7 @@ Returns how popular the podcast is. Returns null if in none of the below categor
 
 ```jsx
 enum PopularityRank {
-  TOP_200 // is a top 200 podcast
+  TOP_200 // is a Top 300 podcast
   TOP_1000
   TOP_2000
   TOP_3000
@@ -6293,7 +6293,7 @@ Use getTopChartsByCountry or getTopChartsByGenres to get the top podcasts or epi
 }
 ```
 
-4. (BONUS) You can get Top Episodes by Genre and Country. UseÂ `getTopChartsByGenres`Â and pass in theÂ `filterByCountry`. Behind the scenes, this is the same data from Appleâ€™s Top 200 Episodes chart for a country, we filter by genre to get a Top Episodes by Genre and Country chart. Since Apple provides only 200 top episodes per day per country, there is a chance that some genres will return no episodes.
+4. (BONUS) You can get Top Episodes by Genre and Country. UseÂ `getTopChartsByGenres`Â and pass in theÂ `filterByCountry`. Behind the scenes, this is the same data from Appleâ€™s Top 300 Episodes chart for a country, we filter by genre to get a Top Episodes by Genre and Country chart. Since Apple provides only 200 top episodes per day per country, there is a chance that some genres will return no episodes.
 
 ```jsx
 {

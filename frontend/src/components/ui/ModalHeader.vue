@@ -7,7 +7,11 @@
   }">
     <div v-if="showBack" class="back-modal-header">
       <CircularIcon icon="caretLeft" :variant="variant === 'neutral' ? 'light' : 'dark'" @click="handleBack" />
-      <h2 class="heading-1">{{ title }}</h2>
+      <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
+      <h2 v-else class="heading-1">
+        <span class="title-subtitle">{{ subtitle }}</span>
+        <span class="title-main">{{ title }}</span>
+      </h2>
     </div>
     <template v-else>
       <div v-if="icon" class="title-with-icon">
@@ -30,6 +34,10 @@ const props = defineProps({
   title: {
     type: String,
     required: true
+  },
+  subtitle: {
+    type: String,
+    default: null
   },
   showBack: {
     type: Boolean,
@@ -105,6 +113,15 @@ function handleBack() {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.title-subtitle {
+  color: var(--color-text-secondary);
+  margin-right: var(--space-02);
+}
+
+.title-main {
+  color: var(--color-text);
 }
 
 @media (max-aspect-ratio: 4/3) {
