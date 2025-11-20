@@ -239,6 +239,9 @@
     "cancel": "Annuler",
     "delete": "Supprimer"
   },
+  "podcasts": {
+    "top30": "Top 30"
+  },
   "countries": {
     "usa": "États-Unis",
     "germany": "Allemagne",

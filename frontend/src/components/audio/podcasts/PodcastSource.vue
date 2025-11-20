@@ -2,107 +2,49 @@
   <div class="podcast-source-wrapper">
     <div class="podcast-container" :class="{ 'with-player': shouldShowPlayerLayout }">
       <!-- Header with navigation -->
-      <ModalHeader
-        :title="currentTitle"
-        :showBack="currentView !== 'home'"
-        icon="podcast"
-        variant="neutral"
-        @back="goToHome"
-      >
+      <ModalHeader :title="currentTitle" :subtitle="currentSubtitle" :showBack="currentView !== 'home'" icon="podcast"
+        variant="neutral" @back="goToHome">
         <template #actions>
-          <CircularIcon
-            v-if="currentView === 'home'"
-            icon="heart"
-            variant="light"
-            :active="false"
-            @click="goToSubscriptions"
-          />
-          <CircularIcon
-            v-if="currentView === 'home'"
-            icon="search"
-            variant="light"
-            @click="goToSearch"
-          />
-          <CircularIcon
-            v-if="currentView === 'home'"
-            icon="list"
-            variant="light"
-            @click="goToQueue"
-          />
+          <CircularIcon v-if="currentView === 'home'" icon="heart" variant="light" :active="false"
+            @click="goToSubscriptions" />
+          <CircularIcon v-if="currentView === 'home'" icon="search" variant="light" @click="goToSearch" />
+          <CircularIcon v-if="currentView === 'home'" icon="list" variant="light" @click="goToQueue" />
         </template>
       </ModalHeader>
 
       <!-- Main content area -->
-      <div class="content-area">
-        <!-- Home View (Discovery) -->
-        <HomeView
-          v-if="currentView === 'home'"
-          @select-podcast="openPodcastDetails"
-          @select-episode="openEpisodeDetails"
-          @play-episode="playEpisode"
-          @browse-genre="goToGenre"
-        />
+      <!-- Home View (Discovery) -->
+      <HomeView v-if="currentView === 'home'" @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails"
+        @play-episode="playEpisode" @browse-genre="goToGenre" />
 
-        <!-- Subscriptions View -->
-        <SubscriptionsView
-          v-else-if="currentView === 'subscriptions'"
-          @select-podcast="openPodcastDetails"
-          @select-episode="openEpisodeDetails"
-          @play-episode="playEpisode"
-        />
+      <!-- Subscriptions View -->
+      <SubscriptionsView v-else-if="currentView === 'subscriptions'" @select-podcast="openPodcastDetails"
+        @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
-        <!-- Search View -->
-        <SearchView
-          v-else-if="currentView === 'search'"
-          @select-podcast="openPodcastDetails"
-          @select-episode="openEpisodeDetails"
-          @play-episode="playEpisode"
-        />
+      <!-- Search View -->
+      <SearchView v-else-if="currentView === 'search'" @select-podcast="openPodcastDetails"
+        @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
-        <!-- Queue View -->
-        <QueueView
-          v-else-if="currentView === 'queue'"
-          @select-episode="openEpisodeDetails"
-          @play-episode="playEpisode"
-        />
+      <!-- Queue View -->
+      <QueueView v-else-if="currentView === 'queue'" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
-        <!-- Genre View -->
-        <GenreView
-          v-else-if="currentView === 'genre'"
-          :genre="selectedGenre"
-          :genreLabel="selectedGenreLabel"
-          @select-podcast="openPodcastDetails"
-          @select-episode="openEpisodeDetails"
-          @play-episode="playEpisode"
-        />
+      <!-- Genre View -->
+      <GenreView v-else-if="currentView === 'genre'" :genre="selectedGenre" :genreLabel="selectedGenreLabel"
+        @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
-        <!-- Podcast Details (full screen overlay) -->
-        <PodcastDetails
-          v-else-if="currentView === 'podcast-details'"
-          :uuid="selectedPodcastUuid"
-          @back="goBack"
-          @play-episode="playEpisode"
-          @select-episode="openEpisodeDetails"
-        />
+      <!-- Podcast Details (full screen overlay) -->
+      <PodcastDetails v-else-if="currentView === 'podcast-details'" :uuid="selectedPodcastUuid" @back="goBack"
+        @play-episode="playEpisode" @select-episode="openEpisodeDetails" />
 
-        <!-- Episode Details (full screen overlay) -->
-        <EpisodeDetails
-          v-else-if="currentView === 'episode-details'"
-          :uuid="selectedEpisodeUuid"
-          @back="goBack"
-          @play-episode="playEpisode"
-          @select-podcast="openPodcastDetails"
-        />
-      </div>
+      <!-- Episode Details (full screen overlay) -->
+      <EpisodeDetails v-else-if="currentView === 'episode-details'" :uuid="selectedEpisodeUuid" @back="goBack"
+        @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
     </div>
 
     <!-- Player panel (always visible when playing) -->
     <div :class="['player-wrapper', { 'has-episode': shouldShowPlayerLayout }]">
-      <PodcastPlayer
-        v-if="podcastStore.hasCurrentEpisode"
-        @select-podcast="openPodcastDetails"
-        @select-episode="openEpisodeDetails"
-      />
+      <PodcastPlayer v-if="podcastStore.hasCurrentEpisode" @select-podcast="openPodcastDetails"
+        @select-episode="openEpisodeDetails" />
     </div>
   </div>
 </template>
@@ -110,7 +52,9 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import useWebSocket from '@/services/websocket'
+import { useI18n } from '@/services/i18n'
 import ModalHeader from '@/components/ui/ModalHeader.vue'
 import CircularIcon from '@/components/ui/CircularIcon.vue'
 
@@ -125,7 +69,9 @@ import EpisodeDetails from './EpisodeDetails.vue'
 import PodcastPlayer from './PodcastPlayer.vue'
 
 const podcastStore = usePodcastStore()
+const unifiedStore = useUnifiedAudioStore()
 const { on: onWsEvent } = useWebSocket()
+const { t } = useI18n()
 
 // Subscribe to podcast plugin events
 onWsEvent('plugin', 'state_changed', (message) => {
@@ -138,7 +84,7 @@ onWsEvent('plugin', 'state_changed', (message) => {
 const shouldShowPlayerLayout = ref(false)
 const stopTimer = ref(null)
 
-// Auto-hide logic: show player while playing, hide 5s after stopping
+// Auto-hide logic: show player while playing, stop after 5s of pause
 watch(() => podcastStore.isPlaying, (isPlaying) => {
   // Clear any existing timer
   if (stopTimer.value) {
@@ -154,9 +100,9 @@ watch(() => podcastStore.isPlaying, (isPlaying) => {
       })
     })
   } else if (!isPlaying && podcastStore.hasCurrentEpisode) {
-    // Paused with an episode: keep showing for 5s before hiding
-    stopTimer.value = setTimeout(() => {
-      shouldShowPlayerLayout.value = false
+    // Paused with an episode: stop playback after 5s
+    stopTimer.value = setTimeout(async () => {
+      await podcastStore.stop()
     }, 5000)
   } else if (!podcastStore.hasCurrentEpisode) {
     // No episode at all: hide immediately
@@ -164,11 +110,23 @@ watch(() => podcastStore.isPlaying, (isPlaying) => {
   }
 }, { immediate: true })
 
-// Ensure layout stays stable when episode changes
-watch(() => podcastStore.currentEpisode, (newEpisode) => {
-  if (newEpisode && podcastStore.isPlaying) {
+// Sync layout visibility with episode presence
+watch(() => podcastStore.hasCurrentEpisode, (hasEpisode) => {
+  if (hasEpisode && podcastStore.isPlaying) {
     // If episode appears and we're playing, show layout immediately
     shouldShowPlayerLayout.value = true
+  } else if (!hasEpisode) {
+    // No episode: hide layout immediately
+    shouldShowPlayerLayout.value = false
+  }
+}, { immediate: true })
+
+// Clean up metadata when transitioning from CONNECTED to READY
+// (episode ended or stopped)
+watch(() => unifiedStore.systemState.plugin_state, (newState, oldState) => {
+  if (oldState === 'connected' && newState === 'ready') {
+    // Clear episode metadata when playback stops
+    podcastStore.clearState()
   }
 }, { immediate: true })
 
@@ -180,7 +138,7 @@ const selectedEpisodeUuid = ref('')
 const selectedGenre = ref('')
 const selectedGenreLabel = ref('')
 
-// Computed title based on view
+// Computed title and subtitle based on view
 const currentTitle = computed(() => {
   switch (currentView.value) {
     case 'home':
@@ -200,6 +158,13 @@ const currentTitle = computed(() => {
     default:
       return 'Podcasts'
   }
+})
+
+const currentSubtitle = computed(() => {
+  if (currentView.value === 'genre') {
+    return t('podcasts.top30')
+  }
+  return null
 })
 
 // Navigation methods
@@ -319,7 +284,7 @@ onMounted(async () => {
   flex-direction: column;
   overflow-y: auto;
   padding: var(--space-07) 0;
-  gap: var(--space-04);
+  gap: var(--space-06);
   min-height: 0;
   flex-shrink: 0;
   touch-action: pan-y;
@@ -332,10 +297,7 @@ onMounted(async () => {
   transition: width var(--transition-spring);
 }
 
-/* Content area: no scroll, natural height */
-.content-area {
-  padding: 0 var(--space-04);
-}
+
 
 /* Player wrapper: matching radio's now-playing-wrapper exactly */
 .player-wrapper {
@@ -365,6 +327,10 @@ onMounted(async () => {
 
 /* Mobile: player is position fixed, so the wrapper must be transparent */
 @media (max-aspect-ratio: 4/3) {
+  .podcast-source-wrapper {
+    padding: 0 var(--space-05);
+  }
+
   .podcast-container {
     width: 100%;
     max-width: none;
@@ -381,7 +347,6 @@ onMounted(async () => {
     display: contents;
   }
 
-  /* Mobile: player animates from bottom */
   .player-wrapper :deep(.podcast-player) {
     transform: translate(-50%, 120px);
     opacity: 0;

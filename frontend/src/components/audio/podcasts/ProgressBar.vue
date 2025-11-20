@@ -1,7 +1,7 @@
 <template>
   <div class="progress-bar" v-if="duration > 0">
     <span class="text-mono time">{{ formatTime(currentPosition) }}</span>
-    <div ref="progressContainer" class="progress-container" @click="onProgressClick">
+    <div class="progress-container" @click="onProgressClick">
       <div class="progress" :style="progressStyle"></div>
     </div>
     <span class="text-mono time">{{ formatTime(duration) }}</span>
@@ -9,7 +9,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed } from 'vue'
 
 const props = defineProps({
   currentPosition: {
@@ -28,41 +28,18 @@ const props = defineProps({
 
 const emit = defineEmits(['seek'])
 
-const progressContainer = ref(null)
-const containerWidth = ref(400)
-
 // Computed to guarantee a valid numeric value
 const progressPercent = computed(() => {
   const val = parseFloat(props.progressPercentage)
   return isNaN(val) ? 0 : Math.min(100, Math.max(0, val))
 })
 
-// Computed for progress bar styles
+// Computed for progress bar styles - same approach as VolumeBar.vue
 const progressStyle = computed(() => {
   const percent = progressPercent.value
-  const height = 8
-
-  // Actual width the bar should have at this percentage
-  const actualWidth = (percent / 100) * containerWidth.value
-
-  if (actualWidth <= height) {
-    // Circle mode: movement from -8px to 0px
-    return {
-      width: `${height}px`,
-      left: `${actualWidth - height}px`
-    }
-  } else {
-    // Normal bar mode
-    return {
-      width: `${percent}%`,
-      left: '0px'
-    }
-  }
-})
-
-onMounted(() => {
-  if (progressContainer.value) {
-    containerWidth.value = progressContainer.value.offsetWidth
+  return {
+    width: '100%',
+    transform: `translateX(${percent - 100}%)`
   }
 })
 
@@ -113,6 +90,7 @@ function onProgressClick(event) {
   background-color: var(--color-background-contrast);
   border-radius: 4px;
   position: absolute;
+  transition: transform 0.2s ease;
 }
 
 .time {

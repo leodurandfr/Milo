@@ -205,23 +205,33 @@ class PodcastPlugin(UnifiedAudioPlugin):
                     # Check playback state
                     is_playing = await self.mpv.is_playing()
 
-                    # Update playback position
-                    if is_playing and self.current_episode:
+                    # Update playback position (even during buffering to get initial duration)
+                    if self.current_episode:
                         position = await self.mpv.get_property("playback-time")
                         duration = await self.mpv.get_property("duration")
 
+                        position_changed = False
                         if position is not None:
-                            self._current_position = int(position)
+                            new_position = int(position)
+                            if new_position != self._current_position:
+                                self._current_position = new_position
+                                position_changed = True
 
                         if duration is not None:
                             self._current_duration = int(duration)
 
-                        # Check if state changed
-                        if self._is_buffering:
+                        # Check if state changed from buffering to playing
+                        if self._is_buffering and is_playing:
                             self._is_buffering = False
                             self._is_playing = True
 
                             # Notify state change
+                            await self.notify_state_change(
+                                PluginState.CONNECTED,
+                                self._build_metadata()
+                            )
+                        # Broadcast position updates during playback
+                        elif self._is_playing and is_playing and position_changed:
                             await self.notify_state_change(
                                 PluginState.CONNECTED,
                                 self._build_metadata()

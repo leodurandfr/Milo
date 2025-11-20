@@ -2,18 +2,13 @@
   <div class="genre-view">
     <!-- Top podcasts of the genre -->
     <section class="section">
-      <h3 class="section-title">Top Podcasts {{ genreLabel }}</h3>
       <LoadingSpinner v-if="loading" />
       <div v-else-if="topPodcasts.length === 0" class="empty-state">
         <p>Aucun podcast trouvé dans cette catégorie</p>
       </div>
       <div v-else class="podcasts-grid">
-        <PodcastCard
-          v-for="podcast in topPodcasts"
-          :key="podcast.itunes_id || podcast.uuid"
-          :podcast="podcast"
-          @select="$emit('select-podcast', podcast)"
-        />
+        <PodcastCard v-for="podcast in topPodcasts" :key="podcast.itunes_id || podcast.uuid" :podcast="podcast"
+          @select="$emit('select-podcast', podcast)" />
       </div>
     </section>
   </div>
@@ -101,7 +96,7 @@ onMounted(() => {
 
 .podcasts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-03);
 }
 
@@ -114,5 +109,12 @@ onMounted(() => {
 .empty-state p {
   margin: 0;
   font-size: var(--font-size-sm);
+}
+
+@media (max-aspect-ratio: 4/3) {
+
+  .podcasts-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 </style>

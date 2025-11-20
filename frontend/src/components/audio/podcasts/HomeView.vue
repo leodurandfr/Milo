@@ -2,42 +2,28 @@
   <div class="home-view">
     <!-- New episodes from subscriptions (Bloc 1) -->
     <section v-if="latestSubscriptionEpisodes.length > 0" class="section">
-      <h3 class="section-title">Nouveaux épisodes des podcasts abonnés</h3>
+      <h3 class="section-title heading-2">Nouveaux épisodes des podcasts abonnés</h3>
       <div class="episodes-list">
-        <EpisodeCard
-          v-for="episode in latestSubscriptionEpisodes.slice(0, 4)"
-          :key="episode.uuid"
-          :episode="episode"
-          @select="$emit('select-episode', episode.uuid)"
-          @play="$emit('play-episode', episode)"
-        />
+        <EpisodeCard v-for="episode in latestSubscriptionEpisodes.slice(0, 4)" :key="episode.uuid" :episode="episode"
+          @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)" @pause="handlePause" />
       </div>
     </section>
 
     <!-- Top Podcasts (Bloc 2) -->
     <section class="section">
-      <h3 class="section-title">Classement des podcasts</h3>
+      <h3 class="section-title heading-2">Classement des podcasts</h3>
       <LoadingSpinner v-if="loadingTopCharts" />
       <div v-else class="podcasts-grid">
-        <PodcastCard
-          v-for="podcast in topCharts.slice(0, 8)"
-          :key="podcast.uuid"
-          :podcast="podcast"
-          @select="$emit('select-podcast', podcast.uuid)"
-        />
+        <PodcastCard v-for="(podcast, index) in topCharts.slice(0, 6)" :key="podcast.uuid" :podcast="podcast"
+          :position="index + 1" @select="$emit('select-podcast', podcast.uuid)" />
       </div>
     </section>
 
     <!-- Browse by Genre (Bloc 3) -->
     <section class="section">
-      <h3 class="section-title">Parcourir par genre</h3>
+      <h3 class="section-title heading-2">Parcourir par genre</h3>
       <div class="genres-grid">
-        <div
-          v-for="genre in mainGenres"
-          :key="genre.value"
-          class="genre-card"
-          @click="browseGenre(genre.value)"
-        >
+        <div v-for="genre in mainGenres" :key="genre.value" class="genre-card" @click="browseGenre(genre.value)">
           <span class="genre-emoji">{{ genre.emoji }}</span>
           <span>{{ genre.label }}</span>
         </div>
@@ -46,16 +32,11 @@
 
     <!-- Top Episodes (Bloc 4) -->
     <section class="section">
-      <h3 class="section-title">Classement des épisodes</h3>
+      <h3 class="section-title heading-2">Classement des épisodes</h3>
       <LoadingSpinner v-if="loadingTopEpisodes" />
       <div v-else class="episodes-list">
-        <EpisodeCard
-          v-for="episode in topEpisodes.slice(0, 6)"
-          :key="episode.uuid"
-          :episode="episode"
-          @select="$emit('select-episode', episode.uuid)"
-          @play="$emit('play-episode', episode)"
-        />
+        <EpisodeCard v-for="episode in topEpisodes.slice(0, 6)" :key="episode.uuid" :episode="episode"
+          @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)" @pause="handlePause" />
       </div>
     </section>
   </div>
@@ -95,6 +76,10 @@ function browseGenre(genreValue) {
   if (genre) {
     emit('browse-genre', genreValue, genre.label)
   }
+}
+
+async function handlePause() {
+  await podcastStore.pause()
 }
 
 async function loadData() {
@@ -144,25 +129,23 @@ onMounted(() => {
 .home-view {
   display: flex;
   flex-direction: column;
-  gap: var(--space-06);
+  gap: var(--space-07);
 }
 
 .section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
+  gap: var(--space-04);
 }
 
 .section-title {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
   color: var(--color-text);
   margin: 0;
 }
 
 .podcasts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--space-03);
 }
 
@@ -188,14 +171,14 @@ onMounted(() => {
   align-items: center;
   gap: var(--space-02);
   padding: var(--space-04);
-  background: var(--color-background-subtle);
+  background: var(--color-background-neutral);
   border-radius: var(--radius-04);
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease;
+  transition: background var(--transition-fast), transform var(--transition-fast);
 }
 
 .genre-card:hover {
-  background: var(--color-background-neutral);
+  background: var(--color-background-strong);
   transform: translateY(-2px);
 }
 
@@ -204,5 +187,12 @@ onMounted(() => {
   font-weight: var(--font-weight-medium);
   color: var(--color-text);
   text-align: center;
+}
+
+/* Mobile: Responsive adaptations */
+@media (max-aspect-ratio: 4/3) {
+  .podcasts-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 </style>

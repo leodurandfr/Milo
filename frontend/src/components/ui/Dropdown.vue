@@ -5,7 +5,7 @@
       :class="[textClass, `dropdown-trigger--${variant}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
-      <span class="dropdown-label text-mono">{{ selectedLabel }}</span>
+      <span class="dropdown-label text-body">{{ selectedLabel }}</span>
       <Icon v-if="variant === 'default'" name="caretDown" :size="24" class="dropdown-icon" />
     </button>
 

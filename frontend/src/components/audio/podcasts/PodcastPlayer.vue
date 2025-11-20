@@ -29,8 +29,16 @@
         <!-- Playback controls -->
         <div class="playback-controls">
           <CircularIcon icon="rewind15" variant="background-contrast-08" :size="40" @click="seekBackward" />
-          <CircularIcon :icon="podcastStore.isPlaying ? 'pause' : 'play'" variant="background-contrast-08" :size="56"
+
+          <!-- Loading spinner during buffering -->
+          <div v-if="podcastStore.isBuffering" class="play-button-wrapper">
+            <LoadingSpinner :size="56" />
+          </div>
+
+          <!-- Play/Pause button when not buffering -->
+          <CircularIcon v-else :icon="podcastStore.isPlaying ? 'pause' : 'play'" variant="background-contrast-08" :size="56"
             @click="togglePlayPause" />
+
           <CircularIcon icon="forward30" variant="background-contrast-08" :size="40" @click="seekForward" />
         </div>
       </div>
@@ -43,6 +51,7 @@ import { computed, ref } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import CircularIcon from '@/components/ui/CircularIcon.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import ProgressBar from './ProgressBar.vue'
 
 defineEmits(['select-podcast', 'select-episode'])
@@ -122,13 +131,12 @@ async function handleSpeedChange(speedValue) {
 .podcast-player {
   display: flex;
   width: 310px;
-  /* height: calc(100% - 2 * var(--space-07)); */
-  max-height: 540px;
+  margin-top: var(--space-07);  max-height: 540px;
   flex-direction: column;
   gap: var(--space-04);
   padding: var(--space-04) var(--space-04) var(--space-05) var(--space-04);
   background: var(--color-background-contrast);
-  border-radius: var(--radius-07);
+  border-radius: var(--radius-06);
   backdrop-filter: blur(16px);
   position: relative;
   overflow: hidden;
@@ -141,7 +149,7 @@ async function handleSpeedChange(speedValue) {
   padding: 2px;
   opacity: 0.8;
   background: var(--stroke-glass);
-  border-radius: var(--radius-07);
+  border-radius: var(--radius-06);
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -161,7 +169,6 @@ async function handleSpeedChange(speedValue) {
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
-  border-radius: var(--radius-07);
 }
 
 .background-episode-image {
@@ -260,6 +267,17 @@ async function handleSpeedChange(speedValue) {
 .speed-selector :deep(.dropdown-trigger) {
   padding: var(--space-02) 0;
 }
+
+.play-button-wrapper {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-background-contrast-08);
+  border-radius: 50%;
+}
+
 /* Mobile responsive layout */
 @media (max-aspect-ratio: 4/3) {
   .podcast-player {
@@ -277,9 +295,7 @@ async function handleSpeedChange(speedValue) {
     box-shadow: 0 var(--space-04) var(--space-07) rgba(0, 0, 0, 0.2);
   }
 
-  .episode-art-background {
-    border-radius: var(--radius-06);
-  }
+
 
   .player-content {
     flex-direction: row;

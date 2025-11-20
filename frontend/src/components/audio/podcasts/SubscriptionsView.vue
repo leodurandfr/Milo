@@ -10,6 +10,7 @@
           :episode="episode"
           @select="$emit('select-episode', episode.uuid)"
           @play="$emit('play-episode', episode)"
+          @pause="handlePause"
         />
       </div>
     </section>
@@ -42,12 +43,18 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { usePodcastStore } from '@/stores/podcastStore'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import Icon from '@/components/ui/Icon.vue'
 
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
+const podcastStore = usePodcastStore()
+
+async function handlePause() {
+  await podcastStore.pause()
+}
 
 const loading = ref(false)
 const subscriptions = ref([])

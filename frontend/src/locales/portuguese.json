@@ -240,6 +240,9 @@
     "cancel": "Cancelar",
     "delete": "Eliminar"
   },
+  "podcasts": {
+    "top30": "Top 30"
+  },
   "countries": {
     "usa": "EUA",
     "germany": "Alemanha",
