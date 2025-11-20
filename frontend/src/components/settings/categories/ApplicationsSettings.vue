@@ -13,7 +13,7 @@
               <AppIcon name="librespot" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.librespot" type="dark" size="compact"
+              <Toggle v-model="config.librespot" size="compact"
                 :disabled="!canDisableAudioSource('librespot')" @change="updateDockApps" />
             </template>
           </ListItemButton>
@@ -23,7 +23,7 @@
               <AppIcon name="bluetooth" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.bluetooth" type="dark" size="compact"
+              <Toggle v-model="config.bluetooth" size="compact"
                 :disabled="!canDisableAudioSource('bluetooth')" @change="updateDockApps" />
             </template>
           </ListItemButton>
@@ -33,7 +33,7 @@
               <AppIcon name="roc" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.roc" type="dark" size="compact" :disabled="!canDisableAudioSource('roc')"
+              <Toggle v-model="config.roc" size="compact" :disabled="!canDisableAudioSource('roc')"
                 @change="updateDockApps" />
             </template>
           </ListItemButton>
@@ -43,7 +43,7 @@
               <AppIcon name="radio" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.radio" type="dark" size="compact"
+              <Toggle v-model="config.radio" size="compact"
                 :disabled="!canDisableAudioSource('radio')" @change="updateDockApps" />
             </template>
           </ListItemButton>
@@ -59,7 +59,7 @@
               <AppIcon name="multiroom" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.multiroom" type="dark" size="compact" @change="updateDockApps" />
+              <Toggle v-model="config.multiroom" size="compact" @change="updateDockApps" />
             </template>
           </ListItemButton>
 
@@ -68,7 +68,7 @@
               <AppIcon name="equalizer" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.equalizer" type="dark" size="compact" @change="updateDockApps" />
+              <Toggle v-model="config.equalizer" size="compact" @change="updateDockApps" />
             </template>
           </ListItemButton>
 
@@ -77,7 +77,7 @@
               <AppIcon name="settings" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.settings" type="dark" size="compact" @change="updateDockApps" />
+              <Toggle v-model="config.settings" size="compact" @change="updateDockApps" />
             </template>
           </ListItemButton>
         </div>

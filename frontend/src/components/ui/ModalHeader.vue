@@ -6,7 +6,7 @@
     'has-icon': icon
   }">
     <div v-if="showBack" class="back-modal-header">
-      <IconButton icon="caretLeft" :type="variant === 'contrast' ? 'light' : 'default'" @click="handleBack" />
+      <IconButton icon="caretLeft" :variant="variant === 'contrast' ? 'light' : 'default'" @click="handleBack" />
       <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
       <h2 v-else class="heading-1">
         <span class="title-subtitle">{{ subtitle }}</span>
@@ -21,7 +21,7 @@
       <h2 v-else class="heading-1">{{ title }}</h2>
     </template>
     <div v-if="$slots.actions" class="actions-wrapper">
-      <slot name="actions" :iconType="variant === 'contrast' ? 'light' : 'default'"></slot>
+      <slot name="actions" :iconVariant="variant === 'contrast' ? 'light' : 'default'"></slot>
     </div>
   </div>
 </template>
@@ -131,9 +131,6 @@ function handleBack() {
     border-radius: var(--radius-05);
   }
 
-  .modal-header.has-icon {
-    padding: var(--space-03);
-  }
 
   .header-icon {
     width: 40px !important;

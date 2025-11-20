@@ -1,8 +1,11 @@
 <!-- frontend/src/components/ui/Icon.vue -->
 <template>
-  <div 
-    class="icon" 
-    :class="{ 'icon--responsive': responsive }"
+  <div
+    class="icon"
+    :class="[
+      { 'icon--responsive': responsive },
+      sizeClass
+    ]"
     :style="colorStyle"
     v-html="svgContent"
   />
@@ -82,26 +85,38 @@ export default {
     colorStyle() {
       return this.color ? { color: this.color } : {};
     },
+    sizeClass() {
+      // If size is a string (small/medium/large), use CSS class for responsive sizing
+      if (typeof this.size === 'string') {
+        return `icon--size-${this.size}`;
+      }
+      return null;
+    },
+    isResponsiveSize() {
+      return typeof this.size === 'string';
+    },
     svgContent() {
       const icon = icons[this.name];
       if (!icon) {
         console.warn(`Icon "${this.name}" not found`);
         return '';
       }
-      
+
       let cleanedIcon = icon
         .replace(/fill="#[^"]*"/g, 'fill="currentColor"')
         .replace(/fill='#[^']*'/g, 'fill="currentColor"');
-      
-      if (this.responsive) {
+
+      if (this.responsive || this.isResponsiveSize) {
+        // For responsive sizing, let CSS handle dimensions
         cleanedIcon = cleanedIcon.replace('<svg', '<svg class="svg-responsive"');
       } else {
+        // For fixed pixel sizing, set dimensions directly
         cleanedIcon = cleanedIcon
           .replace(/width="[^"]*"/g, `width="${this.size}"`)
           .replace(/height="[^"]*"/g, `height="${this.size}"`)
           .replace('<svg', `<svg width="${this.size}" height="${this.size}"`);
       }
-      
+
       return cleanedIcon;
     }
   }
@@ -120,7 +135,7 @@ export default {
   display: block;
 }
 
-/* Responsive : apply on SVG */
+/* Default responsive behavior (legacy support) */
 .icon :deep(.svg-responsive) {
   width: 32px;
   height: 32px;
@@ -130,6 +145,39 @@ export default {
   .icon :deep(.svg-responsive) {
     width: 24px;
     height: 24px;
+  }
+}
+
+/* Size variants with responsive sizing */
+.icon--size-small :deep(.svg-responsive) {
+  width: 28px;
+  height: 28px;
+}
+
+.icon--size-medium :deep(.svg-responsive) {
+  width: 32px;
+  height: 32px;
+}
+
+.icon--size-large :deep(.svg-responsive) {
+  width: 32px;
+  height: 32px;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .icon--size-small :deep(.svg-responsive) {
+    width: 24px;
+    height: 24px;
+  }
+
+  .icon--size-medium :deep(.svg-responsive) {
+    width: 28px;
+    height: 28px;
+  }
+
+  .icon--size-large :deep(.svg-responsive) {
+    width: 32px;
+    height: 32px;
   }
 }
 </style>

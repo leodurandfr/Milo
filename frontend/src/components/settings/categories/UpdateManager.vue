@@ -56,7 +56,7 @@
 
           <Button
             v-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')"
-            type="dark" @click="startLocalUpdate('milo')" :disabled="isAnyUpdateInProgress()"
+            variant="primary" @click="startLocalUpdate('milo')" :disabled="isAnyUpdateInProgress()"
             class="update-button">
             {{ $t('updates.update') }}
           </Button>
@@ -111,7 +111,7 @@
 
               <Button
                 v-if="program.update_available && canUpdateLocal(key) && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)"
-                type="dark" @click="startLocalUpdate(key)" :disabled="isAnyUpdateInProgress()"
+                variant="primary" @click="startLocalUpdate(key)" :disabled="isAnyUpdateInProgress()"
                 class="update-button">
                 {{ $t('updates.update') }}
               </Button>
@@ -189,7 +189,7 @@
 
           <Button
             v-if="satellite.update_available && satellite.online && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)"
-            type="dark" @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()"
+            variant="primary" @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()"
             class="update-button">
             {{ $t('updates.update') }}
           </Button>
