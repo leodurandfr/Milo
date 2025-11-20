@@ -4,7 +4,7 @@
     <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
       :maxlength="maxlength" :class="inputClass" @input="handleInput" @focus="handleFocus"
       @blur="handleBlur" />
-    <Icon v-if="icon" :name="icon" :size="iconSize" class="input-icon" />
+    <SvgIcon v-if="icon" :name="icon" :size="iconSize" class="input-icon" />
   </div>
 </template>
 
@@ -12,7 +12,7 @@
 import { ref, computed } from 'vue';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
-import Icon from '@/components/ui/Icon.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
   modelValue: {

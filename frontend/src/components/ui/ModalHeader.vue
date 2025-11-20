@@ -2,11 +2,11 @@
 <template>
   <div class="modal-header" :class="{
     'has-back': showBack,
-    'variant-neutral': variant === 'neutral',
+    'variant-background-neutral': variant === 'background-neutral',
     'has-icon': icon
   }">
     <div v-if="showBack" class="back-modal-header">
-      <CircularIcon icon="caretLeft" :variant="variant === 'neutral' ? 'light' : 'dark'" @click="handleBack" />
+      <IconButton icon="caretLeft" :type="variant === 'contrast' ? 'light' : 'default'" @click="handleBack" />
       <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
       <h2 v-else class="heading-1">
         <span class="title-subtitle">{{ subtitle }}</span>
@@ -21,13 +21,13 @@
       <h2 v-else class="heading-1">{{ title }}</h2>
     </template>
     <div v-if="$slots.actions" class="actions-wrapper">
-      <slot name="actions"></slot>
+      <slot name="actions" :iconType="variant === 'contrast' ? 'light' : 'default'"></slot>
     </div>
   </div>
 </template>
 
 <script setup>
-import CircularIcon from './CircularIcon.vue';
+import IconButton from './IconButton.vue';
 import AppIcon from './AppIcon.vue';
 
 const props = defineProps({
@@ -45,8 +45,8 @@ const props = defineProps({
   },
   variant: {
     type: String,
-    default: 'contrast', // 'contrast' ou 'neutral'
-    validator: (value) => ['contrast', 'neutral'].includes(value)
+    default: 'contrast', // 'contrast' ou 'background-neutral'
+    validator: (value) => ['contrast', 'background-neutral'].includes(value)
   },
   icon: {
     type: String,
@@ -72,11 +72,11 @@ function handleBack() {
   justify-content: space-between;
 }
 
-.modal-header.variant-neutral {
+.modal-header.variant-background-neutral {
   background: var(--color-background-neutral);
 }
 
-.modal-header.variant-neutral h2 {
+.modal-header.variant-background-neutral h2 {
   color: var(--color-text);
 }
 

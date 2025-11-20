@@ -2,26 +2,26 @@
 <template>
     <button :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
         <LoadingSpinner v-if="loading" :size="32" />
-        <Icon v-else-if="leftIcon" :name="leftIcon" :size="32" />
+        <SvgIcon v-else-if="leftIcon" :name="leftIcon" :size="32" />
         <slot></slot>
     </button>
 </template>
 
 <script>
-import Icon from './Icon.vue'
+import SvgIcon from './SvgIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 
 export default {
     name: 'Button',
     components: {
-        Icon,
+        SvgIcon,
         LoadingSpinner
     },
     props: {
         variant: {
             type: String,
-            default: 'primary',
-            validator: (value) => ['primary', 'secondary', 'toggle', 'background-light', 'important'].includes(value)
+            default: 'default',
+            validator: (value) => ['default', 'primary', 'dark', 'outline', 'important', 'toggle'].includes(value)
         },
         type: {
             type: String,
@@ -101,7 +101,7 @@ export default {
     padding: var(--space-02) var(--space-04) var(--space-02) var(--space-02);
 }
 
-/* Primary variant */
+/* === PRIMARY variant === */
 .btn--primary.btn--default {
     background-color: var(--color-brand);
     color: var(--color-text-contrast);
@@ -112,53 +112,61 @@ export default {
     color: var(--color-text-light);
 }
 
-/* Secondary variant */
-.btn--secondary.btn--default {
+/* === DEFAULT variant === */
+.btn--default.btn--default {
     background-color: var(--color-background-strong);
     color: var(--color-text-secondary);
 }
 
-.btn--secondary.btn--disabled {
+.btn--default.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
 }
 
-/* Toggle variant */
-.btn--toggle.btn--active {
-    background-color: var(--color-background-neutral);
-    color: var(--color-brand);
-    -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
-    -moz-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
-    box-shadow: inset 0px 0px 0px 2px var(--color-brand);}
-
-.btn--toggle.btn--inactive {
-    background-color: var(--color-background-strong);
-    color: var(--color-text-secondary);
-
-}
-
-/* Background Light variant */
-.btn--background-light.btn--default {
-    background-color: var(--color-background-neutral-12);
+/* === DARK variant === */
+.btn--dark.btn--default {
+    background-color: var(--color-background-contrast-12);
     color: var(--color-text-contrast);
 }
 
-.btn--background-light.btn--disabled {
+.btn--dark.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
 }
 
-/* Important variant */
-.btn--important.btn--default {
+/* === OUTLINE variant === */
+.btn--outline.btn--default {
     background-color: var(--color-background-neutral);
-    color: var(--color-important);
-    -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-important);
-    -moz-box-shadow: inset 0px 0px 0px 2px var(--color-important);
-    box-shadow: inset 0px 0px 0px 2px var(--color-important);
+    color: var(--color-brand);
+    box-shadow: 0 0 0 2px var(--color-brand);
+}
+
+.btn--outline.btn--disabled {
+    background-color: var(--color-background);
+    color: var(--color-text-light);
+    box-shadow: none;
+}
+
+/* === IMPORTANT variant === */
+.btn--important.btn--default {
+    background-color: var(--color-important);
+    color: var(--color-text-contrast);
 }
 
 .btn--important.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
+}
+
+/* === TOGGLE variant === */
+.btn--toggle.btn--active {
+    background-color: var(--color-background-neutral);
+    color: var(--color-brand);
+    box-shadow: inset 0 0 0 2px var(--color-brand);
+}
+
+.btn--toggle.btn--inactive {
+    background-color: var(--color-background-strong);
+    color: var(--color-text-secondary);
 }
 </style>

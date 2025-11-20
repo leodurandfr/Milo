@@ -76,11 +76,11 @@
             @click="handleDeleteClick" :disabled="isSubmitting">
             {{ isConfirmingDelete ? $t('radio.manageStation.confirmDelete') : $t('common.delete') }}
           </Button>
-          <Button variant="secondary" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
+          <Button variant="default" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
             {{ $t('common.cancel') }}
           </Button>
         </div>
-        <Button v-else variant="secondary" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
+        <Button v-else variant="default" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
           {{ $t('common.cancel') }}
         </Button>
         <Button variant="primary" size="small" class="save-btn" type="submit" :disabled="isSubmitting || !formData.name || !formData.url">

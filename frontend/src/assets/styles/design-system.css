@@ -1,43 +1,39 @@
 :root {
     /* === COULEURS PRINCIPALES === */
-    --color-brand: #FF6428;
+    --color-brand: #ff6428;
 
-    --color-text: #171917;
-    --color-text-secondary: #767C76;
-    --color-text-light: #A6ACA6;
-    --color-text-contrast: #FFF;
-    --color-text-contrast-50: #FFFFFF80;
+    /* === COULEURS DE TEXTE === */
+    --color-text: #171817;
+    --color-text-secondary: #767b76;
+    --color-text-light: #a6aca6;
+    --color-text-contrast: #ffffff;
+    --color-text-contrast-50: #ffffff80;
 
     /* === COULEURS DE FONDS === */
+    --color-background: #f7f7f7;
+    --color-background-strong: #f2f2f2;
+    --color-background-neutral: #ffffff;
+    --color-background-neutral-50: #ffffff80;
+    --color-background-neutral-12: #ffffff1e;
 
-    --color-background: #F7F7F7;
-    --color-background-strong: #F2F2F2;
-    --color-background-neutral: #FFFFFF;
-    --color-background-neutral-64: #FFFFFFA3;
-    --color-background-neutral-50: #FFFFFF80;
-    --color-background-neutral-32: #FFFFFF52;
-    --color-background-neutral-12: #FFFFFF1F;
-    --color-background-contrast: #222825;
-    --color-background-contrast-64: #222825A3;
-    --color-background-contrast-08: #00000014;
-    --color-background-glass: #78787829;
-    --color-background-modal: #78787852;
-    --color-background-radio: #E1DBCA;
-    --color-border: #1618160a;
-    --color-important: #FF2828;
+    --color-background-contrast: #181d1e;
+    --color-background-contrast-12: #181d1e1e;
 
+    --color-background-medium-16: #77777728;
+    --color-background-medium-32: #78787851;
 
-
-    /* === TRACÉS === */
-
-    --stroke-glass: linear-gradient(190deg, rgba(255, 255, 255, .48) 0.43%, rgba(255, 255, 255, .06) 21.15%, rgba(255, 255, 255, .48) 47.85%, rgba(255, 255, 255, .06) 78.57%);
-
+    /* === BORDURES === */
+    --color-border: #1718170a;
 
     /* === COULEURS SYSTÈME === */
-    --color-success: #11AA3A;
-    --color-warning: #FF9800;
-    --color-error: #F44336;
-    --color-info: #2196F3;
+    --color-important: #ff2828;
+    --color-success: #11aa3a;
+    --color-warning: #ff9800;
+    --color-error: #f44336;
+    --color-info: #2196f3;
+
+    /* === TRACÉS === */
+    --stroke-glass: linear-gradient(190deg, rgba(255, 255, 255, .48) 0.43%, rgba(255, 255, 255, .06) 21.15%, rgba(255, 255, 255, .48) 47.85%, rgba(255, 255, 255, .06) 78.57%);
 
 
 

@@ -3,13 +3,13 @@
   <button class="settings-category" @click="$emit('click')">
     <img :src="iconPath" :alt="title" width="32" height="32" class="category-icon" />
     <span class="category-title heading-2">{{ title }}</span>
-    <Icon name="caretRight" :size="24" color="var(--color-text-light)" />
+    <SvgIcon name="caretRight" :size="24" color="var(--color-text-light)" />
   </button>
 </template>
 
 <script setup>
 import { computed } from 'vue';
-import Icon from '@/components/ui/Icon.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 import languagesIcon from '@/assets/settings-icons/languages.svg';
 import applicationsIcon from '@/assets/settings-icons/applications.svg';
@@ -63,7 +63,7 @@ const iconPath = computed(() => {
 
 .settings-category:hover {
   background: var(--color-background-strong);
-  border-color: var(--color-background-glass);
+  border-color: var(--color-background-medium-16);
 }
 
 .category-icon {

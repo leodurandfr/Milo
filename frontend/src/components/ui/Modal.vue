@@ -2,8 +2,8 @@
 <template>
   <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" @click.self="handleOverlayClick">
     <div ref="modalContainer" class="modal-container">
-      <IconButtonFloating ref="closeButton" class="close-btn-position" icon-name="close" aria-label="Fermer"
-        @click="close" />
+      <IconButton ref="closeButton" class="close-btn-position" icon="close" type="rounded" size="large"
+        aria-label="Fermer" @click="close" />
 
       <!-- Content -->
       <div ref="modalContent" class="modal-content" @pointerdown="handlePointerDown" @pointermove="handlePointerMove"
@@ -16,7 +16,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick, provide } from 'vue';
-import IconButtonFloating from './IconButtonFloating.vue';
+import IconButton from './IconButton.vue';
 
 const props = defineProps({
   isOpen: {
@@ -367,7 +367,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--color-background-modal);
+  background: var(--color-background-medium-32);
   backdrop-filter: blur(32px);
   display: flex;
   align-items: flex-start;

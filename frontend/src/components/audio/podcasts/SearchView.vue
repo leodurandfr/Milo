@@ -60,14 +60,14 @@
           v-if="podcastResults.length === 0 && episodeResults.length === 0"
           class="empty-state"
         >
-          <Icon name="search" :size="48" />
+          <SvgIcon name="search" :size="48" />
           <p>Aucun résultat pour "{{ lastSearchTerm }}"</p>
         </div>
       </template>
 
       <!-- Initial state -->
       <div v-else class="empty-state">
-        <Icon name="search" :size="48" />
+        <SvgIcon name="search" :size="48" />
         <p>Recherchez des podcasts ou épisodes</p>
       </div>
     </div>
@@ -83,7 +83,7 @@ import InputText from '@/components/ui/InputText.vue'
 import Button from '@/components/ui/Button.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
-import Icon from '@/components/ui/Icon.vue'
+import SvgIcon from '@/components/ui/SvgIcon.vue'
 
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
 const podcastStore = usePodcastStore()

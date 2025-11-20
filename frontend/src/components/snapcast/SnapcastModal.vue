@@ -2,10 +2,10 @@
 <template>
   <div class="snapcast-modal">
     <ModalHeader :title="$t('multiroom.title')">
-      <template #actions>
+      <template #actions="{ iconType }">
         <Toggle
           v-model="isMultiroomActive"
-          variant="primary"
+          :type="iconType"
           :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling"
           @change="handleMultiroomToggle"
         />

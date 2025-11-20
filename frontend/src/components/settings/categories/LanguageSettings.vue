@@ -2,7 +2,7 @@
 <template>
   <section class="settings-section">
     <div class="language-grid">
-      <IconButton
+      <ListItemButton
         v-for="language in availableLanguages"
         :key="language.code"
         :title="language.name"
@@ -14,7 +14,7 @@
         <template #icon>
           <img :src="getFlagIcon(language.code)" :alt="language.name" />
         </template>
-      </IconButton>
+      </ListItemButton>
     </div>
   </section>
 </template>
@@ -26,7 +26,7 @@ import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
-import IconButton from '@/components/ui/IconButton.vue';
+import ListItemButton from '@/components/ui/ListItemButton.vue';
 
 import franceIcon from '@/assets/flags-icons/france.svg';
 import unitedKingdomIcon from '@/assets/flags-icons/united-kingdom.svg';

@@ -17,7 +17,7 @@
             />
           </div>
           <button class="keyboard-close-btn" @click="handleClose">
-            <Icon name="close" :size="24" />
+            <SvgIcon name="close" :size="24" />
           </button>
         </div>
 
@@ -100,7 +100,7 @@ import { ref, watch, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
-import Icon from './Icon.vue';
+import SvgIcon from './SvgIcon.vue';
 
 const { getCurrentLanguage } = useI18n();
 const keyboardState = useVirtualKeyboard();
@@ -277,7 +277,7 @@ function handleSubmit() {
 .keyboard-display-input {
   width: 100%;
   padding: var(--space-03) var(--space-04);
-  border: 2px solid var(--color-background-glass);
+  border: 2px solid var(--color-background-medium-16);
   border-radius: var(--radius-04);
   background: var(--color-background-strong);
   color: var(--color-text);
@@ -300,7 +300,7 @@ function handleSubmit() {
 }
 
 .keyboard-close-btn:hover {
-  background: var(--color-background-glass);
+  background: var(--color-background-medium-16);
 }
 
 .keyboard-keys {
@@ -355,7 +355,7 @@ function handleSubmit() {
 }
 
 .key-enter:active {
-  background: var(--color-brand-dark);
+  transform: scale(0.95);
 }
 
 /* Transitions */

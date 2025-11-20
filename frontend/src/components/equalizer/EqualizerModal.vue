@@ -4,10 +4,10 @@
     <div class="screen-main">
       <!-- Header with toggle -->
       <ModalHeader :title="$t('equalizer.title')">
-        <template #actions>
-          <CircularIcon v-if="isEqualizerEnabled" icon="reset" variant="dark" :disabled="equalizerStore.isResetting"
+        <template #actions="{ iconType }">
+          <IconButton v-if="isEqualizerEnabled" icon="reset" :type="iconType" :disabled="equalizerStore.isResetting"
             @click="handleResetAllBands" />
-          <Toggle v-model="isEqualizerEnabled" variant="primary"
+          <Toggle v-model="isEqualizerEnabled" :type="iconType"
             :disabled="unifiedStore.systemState.transitioning || isEqualizerToggling" @change="handleEqualizerToggle" />
         </template>
       </ModalHeader>
@@ -18,7 +18,7 @@
           <!-- MESSAGE: Equalizer disabled -->
           <Transition name="message">
             <div v-if="!isEqualizerEnabled" key="message" class="message-content">
-              <Icon name="equalizer" :size="96" color="var(--color-background-glass)" />
+              <SvgIcon name="equalizer" :size="96" color="var(--color-background-medium-16)" />
               <p class="text-mono">{{ $t('equalizer.disabled') }}</p>
             </div>
           </Transition>
@@ -45,10 +45,10 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useEqualizerStore } from '@/stores/equalizerStore';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
-import CircularIcon from '@/components/ui/CircularIcon.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import RangeSliderEqualizer from './RangeSliderEqualizer.vue';
-import Icon from '@/components/ui/Icon.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const equalizerStore = useEqualizerStore();

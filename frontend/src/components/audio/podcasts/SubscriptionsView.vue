@@ -22,7 +22,7 @@
       <LoadingSpinner v-if="loading" />
 
       <div v-else-if="subscriptions.length === 0" class="empty-state">
-        <Icon name="heart" :size="48" />
+        <SvgIcon name="heart" :size="48" />
         <p>Aucun abonnement</p>
         <p class="hint">Recherchez des podcasts et abonnez-vous pour les retrouver ici</p>
       </div>
@@ -47,7 +47,7 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
-import Icon from '@/components/ui/Icon.vue'
+import SvgIcon from '@/components/ui/SvgIcon.vue'
 
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
 const podcastStore = usePodcastStore()

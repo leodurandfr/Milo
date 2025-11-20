@@ -8,45 +8,45 @@
         <p class="app-group-title text-mono">{{ t('audioSources.title') }}</p>
 
         <div class="app-list">
-          <IconButton variant="outlined" :title="t('applications.spotify')" :class="{ 'active': config.librespot }">
+          <ListItemButton variant="outlined" :title="t('applications.spotify')" :class="{ 'active': config.librespot }">
             <template #icon>
               <AppIcon name="librespot" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.librespot" variant="primary" size="compact"
+              <Toggle v-model="config.librespot" type="dark" size="compact"
                 :disabled="!canDisableAudioSource('librespot')" @change="updateDockApps" />
             </template>
-          </IconButton>
+          </ListItemButton>
 
-          <IconButton variant="outlined" :title="t('applications.bluetooth')" :class="{ 'active': config.bluetooth }">
+          <ListItemButton variant="outlined" :title="t('applications.bluetooth')" :class="{ 'active': config.bluetooth }">
             <template #icon>
               <AppIcon name="bluetooth" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.bluetooth" variant="primary" size="compact"
+              <Toggle v-model="config.bluetooth" type="dark" size="compact"
                 :disabled="!canDisableAudioSource('bluetooth')" @change="updateDockApps" />
             </template>
-          </IconButton>
+          </ListItemButton>
 
-          <IconButton variant="outlined" :title="t('applications.macOS')" :class="{ 'active': config.roc }">
+          <ListItemButton variant="outlined" :title="t('applications.macOS')" :class="{ 'active': config.roc }">
             <template #icon>
               <AppIcon name="roc" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.roc" variant="primary" size="compact" :disabled="!canDisableAudioSource('roc')"
+              <Toggle v-model="config.roc" type="dark" size="compact" :disabled="!canDisableAudioSource('roc')"
                 @change="updateDockApps" />
             </template>
-          </IconButton>
+          </ListItemButton>
 
-          <IconButton variant="outlined" :title="t('audioSources.radio')" :class="{ 'active': config.radio }">
+          <ListItemButton variant="outlined" :title="t('audioSources.radio')" :class="{ 'active': config.radio }">
             <template #icon>
               <AppIcon name="radio" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.radio" variant="primary" size="compact"
+              <Toggle v-model="config.radio" type="dark" size="compact"
                 :disabled="!canDisableAudioSource('radio')" @change="updateDockApps" />
             </template>
-          </IconButton>
+          </ListItemButton>
         </div>
       </div>
       <!-- Features -->
@@ -54,32 +54,32 @@
         <p class="app-group-title text-mono">{{ t('applications.features') }}</p>
 
         <div class="app-list">
-          <IconButton variant="outlined" :title="t('multiroom.title')" :class="{ 'active': config.multiroom }">
+          <ListItemButton variant="outlined" :title="t('multiroom.title')" :class="{ 'active': config.multiroom }">
             <template #icon>
               <AppIcon name="multiroom" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.multiroom" variant="primary" size="compact" @change="updateDockApps" />
+              <Toggle v-model="config.multiroom" type="dark" size="compact" @change="updateDockApps" />
             </template>
-          </IconButton>
+          </ListItemButton>
 
-          <IconButton variant="outlined" :title="t('equalizer.title')" :class="{ 'active': config.equalizer }">
+          <ListItemButton variant="outlined" :title="t('equalizer.title')" :class="{ 'active': config.equalizer }">
             <template #icon>
               <AppIcon name="equalizer" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.equalizer" variant="primary" size="compact" @change="updateDockApps" />
+              <Toggle v-model="config.equalizer" type="dark" size="compact" @change="updateDockApps" />
             </template>
-          </IconButton>
+          </ListItemButton>
 
-          <IconButton variant="outlined" :title="t('common.settings')" :class="{ 'active': config.settings }">
+          <ListItemButton variant="outlined" :title="t('common.settings')" :class="{ 'active': config.settings }">
             <template #icon>
               <AppIcon name="settings" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.settings" variant="primary" size="compact" @change="updateDockApps" />
+              <Toggle v-model="config.settings" type="dark" size="compact" @change="updateDockApps" />
             </template>
-          </IconButton>
+          </ListItemButton>
         </div>
       </div>
     </section>
@@ -92,7 +92,7 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
-import IconButton from '@/components/ui/IconButton.vue';
+import ListItemButton from '@/components/ui/ListItemButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 

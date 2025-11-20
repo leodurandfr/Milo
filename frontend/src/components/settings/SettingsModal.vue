@@ -6,59 +6,59 @@
       <ModalHeader :title="t('settings.title')" />
 
       <div class="settings-nav-grid">
-        <IconButton :title="t('settings.languages')" :clickable="true" :show-caret="true" @click="goToView('languages')">
+        <ListItemButton :title="t('settings.languages')" :clickable="true" :show-caret="true" @click="goToView('languages')">
           <template #icon>
             <img :src="languagesIcon" alt="Languages" />
           </template>
-        </IconButton>
+        </ListItemButton>
 
-        <IconButton :title="t('settings.applications')" :clickable="true" :show-caret="true" @click="goToView('apps')">
+        <ListItemButton :title="t('settings.applications')" :clickable="true" :show-caret="true" @click="goToView('apps')">
           <template #icon>
             <img :src="applicationsIcon" alt="Applications" />
           </template>
-        </IconButton>
+        </ListItemButton>
 
-        <IconButton :title="t('settings.volume')" :clickable="true" :show-caret="true" @click="goToView('volume')">
+        <ListItemButton :title="t('settings.volume')" :clickable="true" :show-caret="true" @click="goToView('volume')">
           <template #icon>
             <img :src="volumeIcon" alt="Volume" />
           </template>
-        </IconButton>
+        </ListItemButton>
 
-        <IconButton :title="t('settings.screen')" :clickable="true" :show-caret="true" @click="goToView('screen')">
+        <ListItemButton :title="t('settings.screen')" :clickable="true" :show-caret="true" @click="goToView('screen')">
           <template #icon>
             <img :src="displayIcon" alt="Display" />
           </template>
-        </IconButton>
+        </ListItemButton>
 
-        <IconButton v-if="settingsStore.dockApps.librespot" :title="t('audioSources.spotify')" :clickable="true" :show-caret="true" @click="goToView('spotify')">
+        <ListItemButton v-if="settingsStore.dockApps.librespot" :title="t('audioSources.spotify')" :clickable="true" :show-caret="true" @click="goToView('spotify')">
           <template #icon>
             <img :src="spotifyIcon" alt="Spotify" />
           </template>
-        </IconButton>
+        </ListItemButton>
 
-        <IconButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" :clickable="true" :show-caret="true" @click="goToView('multiroom')">
+        <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" :clickable="true" :show-caret="true" @click="goToView('multiroom')">
           <template #icon>
             <img :src="multiroomIcon" alt="Multiroom" />
           </template>
-        </IconButton>
+        </ListItemButton>
 
-        <IconButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" :clickable="true" :show-caret="true" @click="goToView('radio')">
+        <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" :clickable="true" :show-caret="true" @click="goToView('radio')">
           <template #icon>
             <img :src="radioIcon" alt="Radio" />
           </template>
-        </IconButton>
+        </ListItemButton>
 
-        <IconButton :title="t('settings.updates')" :clickable="true" :show-caret="true" @click="goToView('updates')">
+        <ListItemButton :title="t('settings.updates')" :clickable="true" :show-caret="true" @click="goToView('updates')">
           <template #icon>
             <img :src="updatesIcon" alt="Updates" />
           </template>
-        </IconButton>
+        </ListItemButton>
 
-        <IconButton :title="t('settings.information')" :clickable="true" :show-caret="true" @click="goToView('info')">
+        <ListItemButton :title="t('settings.information')" :clickable="true" :show-caret="true" @click="goToView('info')">
           <template #icon>
             <img :src="informationIcon" alt="Information" />
           </template>
-        </IconButton>
+        </ListItemButton>
 
         <!-- Placeholder for an odd number of IconButtons on desktop -->
         <div v-if="shouldShowPlaceholder" class="icon-button-placeholder"></div>
@@ -98,10 +98,10 @@
     <!-- Multiroom view -->
     <div v-else-if="currentView === 'multiroom'" class="view-detail">
       <ModalHeader :title="t('multiroom.title')" show-back @back="goToHome">
-        <template #actions>
+        <template #actions="{ iconType }">
           <Toggle
             v-model="isMultiroomActive"
-            variant="primary"
+            :type="iconType"
             :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling"
             @change="handleMultiroomToggle"
           />
@@ -153,7 +153,7 @@ import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
-import IconButton from '@/components/ui/IconButton.vue';
+import ListItemButton from '@/components/ui/ListItemButton.vue';
 import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
 
 // Import settings icons

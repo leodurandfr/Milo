@@ -13,7 +13,7 @@
         <div class="error-message text-mono">
           {{ $t('updates.error') }}
         </div>
-        <Button variant="secondary" @click="loadLocalPrograms">
+        <Button variant="default" @click="loadLocalPrograms">
           {{ $t('updates.retry') }}
         </Button>
       </div>
@@ -56,7 +56,7 @@
 
           <Button
             v-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')"
-            variant="primary" @click="startLocalUpdate('milo')" :disabled="isAnyUpdateInProgress()"
+            type="dark" @click="startLocalUpdate('milo')" :disabled="isAnyUpdateInProgress()"
             class="update-button">
             {{ $t('updates.update') }}
           </Button>
@@ -111,7 +111,7 @@
 
               <Button
                 v-if="program.update_available && canUpdateLocal(key) && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)"
-                variant="primary" @click="startLocalUpdate(key)" :disabled="isAnyUpdateInProgress()"
+                type="dark" @click="startLocalUpdate(key)" :disabled="isAnyUpdateInProgress()"
                 class="update-button">
                 {{ $t('updates.update') }}
               </Button>
@@ -145,7 +145,7 @@
         <div class="error-message text-mono">
           {{ $t('updates.errorDetectingSatellites') }}
         </div>
-        <Button variant="secondary" @click="loadSatellites">
+        <Button variant="default" @click="loadSatellites">
           {{ $t('updates.retry') }}
         </Button>
       </div>
@@ -189,7 +189,7 @@
 
           <Button
             v-if="satellite.update_available && satellite.online && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)"
-            variant="primary" @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()"
+            type="dark" @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()"
             class="update-button">
             {{ $t('updates.update') }}
           </Button>
@@ -631,7 +631,7 @@ onMounted(async () => {
 }
 
 .text-error {
-  color: var(--color-destructive);
+  color: var(--color-error);
 }
 
 /* Responsive */

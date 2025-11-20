@@ -13,7 +13,7 @@
       />
       <div v-if="hasNewEpisodes" class="badge-new">Nouveau</div>
       <div v-if="isSubscribed" class="badge-subscribed">
-        <Icon name="heart" :size="16" />
+        <SvgIcon name="heart" :size="16" />
       </div>
     </div>
 
@@ -26,7 +26,7 @@
     <div v-if="showActions" class="card-actions" @click.stop>
       <Button
         v-if="!isSubscribed"
-        variant="secondary"
+        type="background-strong"
         size="small"
         @click="$emit('subscribe', podcast.uuid)"
       >
@@ -34,7 +34,7 @@
       </Button>
       <Button
         v-else
-        variant="secondary"
+        type="background-strong"
         size="small"
         @click="$emit('unsubscribe', podcast.uuid)"
       >
@@ -46,7 +46,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import Icon from '@/components/ui/Icon.vue'
+import SvgIcon from '@/components/ui/SvgIcon.vue'
 import Button from '@/components/ui/Button.vue'
 
 const props = defineProps({

@@ -66,7 +66,7 @@
       >
         <Toggle
           :model-value="!client.muted"
-          variant="secondary"
+          type="background-strong"
           @change="handleMuteToggle"
         />
       </div>
@@ -175,7 +175,7 @@ onUnmounted(() => {
   background: linear-gradient(
     90deg,
     var(--color-background-strong) 0%,
-    var(--color-background-glass) 50%,
+    var(--color-background-medium-16) 50%,
     var(--color-background-strong) 100%
   );
   background-size: 200% 100%;
@@ -228,7 +228,7 @@ onUnmounted(() => {
   background: linear-gradient(
     90deg,
     var(--color-background-strong) 0%,
-    var(--color-background-glass) 50%,
+    var(--color-background-medium-16) 50%,
     var(--color-background-strong) 100%
   );
   background-size: 200% 100%;
@@ -281,7 +281,7 @@ onUnmounted(() => {
   background: linear-gradient(
     90deg,
     var(--color-background-strong) 0%,
-    var(--color-background-glass) 50%,
+    var(--color-background-medium-16) 50%,
     var(--color-background-strong) 100%
   );
   background-size: 200% 100%;

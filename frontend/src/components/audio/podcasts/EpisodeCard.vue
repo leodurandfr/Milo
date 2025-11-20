@@ -16,7 +16,7 @@
         </div>
       </div>
 
-      <CircularIcon :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="light" :size="40"
+      <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" type="light" :size="40"
         :loading="isCurrentEpisodeBuffering" :disabled="isCurrentEpisodeBuffering" @click.stop="handlePlayClick" />
     </div>
   </div>
@@ -25,7 +25,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
-import CircularIcon from '@/components/ui/CircularIcon.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 
 const props = defineProps({
   episode: {
