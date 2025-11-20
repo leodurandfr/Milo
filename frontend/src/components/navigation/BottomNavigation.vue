@@ -27,7 +27,7 @@
         <button v-for="{ icon, handler, delta } in volumeControlsWithSteps" :key="icon"
           @pointerdown="(e) => onVolumeHoldStart(delta, e)" @pointerup="onVolumeHoldEnd"
           @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd" class="volume-btn button-interactive-subtle">
-          <Icon :name="icon" :size="32" />
+          <SvgIcon :name="icon" :size="32" />
         </button>
       </div>
 
@@ -76,7 +76,7 @@
           @mousedown="addPressEffect"
           :style="{ transitionDelay: `${0.1 + dockApps.length * 0.05}s` }"
           class="dock-item toggle-btn mobile-only button-interactive">
-          <Icon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
+          <SvgIcon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
         <!-- Desktop: Features -->
@@ -104,7 +104,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import AppIcon from '@/components/ui/AppIcon.vue';
-import Icon from '@/components/ui/Icon.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const { t } = useI18n();
 const instance = getCurrentInstance();
@@ -765,7 +765,7 @@ onUnmounted(() => {
   z-index: 3998;
   border-radius: var(--radius-07);
   padding: var(--space-04);
-  background: var(--color-background-glass);
+  background: var(--color-background-medium-16);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   display: flex;
@@ -846,7 +846,7 @@ onUnmounted(() => {
   position: relative;
   border-radius: var(--radius-07);
   padding: var(--space-04);
-  background: var(--color-background-glass);
+  background: var(--color-background-medium-16);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   display: flex;
@@ -904,7 +904,7 @@ onUnmounted(() => {
   align-content: center;
   justify-content: center;
   flex: 1;
-  background: var(--color-background-neutral-64);
+  background: var(--color-background-neutral-50);
   border-radius: var(--radius-04);
   cursor: pointer;
   color: var(--color-text-secondary);
@@ -925,7 +925,7 @@ onUnmounted(() => {
 .dock-separator {
   width: 2px;
   height: var(--space-07);
-  background: var(--color-background-neutral-64);
+  background: var(--color-background-neutral-50);
   border-radius: var(--radius-full);
   opacity: 0;
   transform: translateY(20px) scale(0.8);
@@ -946,7 +946,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-neutral-64);
+  background: var(--color-background-neutral-50);
   border-radius: var(--radius-03);
   padding: 0 var(--space-01);
   color: var(--color-text-secondary);
@@ -1019,7 +1019,7 @@ onUnmounted(() => {
     transform: translateX(-50%);
     width: var(--space-05);
     height: var(--space-01);
-    background: var(--color-background-glass);
+    background: var(--color-background-medium-16);
     border-radius: var(--radius-full);
     z-index: 998;
     opacity: 0;

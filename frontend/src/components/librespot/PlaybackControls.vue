@@ -1,19 +1,19 @@
 <template>
   <div class="controls">
     <div @click="onPrevious" class="control-button previous">
-      <Icon name="previous" :size="48" class="icon-secondary" />
+      <SvgIcon name="previous" :size="48" class="icon-secondary" />
     </div>
     <div @click="onPlayPause" class="control-button play-pause">
-      <Icon :name="isPlaying ? 'pause' : 'play'" :size="48" class="icon-primary" />
+      <SvgIcon :name="isPlaying ? 'pause' : 'play'" :size="48" class="icon-primary" />
     </div>
     <div @click="onNext" class="control-button next">
-      <Icon name="next" :size="48" class="icon-secondary" />
+      <SvgIcon name="next" :size="48" class="icon-secondary" />
     </div>
   </div>
 </template>
 
 <script setup>
-import Icon from '@/components/ui/Icon.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
   isPlaying: {

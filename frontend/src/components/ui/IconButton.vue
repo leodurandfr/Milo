@@ -1,52 +1,87 @@
 <!-- frontend/src/components/ui/IconButton.vue -->
 <template>
-  <component :is="clickable ? 'button' : 'div'"
-    :class="['icon-button', `icon-button--${variant}`, { 'icon-button--clickable': clickable }]" @click="handleClick">
-    <!-- Icon on the left -->
-    <div class="icon-button__icon">
-      <slot name="icon"></slot>
-    </div>
-
-    <!-- Title -->
-    <span class="icon-button__title text-body">{{ title }}</span>
-
-    <!-- Right-side action (toggle, caret, or nothing) -->
-    <div v-if="showCaret || $slots.action" class="icon-button__action">
-      <slot name="action">
-        <Icon v-if="showCaret" name="caretRight" :size="24" color="var(--color-text-light)" />
-      </slot>
-    </div>
-  </component>
+  <button
+    class="icon-button"
+    :class="[
+      `icon-button--${type}`,
+      `icon-button--${size}`,
+      { 'icon-button--loading': loading }
+    ]"
+    :disabled="disabled"
+    @click="handleClick"
+  >
+    <LoadingSpinner v-if="loading" :size="iconSize" />
+    <SvgIcon
+      v-else
+      :name="icon"
+      :size="iconSize"
+      :color="color || iconColor"
+    />
+  </button>
 </template>
 
 <script setup>
-import Icon from '@/components/ui/Icon.vue';
+import { computed } from 'vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 
 const props = defineProps({
-  title: {
+  icon: {
     type: String,
     required: true
   },
-  showCaret: {
-    type: Boolean,
-    default: false
-  },
-  clickable: {
-    type: Boolean,
-    default: false
-  },
-  variant: {
+  type: {
     type: String,
     default: 'default',
-    validator: (value) => ['default', 'outlined'].includes(value)
+    validator: (value) => ['default', 'light', 'dark', 'rounded'].includes(value)
+  },
+  size: {
+    type: String,
+    default: 'medium',
+    validator: (value) => ['small', 'medium', 'large'].includes(value)
+  },
+  loading: {
+    type: Boolean,
+    default: false
+  },
+  disabled: {
+    type: Boolean,
+    default: false
+  },
+  color: {
+    type: String,
+    default: null
   }
 });
 
 const emit = defineEmits(['click']);
 
+// Icon sizes based on button size
+const iconSize = computed(() => {
+  const sizes = {
+    small: 16,
+    medium: 32,
+    large: 32
+  };
+  return sizes[props.size];
+});
+
+// Icon color based on type (if not overridden by color prop)
+const iconColor = computed(() => {
+  if (props.type === 'dark') {
+    return 'var(--color-text-contrast)';
+  } else if (props.type === 'rounded') {
+    return 'var(--color-text)';
+  } else if (props.type === 'light') {
+    return 'var(--color-text-light)';
+  } else {
+    // default
+    return 'var(--color-text-secondary)';
+  }
+});
+
 function handleClick(event) {
-  // If it's a toggle, don't emit click (the toggle handles its own event)
-  if (props.clickable) {
+  if (!props.disabled && !props.loading) {
     emit('click', event);
   }
 }
@@ -54,98 +89,95 @@ function handleClick(event) {
 
 <style scoped>
 .icon-button {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-03);
-  border-radius: var(--radius-05);
-  transition: all var(--transition-fast);
-  width: 100%;
-  text-align: left;
-}
-
-/* Default variant (SettingsModal) */
-.icon-button--default {
-  background: var(--color-background-neutral);
-}
-
-/* .icon-button--default.icon-button--clickable:hover {
-  background: var(--color-background-strong);
-} */
-
-/* Outlined variant (LanguageSettings) */
-.icon-button--outlined {
-  background: var(--color-background);
-  box-shadow: inset 0 0 0 1px var(--color-border);
-
-}
-
-/* .icon-button--outlined.icon-button--clickable:hover {
-  background: var(--color-background-strong);
-} */
-
-/* Active state (LanguageSettings) */
-.icon-button--outlined.active {
-  background: var(--color-background-neutral);
-  box-shadow: inset 0 0 0 2px var(--color-brand);
-}
-
-/* Clickable state (with caret-right) */
-.icon-button--clickable {
+  justify-content: center;
+  border: none;
   cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
 }
 
-/* Left icon */
-.icon-button__icon {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* === SIZES (Desktop) === */
+.icon-button--small {
+  padding: 8px;
+  border-radius: var(--radius-04);
 }
 
-.icon-button__icon :deep(img),
-.icon-button__icon :deep(svg) {
-  width: 40px;
-  height: 40px;
+.icon-button--medium {
+  padding: 8px;
+  border-radius: var(--radius-04);
 }
 
-/* Title */
-.icon-button__title {
-  flex: 1;
-  color: var(--color-text);
+.icon-button--large {
+  padding: 12px;
+  border-radius: var(--radius-04);
 }
 
-/* Title in text-secondary for outlined non-active */
-.icon-button--outlined .icon-button__title {
-  color: var(--color-text-secondary);
-}
-
-/* Title in normal text for outlined active */
-.icon-button--outlined.active .icon-button__title {
-  color: var(--color-text);
-}
-
-/* Right action */
-.icon-button__action {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Responsive - Mobile */
+/* === SIZES (Mobile) === */
 @media (max-aspect-ratio: 4/3) {
-  .icon-button__icon {
-    width: 32px;
-    height: 32px;
+  .icon-button--small {
+    padding: 8px;
+    border-radius: var(--radius-03);
   }
 
-  .icon-button__icon :deep(img),
-  .icon-button__icon :deep(svg) {
-    width: 32px;
-    height: 32px;
+  .icon-button--medium {
+    padding: 6px;
+    border-radius: var(--radius-03);
   }
+
+  .icon-button--large {
+    /* Auto-downgrade to medium size on mobile */
+    padding: 6px;
+    border-radius: var(--radius-03);
+  }
+}
+
+/* === TYPES === */
+.icon-button--light {
+  background: var(--color-background-neutral-12);
+}
+
+.icon-button--default {
+  background: var(--color-background-strong);
+}
+
+.icon-button--dark {
+  background: var(--color-background-contrast-12);
+}
+
+.icon-button--rounded {
+  background: var(--color-background-neutral-50);
+  border-radius: 50% !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Glass border effect for rounded type */
+.icon-button--rounded::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  opacity: 0.8;
+  background: var(--stroke-glass);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  border-radius: 50%;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* === STATES === */
+.icon-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.icon-button--loading {
+  pointer-events: none;
 }
 </style>

@@ -3,7 +3,7 @@
     <LoadingSpinner v-if="loading" />
 
     <div v-else-if="episodes.length === 0" class="empty-state">
-      <Icon name="list" :size="48" />
+      <SvgIcon name="list" :size="48" />
       <p>Aucun épisode en cours</p>
       <p class="hint">Commencez à écouter des épisodes et ils apparaîtront ici</p>
     </div>
@@ -18,19 +18,19 @@
         />
         <div class="queue-actions">
           <Button
-            variant="secondary"
+            type="background-strong"
             size="small"
             @click="markComplete(episode.episodeUuid)"
           >
-            <Icon name="check" :size="16" />
+            <SvgIcon name="check" :size="16" />
             Terminer
           </Button>
           <Button
-            variant="secondary"
+            type="background-strong"
             size="small"
             @click="removeFromQueue(episode.episodeUuid)"
           >
-            <Icon name="close" :size="16" />
+            <SvgIcon name="close" :size="16" />
             Supprimer
           </Button>
         </div>
@@ -45,7 +45,7 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import EpisodeCard from './EpisodeCard.vue'
 import Button from '@/components/ui/Button.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
-import Icon from '@/components/ui/Icon.vue'
+import SvgIcon from '@/components/ui/SvgIcon.vue'
 
 const emit = defineEmits(['select-episode', 'play-episode'])
 const podcastStore = usePodcastStore()

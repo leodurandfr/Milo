@@ -7,15 +7,15 @@
     }">
 
       <!-- ModalHeader: Favorites view -->
-      <ModalHeader v-if="!isSearchMode" :title="t('audioSources.radioSource.favoritesTitle')" variant="neutral"
+      <ModalHeader v-if="!isSearchMode" :title="t('audioSources.radioSource.favoritesTitle')" variant="background-neutral"
         icon="radio">
-        <template #actions>
-          <CircularIcon icon="search" variant="light" @click="openSearch" />
+        <template #actions="{ iconType }">
+          <IconButton icon="search" :type="iconType" @click="openSearch" />
         </template>
       </ModalHeader>
 
       <!-- ModalHeader: Search view -->
-      <ModalHeader v-else :title="t('audioSources.radioSource.discoverTitle')" :show-back="true" variant="neutral"
+      <ModalHeader v-else :title="t('audioSources.radioSource.discoverTitle')" :show-back="true" variant="background-neutral"
         @back="closeSearch">
       </ModalHeader>
 
@@ -38,7 +38,7 @@
           'message-fading-out': messageState === 'fading-out'
         }">
           <div class="message-content">
-            <Icon name="radio" :size="96" color="var(--color-background-glass)" />
+            <SvgIcon name="radio" :size="96" color="var(--color-background-medium-16)" />
             <p class="text-mono">{{ t('audioSources.radioSource.loadingStations') }}</p>
           </div>
         </div>
@@ -49,7 +49,7 @@
           'message-fading-out': messageState === 'fading-out'
         }">
           <div class="message-content">
-            <Icon name="stop" :size="96" color="var(--color-background-glass)" />
+            <SvgIcon name="stop" :size="96" color="var(--color-background-medium-16)" />
             <p class="text-mono">{{ t('audioSources.radioSource.connectionError') }}</p>
             <p class="text-body-small" style="color: var(--color-text-secondary);">{{
               t('audioSources.radioSource.cannotLoadStations') }}
@@ -66,7 +66,7 @@
           'message-fading-out': messageState === 'fading-out'
         }">
           <div class="message-content">
-            <Icon name="radio" :size="96" color="var(--color-background-glass)" />
+            <SvgIcon name="radio" :size="96" color="var(--color-background-medium-16)" />
             <p class="text-mono">{{ isSearchMode ? t('audioSources.radioSource.noStationsFound') :
               t('audioSources.radioSource.noFavorites') }}</p>
           </div>
@@ -120,12 +120,12 @@ import { useI18n } from '@/services/i18n';
 import { genreOptions as createGenreOptions } from '@/constants/music_genres';
 import { countryOptions as createCountryOptions } from '@/constants/countries';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
-import CircularIcon from '@/components/ui/CircularIcon.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import StationCard from '@/components/radio/StationCard.vue';
-import Icon from '@/components/ui/Icon.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const radioStore = useRadioStore();
@@ -663,7 +663,7 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   /* gap: 24px; */
-  padding: 0 var(--space-06);
+  padding: 0 var(--space-07);
   transition: all var(--transition-spring);
 
 }

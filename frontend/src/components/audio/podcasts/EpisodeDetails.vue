@@ -22,7 +22,7 @@
             </span>
           </div>
           <Button variant="toggle" @click="$emit('play-episode', episode)">
-            <Icon name="play" :size="16" />
+            <SvgIcon name="play" :size="16" />
             {{ hasProgress ? 'Reprendre' : 'Écouter' }}
           </Button>
         </div>
@@ -40,7 +40,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import Button from '@/components/ui/Button.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
-import Icon from '@/components/ui/Icon.vue'
+import SvgIcon from '@/components/ui/SvgIcon.vue'
 
 const props = defineProps({
   uuid: {

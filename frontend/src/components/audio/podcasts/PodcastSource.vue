@@ -3,12 +3,12 @@
     <div class="podcast-container" :class="{ 'with-player': shouldShowPlayerLayout }">
       <!-- Header with navigation -->
       <ModalHeader :title="currentTitle" :subtitle="currentSubtitle" :showBack="currentView !== 'home'" icon="podcast"
-        variant="neutral" @back="goToHome">
-        <template #actions>
-          <CircularIcon v-if="currentView === 'home'" icon="heart" variant="light" :active="false"
+        variant="background-neutral" @back="goToHome">
+        <template #actions="{ iconType }">
+          <IconButton v-if="currentView === 'home'" icon="heart" :type="iconType" :active="false"
             @click="goToSubscriptions" />
-          <CircularIcon v-if="currentView === 'home'" icon="search" variant="light" @click="goToSearch" />
-          <CircularIcon v-if="currentView === 'home'" icon="list" variant="light" @click="goToQueue" />
+          <IconButton v-if="currentView === 'home'" icon="search" :type="iconType" @click="goToSearch" />
+          <IconButton v-if="currentView === 'home'" icon="list" :type="iconType" @click="goToQueue" />
         </template>
       </ModalHeader>
 
@@ -56,7 +56,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import useWebSocket from '@/services/websocket'
 import { useI18n } from '@/services/i18n'
 import ModalHeader from '@/components/ui/ModalHeader.vue'
-import CircularIcon from '@/components/ui/CircularIcon.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 
 // Views
 import HomeView from './HomeView.vue'
@@ -265,13 +265,12 @@ onMounted(async () => {
   display: none;
 }
 
-/* Wrapper: similar to radio-source-wrapper */
 .podcast-source-wrapper {
   display: flex;
   justify-content: center;
   width: 100%;
   height: 100%;
-  padding: 0 var(--space-06);
+  padding: 0 var(--space-07);
   transition: all var(--transition-spring);
 }
 

@@ -7,7 +7,7 @@
         <!-- MESSAGE: Multiroom disabled -->
         <Transition name="message">
           <div v-if="!isMultiroomActive" key="message" class="message-content">
-            <Icon name="multiroom" :size="96" color="var(--color-background-glass)" />
+            <SvgIcon name="multiroom" :size="96" color="var(--color-background-medium-16)" />
             <p class="text-mono">{{ t("multiroom.disabled") }}</p>
           </div>
         </Transition>
@@ -92,7 +92,7 @@
               </div>
             </section>
 
-            <Button v-if="snapcastStore.hasServerConfigChanges" variant="primary" size="small" class="apply-button-sticky"
+            <Button v-if="snapcastStore.hasServerConfigChanges" type="dark" size="small" class="apply-button-sticky"
               :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
               {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
             </Button>
@@ -112,7 +112,7 @@ import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import Icon from '@/components/ui/Icon.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 import InputText from '@/components/ui/InputText.vue';
 
 const { t } = useI18n();

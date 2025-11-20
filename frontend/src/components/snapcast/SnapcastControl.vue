@@ -5,7 +5,7 @@
       <!-- MESSAGE: Multiroom disabled -->
       <Transition name="message">
         <div v-if="showMessage" key="message" class="message-content">
-          <Icon name="multiroom" :size="96" color="var(--color-background-glass)" />
+          <SvgIcon name="multiroom" :size="96" color="var(--color-background-medium-16)" />
           <p class="text-mono">{{ $t("multiroom.disabled") }}</p>
         </div>
       </Transition>
@@ -27,7 +27,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import useWebSocket from '@/services/websocket';
 import SnapclientItem from './SnapclientItem.vue';
-import Icon from '@/components/ui/Icon.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const snapcastStore = useSnapcastStore();

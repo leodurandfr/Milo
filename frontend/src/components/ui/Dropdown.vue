@@ -6,7 +6,7 @@
       :disabled="disabled"
       @click="toggleDropdown">
       <span class="dropdown-label text-body">{{ selectedLabel }}</span>
-      <Icon v-if="variant === 'default'" name="caretDown" :size="24" class="dropdown-icon" />
+      <SvgIcon v-if="variant === 'default'" name="caretDown" :size="24" class="dropdown-icon" />
     </button>
 
     <Transition name="dropdown-menu">
@@ -22,7 +22,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
-import Icon from '@/components/ui/Icon.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
   modelValue: {

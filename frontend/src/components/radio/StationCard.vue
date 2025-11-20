@@ -65,15 +65,15 @@
     </div>
 
     <div v-if="showControls" class="controls-wrapper">
-      <CircularIcon :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="background-light"
+      <IconButton :icon="station.is_favorite ? 'heart' : 'heartOff'" type="dark"
         @click="$emit('favorite')" />
       <!-- Desktop: Button with text -->
-      <Button v-if="!isMobile" variant="background-light" :left-icon="isPlaying ? 'stop' : 'play'" :loading="isLoading"
+      <Button v-if="!isMobile" variant="dark" :left-icon="isPlaying ? 'stop' : 'play'" :loading="isLoading"
         @click="$emit('play')">
         {{ isPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio') }}
       </Button>
       <!-- Mobile: CircularIcon without text -->
-      <CircularIcon v-else :icon="isPlaying ? 'stop' : 'play'" variant="background-light" :loading="isLoading"
+      <IconButton v-else :icon="isPlaying ? 'stop' : 'play'" type="dark" :loading="isLoading"
         @click="$emit('play')" />
     </div>
   </div>
@@ -83,7 +83,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { getTranslatedCountryName } from '@/constants/countries';
-import CircularIcon from '@/components/ui/CircularIcon.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import Button from '@/components/ui/Button.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
@@ -289,7 +289,7 @@ function handleImageError() {
   border-radius: var(--radius-04);
   cursor: pointer;
   transition: all var(--transition-fast);
-  background: var(--color-background-neutral-64);
+  background: var(--color-background-neutral-50);
   position: relative;
   min-width: 0;
 }

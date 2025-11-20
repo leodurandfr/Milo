@@ -53,7 +53,7 @@ onMounted(() => {
   width: 472px;
   padding: var(--space-04);
   border-radius: var(--radius-full);
-  background: var(--color-background-glass);
+  background: var(--color-background-medium-16);
   backdrop-filter: blur(12px);
   transition: all var(--transition-spring);
   z-index: 8000;
@@ -96,7 +96,7 @@ onMounted(() => {
   left: 0.5px;
   right: 0.5px;
   height: 100%;
-  background: var(--color-background-neutral-32);
+  background: var(--color-background-medium-32);
   border-radius: var(--radius-full);
   z-index: 0;
 }

@@ -28,7 +28,7 @@
 
         <!-- Playback controls -->
         <div class="playback-controls">
-          <CircularIcon icon="rewind15" variant="background-contrast-08" :size="40" @click="seekBackward" />
+          <IconButton icon="rewind15" type="dark" size="small" @click="seekBackward" />
 
           <!-- Loading spinner during buffering -->
           <div v-if="podcastStore.isBuffering" class="play-button-wrapper">
@@ -36,10 +36,10 @@
           </div>
 
           <!-- Play/Pause button when not buffering -->
-          <CircularIcon v-else :icon="podcastStore.isPlaying ? 'pause' : 'play'" variant="background-contrast-08" :size="56"
+          <IconButton v-else :icon="podcastStore.isPlaying ? 'pause' : 'play'" type="dark" size="large"
             @click="togglePlayPause" />
 
-          <CircularIcon icon="forward30" variant="background-contrast-08" :size="40" @click="seekForward" />
+          <IconButton icon="forward30" type="dark" size="small" @click="seekForward" />
         </div>
       </div>
     </div>
@@ -49,7 +49,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
-import CircularIcon from '@/components/ui/CircularIcon.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import ProgressBar from './ProgressBar.vue'
@@ -274,7 +274,7 @@ async function handleSpeedChange(speedValue) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-background-contrast-08);
+  background: var(--color-background-contrast-12);
   border-radius: 50%;
 }
 

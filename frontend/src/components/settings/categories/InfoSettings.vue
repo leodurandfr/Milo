@@ -130,7 +130,7 @@ onUnmounted(() => {
 }
 
 .text-error {
-  color: var(--color-destructive);
+  color: var(--color-error);
 }
 
 /* Responsive */
