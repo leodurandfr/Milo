@@ -45,66 +45,16 @@
     </div>
   </div>
 
-  <!-- "now-playing" variant: Player with controls -->
-  <div v-else-if="variant === 'now-playing'" class="now-playing">
-    <!-- Background image - heavily zoomed and blurred -->
-    <div class="station-art-background">
-      <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="background-station-favicon" />
-    </div>
-
-    <div class="station-art">
-      <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="Station logo"
-        class="current-station-favicon" @error="handleImageError" />
-      <img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" class="placeholder-logo"
-        :class="{ visible: !station.favicon || imageError }" />
-    </div>
-
-    <div class="station-info">
-      <p class="station-name display-1">{{ station.name }}</p>
-      <p v-if="nowPlayingMetadata" class="station-meta text-mono">{{ nowPlayingMetadata }}</p>
-    </div>
-
-    <div v-if="showControls" class="controls-wrapper">
-      <IconButton :icon="station.is_favorite ? 'heart' : 'heartOff'" variant="dark"
-        @click="$emit('favorite')" />
-      <!-- Desktop: Button with text -->
-      <Button v-if="!isMobile" variant="dark" :left-icon="isPlaying ? 'stop' : 'play'" :loading="isLoading"
-        @click="$emit('play')">
-        {{ isPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio') }}
-      </Button>
-      <!-- Mobile: CircularIcon without text -->
-      <IconButton v-else :icon="isPlaying ? 'stop' : 'play'" variant="dark" :loading="isLoading"
-        @click="$emit('play')" />
-    </div>
-  </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { getTranslatedCountryName } from '@/constants/countries';
-import IconButton from '@/components/ui/IconButton.vue';
-import Button from '@/components/ui/Button.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const { t } = useI18n();
-
-// Responsive detection for desktop vs mobile
-const isMobile = ref(false);
-
-const updateMediaQuery = () => {
-  isMobile.value = window.matchMedia('(max-aspect-ratio: 4/3)').matches;
-};
-
-onMounted(() => {
-  updateMediaQuery();
-  window.addEventListener('resize', updateMediaQuery);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('resize', updateMediaQuery);
-});
 
 const props = defineProps({
   station: {
@@ -114,7 +64,7 @@ const props = defineProps({
   variant: {
     type: String,
     required: true,
-    validator: (value) => ['card', 'image', 'now-playing'].includes(value)
+    validator: (value) => ['card', 'image'].includes(value)
   },
   showControls: {
     type: Boolean,
@@ -152,30 +102,6 @@ function capitalizeGenre(genre) {
   if (!genre) return '';
   return genre.charAt(0).toUpperCase() + genre.slice(1);
 }
-
-// Computed metadata for now-playing variant: genre + bitrate
-const nowPlayingMetadata = computed(() => {
-  const genre = capitalizeGenre(props.station?.genre);
-  const bitrate = props.station?.bitrate;
-
-  // Both genre and bitrate
-  if (genre && bitrate && bitrate > 0) {
-    return `${genre} • ${bitrate} kbps`;
-  }
-
-  // Only genre
-  if (genre) {
-    return genre;
-  }
-
-  // Only bitrate
-  if (bitrate && bitrate > 0) {
-    return `${bitrate} kbps`;
-  }
-
-  // Neither - return empty string
-  return '';
-});
 
 // Computed metadata for card variant: country + genre
 const cardMetadata = computed(() => {
@@ -389,224 +315,4 @@ function handleImageError() {
   opacity: 0.9;
 }
 
-/* Desktop: Vertical layout */
-.now-playing {
-  margin: var(--space-07) 0 0 var(--space-06);
-  display: flex;
-  width: 310px;
-  justify-content: space-between;
-  overflow: hidden;
-  /* height: calc(100% - 2 * var(--space-07)); */
-  max-height: 540px;
-  flex-shrink: 0;
-  flex-direction: column;
-  gap: var(--space-04);
-  padding: var(--space-04);
-  background: var(--color-background-contrast);
-  border-radius: var(--radius-07);
-  backdrop-filter: blur(16px);
-}
-
-.station-art img {
-  background: var(--color-background-neutral);
-}
-
-.now-playing .station-art-background .background-station-favicon {
-  filter: blur(96px) saturate(1.6) contrast(1) brightness(0.6);
-}
-
-.now-playing::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 2px;
-  opacity: 0.8;
-  background: var(--stroke-glass);
-  border-radius: var(--radius-07);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  z-index: 1;
-  pointer-events: none;
-}
-
-/* === "NOW-PLAYING" VARIANT: Player with controls === */
-
-
-.now-playing .station-art-background {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-  pointer-events: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.now-playing .station-art-background .background-station-favicon {
-  max-width: none;
-  max-height: none;
-  width: auto;
-  height: auto;
-  min-width: 200%;
-  min-height: 200%;
-  object-fit: contain;
-  transform: scale(2);
-}
-
-.now-playing .station-art {
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  z-index: 1;
-  aspect-ratio: 1 / 1;
-  flex-shrink: 0;
-}
-
-.now-playing .station-art .current-station-favicon {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 2;
-  display: block;
-}
-
-.now-playing .placeholder-logo {
-  display: none;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.now-playing .placeholder-logo.visible {
-  display: flex;
-}
-
-.now-playing .station-info {
-  position: relative;
-  z-index: 1;
-}
-
-.now-playing .station-name {
-  margin: 0;
-}
-
-.now-playing .station-meta {
-  margin: 0;
-}
-
-
-.now-playing .station-art {
-  width: 100%;
-  border-radius: var(--radius-05);
-}
-
-.now-playing .station-info {
-  display: flex;
-  height: 100%;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-.now-playing .station-name {
-  color: var(--color-text-contrast);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.now-playing .station-meta {
-  color: var(--color-text-contrast-50);
-}
-
-.controls-wrapper {
-  display: flex;
-  flex-direction: row-reverse;
-  flex-wrap: nowrap;
-  gap: var(--space-02);
-  justify-content: space-between;
-  z-index: 1;
-}
-
-.controls-wrapper .btn {
-  width: 100%;
-}
-
-/* Mobile: Horizontal sticky layout at bottom */
-@media (max-aspect-ratio: 4/3) {
-  .now-playing {
-    position: fixed;
-    bottom: var(--space-08);
-    top: auto;
-    left: 50%;
-    transform: translateX(-50%);
-    width: calc(100% - var(--space-02) * 2);
-    height: auto;
-    flex-direction: row;
-    align-items: center;
-    gap: var(--space-03);
-    padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
-    border-radius: var(--radius-06);
-    box-shadow: 0 var(--space-04) var(--space-07) rgba(0, 0, 0, 0.2);
-    z-index: 1000;
-  }
-
-  .now-playing .station-art {
-    width: 48px;
-    height: 48px;
-    border-radius: var(--radius-03);
-  }
-
-
-  .now-playing .station-info {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .now-playing .station-name {
-    font-size: var(--font-size-h1);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .now-playing .station-meta {
-    display: none;
-  }
-
-  .now-playing::before {
-    border-radius: var(--radius-06);
-  }
-
-  .controls-wrapper {
-    flex-direction: row;
-  }
-
-  /* Réduire la taille des CircularIcon et de leurs icônes en mobile */
-  .controls-wrapper :deep(.circular-icon--background-light) {
-    width: 40px;
-    height: 40px;
-  }
-
-  .controls-wrapper :deep(.svg-responsive) {
-    width: 28px;
-    height: 28px;
-  }
-
-}
 </style>
