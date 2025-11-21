@@ -1,6 +1,6 @@
 <template>
-  <Transition name="audio-player" @after-leave="$emit('after-hide')">
-    <div v-show="visible" class="audio-player">
+  <Transition name="audio-player" appear @after-leave="$emit('after-hide')">
+    <div v-show="visible" class="audio-player" :class="`source-${source}`">
       <!-- Background image - heavily zoomed and blurred -->
       <div class="player-art-background">
         <img v-if="artwork" :src="artwork" alt="" class="background-image" />
@@ -9,36 +9,26 @@
       <div class="player-content">
         <!-- Artwork -->
         <img v-if="artwork" :src="artwork" :alt="title" class="player-artwork" />
-        <img
-          v-else
-          :src="placeholderArtwork"
-          :alt="title"
-          class="player-artwork placeholder"
-        />
+        <img v-else :src="placeholderArtwork" :alt="title" class="player-artwork placeholder" />
 
         <!-- Info section with slot for flexible content -->
         <div class="player-info">
           <slot name="info">
-            <p class="player-title text-body">{{ title }}</p>
             <p v-if="subtitle" class="player-subtitle text-mono">{{ subtitle }}</p>
+            <p class="player-title text-body-small">{{ title }}</p>
           </slot>
+          <slot name="progress"></slot>
+
         </div>
 
-        <!-- Optional progress bar slot (for seekable sources like podcasts) -->
-        <slot name="progress"></slot>
 
         <!-- Controls section with slot for flexible controls -->
         <div class="controls">
           <slot name="controls">
             <!-- Default: Simple play/pause -->
             <div class="playback-controls">
-              <IconButton
-                :icon="isPlaying ? 'pause' : 'play'"
-                variant="dark"
-                size="large"
-                :loading="isLoading"
-                @click="$emit('toggle-play')"
-              />
+              <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="dark" size="large" :loading="isLoading"
+                @click="$emit('toggle-play')" />
             </div>
           </slot>
         </div>
@@ -66,7 +56,7 @@ const props = defineProps({
    */
   visible: {
     type: Boolean,
-    default: true
+    default: false
   },
 
   /**
@@ -218,25 +208,23 @@ defineEmits(['toggle-play', 'after-hide'])
   gap: var(--space-02);
 }
 
-.player-title {
+:deep(.player-title) {
   color: var(--color-text-contrast);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   margin: 0;
 }
 
-.player-subtitle {
+:deep(.player-subtitle) {
   color: var(--color-text-contrast-50);
   margin: 0;
   cursor: pointer;
 }
 
-.player-subtitle:hover {
-  color: var(--color-accent);
-}
+
 
 /* Controls section */
 .controls {
@@ -247,11 +235,11 @@ defineEmits(['toggle-play', 'after-hide'])
   position: relative;
 }
 
-.playback-controls {
+:deep(.playback-controls) {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: var(--space-04);
+  gap: var(--space-03);
 }
 
 /* Mobile: Horizontal bottom panel layout */
@@ -267,12 +255,13 @@ defineEmits(['toggle-play', 'after-hide'])
     max-height: none;
     flex-direction: row;
     align-items: center;
-    padding: var(--space-03);
+    padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
     border-radius: var(--radius-06);
   }
 
   .player-content {
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
     overflow-y: visible;
     gap: var(--space-02);
@@ -292,19 +281,10 @@ defineEmits(['toggle-play', 'after-hide'])
     min-width: 0;
   }
 
-  .player-title {
-    font-size: var(--font-size-h1);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    -webkit-line-clamp: unset;
-    -webkit-box-orient: unset;
-    display: block;
-  }
+
 
   /* Apply same styles to slotted content (fixes scoped CSS limitation) */
   :deep(.player-title) {
-    font-size: var(--font-size-h1);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -315,23 +295,35 @@ defineEmits(['toggle-play', 'after-hide'])
     margin: 0;
   }
 
-  .player-subtitle {
-    display: none;
-  }
-
   :deep(.player-subtitle) {
     display: none;
   }
 
-  /* Hide progress bar on mobile (handled by parent slot) */
+  /* Hide progress bar on mobile by default */
   .player-content :deep(.progress-bar) {
     display: none;
+  }
+
+  /* Show progress bar for podcasts on mobile */
+  .audio-player.source-podcast .player-content :deep(.progress-bar) {
+    display: flex;
   }
 
   .controls {
     gap: var(--space-02);
     justify-content: center;
     flex-shrink: 0;
+  }
+
+  /* Harmonize all IconButton sizes in controls on mobile (Radio + Podcasts) */
+  .controls :deep(.icon-button) {
+    width: 36px;
+    height: 36px;
+  }
+
+  .controls :deep(.icon-button svg) {
+    width: 28px;
+    height: 28px;
   }
 }
 

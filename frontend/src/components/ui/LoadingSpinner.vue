@@ -1,5 +1,5 @@
 <template>
-  <div class="loading-spinner" :style="spinnerStyle">
+  <div class="loading-spinner" :class="spinnerClass" :style="spinnerStyle">
     <div class="loading-spinner-content">
       <div v-html="svgContent" class="loading-spinner-svg" />
     </div>
@@ -21,25 +21,25 @@ const props = defineProps({
   }
 });
 
-const spinnerStyle = computed(() => {
-  let sizeInPx = 32;
-
-  if (typeof props.size === 'number') {
-    sizeInPx = props.size;
-  } else if (typeof props.size === 'string') {
-    switch (props.size) {
-      case 'large': sizeInPx = 72; break;
-      case 'medium': sizeInPx = 64; break;
-      case 'small': sizeInPx = 32; break;
-      default: sizeInPx = 32;
-    }
+const spinnerClass = computed(() => {
+  // Use CSS classes for named sizes (enables responsive behavior)
+  if (typeof props.size === 'string') {
+    return `loading-spinner--${props.size}`;
   }
+  return '';
+});
 
-  return {
-    width: `${sizeInPx}px`,
-    height: `${sizeInPx}px`,
-    '--spinner-size': `${sizeInPx}px`
-  };
+const spinnerStyle = computed(() => {
+  // Only apply inline styles for numeric sizes
+  if (typeof props.size === 'number') {
+    return {
+      width: `${props.size}px`,
+      height: `${props.size}px`,
+      '--spinner-size': `${props.size}px`
+    };
+  }
+  // For string sizes, styles are handled by CSS classes
+  return {};
 });
 
 const svgContent = computed(() => {
@@ -94,6 +94,34 @@ ${backgroundRect}
   overflow: hidden;
   width: var(--spinner-size);
   height: var(--spinner-size);
+}
+
+/* Size variants matching SvgIcon dimensions - Desktop */
+.loading-spinner--small {
+  --spinner-size: 28px;
+}
+
+.loading-spinner--medium {
+  --spinner-size: 32px;
+}
+
+.loading-spinner--large {
+  --spinner-size: 32px;
+}
+
+/* Size variants matching SvgIcon dimensions - Mobile */
+@media (max-width: 768px) {
+  .loading-spinner--small {
+    --spinner-size: 24px;
+  }
+
+  .loading-spinner--medium {
+    --spinner-size: 28px;
+  }
+
+  .loading-spinner--large {
+    --spinner-size: 32px;
+  }
 }
 
 .loading-spinner-content {
