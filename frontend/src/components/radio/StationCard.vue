@@ -391,9 +391,7 @@ function handleImageError() {
 
 /* Desktop: Vertical layout */
 .now-playing {
-  top: var(--space-07);
-  right: var(--space-06);
-  margin-top: var(--space-07);
+  margin: var(--space-07) 0 0 var(--space-06);
   display: flex;
   width: 310px;
   justify-content: space-between;

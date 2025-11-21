@@ -1,11 +1,14 @@
 // frontend/src/stores/podcastStore.js
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useUnifiedAudioStore } from './unifiedAudioStore'
 
 export const usePodcastStore = defineStore('podcast', () => {
+  // Access unified audio store (source of truth for playback state)
+  const unifiedStore = useUnifiedAudioStore()
+
   // === PLAYBACK STATE ===
   const currentEpisode = ref(null)
-  const playbackState = ref('stopped') // 'playing', 'paused', 'stopped', 'buffering'
   const currentPosition = ref(0)
   const currentDuration = ref(0)
   const playbackSpeed = ref(1.0)
@@ -19,9 +22,23 @@ export const usePodcastStore = defineStore('podcast', () => {
   })
 
   // === COMPUTED ===
-  const isPlaying = computed(() => playbackState.value === 'playing')
-  const isPaused = computed(() => playbackState.value === 'paused')
-  const isBuffering = computed(() => playbackState.value === 'buffering')
+  // Read playback state from unifiedStore (single source of truth)
+  const isPlaying = computed(() => {
+    if (unifiedStore.systemState.active_source !== 'podcast') return false
+    return unifiedStore.systemState.metadata?.is_playing || false
+  })
+
+  const isBuffering = computed(() => {
+    if (unifiedStore.systemState.active_source !== 'podcast') return false
+    return unifiedStore.systemState.metadata?.is_buffering || false
+  })
+
+  const isPaused = computed(() => {
+    if (unifiedStore.systemState.active_source !== 'podcast') return false
+    // Paused = has episode but not playing and not buffering
+    return hasCurrentEpisode.value && !isPlaying.value && !isBuffering.value
+  })
+
   const hasCurrentEpisode = computed(() => currentEpisode.value !== null)
 
   const progressPercentage = computed(() => {
@@ -42,7 +59,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       if (!data.success) {
         throw new Error('Failed to play episode')
       }
-      playbackState.value = 'buffering'
+      // State will be updated via WebSocket broadcast from backend
     } catch (error) {
       console.error('Error playing episode:', error)
       throw error
@@ -52,7 +69,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   async function pause() {
     try {
       await fetch('/api/podcast/pause', { method: 'POST' })
-      playbackState.value = 'paused'
+      // State will be updated via WebSocket broadcast from backend
     } catch (error) {
       console.error('Error pausing:', error)
     }
@@ -61,7 +78,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   async function resume() {
     try {
       await fetch('/api/podcast/resume', { method: 'POST' })
-      playbackState.value = 'playing'
+      // State will be updated via WebSocket broadcast from backend
     } catch (error) {
       console.error('Error resuming:', error)
     }
@@ -83,8 +100,8 @@ export const usePodcastStore = defineStore('podcast', () => {
   async function stop() {
     try {
       await fetch('/api/podcast/stop', { method: 'POST' })
+      // State will be cleared via WebSocket broadcast from backend
       currentEpisode.value = null
-      playbackState.value = 'stopped'
       currentPosition.value = 0
       currentDuration.value = 0
     } catch (error) {
@@ -143,14 +160,9 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Extract metadata from nested structure (data.metadata) or use data directly
     const metadata = data.metadata || data
 
+    // Update episode metadata (not playback state - that comes from unifiedStore)
     if (metadata.current_episode) {
       currentEpisode.value = metadata.current_episode
-    }
-    if (metadata.is_playing !== undefined) {
-      playbackState.value = metadata.is_playing ? 'playing' : 'paused'
-    }
-    if (metadata.is_buffering !== undefined && metadata.is_buffering) {
-      playbackState.value = 'buffering'
     }
     if (metadata.position !== undefined) {
       currentPosition.value = metadata.position
@@ -163,9 +175,11 @@ export const usePodcastStore = defineStore('podcast', () => {
     }
     if (metadata.episode_ended) {
       currentEpisode.value = null
-      playbackState.value = 'stopped'
       currentPosition.value = 0
     }
+
+    // Note: is_playing and is_buffering are read from unifiedStore.systemState.metadata
+    // They are updated by the unified audio state machine via WebSocket
   }
 
   function handlePluginEvent(event) {
@@ -183,14 +197,13 @@ export const usePodcastStore = defineStore('podcast', () => {
     currentEpisode.value = null
     currentPosition.value = 0
     currentDuration.value = 0
-    playbackState.value = 'stopped'
+    // Note: playback state comes from unifiedStore, no need to clear locally
   }
 
   // === RETURN ===
   return {
     // State
     currentEpisode,
-    playbackState,
     currentPosition,
     currentDuration,
     playbackSpeed,

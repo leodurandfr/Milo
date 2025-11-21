@@ -22,7 +22,7 @@
       <div class="controls">
         <!-- Speed selector -->
         <div class="speed-selector">
-          <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="minimal" size="small"
+          <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="transparent" size="small"
             @change="handleSpeedChange" />
         </div>
 
@@ -131,7 +131,8 @@ async function handleSpeedChange(speedValue) {
 .podcast-player {
   display: flex;
   width: 310px;
-  margin-top: var(--space-07);  max-height: 540px;
+  margin: var(--space-07) 0 0 var(--space-06);
+  max-height: 540px;
   flex-direction: column;
   gap: var(--space-04);
   padding: var(--space-04) var(--space-04) var(--space-05) var(--space-04);
@@ -249,23 +250,8 @@ async function handleSpeedChange(speedValue) {
   flex: none;
 }
 
-.speed-selector :deep(.dropdown-trigger--minimal) {
-  font-size: var(--font-size-h1);
-  min-width: 48px;
-  text-align: center;
-}
-
 .speed-selector :deep(.dropdown-menu) {
   min-width: 100px;
-}
-
-.speed-selector :deep(.dropdown-label) {
-  text-align: center;
-  min-width: 48px;
-}
-
-.speed-selector :deep(.dropdown-trigger) {
-  padding: var(--space-02) 0;
 }
 
 .play-button-wrapper {
@@ -283,6 +269,7 @@ async function handleSpeedChange(speedValue) {
   .podcast-player {
     position: fixed;
     bottom: var(--space-08);
+    margin: 0;
     left: 50%;
     transform: translateX(-50%);
     width: calc(100% - var(--space-02) * 2);
@@ -290,9 +277,8 @@ async function handleSpeedChange(speedValue) {
     max-height: none;
     flex-direction: row;
     align-items: center;
-    padding: var(--space-03) var(--space-04);
+    padding: var(--space-03);
     border-radius: var(--radius-06);
-    box-shadow: 0 var(--space-04) var(--space-07) rgba(0, 0, 0, 0.2);
   }
 
 
@@ -309,7 +295,6 @@ async function handleSpeedChange(speedValue) {
     height: 48px;
     min-width: 48px;
     border-radius: var(--radius-03);
-    box-shadow: 0 var(--space-02) var(--space-04) rgba(0, 0, 0, 0.3);
   }
 
   .episode-info {
