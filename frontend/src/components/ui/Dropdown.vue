@@ -5,7 +5,7 @@
       :class="[textClass, `dropdown-trigger--${variant}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
-      <span class="dropdown-label text-body">{{ selectedLabel }}</span>
+      <span class="dropdown-label" :class="variant === 'transparent' ? 'text-mono' : 'text-body'">{{ selectedLabel }}</span>
       <SvgIcon v-if="variant === 'default'" name="caretDown" :size="24" class="dropdown-icon" />
     </button>
 
@@ -50,7 +50,7 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'default',
-    validator: (value) => ['default', 'minimal'].includes(value)
+    validator: (value) => ['default', 'minimal', 'transparent'].includes(value)
   }
 });
 
@@ -108,15 +108,12 @@ function calculateDropdownDirection() {
 }
 
 function toggleDropdown() {
-  isOpen.value = !isOpen.value;
-
-  // Calculate direction when opening
-  if (isOpen.value) {
-    // Wait for next tick to ensure DOM is updated
-    setTimeout(() => {
-      calculateDropdownDirection();
-    }, 0);
+  // Calculate direction BEFORE opening to avoid animation glitch
+  if (!isOpen.value) {
+    calculateDropdownDirection();
   }
+
+  isOpen.value = !isOpen.value;
 }
 
 function selectOption(value) {
@@ -191,6 +188,27 @@ onBeforeUnmount(() => {
 .dropdown-trigger--minimal .dropdown-label {
   color: var(--color-text-contrast-50);
   font-weight: normal;
+}
+
+/* Transparent variant */
+.dropdown-trigger--transparent {
+  background: none;
+  border: none;
+  box-shadow: none;
+  width: auto;
+  min-width: 48px;
+  padding: var(--space-02) 0;
+}
+
+.dropdown-trigger--transparent:focus {
+  box-shadow: none;
+}
+
+.dropdown-trigger--transparent .dropdown-label {
+  color: var(--color-text-contrast-50);
+  font-weight: normal;
+  text-align: center;
+  min-width: 48px;
 }
 
 

@@ -50,7 +50,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import useWebSocket from '@/services/websocket'
@@ -80,46 +80,84 @@ onWsEvent('plugin', 'state_changed', (message) => {
   }
 })
 
-// Player layout visibility control (similar to RadioSource)
+// Playback state - Read DIRECTLY from unifiedStore (single source of truth)
+const isCurrentlyPlaying = computed(() => {
+  // Check that the active source is Podcast
+  if (unifiedStore.systemState.active_source !== 'podcast') {
+    return false
+  }
+  // Use backend state via WebSocket
+  return unifiedStore.systemState.metadata?.is_playing || false
+})
+
+// Buffering state - Read DIRECTLY from unifiedStore (single source of truth)
+const isBuffering = computed(() => {
+  // Check that the active source is Podcast
+  if (unifiedStore.systemState.active_source !== 'podcast') {
+    return false
+  }
+  // Use backend state via WebSocket
+  return unifiedStore.systemState.metadata?.is_buffering || false
+})
+
+// Player layout visibility control (same pattern as RadioSource)
 const shouldShowPlayerLayout = ref(false)
 const stopTimer = ref(null)
+const cleanupTimer = ref(null)
 
-// Auto-hide logic: show player while playing, stop after 5s of pause
-watch(() => podcastStore.isPlaying, (isPlaying) => {
-  // Clear any existing timer
-  if (stopTimer.value) {
-    clearTimeout(stopTimer.value)
-    stopTimer.value = null
-  }
+// Combined watcher: handles visibility, animation, and auto-stop timer
+watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurrentEpisode],
+  ([playing, buffering, hasEpisode]) => {
+    // Clear any existing timers
+    if (stopTimer.value) {
+      clearTimeout(stopTimer.value)
+      stopTimer.value = null
+    }
+    if (cleanupTimer.value) {
+      clearTimeout(cleanupTimer.value)
+      cleanupTimer.value = null
+    }
 
-  if (isPlaying && podcastStore.hasCurrentEpisode) {
-    // Playing: show with animation delay for smooth CSS transition
-    requestAnimationFrame(() => {
+    if ((playing || buffering) && hasEpisode) {
+      // Playing/buffering: show player with animation
       requestAnimationFrame(() => {
-        shouldShowPlayerLayout.value = true
+        requestAnimationFrame(() => {
+          shouldShowPlayerLayout.value = true
+        })
       })
-    })
-  } else if (!isPlaying && podcastStore.hasCurrentEpisode) {
-    // Paused with an episode: stop playback after 5s
-    stopTimer.value = setTimeout(async () => {
-      await podcastStore.stop()
-    }, 5000)
-  } else if (!podcastStore.hasCurrentEpisode) {
-    // No episode at all: hide immediately
-    shouldShowPlayerLayout.value = false
+    } else if (!playing && !buffering && hasEpisode) {
+      // Paused with an episode: hide visually after 5s, then stop after animation completes
+      stopTimer.value = setTimeout(() => {
+        // Step 1: Hide visually (triggers CSS animation)
+        shouldShowPlayerLayout.value = false
+
+        // Step 2: Call stop() after animation completes (600ms transition time)
+        cleanupTimer.value = setTimeout(async () => {
+          await podcastStore.stop()
+        }, 700) // Slightly longer than CSS transition (0.6s)
+      }, 5000)
+    } else if (!hasEpisode) {
+      // No episode: hide immediately
+      shouldShowPlayerLayout.value = false
+    }
+  }, { immediate: true })
+
+// Stable layout during episode changes (same pattern as Radio lines 466-474)
+// Pre-initialize layout if episode is already playing (prevents animation on refresh)
+watch(() => podcastStore.currentEpisode, (newEpisode) => {
+  if (newEpisode && (isCurrentlyPlaying.value || isBuffering.value)) {
+    // Lock the layout immediately (no animation on refresh)
+    shouldShowPlayerLayout.value = true
   }
+  // Note: Don't unlock here - let the main watcher handle unlocking
 }, { immediate: true })
 
-// Sync layout visibility with episode presence
-watch(() => podcastStore.hasCurrentEpisode, (hasEpisode) => {
-  if (hasEpisode && podcastStore.isPlaying) {
-    // If episode appears and we're playing, show layout immediately
-    shouldShowPlayerLayout.value = true
-  } else if (!hasEpisode) {
-    // No episode: hide layout immediately
-    shouldShowPlayerLayout.value = false
+// Sync metadata from unifiedStore (same pattern as RadioSource)
+watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
+  if (unifiedStore.systemState.active_source === 'podcast' && newMetadata) {
+    podcastStore.handleStateUpdate(newMetadata)
   }
-}, { immediate: true })
+}, { immediate: true, deep: true })
 
 // Clean up metadata when transitioning from CONNECTED to READY
 // (episode ended or stopped)
@@ -257,6 +295,25 @@ async function playEpisode(episode) {
 onMounted(async () => {
   // Load settings and initial data
   await podcastStore.loadSettings()
+
+  // IMPORTANT: Sync currentEpisode from current backend state (same pattern as RadioSource)
+  if (unifiedStore.systemState.active_source === 'podcast' && unifiedStore.systemState.metadata) {
+    console.log('🎙️ Syncing currentEpisode from existing state on mount')
+    podcastStore.handleStateUpdate(unifiedStore.systemState.metadata)
+  }
+})
+
+// Cleanup on unmount
+onBeforeUnmount(() => {
+  // Clear all timers
+  if (stopTimer.value) {
+    clearTimeout(stopTimer.value)
+    stopTimer.value = null
+  }
+  if (cleanupTimer.value) {
+    clearTimeout(cleanupTimer.value)
+    cleanupTimer.value = null
+  }
 })
 </script>
 
@@ -291,8 +348,8 @@ onMounted(async () => {
 }
 
 .podcast-container.with-player {
-  width: calc(100% - 310px - 24px);
-  margin-right: 24px;
+  width: calc(100% - 310px - var(--space-06));
+  /* margin-right removed - gap created by width calculation */
   transition: width var(--transition-spring);
 }
 

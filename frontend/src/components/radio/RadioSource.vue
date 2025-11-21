@@ -685,8 +685,7 @@ onBeforeUnmount(() => {
 }
 
 .radio-container.with-now-playing {
-  width: calc(100% - 310px - 24px);
-  margin-right: 24px;
+  width: calc(100% - 310px - var(--space-06));
   /* Apparition : spring bounce (dynamic entry) */
   transition: width var(--transition-spring);
 }
