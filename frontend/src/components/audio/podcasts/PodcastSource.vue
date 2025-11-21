@@ -57,14 +57,6 @@
         :is-loading="isBuffering"
         @after-hide="handlePlayerHidden"
       >
-        <!-- Custom info with podcast click handler -->
-        <template #info>
-          <p class="player-title text-body">{{ episodeName }}</p>
-          <p class="player-subtitle text-mono" @click="openPodcastDetails(podcastStore.currentEpisode?.podcast?.uuid)">
-            {{ podcastName }}
-          </p>
-        </template>
-
         <!-- Progress bar (seekable) -->
         <template #progress>
           <ProgressBar
@@ -92,17 +84,12 @@
           <div class="playback-controls">
             <IconButton icon="rewind15" variant="dark" size="small" @click="seekBackward" />
 
-            <!-- Loading spinner during buffering -->
-            <div v-if="isBuffering" class="play-button-wrapper">
-              <LoadingSpinner :size="56" />
-            </div>
-
-            <!-- Play/Pause button when not buffering -->
+            <!-- Play/Pause button with loading state -->
             <IconButton
-              v-else
               :icon="isCurrentlyPlaying ? 'pause' : 'play'"
               variant="dark"
               size="large"
+              :loading="isBuffering"
               @click="togglePlayPause"
             />
 
@@ -125,7 +112,6 @@ import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/ui/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/ui/AudioSourceLayout.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 
 // Views
 import HomeView from './HomeView.vue'
@@ -483,16 +469,6 @@ onBeforeUnmount(() => {
 
 .speed-selector :deep(.dropdown-menu) {
   min-width: 100px;
-}
-
-.play-button-wrapper {
-  width: 56px;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-background-contrast-12);
-  border-radius: 50%;
 }
 
 /* Hide speed selector on mobile */
