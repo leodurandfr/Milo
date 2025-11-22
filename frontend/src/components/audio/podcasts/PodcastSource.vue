@@ -54,21 +54,26 @@
         :subtitle="podcastName"
         :is-playing="isCurrentlyPlaying"
         :is-loading="isBuffering"
+        :expandable="true"
+        :expanded="isPlayerExpanded"
+        @toggle-expanded="isPlayerExpanded = !isPlayerExpanded"
       >
         <!-- Progress bar (seekable) -->
         <template #progress>
-          <ProgressBar
-            :currentPosition="podcastStore.currentPosition"
-            :duration="podcastStore.currentDuration"
-            :progressPercentage="progressPercentage"
-            @seek="handleSeek"
-          />
+          <div @click.stop>
+            <ProgressBar
+              :currentPosition="podcastStore.currentPosition"
+              :duration="podcastStore.currentDuration"
+              :progressPercentage="progressPercentage"
+              @seek="handleSeek"
+            />
+          </div>
         </template>
 
         <!-- Podcast controls with speed and seek -->
         <template #controls>
           <!-- Speed selector -->
-          <div class="speed-selector">
+          <div class="speed-selector" @click.stop>
             <Dropdown
               v-model="selectedSpeed"
               :options="speedOptions"
@@ -79,7 +84,7 @@
           </div>
 
           <!-- Playback controls -->
-          <div class="playback-controls">
+          <div class="playback-controls" @click.stop>
             <IconButton icon="rewind15" variant="dark" size="small" @click="seekBackward" />
 
             <!-- Play/Pause button with loading state -->
@@ -157,6 +162,9 @@ const isBuffering = computed(() => {
 // Player layout visibility control - manual ref for animation control
 const shouldShowPlayerLayout = ref(false)
 
+// Expanded player state
+const isPlayerExpanded = ref(false)
+
 // Auto-stop timer: stops playback after 5 seconds of pause
 const stopTimer = ref(null)
 
@@ -178,8 +186,8 @@ watch(() => unifiedStore.systemState.plugin_state, (newState) => {
 }, { immediate: true })
 
 // Watcher: triggers auto-stop after 5s when paused
-watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurrentEpisode],
-  ([playing, buffering, hasEpisode]) => {
+watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurrentEpisode, isPlayerExpanded.value],
+  ([playing, buffering, hasEpisode, expanded]) => {
     // Clear any existing timer
     if (stopTimer.value) {
       clearTimeout(stopTimer.value)
@@ -189,16 +197,31 @@ watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurren
     // If paused with an episode: schedule auto-stop after 5s
     if (!playing && !buffering && hasEpisode) {
       stopTimer.value = setTimeout(async () => {
-        // 1. First, hide the player (triggers 0.6s exit animation)
-        shouldShowPlayerLayout.value = false
+        // If player is expanded, collapse it first
+        if (expanded) {
+          isPlayerExpanded.value = false
+          // Wait for collapse animation to complete (600ms), then hide
+          setTimeout(() => {
+            shouldShowPlayerLayout.value = false
+            // Then stop after hide animation (600ms)
+            setTimeout(async () => {
+              if (!isCurrentlyPlaying.value && !isBuffering.value) {
+                await podcastStore.stop()
+              }
+            }, 600)
+          }, 600)
+        } else {
+          // If compact, just hide the player (triggers 0.6s exit animation)
+          shouldShowPlayerLayout.value = false
 
-        // 2. Wait for animation to complete (600ms), then stop
-        setTimeout(async () => {
-          // 3. Only call stop() if still not playing (user might have resumed)
-          if (!isCurrentlyPlaying.value && !isBuffering.value) {
-            await podcastStore.stop()
-          }
-        }, 600)
+          // Wait for animation to complete (600ms), then stop
+          setTimeout(async () => {
+            // Only call stop() if still not playing (user might have resumed)
+            if (!isCurrentlyPlaying.value && !isBuffering.value) {
+              await podcastStore.stop()
+            }
+          }, 600)
+        }
       }, 5000)
     }
   }, { immediate: true })
@@ -456,20 +479,10 @@ onBeforeUnmount(() => {
   min-width: 100px;
 }
 
-/* Hide speed selector on mobile */
+/* Compact playback controls on mobile */
 @media (max-aspect-ratio: 4/3) {
-  .speed-selector {
-    display: none;
-  }
-
-  /* Compact playback controls on mobile */
   .playback-controls {
     gap: var(--space-01);
-  }
-
-  /* Hide rewind15 button on mobile - keep only play/pause + forward30 */
-  .playback-controls > :first-child {
-    display: none;
   }
 }
 </style>
