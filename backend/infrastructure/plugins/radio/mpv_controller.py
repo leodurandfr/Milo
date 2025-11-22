@@ -157,12 +157,13 @@ class MpvController:
         Returns:
             True if command sent successfully
         """
-        self.logger.info(f"Loading stream: {url}")
+        self.logger.info(f"Loading stream: {url[:100]}...")
         response = await self._send_command("loadfile", url, "replace")
 
         # mpv can return transient errors (None, "property unavailable")
         # during initial stream loading. We accept these errors.
         if response is None:
+            self.logger.warning("loadfile returned None")
             return False
 
         error = response.get('error')
@@ -173,7 +174,7 @@ class MpvController:
             return True
 
         # Log only real errors
-        self.logger.error(f"mpv loadfile failed with error: {error}")
+        self.logger.error(f"loadfile failed with error: {error}")
         return False
 
     async def stop(self) -> bool:

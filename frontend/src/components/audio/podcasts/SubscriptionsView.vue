@@ -2,7 +2,7 @@
   <div class="subscriptions-view">
     <!-- Latest episodes from subscriptions -->
     <section v-if="latestEpisodes.length > 0" class="section">
-      <h3 class="section-title">Nouveaux épisodes</h3>
+      <h3 class="section-title">{{ t('podcasts.newEpisodes') }}</h3>
       <div class="episodes-list">
         <EpisodeCard
           v-for="episode in latestEpisodes"
@@ -17,14 +17,14 @@
 
     <!-- My podcasts -->
     <section class="section">
-      <h3 class="section-title">Mes podcasts</h3>
+      <h3 class="section-title">{{ t('podcasts.myPodcasts') }}</h3>
 
       <LoadingSpinner v-if="loading" />
 
       <div v-else-if="subscriptions.length === 0" class="empty-state">
         <SvgIcon name="heart" :size="48" />
-        <p>Aucun abonnement</p>
-        <p class="hint">Recherchez des podcasts et abonnez-vous pour les retrouver ici</p>
+        <p>{{ t('podcasts.noSubscriptions') }}</p>
+        <p class="hint">{{ t('podcasts.noSubscriptionsHint') }}</p>
       </div>
 
       <div v-else class="podcasts-grid">
@@ -44,11 +44,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
+import { useI18n } from '@/services/i18n'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
 
+const { t } = useI18n()
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
 const podcastStore = usePodcastStore()
 
@@ -97,7 +99,7 @@ async function loadData() {
     if (subscriptions.value.length > 0) {
       const latestResponse = await fetch('/api/podcast/subscriptions/latest-episodes?limit=20')
       const latestData = await latestResponse.json()
-      latestEpisodes.value = latestData.results || []
+      latestEpisodes.value = podcastStore.enrichEpisodesWithProgress(latestData.results || [])
     }
   } catch (error) {
     console.error('Error loading subscriptions:', error)

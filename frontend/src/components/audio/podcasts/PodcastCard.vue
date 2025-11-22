@@ -11,7 +11,7 @@
         loading="lazy"
         @error="handleImageError"
       />
-      <div v-if="hasNewEpisodes" class="badge-new">Nouveau</div>
+      <div v-if="hasNewEpisodes" class="badge-new">{{ t('podcasts.new') }}</div>
       <div v-if="isSubscribed" class="badge-subscribed">
         <SvgIcon name="heart" :size="16" />
       </div>
@@ -30,7 +30,7 @@
         size="small"
         @click="$emit('subscribe', podcast.uuid)"
       >
-        S'abonner
+        {{ t('podcasts.subscribe') }}
       </Button>
       <Button
         v-else
@@ -38,7 +38,7 @@
         size="small"
         @click="$emit('unsubscribe', podcast.uuid)"
       >
-        Désabonner
+        {{ t('podcasts.unsubscribe') }}
       </Button>
     </div>
   </div>
@@ -46,8 +46,11 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { useI18n } from '@/services/i18n'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
 import Button from '@/components/ui/Button.vue'
+
+const { t } = useI18n()
 
 const props = defineProps({
   podcast: {
@@ -104,10 +107,7 @@ function handleImageError() {
   gap: var(--space-03);
 }
 
-.podcast-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
+
 
 .podcast-card:active {
   transform: translateY(0);

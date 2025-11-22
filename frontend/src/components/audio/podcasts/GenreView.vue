@@ -4,7 +4,7 @@
     <section class="section">
       <LoadingSpinner v-if="loading" />
       <div v-else-if="topPodcasts.length === 0" class="empty-state">
-        <p>Aucun podcast trouvé dans cette catégorie</p>
+        <p>{{ t('podcasts.noPodcastsInGenre') }}</p>
       </div>
       <div v-else class="podcasts-grid">
         <PodcastCard v-for="podcast in topPodcasts" :key="podcast.itunes_id || podcast.uuid" :podcast="podcast"
@@ -17,8 +17,11 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
+import { useI18n } from '@/services/i18n'
 import PodcastCard from './PodcastCard.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
+
+const { t } = useI18n()
 
 const props = defineProps({
   genre: {

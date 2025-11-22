@@ -39,12 +39,14 @@ import SettingsModal from '@/components/settings/SettingsModal.vue';
 import VirtualKeyboard from '@/components/ui/VirtualKeyboard.vue';
 
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { usePodcastStore } from '@/stores/podcastStore';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useScreenActivity } from '@/composables/useScreenActivity';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 
 const unifiedStore = useUnifiedAudioStore();
+const podcastStore = usePodcastStore();
 const { on, onReconnect } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
 
@@ -79,16 +81,25 @@ onMounted(async () => {
   // Setup listeners
   const visibilityCleanup = unifiedStore.setupVisibilityListener();
   cleanupFunctions.push(visibilityCleanup);
-  
+
   // WebSocket events - Audio
+  // Initial state is received via WebSocket handshake (initial_state event)
+  // Real-time updates come via state_changed and other events
   cleanupFunctions.push(
+    on('system', 'initial_state', (event) => unifiedStore.updateState(event)),
     on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_start', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_complete', (event) => unifiedStore.updateState(event)),
     on('system', 'error', (event) => unifiedStore.updateState(event)),
-    on('plugin', 'state_changed', (event) => unifiedStore.updateState(event)),
-    on('plugin', 'metadata', (event) => unifiedStore.updateState(event))
+    on('plugin', 'state_changed', (event) => {
+      unifiedStore.updateState(event);
+      podcastStore.handlePluginEvent(event);
+    }),
+    on('plugin', 'metadata', (event) => {
+      unifiedStore.updateState(event);
+      podcastStore.handlePluginEvent(event);
+    })
   );
 
   // WebSocket events - i18n
@@ -105,14 +116,13 @@ onMounted(async () => {
   );
 
   // WebSocket reconnect
+  // Note: State is automatically synchronized via WebSocket handshake (initial_state event)
+  // No additional action needed on reconnection
   cleanupFunctions.push(
     onReconnect(() => {
-      console.log('WebSocket reconnected - full state sync incoming');
+      console.log('WebSocket reconnected');
     })
   );
-
-  // Initial state
-  unifiedStore.refreshState();
 });
 
 onUnmounted(() => {

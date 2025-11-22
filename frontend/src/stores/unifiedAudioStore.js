@@ -110,13 +110,9 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     return await adjustVolume(-5);
   }
 
-  // === REFRESH (WebSocket only - no HTTP polling) ===
-  // Note: State is automatically synchronized via WebSocket.
-  // This function is kept only for compatibility and no longer performs HTTP polling.
-  async function refreshState() {
-    console.log('ℹ️ refreshState called - state synchronized via WebSocket only');
-    return true;
-  }
+  // === WEBSOCKET STATE UPDATES ===
+  // State is now received exclusively via WebSocket (initial_state and state_changed events)
+  // The WebSocket handshake ensures initial state is sent when the client is ready
 
   // === VISIBILITY MANAGEMENT ===
   // Note: No need for polling when returning to focus – WebSocket keeps state up to date
@@ -249,7 +245,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     decreaseVolume,
     handleVolumeEvent,
     setVolumeBarRef,
-    refreshState,
     setupVisibilityListener
   };
 });

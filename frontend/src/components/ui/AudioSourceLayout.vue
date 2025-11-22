@@ -92,13 +92,14 @@ const props = defineProps({
   .content-container {
     width: 100%;
     max-width: none;
-    padding-bottom: calc(var(--space-04) + 80px);
+    padding-bottom: var(--space-04);
     padding-top: var(--space-09);
   }
 
   .content-container.with-player {
     width: 100%;
     margin-right: 0;
+    padding-bottom: 140px;
   }
 
   .player-wrapper {

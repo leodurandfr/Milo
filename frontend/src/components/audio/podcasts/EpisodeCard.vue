@@ -10,13 +10,17 @@
         <p v-if="podcastName" class="podcast-name text-mono">{{ podcastName }}</p>
 
         <div class="episode-meta text-mono">
-          <span class="duration">{{ hasProgress ? timeRemaining : formattedDuration }}</span>
+          <span class="duration">
+            <template v-if="isCurrentlyPlaying">{{ $t('podcasts.nowPlaying') }}</template>
+            <template v-else-if="hasProgress">{{ timeRemaining }}</template>
+            <template v-else>{{ formattedDuration }}</template>
+          </span>
           <span class="separator">•</span>
           <span class="date">{{ formattedDate }}</span>
         </div>
       </div>
 
-      <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="light" size="medium"
+      <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="default" size="medium"
         :loading="isCurrentEpisodeBuffering" :disabled="isCurrentEpisodeBuffering" @click.stop="handlePlayClick" />
     </div>
   </div>
@@ -25,7 +29,11 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
+import { useI18n } from '@/services/i18n'
 import IconButton from '@/components/ui/IconButton.vue'
+import episodePlaceholder from '@/assets/podcasts/episode-placeholder.jpg'
+
+const { t } = useI18n()
 
 const props = defineProps({
   episode: {
@@ -40,22 +48,27 @@ const podcastStore = usePodcastStore()
 const imageError = ref(false)
 
 const imageUrl = computed(() => {
-  if (imageError.value) return '/default-episode.png'
+  if (imageError.value) return episodePlaceholder
   return props.episode.image_url ||
     props.episode.podcast?.image_url ||
-    '/default-episode.png'
+    episodePlaceholder
 })
 
 const podcastName = computed(() => {
   return props.episode.podcast?.name || ''
 })
 
+// Check if this episode is the current one (playing or paused)
+const isCurrentEpisode = computed(() => {
+  return podcastStore.currentEpisode?.uuid === props.episode.uuid
+})
+
 const isCurrentlyPlaying = computed(() => {
-  return podcastStore.currentEpisode?.uuid === props.episode.uuid && podcastStore.isPlaying
+  return isCurrentEpisode.value && podcastStore.isPlaying
 })
 
 const isCurrentEpisodeBuffering = computed(() => {
-  return podcastStore.currentEpisode?.uuid === props.episode.uuid && podcastStore.isBuffering
+  return isCurrentEpisode.value && podcastStore.isBuffering
 })
 
 function handlePlayClick() {
@@ -69,24 +82,46 @@ function handlePlayClick() {
 }
 
 const hasProgress = computed(() => {
-  const progress = props.episode.playback_progress
-  return progress && progress.position > 0 && !progress.completed
+  // If this is the current episode, read from store (real-time)
+  if (isCurrentEpisode.value) {
+    return podcastStore.currentPosition > 0
+  }
+  // Otherwise, read from reactive progress cache (updated via WebSocket)
+  const progress = podcastStore.getEpisodeProgress(props.episode.uuid)
+  return progress && progress.position > 0
 })
 
 const progressPercent = computed(() => {
-  const progress = props.episode.playback_progress
+  // If this is the current episode, use live data
+  if (isCurrentEpisode.value) {
+    if (!podcastStore.currentDuration) return 0
+    return (podcastStore.currentPosition / podcastStore.currentDuration) * 100
+  }
+  // Otherwise, use reactive progress cache (updated via WebSocket)
+  const progress = podcastStore.getEpisodeProgress(props.episode.uuid)
   if (!progress || !progress.duration) return 0
   return (progress.position / progress.duration) * 100
 })
 
 const timeRemaining = computed(() => {
-  const progress = props.episode.playback_progress
+  // If this is the current episode, use live data
+  if (isCurrentEpisode.value) {
+    const remaining = podcastStore.currentDuration - podcastStore.currentPosition
+    return formatDuration(remaining) + ' ' + t('podcasts.remaining')
+  }
+  // Otherwise, use reactive progress cache (updated via WebSocket)
+  const progress = podcastStore.getEpisodeProgress(props.episode.uuid)
   if (!progress) return ''
   const remaining = progress.duration - progress.position
-  return formatDuration(remaining) + ' restantes'
+  return formatDuration(remaining) + ' ' + t('podcasts.remaining')
 })
 
 const formattedDuration = computed(() => {
+  // If this is the current episode, use live duration from store
+  if (isCurrentEpisode.value) {
+    return formatDuration(podcastStore.currentDuration || 0)
+  }
+  // Otherwise, use episode's static duration
   return formatDuration(props.episode.duration || 0)
 })
 
@@ -109,12 +144,12 @@ function formatRelativeDate(epochSeconds) {
   const diff = now - date
   const days = Math.floor(diff / 86400000)
 
-  if (days === 0) return "Aujourd'hui"
-  if (days === 1) return 'Hier'
-  if (days < 7) return `Il y a ${days} jours`
-  if (days < 30) return `Il y a ${Math.floor(days / 7)} semaines`
-  if (days < 365) return `Il y a ${Math.floor(days / 30)} mois`
-  return `Il y a ${Math.floor(days / 365)} ans`
+  if (days === 0) return t('podcasts.today')
+  if (days === 1) return t('podcasts.yesterday')
+  if (days < 7) return t('podcasts.daysAgo', { count: days })
+  if (days < 30) return t('podcasts.weeksAgo', { count: Math.floor(days / 7) })
+  if (days < 365) return t('podcasts.monthsAgo', { count: Math.floor(days / 30) })
+  return t('podcasts.yearsAgo', { count: Math.floor(days / 365) })
 }
 </script>
 
@@ -129,9 +164,6 @@ function formatRelativeDate(epochSeconds) {
   transition: background var(--transition-fast);
 }
 
-.episode-card:hover {
-  background: var(--color-background-strong);
-}
 
 .card-image {
   width: 128px;

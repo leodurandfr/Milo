@@ -2,7 +2,7 @@
   <div class="home-view">
     <!-- New episodes from subscriptions (Bloc 1) -->
     <section v-if="latestSubscriptionEpisodes.length > 0" class="section">
-      <h3 class="section-title heading-2">Nouveaux épisodes des podcasts abonnés</h3>
+      <h3 class="section-title heading-2">{{ t('podcasts.newEpisodesFromSubscriptions') }}</h3>
       <div class="episodes-list">
         <EpisodeCard v-for="episode in latestSubscriptionEpisodes.slice(0, 4)" :key="episode.uuid" :episode="episode"
           @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)" @pause="handlePause" />
@@ -11,7 +11,7 @@
 
     <!-- Top Podcasts (Bloc 2) -->
     <section class="section">
-      <h3 class="section-title heading-2">Classement des podcasts</h3>
+      <h3 class="section-title heading-2">{{ t('podcasts.topPodcasts') }}</h3>
       <LoadingSpinner v-if="loadingTopCharts" />
       <div v-else class="podcasts-grid">
         <PodcastCard v-for="(podcast, index) in topCharts.slice(0, 6)" :key="podcast.uuid" :podcast="podcast"
@@ -21,7 +21,7 @@
 
     <!-- Browse by Genre (Bloc 3) -->
     <section class="section">
-      <h3 class="section-title heading-2">Parcourir par genre</h3>
+      <h3 class="section-title heading-2">{{ t('podcasts.browseByGenre') }}</h3>
       <div class="genres-grid">
         <div v-for="genre in mainGenres" :key="genre.value" class="genre-card" @click="browseGenre(genre.value)">
           <span class="genre-emoji">{{ genre.emoji }}</span>
@@ -32,7 +32,7 @@
 
     <!-- Top Episodes (Bloc 4) -->
     <section class="section">
-      <h3 class="section-title heading-2">Classement des épisodes</h3>
+      <h3 class="section-title heading-2">{{ t('podcasts.topEpisodes') }}</h3>
       <LoadingSpinner v-if="loadingTopEpisodes" />
       <div v-else class="episodes-list">
         <EpisodeCard v-for="episode in topEpisodes.slice(0, 6)" :key="episode.uuid" :episode="episode"
@@ -43,13 +43,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
+import { useI18n } from '@/services/i18n'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode', 'browse-genre'])
+const { t } = useI18n()
 
 const podcastStore = usePodcastStore()
 
@@ -59,20 +61,20 @@ const topCharts = ref([])
 const topEpisodes = ref([])
 const latestSubscriptionEpisodes = ref([])
 
-const mainGenres = [
-  { value: 'PODCASTSERIES_NEWS', label: 'Actualités', emoji: '📰' },
-  { value: 'PODCASTSERIES_COMEDY', label: 'Comédie', emoji: '😂' },
-  { value: 'PODCASTSERIES_TRUE_CRIME', label: 'True Crime', emoji: '🔍' },
-  { value: 'PODCASTSERIES_TECHNOLOGY', label: 'Tech', emoji: '💻' },
-  { value: 'PODCASTSERIES_SPORTS', label: 'Sports', emoji: '🏆' },
-  { value: 'PODCASTSERIES_EDUCATION', label: 'Éducation', emoji: '🎓' },
-  { value: 'PODCASTSERIES_BUSINESS', label: 'Business', emoji: '💼' },
-  { value: 'PODCASTSERIES_HEALTH_AND_FITNESS', label: 'Santé', emoji: '❤️' }
-]
+const mainGenres = computed(() => [
+  { value: 'PODCASTSERIES_NEWS', label: t('podcasts.genres.news'), emoji: '📰' },
+  { value: 'PODCASTSERIES_COMEDY', label: t('podcasts.genres.comedy'), emoji: '😂' },
+  { value: 'PODCASTSERIES_TRUE_CRIME', label: t('podcasts.genres.trueCrime'), emoji: '🔍' },
+  { value: 'PODCASTSERIES_TECHNOLOGY', label: t('podcasts.genres.tech'), emoji: '💻' },
+  { value: 'PODCASTSERIES_SPORTS', label: t('podcasts.genres.sports'), emoji: '🏆' },
+  { value: 'PODCASTSERIES_EDUCATION', label: t('podcasts.genres.education'), emoji: '🎓' },
+  { value: 'PODCASTSERIES_BUSINESS', label: t('podcasts.genres.business'), emoji: '💼' },
+  { value: 'PODCASTSERIES_HEALTH_AND_FITNESS', label: t('podcasts.genres.health'), emoji: '❤️' }
+])
 
 function browseGenre(genreValue) {
   // Find genre label
-  const genre = mainGenres.find(g => g.value === genreValue)
+  const genre = mainGenres.value.find(g => g.value === genreValue)
   if (genre) {
     emit('browse-genre', genreValue, genre.label)
   }
@@ -90,7 +92,7 @@ async function loadData() {
   try {
     const latestResponse = await fetch('/api/podcast/subscriptions/latest-episodes?limit=10')
     const latestData = await latestResponse.json()
-    latestSubscriptionEpisodes.value = latestData.results || []
+    latestSubscriptionEpisodes.value = podcastStore.enrichEpisodesWithProgress(latestData.results || [])
   } catch (error) {
     console.error('Error loading subscription episodes:', error)
   }
@@ -112,7 +114,7 @@ async function loadData() {
   try {
     const response = await fetch(`/api/podcast/discover/top-charts/${country}?content_type=PODCASTEPISODE&limit=10`)
     const data = await response.json()
-    topEpisodes.value = data.results || []
+    topEpisodes.value = podcastStore.enrichEpisodesWithProgress(data.results || [])
   } catch (error) {
     console.error('Error loading top episodes:', error)
   } finally {
@@ -177,10 +179,7 @@ onMounted(() => {
   transition: background var(--transition-fast), transform var(--transition-fast);
 }
 
-.genre-card:hover {
-  background: var(--color-background-strong);
-  transform: translateY(-2px);
-}
+
 
 .genre-card span {
   font-size: var(--font-size-sm);

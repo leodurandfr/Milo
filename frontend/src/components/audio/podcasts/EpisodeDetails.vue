@@ -23,13 +23,13 @@
           </div>
           <Button variant="toggle" @click="$emit('play-episode', episode)">
             <SvgIcon name="play" :size="16" />
-            {{ hasProgress ? 'Reprendre' : 'Écouter' }}
+            {{ hasProgress ? t('podcasts.resume') : t('podcasts.listen') }}
           </Button>
         </div>
       </div>
 
       <div class="description">
-        <h3>Description</h3>
+        <h3>{{ t('podcasts.description') }}</h3>
         <p>{{ episode.description }}</p>
       </div>
     </template>
@@ -38,9 +38,13 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { usePodcastStore } from '@/stores/podcastStore'
+import { useI18n } from '@/services/i18n'
 import Button from '@/components/ui/Button.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
+
+const { t } = useI18n()
 
 const props = defineProps({
   uuid: {
@@ -51,11 +55,15 @@ const props = defineProps({
 
 defineEmits(['back', 'play-episode', 'select-podcast'])
 
+const podcastStore = usePodcastStore()
 const loading = ref(false)
 const episode = ref(null)
 
 const hasProgress = computed(() => {
-  return episode.value?.playback_progress?.position > 0
+  if (!episode.value?.uuid) return false
+  // Read from reactive progress cache instead of static props
+  const progress = podcastStore.getEpisodeProgress(episode.value.uuid)
+  return progress && progress.position > 0
 })
 
 const formattedDuration = computed(() => {
@@ -81,6 +89,11 @@ async function loadEpisode() {
   try {
     const response = await fetch(`/api/podcast/episode/${props.uuid}`)
     episode.value = await response.json()
+
+    // Enrich with progress cache if available
+    if (episode.value && episode.value.playback_progress) {
+      podcastStore.enrichEpisodesWithProgress([episode.value])
+    }
   } catch (error) {
     console.error('Error loading episode:', error)
   } finally {

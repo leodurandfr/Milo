@@ -4,7 +4,7 @@
     <div class="search-bar">
       <InputText
         v-model="searchTerm"
-        placeholder="Rechercher des podcasts ou épisodes..."
+        :placeholder="t('podcasts.searchPlaceholder')"
         icon="search"
         @keyup.enter="performSearch"
       />
@@ -20,7 +20,7 @@
         <!-- Podcasts results -->
         <section v-if="podcastResults.length > 0" class="section">
           <h3 class="section-title">
-            Podcasts ({{ pagination.podcasts.total }})
+            {{ t('podcasts.podcastsCount', { count: pagination.podcasts.total }) }}
           </h3>
           <div class="podcasts-grid">
             <PodcastCard
@@ -35,7 +35,7 @@
         <!-- Episodes results -->
         <section v-if="episodeResults.length > 0" class="section">
           <h3 class="section-title">
-            Épisodes ({{ pagination.episodes.total }})
+            {{ t('podcasts.episodesCount', { count: pagination.episodes.total }) }}
           </h3>
           <div class="episodes-list">
             <EpisodeCard
@@ -52,7 +52,7 @@
         <!-- Loading more indicator -->
         <div v-if="loadingMore" class="loading-more">
           <LoadingSpinner />
-          <p>Chargement de plus de résultats...</p>
+          <p>{{ t('podcasts.loadingMoreResults') }}</p>
         </div>
 
         <!-- No results -->
@@ -61,14 +61,14 @@
           class="empty-state"
         >
           <SvgIcon name="search" :size="48" />
-          <p>Aucun résultat pour "{{ lastSearchTerm }}"</p>
+          <p>{{ t('podcasts.noResultsFor', { query: lastSearchTerm }) }}</p>
         </div>
       </template>
 
       <!-- Initial state -->
       <div v-else class="empty-state">
         <SvgIcon name="search" :size="48" />
-        <p>Recherchez des podcasts ou épisodes</p>
+        <p>{{ t('podcasts.searchPrompt') }}</p>
       </div>
     </div>
   </div>
@@ -77,6 +77,7 @@
 <script setup>
 import { ref } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
+import { useI18n } from '@/services/i18n'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import InputText from '@/components/ui/InputText.vue'
@@ -87,6 +88,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue'
 
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
 const podcastStore = usePodcastStore()
+const { t } = useI18n()
 
 async function handlePause() {
   await podcastStore.pause()
@@ -103,22 +105,22 @@ const selectedLanguage = ref('all')
 const selectedDuration = ref('all')
 
 const languageOptions = [
-  { value: 'all', label: 'Toutes les langues' },
-  { value: 'FRENCH', label: 'Français' },
-  { value: 'ENGLISH', label: 'Anglais' },
-  { value: 'SPANISH', label: 'Espagnol' },
-  { value: 'GERMAN', label: 'Allemand' },
-  { value: 'ITALIAN', label: 'Italien' },
-  { value: 'PORTUGUESE', label: 'Portugais' },
-  { value: 'CHINESE', label: 'Chinois' },
-  { value: 'HINDI', label: 'Hindi' }
+  { value: 'all', label: t('podcasts.languages.all') },
+  { value: 'FRENCH', label: t('podcasts.languages.french') },
+  { value: 'ENGLISH', label: t('podcasts.languages.english') },
+  { value: 'SPANISH', label: t('podcasts.languages.spanish') },
+  { value: 'GERMAN', label: t('podcasts.languages.german') },
+  { value: 'ITALIAN', label: t('podcasts.languages.italian') },
+  { value: 'PORTUGUESE', label: t('podcasts.languages.portuguese') },
+  { value: 'CHINESE', label: t('podcasts.languages.chinese') },
+  { value: 'HINDI', label: t('podcasts.languages.hindi') }
 ]
 
 const durationOptions = [
-  { value: 'all', label: 'Durée' },
-  { value: 'short', label: 'Court (< 15 min)' },
-  { value: 'medium', label: 'Moyen (15-45 min)' },
-  { value: 'long', label: 'Long (> 45 min)' }
+  { value: 'all', label: t('podcasts.duration.label') },
+  { value: 'short', label: t('podcasts.duration.short') },
+  { value: 'medium', label: t('podcasts.duration.medium') },
+  { value: 'long', label: t('podcasts.duration.long') }
 ]
 
 // Results and pagination
@@ -177,11 +179,12 @@ async function performSearch(resetPage = true) {
 
     if (resetPage) {
       podcastResults.value = data.podcasts || []
-      episodeResults.value = data.episodes || []
+      episodeResults.value = podcastStore.enrichEpisodesWithProgress(data.episodes || [])
     } else {
       // Append results for infinite scroll
       podcastResults.value = [...podcastResults.value, ...(data.podcasts || [])]
-      episodeResults.value = [...episodeResults.value, ...(data.episodes || [])]
+      const newEpisodes = podcastStore.enrichEpisodesWithProgress(data.episodes || [])
+      episodeResults.value = [...episodeResults.value, ...newEpisodes]
     }
 
     pagination.value = data.pagination || {

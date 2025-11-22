@@ -40,6 +40,7 @@
 <script setup>
 import { computed } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import episodePlaceholder from '@/assets/podcasts/episode-placeholder.jpg'
 
 const props = defineProps({
   /**
@@ -72,7 +73,7 @@ const props = defineProps({
    */
   placeholderArtwork: {
     type: String,
-    default: '/default-episode.png'
+    default: episodePlaceholder
   },
 
   /**

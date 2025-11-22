@@ -112,7 +112,7 @@ function handleBack() {
 .actions-wrapper {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-02);
 }
 
 .title-subtitle {

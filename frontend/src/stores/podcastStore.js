@@ -13,6 +13,11 @@ export const usePodcastStore = defineStore('podcast', () => {
   const currentDuration = ref(0)
   const playbackSpeed = ref(1.0)
 
+  // === PROGRESS CACHE ===
+  // Reactive cache of playback progress for all episodes
+  // Key: episode_uuid, Value: { position, duration, lastPlayed }
+  const progressCache = ref(new Map())
+
   // === SETTINGS ===
   const settings = ref({
     defaultCountry: 'FRANCE',
@@ -178,17 +183,64 @@ export const usePodcastStore = defineStore('podcast', () => {
       currentPosition.value = 0
     }
 
+    // Update progress cache for reactive updates in EpisodeCard
+    if (metadata.episode_uuid && metadata.position !== undefined && metadata.duration !== undefined) {
+      progressCache.value.set(metadata.episode_uuid, {
+        position: metadata.position,
+        duration: metadata.duration,
+        lastPlayed: Date.now()
+      })
+    }
+
     // Note: is_playing and is_buffering are read from unifiedStore.systemState.metadata
     // They are updated by the unified audio state machine via WebSocket
   }
 
   function handlePluginEvent(event) {
     // Handle WebSocket plugin events for podcast
-    if (event.source !== 'podcast') return
+    if (event.source !== 'podcast') {
+      return
+    }
 
     if (event.type === 'state_changed') {
       handleStateUpdate(event.data || {})
     }
+  }
+
+  // === PROGRESS CACHE HELPERS ===
+  function getEpisodeProgress(episodeUuid) {
+    // Get progress from cache (reactive)
+    return progressCache.value.get(episodeUuid) || null
+  }
+
+  function setEpisodeProgress(episodeUuid, position, duration) {
+    // Manually set progress (used when loading from API)
+    progressCache.value.set(episodeUuid, {
+      position,
+      duration,
+      lastPlayed: Date.now()
+    })
+  }
+
+  function enrichEpisodesWithProgress(episodes) {
+    // Populate progress cache from API data (when loading episodes)
+    // This initializes the reactive cache with existing progress
+    if (!Array.isArray(episodes)) return episodes
+
+    episodes.forEach(episode => {
+      if (episode.playback_progress) {
+        const progress = episode.playback_progress
+        if (progress.position !== undefined && progress.duration !== undefined) {
+          progressCache.value.set(episode.uuid, {
+            position: progress.position,
+            duration: progress.duration,
+            lastPlayed: progress.lastPlayed || Date.now()
+          })
+        }
+      }
+    })
+
+    return episodes
   }
 
   // === CLEAR STATE ===
@@ -198,6 +250,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     currentPosition.value = 0
     currentDuration.value = 0
     // Note: playback state comes from unifiedStore, no need to clear locally
+    // Keep progress cache for displaying "X min restantes" on paused episodes
   }
 
   // === RETURN ===
@@ -208,6 +261,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     currentDuration,
     playbackSpeed,
     settings,
+    progressCache,
 
     // Computed
     isPlaying,
@@ -227,6 +281,11 @@ export const usePodcastStore = defineStore('podcast', () => {
     updateSettings,
     handleStateUpdate,
     handlePluginEvent,
-    clearState
+    clearState,
+
+    // Progress cache helpers
+    getEpisodeProgress,
+    setEpisodeProgress,
+    enrichEpisodesWithProgress
   }
 })
