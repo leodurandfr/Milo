@@ -77,9 +77,7 @@ function onNext(e) {
   transition: background-color 0.2s, transform var(--transition-spring), opacity 0.2s;
 }
 
-.control-button:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-}
+
 
 .control-button.play-pause {
   width: 90px;

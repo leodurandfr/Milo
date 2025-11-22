@@ -33,38 +33,39 @@ class WebSocketServer:
                 break
 
     async def websocket_endpoint(self, websocket: WebSocket):
-        """WebSocket entry point with fresh initial state and heartbeat"""
+        """WebSocket entry point with client-ready handshake.
+
+        Flow:
+        1. Client connects and registers event listeners
+        2. Client sends {"type": "ready"} when ready to receive state
+        3. Server responds with initial_state containing full_state
+        4. Server continues broadcasting real-time updates
+
+        This handshake prevents race conditions where WebSocket state arrives
+        before Vue components register their event listeners.
+        """
         await self.manager.connect(websocket)
 
         ping_task = asyncio.create_task(self._send_ping(websocket))
 
         try:
-            current_state = await self.state_machine.get_current_state()
+            # Wait for client ready signal
+            message = await websocket.receive_text()
+            client_msg = json.loads(message)
 
-            if current_state['active_source'] != 'none':
-                active_source = AudioSource(current_state['active_source'])
-                active_plugin = self.state_machine.plugins.get(active_source)
+            if client_msg.get("type") == "ready":
+                # Client is ready - send initial state
+                current_state = await self.state_machine.get_current_state()
+                initial_event = {
+                    "category": "system",
+                    "type": "initial_state",
+                    "source": "system",
+                    "data": {"full_state": current_state},
+                    "timestamp": time.time()
+                }
+                await websocket.send_text(json.dumps(initial_event))
 
-                if active_plugin and hasattr(active_plugin, '_refresh_metadata'):
-                    await active_plugin._refresh_metadata()
-
-                    plugin_status = await active_plugin.get_initial_state()
-
-                    current_state['metadata'] = plugin_status.get('metadata', {})
-                    current_state['device_connected'] = plugin_status.get('device_connected', False)
-                    current_state['ws_connected'] = plugin_status.get('ws_connected', False)
-                    current_state['is_playing'] = plugin_status.get('is_playing', False)
-
-            initial_event = {
-                "category": "system",
-                "type": "state_changed",
-                "source": "system",
-                "data": {"full_state": current_state},
-                "timestamp": current_state.get("timestamp", 0)
-            }
-
-            await websocket.send_text(json.dumps(initial_event))
-
+            # Continue listening for future client messages (if any)
             while True:
                 await websocket.receive_text()
 

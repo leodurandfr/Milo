@@ -9,8 +9,8 @@
             <div class="device-info-inner">
               <!-- Plugin icon -->
               <div class="plugin-icon">
-                <AppIcon :name="displayedIconName" :size="32"
-                  :state="displayedPluginState === 'starting' ? 'loading' : 'normal'" />
+                <AppIcon :name="pluginType" :size="32"
+                  :state="pluginState === 'starting' ? 'loading' : 'normal'" />
               </div>
 
               <!-- Text status -->
@@ -100,15 +100,7 @@ function formatDeviceNames(deviceName) {
   return cleanDeviceName(deviceName);
 }
 
-// === COMPUTED FOR DISPLAYED CONTENT === (What is this part for? only to rename "librespsot" to "spotify"? - Seems needlessly complex)
-const displayedIconName = computed(() => {
-  return props.pluginType === 'librespot' ? 'spotify' : props.pluginType;
-});
-
-const displayedPluginState = computed(() => {
-  return props.pluginState;
-});
-
+// === COMPUTED FOR DISPLAYED CONTENT ===
 const displayedStatusLines = computed(() => {
   // Starting state
   if (props.pluginState === 'starting') {
@@ -352,9 +344,7 @@ function handleDisconnect() {
   letter-spacing: var(--letter-spacing-sans-serif);
 }
 
-.disconnect-text:hover:not(:disabled) {
-  color: var(--color-text);
-}
+
 
 .disconnect-text:disabled {
   opacity: 0.5;

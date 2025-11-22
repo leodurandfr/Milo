@@ -47,7 +47,6 @@
     <!-- Player slot: AudioPlayer component -->
     <template #player>
       <AudioPlayer
-        v-if="podcastStore.hasCurrentEpisode"
         :visible="shouldShowPlayerLayout"
         source="podcast"
         :artwork="episodeImage"
@@ -55,7 +54,6 @@
         :subtitle="podcastName"
         :is-playing="isCurrentlyPlaying"
         :is-loading="isBuffering"
-        @after-hide="handlePlayerHidden"
       >
         <!-- Progress bar (seekable) -->
         <template #progress>
@@ -112,6 +110,7 @@ import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/ui/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/ui/AudioSourceLayout.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
+import episodePlaceholder from '@/assets/podcasts/episode-placeholder.jpg'
 
 // Views
 import HomeView from './HomeView.vue'
@@ -155,58 +154,54 @@ const isBuffering = computed(() => {
   return unifiedStore.systemState.metadata?.is_buffering || false
 })
 
-// Player layout visibility control (same pattern as RadioSource)
+// Player layout visibility control - manual ref for animation control
 const shouldShowPlayerLayout = ref(false)
-const stopTimer = ref(null)
-const shouldStopAfterHide = ref(false) // Flag to trigger stop after hide animation
 
-// Combined watcher: handles visibility and delayed hide
+// Auto-stop timer: stops playback after 5 seconds of pause
+const stopTimer = ref(null)
+
+// Watch plugin_state to show player when connected
+watch(() => unifiedStore.systemState.plugin_state, (newState) => {
+  const isPodcastActive = unifiedStore.systemState.active_source === 'podcast'
+
+  if (isPodcastActive && newState === 'connected') {
+    // Show player when connected (with smooth entrance)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        shouldShowPlayerLayout.value = true
+      })
+    })
+  } else if (!isPodcastActive || newState === 'inactive') {
+    // Different source active or plugin inactive - hide immediately
+    shouldShowPlayerLayout.value = false
+  }
+}, { immediate: true })
+
+// Watcher: triggers auto-stop after 5s when paused
 watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurrentEpisode],
   ([playing, buffering, hasEpisode]) => {
-    // Clear any existing timers
+    // Clear any existing timer
     if (stopTimer.value) {
       clearTimeout(stopTimer.value)
       stopTimer.value = null
     }
 
-    if ((playing || buffering) && hasEpisode) {
-      // Playing/buffering: show player with animation
-      shouldStopAfterHide.value = false
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          shouldShowPlayerLayout.value = true
-        })
-      })
-    } else if (!playing && !buffering && hasEpisode) {
-      // Paused with an episode: hide visually after 5s, then trigger auto-stop
-      stopTimer.value = setTimeout(() => {
+    // If paused with an episode: schedule auto-stop after 5s
+    if (!playing && !buffering && hasEpisode) {
+      stopTimer.value = setTimeout(async () => {
+        // 1. First, hide the player (triggers 0.6s exit animation)
         shouldShowPlayerLayout.value = false
-        shouldStopAfterHide.value = true // Flag for handlePlayerHidden
+
+        // 2. Wait for animation to complete (600ms), then stop
+        setTimeout(async () => {
+          // 3. Only call stop() if still not playing (user might have resumed)
+          if (!isCurrentlyPlaying.value && !isBuffering.value) {
+            await podcastStore.stop()
+          }
+        }, 600)
       }, 5000)
-    } else if (!hasEpisode) {
-      // No episode: hide immediately
-      shouldShowPlayerLayout.value = false
-      shouldStopAfterHide.value = false
     }
   }, { immediate: true })
-
-// Called after hide animation completes - triggers auto-stop if needed
-async function handlePlayerHidden() {
-  if (shouldStopAfterHide.value) {
-    shouldStopAfterHide.value = false
-    await podcastStore.stop()
-  }
-}
-
-// Stable layout during episode changes (same pattern as Radio lines 466-474)
-// Pre-initialize layout if episode is already playing (prevents animation on refresh)
-watch(() => podcastStore.currentEpisode, (newEpisode) => {
-  if (newEpisode && (isCurrentlyPlaying.value || isBuffering.value)) {
-    // Lock the layout immediately (no animation on refresh)
-    shouldShowPlayerLayout.value = true
-  }
-  // Note: Don't unlock here - let the main watcher handle unlocking
-}, { immediate: true })
 
 // Sync metadata from unifiedStore (same pattern as RadioSource)
 watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
@@ -214,15 +209,6 @@ watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
     podcastStore.handleStateUpdate(newMetadata)
   }
 }, { immediate: true, deep: true })
-
-// Clean up metadata when transitioning from CONNECTED to READY
-// (episode ended or stopped)
-watch(() => unifiedStore.systemState.plugin_state, (newState, oldState) => {
-  if (oldState === 'connected' && newState === 'ready') {
-    // Clear episode metadata when playback stops
-    podcastStore.clearState()
-  }
-}, { immediate: true })
 
 // Navigation state
 const currentView = ref('home')
@@ -236,21 +222,21 @@ const selectedGenreLabel = ref('')
 const currentTitle = computed(() => {
   switch (currentView.value) {
     case 'home':
-      return 'Podcasts'
+      return t('podcasts.podcasts')
     case 'subscriptions':
-      return 'Abonnements'
+      return t('podcasts.subscriptions')
     case 'search':
-      return 'Recherche'
+      return t('podcasts.search')
     case 'queue':
-      return 'File d\'attente'
+      return t('podcasts.queue')
     case 'genre':
       return selectedGenreLabel.value
     case 'podcast-details':
-      return 'Détails Podcast'
+      return t('podcasts.podcastDetails')
     case 'episode-details':
-      return 'Détails Épisode'
+      return t('podcasts.episodeDetails')
     default:
-      return 'Podcasts'
+      return t('podcasts.podcasts')
   }
 })
 
@@ -351,12 +337,12 @@ async function playEpisode(episode) {
 
 // Episode artwork
 const episodeImage = computed(() => {
-  return podcastStore.currentEpisode?.image_url || '/default-episode.png'
+  return podcastStore.currentEpisode?.image_url || episodePlaceholder
 })
 
 // Episode name
 const episodeName = computed(() => {
-  return podcastStore.currentEpisode?.name || 'Aucun épisode'
+  return podcastStore.currentEpisode?.name || t('podcasts.noEpisode')
 })
 
 // Podcast name
@@ -451,7 +437,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: var(--space-06);
   width: 100%;
-  height: 100%;
 }
 
 /* Player control styles (from PodcastPlayer.vue) */

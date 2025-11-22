@@ -10,30 +10,30 @@
           <h2>{{ podcast.name }}</h2>
           <p class="publisher">{{ podcast.publisher || podcast.author }}</p>
           <p class="meta">
-            {{ podcast.total_episodes }} épisodes • {{ podcast.language }}
+            {{ podcast.total_episodes }} {{ t('podcasts.episodesCount2') }} • {{ podcast.language }}
           </p>
           <div class="badges">
-            <span v-if="podcast.is_completed" class="badge">Terminé</span>
-            <span v-if="podcast.is_explicit" class="badge warning">Explicite</span>
+            <span v-if="podcast.is_completed" class="badge">{{ t('podcasts.completed') }}</span>
+            <span v-if="podcast.is_explicit" class="badge warning">{{ t('podcasts.explicit') }}</span>
           </div>
           <Button
             :variant="podcast.is_subscribed ? 'toggle' : 'ghost'"
             @click="toggleSubscription"
           >
-            {{ podcast.is_subscribed ? 'Abonné' : "S'abonner" }}
+            {{ podcast.is_subscribed ? t('podcasts.subscribed') : t('podcasts.subscribe') }}
           </Button>
         </div>
       </div>
 
       <!-- Description -->
       <div class="description">
-        <h3>Description</h3>
+        <h3>{{ t('podcasts.description') }}</h3>
         <p>{{ podcast.description }}</p>
       </div>
 
       <!-- Episodes list -->
       <div class="episodes-section">
-        <h3>Épisodes</h3>
+        <h3>{{ t('podcasts.episodesTitle') }}</h3>
         <div class="episodes-list">
           <EpisodeCard
             v-for="episode in podcast.episodes"
@@ -52,9 +52,12 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
+import { useI18n } from '@/services/i18n'
 import EpisodeCard from './EpisodeCard.vue'
 import Button from '@/components/ui/Button.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
+
+const { t } = useI18n()
 
 const props = defineProps({
   uuid: {
@@ -78,6 +81,11 @@ async function loadPodcast() {
   try {
     const response = await fetch(`/api/podcast/series/${props.uuid}`)
     podcast.value = await response.json()
+
+    // Enrich episodes with progress cache
+    if (podcast.value && podcast.value.episodes) {
+      podcastStore.enrichEpisodesWithProgress(podcast.value.episodes)
+    }
   } catch (error) {
     console.error('Error loading podcast:', error)
   } finally {

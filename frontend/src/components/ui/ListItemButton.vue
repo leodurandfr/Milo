@@ -69,9 +69,7 @@ function handleClick(event) {
   background: var(--color-background-neutral);
 }
 
-/* .icon-button--default.icon-button--clickable:hover {
-  background: var(--color-background-strong);
-} */
+
 
 /* Outlined variant (LanguageSettings) */
 .icon-button--outlined {
@@ -80,9 +78,7 @@ function handleClick(event) {
 
 }
 
-/* .icon-button--outlined.icon-button--clickable:hover {
-  background: var(--color-background-strong);
-} */
+
 
 /* Active state (LanguageSettings) */
 .icon-button--outlined.active {

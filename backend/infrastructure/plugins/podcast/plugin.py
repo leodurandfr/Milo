@@ -200,6 +200,7 @@ class PodcastPlugin(UnifiedAudioPlugin):
         Monitors mpv playback state and saves progress periodically
         """
         try:
+            self.logger.info("[MONITOR] Playback monitoring started")
             while not self._stopping:
                 try:
                     # Check playback state
@@ -209,6 +210,7 @@ class PodcastPlugin(UnifiedAudioPlugin):
                     if self.current_episode:
                         position = await self.mpv.get_property("playback-time")
                         duration = await self.mpv.get_property("duration")
+                        pause_state = await self.mpv.get_property("pause")
 
                         position_changed = False
                         if position is not None:
@@ -222,6 +224,7 @@ class PodcastPlugin(UnifiedAudioPlugin):
 
                         # Check if state changed from buffering to playing
                         if self._is_buffering and is_playing:
+                            self.logger.info(f"[MONITOR] Buffering → Playing transition detected at {self._current_position}s")
                             self._is_buffering = False
                             self._is_playing = True
 
@@ -236,6 +239,14 @@ class PodcastPlugin(UnifiedAudioPlugin):
                                 PluginState.CONNECTED,
                                 self._build_metadata()
                             )
+                        # Detect stuck state: is_playing=True but mpv not actually playing
+                        elif self._is_playing and not is_playing and not self._is_buffering:
+                            self.logger.warning(f"[MONITOR] WARNING: is_playing=True but mpv.is_playing()=False! Position: {position}, Duration: {duration}")
+
+                        # Detect stuck at position 0 with pause=True
+                        if self._is_playing and is_playing and position == 0.0 and pause_state is True:
+                            self.logger.warning(f"[MONITOR] WARNING: Stuck at 0.0 with pause=True! Forcing unpause...")
+                            await self.mpv.set_property("pause", False)
 
                     # Check if episode ended
                     if (self._is_playing and not is_playing and
@@ -337,22 +348,28 @@ class PodcastPlugin(UnifiedAudioPlugin):
             True if successful
         """
         try:
-            self.logger.info(f"Playing episode: {episode_uuid}")
+            self.logger.info(f"[PLAY] Starting playback for episode: {episode_uuid}")
+            self.logger.info(f"[PLAY] Initial state - is_playing: {self._is_playing}, is_buffering: {self._is_buffering}, plugin_state: {self.current_state}")
 
             # Get episode details from Taddy API
             episode = await self.taddy_api.get_episode(episode_uuid)
 
             if not episode:
-                self.logger.error(f"Episode not found: {episode_uuid}")
+                self.logger.error(f"[PLAY] Episode not found: {episode_uuid}")
                 return False
 
             audio_url = episode.get('audio_url')
             if not audio_url:
-                self.logger.error(f"No audio URL for episode: {episode_uuid}")
+                self.logger.error(f"[PLAY] No audio URL for episode: {episode_uuid}")
                 return False
+
+            self.logger.info(f"[PLAY] Episode found: {episode.get('name', 'Unknown')}, audio_url: {audio_url[:100]}...")
 
             # Stop current playback if any
             if self._is_playing:
+                self.logger.info(f"[PLAY] Stopping current playback")
+                # Save progress before stopping to preserve position when switching episodes
+                await self._save_progress()
                 await self.mpv.stop()
 
             # Check for saved progress
@@ -360,25 +377,71 @@ class PodcastPlugin(UnifiedAudioPlugin):
             start_position = 0
             if progress and progress.get('position', 0) > 10:  # Resume if > 10 seconds
                 start_position = progress['position']
-                self.logger.info(f"Resuming from {start_position}s")
+                self.logger.info(f"[PLAY] Resuming from {start_position}s")
 
-            # Play episode with mpv
-            success = await self.mpv.load_stream(audio_url)
-
-            if not success:
-                self.logger.error("mpv load_stream failed")
-                return False
-
-            # Seek to saved position if resuming
-            if start_position > 0:
-                await self.mpv.seek(start_position)
-
-            # Update state
+            # Update state BEFORE loading stream to prevent race condition
             self.current_episode = episode
             self._is_buffering = True
             self._is_playing = False
             self._current_position = start_position
             self._current_duration = episode.get('duration', 0)
+
+            self.logger.info(f"[PLAY] State updated before load - is_playing: False, is_buffering: True, duration: {self._current_duration}")
+
+            # Play episode with mpv
+            self.logger.info(f"[PLAY] Calling mpv.load_stream()...")
+            success = await self.mpv.load_stream(audio_url)
+            self.logger.info(f"[PLAY] mpv.load_stream() returned: {success}")
+
+            if not success:
+                self.logger.error("[PLAY] mpv load_stream failed")
+                return False
+
+            # Check if mpv is paused after loading and unpause if needed
+            pause_state = await self.mpv.get_property("pause")
+            if pause_state is True:
+                self.logger.warning(f"[PLAY] mpv is paused after load_stream! Forcing unpause...")
+                await self.mpv.set_property("pause", False)
+
+            # Wait for stream to be ready before seeking (if resuming from saved position)
+            if start_position > 0:
+                self.logger.info(f"[PLAY] Need to resume from {start_position}s, waiting for stream to be seekable...")
+
+                # Poll for duration to become available (indicates stream is ready/seekable)
+                max_wait = 10  # seconds
+                poll_interval = 0.2  # seconds
+                elapsed = 0
+                stream_ready = False
+
+                while elapsed < max_wait:
+                    duration = await self.mpv.get_property("duration")
+                    if duration is not None and duration > 0:
+                        stream_ready = True
+                        self.logger.info(f"[PLAY] Stream ready (duration={duration}s), seeking to {start_position}s")
+                        await self.mpv.seek(start_position)
+
+                        # Verify seek succeeded
+                        await asyncio.sleep(0.3)
+                        actual_position = await self.mpv.get_property("playback-time")
+                        if actual_position is not None:
+                            self.logger.info(f"[PLAY] Seek completed successfully, position: {int(actual_position)}s")
+                        else:
+                            self.logger.warning(f"[PLAY] Seek may have failed, position unavailable")
+                        break
+
+                    await asyncio.sleep(poll_interval)
+                    elapsed += poll_interval
+
+                if not stream_ready:
+                    self.logger.warning(f"[PLAY] Timeout waiting for stream to be ready after {max_wait}s, starting from beginning")
+
+            # Mark as playing immediately to prevent race condition
+            # Keep buffering=True until monitor loop confirms playback started
+            # This allows UI to show loading state while ensuring is_playing is correct
+            self._is_playing = True
+            # _is_buffering stays True, monitor loop will set it to False once playing
+
+            self.logger.info(f"[PLAY] State updated after load - is_playing: True, is_buffering: True")
 
             # Cache episode data
             await self.podcast_data_service.cache_episode(episode_uuid, episode)
@@ -388,16 +451,19 @@ class PodcastPlugin(UnifiedAudioPlugin):
                 self._progress_save_task.cancel()
             self._progress_save_task = asyncio.create_task(self._periodic_progress_save())
 
-            # Notify buffering state
+            # Notify playing state with buffering indicator
+            self.logger.info(f"[PLAY] Broadcasting state change to CONNECTED")
             await self.notify_state_change(
                 PluginState.CONNECTED,
-                {**self._build_metadata(), "is_buffering": True}
+                self._build_metadata()
             )
+
+            self.logger.info(f"[PLAY] Playback started successfully - waiting for monitor loop to confirm")
 
             return True
 
         except Exception as e:
-            self.logger.error(f"Error playing episode: {e}")
+            self.logger.error(f"[PLAY] Error playing episode: {e}", exc_info=True)
             return False
 
     async def pause(self) -> bool:
@@ -452,6 +518,9 @@ class PodcastPlugin(UnifiedAudioPlugin):
         try:
             await self.mpv.seek(position)
             self._current_position = position
+
+            # Save progress immediately after seek to prevent loss on episode change
+            await self._save_progress()
 
             await self.notify_state_change(
                 PluginState.CONNECTED,

@@ -66,12 +66,15 @@ class WebSocketSingleton {
       this.setupVisibilityListener();
       this.startPingCheck();
 
+      // Send ready signal to request initial state
+      this.socket.send(JSON.stringify({ type: "ready" }));
+
       if (wasReconnecting) {
-        console.log('WebSocket reconnected - full state sync incoming');
+        console.log('WebSocket reconnected - requested state sync');
         // Notify subscribers that a reconnection occurred
         this.notifyReconnect();
       } else {
-        console.log('WebSocket connected successfully');
+        console.log('WebSocket connected - requested initial state');
       }
     };
     
@@ -210,7 +213,10 @@ class WebSocketSingleton {
       return; // Do not propagate pings to handlers
     }
 
-    if (message.category === 'system' && message.type === 'state_changed' && message.data?.full_state) {
+    // Cache full state from both initial_state and state_changed events
+    if (message.category === 'system' &&
+        (message.type === 'initial_state' || message.type === 'state_changed') &&
+        message.data?.full_state) {
       this.lastSystemState = message.data.full_state;
     }
 

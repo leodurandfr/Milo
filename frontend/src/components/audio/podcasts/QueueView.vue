@@ -4,8 +4,8 @@
 
     <div v-else-if="episodes.length === 0" class="empty-state">
       <SvgIcon name="list" :size="48" />
-      <p>Aucun épisode en cours</p>
-      <p class="hint">Commencez à écouter des épisodes et ils apparaîtront ici</p>
+      <p>{{ t('podcasts.noEpisodesInQueue') }}</p>
+      <p class="hint">{{ t('podcasts.noEpisodesInQueueHint') }}</p>
     </div>
 
     <div v-else class="episodes-list">
@@ -23,7 +23,7 @@
             @click="markComplete(episode.episodeUuid)"
           >
             <SvgIcon name="check" :size="16" />
-            Terminer
+            {{ t('podcasts.markComplete') }}
           </Button>
           <Button
             type="background-strong"
@@ -31,7 +31,7 @@
             @click="removeFromQueue(episode.episodeUuid)"
           >
             <SvgIcon name="close" :size="16" />
-            Supprimer
+            {{ t('podcasts.remove') }}
           </Button>
         </div>
       </div>
@@ -42,11 +42,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
+import { useI18n } from '@/services/i18n'
 import EpisodeCard from './EpisodeCard.vue'
 import Button from '@/components/ui/Button.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
 
+const { t } = useI18n()
 const emit = defineEmits(['select-episode', 'play-episode'])
 const podcastStore = usePodcastStore()
 

@@ -61,10 +61,10 @@ const iconPath = computed(() => {
   transition: all var(--transition-fast);
 }
 
-.settings-category:hover {
+/* .settings-category:hover {
   background: var(--color-background-strong);
   border-color: var(--color-background-medium-16);
-}
+} */
 
 .category-icon {
   flex-shrink: 0;
