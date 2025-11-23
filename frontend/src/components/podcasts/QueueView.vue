@@ -12,28 +12,12 @@
       <div v-for="episode in episodes" :key="episode.episodeUuid" class="queue-item">
         <EpisodeCard
           :episode="formatQueueEpisode(episode)"
+          :show-complete-button="true"
           @select="$emit('select-episode', episode.episodeUuid)"
           @play="$emit('play-episode', formatQueueEpisode(episode))"
           @pause="handlePause"
+          @complete="markComplete(episode.episodeUuid)"
         />
-        <div class="queue-actions">
-          <Button
-            type="background-strong"
-            size="small"
-            @click="markComplete(episode.episodeUuid)"
-          >
-            <SvgIcon name="check" :size="16" />
-            {{ t('podcasts.markComplete') }}
-          </Button>
-          <Button
-            type="background-strong"
-            size="small"
-            @click="removeFromQueue(episode.episodeUuid)"
-          >
-            <SvgIcon name="close" :size="16" />
-            {{ t('podcasts.remove') }}
-          </Button>
-        </div>
       </div>
     </div>
   </div>
@@ -44,7 +28,6 @@ import { ref, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import EpisodeCard from './EpisodeCard.vue'
-import Button from '@/components/ui/Button.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
 
@@ -130,12 +113,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
-}
-
-.queue-actions {
-  display: flex;
-  gap: var(--space-02);
-  padding-left: 92px; /* Align with card content */
 }
 
 .empty-state {

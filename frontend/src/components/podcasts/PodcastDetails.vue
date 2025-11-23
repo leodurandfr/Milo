@@ -7,14 +7,14 @@
       <div class="details-header">
         <img :src="podcast.image_url" :alt="podcast.name" class="podcast-image" />
         <div class="header-info">
-          <h2>{{ podcast.name }}</h2>
-          <p class="publisher">{{ podcast.publisher || podcast.author }}</p>
-          <p class="meta">
-            {{ podcast.total_episodes }} {{ t('podcasts.episodesCount2') }} • {{ podcast.language }}
+          <h2 class="heading-1">{{ podcast.name }}</h2>
+          <p class="publisher text-body">{{ podcast.publisher || podcast.author }}</p>
+          <p class="meta text-mono">
+            {{ podcast.total_episodes }} {{ t('podcasts.episodesCount2') }}
           </p>
-          <div class="badges">
-            <span v-if="podcast.is_completed" class="badge">{{ t('podcasts.completed') }}</span>
-            <span v-if="podcast.is_explicit" class="badge warning">{{ t('podcasts.explicit') }}</span>
+          <div v-if="podcast.is_completed || podcast.is_explicit" class="badges">
+            <span v-if="podcast.is_completed" class="badge text-mono">{{ t('podcasts.completed') }}</span>
+            <span v-if="podcast.is_explicit" class="badge warning text-mono">{{ t('podcasts.explicit') }}</span>
           </div>
           <Button
             :variant="podcast.is_subscribed ? 'toggle' : 'ghost'"
@@ -25,18 +25,12 @@
         </div>
       </div>
 
-      <!-- Description -->
-      <div class="description">
-        <h3>{{ t('podcasts.description') }}</h3>
-        <p>{{ podcast.description }}</p>
-      </div>
-
       <!-- Episodes list -->
       <div class="episodes-section">
-        <h3>{{ t('podcasts.episodesTitle') }}</h3>
+        <h3 class="heading-2">{{ t('podcasts.episodesTitle') }}</h3>
         <div class="episodes-list">
           <EpisodeCard
-            v-for="episode in podcast.episodes"
+            v-for="episode in allEpisodes"
             :key="episode.uuid"
             :episode="episode"
             @select="$emit('select-episode', episode.uuid)"
@@ -44,13 +38,24 @@
             @pause="handlePause"
           />
         </div>
+
+        <!-- Load more button -->
+        <div v-if="hasMoreEpisodes" class="load-more-container">
+          <Button
+            variant="primary"
+            :loading="loadingMore"
+            @click="loadMoreEpisodes"
+          >
+            {{ t('podcasts.loadMoreEpisodes') }}
+          </Button>
+        </div>
       </div>
     </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import EpisodeCard from './EpisodeCard.vue'
@@ -75,16 +80,29 @@ async function handlePause() {
 
 const loading = ref(false)
 const podcast = ref(null)
+const currentPage = ref(1)
+const loadingMore = ref(false)
+const allEpisodes = ref([])
+
+// Computed to check if more episodes available
+const hasMoreEpisodes = computed(() => {
+  if (!podcast.value) return false
+  return allEpisodes.value.length < podcast.value.total_episodes
+})
 
 async function loadPodcast() {
   loading.value = true
+  currentPage.value = 1
   try {
-    const response = await fetch(`/api/podcast/series/${props.uuid}`)
+    const response = await fetch(`/api/podcast/series/${props.uuid}?page=1&limit=25`)
     podcast.value = await response.json()
 
+    // Initialize episodes array
+    allEpisodes.value = podcast.value.episodes || []
+
     // Enrich episodes with progress cache
-    if (podcast.value && podcast.value.episodes) {
-      podcastStore.enrichEpisodesWithProgress(podcast.value.episodes)
+    if (allEpisodes.value.length > 0) {
+      podcastStore.enrichEpisodesWithProgress(allEpisodes.value)
     }
   } catch (error) {
     console.error('Error loading podcast:', error)
@@ -126,6 +144,33 @@ async function toggleSubscription() {
   }
 }
 
+async function loadMoreEpisodes() {
+  if (loadingMore.value || !hasMoreEpisodes.value) return
+
+  loadingMore.value = true
+  currentPage.value++
+
+  try {
+    const response = await fetch(
+      `/api/podcast/series/${props.uuid}?page=${currentPage.value}&limit=25`
+    )
+    const data = await response.json()
+
+    const newEpisodes = data.episodes || []
+
+    // Enrich with progress
+    podcastStore.enrichEpisodesWithProgress(newEpisodes)
+
+    // Append to existing episodes
+    allEpisodes.value = [...allEpisodes.value, ...newEpisodes]
+  } catch (error) {
+    console.error('Error loading more episodes:', error)
+    currentPage.value-- // Rollback on error
+  } finally {
+    loadingMore.value = false
+  }
+}
+
 watch(() => props.uuid, loadPodcast, { immediate: false })
 
 onMounted(() => {
@@ -160,21 +205,16 @@ onMounted(() => {
 }
 
 .header-info h2 {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
   margin: 0;
-  color: var(--color-text);
 }
 
 .publisher {
-  font-size: var(--font-size-md);
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   margin: 0;
 }
 
 .meta {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   margin: 0;
 }
 
@@ -184,11 +224,10 @@ onMounted(() => {
 }
 
 .badge {
-  font-size: var(--font-size-xs);
   padding: var(--space-01) var(--space-02);
   background: var(--color-background-neutral);
   border-radius: var(--radius-02);
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
 }
 
 .badge.warning {
@@ -196,24 +235,20 @@ onMounted(() => {
   color: white;
 }
 
-.description h3,
 .episodes-section h3 {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
   margin: 0 0 var(--space-03);
-  color: var(--color-text);
-}
-
-.description p {
-  font-size: var(--font-size-sm);
-  line-height: 1.6;
-  color: var(--color-text);
-  margin: 0;
 }
 
 .episodes-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
+}
+
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-04) 0;
+  margin-top: var(--space-02);
 }
 </style>

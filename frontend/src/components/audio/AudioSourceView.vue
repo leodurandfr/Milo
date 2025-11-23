@@ -29,7 +29,7 @@
 import { computed, ref, onMounted } from 'vue';
 import LibrespotSource from '../librespot/LibrespotSource.vue';
 import RadioSource from '../radio/RadioSource.vue';
-import PodcastSource from './podcasts/PodcastSource.vue';
+import PodcastSource from '../podcasts/PodcastSource.vue';
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
 // Props
