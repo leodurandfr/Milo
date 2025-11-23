@@ -154,6 +154,8 @@ const audioPlayerElement = ref(null)
 const isVisuallyExpanded = ref(false)
 const isMorphing = ref(false)
 const isContentFading = ref(false)
+const isExpanding = ref(false)  // Track compact → expand transition
+const isCollapsing = ref(false) // Track expand → compact transition
 
 // Swipe to close
 const swipeStartY = ref(0)
@@ -198,6 +200,7 @@ async function expandPlayer() {
 
   // Trigger morphing - classes change but inline styles hold position
   isMorphing.value = true
+  isExpanding.value = true  // Use fast transition
   isVisuallyExpanded.value = true
   await nextTick()
 
@@ -214,8 +217,9 @@ async function expandPlayer() {
     el.style.removeProperty('padding')
   }
 
-  await new Promise(resolve => setTimeout(resolve, 500))
+  await new Promise(resolve => setTimeout(resolve, 200))  // Fast transition (--transition-fast)
   isMorphing.value = false
+  isExpanding.value = false
 
   // Phase 3: Fade in expanded content
   await nextTick()
@@ -271,6 +275,7 @@ async function collapsePlayer() {
 
     // Step 5: Trigger morphing and change class
     isMorphing.value = true
+    isCollapsing.value = true  // Use spring transition
     isVisuallyExpanded.value = false
     await nextTick()
 
@@ -283,8 +288,8 @@ async function collapsePlayer() {
     el.style.setProperty('padding', targetPadding, 'important')
   }
 
-  // Wait for morphing transition to complete
-  await new Promise(resolve => setTimeout(resolve, 500))
+  // Wait for morphing transition to complete (spring transition is 700ms)
+  await new Promise(resolve => setTimeout(resolve, 700))
 
   // Step 7: Cleanup - remove all inline styles
   if (audioPlayerElement.value) {
@@ -300,6 +305,7 @@ async function collapsePlayer() {
   }
 
   isMorphing.value = false
+  isCollapsing.value = false
 
   // Phase 3: Fade in compact content
   await nextTick()
@@ -369,6 +375,8 @@ const playerClasses = computed(() => ({
   'expandable': props.expandable,
   'expanded': isVisuallyExpanded.value,
   'morphing': isMorphing.value,
+  'morphing-expand': isExpanding.value,
+  'morphing-collapse': isCollapsing.value,
   'content-fading': isContentFading.value
 }))
 </script>
@@ -770,9 +778,13 @@ const playerClasses = computed(() => ({
     display: flex !important;
   }
 
-  /* Morphing transition - only active when morphing (smooth, no spring) */
-  .audio-player.morphing {
-    transition: all 0.5s ease-in-out !important;
+  /* Morphing transitions - different for expand vs collapse */
+  .audio-player.morphing-expand {
+    transition: all var(--transition-fast) !important;
+  }
+
+  .audio-player.morphing-collapse {
+    transition: all var(--transition-spring) !important;
   }
 
   /* Content fade transitions */
