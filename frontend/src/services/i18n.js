@@ -49,14 +49,23 @@ class I18nService {
     return path.split('.').reduce((current, key) => current?.[key], obj);
   }
 
-  t(key) {
+  // Helper to interpolate parameters into translation strings
+  interpolate(template, params) {
+    if (!params || typeof template !== 'string') return template;
+
+    return template.replace(/\{(\w+)\}/g, (match, key) => {
+      return params.hasOwnProperty(key) ? params[key] : match;
+    });
+  }
+
+  t(key, params = {}) {
     // Load translations for current language
     const translations = this.translations.get(this.currentLanguage.value);
 
     if (translations) {
       const value = this.getNestedValue(translations, key);
       if (value !== undefined) {
-        return value;
+        return this.interpolate(value, params);
       }
     }
 
@@ -66,7 +75,7 @@ class I18nService {
       if (fallbackTranslations) {
         const fallbackValue = this.getNestedValue(fallbackTranslations, key);
         if (fallbackValue !== undefined) {
-          return fallbackValue;
+          return this.interpolate(fallbackValue, params);
         }
       }
     }

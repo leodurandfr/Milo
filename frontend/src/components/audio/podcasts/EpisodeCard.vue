@@ -104,15 +104,23 @@ const progressPercent = computed(() => {
 })
 
 const timeRemaining = computed(() => {
+  let remaining
+
   // If this is the current episode, use live data
   if (isCurrentEpisode.value) {
-    const remaining = podcastStore.currentDuration - podcastStore.currentPosition
-    return formatDuration(remaining) + ' ' + t('podcasts.remaining')
+    remaining = podcastStore.currentDuration - podcastStore.currentPosition
+  } else {
+    // Otherwise, use reactive progress cache (updated via WebSocket)
+    const progress = podcastStore.getEpisodeProgress(props.episode.uuid)
+    if (!progress) return ''
+    remaining = progress.duration - progress.position
   }
-  // Otherwise, use reactive progress cache (updated via WebSocket)
-  const progress = podcastStore.getEpisodeProgress(props.episode.uuid)
-  if (!progress) return ''
-  const remaining = progress.duration - progress.position
+
+  // Check if episode is completed (less than 5 seconds remaining)
+  if (remaining <= 5) {
+    return t('podcasts.episodeCompleted')
+  }
+
   return formatDuration(remaining) + ' ' + t('podcasts.remaining')
 })
 
