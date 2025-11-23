@@ -6,31 +6,34 @@
       <div class="details-header">
         <img :src="episode.image_url" :alt="episode.name" class="episode-image" />
         <div class="header-info">
-          <h2>{{ episode.name }}</h2>
-          <p class="podcast-link" @click="$emit('select-podcast', episode.podcast?.uuid)">
+          <h2 class="heading-1">{{ episode.name }}</h2>
+          <p class="podcast-link text-body" @click="$emit('select-podcast', episode.podcast?.uuid)">
             {{ episode.podcast?.name }}
           </p>
-          <p class="meta">
+          <p class="meta text-mono">
             {{ formattedDuration }} • {{ formattedDate }}
           </p>
-          <div class="badges">
-            <span v-if="episode.episode_type !== 'FULL'" class="badge">
+          <div v-if="showBadges" class="badges">
+            <span v-if="episode.episode_type && episode.episode_type !== 'FULL'" class="badge text-mono">
               {{ episode.episode_type }}
             </span>
-            <span v-if="episode.season_number" class="badge">
+            <span v-if="episode.season_number" class="badge text-mono">
               S{{ episode.season_number }} E{{ episode.episode_number }}
             </span>
           </div>
-          <Button variant="toggle" @click="$emit('play-episode', episode)">
-            <SvgIcon name="play" :size="16" />
-            {{ hasProgress ? t('podcasts.resume') : t('podcasts.listen') }}
+          <Button
+            variant="toggle"
+            :leftIcon="buttonIcon"
+            @click="handlePlayClick"
+          >
+            {{ buttonText }}
           </Button>
         </div>
       </div>
 
       <div class="description">
-        <h3>{{ t('podcasts.description') }}</h3>
-        <p>{{ episode.description }}</p>
+        <h3 class="heading-2">{{ t('podcasts.description') }}</h3>
+        <p class="text-body-small">{{ episode.description }}</p>
       </div>
     </template>
   </div>
@@ -42,7 +45,6 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import Button from '@/components/ui/Button.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
-import SvgIcon from '@/components/ui/SvgIcon.vue'
 
 const { t } = useI18n()
 
@@ -53,7 +55,7 @@ const props = defineProps({
   }
 })
 
-defineEmits(['back', 'play-episode', 'select-podcast'])
+const emit = defineEmits(['back', 'play-episode', 'select-podcast'])
 
 const podcastStore = usePodcastStore()
 const loading = ref(false)
@@ -84,6 +86,33 @@ const formattedDate = computed(() => {
   })
 })
 
+const showBadges = computed(() => {
+  if (!episode.value) return false
+  const hasEpisodeTypeBadge = episode.value.episode_type && episode.value.episode_type !== 'FULL'
+  const hasSeasonBadge = episode.value.season_number
+  return hasEpisodeTypeBadge || hasSeasonBadge
+})
+
+const isCurrentEpisode = computed(() => {
+  if (!episode.value?.uuid) return false
+  return podcastStore.currentEpisode?.uuid === episode.value.uuid
+})
+
+const isCurrentlyPlaying = computed(() => {
+  return isCurrentEpisode.value && podcastStore.isPlaying
+})
+
+const buttonText = computed(() => {
+  if (isCurrentlyPlaying.value) {
+    return t('podcasts.pause')
+  }
+  return hasProgress.value ? t('podcasts.resume') : t('podcasts.listen')
+})
+
+const buttonIcon = computed(() => {
+  return isCurrentlyPlaying.value ? 'pause' : 'play'
+})
+
 async function loadEpisode() {
   loading.value = true
   try {
@@ -98,6 +127,14 @@ async function loadEpisode() {
     console.error('Error loading episode:', error)
   } finally {
     loading.value = false
+  }
+}
+
+function handlePlayClick() {
+  if (isCurrentlyPlaying.value) {
+    podcastStore.pause()
+  } else {
+    emit('play-episode', episode.value)
   }
 }
 
@@ -118,8 +155,8 @@ onMounted(loadEpisode)
 }
 
 .episode-image {
-  width: 150px;
-  height: 150px;
+  width: 240px;
+  height: 240px;
   border-radius: var(--radius-04);
   object-fit: cover;
   flex-shrink: 0;
@@ -132,21 +169,17 @@ onMounted(loadEpisode)
 }
 
 .header-info h2 {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
   margin: 0;
 }
 
 .podcast-link {
-  font-size: var(--font-size-md);
   color: var(--color-accent);
   cursor: pointer;
   margin: 0;
 }
 
 .meta {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   margin: 0;
 }
 
@@ -156,20 +189,17 @@ onMounted(loadEpisode)
 }
 
 .badge {
-  font-size: var(--font-size-xs);
   padding: var(--space-01) var(--space-02);
   background: var(--color-background-neutral);
   border-radius: var(--radius-02);
+  color: var(--color-text-secondary);
 }
 
 .description h3 {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
   margin: 0 0 var(--space-03);
 }
 
 .description p {
-  font-size: var(--font-size-sm);
   line-height: 1.6;
   margin: 0;
 }

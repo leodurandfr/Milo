@@ -15,13 +15,19 @@
             <template v-else-if="hasProgress">{{ timeRemaining }}</template>
             <template v-else>{{ formattedDuration }}</template>
           </span>
-          <span class="separator">•</span>
-          <span class="date">{{ formattedDate }}</span>
+          <template v-if="formattedDate">
+            <span class="separator">•</span>
+            <span class="date">{{ formattedDate }}</span>
+          </template>
         </div>
       </div>
 
-      <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="default" size="medium"
-        :loading="isCurrentEpisodeBuffering" :disabled="isCurrentEpisodeBuffering" @click.stop="handlePlayClick" />
+      <div class="card-actions">
+        <IconButton v-if="showCompleteButton" icon="close" variant="default" size="medium"
+          @click.stop="$emit('complete', episode)" />
+        <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="default" size="medium"
+          :loading="isCurrentEpisodeBuffering" :disabled="isCurrentEpisodeBuffering" @click.stop="handlePlayClick" />
+      </div>
     </div>
   </div>
 </template>
@@ -39,10 +45,14 @@ const props = defineProps({
   episode: {
     type: Object,
     required: true
+  },
+  showCompleteButton: {
+    type: Boolean,
+    default: false
   }
 })
 
-const $emit = defineEmits(['select', 'play', 'pause'])
+const $emit = defineEmits(['select', 'play', 'pause', 'complete'])
 
 const podcastStore = usePodcastStore()
 const imageError = ref(false)
@@ -201,6 +211,12 @@ function formatRelativeDate(epochSeconds) {
   display: flex;
   flex-direction: column;
   gap: var(--space-01);
+}
+
+.card-actions {
+  display: flex;
+  gap: var(--space-02);
+  align-items: center;
 }
 
 .episode-name {

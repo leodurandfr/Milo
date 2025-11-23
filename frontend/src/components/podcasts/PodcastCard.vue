@@ -12,13 +12,10 @@
         @error="handleImageError"
       />
       <div v-if="hasNewEpisodes" class="badge-new">{{ t('podcasts.new') }}</div>
-      <div v-if="isSubscribed" class="badge-subscribed">
-        <SvgIcon name="heart" :size="16" />
-      </div>
     </div>
 
     <div class="card-info">
-      <span v-if="position" class="podcast-position text-mono">{{ position }}</span>
+      <span v-if="tagText" class="podcast-tag text-mono">{{ tagText }}</span>
       <h3 class="podcast-name text-body-small">{{ podcast.name }}</h3>
       <p v-if="podcast.publisher" class="podcast-publisher text-mono">{{ podcast.publisher }}</p>
     </div>
@@ -89,6 +86,20 @@ const isSubscribed = computed(() => {
   return props.podcast.is_subscribed || false
 })
 
+const tagText = computed(() => {
+  const hasPosition = props.position !== null
+  const subscribed = isSubscribed.value
+
+  if (hasPosition && subscribed) {
+    return `${props.position} · ${t('podcasts.subscribed').toUpperCase()}`
+  } else if (subscribed) {
+    return t('podcasts.subscribed').toUpperCase()
+  } else if (hasPosition) {
+    return props.position.toString()
+  }
+  return null
+})
+
 function handleImageError() {
   imageError.value = true
 }
@@ -139,20 +150,6 @@ function handleImageError() {
   border-radius: var(--radius-02);
 }
 
-.badge-subscribed {
-  position: absolute;
-  bottom: var(--space-02);
-  right: var(--space-02);
-  background: var(--color-success);
-  color: var(--color-text-contrast);
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
 .card-info {
   display: flex;
   flex-direction: column;
@@ -168,7 +165,7 @@ function handleImageError() {
   overflow: hidden;
 }
 
-.podcast-position {
+.podcast-tag {
   color: var(--color-brand);
   margin: 0;
 }
@@ -183,9 +180,5 @@ function handleImageError() {
 
 .card-actions {
   padding: 0;
-}
-
-.is-subscribed {
-  border: 2px solid var(--color-success);
 }
 </style>

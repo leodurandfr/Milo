@@ -1,20 +1,5 @@
 <template>
   <div class="subscriptions-view">
-    <!-- Latest episodes from subscriptions -->
-    <section v-if="latestEpisodes.length > 0" class="section">
-      <h3 class="section-title">{{ t('podcasts.newEpisodes') }}</h3>
-      <div class="episodes-list">
-        <EpisodeCard
-          v-for="episode in latestEpisodes"
-          :key="episode.uuid"
-          :episode="episode"
-          @select="$emit('select-episode', episode.uuid)"
-          @play="$emit('play-episode', episode)"
-          @pause="handlePause"
-        />
-      </div>
-    </section>
-
     <!-- My podcasts -->
     <section class="section">
       <h3 class="section-title">{{ t('podcasts.myPodcasts') }}</h3>
@@ -35,6 +20,21 @@
           :showActions="true"
           @select="$emit('select-podcast', sub.uuid)"
           @unsubscribe="handleUnsubscribe"
+        />
+      </div>
+    </section>
+
+    <!-- Latest episodes from subscriptions -->
+    <section v-if="latestEpisodes.length > 0" class="section">
+      <h3 class="section-title">{{ t('podcasts.newEpisodes') }}</h3>
+      <div class="episodes-list">
+        <EpisodeCard
+          v-for="episode in latestEpisodes"
+          :key="episode.uuid"
+          :episode="episode"
+          @select="$emit('select-episode', episode.uuid)"
+          @play="$emit('play-episode', episode)"
+          @pause="handlePause"
         />
       </div>
     </section>
