@@ -34,6 +34,7 @@ export const useSettingsStore = defineStore('settings', () => {
     bluetooth: true,
     roc: true,
     radio: true,
+    podcast: true,
     multiroom: true,
     equalizer: true,
     settings: true
@@ -80,7 +81,7 @@ export const useSettingsStore = defineStore('settings', () => {
         axios.get('/api/settings/volume-startup').catch(() => ({ data: { config: { startup_volume: 37, restore_last_volume: false } } })),
         axios.get('/api/settings/volume-steps').catch(() => ({ data: { config: { mobile_volume_steps: 5 } } })),
         axios.get('/api/settings/rotary-steps').catch(() => ({ data: { config: { rotary_volume_steps: 2 } } })),
-        axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['librespot', 'bluetooth', 'roc', 'radio', 'multiroom', 'equalizer', 'settings'] } } })),
+        axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['librespot', 'bluetooth', 'roc', 'radio', 'podcast', 'multiroom', 'equalizer', 'settings'] } } })),
         axios.get('/api/settings/spotify-disconnect').catch(() => ({ data: { config: { auto_disconnect_delay: 10.0 } } })),
         axios.get('/api/settings/screen-timeout').catch(() => ({ data: { config: { screen_timeout_enabled: true, screen_timeout_seconds: 10 } } })),
         axios.get('/api/settings/screen-brightness').catch(() => ({ data: { config: { brightness_on: 5 } } }))
@@ -126,6 +127,7 @@ export const useSettingsStore = defineStore('settings', () => {
           bluetooth: enabledApps.includes('bluetooth'),
           roc: enabledApps.includes('roc'),
           radio: enabledApps.includes('radio'),
+          podcast: enabledApps.includes('podcast'),
           multiroom: enabledApps.includes('multiroom'),
           equalizer: enabledApps.includes('equalizer'),
           settings: enabledApps.includes('settings')
@@ -201,6 +203,7 @@ export const useSettingsStore = defineStore('settings', () => {
       bluetooth: enabledApps.includes('bluetooth'),
       roc: enabledApps.includes('roc'),
       radio: enabledApps.includes('radio'),
+      podcast: enabledApps.includes('podcast'),
       multiroom: enabledApps.includes('multiroom'),
       equalizer: enabledApps.includes('equalizer'),
       settings: enabledApps.includes('settings')
