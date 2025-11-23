@@ -108,7 +108,6 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
-import useWebSocket from '@/services/websocket'
 import { useI18n } from '@/services/i18n'
 import ModalHeader from '@/components/ui/ModalHeader.vue'
 import IconButton from '@/components/ui/IconButton.vue'
@@ -129,15 +128,7 @@ import ProgressBar from './ProgressBar.vue'
 
 const podcastStore = usePodcastStore()
 const unifiedStore = useUnifiedAudioStore()
-const { on: onWsEvent } = useWebSocket()
 const { t } = useI18n()
-
-// Subscribe to podcast plugin events
-onWsEvent('plugin', 'state_changed', (message) => {
-  if (message.source === 'podcast') {
-    podcastStore.handleStateUpdate(message.data || {})
-  }
-})
 
 // Playback state - Read DIRECTLY from unifiedStore (single source of truth)
 const isCurrentlyPlaying = computed(() => {
@@ -179,11 +170,22 @@ watch(() => unifiedStore.systemState.plugin_state, (newState) => {
         shouldShowPlayerLayout.value = true
       })
     })
-  } else if (!isPodcastActive || newState === 'inactive') {
-    // Different source active or plugin inactive - hide immediately
+  } else if (!isPodcastActive || newState === 'inactive' || newState === 'ready') {
+    // Different source active, plugin inactive, or ready (no episode) - hide immediately
     shouldShowPlayerLayout.value = false
   }
 }, { immediate: true })
+
+// Watch shouldShowPlayerLayout to clear displayEpisode after fade-out animation
+watch(shouldShowPlayerLayout, (isVisible, wasVisible) => {
+  // Detect transition from visible → hidden (fade-out animation starts)
+  if (wasVisible && !isVisible) {
+    // Wait for fade-out animation to complete (600ms), then clear display metadata
+    setTimeout(() => {
+      podcastStore.clearDisplayEpisode()
+    }, 600)
+  }
+})
 
 // Watcher: triggers auto-stop after 5s when paused
 watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurrentEpisode, isPlayerExpanded.value],
@@ -225,13 +227,6 @@ watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurren
       }, 5000)
     }
   }, { immediate: true })
-
-// Sync metadata from unifiedStore (same pattern as RadioSource)
-watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
-  if (unifiedStore.systemState.active_source === 'podcast' && newMetadata) {
-    podcastStore.handleStateUpdate(newMetadata)
-  }
-}, { immediate: true, deep: true })
 
 // Navigation state
 const currentView = ref('home')
@@ -358,19 +353,19 @@ async function playEpisode(episode) {
 
 // ===== Player controls and data (moved from PodcastPlayer.vue) =====
 
-// Episode artwork
+// Episode artwork - use displayEpisode for fade-out animation preservation
 const episodeImage = computed(() => {
-  return podcastStore.currentEpisode?.image_url || episodePlaceholder
+  return podcastStore.displayEpisode?.image_url || episodePlaceholder
 })
 
-// Episode name
+// Episode name - use displayEpisode for fade-out animation preservation
 const episodeName = computed(() => {
-  return podcastStore.currentEpisode?.name || t('podcasts.noEpisode')
+  return podcastStore.displayEpisode?.name || t('podcasts.noEpisode')
 })
 
-// Podcast name
+// Podcast name - use displayEpisode for fade-out animation preservation
 const podcastName = computed(() => {
-  return podcastStore.currentEpisode?.podcast?.name || ''
+  return podcastStore.displayEpisode?.podcast?.name || ''
 })
 
 // Progress percentage
@@ -431,12 +426,6 @@ async function handleSpeedChange(speedValue) {
 onMounted(async () => {
   // Load settings and initial data
   await podcastStore.loadSettings()
-
-  // IMPORTANT: Sync currentEpisode from current backend state (same pattern as RadioSource)
-  if (unifiedStore.systemState.active_source === 'podcast' && unifiedStore.systemState.metadata) {
-    console.log('🎙️ Syncing currentEpisode from existing state on mount')
-    podcastStore.handleStateUpdate(unifiedStore.systemState.metadata)
-  }
 })
 
 // Cleanup on unmount

@@ -9,9 +9,13 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   // === PLAYBACK STATE ===
   const currentEpisode = ref(null)
+  const displayEpisode = ref(null) // Preserved during fade-out animation
   const currentPosition = ref(0)
   const currentDuration = ref(0)
   const playbackSpeed = ref(1.0)
+
+  // Timeout for delayed metadata clearing (during fade-out animation)
+  let delayedClearTimeout = null
 
   // === PROGRESS CACHE ===
   // Reactive cache of playback progress for all episodes
@@ -45,6 +49,8 @@ export const usePodcastStore = defineStore('podcast', () => {
   })
 
   const hasCurrentEpisode = computed(() => currentEpisode.value !== null)
+
+  const hasDisplayEpisode = computed(() => displayEpisode.value !== null)
 
   const progressPercentage = computed(() => {
     if (!currentDuration.value) return 0
@@ -107,8 +113,15 @@ export const usePodcastStore = defineStore('podcast', () => {
       await fetch('/api/podcast/stop', { method: 'POST' })
       // State will be cleared via WebSocket broadcast from backend
       currentEpisode.value = null
+      displayEpisode.value = null
       currentPosition.value = 0
       currentDuration.value = 0
+
+      // Clear any pending delayed clear
+      if (delayedClearTimeout) {
+        clearTimeout(delayedClearTimeout)
+        delayedClearTimeout = null
+      }
     } catch (error) {
       console.error('Error stopping:', error)
     }
@@ -165,9 +178,29 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Extract metadata from nested structure (data.metadata) or use data directly
     const metadata = data.metadata || data
 
-    // Update episode metadata (not playback state - that comes from unifiedStore)
+    // Handle episode end FIRST (before updating any other state)
+    if (metadata.episode_ended === true) {
+      // Clear currentEpisode immediately (for state consistency)
+      currentEpisode.value = null
+      currentPosition.value = 0
+
+      // DON'T clear displayEpisode yet - preserve metadata during fade-out animation
+      // The parent component will call clearDisplayEpisode() after animation completes
+
+      // RETURN EARLY - don't process any other updates from this event
+      return
+    }
+
+    // Update episode metadata (only if NOT an episode_ended event)
     if (metadata.current_episode) {
       currentEpisode.value = metadata.current_episode
+      displayEpisode.value = metadata.current_episode
+
+      // Clear any pending delayed clear
+      if (delayedClearTimeout) {
+        clearTimeout(delayedClearTimeout)
+        delayedClearTimeout = null
+      }
     }
     if (metadata.position !== undefined) {
       currentPosition.value = metadata.position
@@ -177,10 +210,6 @@ export const usePodcastStore = defineStore('podcast', () => {
     }
     if (metadata.playback_speed !== undefined) {
       playbackSpeed.value = metadata.playback_speed
-    }
-    if (metadata.episode_ended) {
-      currentEpisode.value = null
-      currentPosition.value = 0
     }
 
     // Update progress cache for reactive updates in EpisodeCard
@@ -247,16 +276,36 @@ export const usePodcastStore = defineStore('podcast', () => {
   function clearState() {
     // Clear all podcast state (called when switching away from podcast source)
     currentEpisode.value = null
+    displayEpisode.value = null
     currentPosition.value = 0
     currentDuration.value = 0
+
+    // Clear any pending delayed clear
+    if (delayedClearTimeout) {
+      clearTimeout(delayedClearTimeout)
+      delayedClearTimeout = null
+    }
+
     // Note: playback state comes from unifiedStore, no need to clear locally
     // Keep progress cache for displaying "X min restantes" on paused episodes
+  }
+
+  // Clear display episode after fade-out animation
+  function clearDisplayEpisode() {
+    displayEpisode.value = null
+
+    // Clear any pending timeout
+    if (delayedClearTimeout) {
+      clearTimeout(delayedClearTimeout)
+      delayedClearTimeout = null
+    }
   }
 
   // === RETURN ===
   return {
     // State
     currentEpisode,
+    displayEpisode,
     currentPosition,
     currentDuration,
     playbackSpeed,
@@ -268,6 +317,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     isPaused,
     isBuffering,
     hasCurrentEpisode,
+    hasDisplayEpisode,
     progressPercentage,
 
     // Actions
@@ -282,6 +332,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     handleStateUpdate,
     handlePluginEvent,
     clearState,
+    clearDisplayEpisode,
 
     // Progress cache helpers
     getEpisodeProgress,

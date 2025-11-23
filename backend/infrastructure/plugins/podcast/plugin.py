@@ -261,16 +261,17 @@ class PodcastPlugin(UnifiedAudioPlugin):
                             self.current_episode['uuid']
                         )
 
-                        # Notify episode end
-                        await self.notify_state_change(
-                            PluginState.READY,
-                            {"episode_ended": True}
-                        )
-
+                        # Reset state before notifying
                         self.current_episode = None
                         self._is_playing = False
                         self._current_position = 0
                         self._current_duration = 0
+
+                        # Notify episode end (after resetting state)
+                        await self.notify_state_change(
+                            PluginState.READY,
+                            {"episode_ended": True}
+                        )
 
                     await asyncio.sleep(1)  # Check every second
 
