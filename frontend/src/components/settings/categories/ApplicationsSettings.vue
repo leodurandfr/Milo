@@ -47,6 +47,16 @@
                 :disabled="!canDisableAudioSource('radio')" @change="updateDockApps" />
             </template>
           </ListItemButton>
+
+          <ListItemButton variant="outlined" :title="t('podcasts.podcasts')" :class="{ 'active': config.podcast }">
+            <template #icon>
+              <AppIcon name="podcast" :size="40" />
+            </template>
+            <template #action>
+              <Toggle v-model="config.podcast" size="compact"
+                :disabled="!canDisableAudioSource('podcast')" @change="updateDockApps" />
+            </template>
+          </ListItemButton>
         </div>
       </div>
       <!-- Features -->
@@ -105,7 +115,7 @@ const settingsStore = useSettingsStore();
 const config = computed(() => settingsStore.dockApps);
 
 function canDisableAudioSource(sourceId) {
-  const audioSources = ['librespot', 'bluetooth', 'roc', 'radio'];
+  const audioSources = ['librespot', 'bluetooth', 'roc', 'radio', 'podcast'];
   const enabledAudioSources = audioSources.filter(source =>
     config.value[source] && source !== sourceId
   );
