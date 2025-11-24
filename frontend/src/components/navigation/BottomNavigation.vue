@@ -561,7 +561,7 @@ const moveIndicatorTo = (index) => {
     indicatorStyle.value = {
       opacity: '1',
       transform: `translateX(${offsetX}px)`,
-      transition: 'all var(--transition-spring)'
+      transition: 'all var(--transition-spring-slow)'
     };
   });
 };

@@ -1,7 +1,22 @@
 <template>
   <div class="episode-card" @click="$emit('select', episode)">
     <div class="card-image">
-      <img :src="imageUrl" :alt="episode.name" loading="lazy" @error="imageError = true" />
+      <img
+        ref="imgRef"
+        :src="imageUrl"
+        :alt="episode.name"
+        loading="lazy"
+        @load="handleImageLoad"
+        @error="handleImageError"
+        :class="{ loaded: imageLoaded }"
+        class="main-image"
+      />
+      <img
+        v-if="!imageLoaded && !imageError"
+        :src="episodePlaceholder"
+        class="placeholder-image"
+        alt=""
+      />
     </div>
 
     <div class="card-content">
@@ -33,11 +48,11 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import IconButton from '@/components/ui/IconButton.vue'
-import episodePlaceholder from '@/assets/podcasts/episode-placeholder.jpg'
+import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 const { t } = useI18n()
 
@@ -56,6 +71,8 @@ const $emit = defineEmits(['select', 'play', 'pause', 'complete'])
 
 const podcastStore = usePodcastStore()
 const imageError = ref(false)
+const imageLoaded = ref(false)
+const imgRef = ref(null)
 
 const imageUrl = computed(() => {
   if (imageError.value) return episodePlaceholder
@@ -169,6 +186,20 @@ function formatRelativeDate(epochSeconds) {
   if (days < 365) return t('podcasts.monthsAgo', { count: Math.floor(days / 30) })
   return t('podcasts.yearsAgo', { count: Math.floor(days / 365) })
 }
+
+function handleImageError() {
+  imageError.value = true
+}
+
+function handleImageLoad() {
+  imageLoaded.value = true
+}
+
+onMounted(() => {
+  if (imgRef.value && imgRef.value.complete && imgRef.value.naturalHeight !== 0) {
+    imageLoaded.value = true
+  }
+})
 </script>
 
 <style scoped>
@@ -184,6 +215,7 @@ function formatRelativeDate(epochSeconds) {
 
 
 .card-image {
+  position: relative;
   width: 128px;
   height: 128px;
   flex-shrink: 0;
@@ -195,6 +227,23 @@ function formatRelativeDate(epochSeconds) {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  position: absolute;
+  inset: 0;
+}
+
+.card-image .main-image {
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+  z-index: 1;
+}
+
+.card-image .main-image.loaded {
+  opacity: 1;
+}
+
+.card-image .placeholder-image {
+  opacity: 1;
+  z-index: 0;
 }
 
 .card-content {

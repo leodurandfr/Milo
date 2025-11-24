@@ -6,10 +6,20 @@
   >
     <div class="card-image">
       <img
+        ref="imgRef"
         :src="imageUrl"
         :alt="podcast.name"
         loading="lazy"
+        @load="handleImageLoad"
         @error="handleImageError"
+        :class="{ loaded: imageLoaded }"
+        class="main-image"
+      />
+      <img
+        v-if="!imageLoaded && !imageError"
+        :src="podcastPlaceholder"
+        class="placeholder-image"
+        alt=""
       />
       <div v-if="hasNewEpisodes" class="badge-new">{{ t('podcasts.new') }}</div>
     </div>
@@ -42,10 +52,10 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useI18n } from '@/services/i18n'
-import SvgIcon from '@/components/ui/SvgIcon.vue'
 import Button from '@/components/ui/Button.vue'
+import podcastPlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 const { t } = useI18n()
 
@@ -62,10 +72,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  showEpisodeCount: {
-    type: Boolean,
-    default: true
-  },
   hasNewEpisodes: {
     type: Boolean,
     default: false
@@ -74,12 +80,13 @@ const props = defineProps({
 
 defineEmits(['select', 'subscribe', 'unsubscribe'])
 
-const fallbackImage = '/default-podcast.png'
 const imageError = ref(false)
+const imageLoaded = ref(false)
+const imgRef = ref(null)
 
 const imageUrl = computed(() => {
-  if (imageError.value) return fallbackImage
-  return props.podcast.image_url || fallbackImage
+  if (imageError.value) return podcastPlaceholder
+  return props.podcast.image_url || podcastPlaceholder
 })
 
 const isSubscribed = computed(() => {
@@ -103,6 +110,16 @@ const tagText = computed(() => {
 function handleImageError() {
   imageError.value = true
 }
+
+function handleImageLoad() {
+  imageLoaded.value = true
+}
+
+onMounted(() => {
+  if (imgRef.value && imgRef.value.complete && imgRef.value.naturalHeight !== 0) {
+    imageLoaded.value = true
+  }
+})
 </script>
 
 <style scoped>
@@ -135,6 +152,23 @@ function handleImageError() {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  position: absolute;
+  inset: 0;
+}
+
+.card-image .main-image {
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+  z-index: 1;
+}
+
+.card-image .main-image.loaded {
+  opacity: 1;
+}
+
+.card-image .placeholder-image {
+  opacity: 1;
+  z-index: 0;
 }
 
 .badge-new {

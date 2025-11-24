@@ -60,7 +60,7 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import episodePlaceholder from '@/assets/podcasts/episode-placeholder.jpg'
+import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 const props = defineProps({
   /**
@@ -601,7 +601,7 @@ const playerClasses = computed(() => ({
 @media (min-aspect-ratio: 4/3) {
   .audio-player-enter-active {
     transition:
-      transform var(--transition-spring),
+      transform var(--transition-spring-slow),
       opacity 0.4s ease-out;
   }
 

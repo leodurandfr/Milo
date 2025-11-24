@@ -1,41 +1,66 @@
 <template>
   <div class="episode-details">
-    <LoadingSpinner v-if="loading" />
+    <div class="transition-container">
+      <!-- Skeleton state -->
+      <transition name="content-fade">
+        <SkeletonEpisodeDetails v-if="loading" key="loading" />
+      </transition>
 
-    <template v-else-if="episode">
-      <div class="details-header">
-        <img :src="episode.image_url" :alt="episode.name" class="episode-image" />
-        <div class="header-info">
-          <h2 class="heading-1">{{ episode.name }}</h2>
-          <p class="podcast-link text-body" @click="$emit('select-podcast', episode.podcast?.uuid)">
-            {{ episode.podcast?.name }}
-          </p>
-          <p class="meta text-mono">
-            {{ formattedDuration }} • {{ formattedDate }}
-          </p>
-          <div v-if="showBadges" class="badges">
-            <span v-if="episode.episode_type && episode.episode_type !== 'FULL'" class="badge text-mono">
-              {{ episode.episode_type }}
-            </span>
-            <span v-if="episode.season_number" class="badge text-mono">
-              S{{ episode.season_number }} E{{ episode.episode_number }}
-            </span>
+      <!-- Real content -->
+      <transition name="content-fade">
+        <div v-if="!loading && episode" key="loaded" class="details-content">
+          <div class="details-header">
+            <div class="image-container">
+              <img
+                ref="imgRef"
+                :src="imageUrl"
+                :alt="episode.name"
+                loading="lazy"
+                @load="handleImageLoad"
+                @error="handleImageError"
+                :class="{ loaded: imageLoaded }"
+                class="episode-image main-image"
+              />
+              <img
+                v-if="!imageLoaded && !imageError"
+                :src="episodePlaceholder"
+                class="episode-image placeholder-image"
+                alt=""
+              />
+            </div>
+            <div class="header-info">
+              <h2 class="heading-1">{{ episode.name }}</h2>
+              <p class="podcast-link text-body" @click="$emit('select-podcast', episode.podcast?.uuid)">
+                {{ episode.podcast?.name }}
+              </p>
+              <p class="meta text-mono">
+                {{ formattedDuration }} • {{ formattedDate }}
+              </p>
+              <div v-if="showBadges" class="badges">
+                <span v-if="episode.episode_type && episode.episode_type !== 'FULL'" class="badge text-mono">
+                  {{ episode.episode_type }}
+                </span>
+                <span v-if="episode.season_number" class="badge text-mono">
+                  S{{ episode.season_number }} E{{ episode.episode_number }}
+                </span>
+              </div>
+              <Button
+                variant="toggle"
+                :leftIcon="buttonIcon"
+                @click="handlePlayClick"
+              >
+                {{ buttonText }}
+              </Button>
+            </div>
           </div>
-          <Button
-            variant="toggle"
-            :leftIcon="buttonIcon"
-            @click="handlePlayClick"
-          >
-            {{ buttonText }}
-          </Button>
-        </div>
-      </div>
 
-      <div class="description">
-        <h3 class="heading-2">{{ t('podcasts.description') }}</h3>
-        <p class="text-body-small">{{ episode.description }}</p>
-      </div>
-    </template>
+          <div class="description">
+            <h3 class="heading-2">{{ t('podcasts.description') }}</h3>
+            <p class="text-body-small">{{ episode.description }}</p>
+          </div>
+        </div>
+      </transition>
+    </div>
   </div>
 </template>
 
@@ -44,7 +69,8 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import Button from '@/components/ui/Button.vue'
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
+import SkeletonEpisodeDetails from './SkeletonEpisodeDetails.vue'
+import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 const { t } = useI18n()
 
@@ -60,6 +86,14 @@ const emit = defineEmits(['back', 'play-episode', 'select-podcast'])
 const podcastStore = usePodcastStore()
 const loading = ref(false)
 const episode = ref(null)
+const imageError = ref(false)
+const imageLoaded = ref(false)
+const imgRef = ref(null)
+
+const imageUrl = computed(() => {
+  if (imageError.value) return episodePlaceholder
+  return episode.value?.image_url || episodePlaceholder
+})
 
 const hasProgress = computed(() => {
   if (!episode.value?.uuid) return false
@@ -138,8 +172,31 @@ function handlePlayClick() {
   }
 }
 
-watch(() => props.uuid, loadEpisode, { immediate: false })
-onMounted(loadEpisode)
+function handleImageError() {
+  imageError.value = true
+}
+
+function handleImageLoad() {
+  imageLoaded.value = true
+}
+
+function checkImageLoaded() {
+  if (imgRef.value && imgRef.value.complete && imgRef.value.naturalHeight !== 0) {
+    imageLoaded.value = true
+  }
+}
+
+watch(() => props.uuid, async () => {
+  imageLoaded.value = false
+  await loadEpisode()
+  checkImageLoaded()
+}, { immediate: false })
+
+onMounted(() => {
+  loadEpisode().then(() => {
+    checkImageLoaded()
+  })
+})
 </script>
 
 <style scoped>
@@ -149,17 +206,61 @@ onMounted(loadEpisode)
   gap: var(--space-05);
 }
 
+.transition-container {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.transition-container > * {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.content-fade-enter-active,
+.content-fade-leave-active {
+  transition: opacity var(--transition-normal);
+}
+
+.content-fade-enter-from,
+.content-fade-leave-to {
+  opacity: 0;
+}
+
 .details-header {
   display: flex;
   gap: var(--space-04);
 }
 
-.episode-image {
+.image-container {
+  position: relative;
   width: 240px;
   height: 240px;
   border-radius: var(--radius-04);
-  object-fit: cover;
+  overflow: hidden;
   flex-shrink: 0;
+}
+
+.image-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  inset: 0;
+}
+
+.image-container .main-image {
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+  z-index: 1;
+}
+
+.image-container .main-image.loaded {
+  opacity: 1;
+}
+
+.image-container .placeholder-image {
+  opacity: 1;
+  z-index: 0;
 }
 
 .header-info {

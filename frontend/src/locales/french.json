@@ -277,7 +277,7 @@
       "true_crime": "True Crime",
       "tv_and_film": "TV & Cinéma"
     },
-    "searchPlaceholder": "Recherche",
+    "searchPlaceholder": "Rechercher",
     "podcastsCount": "Podcasts ({count})",
     "episodesCount": "Épisodes ({count})",
     "loadingMoreResults": "Chargement de plus de résultats...",
@@ -307,6 +307,7 @@
     "loadMorePodcasts": "Charger plus de podcasts",
     "loadMoreEpisodes": "Charger plus d'épisodes",
     "newEpisodes": "Nouveaux épisodes",
+    "noNewEpisodes": "Aucun nouvel épisode",
     "myPodcasts": "Mes podcasts",
     "noSubscriptions": "Aucun abonnement",
     "noSubscriptionsHint": "Recherchez des podcasts et abonnez-vous pour les retrouver ici",
