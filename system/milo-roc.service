@@ -1,0 +1,39 @@
+[Unit]
+Description=Milo ROC Audio Receiver
+Documentation=https://roc-streaming.org/
+After=network.target sound.service milo-backend.service
+Wants=network.target milo-backend.service
+BindsTo=milo-backend.service
+
+[Service]
+Type=exec
+User=milo
+Group=audio
+
+EnvironmentFile=/etc/environment
+EnvironmentFile=/var/lib/milo/routing.env
+Environment=HOME=/home/milo
+
+ExecStart=/usr/bin/roc-recv -vvv \
+  -s rtp+rs8m://0.0.0.0:10001 \
+  -r rs8m://0.0.0.0:10002 \
+  -c rtcp://0.0.0.0:10003 \
+#  --target-latency=30ms \
+#  --latency-profile=responsive \
+#  --resampler-backend=builtin \
+#  --resampler-profile=high \
+#  --frame-len=6ms \
+  -o alsa://milo_roc
+
+Restart=always
+RestartSec=5
+
+PrivateNetwork=false
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-roc
+
+[Install]
+WantedBy=multi-user.target
