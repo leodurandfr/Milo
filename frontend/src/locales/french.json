@@ -301,8 +301,28 @@
       "medium": "Moyen (15-45 min)",
       "long": "Long (> 45 min)"
     },
+    "languageFilter": {
+      "label": "Langue",
+      "all": "Langues",
+      "english": "Anglais",
+      "french": "Français",
+      "spanish": "Espagnol",
+      "german": "Allemand",
+      "italian": "Italien",
+      "portuguese": "Portugais",
+      "chinese": "Chinois",
+      "japanese": "Japonais",
+      "korean": "Coréen",
+      "hindi": "Hindi",
+      "arabic": "Arabe",
+      "dutch": "Néerlandais",
+      "polish": "Polonais",
+      "russian": "Russe",
+      "swedish": "Suédois",
+      "turkish": "Turc"
+    },
     "genreFilter": {
-      "all": "Tous les genres"
+      "all": "Genres"
     },
     "loadMorePodcasts": "Charger plus de podcasts",
     "loadMoreEpisodes": "Charger plus d'épisodes",

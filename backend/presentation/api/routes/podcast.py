@@ -326,7 +326,7 @@ async def lookup_podcast_by_itunes_id(
 
 @router.get("/search")
 async def search_mixed(
-    term: str = Query(..., description="Search term"),
+    term: str = Query("", description="Search term (optional)"),
     genres: str = Query(None, description="Comma-separated genre list"),
     languages: str = Query(None, description="Comma-separated language list"),
     countries: str = Query(None, description="Comma-separated country list"),
@@ -341,7 +341,8 @@ async def search_mixed(
     try:
         plugin = container.podcast_plugin()
 
-        if not term:
+        # Only return empty if BOTH term is empty AND no filters are active
+        if not term and not genres and not duration_min and not duration_max:
             return {
                 "podcasts": [],
                 "episodes": [],

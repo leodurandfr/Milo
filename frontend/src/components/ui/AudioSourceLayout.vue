@@ -38,16 +38,16 @@ const props = defineProps({
   height: 100%;
   padding: 0 var(--space-07);
   transition: all var(--transition-spring);
+  overflow-y: auto;
 }
 
 /* Content container: animates width to make space for player */
 .content-container {
   position: relative;
   width: 84%;
-  max-height: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
   padding: var(--space-07) 0;
   gap: var(--space-04);
   min-height: 0;

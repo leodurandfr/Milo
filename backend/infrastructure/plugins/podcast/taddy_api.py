@@ -586,7 +586,7 @@ class TaddyAPI:
 
     async def search_mixed(
         self,
-        term: str,
+        term: str = "",
         genres: List[str] = None,
         languages: List[str] = None,
         countries: List[str] = None,
@@ -611,6 +611,12 @@ class TaddyAPI:
         if cached:
             return cached
 
+        # Build term parameter (only if provided)
+        term_param = ""
+        if term:
+            escaped_term = term.replace('"', '\\"')
+            term_param = f'term: "{escaped_term}"\n            '
+
         # Build filters
         filters = []
         if genres:
@@ -633,14 +639,10 @@ class TaddyAPI:
         if filters_str:
             filters_str = '\n        ' + filters_str
 
-        # Escape term for GraphQL
-        escaped_term = term.replace('"', '\\"')
-
         query = f"""
         {{
           search(
-            term: "{escaped_term}"
-            filterForTypes: [PODCASTSERIES, PODCASTEPISODE]
+            {term_param}filterForTypes: [PODCASTSERIES, PODCASTEPISODE]
             sortBy: {sort_by}
             page: {page}
             limitPerPage: {limit}{filters_str}

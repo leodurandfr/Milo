@@ -302,8 +302,28 @@
       "medium": "मध्यम (15-45 मिनट)",
       "long": "लंबा (> 45 मिनट)"
     },
+    "languageFilter": {
+      "label": "भाषा",
+      "all": "भाषा",
+      "english": "अंग्रेज़ी",
+      "french": "फ़्रांसीसी",
+      "spanish": "स्पेनिश",
+      "german": "जर्मन",
+      "italian": "इतालवी",
+      "portuguese": "पुर्तगाली",
+      "chinese": "चीनी",
+      "japanese": "जापानी",
+      "korean": "कोरियाई",
+      "hindi": "हिंदी",
+      "arabic": "अरबी",
+      "dutch": "डच",
+      "polish": "पोलिश",
+      "russian": "रूसी",
+      "swedish": "स्वीडिश",
+      "turkish": "तुर्की"
+    },
     "genreFilter": {
-      "all": "सभी शैलियाँ"
+      "all": "शैली"
     },
     "loadMorePodcasts": "अधिक पॉडकास्ट लोड करें",
     "loadMoreEpisodes": "अधिक एपिसोड लोड करें",

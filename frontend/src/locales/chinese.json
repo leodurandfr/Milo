@@ -302,8 +302,28 @@
       "medium": "中等 (15-45分钟)",
       "long": "长 (> 45分钟)"
     },
+    "languageFilter": {
+      "label": "语言",
+      "all": "语言",
+      "english": "英语",
+      "french": "法语",
+      "spanish": "西班牙语",
+      "german": "德语",
+      "italian": "意大利语",
+      "portuguese": "葡萄牙语",
+      "chinese": "中文",
+      "japanese": "日语",
+      "korean": "韩语",
+      "hindi": "印地语",
+      "arabic": "阿拉伯语",
+      "dutch": "荷兰语",
+      "polish": "波兰语",
+      "russian": "俄语",
+      "swedish": "瑞典语",
+      "turkish": "土耳其语"
+    },
     "genreFilter": {
-      "all": "所有类型"
+      "all": "类型"
     },
     "loadMorePodcasts": "加载更多播客",
     "loadMoreEpisodes": "加载更多剧集",
