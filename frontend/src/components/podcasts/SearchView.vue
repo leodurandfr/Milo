@@ -1,5 +1,5 @@
 <template>
-  <div class="search-view">
+  <div class="search-view fade-in">
     <!-- Filters -->
     <div class="filters-bar">
       <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')" icon="search"
@@ -301,6 +301,7 @@ async function loadMoreEpisodes() {
 </script>
 
 <style scoped>
+
 .search-view {
   display: flex;
   flex-direction: column;

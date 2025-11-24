@@ -1,5 +1,5 @@
 <template>
-  <div class="search-view">
+  <div class="search-view fade-in">
     <!-- Search filters -->
     <div class="filters">
       <InputText

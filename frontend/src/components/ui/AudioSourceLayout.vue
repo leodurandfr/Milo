@@ -57,7 +57,7 @@ const props = defineProps({
 }
 
 .content-container.with-player {
-  width: calc(100% - 310px - var(--space-06));
+  width: calc(100% - 310px);
   transition: width var(--transition-spring);
 }
 
@@ -99,7 +99,7 @@ const props = defineProps({
   .content-container.with-player {
     width: 100%;
     margin-right: 0;
-    padding-bottom: 140px;
+    padding-bottom: 128px;
   }
 
   .player-wrapper {

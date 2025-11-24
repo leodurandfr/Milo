@@ -1,7 +1,7 @@
 <template>
   <div class="favorites-view">
     <!-- Empty state -->
-    <div v-if="favoriteStations.length === 0" class="message-wrapper" :class="{
+    <div v-if="!isLoading && favoriteStations.length === 0" class="message-wrapper" :class="{
       'message-fading-in': messageState === 'fading-in',
       'message-fading-out': messageState === 'fading-out'
     }">
@@ -12,7 +12,7 @@
     </div>
 
     <!-- Favorites grid -->
-    <div v-else class="favorites-grid" :class="{
+    <div v-else class="favorites-grid fade-in" :class="{
       'has-now-playing': hasNowPlaying
     }">
       <StationCard
@@ -78,6 +78,14 @@ const props = defineProps({
   messageState: {
     type: String,
     default: 'idle'
+  },
+
+  /**
+   * Whether stations are currently loading
+   */
+  isLoading: {
+    type: Boolean,
+    default: false
   }
 })
 
