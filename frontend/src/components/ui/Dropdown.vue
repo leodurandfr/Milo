@@ -10,7 +10,9 @@
     </button>
 
     <Transition name="dropdown-menu">
-      <div v-if="isOpen" class="dropdown-menu" :class="{ 'open-upward': openUpward }">
+      <div v-if="isOpen" class="dropdown-menu" :class="{ 'open-upward': openUpward }"
+        :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }"
+        @scroll.stop>
         <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
           :class="[textClass, { 'is-selected': option.value === modelValue }]" @click="selectOption(option.value)">
           {{ option.label }}
@@ -59,6 +61,8 @@ const emit = defineEmits(['update:modelValue', 'change']);
 const dropdownRef = ref(null);
 const isOpen = ref(false);
 const openUpward = ref(false);
+const menuPosition = ref({ top: '0px', left: '0px', width: '0px' });
+const lastScrollPosition = ref({ x: 0, y: 0 });
 
 const textClass = computed(() => {
   return props.size === 'small' ? 'text-body-small' : 'text-body';
@@ -75,8 +79,18 @@ function calculateDropdownDirection() {
   const BOTTOM_MARGIN = 24; // Minimum margin in pixels
   const MENU_MAX_HEIGHT = 340; // Max height of dropdown menu
 
-  // Get dropdown position
-  const triggerRect = dropdownRef.value.getBoundingClientRect();
+  // Get trigger button position (not the wrapper div)
+  const triggerButton = dropdownRef.value.querySelector('.dropdown-trigger');
+  if (!triggerButton) return;
+
+  const triggerRect = triggerButton.getBoundingClientRect();
+
+  // Set menu position to match trigger
+  menuPosition.value = {
+    top: `${triggerRect.bottom + 4}px`, // 4px gap below trigger
+    left: `${triggerRect.left}px`,
+    width: `${triggerRect.width}px`
+  };
 
   // Find the scrollable parent container
   let scrollableParent = dropdownRef.value.parentElement;
@@ -95,6 +109,11 @@ function calculateDropdownDirection() {
     const spaceBelow = window.innerHeight - triggerRect.bottom;
     const spaceAbove = triggerRect.top;
     openUpward.value = spaceBelow < (MENU_MAX_HEIGHT + BOTTOM_MARGIN) && spaceAbove > spaceBelow;
+
+    // Adjust position if opening upward
+    if (openUpward.value) {
+      menuPosition.value.top = `${triggerRect.top - MENU_MAX_HEIGHT - 4}px`;
+    }
     return;
   }
 
@@ -105,12 +124,24 @@ function calculateDropdownDirection() {
 
   // Open upward if not enough space below and more space above than below
   openUpward.value = spaceBelow < (MENU_MAX_HEIGHT + BOTTOM_MARGIN) && spaceAbove > spaceBelow;
+
+  // Adjust position if opening upward
+  if (openUpward.value) {
+    menuPosition.value.top = `${triggerRect.top - MENU_MAX_HEIGHT - 4}px`;
+  }
 }
 
 function toggleDropdown() {
   // Calculate direction BEFORE opening to avoid animation glitch
   if (!isOpen.value) {
     calculateDropdownDirection();
+
+    // Initialiser la position de scroll pour la détection
+    const target = dropdownRef.value?.parentElement;
+    lastScrollPosition.value = {
+      x: target?.scrollLeft || window.scrollX || 0,
+      y: target?.scrollTop || window.scrollY || 0
+    };
   }
 
   isOpen.value = !isOpen.value;
@@ -128,12 +159,48 @@ function handleClickOutside(event) {
   }
 }
 
+function handleResize() {
+  if (isOpen.value) {
+    calculateDropdownDirection();
+  }
+}
+
+function handleScroll(event) {
+  if (!isOpen.value) return;
+
+  // Détecter si c'est un scroll horizontal ou vertical
+  const target = event.target === document ? window : event.target;
+  const currentScrollX = target.scrollLeft || window.scrollX || 0;
+  const currentScrollY = target.scrollTop || window.scrollY || 0;
+
+  const deltaX = Math.abs(currentScrollX - lastScrollPosition.value.x);
+  const deltaY = Math.abs(currentScrollY - lastScrollPosition.value.y);
+
+  // Mettre à jour la position
+  lastScrollPosition.value = { x: currentScrollX, y: currentScrollY };
+
+  // Si scroll horizontal détecté, fermer le dropdown
+  if (deltaX > 0) {
+    isOpen.value = false;
+    return;
+  }
+
+  // Si scroll vertical seulement, recalculer la position
+  if (deltaY > 0) {
+    calculateDropdownDirection();
+  }
+}
+
 onMounted(() => {
   document.addEventListener('click', handleClickOutside);
+  window.addEventListener('resize', handleResize);
+  window.addEventListener('scroll', handleScroll, true); // Use capture phase for all scroll events
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside);
+  window.removeEventListener('resize', handleResize);
+  window.removeEventListener('scroll', handleScroll, true);
 });
 </script>
 
@@ -238,22 +305,15 @@ onBeforeUnmount(() => {
 }
 
 .dropdown-menu {
-  position: absolute;
-  top: calc(100% + var(--space-01));
-  left: 0;
-  right: 0;
-  z-index: 100;
+  position: fixed;
+  z-index: 1000;
   background: var(--color-background-neutral);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-04);
   box-shadow: var(--shadow-02);
   max-height: 340px;
   overflow-y: auto;
-}
-
-.dropdown-menu.open-upward {
-  top: auto;
-  bottom: calc(100% + var(--space-01));
+  min-width: 200px;
 }
 
 .dropdown-item {

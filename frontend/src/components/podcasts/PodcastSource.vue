@@ -2,7 +2,7 @@
   <AudioSourceLayout :show-player="shouldShowPlayerLayout">
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div class="podcast-content">
+      <div class="podcast-content" :class="{ 'search-spacing': currentView === 'search' }">
         <!-- Header with navigation -->
         <ModalHeader :title="currentTitle" :subtitle="currentSubtitle" :showBack="currentView !== 'home'" icon="podcast"
           variant="background-neutral" @back="goToHome">
@@ -449,6 +449,10 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: var(--space-06);
   width: 100%;
+}
+
+.podcast-content.search-spacing {
+  gap: var(--space-04);
 }
 
 /* Player control styles (from PodcastPlayer.vue) */

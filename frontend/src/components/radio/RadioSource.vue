@@ -5,7 +5,7 @@
     <template #content>
       <div
         ref="radioContainer"
-        class="radio-content stagger-1"
+        class="radio-content"
         :class="{ 'is-initial-animating': isInitialAnimating }"
       >
         <!-- ModalHeader: Favorites view -->
@@ -538,28 +538,6 @@ onBeforeUnmount(() => {
   gap: var(--space-04);
   width: 100%;
   height: 100%;
-}
-
-/* Initial stagger animation */
-.stagger-1 {
-  opacity: 0;
-  transform: translateY(var(--space-07));
-  animation:
-    stagger-transform var(--transition-spring) forwards,
-    stagger-opacity 0.4s ease forwards;
-  animation-delay: 0ms;
-}
-
-@keyframes stagger-transform {
-  to {
-    transform: translateY(0);
-  }
-}
-
-@keyframes stagger-opacity {
-  to {
-    opacity: 1;
-  }
 }
 
 .radio-content.is-initial-animating {

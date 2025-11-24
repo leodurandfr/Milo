@@ -4,8 +4,9 @@
     <div class="filters-bar">
       <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')" icon="search"
         @keyup.enter="performSearch" />
-      <Dropdown v-model="selectedDuration" :options="durationOptions" />
+      <Dropdown v-model="selectedLanguage" :options="languageOptions" />
       <Dropdown v-model="selectedGenre" :options="genreOptions" />
+      <Dropdown v-model="selectedDuration" :options="durationOptions" />
     </div>
 
     <!-- Results -->
@@ -94,8 +95,29 @@ const loading = ref(false)
 const hasSearched = ref(false)
 
 // Filters
+const selectedLanguage = ref('all')
 const selectedDuration = ref('all')
 const selectedGenre = ref('all')
+
+const languageOptions = [
+  { value: 'all', label: t('podcasts.languageFilter.all') },
+  { value: 'ENGLISH', label: t('podcasts.languageFilter.english') },
+  { value: 'FRENCH', label: t('podcasts.languageFilter.french') },
+  { value: 'SPANISH', label: t('podcasts.languageFilter.spanish') },
+  { value: 'GERMAN', label: t('podcasts.languageFilter.german') },
+  { value: 'ITALIAN', label: t('podcasts.languageFilter.italian') },
+  { value: 'PORTUGUESE', label: t('podcasts.languageFilter.portuguese') },
+  { value: 'CHINESE', label: t('podcasts.languageFilter.chinese') },
+  { value: 'JAPANESE', label: t('podcasts.languageFilter.japanese') },
+  { value: 'KOREAN', label: t('podcasts.languageFilter.korean') },
+  { value: 'HINDI', label: t('podcasts.languageFilter.hindi') },
+  { value: 'ARABIC', label: t('podcasts.languageFilter.arabic') },
+  { value: 'DUTCH_FLEMISH', label: t('podcasts.languageFilter.dutch') },
+  { value: 'POLISH', label: t('podcasts.languageFilter.polish') },
+  { value: 'RUSSIAN', label: t('podcasts.languageFilter.russian') },
+  { value: 'SWEDISH', label: t('podcasts.languageFilter.swedish') },
+  { value: 'TURKISH', label: t('podcasts.languageFilter.turkish') }
+]
 
 const durationOptions = [
   { value: 'all', label: t('podcasts.duration.label') },
@@ -144,9 +166,10 @@ const resultsContainer = ref(null)
 const filterDebounceTimer = ref(null)
 
 // Watch filters and auto-trigger search when they change
-watch([selectedDuration, selectedGenre], () => {
+watch([selectedLanguage, selectedDuration, selectedGenre], () => {
   // Only auto-search if user has interacted OR filters are active
-  const hasActiveFilters = selectedDuration.value !== 'all' ||
+  const hasActiveFilters = selectedLanguage.value !== 'all' ||
+    selectedDuration.value !== 'all' ||
     selectedGenre.value !== 'all'
 
   if (hasSearched.value || hasActiveFilters) {
@@ -194,6 +217,11 @@ async function performSearch() {
     // Add genre filter if selected
     if (selectedGenre.value !== 'all') {
       params.append('genres', selectedGenre.value)
+    }
+
+    // Add language filter if selected
+    if (selectedLanguage.value !== 'all') {
+      params.append('languages', selectedLanguage.value)
     }
 
     const response = await fetch(`/api/podcast/search?${params}`)
@@ -245,6 +273,10 @@ async function loadMorePodcasts() {
       params.append('genres', selectedGenre.value)
     }
 
+    if (selectedLanguage.value !== 'all') {
+      params.append('languages', selectedLanguage.value)
+    }
+
     const response = await fetch(`/api/podcast/search?${params}`)
     const data = await response.json()
 
@@ -286,6 +318,10 @@ async function loadMoreEpisodes() {
       params.append('genres', selectedGenre.value)
     }
 
+    if (selectedLanguage.value !== 'all') {
+      params.append('languages', selectedLanguage.value)
+    }
+
     const response = await fetch(`/api/podcast/search?${params}`)
     const data = await response.json()
 
@@ -322,7 +358,34 @@ async function loadMoreEpisodes() {
 
 .filters-bar>* {
   flex: 1;
-  min-width: 140px;
+  min-width: 192px;
+}
+
+/* Mobile: scroll horizontal au lieu de wrap vertical */
+@media (max-aspect-ratio: 4/3) {
+  .filters-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+
+    /* Full-bleed: compense le padding du parent AudioSourceLayout */
+    margin-left: calc(-1 * var(--space-05));
+    margin-right: calc(-1 * var(--space-05));
+    padding-left: var(--space-05);
+    padding-right: var(--space-05);
+
+    /* Masquer la scrollbar */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .filters-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filters-bar > * {
+    flex-shrink: 0;
+  }
 }
 
 .results {

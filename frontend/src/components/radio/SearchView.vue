@@ -223,15 +223,21 @@ const searchResults = computed(() => {
   flex-direction: column;
   gap: var(--space-04);
   flex: 1;
-  min-height: 0;
 }
 
 /* Filters */
 .filters {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-01);
+  display: flex;
+  gap: var(--space-02);
+  align-items: center;
+  flex-wrap: wrap;
   color: var(--color-text-secondary);
+  min-height: 48px;
+}
+
+.filters > * {
+  flex: 1;
+  min-width: 192px;
 }
 
 /* Message wrapper (loading, error, empty states) */
@@ -267,7 +273,29 @@ const searchResults = computed(() => {
   }
 
   .filters {
-    grid-template-columns: repeat(1, 1fr);
+    /* Passer de grid vertical à flex horizontal scrollable */
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+
+    /* Full-bleed: compense le padding du parent AudioSourceLayout */
+    margin-left: calc(-1 * var(--space-05));
+    margin-right: calc(-1 * var(--space-05));
+    padding-left: var(--space-05);
+    padding-right: var(--space-05);
+
+    /* Masquer la scrollbar */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filters > * {
+    flex-shrink: 0;
   }
 }
 

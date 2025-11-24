@@ -395,6 +395,7 @@ const playerClasses = computed(() => ({
   backdrop-filter: blur(16px);
   position: relative;
   overflow: hidden;
+  z-index: 1;
 }
 
 /* Glass stroke border effect (matching both radio and podcast players exactly) */
