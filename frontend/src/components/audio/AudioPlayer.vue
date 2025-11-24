@@ -217,13 +217,19 @@ async function expandPlayer() {
     el.style.removeProperty('padding')
   }
 
-  await new Promise(resolve => setTimeout(resolve, 200))  // Fast transition (--transition-fast)
+  // Wait 600ms (morphing in progress)
+  await new Promise(resolve => setTimeout(resolve, 600))
+
+  // Phase 3: Fade in expanded content (starts early, completes at 800ms)
+  isContentFading.value = false
+
+  // Wait 200ms for fade-in to complete (600ms + 200ms = 800ms)
+  await new Promise(resolve => setTimeout(resolve, 200))
+
+  // Wait remaining 600ms for morphing to finish (800ms + 600ms = 1400ms total)
+  await new Promise(resolve => setTimeout(resolve, 600))
   isMorphing.value = false
   isExpanding.value = false
-
-  // Phase 3: Fade in expanded content
-  await nextTick()
-  isContentFading.value = false
 }
 
 // Collapse animation (reverse)
@@ -288,8 +294,17 @@ async function collapsePlayer() {
     el.style.setProperty('padding', targetPadding, 'important')
   }
 
-  // Wait for morphing transition to complete (spring transition is 700ms)
-  await new Promise(resolve => setTimeout(resolve, 700))
+  // Wait 600ms (morphing in progress)
+  await new Promise(resolve => setTimeout(resolve, 600))
+
+  // Phase 3: Fade in compact content (starts early, completes at 800ms after morphing start)
+  isContentFading.value = false
+
+  // Wait 200ms for fade-in to complete (600ms + 200ms = 800ms)
+  await new Promise(resolve => setTimeout(resolve, 200))
+
+  // Wait remaining 360ms for morphing to finish (800ms + 360ms = 1160ms total)
+  await new Promise(resolve => setTimeout(resolve, 360))
 
   // Step 7: Cleanup - remove all inline styles
   if (audioPlayerElement.value) {
@@ -306,10 +321,6 @@ async function collapsePlayer() {
 
   isMorphing.value = false
   isCollapsing.value = false
-
-  // Phase 3: Fade in compact content
-  await nextTick()
-  isContentFading.value = false
 }
 
 // Handle player click (expand)
@@ -697,18 +708,22 @@ const playerClasses = computed(() => ({
   /* Expanded mode styles - near fullscreen vertical layout with 32px margin */
   .audio-player.expandable.expanded {
     position: fixed !important;
-    inset: 32px !important;
+    inset: -4px;
     width: auto !important;
     height: auto !important;
     max-height: none !important;
     transform: none !important;
     margin: 0 !important;
-    border-radius: var(--radius-06) !important;
+    border-radius: 0px;
     padding: var(--space-08) var(--space-05) var(--space-05) var(--space-05) !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: center !important;
   }
+  .audio-player.expandable.expanded::before {
+  border-radius: 0px;
+opacity: 0;
+}
 
   /* Expanded player content - vertical layout */
   .audio-player.expandable.expanded .player-content {
@@ -780,11 +795,11 @@ const playerClasses = computed(() => ({
 
   /* Morphing transitions - different for expand vs collapse */
   .audio-player.morphing-expand {
-    transition: all var(--transition-fast) !important;
+    transition: all var(--transition-spring-slow) !important;
   }
 
   .audio-player.morphing-collapse {
-    transition: all var(--transition-spring) !important;
+    transition: all var(--transition-spring-ultra-slow) !important;
   }
 
   /* Content fade transitions */
