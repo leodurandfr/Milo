@@ -32,6 +32,7 @@ const props = defineProps({
 <style scoped>
 /* Layout wrapper */
 .audio-source-layout {
+  --audio-player-wrapper-width: 340px;
   display: flex;
   justify-content: center;
   width: 100%;
@@ -57,28 +58,33 @@ const props = defineProps({
 }
 
 .content-container.with-player {
-  width: calc(100% - 340px);
+  width: calc(100% - var(--audio-player-wrapper-width));
   transition: width var(--transition-spring);
 }
 
 /* Player wrapper: animates width to create space for player */
 .player-wrapper {
+  box-sizing: border-box;
   width: 0;
-  max-width: 340px;
+  max-width: var(--audio-player-wrapper-width);
+  padding-left: 0;
   opacity: 0;
   flex-shrink: 0;
   transition:
     width 0.6s cubic-bezier(0.5, 0, 0, 1),
+    padding-left 0.6s cubic-bezier(0.5, 0, 0, 1),
     opacity 0.6s cubic-bezier(0.5, 0, 0, 1);
   pointer-events: none;
 }
 
 .player-wrapper.has-player {
-  width: 340px;
-  max-width: 340px;
+  width: var(--audio-player-wrapper-width);
+  max-width: var(--audio-player-wrapper-width);
+  padding-left: var(--space-06); /* 32px spacing (animated with width) */
   opacity: 1;
   transition:
     width var(--transition-spring),
+    padding-left var(--transition-spring),
     opacity 0.4s ease-out;
   pointer-events: all;
 }

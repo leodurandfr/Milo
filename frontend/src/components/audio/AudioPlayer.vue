@@ -125,8 +125,8 @@ const playerClasses = computed(() => ({
 /* Desktop: Vertical sidebar layout */
 .audio-player {
   display: flex;
-  width: var(--audio-player-width);
-  margin: var(--space-07) 0 0 var(--space-06);
+  width: 100%;
+  margin: var(--space-07) 0 0 0;
   max-height: 540px;
   flex-direction: column;
   gap: var(--space-04);

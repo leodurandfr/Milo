@@ -112,7 +112,7 @@ import { useI18n } from '@/services/i18n'
 import ModalHeader from '@/components/ui/ModalHeader.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
-import AudioSourceLayout from '@/components/ui/AudioSourceLayout.vue'
+import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
