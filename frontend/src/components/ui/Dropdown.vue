@@ -9,16 +9,18 @@
       <SvgIcon v-if="variant === 'default'" name="caretDown" :size="24" class="dropdown-icon" />
     </button>
 
-    <Transition name="dropdown-menu">
-      <div v-if="isOpen" class="dropdown-menu" :class="{ 'open-upward': openUpward }"
-        :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }"
-        @scroll.stop>
-        <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
-          :class="[textClass, { 'is-selected': option.value === modelValue }]" @click="selectOption(option.value)">
-          {{ option.label }}
+    <Teleport to="body">
+      <Transition name="dropdown-menu">
+        <div v-if="isOpen" ref="menuRef" class="dropdown-menu" :class="{ 'open-upward': openUpward }"
+          :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }"
+          @scroll.stop>
+          <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
+            :class="[textClass, { 'is-selected': option.value === modelValue }]" @click="selectOption(option.value)">
+            {{ option.label }}
+          </div>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -59,6 +61,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'change']);
 
 const dropdownRef = ref(null);
+const menuRef = ref(null);
 const isOpen = ref(false);
 const openUpward = ref(false);
 const menuPosition = ref({ top: '0px', left: '0px', width: '0px' });
@@ -77,13 +80,16 @@ function calculateDropdownDirection() {
   if (!dropdownRef.value) return;
 
   const BOTTOM_MARGIN = 24; // Minimum margin in pixels
-  const MENU_MAX_HEIGHT = 340; // Max height of dropdown menu
+  const MENU_MAX_HEIGHT = 340; // Max height of dropdown menu (CSS max-height)
 
   // Get trigger button position (not the wrapper div)
   const triggerButton = dropdownRef.value.querySelector('.dropdown-trigger');
   if (!triggerButton) return;
 
   const triggerRect = triggerButton.getBoundingClientRect();
+
+  // Get actual menu height if available (after render), otherwise use max
+  const actualMenuHeight = menuRef.value?.offsetHeight || MENU_MAX_HEIGHT;
 
   // Set menu position to match trigger
   menuPosition.value = {
@@ -108,11 +114,11 @@ function calculateDropdownDirection() {
   if (!scrollableParent) {
     const spaceBelow = window.innerHeight - triggerRect.bottom;
     const spaceAbove = triggerRect.top;
-    openUpward.value = spaceBelow < (MENU_MAX_HEIGHT + BOTTOM_MARGIN) && spaceAbove > spaceBelow;
+    openUpward.value = spaceBelow < (actualMenuHeight + BOTTOM_MARGIN) && spaceAbove > spaceBelow;
 
-    // Adjust position if opening upward
+    // Adjust position if opening upward - use actual menu height
     if (openUpward.value) {
-      menuPosition.value.top = `${triggerRect.top - MENU_MAX_HEIGHT - 4}px`;
+      menuPosition.value.top = `${triggerRect.top - actualMenuHeight - 4}px`;
     }
     return;
   }
@@ -123,15 +129,15 @@ function calculateDropdownDirection() {
   const spaceAbove = triggerRect.top - parentRect.top;
 
   // Open upward if not enough space below and more space above than below
-  openUpward.value = spaceBelow < (MENU_MAX_HEIGHT + BOTTOM_MARGIN) && spaceAbove > spaceBelow;
+  openUpward.value = spaceBelow < (actualMenuHeight + BOTTOM_MARGIN) && spaceAbove > spaceBelow;
 
-  // Adjust position if opening upward
+  // Adjust position if opening upward - use actual menu height
   if (openUpward.value) {
-    menuPosition.value.top = `${triggerRect.top - MENU_MAX_HEIGHT - 4}px`;
+    menuPosition.value.top = `${triggerRect.top - actualMenuHeight - 4}px`;
   }
 }
 
-function toggleDropdown() {
+async function toggleDropdown() {
   // Calculate direction BEFORE opening to avoid animation glitch
   if (!isOpen.value) {
     calculateDropdownDirection();
@@ -142,9 +148,15 @@ function toggleDropdown() {
       x: target?.scrollLeft || window.scrollX || 0,
       y: target?.scrollTop || window.scrollY || 0
     };
-  }
 
-  isOpen.value = !isOpen.value;
+    isOpen.value = true;
+
+    // Recalculate after menu renders to get actual height
+    await new Promise(resolve => setTimeout(resolve, 10));
+    calculateDropdownDirection();
+  } else {
+    isOpen.value = false;
+  }
 }
 
 function selectOption(value) {

@@ -15,6 +15,7 @@
     "macReceiver": "Mac Audio Receiver",
     "rocReception": "Mac audio reception",
     "radio": "Radio",
+    "podcasts": "Podcasts",
     "radioSource": {
       "favoritesTitle": "Favorite Radios",
       "discoverTitle": "Discover Radios",
@@ -85,6 +86,26 @@
     "title": "Spotify",
     "autoDisconnect": "Auto disconnect",
     "disconnectDelay": "Disconnect delay after music is paused for:"
+  },
+  "podcastSettings": {
+    "title": "Podcasts",
+    "taddyCredentials": "Taddy API Credentials",
+    "credentialsDescription": "Configure your Taddy API credentials to access podcast content. Get your credentials at taddy.org",
+    "userId": "User ID",
+    "userIdPlaceholder": "Enter your Taddy User ID",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "Enter your Taddy API Key",
+    "saveButton": "Save",
+    "validateButton": "Test Connection",
+    "validating": "Testing...",
+    "saveSuccess": "Credentials saved successfully",
+    "saveError": "Error saving credentials",
+    "validationSuccess": "Valid credentials!",
+    "validationError": "Invalid credentials",
+    "validationEmpty": "Please fill both fields",
+    "validationNetworkError": "Network error during validation",
+    "apiUsage": "API Usage",
+    "requestsThisMonth": "Requests remaining this month"
   },
   "multiroomSettings": {
     "presets": "Presets",
