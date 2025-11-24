@@ -32,6 +32,7 @@
         <!-- Favorites View -->
         <FavoritesView
           v-if="!isSearchMode"
+          :is-loading="radioStore.loading"
           :has-now-playing="shouldShowNowPlayingLayout"
           :current-station="radioStore.currentStation"
           :is-playing="isCurrentlyPlaying"

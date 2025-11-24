@@ -1,8 +1,8 @@
 <template>
-  <div class="subscriptions-view">
+  <div class="subscriptions-view fade-in">
     <!-- My podcasts -->
     <section class="section">
-      <h3 class="section-title">{{ t('podcasts.myPodcasts') }}</h3>
+      <h2 class="section-title heading-2">{{ t('podcasts.myPodcasts') }}</h2>
 
       <LoadingSpinner v-if="loading" />
 
@@ -13,29 +13,19 @@
       </div>
 
       <div v-else class="podcasts-grid">
-        <PodcastCard
-          v-for="sub in subscriptions"
-          :key="sub.uuid"
-          :podcast="formatSubscription(sub)"
-          :showActions="true"
-          @select="$emit('select-podcast', sub.uuid)"
-          @unsubscribe="handleUnsubscribe"
-        />
+        <PodcastCard v-for="sub in subscriptions" :key="sub.uuid" :podcast="formatSubscription(sub)" :showActions="true"
+          @select="$emit('select-podcast', sub.uuid)" @unsubscribe="handleUnsubscribe" />
       </div>
     </section>
 
     <!-- Latest episodes from subscriptions -->
     <section v-if="latestEpisodes.length > 0" class="section">
-      <h3 class="section-title">{{ t('podcasts.newEpisodes') }}</h3>
+
+      <h2 class="section-title heading-2">{{ t('podcasts.newEpisodes') }}</h2>
+
       <div class="episodes-list">
-        <EpisodeCard
-          v-for="episode in latestEpisodes"
-          :key="episode.uuid"
-          :episode="episode"
-          @select="$emit('select-episode', episode.uuid)"
-          @play="$emit('play-episode', episode)"
-          @pause="handlePause"
-        />
+        <EpisodeCard v-for="episode in latestEpisodes" :key="episode.uuid" :episode="episode"
+          @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)" @pause="handlePause" />
       </div>
     </section>
   </div>
@@ -126,12 +116,6 @@ onMounted(() => {
   gap: var(--space-03);
 }
 
-.section-title {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-  margin: 0;
-}
 
 .episodes-list {
   display: flex;

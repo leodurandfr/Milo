@@ -1,19 +1,42 @@
 <template>
   <!-- "image" variant: Image only for favorites grid -->
-  <div v-if="variant === 'image'" :class="['station-image', {
-    active: isActive,
-    playing: isPlaying,
-    loading: isLoading
-  }]" @click="$emit('click')">
-    <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-img"
-      @error="handleImageError" />
-    <img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" class="image-placeholder"
-      :class="{ visible: !station.favicon || imageError }" />
+  <div v-if="variant === 'image'" class="station-image-wrapper" @click="$emit('click')">
+    <!-- Real content (always present so image can load) -->
+    <div
+      :class="['station-image', {
+        active: isActive,
+        playing: isPlaying,
+        loading: isLoading
+      }]"
+    >
+      <img
+        ref="imgRef"
+        :src="getFaviconUrl(station.favicon)"
+        :alt="station.name"
+        class="station-img"
+        :class="{ loaded: imageLoaded }"
+        @load="handleImageLoad"
+        @error="handleImageError"
+      />
+      <img
+        :src="placeholderImg"
+        :alt="t('audioSources.radioSource.stationNoImage')"
+        class="image-placeholder"
+      />
 
-    <!-- Loading overlay -->
-    <div v-if="isLoading" class="loading-overlay">
-      <LoadingSpinner :size="48" />
+      <!-- Loading overlay (buffering) -->
+      <div v-if="isLoading" class="loading-overlay">
+        <LoadingSpinner :size="48" />
+      </div>
     </div>
+
+    <!-- Skeleton overlay (on top, fades out when loaded) -->
+    <transition name="content-fade">
+      <SkeletonStationCard
+        v-if="!imageLoaded && !imageError && station.favicon"
+        class="skeleton-overlay"
+      />
+    </transition>
   </div>
 
   <!-- "card" variant: Horizontal layout for lists -->
@@ -23,10 +46,20 @@
     loading: isLoading
   }]" @click="$emit('click')">
     <div class="station-logo" :class="imageSize">
-      <img v-if="station.favicon" :src="getFaviconUrl(station.favicon)" alt="" class="station-favicon"
-        @error="handleImageError" />
-      <img :src="placeholderImg" :alt="t('audioSources.radioSource.stationNoImage')" class="logo-placeholder"
-        :class="{ visible: !station.favicon || imageError }" />
+      <img
+        ref="imgRef"
+        :src="getFaviconUrl(station.favicon)"
+        :alt="station.name"
+        class="station-favicon"
+        :class="{ loaded: imageLoaded }"
+        @load="handleImageLoad"
+        @error="handleImageError"
+      />
+      <img
+        :src="placeholderImg"
+        :alt="t('audioSources.radioSource.stationNoImage')"
+        class="logo-placeholder"
+      />
 
       <!-- Loading overlay -->
       <div v-if="isLoading" class="loading-overlay">
@@ -48,10 +81,11 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { getTranslatedCountryName } from '@/constants/countries';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import SkeletonStationCard from './SkeletonStationCard.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
 const { t } = useI18n();
@@ -96,6 +130,8 @@ const props = defineProps({
 defineEmits(['click', 'play', 'favorite']);
 
 const imageError = ref(false);
+const imageLoaded = ref(false);
+const imgRef = ref(null);
 
 // Helper function to capitalize first letter
 function capitalizeGenre(genre) {
@@ -146,16 +182,54 @@ function getFaviconUrl(faviconUrl) {
 function handleImageError() {
   imageError.value = true;
 }
+
+function handleImageLoad() {
+  imageLoaded.value = true;
+}
+
+function checkImageLoaded() {
+  if (imgRef.value && imgRef.value.complete && imgRef.value.naturalHeight !== 0) {
+    imageLoaded.value = true;
+  }
+}
+
+onMounted(() => {
+  checkImageLoaded();
+});
 </script>
 
 <style scoped>
 /* === "IMAGE" VARIANT: Image only for grid === */
+
+/* Wrapper for grid overlay pattern */
+.station-image-wrapper {
+  position: relative;
+  cursor: pointer;
+}
+
+.skeleton-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+/* Transition animations */
+.content-fade-enter-active,
+.content-fade-leave-active {
+  transition: opacity var(--transition-normal);
+}
+
+.content-fade-enter-from,
+.content-fade-leave-to {
+  opacity: 0;
+}
+
+/* Station image container */
 .station-image {
   aspect-ratio: 1 / 1;
   width: 100%;
   border-radius: var(--radius-05);
   overflow: hidden;
-  cursor: pointer;
   transition: transform var(--transition-fast);
   position: relative;
   display: flex;
@@ -174,22 +248,25 @@ function handleImageError() {
   height: 100%;
   object-fit: cover;
   object-position: center;
-  top: 0;
-  left: 0;
-  display: block;
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+  z-index: 1;
+}
+
+.station-image .station-img.loaded {
+  opacity: 1;
 }
 
 .station-image .image-placeholder {
-  font-size: 48px;
-  display: none;
-  z-index: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.station-image .image-placeholder.visible {
-  display: flex;
+  position: absolute;
+  inset: 0;
+  opacity: 1;
+  z-index: 0;
 }
 
 
@@ -247,29 +324,28 @@ function handleImageError() {
 
 .station-logo .station-favicon {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: center;
-  display: block;
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+  z-index: 1;
+}
+
+.station-logo .station-favicon.loaded {
+  opacity: 1;
 }
 
 .logo-placeholder {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 32px;
-  display: none;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-.logo-placeholder.visible {
-  display: flex;
+  opacity: 1;
+  z-index: 0;
 }
 
 .station-details {

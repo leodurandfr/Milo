@@ -1,5 +1,5 @@
 <template>
-  <div class="queue-view">
+  <div class="queue-view fade-in">
     <LoadingSpinner v-if="loading" />
 
     <div v-else-if="episodes.length === 0" class="empty-state">
