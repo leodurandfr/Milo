@@ -1,0 +1,68 @@
+[Unit]
+Description=Milo Kiosk Mode (Cage + Chromium)
+After=milo-readiness.service seatd.service
+Requires=milo-readiness.service seatd.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+
+# Create /run/user/1000 for XDG_RUNTIME_DIR
+RuntimeDirectory=user/1000
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+
+# Supplementary groups for seatd access
+SupplementaryGroups=video
+
+# Take control of tty1
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables for Wayland/Cage
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=XCURSOR_THEME=Adwaita
+Environment=XCURSOR_SIZE=24
+Environment=WLR_XCURSOR_THEME=Adwaita
+Environment=WLR_XCURSOR_SIZE=24
+
+# Launch Cage with Chromium in kiosk mode
+ExecStart=/usr/bin/cage -- /usr/bin/chromium \
+  --kiosk \
+  --incognito \
+  --password-store=basic \
+  --no-first-run \
+  --disable-infobars \
+  --disable-notifications \
+  --disable-popup-blocking \
+  --disable-session-crashed-bubble \
+  --disable-restore-session-state \
+  --disable-background-timer-throttling \
+  --disable-backgrounding-occluded-windows \
+  --disable-renderer-backgrounding \
+  --disable-translate \
+  --disable-sync \
+  --hide-scrollbars \
+  --disable-background-networking \
+  --autoplay-policy=no-user-gesture-required \
+  --start-fullscreen \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --touch-events=enabled \
+  --enable-features=TouchpadAndWheelScrollLatching \
+  --force-device-scale-factor=1 \
+  --disable-pinch \
+  --disable-features=VizDisplayCompositor \
+  --app=http://milo.local
+
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target

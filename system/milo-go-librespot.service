@@ -1,0 +1,24 @@
+[Unit]
+Description=Milo Spotify Connect via go-librespot
+After=network-online.target sound.service milo-backend.service
+Wants=network-online.target
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+User=milo
+Group=audio
+
+ExecStart=/usr/local/bin/go-librespot --config_dir /var/lib/milo/go-librespot
+Environment=HOME=/home/milo
+EnvironmentFile=/var/lib/milo/routing.env
+WorkingDirectory=/var/lib/milo
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-go-librespot
+
+[Install]
+WantedBy=multi-user.target

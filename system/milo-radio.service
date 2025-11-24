@@ -1,0 +1,53 @@
+[Unit]
+Description=Milo Radio Player (mpv)
+Documentation=https://mpv.io/manual/stable/
+After=sound.target
+# Depends on ALSA environment configured by Milo
+Requires=sound.target
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+
+# Automatically create /run/milo/ for IPC socket
+RuntimeDirectory=milo
+RuntimeDirectoryMode=0755
+
+# Load Milo environment variables (MILO_MODE and MILO_EQUALIZER)
+EnvironmentFile=/var/lib/milo/routing.env
+
+# The ALSA device milo_radio automatically routes to the correct device
+# based on MILO_MODE (direct/multiroom) and MILO_EQUALIZER (empty/_eq)
+ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE} MILO_EQUALIZER=${MILO_EQUALIZER}"'
+
+# Launch mpv in daemon mode with IPC socket
+ExecStart=/usr/bin/mpv \
+    --no-video \
+    --audio-device=alsa/milo_radio \
+    --input-ipc-server=/run/milo/radio-ipc.sock \
+    --idle=yes \
+    --msg-level=all=info \
+    --no-config \
+    --no-terminal \
+    --really-quiet
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Resource limits
+CPUQuota=50%
+MemoryMax=256M
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-radio
+
+[Install]
+WantedBy=multi-user.target

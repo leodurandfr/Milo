@@ -1,0 +1,20 @@
+[Unit]
+Description=Milo Readiness Check (waits for backend and frontend before quitting Plymouth)
+After=milo-backend.service nginx.service
+Requires=milo-backend.service nginx.service
+Before=getty@tty1.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/milo-wait-ready.sh
+
+# Timeout after 90s if services don't start
+TimeoutStartSec=90
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-readiness
+
+[Install]
+WantedBy=multi-user.target

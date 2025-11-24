@@ -1,0 +1,15 @@
+[Unit]
+Description=Snapcast Client for Milo Multiroom
+After=network-online.target milo-snapserver-multiroom.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard default:CARD=sndrpihifiberry --mixer hardware:'Digital'
+User=milo
+Group=audio
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

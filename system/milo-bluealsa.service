@@ -1,0 +1,17 @@
+[Unit]
+Description=BluezALSA daemon for Milo
+Documentation=man:bluealsa(8)
+After=dbus.service bluetooth.service milo-backend.service
+Requires=dbus.service
+Wants=bluetooth.service
+BindsTo=milo-backend.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/bluealsa -S -p a2dp-sink
+User=milo
+Group=audio
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

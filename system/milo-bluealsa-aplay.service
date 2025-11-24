@@ -1,0 +1,20 @@
+[Unit]
+Description=BlueALSA player for Milo
+Requires=milo-bluealsa.service
+After=milo-bluealsa.service milo-backend.service
+BindsTo=milo-backend.service milo-bluealsa.service
+
+[Service]
+EnvironmentFile=/var/lib/milo/routing.env
+Type=simple
+User=milo
+
+ExecStart=/usr/bin/bluealsa-aplay --pcm=milo_bluetooth --profile-a2dp 00:00:00:00:00:00
+
+RestartSec=2
+Restart=always
+PrivateTmp=false
+PrivateDevices=false
+
+[Install]
+WantedBy=multi-user.target

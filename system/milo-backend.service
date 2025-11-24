@@ -1,0 +1,26 @@
+[Unit]
+Description=Milo Backend Service
+After=network.target
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+WorkingDirectory=/home/milo/milo
+ExecStart=/home/milo/milo/venv/bin/python3 backend/main.py
+
+# Github token to check dependencies updates
+#Environment="GITHUB_TOKEN=ADD_TOKEN_HERE"
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+
+StateDirectory=milo
+StateDirectoryMode=0755
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
