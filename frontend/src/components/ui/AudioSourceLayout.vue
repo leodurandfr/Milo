@@ -37,7 +37,7 @@ const props = defineProps({
   width: 100%;
   height: 100%;
   padding: 0 var(--space-07);
-  transition: all var(--transition-spring);
+  transition: all var(--transition-spring-slow);
   overflow-y: auto;
 }
 
@@ -57,14 +57,14 @@ const props = defineProps({
 }
 
 .content-container.with-player {
-  width: calc(100% - 310px);
+  width: calc(100% - 340px);
   transition: width var(--transition-spring);
 }
 
 /* Player wrapper: animates width to create space for player */
 .player-wrapper {
   width: 0;
-  max-width: 310px;
+  max-width: 340px;
   opacity: 0;
   flex-shrink: 0;
   transition:
@@ -74,8 +74,8 @@ const props = defineProps({
 }
 
 .player-wrapper.has-player {
-  width: 310px;
-  max-width: 310px;
+  width: 340px;
+  max-width: 340px;
   opacity: 1;
   transition:
     width var(--transition-spring),

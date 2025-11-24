@@ -37,6 +37,10 @@ class SettingsService:
             "spotify": {
                 "auto_disconnect_delay": 10.0
             },
+            "podcast": {
+                "taddy_user_id": "",
+                "taddy_api_key": ""
+            },
             "routing": {
                 "multiroom_enabled": False,
                 "equalizer_enabled": False
@@ -176,7 +180,14 @@ class SettingsService:
             # 0 = désactivé, sinon minimum 1.0 seconde, maximum 1h (3600s)
             'auto_disconnect_delay': 0.0 if disconnect_delay_raw == 0.0 else max(1.0, min(9999.0, disconnect_delay_raw))
         }
-        
+
+        # Podcast credentials
+        podcast_input = settings.get('podcast', {})
+        validated['podcast'] = {
+            'taddy_user_id': str(podcast_input.get('taddy_user_id', '')),
+            'taddy_api_key': str(podcast_input.get('taddy_api_key', ''))
+        }
+
         # Dock avec validation au moins une source audio
         dock_input = settings.get('dock', {})
         all_valid_apps = ["librespot", "bluetooth", "roc", "radio", "podcast", "multiroom", "equalizer", "settings"]

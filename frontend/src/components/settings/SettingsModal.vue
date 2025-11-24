@@ -48,6 +48,12 @@
           </template>
         </ListItemButton>
 
+        <ListItemButton v-if="settingsStore.dockApps.podcast" :title="t('audioSources.podcasts')" :clickable="true" :show-caret="true" @click="goToView('podcast')">
+          <template #icon>
+            <img :src="podcastIcon" alt="Podcasts" />
+          </template>
+        </ListItemButton>
+
         <ListItemButton :title="t('settings.updates')" :clickable="true" :show-caret="true" @click="goToView('updates')">
           <template #icon>
             <img :src="updatesIcon" alt="Updates" />
@@ -128,6 +134,12 @@
       <ManageStation mode="edit" :station="stationToEdit" :can-restore="canRestoreStation" :can-delete="canDeleteStation" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation" @delete="handleDeleteStation" />
     </div>
 
+    <!-- Podcast view -->
+    <div v-else-if="currentView === 'podcast'" class="view-detail">
+      <ModalHeader :title="t('podcastSettings.title')" show-back @back="goToHome" />
+      <PodcastSettings />
+    </div>
+
     <!-- Updates view -->
     <div v-else-if="currentView === 'updates'" class="view-detail">
       <ModalHeader :title="t('settings.updates')" show-back @back="goToHome" />
@@ -166,6 +178,7 @@ import multiroomIcon from '@/assets/settings-icons/multiroom.svg';
 import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
+import podcastIcon from '@/assets/settings-icons/podcast.svg';
 import ApplicationsSettings from '@/components/settings/categories/ApplicationsSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
@@ -173,6 +186,7 @@ import SpotifySettings from '@/components/settings/categories/SpotifySettings.vu
 import MultiroomSettings from '@/components/settings/categories/MultiroomSettings.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
+import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 
@@ -323,6 +337,7 @@ const shouldShowPlaceholder = computed(() => {
   if (settingsStore.dockApps.librespot) count++;
   if (settingsStore.dockApps.multiroom) count++;
   if (settingsStore.dockApps.radio) count++;
+  if (settingsStore.dockApps.podcast) count++;
 
   // Return true if odd
   return count % 2 !== 0;

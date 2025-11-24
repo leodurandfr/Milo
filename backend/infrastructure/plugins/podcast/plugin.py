@@ -570,6 +570,38 @@ class PodcastPlugin(UnifiedAudioPlugin):
             self.logger.error(f"Error setting speed: {e}")
             return False
 
+    async def reload_credentials(self, user_id: str, api_key: str) -> bool:
+        """
+        Reload Taddy API credentials without restarting the plugin
+
+        Args:
+            user_id: New Taddy API user ID
+            api_key: New Taddy API key
+
+        Returns:
+            True if credentials reloaded successfully
+        """
+        try:
+            self.logger.info("Reloading Taddy API credentials")
+
+            # Close old TaddyAPI instance
+            if self.taddy_api:
+                await self.taddy_api.close()
+
+            # Create new TaddyAPI instance with new credentials
+            self.taddy_api = TaddyAPI(
+                user_id=user_id,
+                api_key=api_key,
+                cache_duration_minutes=60
+            )
+
+            self.logger.info("Taddy API credentials reloaded successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to reload Taddy credentials: {e}")
+            return False
+
     async def get_status(self) -> Dict[str, Any]:
         """Get current plugin status"""
         return {

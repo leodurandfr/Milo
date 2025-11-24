@@ -45,6 +45,12 @@ export const useSettingsStore = defineStore('settings', () => {
     auto_disconnect_delay: 10.0
   });
 
+  // === PODCAST ===
+  const podcastCredentials = ref({
+    taddy_user_id: '',
+    taddy_api_key: ''
+  });
+
   // === SCREEN ===
   const screenTimeout = ref({
     screen_timeout_enabled: true,
@@ -73,6 +79,7 @@ export const useSettingsStore = defineStore('settings', () => {
         rotaryStepsResponse,
         dockAppsResponse,
         spotifyResponse,
+        podcastResponse,
         screenTimeoutResponse,
         screenBrightnessResponse
       ] = await Promise.all([
@@ -83,6 +90,7 @@ export const useSettingsStore = defineStore('settings', () => {
         axios.get('/api/settings/rotary-steps').catch(() => ({ data: { config: { rotary_volume_steps: 2 } } })),
         axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['librespot', 'bluetooth', 'roc', 'radio', 'podcast', 'multiroom', 'equalizer', 'settings'] } } })),
         axios.get('/api/settings/spotify-disconnect').catch(() => ({ data: { config: { auto_disconnect_delay: 10.0 } } })),
+        axios.get('/api/settings/podcast-credentials').catch(() => ({ data: { config: { taddy_user_id: '', taddy_api_key: '' } } })),
         axios.get('/api/settings/screen-timeout').catch(() => ({ data: { config: { screen_timeout_enabled: true, screen_timeout_seconds: 10 } } })),
         axios.get('/api/settings/screen-brightness').catch(() => ({ data: { config: { brightness_on: 5 } } }))
       ]);
@@ -138,6 +146,14 @@ export const useSettingsStore = defineStore('settings', () => {
       if (spotifyResponse.data.config) {
         spotifyDisconnect.value = {
           auto_disconnect_delay: spotifyResponse.data.config.auto_disconnect_delay ?? 10.0
+        };
+      }
+
+      // Podcast
+      if (podcastResponse.data.config) {
+        podcastCredentials.value = {
+          taddy_user_id: podcastResponse.data.config.taddy_user_id ?? '',
+          taddy_api_key: podcastResponse.data.config.taddy_api_key ?? ''
         };
       }
 
@@ -218,6 +234,13 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
+   * Update podcast credentials
+   */
+  function updatePodcastCredentials(config) {
+    podcastCredentials.value = { ...podcastCredentials.value, ...config };
+  }
+
+  /**
    * Update screen timeout
    */
   function updateScreenTimeout(config) {
@@ -241,6 +264,7 @@ export const useSettingsStore = defineStore('settings', () => {
     volumeSteps,
     dockApps,
     spotifyDisconnect,
+    podcastCredentials,
     screenTimeout,
     screenBrightness,
 
@@ -252,6 +276,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateVolumeSteps,
     updateDockApps,
     updateSpotifyDisconnect,
+    updatePodcastCredentials,
     updateScreenTimeout,
     updateScreenBrightness
   };

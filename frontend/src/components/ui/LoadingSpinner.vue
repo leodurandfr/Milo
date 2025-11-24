@@ -43,8 +43,8 @@ const spinnerStyle = computed(() => {
 });
 
 const svgContent = computed(() => {
-  // Choose color based on variant
-  const fillColor = props.variant === 'background' ? '#767C76' : '#FFFFFF';
+  // Use currentColor to inherit from parent's text color
+  const fillColor = 'currentColor';
 
   // Build the SVG with or without background
   const backgroundRect = props.variant === 'background'
