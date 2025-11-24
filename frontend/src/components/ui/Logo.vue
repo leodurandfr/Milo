@@ -63,7 +63,7 @@ const sizeClass = computed(() => ({
   left: 50%;
   transform: translateX(-50%);
   z-index: 100;
-  transition: all var(--transition-spring-soft);
+  transition: all var(--transition-spring-slow);
   pointer-events: none;
 }
 

@@ -1,56 +1,81 @@
 <template>
   <div class="podcast-details">
-    <LoadingSpinner v-if="loading" />
+    <div class="transition-container">
+      <!-- Skeleton state -->
+      <transition name="content-fade">
+        <SkeletonPodcastDetails v-if="loading" key="loading" />
+      </transition>
 
-    <template v-else-if="podcast">
-      <!-- Header -->
-      <div class="details-header">
-        <img :src="podcast.image_url" :alt="podcast.name" class="podcast-image" />
-        <div class="header-info">
-          <h2 class="heading-1">{{ podcast.name }}</h2>
-          <p class="publisher text-body">{{ podcast.publisher || podcast.author }}</p>
-          <p class="meta text-mono">
-            {{ podcast.total_episodes }} {{ t('podcasts.episodesCount2') }}
-          </p>
-          <div v-if="podcast.is_completed || podcast.is_explicit" class="badges">
-            <span v-if="podcast.is_completed" class="badge text-mono">{{ t('podcasts.completed') }}</span>
-            <span v-if="podcast.is_explicit" class="badge warning text-mono">{{ t('podcasts.explicit') }}</span>
+      <!-- Real content -->
+      <transition name="content-fade">
+        <div v-if="!loading && podcast" key="loaded" class="details-content">
+          <!-- Header -->
+          <div class="details-header">
+            <div class="image-container">
+              <img
+                ref="imgRef"
+                :src="imageUrl"
+                :alt="podcast.name"
+                loading="lazy"
+                @load="handleImageLoad"
+                @error="handleImageError"
+                :class="{ loaded: imageLoaded }"
+                class="podcast-image main-image"
+              />
+              <img
+                v-if="!imageLoaded && !imageError"
+                :src="podcastPlaceholder"
+                class="podcast-image placeholder-image"
+                alt=""
+              />
+            </div>
+            <div class="header-info">
+              <h2 class="heading-1">{{ podcast.name }}</h2>
+              <p class="publisher text-body">{{ podcast.publisher || podcast.author }}</p>
+              <p class="meta text-mono">
+                {{ podcast.total_episodes }} {{ t('podcasts.episodesCount2') }}
+              </p>
+              <div v-if="podcast.is_completed || podcast.is_explicit" class="badges">
+                <span v-if="podcast.is_completed" class="badge text-mono">{{ t('podcasts.completed') }}</span>
+                <span v-if="podcast.is_explicit" class="badge warning text-mono">{{ t('podcasts.explicit') }}</span>
+              </div>
+              <Button
+                :variant="podcast.is_subscribed ? 'toggle' : 'ghost'"
+                @click="toggleSubscription"
+              >
+                {{ podcast.is_subscribed ? t('podcasts.subscribed') : t('podcasts.subscribe') }}
+              </Button>
+            </div>
           </div>
-          <Button
-            :variant="podcast.is_subscribed ? 'toggle' : 'ghost'"
-            @click="toggleSubscription"
-          >
-            {{ podcast.is_subscribed ? t('podcasts.subscribed') : t('podcasts.subscribe') }}
-          </Button>
-        </div>
-      </div>
 
-      <!-- Episodes list -->
-      <div class="episodes-section">
-        <h3 class="heading-2">{{ t('podcasts.episodesTitle') }}</h3>
-        <div class="episodes-list">
-          <EpisodeCard
-            v-for="episode in allEpisodes"
-            :key="episode.uuid"
-            :episode="episode"
-            @select="$emit('select-episode', episode.uuid)"
-            @play="$emit('play-episode', episode)"
-            @pause="handlePause"
-          />
-        </div>
+          <!-- Episodes list -->
+          <div class="episodes-section">
+            <h3 class="heading-2">{{ t('podcasts.episodesTitle') }}</h3>
+            <div class="episodes-list">
+              <EpisodeCard
+                v-for="episode in allEpisodes"
+                :key="episode.uuid"
+                :episode="episode"
+                @select="$emit('select-episode', episode.uuid)"
+                @play="$emit('play-episode', episode)"
+                @pause="handlePause"
+              />
+            </div>
 
-        <!-- Load more button -->
-        <div v-if="hasMoreEpisodes" class="load-more-container">
-          <Button
-            variant="primary"
-            :loading="loadingMore"
-            @click="loadMoreEpisodes"
-          >
-            {{ t('podcasts.loadMoreEpisodes') }}
-          </Button>
+            <!-- Load more button -->
+            <div v-if="hasMoreEpisodes" class="load-more-container">
+              <Button
+                variant="primary"
+                :loading="loadingMore"
+                @click="loadMoreEpisodes"
+              >
+                {{ t('podcasts.loadMoreEpisodes') }}
+              </Button>
+            </div>
+          </div>
         </div>
-      </div>
-    </template>
+      </transition>
+    </div>
   </div>
 </template>
 
@@ -60,7 +85,8 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import EpisodeCard from './EpisodeCard.vue'
 import Button from '@/components/ui/Button.vue'
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
+import SkeletonPodcastDetails from './SkeletonPodcastDetails.vue'
+import podcastPlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 const { t } = useI18n()
 
@@ -83,6 +109,15 @@ const podcast = ref(null)
 const currentPage = ref(1)
 const loadingMore = ref(false)
 const allEpisodes = ref([])
+const imageError = ref(false)
+const imageLoaded = ref(false)
+const imgRef = ref(null)
+
+// Image URL with fallback
+const imageUrl = computed(() => {
+  if (imageError.value) return podcastPlaceholder
+  return podcast.value?.image_url || podcastPlaceholder
+})
 
 // Computed to check if more episodes available
 const hasMoreEpisodes = computed(() => {
@@ -171,10 +206,30 @@ async function loadMoreEpisodes() {
   }
 }
 
-watch(() => props.uuid, loadPodcast, { immediate: false })
+function handleImageError() {
+  imageError.value = true
+}
+
+function handleImageLoad() {
+  imageLoaded.value = true
+}
+
+function checkImageLoaded() {
+  if (imgRef.value && imgRef.value.complete && imgRef.value.naturalHeight !== 0) {
+    imageLoaded.value = true
+  }
+}
+
+watch(() => props.uuid, async (newUuid) => {
+  imageLoaded.value = false
+  await loadPodcast()
+  checkImageLoaded()
+}, { immediate: false })
 
 onMounted(() => {
-  loadPodcast()
+  loadPodcast().then(() => {
+    checkImageLoaded()
+  })
 })
 </script>
 
@@ -185,17 +240,61 @@ onMounted(() => {
   gap: var(--space-05);
 }
 
+.transition-container {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.transition-container > * {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.content-fade-enter-active,
+.content-fade-leave-active {
+  transition: opacity var(--transition-normal);
+}
+
+.content-fade-enter-from,
+.content-fade-leave-to {
+  opacity: 0;
+}
+
 .details-header {
   display: flex;
   gap: var(--space-04);
 }
 
-.podcast-image {
+.image-container {
+  position: relative;
   width: 150px;
   height: 150px;
   border-radius: var(--radius-04);
-  object-fit: cover;
+  overflow: hidden;
   flex-shrink: 0;
+}
+
+.image-container img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  inset: 0;
+}
+
+.image-container .main-image {
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+  z-index: 1;
+}
+
+.image-container .main-image.loaded {
+  opacity: 1;
+}
+
+.image-container .placeholder-image {
+  opacity: 1;
+  z-index: 0;
 }
 
 .header-info {
