@@ -23,9 +23,8 @@ export const usePodcastStore = defineStore('podcast', () => {
   const progressCache = ref(new Map())
 
   // === SETTINGS ===
+  // Note: Language/country are centralized in /var/lib/milo/settings.json (via settingsStore)
   const settings = ref({
-    defaultCountry: 'FRANCE',
-    defaultLanguage: 'FRENCH',
     safeMode: false,
     playbackSpeed: 1.0
   })

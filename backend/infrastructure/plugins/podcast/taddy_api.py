@@ -452,7 +452,7 @@ class TaddyAPI:
     async def get_itunes_top_podcasts_by_genre(
         self,
         genre: str,
-        country_code: str = "fr",
+        country_code: str,
         limit: int = 10
     ) -> Dict[str, Any]:
         """

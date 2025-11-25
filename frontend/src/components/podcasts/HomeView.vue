@@ -143,8 +143,7 @@ async function handlePause() {
 }
 
 async function loadData() {
-  const settings = podcastStore.settings
-  const country = settings.defaultCountry || 'FRANCE'
+  // Note: Country/language is automatically derived from user settings on the backend
 
   // Load latest episodes from subscriptions (Bloc 1)
   loadingSubscriptions.value = true
@@ -158,10 +157,10 @@ async function loadData() {
     loadingSubscriptions.value = false
   }
 
-  // Load top podcasts (Bloc 2)
+  // Load top podcasts (Bloc 2) - backend derives country from user's language setting
   loadingTopCharts.value = true
   try {
-    const response = await fetch(`/api/podcast/discover/top-charts/${country}?content_type=PODCASTSERIES&limit=10`)
+    const response = await fetch('/api/podcast/discover/top-charts?content_type=PODCASTSERIES&limit=10')
     const data = await response.json()
     topCharts.value = data.results || []
   } catch (error) {
@@ -170,10 +169,10 @@ async function loadData() {
     loadingTopCharts.value = false
   }
 
-  // Load top episodes (Bloc 4)
+  // Load top episodes (Bloc 4) - backend derives country from user's language setting
   loadingTopEpisodes.value = true
   try {
-    const response = await fetch(`/api/podcast/discover/top-charts/${country}?content_type=PODCASTEPISODE&limit=10`)
+    const response = await fetch('/api/podcast/discover/top-charts?content_type=PODCASTEPISODE&limit=10')
     const data = await response.json()
     topEpisodes.value = podcastStore.enrichEpisodesWithProgress(data.results || [])
   } catch (error) {
