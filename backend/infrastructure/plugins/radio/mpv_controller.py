@@ -47,6 +47,20 @@ class MpvController:
 
                 self.reader, self.writer = await asyncio.open_unix_connection(self.ipc_socket_path)
                 self._connected = True
+
+                # Verify mpv responds to commands before declaring connected
+                # Use get_property with idle-active (always available even when idle)
+                test_response = await self._send_command("get_property", "idle-active")
+                if test_response is None:
+                    self.logger.warning("mpv socket connected but not responding, retrying...")
+                    await self.disconnect()
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    else:
+                        self.logger.error("mpv connected but never responded to commands")
+                        return False
+
                 self.logger.info(f"Connected to mpv IPC socket: {self.ipc_socket_path}")
                 return True
 
