@@ -497,6 +497,8 @@ const handleAdditionalAppClick = (appId) => {
       action.handler();
     }
   }
+
+  closeAdditionalApps();
 };
 
 const getAppTitle = (appId) => {
@@ -571,10 +573,12 @@ const toggleAdditionalApps = () => {
   if (!showAdditionalApps.value) {
     additionalAppsInDOM.value = true;
     clearTimeout(additionalHideTimeout);
-    nextTick(() => requestAnimationFrame(() => {
-      showAdditionalApps.value = true;
-      setupAdditionalDragEvents();
-    }));
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        showAdditionalApps.value = true;
+        setupAdditionalDragEvents();
+      });
+    });
   } else {
     closeAdditionalApps();
   }
@@ -758,10 +762,11 @@ onUnmounted(() => {
 }
 
 .additional-apps-container {
-  position: relative;
-  margin-bottom: var(--space-03);
-  left: 50%;
-  transform: translateX(-50%) translateY(var(--space-06));
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  transform: translateY(calc(-1 * var(--space-03) + var(--space-06)));
   z-index: 3998;
   border-radius: var(--radius-07);
   padding: var(--space-04);
@@ -770,7 +775,7 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(24px);
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
+  gap: var(--space-01);
   opacity: 0;
   pointer-events: none;
   transition: all var(--transition-spring);
@@ -779,7 +784,7 @@ onUnmounted(() => {
 
 .additional-apps-container.visible {
   opacity: 1;
-  transform: translateX(-50%) translateY(0);
+  transform: translateY(calc(-1 * var(--space-03)));
   pointer-events: auto;
 }
 
@@ -836,6 +841,7 @@ onUnmounted(() => {
   transform: translateX(-50%) translateY(148px) scale(0.85);
   z-index: 4000;
   transition: transform var(--transition-spring);
+  width: fit-content;
 }
 
 .dock-container.visible {
