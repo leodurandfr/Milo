@@ -74,22 +74,8 @@ provide('closeModals', () => {
 const cleanupFunctions = [];
 
 onMounted(async () => {
-  // Load hardware info BEFORE everything else (critical for VirtualKeyboard)
-  await loadHardwareInfo();
-
-  // Load all settings at startup (including podcast credentials status)
-  await settingsStore.loadAllSettings();
-
-  // Initial configuration
-  unifiedStore.setVolumeBarRef(volumeBar);
-
-  // Setup listeners
-  const visibilityCleanup = unifiedStore.setupVisibilityListener();
-  cleanupFunctions.push(visibilityCleanup);
-
-  // WebSocket events - Audio
-  // Initial state is received via WebSocket handshake (initial_state event)
-  // Real-time updates come via state_changed and other events
+  // Register WebSocket event listeners FIRST (before any async operations)
+  // This prevents race condition where initial_state arrives before listeners are ready
   cleanupFunctions.push(
     on('system', 'initial_state', (event) => unifiedStore.updateState(event)),
     on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
@@ -104,30 +90,27 @@ onMounted(async () => {
     on('plugin', 'metadata', (event) => {
       unifiedStore.updateState(event);
       podcastStore.handlePluginEvent(event);
-    })
-  );
-
-  // WebSocket events - i18n
-  cleanupFunctions.push(
+    }),
     on('settings', 'language_changed', (event) => {
-      console.log('Received language_changed WebSocket event:', event);
       if (event.data?.language) {
-        console.log(`Changing language to: ${event.data.language}`);
         i18n.handleLanguageChanged(event.data.language);
-      } else {
-        console.error('Language_changed event missing language data:', event);
       }
-    })
-  );
-
-  // WebSocket reconnect
-  // Note: State is automatically synchronized via WebSocket handshake (initial_state event)
-  // No additional action needed on reconnection
-  cleanupFunctions.push(
+    }),
     onReconnect(() => {
       console.log('WebSocket reconnected');
     })
   );
+
+  // Setup visibility listener (synchronous)
+  const visibilityCleanup = unifiedStore.setupVisibilityListener();
+  cleanupFunctions.push(visibilityCleanup);
+
+  // Now perform async initialization
+  await loadHardwareInfo();
+  await settingsStore.loadAllSettings();
+
+  // Final synchronous setup
+  unifiedStore.setVolumeBarRef(volumeBar);
 });
 
 onUnmounted(() => {

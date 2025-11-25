@@ -85,7 +85,7 @@ def create_settings_router(
     # Language
     @router.get("/language")
     async def get_language():
-        return {"status": "success", "language": await settings.get_setting('language') or 'french'}
+        return {"status": "success", "language": await settings.get_setting('language') or 'english'}
     
     @router.post("/language")
     async def set_language(payload: Dict[str, Any]):

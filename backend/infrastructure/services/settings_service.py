@@ -139,8 +139,8 @@ class SettingsService:
         validated = {}
         
         # Language
-        valid_languages = ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese']
-        validated['language'] = settings.get('language') if settings.get('language') in valid_languages else 'french'
+        valid_languages = ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german']
+        validated['language'] = settings.get('language') if settings.get('language') in valid_languages else 'english'
         
         # Volume
         vol_input = settings.get('volume', {})

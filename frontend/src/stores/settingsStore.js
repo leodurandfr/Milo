@@ -9,7 +9,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const hasLoaded = ref(false);
 
   // === LANGUAGE ===
-  const language = ref('french');
+  const language = ref('english');
 
   // === VOLUME ===
   const volumeLimits = ref({
@@ -88,7 +88,7 @@ export const useSettingsStore = defineStore('settings', () => {
         screenTimeoutResponse,
         screenBrightnessResponse
       ] = await Promise.all([
-        axios.get('/api/settings/language').catch(() => ({ data: { language: 'french' } })),
+        axios.get('/api/settings/language').catch(() => ({ data: { language: 'english' } })),
         axios.get('/api/settings/volume-limits').catch(() => ({ data: { limits: { alsa_min: 0, alsa_max: 65, limits_enabled: true } } })),
         axios.get('/api/settings/volume-startup').catch(() => ({ data: { config: { startup_volume: 37, restore_last_volume: false } } })),
         axios.get('/api/settings/volume-steps').catch(() => ({ data: { config: { mobile_volume_steps: 5 } } })),
