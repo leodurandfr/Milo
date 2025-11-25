@@ -598,7 +598,8 @@ def create_settings_router(
                         "status": "success",
                         "valid": True,
                         "message": "Credentials are valid",
-                        "requests_remaining": remaining
+                        "requests_remaining": remaining,
+                        "requests_used": 500 - remaining
                     }
                 else:
                     return {
@@ -619,49 +620,35 @@ def create_settings_router(
                 "message": f"Validation failed: {str(e)}"
             }
 
-    @router.get("/podcast-credentials/usage")
-    async def get_podcast_credentials_usage():
-        """Get current API usage for stored Taddy credentials"""
+    @router.get("/podcast-credentials/status")
+    async def get_podcast_credentials_status():
+        """Check credential status: missing, invalid, rate_limited, or valid"""
         try:
-            # Load credentials from settings
             podcast = await settings.get_setting('podcast') or {}
             user_id = str(podcast.get('taddy_user_id', '')).strip()
             api_key = str(podcast.get('taddy_api_key', '')).strip()
 
-            # If no credentials, return null
+            # No credentials configured
             if not user_id or not api_key:
-                return {
-                    "status": "success",
-                    "requests_remaining": None
-                }
+                return {"status": "missing"}
 
-            # Create temporary TaddyAPI instance
+            # Test credentials
             taddy_api = TaddyAPI(user_id=user_id, api_key=api_key)
-
             try:
-                # Get remaining requests
                 remaining = await taddy_api.get_api_requests_remaining()
 
-                if remaining >= 0:
-                    return {
-                        "status": "success",
-                        "requests_remaining": remaining
-                    }
+                if remaining == -1:
+                    return {"status": "invalid"}
+                elif remaining == 0:
+                    return {"status": "rate_limited", "requests_used": 500}
                 else:
-                    return {
-                        "status": "success",
-                        "requests_remaining": None
-                    }
-
+                    return {"status": "valid", "requests_used": 500 - remaining}
             finally:
                 await taddy_api.close()
 
         except Exception as e:
-            logger.error(f"Error fetching Taddy API usage: {e}")
-            return {
-                "status": "error",
-                "requests_remaining": None
-            }
+            logger.error(f"Error checking Taddy credentials status: {e}")
+            return {"status": "error", "message": str(e)}
 
     # Screen timeout
     @router.get("/screen-timeout")

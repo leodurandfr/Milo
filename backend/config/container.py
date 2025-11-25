@@ -140,41 +140,22 @@ class Container(containers.DeclarativeContainer):
         settings_service=settings_service
     )
 
-    # Load Taddy API credentials from settings.json (with migration from secrets.json)
+    # Load Taddy API credentials from settings.json
     def _load_taddy_credentials():
         default_creds = {
             "taddy_user_id": "",
             "taddy_api_key": ""
         }
 
-        # Try loading from settings.json first
         settings_file = '/var/lib/milo/settings.json'
         try:
             if os.path.exists(settings_file):
                 with open(settings_file, 'r') as f:
                     settings = json.load(f)
                     podcast_settings = settings.get('podcast', {})
-
-                    # If credentials exist in settings.json, use them
-                    user_id = podcast_settings.get('taddy_user_id', '')
-                    api_key = podcast_settings.get('taddy_api_key', '')
-                    if user_id or api_key:
-                        return {
-                            "taddy_user_id": user_id,
-                            "taddy_api_key": api_key
-                        }
-        except Exception:
-            pass
-
-        # Migration: Try loading from legacy secrets.json
-        secrets_file = '/var/lib/milo/secrets.json'
-        try:
-            if os.path.exists(secrets_file):
-                with open(secrets_file, 'r') as f:
-                    secrets = json.load(f)
                     return {
-                        "taddy_user_id": secrets.get("taddy_user_id", ""),
-                        "taddy_api_key": secrets.get("taddy_api_key", "")
+                        "taddy_user_id": podcast_settings.get('taddy_user_id', ''),
+                        "taddy_api_key": podcast_settings.get('taddy_api_key', '')
                     }
         except Exception:
             pass

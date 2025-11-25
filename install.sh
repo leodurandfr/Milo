@@ -14,6 +14,7 @@ MILO_HOME="/home/$MILO_USER"
 MILO_APP_DIR="$MILO_HOME/milo"
 MILO_DATA_DIR="/var/lib/milo"
 MILO_REPO="https://github.com/leodurandfr/Milo.git"
+MILO_BRANCH="claude/podcast-integration-taddy-01HQjcGSYCNJGP5wnhYz3GG7"
 REQUIRED_HOSTNAME="milo"
 REBOOT_REQUIRED=false
 
@@ -371,7 +372,8 @@ install_milo_application() {
         sudo rm -rf "$MILO_APP_DIR"
     fi
     
-    sudo -u "$MILO_USER" git clone "$MILO_REPO" "$MILO_APP_DIR"
+    # sudo -u "$MILO_USER" git clone "$MILO_REPO" "$MILO_APP_DIR"
+    sudo -u "$MILO_USER" git clone --branch "$MILO_BRANCH" --single-branch "$MILO_REPO" "$MILO_APP_DIR"
     cd "$MILO_APP_DIR"
     
     log_info "Configuring Python environment..."

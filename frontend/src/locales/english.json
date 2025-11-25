@@ -104,8 +104,10 @@
     "validationError": "Invalid credentials",
     "validationEmpty": "Please fill both fields",
     "validationNetworkError": "Network error during validation",
-    "apiUsage": "API Usage",
-    "requestsThisMonth": "Requests remaining this month"
+    "invalidCredentials": "Your Taddy API credentials are not valid",
+    "apiUsage": "Taddy API Usage",
+    "requestsPerMonth": "requests",
+    "resetsMonthly": "API limits reset monthly"
   },
   "multiroomSettings": {
     "presets": "Presets",
@@ -377,7 +379,12 @@
     "monthsAgo": "{count} months ago",
     "yearsAgo": "{count} years ago",
     "new": "New",
-    "unsubscribe": "Unsubscribe"
+    "unsubscribe": "Unsubscribe",
+    "credentialsError": "Taddy API credentials required",
+    "credentialsErrorHint": "Configure your credentials to access podcasts",
+    "configureButton": "Configure",
+    "rateLimitError": "API limit reached",
+    "rateLimitErrorHint": "The Taddy API limit of 500 requests has been reached. It will reset next month."
   },
   "countries": {
     "usa": "USA",

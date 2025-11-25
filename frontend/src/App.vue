@@ -40,6 +40,7 @@ import VirtualKeyboard from '@/components/ui/VirtualKeyboard.vue';
 
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useScreenActivity } from '@/composables/useScreenActivity';
@@ -47,6 +48,7 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 
 const unifiedStore = useUnifiedAudioStore();
 const podcastStore = usePodcastStore();
+const settingsStore = useSettingsStore();
 const { on, onReconnect } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
 
@@ -74,6 +76,9 @@ const cleanupFunctions = [];
 onMounted(async () => {
   // Load hardware info BEFORE everything else (critical for VirtualKeyboard)
   await loadHardwareInfo();
+
+  // Load all settings at startup (including podcast credentials status)
+  await settingsStore.loadAllSettings();
 
   // Initial configuration
   unifiedStore.setVolumeBarRef(volumeBar);

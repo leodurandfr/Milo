@@ -3,7 +3,7 @@
     <button :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
         <LoadingSpinner v-if="loading" :size="32" />
         <SvgIcon v-else-if="leftIcon" :name="leftIcon" :size="32" />
-        <slot></slot>
+        <slot v-if="!loading"></slot>
     </button>
 </template>
 
@@ -67,6 +67,10 @@ export default {
             if (this.variant === 'toggle') {
                 return this.active ? 'btn--active' : 'btn--inactive'
             }
+            // Loading state takes precedence - keeps variant style
+            if (this.loading) {
+                return 'btn--loading'
+            }
             return this.disabled ? 'btn--disabled' : 'btn--default'
         },
         handleClick(event) {
@@ -84,7 +88,7 @@ export default {
     text-align: center;
     border: none;
     cursor: pointer;
-    transition: var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast), width var(--transition-fast);
     border-radius: var(--radius-04);
     display: inline-flex;
     align-items: center;
@@ -169,5 +173,38 @@ export default {
 .btn--toggle.btn--inactive {
     background-color: var(--color-background-strong);
     color: var(--color-text-secondary);
+}
+
+/* === LOADING state - preserves variant styling === */
+.btn--loading {
+    cursor: wait;
+    pointer-events: none;
+}
+
+.btn--default.btn--loading {
+    background-color: var(--color-background-strong);
+    color: var(--color-text-secondary);
+}
+
+.btn--primary.btn--loading {
+    background-color: var(--color-brand);
+    color: var(--color-text-contrast);
+}
+
+.btn--dark.btn--loading {
+    background-color: var(--color-background-contrast-12);
+    color: var(--color-text-contrast);
+}
+
+.btn--outline.btn--loading {
+    background-color: var(--color-background-neutral);
+    color: var(--color-brand);
+    box-shadow: 0 0 0 2px var(--color-brand);
+}
+
+.btn--important.btn--loading {
+    background-color: var(--color-background-neutral);
+    color: var(--color-brand);
+    box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 </style>
