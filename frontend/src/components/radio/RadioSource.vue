@@ -33,7 +33,6 @@
         <FavoritesView
           v-if="!isSearchMode"
           :is-loading="radioStore.loading"
-          :has-now-playing="shouldShowNowPlayingLayout"
           :current-station="radioStore.currentStation"
           :is-playing="isCurrentlyPlaying"
           :buffering-station-id="bufferingStationId"
@@ -561,6 +560,10 @@ onBeforeUnmount(() => {
 
 /* Mobile: compact controls on the right */
 @media (max-aspect-ratio: 4/3) {
+  .radio-content {
+    height: auto;
+  }
+
   .radio-controls {
     width: auto;
     justify-content: flex-end;
