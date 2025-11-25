@@ -77,8 +77,7 @@ class ProgressRequest(BaseModel):
 
 
 class SettingsRequest(BaseModel):
-    defaultCountry: Optional[str] = None
-    defaultLanguage: Optional[str] = None
+    # Note: Language/country are centralized in /var/lib/milo/settings.json
     safeMode: Optional[bool] = None
     playbackSpeed: Optional[float] = None
 
@@ -87,7 +86,7 @@ class SettingsRequest(BaseModel):
 
 @router.get("/discover/popular")
 async def get_popular_content(
-    language: str = Query(None, description="Language filter (e.g., FRENCH)"),
+    language: str = Query(None, description="Language filter (e.g., FRENCH) - if not provided, uses user's language from settings"),
     genres: str = Query(None, description="Comma-separated genre list"),
     page: int = Query(1, ge=1, le=20),
     limit: int = Query(25, ge=1, le=25)
@@ -95,6 +94,14 @@ async def get_popular_content(
     """Get popular podcasts globally"""
     try:
         plugin = container.podcast_plugin()
+
+        # If language not provided, get from user settings
+        if not language:
+            from backend.infrastructure.plugins.podcast.taddy_api import map_milo_language_to_taddy
+            settings_service = container.settings_service()
+            settings = await settings_service.load_settings()
+            milo_language = settings.get('language', 'english')
+            language = map_milo_language_to_taddy(milo_language)
 
         # Parse genres if provided
         genre_list = None
@@ -122,6 +129,58 @@ async def get_popular_content(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/discover/top-charts")
+async def get_top_charts_auto(
+    content_type: str = Query("PODCASTSERIES", description="PODCASTSERIES or PODCASTEPISODE"),
+    page: int = Query(1, ge=1, le=20),
+    limit: int = Query(25, ge=1, le=25)
+):
+    """
+    Get top charts using user's language from settings.
+    Country is automatically derived from the language setting.
+    """
+    try:
+        plugin = container.podcast_plugin()
+        settings_service = container.settings_service()
+
+        # Get language from central Milo settings and derive country
+        from backend.infrastructure.plugins.podcast.taddy_api import map_milo_language_to_itunes_country
+        settings = await settings_service.load_settings()
+        milo_language = settings.get('language', 'english')
+        itunes_country = map_milo_language_to_itunes_country(milo_language)
+
+        # Map iTunes country code to Taddy country enum
+        taddy_country = ITUNES_COUNTRY_TO_TADDY_COUNTRY.get(itunes_country, 'UNITED_STATES_OF_AMERICA')
+
+        result = await plugin.taddy_api.get_top_charts_by_country(
+            country=taddy_country,
+            content_type=content_type,
+            page=page,
+            limit=limit
+        )
+
+        # Enrich with subscription/progress status
+        if content_type == "PODCASTSERIES":
+            subscriptions = await plugin.podcast_data_service.get_subscription_uuids()
+            for podcast in result.get('results', []):
+                podcast['is_subscribed'] = podcast.get('uuid') in subscriptions
+        else:
+            for episode in result.get('results', []):
+                progress = await plugin.podcast_data_service.get_playback_progress(episode.get('uuid'))
+                if progress:
+                    episode['playback_progress'] = progress
+
+        # Add language info to response
+        result['country'] = itunes_country
+        result['language'] = milo_language
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting top charts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/discover/top-charts/{country}")
 async def get_top_charts(
     country: str,
@@ -129,7 +188,7 @@ async def get_top_charts(
     page: int = Query(1, ge=1, le=20),
     limit: int = Query(25, ge=1, le=25)
 ):
-    """Get top charts by country"""
+    """Get top charts by country (legacy endpoint with explicit country)"""
     try:
         plugin = container.podcast_plugin()
 
@@ -196,7 +255,7 @@ async def get_top_by_genres(
 @router.get("/discover/popular-episodes")
 async def get_popular_episodes_by_genre(
     genres: str = Query(..., description="Comma-separated genre list"),
-    language: str = Query("FRENCH", description="Language filter"),
+    language: str = Query(None, description="Language filter (e.g., FRENCH) - if not provided, uses user's language from settings"),
     limit: int = Query(10, ge=1, le=25)
 ):
     """
@@ -204,9 +263,18 @@ async def get_popular_episodes_by_genre(
 
     Uses Taddy's search() with sortBy: POPULARITY to find episodes
     from podcasts of the specified genre, sorted by popularity.
+    Language is automatically derived from user settings if not provided.
     """
     try:
         plugin = container.podcast_plugin()
+
+        # If language not provided, get from user settings
+        if not language:
+            from backend.infrastructure.plugins.podcast.taddy_api import map_milo_language_to_taddy
+            settings_service = container.settings_service()
+            settings = await settings_service.load_settings()
+            milo_language = settings.get('language', 'english')
+            language = map_milo_language_to_taddy(milo_language)
 
         genre_list = [g.strip() for g in genres.split(",")]
 
@@ -710,15 +778,11 @@ async def get_settings():
 
 @router.post("/settings")
 async def update_settings(request: SettingsRequest):
-    """Update podcast settings"""
+    """Update podcast settings (language/country are in /var/lib/milo/settings.json)"""
     try:
         plugin = container.podcast_plugin()
 
         updates = {}
-        if request.defaultCountry is not None:
-            updates['defaultCountry'] = request.defaultCountry
-        if request.defaultLanguage is not None:
-            updates['defaultLanguage'] = request.defaultLanguage
         if request.safeMode is not None:
             updates['safeMode'] = request.safeMode
         if request.playbackSpeed is not None:

@@ -18,7 +18,9 @@ class PodcastDataService:
     - Subscriptions with full metadata (name, imageUrl, childrenHash, addedAt, lastChecked)
     - Playback progress with episode context (position, duration, lastPlayed, episode/podcast info)
     - Episode and podcast cache
-    - User settings (defaultCountry, defaultLanguage, safeMode, playbackSpeed)
+    - User settings (safeMode, playbackSpeed)
+
+    Note: Language/country settings are centralized in /var/lib/milo/settings.json
     """
 
     def __init__(self):
@@ -69,8 +71,7 @@ class PodcastDataService:
                 "podcasts": {}
             },
             "settings": {
-                "defaultCountry": "FRANCE",
-                "defaultLanguage": "FRENCH",
+                # Note: Language/country are centralized in /var/lib/milo/settings.json
                 "safeMode": False,
                 "playbackSpeed": 1.0
             }
