@@ -98,6 +98,8 @@ const props = defineProps({
   .content-container {
     width: 100%;
     max-width: none;
+    height: auto;
+    min-height: 100%;
     padding-bottom: var(--space-04);
     padding-top: var(--space-09);
   }
@@ -105,7 +107,14 @@ const props = defineProps({
   .content-container.with-player {
     width: 100%;
     margin-right: 0;
-    padding-bottom: 128px;
+  }
+
+  /* Spacer pour le player via pseudo-élément */
+  .content-container.with-player::after {
+    content: '';
+    display: block;
+    height: 160px;
+    flex-shrink: 0;
   }
 
   .player-wrapper {

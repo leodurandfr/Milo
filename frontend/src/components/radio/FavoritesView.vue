@@ -12,9 +12,7 @@
     </div>
 
     <!-- Favorites grid -->
-    <div v-else class="favorites-grid fade-in" :class="{
-      'has-now-playing': hasNowPlaying
-    }">
+    <div v-else class="favorites-grid fade-in">
       <StationCard
         v-for="station in favoriteStations"
         :key="`fav-${station.id}`"
@@ -40,14 +38,6 @@ const { t } = useI18n()
 const radioStore = useRadioStore()
 
 const props = defineProps({
-  /**
-   * Whether a station is currently playing (to adjust layout)
-   */
-  hasNowPlaying: {
-    type: Boolean,
-    default: false
-  },
-
   /**
    * Currently active/playing station
    */
@@ -150,10 +140,6 @@ const favoriteStations = computed(() => {
 @media (max-aspect-ratio: 4/3) {
   .favorites-grid {
     grid-template-columns: repeat(3, 1fr);
-  }
-
-  .favorites-grid.has-now-playing {
-    padding-bottom: 144px;
   }
 }
 
