@@ -4,7 +4,7 @@ import axios from 'axios';
 
 class I18nService {
   constructor() {
-    this.currentLanguage = ref('french'); // Standardized code
+    this.currentLanguage = ref('english'); // Standardized code
     this.translations = new Map();
     this.fallbackLanguage = 'english';
     this.isInitialized = false;
