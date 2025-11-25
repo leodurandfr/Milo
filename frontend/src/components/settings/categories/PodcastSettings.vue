@@ -27,51 +27,33 @@
             />
           </div>
 
-          <!-- API Usage Display - Visible only after successful validation -->
-          <div v-if="requestsRemaining !== null" class="usage-display">
+          <!-- API Usage Display -->
+          <div v-if="requestsUsed !== null" class="usage-display">
             <div class="usage-header">
               <label class="form-label text-mono">{{ t('podcastSettings.apiUsage') }}</label>
-              <span class="usage-value text-mono">{{ requestsRemaining }} / 500</span>
+              <span class="usage-value text-mono">{{ requestsUsed }} / 500 {{ t('podcastSettings.requestsPerMonth') }}</span>
             </div>
             <div class="progress-bar">
               <div class="progress-fill" :style="{ width: usagePercentage + '%' }"></div>
             </div>
-            <span class="usage-description text-mono">{{ t('podcastSettings.requestsThisMonth') }}</span>
+            <span class="usage-description text-mono">{{ t('podcastSettings.resetsMonthly') }}</span>
           </div>
 
-          <div class="action-buttons">
+          <!-- Test connection button - Visible when no credentials OR changes -->
+          <div v-if="!hasCredentials || hasChanges" class="action-buttons-sticky">
             <Button
-              variant="primary"
-              :disabled="!hasChanges"
-              @click="handleSave"
-            >
-              {{ t('podcastSettings.saveButton') }}
-            </Button>
-            <Button
-              v-if="hasChanges || requestsRemaining === null"
               variant="outline"
               :disabled="isValidating || !localUserId || !localApiKey"
               :loading="isValidating"
-              @click="handleValidate"
+              @click="handleTestConnection"
             >
               {{ t('podcastSettings.validateButton') }}
             </Button>
           </div>
 
-          <div v-if="saveStatus === 'success'" class="status-message success text-mono">
-            {{ t('podcastSettings.saveSuccess') }}
-          </div>
-          <div v-if="saveStatus === 'error'" class="status-message error text-mono">
-            {{ t('podcastSettings.saveError') }}
-          </div>
-          <div v-if="validationStatus === 'success'" class="status-message success text-mono">
-            {{ t('podcastSettings.validationSuccess') }}
-            <span v-if="requestsRemaining !== null" class="requests-info">
-              ({{ requestsRemaining }}/500 {{ t('podcastSettings.requestsThisMonth') }})
-            </span>
-          </div>
-          <div v-if="validationStatus === 'error'" class="status-message error text-mono">
-            {{ validationMessage || t('podcastSettings.validationError') }}
+          <!-- Error message -->
+          <div v-if="errorMessage" class="status-message error text-mono">
+            {{ errorMessage }}
           </div>
         </div>
       </div>
@@ -80,7 +62,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
@@ -95,11 +77,16 @@ const settingsStore = useSettingsStore();
 
 const localUserId = ref('');
 const localApiKey = ref('');
-const saveStatus = ref('');
 const isValidating = ref(false);
-const validationStatus = ref('');
-const validationMessage = ref('');
-const requestsRemaining = ref(null);
+const errorMessage = ref('');
+
+// Read usage from settingsStore (loaded at app startup)
+const requestsUsed = computed(() => settingsStore.podcastApiUsage);
+
+// Reset error when fields change
+watch([localUserId, localApiKey], () => {
+  errorMessage.value = '';
+});
 
 // Load current credentials
 const config = computed(() => ({
@@ -107,10 +94,10 @@ const config = computed(() => ({
   taddy_api_key: settingsStore.podcastCredentials?.taddy_api_key || ''
 }));
 
-// Calculate usage percentage (remaining requests out of 500)
+// Calculate usage percentage (used requests out of 500)
 const usagePercentage = computed(() => {
-  if (requestsRemaining.value === null) return 0;
-  return Math.max(0, Math.min(100, (requestsRemaining.value / 500) * 100));
+  if (requestsUsed.value === null) return 0;
+  return Math.max(0, Math.min(100, (requestsUsed.value / 500) * 100));
 });
 
 // Check if there are changes
@@ -119,53 +106,16 @@ const hasChanges = computed(() => {
          localApiKey.value !== config.value.taddy_api_key;
 });
 
-// Load API usage from backend
-async function loadUsage() {
-  try {
-    const response = await fetch('/api/settings/podcast-credentials/usage');
-    const data = await response.json();
-
-    if (data.status === 'success' && data.requests_remaining !== null) {
-      requestsRemaining.value = data.requests_remaining;
-    }
-  } catch (error) {
-    console.error('Error loading API usage:', error);
-  }
-}
+// Check if credentials are saved (from store, not local inputs)
+const hasCredentials = computed(() => {
+  return config.value.taddy_user_id && config.value.taddy_api_key;
+});
 
 // Initialize local values
 onMounted(() => {
   localUserId.value = config.value.taddy_user_id;
   localApiKey.value = config.value.taddy_api_key;
-
-  // Load usage if credentials exist
-  if (localUserId.value && localApiKey.value) {
-    loadUsage();
-  }
 });
-
-async function handleSave() {
-  try {
-    saveStatus.value = '';
-    validationStatus.value = '';
-
-    await updateSetting('podcast-credentials', {
-      taddy_user_id: localUserId.value,
-      taddy_api_key: localApiKey.value
-    });
-
-    saveStatus.value = 'success';
-    setTimeout(() => {
-      saveStatus.value = '';
-    }, 3000);
-  } catch (error) {
-    console.error('Error saving podcast credentials:', error);
-    saveStatus.value = 'error';
-    setTimeout(() => {
-      saveStatus.value = '';
-    }, 3000);
-  }
-}
 
 // WebSocket listener
 const handleCredentialsChanged = (msg) => {
@@ -180,22 +130,14 @@ const handleCredentialsChanged = (msg) => {
   }
 };
 
-async function handleValidate() {
+async function handleTestConnection() {
   if (!localUserId.value || !localApiKey.value) {
-    validationStatus.value = 'error';
-    validationMessage.value = t('podcastSettings.validationEmpty');
-    setTimeout(() => {
-      validationStatus.value = '';
-      validationMessage.value = '';
-    }, 3000);
     return;
   }
 
   try {
     isValidating.value = true;
-    saveStatus.value = '';
-    validationStatus.value = '';
-    validationMessage.value = '';
+    errorMessage.value = '';
 
     const response = await fetch('/api/settings/podcast-credentials/validate', {
       method: 'POST',
@@ -211,27 +153,20 @@ async function handleValidate() {
     const data = await response.json();
 
     if (data.valid) {
-      validationStatus.value = 'success';
-      requestsRemaining.value = data.requests_remaining;
-      validationMessage.value = data.message || t('podcastSettings.validationSuccess');
+      // Valid credentials - save them automatically
+      await updateSetting('podcast-credentials', {
+        taddy_user_id: localUserId.value,
+        taddy_api_key: localApiKey.value
+      });
+      // Refresh credentials status (updates podcastApiUsage and podcastCredentialsStatus)
+      await settingsStore.refreshPodcastCredentialsStatus();
     } else {
-      validationStatus.value = 'error';
-      requestsRemaining.value = null;
-      validationMessage.value = data.message || t('podcastSettings.validationError');
+      // Invalid credentials
+      errorMessage.value = t('podcastSettings.invalidCredentials');
     }
-
-    setTimeout(() => {
-      validationStatus.value = '';
-      validationMessage.value = '';
-    }, 5000);
   } catch (error) {
-    console.error('Error validating credentials:', error);
-    validationStatus.value = 'error';
-    validationMessage.value = t('podcastSettings.validationNetworkError');
-    setTimeout(() => {
-      validationStatus.value = '';
-      validationMessage.value = '';
-    }, 5000);
+    console.error('Error testing connection:', error);
+    errorMessage.value = t('podcastSettings.invalidCredentials');
   } finally {
     isValidating.value = false;
   }
@@ -281,29 +216,25 @@ onMounted(() => {
 }
 
 .form-label {
-  color: var(--color-text-primary);
-  font-weight: 500;
+  color: var(--color-brand);
 }
 
 .usage-display {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-  padding: var(--space-03);
-  background: var(--color-background-strong);
-  border-radius: var(--radius-03);
-  margin-top: var(--space-02);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-02);
+    border-radius: var(--radius-03);
+    margin-top: var(--space-04);
+    margin-bottom: var(--space-03);
 }
 
 .usage-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
 }
 
 .usage-value {
   color: var(--color-text);
-  font-weight: 600;
 }
 
 .progress-bar {
@@ -323,13 +254,19 @@ onMounted(() => {
 
 .usage-description {
   color: var(--color-text-secondary);
-  font-size: var(--text-size-small);
 }
 
-.action-buttons {
+.action-buttons-sticky {
   display: flex;
   gap: var(--space-02);
-  margin-top: var(--space-02);
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  z-index: 10;
+}
+
+.action-buttons-sticky > * {
+  flex: 1;
 }
 
 .status-message {
@@ -350,20 +287,13 @@ onMounted(() => {
   border: 1px solid rgba(231, 76, 60, 0.3);
 }
 
-.requests-info {
-  display: block;
-  margin-top: var(--space-01);
-  font-size: var(--text-size-small);
-  opacity: 0.8;
-}
-
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .settings-section {
     border-radius: var(--radius-05);
   }
 
-  .action-buttons {
+  .usage-header {
     flex-direction: column;
   }
 }

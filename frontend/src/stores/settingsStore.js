@@ -51,6 +51,10 @@ export const useSettingsStore = defineStore('settings', () => {
     taddy_api_key: ''
   });
 
+  // Podcast credentials status (checked at startup)
+  const podcastCredentialsStatus = ref('unknown'); // 'unknown', 'valid', 'missing', 'invalid', 'rate_limited', 'error'
+  const podcastApiUsage = ref(null); // requests_used (null if no valid credentials)
+
   // === SCREEN ===
   const screenTimeout = ref({
     screen_timeout_enabled: true,
@@ -80,6 +84,7 @@ export const useSettingsStore = defineStore('settings', () => {
         dockAppsResponse,
         spotifyResponse,
         podcastResponse,
+        podcastStatusResponse,
         screenTimeoutResponse,
         screenBrightnessResponse
       ] = await Promise.all([
@@ -91,6 +96,7 @@ export const useSettingsStore = defineStore('settings', () => {
         axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['librespot', 'bluetooth', 'roc', 'radio', 'podcast', 'multiroom', 'equalizer', 'settings'] } } })),
         axios.get('/api/settings/spotify-disconnect').catch(() => ({ data: { config: { auto_disconnect_delay: 10.0 } } })),
         axios.get('/api/settings/podcast-credentials').catch(() => ({ data: { config: { taddy_user_id: '', taddy_api_key: '' } } })),
+        axios.get('/api/settings/podcast-credentials/status').catch(() => ({ data: { status: 'error' } })),
         axios.get('/api/settings/screen-timeout').catch(() => ({ data: { config: { screen_timeout_enabled: true, screen_timeout_seconds: 10 } } })),
         axios.get('/api/settings/screen-brightness').catch(() => ({ data: { config: { brightness_on: 5 } } }))
       ]);
@@ -149,12 +155,18 @@ export const useSettingsStore = defineStore('settings', () => {
         };
       }
 
-      // Podcast
+      // Podcast credentials
       if (podcastResponse.data.config) {
         podcastCredentials.value = {
           taddy_user_id: podcastResponse.data.config.taddy_user_id ?? '',
           taddy_api_key: podcastResponse.data.config.taddy_api_key ?? ''
         };
+      }
+
+      // Podcast credentials status
+      if (podcastStatusResponse.data) {
+        podcastCredentialsStatus.value = podcastStatusResponse.data.status ?? 'error';
+        podcastApiUsage.value = podcastStatusResponse.data.requests_used ?? null;
       }
 
       // Screen timeout
@@ -241,6 +253,20 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
+   * Refresh podcast credentials status (after validation/save)
+   */
+  async function refreshPodcastCredentialsStatus() {
+    try {
+      const response = await axios.get('/api/settings/podcast-credentials/status');
+      podcastCredentialsStatus.value = response.data.status ?? 'error';
+      podcastApiUsage.value = response.data.requests_used ?? null;
+    } catch {
+      podcastCredentialsStatus.value = 'error';
+      podcastApiUsage.value = null;
+    }
+  }
+
+  /**
    * Update screen timeout
    */
   function updateScreenTimeout(config) {
@@ -265,6 +291,8 @@ export const useSettingsStore = defineStore('settings', () => {
     dockApps,
     spotifyDisconnect,
     podcastCredentials,
+    podcastCredentialsStatus,
+    podcastApiUsage,
     screenTimeout,
     screenBrightness,
 
@@ -277,6 +305,7 @@ export const useSettingsStore = defineStore('settings', () => {
     updateDockApps,
     updateSpotifyDisconnect,
     updatePodcastCredentials,
+    refreshPodcastCredentialsStatus,
     updateScreenTimeout,
     updateScreenBrightness
   };

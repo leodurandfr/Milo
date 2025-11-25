@@ -86,6 +86,28 @@
     "autoDisconnect": "ऑटो डिस्कनेक्ट",
     "disconnectDelay": "संगीत रुकने के बाद डिस्कनेक्ट देरी:"
   },
+  "podcastSettings": {
+    "title": "पॉडकास्ट",
+    "taddyCredentials": "Taddy API क्रेडेंशियल",
+    "credentialsDescription": "पॉडकास्ट सामग्री तक पहुंचने के लिए अपने Taddy API क्रेडेंशियल कॉन्फ़िगर करें। taddy.org पर अपने क्रेडेंशियल प्राप्त करें",
+    "userId": "यूजर आईडी",
+    "userIdPlaceholder": "अपना Taddy यूजर आईडी दर्ज करें",
+    "apiKey": "API कुंजी",
+    "apiKeyPlaceholder": "अपनी Taddy API कुंजी दर्ज करें",
+    "saveButton": "सहेजें",
+    "validateButton": "कनेक्शन टेस्ट करें",
+    "validating": "टेस्ट हो रहा है...",
+    "saveSuccess": "क्रेडेंशियल सफलतापूर्वक सहेजे गए",
+    "saveError": "क्रेडेंशियल सहेजने में त्रुटि",
+    "validationSuccess": "मान्य क्रेडेंशियल!",
+    "validationError": "अमान्य क्रेडेंशियल",
+    "validationEmpty": "कृपया दोनों फ़ील्ड भरें",
+    "validationNetworkError": "सत्यापन के दौरान नेटवर्क त्रुटि",
+    "invalidCredentials": "आपके Taddy API क्रेडेंशियल मान्य नहीं हैं",
+    "apiUsage": "Taddy API उपयोग",
+    "requestsPerMonth": "अनुरोध",
+    "resetsMonthly": "API सीमाएं मासिक रूप से रीसेट होती हैं"
+  },
   "multiroomSettings": {
     "presets": "प्रीसेट्स",
     "reactivity": "प्रतिक्रिया",
@@ -355,7 +377,12 @@
     "monthsAgo": "{count} महीने पहले",
     "yearsAgo": "{count} साल पहले",
     "new": "नया",
-    "unsubscribe": "सदस्यता रद्द करें"
+    "unsubscribe": "सदस्यता रद्द करें",
+    "credentialsError": "Taddy API क्रेडेंशियल आवश्यक",
+    "credentialsErrorHint": "पॉडकास्ट एक्सेस करने के लिए अपने क्रेडेंशियल कॉन्फ़िगर करें",
+    "configureButton": "कॉन्फ़िगर करें",
+    "rateLimitError": "API सीमा पूरी हुई",
+    "rateLimitErrorHint": "Taddy API की 500 अनुरोधों की सीमा पूरी हो गई है। यह अगले महीने रीसेट हो जाएगी।"
   },
   "countries": {
     "usa": "अमेरिका",

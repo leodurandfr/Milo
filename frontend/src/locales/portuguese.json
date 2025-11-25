@@ -86,6 +86,28 @@
     "autoDisconnect": "Desconexão automática",
     "disconnectDelay": "Atraso de desconexão após a música estar pausada por:"
   },
+  "podcastSettings": {
+    "title": "Podcasts",
+    "taddyCredentials": "Credenciais da API Taddy",
+    "credentialsDescription": "Configure suas credenciais da API Taddy para acessar conteúdo de podcasts. Obtenha suas credenciais em taddy.org",
+    "userId": "User ID",
+    "userIdPlaceholder": "Digite seu User ID Taddy",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "Digite sua API Key Taddy",
+    "saveButton": "Salvar",
+    "validateButton": "Testar conexão",
+    "validating": "Testando...",
+    "saveSuccess": "Credenciais salvas com sucesso",
+    "saveError": "Erro ao salvar credenciais",
+    "validationSuccess": "Credenciais válidas!",
+    "validationError": "Credenciais inválidas",
+    "validationEmpty": "Por favor preencha ambos os campos",
+    "validationNetworkError": "Erro de rede durante a validação",
+    "invalidCredentials": "Suas credenciais da Taddy API não são válidas",
+    "apiUsage": "Uso da Taddy API",
+    "requestsPerMonth": "requisições",
+    "resetsMonthly": "Limites da API são redefinidos mensalmente"
+  },
   "multiroomSettings": {
     "presets": "Presets",
     "reactivity": "Reatividade",
@@ -355,7 +377,12 @@
     "monthsAgo": "Há {count} meses",
     "yearsAgo": "Há {count} anos",
     "new": "Novo",
-    "unsubscribe": "Cancelar subscrição"
+    "unsubscribe": "Cancelar subscrição",
+    "credentialsError": "Credenciais da API Taddy necessárias",
+    "credentialsErrorHint": "Configure suas credenciais para acessar podcasts",
+    "configureButton": "Configurar",
+    "rateLimitError": "Limite da API atingido",
+    "rateLimitErrorHint": "O limite de 500 solicitações da API Taddy foi atingido. Será redefinido no próximo mês."
   },
   "countries": {
     "usa": "EUA",

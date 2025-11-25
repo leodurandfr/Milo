@@ -86,6 +86,28 @@
     "autoDisconnect": "自动断开",
     "disconnectDelay": "音乐暂停后断开延迟时间:"
   },
+  "podcastSettings": {
+    "title": "播客",
+    "taddyCredentials": "Taddy API 凭证",
+    "credentialsDescription": "配置您的 Taddy API 凭证以访问播客内容。在 taddy.org 获取您的凭证",
+    "userId": "用户 ID",
+    "userIdPlaceholder": "输入您的 Taddy 用户 ID",
+    "apiKey": "API 密钥",
+    "apiKeyPlaceholder": "输入您的 Taddy API 密钥",
+    "saveButton": "保存",
+    "validateButton": "测试连接",
+    "validating": "测试中...",
+    "saveSuccess": "凭证保存成功",
+    "saveError": "保存凭证时出错",
+    "validationSuccess": "凭证有效！",
+    "validationError": "凭证无效",
+    "validationEmpty": "请填写两个字段",
+    "validationNetworkError": "验证时网络错误",
+    "invalidCredentials": "您的 Taddy API 凭证无效",
+    "apiUsage": "Taddy API 使用情况",
+    "requestsPerMonth": "请求",
+    "resetsMonthly": "API 限制每月重置"
+  },
   "multiroomSettings": {
     "presets": "预设",
     "reactivity": "响应速度",
@@ -355,7 +377,12 @@
     "monthsAgo": "{count}个月前",
     "yearsAgo": "{count}年前",
     "new": "新",
-    "unsubscribe": "取消订阅"
+    "unsubscribe": "取消订阅",
+    "credentialsError": "需要 Taddy API 凭据",
+    "credentialsErrorHint": "配置您的凭据以访问播客",
+    "configureButton": "配置",
+    "rateLimitError": "已达到 API 限制",
+    "rateLimitErrorHint": "Taddy API 500 次请求限制已达到。将于下月重置。"
   },
   "countries": {
     "usa": "美国",

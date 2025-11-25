@@ -86,6 +86,28 @@
     "autoDisconnect": "Automatische Trennung",
     "disconnectDelay": "Trennungsverzögerung nach Pause der Musik für:"
   },
+  "podcastSettings": {
+    "title": "Podcasts",
+    "taddyCredentials": "Taddy API-Anmeldedaten",
+    "credentialsDescription": "Konfigurieren Sie Ihre Taddy API-Anmeldedaten, um auf Podcast-Inhalte zuzugreifen. Holen Sie sich Ihre Anmeldedaten auf taddy.org",
+    "userId": "User ID",
+    "userIdPlaceholder": "Geben Sie Ihre Taddy User ID ein",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "Geben Sie Ihren Taddy API Key ein",
+    "saveButton": "Speichern",
+    "validateButton": "Verbindung testen",
+    "validating": "Teste...",
+    "saveSuccess": "Anmeldedaten erfolgreich gespeichert",
+    "saveError": "Fehler beim Speichern der Anmeldedaten",
+    "validationSuccess": "Gültige Anmeldedaten!",
+    "validationError": "Ungültige Anmeldedaten",
+    "validationEmpty": "Bitte füllen Sie beide Felder aus",
+    "validationNetworkError": "Netzwerkfehler bei der Validierung",
+    "invalidCredentials": "Ihre Taddy API-Anmeldedaten sind ungültig",
+    "apiUsage": "Taddy API-Nutzung",
+    "requestsPerMonth": "Anfragen",
+    "resetsMonthly": "API-Limits werden monatlich zurückgesetzt"
+  },
   "multiroomSettings": {
     "presets": "Voreinstellungen",
     "reactivity": "Reaktivität",
@@ -355,7 +377,12 @@
     "monthsAgo": "Vor {count} Monaten",
     "yearsAgo": "Vor {count} Jahren",
     "new": "Neu",
-    "unsubscribe": "Abbestellen"
+    "unsubscribe": "Abbestellen",
+    "credentialsError": "Taddy API-Anmeldedaten erforderlich",
+    "credentialsErrorHint": "Konfigurieren Sie Ihre Anmeldedaten, um auf Podcasts zuzugreifen",
+    "configureButton": "Konfigurieren",
+    "rateLimitError": "API-Limit erreicht",
+    "rateLimitErrorHint": "Das Taddy API-Limit von 500 Anfragen wurde erreicht. Es wird nächsten Monat zurückgesetzt."
   },
   "countries": {
     "usa": "USA",

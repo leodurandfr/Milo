@@ -90,7 +90,7 @@
   "podcastSettings": {
     "title": "Podcasts",
     "taddyCredentials": "Identifiants API Taddy",
-    "credentialsDescription": "Configurez vos identifiants Taddy API pour accéder au contenu podcast. Obtenez vos identifiants sur taddy.org",
+    "credentialsDescription": "Configurez vos identifiants Taddy API pour accéder au contenu podcast. Obtenez vos identifiants sur https://taddy.org/signup/developers",
     "userId": "User ID",
     "userIdPlaceholder": "Entrez votre User ID Taddy",
     "apiKey": "API Key",
@@ -104,8 +104,10 @@
     "validationError": "Identifiants invalides",
     "validationEmpty": "Veuillez remplir les deux champs",
     "validationNetworkError": "Erreur réseau lors de la validation",
-    "apiUsage": "Utilisation API",
-    "requestsThisMonth": "Requêtes restantes ce mois"
+    "invalidCredentials": "Vos identifiants Taddy API ne sont pas valides",
+    "apiUsage": "Utilisation de Taddy API",
+    "requestsPerMonth": "requêtes",
+    "resetsMonthly": "Limitations API réinitialisé tous les mois"
   },
   "multiroomSettings": {
     "presets": "Pré-réglages",
@@ -376,7 +378,12 @@
     "monthsAgo": "Il y a {count} mois",
     "yearsAgo": "Il y a {count} ans",
     "new": "Nouveau",
-    "unsubscribe": "Désabonner"
+    "unsubscribe": "Désabonner",
+    "credentialsError": "Identifiants Taddy API requis",
+    "credentialsErrorHint": "Configurez vos identifiants pour accéder aux podcasts",
+    "configureButton": "Configurer",
+    "rateLimitError": "Limite API atteinte",
+    "rateLimitErrorHint": "La limite de 500 requêtes Taddy API est atteinte. Elle sera réinitialisée le mois prochain."
   },
   "countries": {
     "usa": "États-Unis",
