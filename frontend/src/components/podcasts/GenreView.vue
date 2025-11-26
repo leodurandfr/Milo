@@ -100,7 +100,7 @@ onMounted(() => {
 .podcasts-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-03);
+  gap: var(--space-02);
 }
 
 .empty-state {

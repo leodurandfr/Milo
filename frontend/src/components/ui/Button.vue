@@ -1,9 +1,9 @@
 <!-- frontend/src/components/ui/Button.vue -->
 <template>
     <button :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
-        <LoadingSpinner v-if="loading" :size="32" />
-        <SvgIcon v-else-if="leftIcon" :name="leftIcon" :size="32" />
-        <slot v-if="!loading"></slot>
+        <LoadingSpinner v-if="loading" :size="32" class="btn-icon" />
+        <SvgIcon v-else-if="leftIcon" :name="leftIcon" :size="32" class="btn-icon" />
+        <slot v-if="!loading || loadingLabel"></slot>
     </button>
 </template>
 
@@ -20,8 +20,8 @@ export default {
     props: {
         variant: {
             type: String,
-            default: 'default',
-            validator: (value) => ['default', 'primary', 'dark', 'outline', 'important', 'toggle'].includes(value)
+            default: 'background-strong',
+            validator: (value) => ['background-strong', 'brand', 'on-light', 'on-dark', 'outline', 'important'].includes(value)
         },
         type: {
             type: String,
@@ -29,10 +29,6 @@ export default {
             validator: (value) => ['button', 'submit', 'reset'].includes(value)
         },
         disabled: {
-            type: Boolean,
-            default: false
-        },
-        active: {
             type: Boolean,
             default: false
         },
@@ -44,34 +40,30 @@ export default {
             type: Boolean,
             default: false
         },
-        size: {
-            type: String,
-            default: 'default',
-            validator: (value) => ['default', 'small'].includes(value)
+        loadingLabel: {
+            type: Boolean,
+            default: true
         }
     },
     emits: ['click'],
     computed: {
         buttonClasses() {
-            const textClass = this.size === 'small' ? 'text-body-small' : 'text-body'
-            const baseClasses = `btn ${textClass}`
+            const baseClasses = 'btn text-body'
             const variantClass = `btn--${this.variant}`
             const stateClass = this.getStateClass()
-            const iconClass = (this.leftIcon || this.loading) ? 'btn--with-icon' : ''
+            const iconClass = (this.leftIcon || (this.loading && this.loadingLabel)) ? 'btn--with-icon' : ''
+            const loadingOnlyClass = (this.loading && !this.loadingLabel) ? 'btn--loading-only' : ''
 
-            return `${baseClasses} ${variantClass} ${stateClass} ${iconClass}`.trim()
+            return `${baseClasses} ${variantClass} ${stateClass} ${iconClass} ${loadingOnlyClass}`.trim()
         }
     },
     methods: {
         getStateClass() {
-            if (this.variant === 'toggle') {
-                return this.active ? 'btn--active' : 'btn--inactive'
-            }
             // Loading state takes precedence - keeps variant style
             if (this.loading) {
                 return 'btn--loading'
             }
-            return this.disabled ? 'btn--disabled' : 'btn--default'
+            return this.disabled ? 'btn--disabled' : 'btn--normal'
         },
         handleClick(event) {
             if (!this.disabled) {
@@ -105,44 +97,55 @@ export default {
     padding: var(--space-02) var(--space-04) var(--space-02) var(--space-02);
 }
 
-/* === DEFAULT variant === */
-.btn--default.btn--default {
+/* === BACKGROUND-STRONG variant === */
+.btn--background-strong.btn--normal {
     background-color: var(--color-background-strong);
     color: var(--color-text-secondary);
 }
 
-.btn--default.btn--disabled {
+.btn--background-strong.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
 }
 
-/* === PRIMARY variant === */
-.btn--primary.btn--default {
+/* === BRAND variant === */
+.btn--brand.btn--normal {
     background-color: var(--color-brand);
     color: var(--color-text-contrast);
 }
 
-.btn--primary.btn--disabled {
+.btn--brand.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
 }
 
-/* === DARK variant === */
-.btn--dark.btn--default {
+/* === ON-LIGHT variant (dark button for light backgrounds) === */
+.btn--on-light.btn--normal {
     background-color: var(--color-background-contrast-12);
     color: var(--color-text-contrast);
 }
 
-.btn--dark.btn--disabled {
+.btn--on-light.btn--disabled {
+    background-color: var(--color-background);
+    color: var(--color-text-light);
+}
+
+/* === ON-DARK variant (light button for dark backgrounds) === */
+.btn--on-dark.btn--normal {
+    background-color: var(--color-background-neutral-12);
+    color: var(--color-text-contrast);
+}
+
+.btn--on-dark.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
 }
 
 /* === OUTLINE variant === */
-.btn--outline.btn--default {
+.btn--outline.btn--normal {
     background-color: var(--color-background-neutral);
     color: var(--color-brand);
-    box-shadow: 0 0 0 2px var(--color-brand);
+    box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
 .btn--outline.btn--disabled {
@@ -152,7 +155,7 @@ export default {
 }
 
 /* === IMPORTANT variant === */
-.btn--important.btn--default {
+.btn--important.btn--normal {
     background-color: var(--color-background-neutral);
     color: var(--color-brand);
     box-shadow: inset 0 0 0 2px var(--color-brand);
@@ -163,48 +166,54 @@ export default {
     color: var(--color-text-light);
 }
 
-/* === TOGGLE variant === */
-.btn--toggle.btn--active {
-    background-color: var(--color-background-neutral);
-    color: var(--color-brand);
-    box-shadow: inset 0 0 0 2px var(--color-brand);
-}
-
-.btn--toggle.btn--inactive {
-    background-color: var(--color-background-strong);
-    color: var(--color-text-secondary);
-}
-
 /* === LOADING state - preserves variant styling === */
 .btn--loading {
     cursor: wait;
     pointer-events: none;
 }
 
-.btn--default.btn--loading {
+.btn--background-strong.btn--loading {
     background-color: var(--color-background-strong);
     color: var(--color-text-secondary);
 }
 
-.btn--primary.btn--loading {
+.btn--brand.btn--loading {
     background-color: var(--color-brand);
     color: var(--color-text-contrast);
 }
 
-.btn--dark.btn--loading {
+.btn--on-light.btn--loading {
     background-color: var(--color-background-contrast-12);
+    color: var(--color-text-contrast);
+}
+
+.btn--on-dark.btn--loading {
+    background-color: var(--color-background-neutral-12);
     color: var(--color-text-contrast);
 }
 
 .btn--outline.btn--loading {
     background-color: var(--color-background-neutral);
     color: var(--color-brand);
-    box-shadow: 0 0 0 2px var(--color-brand);
+    box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
 .btn--important.btn--loading {
     background-color: var(--color-background-neutral);
     color: var(--color-brand);
     box-shadow: inset 0 0 0 2px var(--color-brand);
+}
+
+/* === LOADING ONLY (spinner centered, no label) === */
+.btn--loading-only {
+    padding: var(--space-02);
+}
+
+/* === RESPONSIVE (Mobile) === */
+@media (max-aspect-ratio: 4/3) {
+    .btn .btn-icon :deep(svg) {
+        width: 24px !important;
+        height: 24px !important;
+    }
 }
 </style>

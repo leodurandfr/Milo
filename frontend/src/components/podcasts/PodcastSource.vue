@@ -4,10 +4,7 @@
     <template #content>
       <div class="podcast-content" :class="{ 'search-spacing': currentView === 'search' && !hasCredentialsError }">
         <!-- Credentials Required (avec ModalHeader sans icônes) -->
-        <CredentialsRequired
-          v-if="hasCredentialsError"
-          @configure="openPodcastSettings"
-        />
+        <CredentialsRequired v-if="hasCredentialsError" @configure="openPodcastSettings" />
 
         <!-- Normal content when credentials valid -->
         <template v-else>
@@ -25,59 +22,50 @@
           <!-- Main content area with fade transitions -->
           <Transition name="view-fade" mode="out-in">
             <!-- Home View (Discovery) -->
-            <HomeView v-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails"
-              @play-episode="playEpisode" @browse-genre="goToGenre" />
+            <HomeView v-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails"
+              @select-episode="openEpisodeDetails" @play-episode="playEpisode" @browse-genre="goToGenre" />
 
             <!-- Subscriptions View -->
-            <SubscriptionsView v-else-if="currentView === 'subscriptions'" key="subscriptions" @select-podcast="openPodcastDetails"
-              @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+            <SubscriptionsView v-else-if="currentView === 'subscriptions'" key="subscriptions"
+              @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
             <!-- Search View -->
             <SearchView v-else-if="currentView === 'search'" key="search" @select-podcast="openPodcastDetails"
               @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
             <!-- Queue View -->
-            <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+            <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails"
+              @play-episode="playEpisode" />
 
             <!-- Genre View -->
-            <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre" :genreLabel="selectedGenreLabel"
-              @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+            <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre"
+              :genreLabel="selectedGenreLabel" @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails"
+              @play-episode="playEpisode" />
 
             <!-- Podcast Details (full screen overlay) -->
-            <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details" :uuid="selectedPodcastUuid" @back="goBack"
-              @play-episode="playEpisode" @select-episode="openEpisodeDetails" />
+            <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details"
+              :uuid="selectedPodcastUuid" @back="goBack" @play-episode="playEpisode"
+              @select-episode="openEpisodeDetails" />
 
             <!-- Episode Details (full screen overlay) -->
-            <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details" :uuid="selectedEpisodeUuid" @back="goBack"
-              @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
+            <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details"
+              :uuid="selectedEpisodeUuid" @back="goBack" @play-episode="playEpisode"
+              @select-podcast="openPodcastDetails" />
           </Transition>
         </template>
       </div>
     </template>
 
     <!-- Player slot: AudioPlayer component -->
-    <template #player>
-      <AudioPlayer
-        :visible="shouldShowPlayerLayout"
-        source="podcast"
-        :artwork="episodeImage"
-        :title="episodeName"
-        :subtitle="podcastName"
-        :is-playing="isCurrentlyPlaying"
-        :is-loading="isBuffering"
-        :expandable="true"
-        :expanded="isPlayerExpanded"
-        @toggle-expanded="isPlayerExpanded = !isPlayerExpanded"
-      >
+    <template #player="{ playerWidth }">
+      <AudioPlayer :visible="shouldShowPlayerLayout" source="podcast" :artwork="episodeImage" :title="episodeName"
+        :subtitle="podcastName" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :expandable="true"
+        :expanded="isPlayerExpanded" :width="playerWidth" @toggle-expanded="isPlayerExpanded = !isPlayerExpanded">
         <!-- Progress bar (seekable) -->
         <template #progress>
           <div @click.stop>
-            <ProgressBar
-              :currentPosition="podcastStore.currentPosition"
-              :duration="podcastStore.currentDuration"
-              :progressPercentage="progressPercentage"
-              @seek="handleSeek"
-            />
+            <ProgressBar :currentPosition="podcastStore.currentPosition" :duration="podcastStore.currentDuration"
+              :progressPercentage="progressPercentage" @seek="handleSeek" />
           </div>
         </template>
 
@@ -85,29 +73,19 @@
         <template #controls>
           <!-- Speed selector -->
           <div class="speed-selector" @click.stop>
-            <Dropdown
-              v-model="selectedSpeed"
-              :options="speedOptions"
-              variant="transparent"
-              size="small"
-              @change="handleSpeedChange"
-            />
+            <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="transparent" size="small"
+              @change="handleSpeedChange" />
           </div>
 
           <!-- Playback controls -->
           <div class="playback-controls" @click.stop>
-            <IconButton icon="rewind15" variant="dark" size="small" @click="seekBackward" />
+            <IconButton icon="rewind15" variant="on-dark" size="small" @click="seekBackward" />
 
             <!-- Play/Pause button with loading state -->
-            <IconButton
-              :icon="isCurrentlyPlaying ? 'pause' : 'play'"
-              variant="dark"
-              size="large"
-              :loading="isBuffering"
-              @click="togglePlayPause"
-            />
+            <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="on-dark" size="medium"
+              :loading="isBuffering" @click="togglePlayPause" />
 
-            <IconButton icon="forward30" variant="dark" size="small" @click="seekForward" />
+            <IconButton icon="forward30" variant="on-dark" size="small" @click="seekForward" />
           </div>
         </template>
       </AudioPlayer>
@@ -488,12 +466,12 @@ onBeforeUnmount(() => {
   min-width: 100px;
 }
 
-/* Compact playback controls on mobile */
-@media (max-aspect-ratio: 4/3) {
-  .playback-controls {
-    gap: var(--space-01);
-  }
+:deep(.dropdown-trigger--transparent) {
+  min-width: 48px;
+  padding: var(--space-02) 0;
 }
+
+
 
 /* View transition - using design system variables */
 .view-fade-enter-active,

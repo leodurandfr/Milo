@@ -40,7 +40,7 @@
                 <span v-if="podcast.is_explicit" class="badge warning text-mono">{{ t('podcasts.explicit') }}</span>
               </div>
               <Button
-                :variant="podcast.is_subscribed ? 'toggle' : 'ghost'"
+                variant="on-light"
                 @click="toggleSubscription"
               >
                 {{ podcast.is_subscribed ? t('podcasts.subscribed') : t('podcasts.subscribe') }}
@@ -65,7 +65,7 @@
             <!-- Load more button -->
             <div v-if="hasMoreEpisodes" class="load-more-container">
               <Button
-                variant="primary"
+                variant="brand"
                 :loading="loadingMore"
                 @click="loadMoreEpisodes"
               >

@@ -45,7 +45,7 @@
                 </span>
               </div>
               <Button
-                variant="toggle"
+                variant="on-light"
                 :leftIcon="buttonIcon"
                 @click="handlePlayClick"
               >

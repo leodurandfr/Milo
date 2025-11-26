@@ -11,7 +11,7 @@
         <div class="image-upload-group">
           <div class="form-group">
             <label class="text-mono">{{ $t('radio.manageStation.image') }}</label>
-            <Button variant="toggle" size="small" :active="true" class="full-width-btn" @click="$refs.fileInput.click()">
+            <Button variant="outline" size="small" class="full-width-btn" @click="$refs.fileInput.click()">
               {{ $t('radio.manageStation.chooseImage') }}
             </Button>
           </div>
@@ -76,14 +76,14 @@
             @click="handleDeleteClick" :disabled="isSubmitting">
             {{ isConfirmingDelete ? $t('radio.manageStation.confirmDelete') : $t('common.delete') }}
           </Button>
-          <Button variant="default" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
+          <Button variant="background-strong" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
             {{ $t('common.cancel') }}
           </Button>
         </div>
-        <Button v-else variant="default" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
+        <Button v-else variant="background-strong" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
           {{ $t('common.cancel') }}
         </Button>
-        <Button variant="primary" size="small" class="save-btn" type="submit" :disabled="isSubmitting || !formData.name || !formData.url">
+        <Button variant="brand" size="small" class="save-btn" type="submit" :disabled="isSubmitting || !formData.name || !formData.url">
           {{ submitButtonText }}
         </Button>
       </div>

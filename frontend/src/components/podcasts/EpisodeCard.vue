@@ -38,10 +38,10 @@
       </div>
 
       <div class="card-actions">
-        <IconButton v-if="showCompleteButton" icon="close" variant="default" size="medium"
+        <IconButton v-if="showCompleteButton" icon="close" variant="background-strong" size="medium"
           @click.stop="$emit('complete', episode)" />
-        <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="default" size="medium"
-          :loading="isCurrentEpisodeBuffering" :disabled="isCurrentEpisodeBuffering" @click.stop="handlePlayClick" />
+        <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="background-strong" size="medium"
+          :loading="isCurrentEpisodeBuffering" @click.stop="handlePlayClick" />
       </div>
     </div>
   </div>
@@ -280,9 +280,10 @@ onMounted(() => {
 .podcast-name {
   color: var(--color-brand);
   margin: 0;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .episode-meta {

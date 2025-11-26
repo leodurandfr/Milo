@@ -160,8 +160,8 @@ export default {
 }
 
 .icon--size-large :deep(.svg-responsive) {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
 }
 
 @media (max-aspect-ratio: 4/3) {

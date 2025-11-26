@@ -14,7 +14,7 @@
         <SvgIcon name="podcast" :size="96" color="var(--color-background-medium-16)" />
         <p class="heading-2">{{ t('podcasts.credentialsError') }}</p>
         <p class="text-mono">{{ t('podcasts.credentialsErrorHint') }}</p>
-        <Button variant="primary" @click="$emit('configure')">
+        <Button variant="brand" @click="$emit('configure')">
           {{ t('podcasts.configureButton') }}
         </Button>
       </div>

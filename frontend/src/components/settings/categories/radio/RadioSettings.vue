@@ -32,7 +32,7 @@
           :show-country="true" image-size="medium" @click="$emit('edit-station', { ...station, _canDelete: true })" />
       </div>
 
-      <Button variant="primary" @click="$emit('go-to-add-station')">
+      <Button variant="brand" @click="$emit('go-to-add-station')">
         {{ $t('radioSettings.addStation') }}
       </Button>
     </section>

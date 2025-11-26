@@ -273,12 +273,13 @@ onMounted(() => {
 .loading-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--color-background-contrast-32);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 10;
+  color: var(--color-text-contrast);
 }
 
 /* === "CARD" VARIANT: Horizontal layout === */
@@ -386,9 +387,6 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-.station-image.loading,
-.station-card.loading {
-  opacity: 0.9;
-}
+
 
 </style>

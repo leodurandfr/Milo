@@ -26,8 +26,9 @@
             {{ t('screenSettings.sleepDelay') }}
           </div>
           <div class="timeout-buttons">
-            <Button v-for="timeout in timeoutPresets" :key="timeout.value" variant="toggle" size="small"
-              :active="isTimeoutActive(timeout.value)" @click="setScreenTimeout(timeout.value)">
+            <Button v-for="timeout in timeoutPresets" :key="timeout.value"
+              :variant="isTimeoutActive(timeout.value) ? 'outline' : 'background-strong'" size="small"
+              @click="setScreenTimeout(timeout.value)">
               {{ timeout.label }}
             </Button>
           </div>
