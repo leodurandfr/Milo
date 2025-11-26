@@ -8,26 +8,19 @@
         class="radio-content"
         :class="{ 'is-initial-animating': isInitialAnimating }"
       >
-        <!-- ModalHeader: Favorites view -->
+        <!-- ModalHeader with dynamic props for smooth transitions -->
         <ModalHeader
-          v-if="!isSearchMode"
-          :title="t('audioSources.radioSource.favoritesTitle')"
+          :title="isSearchMode ? t('audioSources.radioSource.discoverTitle') : t('audioSources.radioSource.favoritesTitle')"
+          :show-back="isSearchMode"
+          :actions-key="isSearchMode ? 'search' : 'favorites'"
           variant="background-neutral"
           icon="radio"
+          @back="closeSearch"
         >
-          <template #actions="{ iconVariant }">
+          <template v-if="!isSearchMode" #actions="{ iconVariant }">
             <IconButton icon="search" :variant="iconVariant" @click="openSearch" />
           </template>
         </ModalHeader>
-
-        <!-- ModalHeader: Search view -->
-        <ModalHeader
-          v-else
-          :title="t('audioSources.radioSource.discoverTitle')"
-          :show-back="true"
-          variant="background-neutral"
-          @back="closeSearch"
-        />
 
         <!-- Favorites View -->
         <FavoritesView

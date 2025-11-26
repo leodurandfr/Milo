@@ -12,8 +12,8 @@
         <!-- Normal content when credentials valid -->
         <template v-else>
           <!-- Header with navigation -->
-          <ModalHeader :title="currentTitle" :subtitle="currentSubtitle" :showBack="currentView !== 'home'" icon="podcast"
-            variant="background-neutral" @back="goToHome">
+          <ModalHeader :title="currentTitle" :subtitle="currentSubtitle" :showBack="canGoBack" icon="podcast"
+            variant="background-neutral" @back="goBack">
             <template #actions="{ iconVariant }">
               <IconButton v-if="currentView === 'home'" icon="heart" :variant="iconVariant" :active="false"
                 @click="goToSubscriptions" />
@@ -22,33 +22,35 @@
             </template>
           </ModalHeader>
 
-          <!-- Main content area -->
-          <!-- Home View (Discovery) -->
-          <HomeView v-if="currentView === 'home'" @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails"
-            @play-episode="playEpisode" @browse-genre="goToGenre" />
+          <!-- Main content area with fade transitions -->
+          <Transition name="view-fade" mode="out-in">
+            <!-- Home View (Discovery) -->
+            <HomeView v-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails"
+              @play-episode="playEpisode" @browse-genre="goToGenre" />
 
-          <!-- Subscriptions View -->
-          <SubscriptionsView v-else-if="currentView === 'subscriptions'" @select-podcast="openPodcastDetails"
-            @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+            <!-- Subscriptions View -->
+            <SubscriptionsView v-else-if="currentView === 'subscriptions'" key="subscriptions" @select-podcast="openPodcastDetails"
+              @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
-          <!-- Search View -->
-          <SearchView v-else-if="currentView === 'search'" @select-podcast="openPodcastDetails"
-            @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+            <!-- Search View -->
+            <SearchView v-else-if="currentView === 'search'" key="search" @select-podcast="openPodcastDetails"
+              @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
-          <!-- Queue View -->
-          <QueueView v-else-if="currentView === 'queue'" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+            <!-- Queue View -->
+            <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
-          <!-- Genre View -->
-          <GenreView v-else-if="currentView === 'genre'" :genre="selectedGenre" :genreLabel="selectedGenreLabel"
-            @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+            <!-- Genre View -->
+            <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre" :genreLabel="selectedGenreLabel"
+              @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
-          <!-- Podcast Details (full screen overlay) -->
-          <PodcastDetails v-else-if="currentView === 'podcast-details'" :uuid="selectedPodcastUuid" @back="goBack"
-            @play-episode="playEpisode" @select-episode="openEpisodeDetails" />
+            <!-- Podcast Details (full screen overlay) -->
+            <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details" :uuid="selectedPodcastUuid" @back="goBack"
+              @play-episode="playEpisode" @select-episode="openEpisodeDetails" />
 
-          <!-- Episode Details (full screen overlay) -->
-          <EpisodeDetails v-else-if="currentView === 'episode-details'" :uuid="selectedEpisodeUuid" @back="goBack"
-            @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
+            <!-- Episode Details (full screen overlay) -->
+            <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details" :uuid="selectedEpisodeUuid" @back="goBack"
+              @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
+          </Transition>
         </template>
       </div>
     </template>
@@ -118,6 +120,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, inject } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useI18n } from '@/services/i18n'
 import ModalHeader from '@/components/ui/ModalHeader.vue'
 import IconButton from '@/components/ui/IconButton.vue'
@@ -142,6 +145,9 @@ const unifiedStore = useUnifiedAudioStore()
 const settingsStore = useSettingsStore()
 const { t } = useI18n()
 
+// Navigation with stack
+const { currentView, currentParams, canGoBack, push, back, reset } = useNavigationStack('home')
+
 // Inject openSettings from App.vue
 const openSettings = inject('openSettings')
 
@@ -151,10 +157,10 @@ const hasCredentialsError = computed(() => {
   return status === 'missing' || status === 'invalid' || status === 'rate_limited'
 })
 
-// Open podcast settings
+// Open podcast settings - navigates directly to podcast settings view
 function openPodcastSettings() {
   if (openSettings) {
-    openSettings()
+    openSettings('podcast')
   }
 }
 
@@ -256,13 +262,11 @@ watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurren
     }
   }, { immediate: true })
 
-// Navigation state
-const currentView = ref('home')
-const previousView = ref('home')
-const selectedPodcastUuid = ref('')
-const selectedEpisodeUuid = ref('')
-const selectedGenre = ref('')
-const selectedGenreLabel = ref('')
+// Navigation params (stored separately since composable handles view state)
+const selectedPodcastUuid = computed(() => currentParams.value.podcastUuid || '')
+const selectedEpisodeUuid = computed(() => currentParams.value.episodeUuid || '')
+const selectedGenre = computed(() => currentParams.value.genre || '')
+const selectedGenreLabel = computed(() => currentParams.value.genreLabel || '')
 
 // Computed title and subtitle based on view
 const currentTitle = computed(() => {
@@ -293,53 +297,41 @@ const currentSubtitle = computed(() => {
   return null
 })
 
-// Navigation methods
+// Navigation methods using composable
 function goToHome() {
-  previousView.value = currentView.value
-  currentView.value = 'home'
+  reset()
 }
 
 function goToSubscriptions() {
-  previousView.value = currentView.value
-  currentView.value = 'subscriptions'
+  push('subscriptions')
 }
 
 function goToSearch() {
-  previousView.value = currentView.value
-  currentView.value = 'search'
+  push('search')
 }
 
 function goToQueue() {
-  previousView.value = currentView.value
-  currentView.value = 'queue'
+  push('queue')
 }
 
 function goToGenre(genre, label) {
-  previousView.value = currentView.value
-  selectedGenre.value = genre
-  selectedGenreLabel.value = label
-  currentView.value = 'genre'
+  push('genre', { genre, genreLabel: label })
 }
 
 function goBack() {
-  // Smart back navigation
-  if (currentView.value === 'podcast-details' || currentView.value === 'episode-details') {
-    currentView.value = previousView.value
-  } else {
-    currentView.value = 'home'
-  }
+  back()
 }
 
 async function openPodcastDetails(podcastOrUuid) {
-  previousView.value = currentView.value
+  let uuid = ''
 
   // Handle both UUID (string) and podcast object
   if (typeof podcastOrUuid === 'string') {
     // Direct UUID from subscriptions or search
-    selectedPodcastUuid.value = podcastOrUuid
+    uuid = podcastOrUuid
   } else if (podcastOrUuid && podcastOrUuid.uuid) {
     // Podcast object with UUID already resolved
-    selectedPodcastUuid.value = podcastOrUuid.uuid
+    uuid = podcastOrUuid.uuid
   } else if (podcastOrUuid && podcastOrUuid.itunes_id) {
     // Podcast object from iTunes RSS without UUID - need to lookup
     try {
@@ -348,7 +340,7 @@ async function openPodcastDetails(podcastOrUuid) {
       const response = await fetch(`/api/podcast/lookup/itunes/${podcastOrUuid.itunes_id}?${params}`)
       if (response.ok) {
         const data = await response.json()
-        selectedPodcastUuid.value = data.uuid
+        uuid = data.uuid
       } else {
         console.error('Failed to lookup podcast UUID from iTunes ID')
         return
@@ -362,13 +354,11 @@ async function openPodcastDetails(podcastOrUuid) {
     return
   }
 
-  currentView.value = 'podcast-details'
+  push('podcast-details', { podcastUuid: uuid })
 }
 
 function openEpisodeDetails(uuid) {
-  previousView.value = currentView.value
-  selectedEpisodeUuid.value = uuid
-  currentView.value = 'episode-details'
+  push('episode-details', { episodeUuid: uuid })
 }
 
 async function playEpisode(episode) {
@@ -479,9 +469,7 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-.podcast-content.search-spacing {
-  gap: var(--space-04);
-}
+
 
 /* Player control styles (from PodcastPlayer.vue) */
 .speed-selector {
@@ -505,5 +493,16 @@ onBeforeUnmount(() => {
   .playback-controls {
     gap: var(--space-01);
   }
+}
+
+/* View transition - using design system variables */
+.view-fade-enter-active,
+.view-fade-leave-active {
+  transition: opacity var(--transition-fast);
+}
+
+.view-fade-enter-from,
+.view-fade-leave-to {
+  opacity: 0;
 }
 </style>
