@@ -143,6 +143,7 @@ const svgContent = computed(() => {
   overflow: hidden;
   width: var(--icon-size);
   height: var(--icon-size);
+  isolation: isolate; /* Prevent mix-blend-mode from SVGs leaking to other elements */
 }
 
 .app-icon.is-loading {
