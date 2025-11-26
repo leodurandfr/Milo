@@ -5,11 +5,11 @@
     <div class="content-container" :style="{ height: containerHeight }">
       <div class="content-wrapper" ref="contentWrapperRef" :class="{ 'with-background': !isMultiroomActive }">
         <!-- MESSAGE: Multiroom disabled -->
-        <Transition name="message">
-          <div v-if="!isMultiroomActive" key="message" class="message-content">
-            <SvgIcon name="multiroom" :size="96" color="var(--color-background-medium-16)" />
-            <p class="text-mono">{{ t("multiroom.disabled") }}</p>
-          </div>
+        <Transition name="fade-slide">
+          <MessageContent v-if="!isMultiroomActive" key="message">
+            <SvgIcon name="multiroom" :size="64" color="var(--color-background-medium-16)" />
+            <p class="heading-2">{{ t("multiroom.disabled") }}</p>
+          </MessageContent>
         </Transition>
 
         <!-- SETTINGS: Sections visible only if multiroom is enabled -->
@@ -115,6 +115,7 @@ import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import InputText from '@/components/ui/InputText.vue';
+import MessageContent from '@/components/ui/MessageContent.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -361,21 +362,6 @@ onUnmounted(() => {
   background: var(--color-background-neutral);
 }
 
-.message-content {
-  display: flex;
-  min-height: 232px;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-04);
-  padding: var(--space-05);
-}
-
-.message-content .text-mono {
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
 .settings-container {
   display: flex;
   flex-direction: column;
@@ -461,30 +447,6 @@ onUnmounted(() => {
   z-index: 10;
 }
 
-
-/* Transitions for message */
-.message-enter-active {
-  transition: opacity 300ms ease, transform 300ms ease;
-}
-
-.message-leave-active {
-  transition: opacity 300ms ease, transform 300ms ease;
-  position: absolute;
-  width: 100%;
-  top: 0;
-  left: 0;
-}
-
-.message-enter-from {
-  opacity: 0;
-  transform: translateY(12px);
-}
-
-.message-leave-to {
-  opacity: 0;
-  transform: translateY(-12px);
-}
-
 /* Transitions for settings */
 .settings-enter-active {
   transition: opacity 300ms ease 100ms, transform 300ms ease 100ms;
@@ -529,10 +491,6 @@ onUnmounted(() => {
   .client-config-item {
     grid-row: unset !important;
     grid-column: unset !important;
-  }
-
-  .message-content {
-    min-height: 364px;
   }
 }
 </style>

@@ -1,10 +1,12 @@
 <!-- frontend/src/components/ui/InputText.vue -->
 <template>
   <div class="input-wrapper">
-    <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
-      :maxlength="maxlength" :class="inputClass" @input="handleInput" @focus="handleFocus"
-      @blur="handleBlur" />
-    <SvgIcon v-if="icon" :name="icon" :size="iconSize" class="input-icon" />
+    <div class="input-container">
+      <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
+        :maxlength="maxlength" :class="inputClass" @input="handleInput" @focus="handleFocus"
+        @blur="handleBlur" />
+      <SvgIcon v-if="icon" :name="icon" :size="iconSize" class="input-icon" />
+    </div>
   </div>
 </template>
 
@@ -135,9 +137,14 @@ defineExpose({
 .input-wrapper {
   position: relative;
   display: flex;
-  align-items: center;
   width: 100%;
   flex: 1;
+}
+
+.input-container {
+  display: flex;
+  align-items: center;
+  width: 100%;
   padding: var(--space-03) var(--space-04);
   border-radius: var(--radius-04);
   background: var(--color-background-neutral);
@@ -148,7 +155,7 @@ defineExpose({
   transition: box-shadow var(--transition-fast);
 }
 
-.input-wrapper:focus-within {
+.input-container:focus-within {
   -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
   -moz-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
   box-shadow: inset 0px 0px 0px 2px var(--color-brand);

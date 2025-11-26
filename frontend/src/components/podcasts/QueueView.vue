@@ -1,11 +1,17 @@
 <template>
-  <div class="queue-view fade-in">
-    <LoadingSpinner v-if="loading" />
+  <div class="queue-view">
+    <div v-if="loading" class="message-wrapper">
+      <MessageContent loading>
+        <p class="heading-2">{{ t('podcasts.loading') }}</p>
+      </MessageContent>
+    </div>
 
-    <div v-else-if="episodes.length === 0" class="empty-state">
-      <SvgIcon name="list" :size="48" />
-      <p>{{ t('podcasts.noEpisodesInQueue') }}</p>
-      <p class="hint">{{ t('podcasts.noEpisodesInQueueHint') }}</p>
+    <div v-else-if="episodes.length === 0" class="message-wrapper">
+      <MessageContent>
+        <SvgIcon name="podcast" :size="64" color="var(--color-background-medium-16)" />
+        <p class="heading-2">{{ t('podcasts.noEpisodesInQueue') }}</p>
+        <p class="text-mono">{{ t('podcasts.noEpisodesInQueueHint') }}</p>
+      </MessageContent>
     </div>
 
     <div v-else class="episodes-list">
@@ -28,8 +34,8 @@ import { ref, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import EpisodeCard from './EpisodeCard.vue'
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
+import MessageContent from '@/components/ui/MessageContent.vue'
 
 const { t } = useI18n()
 const emit = defineEmits(['select-episode', 'play-episode'])
@@ -115,22 +121,8 @@ onMounted(() => {
   gap: var(--space-02);
 }
 
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-08);
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.empty-state p {
-  margin: var(--space-02) 0 0;
-}
-
-.empty-state .hint {
-  font-size: var(--font-size-sm);
-  opacity: 0.7;
+.message-wrapper {
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
 }
 </style>

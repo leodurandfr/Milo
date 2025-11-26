@@ -251,3 +251,27 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
         transform: translateY(0);
     }
 }
+
+/* === VUE TRANSITIONS === */
+
+/* Fade + slide (pour MessageContent, grilles, etc.) */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+    transition: opacity 300ms ease-out, transform 300ms ease-out;
+}
+
+.fade-slide-enter-from {
+    opacity: 0;
+    transform: translateY(var(--space-04));
+}
+
+.fade-slide-leave-to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--space-04)));
+}
+
+/* Pour les éléments qui se superposent pendant la transition */
+.fade-slide-leave-active {
+    position: absolute;
+    width: 100%;
+}

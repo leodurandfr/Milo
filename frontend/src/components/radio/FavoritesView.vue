@@ -1,29 +1,28 @@
 <template>
   <div class="favorites-view">
-    <!-- Empty state -->
-    <div v-if="!isLoading && favoriteStations.length === 0" class="message-wrapper" :class="{
-      'message-fading-in': messageState === 'fading-in',
-      'message-fading-out': messageState === 'fading-out'
-    }">
-      <div class="message-content">
-        <SvgIcon name="radio" :size="96" color="var(--color-background-medium-16)" />
-        <p class="text-mono">{{ t('audioSources.radioSource.noFavorites') }}</p>
+    <Transition name="fade-slide" mode="out-in">
+      <!-- Empty state -->
+      <div v-if="!isLoading && favoriteStations.length === 0" key="empty" class="message-wrapper">
+        <MessageContent>
+          <SvgIcon name="radio" :size="64" color="var(--color-background-medium-16)" />
+          <p class="heading-2">{{ t('audioSources.radioSource.noFavorites') }}</p>
+        </MessageContent>
       </div>
-    </div>
 
-    <!-- Favorites grid -->
-    <div v-else class="favorites-grid fade-in">
-      <StationCard
-        v-for="station in favoriteStations"
-        :key="`fav-${station.id}`"
-        :station="station"
-        variant="image"
-        :is-active="currentStation?.id === station.id"
-        :is-playing="currentStation?.id === station.id && isPlaying"
-        :is-loading="bufferingStationId === station.id"
-        @click="$emit('play-station', station.id)"
-      />
-    </div>
+      <!-- Favorites grid -->
+      <div v-else key="favorites" class="favorites-grid">
+        <StationCard
+          v-for="station in favoriteStations"
+          :key="`fav-${station.id}`"
+          :station="station"
+          variant="image"
+          :is-active="currentStation?.id === station.id"
+          :is-playing="currentStation?.id === station.id && isPlaying"
+          :is-loading="bufferingStationId === station.id"
+          @click="$emit('play-station', station.id)"
+        />
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -33,6 +32,7 @@ import { useRadioStore } from '@/stores/radioStore'
 import { useI18n } from '@/services/i18n'
 import StationCard from './StationCard.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
+import MessageContent from '@/components/ui/MessageContent.vue'
 
 const { t } = useI18n()
 const radioStore = useRadioStore()
@@ -60,14 +60,6 @@ const props = defineProps({
   bufferingStationId: {
     type: [String, Number],
     default: null
-  },
-
-  /**
-   * Message animation state
-   */
-  messageState: {
-    type: String,
-    default: 'idle'
   },
 
   /**
@@ -106,28 +98,6 @@ const favoriteStations = computed(() => {
   border-radius: var(--radius-04);
 }
 
-.message-content {
-  display: flex;
-  min-height: 232px;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-04);
-  padding: var(--space-05);
-}
-
-.message-content .text-mono {
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
-/* Mobile: increase height for better visibility */
-@media (max-aspect-ratio: 4/3) {
-  .message-content {
-    min-height: 364px;
-  }
-}
-
 /* Favorites grid */
 .favorites-grid {
   display: grid;
@@ -141,36 +111,5 @@ const favoriteStations = computed(() => {
   .favorites-grid {
     grid-template-columns: repeat(3, 1fr);
   }
-}
-
-/* Message animations */
-@keyframes messageFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes messageFadeOut {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-}
-
-.message-wrapper.message-fading-in {
-  animation: messageFadeIn 300ms ease-out forwards;
-}
-
-.message-wrapper.message-fading-out {
-  animation: messageFadeOut 300ms ease-out forwards;
 }
 </style>

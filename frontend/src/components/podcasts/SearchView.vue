@@ -1,5 +1,5 @@
 <template>
-  <div class="search-view fade-in">
+  <div class="search-view">
     <!-- Filters -->
     <div class="filters-bar">
       <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')" icon="search"
@@ -9,62 +9,70 @@
       <Dropdown v-model="selectedDuration" :options="durationOptions" />
     </div>
 
-    <!-- Results -->
+    <!-- Results with transitions -->
     <div class="results" ref="resultsContainer">
-      <LoadingSpinner v-if="loading" />
+      <Transition name="fade-slide" mode="out-in">
+        <!-- Loading state -->
+        <div v-if="loading" key="loading" class="message-wrapper">
+          <MessageContent loading>
+            <p class="heading-2">{{ t('podcasts.loading') }}</p>
+          </MessageContent>
+        </div>
 
-      <template v-else-if="hasSearched">
-        <!-- Podcasts results -->
-        <section v-if="podcastResults.length > 0" class="section">
-          <h2 class="heading-2">
-            {{ t('podcasts.podcastsCount', { count: pagination.podcasts.total }) }}
-          </h2>
-          <div class="podcasts-grid">
-            <PodcastCard v-for="podcast in podcastResults" :key="podcast.uuid" :podcast="podcast"
-              @select="$emit('select-podcast', podcast.uuid)" />
-          </div>
-          <div v-if="currentPodcastPage < pagination.podcasts.pages" class="load-more-container">
-            <Button variant="brand" :loading="loadingMorePodcasts" @click="loadMorePodcasts">
-              {{ t('podcasts.loadMorePodcasts') }}
-            </Button>
-          </div>
-        </section>
+        <!-- Search results -->
+        <div v-else-if="hasSearched && (podcastResults.length > 0 || episodeResults.length > 0)" key="results" class="results-content">
+          <!-- Podcasts results -->
+          <section v-if="podcastResults.length > 0" class="section">
+            <h2 class="heading-2">
+              {{ t('podcasts.podcastsCount', { count: pagination.podcasts.total }) }}
+            </h2>
+            <div class="podcasts-grid">
+              <PodcastCard v-for="podcast in podcastResults" :key="podcast.uuid" :podcast="podcast"
+                @select="$emit('select-podcast', podcast.uuid)" />
+            </div>
+            <div v-if="currentPodcastPage < pagination.podcasts.pages" class="load-more-container">
+              <Button variant="brand" :loading="loadingMorePodcasts" @click="loadMorePodcasts">
+                {{ t('podcasts.loadMorePodcasts') }}
+              </Button>
+            </div>
+          </section>
 
-        <!-- Episodes results -->
-        <section v-if="episodeResults.length > 0" class="section">
-          <h2 class="heading-2">
-            {{ t('podcasts.episodesCount', { count: pagination.episodes.total }) }}
-          </h2>
-          <div class="episodes-list">
-            <EpisodeCard v-for="episode in episodeResults" :key="episode.uuid" :episode="episode"
-              @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)"
-              @pause="handlePause" />
-          </div>
-          <div v-if="currentEpisodePage < pagination.episodes.pages" class="load-more-container">
-            <Button variant="brand" :loading="loadingMoreEpisodes" @click="loadMoreEpisodes">
-              {{ t('podcasts.loadMoreEpisodes') }}
-            </Button>
-          </div>
-        </section>
+          <!-- Episodes results -->
+          <section v-if="episodeResults.length > 0" class="section">
+            <h2 class="heading-2">
+              {{ t('podcasts.episodesCount', { count: pagination.episodes.total }) }}
+            </h2>
+            <div class="episodes-list">
+              <EpisodeCard v-for="episode in episodeResults" :key="episode.uuid" :episode="episode"
+                @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)"
+                @pause="handlePause" />
+            </div>
+            <div v-if="currentEpisodePage < pagination.episodes.pages" class="load-more-container">
+              <Button variant="brand" :loading="loadingMoreEpisodes" @click="loadMoreEpisodes">
+                {{ t('podcasts.loadMoreEpisodes') }}
+              </Button>
+            </div>
+          </section>
+        </div>
 
         <!-- No results -->
-        <div v-if="podcastResults.length === 0 && episodeResults.length === 0" class="message-wrapper">
-          <div class="message-content">
-            <SvgIcon name="search" :size="48" />
-            <p class="text-mono">
+        <div v-else-if="hasSearched" key="no-results" class="message-wrapper">
+          <MessageContent>
+            <SvgIcon name="search" :size="64" color="var(--color-background-medium-16)" />
+            <p class="heading-2">
               {{ lastSearchTerm ? t('podcasts.noResultsFor', { query: lastSearchTerm }) : t('podcasts.noResults') }}
             </p>
-          </div>
+          </MessageContent>
         </div>
-      </template>
 
-      <!-- Initial state -->
-      <div v-else class="message-wrapper">
-        <div class="message-content">
-          <SvgIcon name="search" :size="48" />
-          <p class="text-mono">{{ t('podcasts.searchPrompt') }}</p>
+        <!-- Initial state -->
+        <div v-else key="initial" class="message-wrapper">
+          <MessageContent>
+            <SvgIcon name="search" :size="64" color="var(--color-background-medium-16)" />
+            <p class="heading-2">{{ t('podcasts.searchPrompt') }}</p>
+          </MessageContent>
         </div>
-      </div>
+      </Transition>
     </div>
   </div>
 </template>
@@ -78,8 +86,8 @@ import EpisodeCard from './EpisodeCard.vue'
 import InputText from '@/components/ui/InputText.vue'
 import Button from '@/components/ui/Button.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
+import MessageContent from '@/components/ui/MessageContent.vue'
 
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
 const podcastStore = usePodcastStore()
@@ -358,7 +366,7 @@ async function loadMoreEpisodes() {
 
 .filters-bar>* {
   flex: 1;
-  min-width: 192px;
+  min-width: 180px;
 }
 
 /* Mobile: scroll horizontal au lieu de wrap vertical */
@@ -389,6 +397,12 @@ async function loadMoreEpisodes() {
 }
 
 .results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-06);
+}
+
+.results-content {
   display: flex;
   flex-direction: column;
   gap: var(--space-06);
@@ -429,32 +443,5 @@ async function loadMoreEpisodes() {
 .message-wrapper {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
-}
-
-.message-content {
-  display: flex;
-  min-height: 232px;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-04);
-  padding: var(--space-05);
-}
-
-.message-content .text-mono,
-.message-content .heading-2 {
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
-.message-content .text-body-small {
-  text-align: center;
-}
-
-/* Mobile: increase height for better visibility */
-@media (max-aspect-ratio: 4/3) {
-  .message-content {
-    min-height: 364px;
-  }
 }
 </style>

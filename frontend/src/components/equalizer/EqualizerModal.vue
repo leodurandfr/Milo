@@ -16,11 +16,11 @@
       <div class="content-container" :style="{ height: containerHeight }">
         <div class="content-wrapper" ref="contentWrapperRef" :class="{ 'with-background': !isEqualizerEnabled }">
           <!-- MESSAGE: Equalizer disabled -->
-          <Transition name="message">
-            <div v-if="!isEqualizerEnabled" key="message" class="message-content">
-              <SvgIcon name="equalizer" :size="96" color="var(--color-background-medium-16)" />
-              <p class="text-mono">{{ $t('equalizer.disabled') }}</p>
-            </div>
+          <Transition name="fade-slide">
+            <MessageContent v-if="!isEqualizerEnabled" key="message">
+              <SvgIcon name="equalizer" :size="64" color="var(--color-background-medium-16)" />
+              <p class="heading-2">{{ $t('equalizer.disabled') }}</p>
+            </MessageContent>
           </Transition>
 
           <!-- EQUALIZER: Controls -->
@@ -49,6 +49,7 @@ import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import RangeSliderEqualizer from './RangeSliderEqualizer.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import MessageContent from '@/components/ui/MessageContent.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const equalizerStore = useEqualizerStore();
@@ -278,21 +279,6 @@ onUnmounted(() => {
   background: var(--color-background-neutral);
 }
 
-.message-content {
-  display: flex;
-  min-height: 232px;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-04);
-  padding: var(--space-05);
-}
-
-.message-content .text-mono {
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
 .equalizer-controls {
   background: var(--color-background-neutral);
   border-radius: var(--radius-06);
@@ -301,27 +287,6 @@ onUnmounted(() => {
   gap: var(--space-02);
   padding: var(--space-05);
   overflow-x: auto;
-}
-
-/* Transitions for message */
-.message-enter-active {
-  transition: opacity 300ms ease, transform 300ms ease;
-}
-
-.message-leave-active {
-  transition: opacity 300ms ease, transform 300ms ease;
-  position: absolute;
-  width: 100%;
-}
-
-.message-enter-from {
-  opacity: 0;
-  transform: translateY(12px);
-}
-
-.message-leave-to {
-  opacity: 0;
-  transform: translateY(-12px);
 }
 
 /* Transitions for controls */
@@ -367,10 +332,6 @@ onUnmounted(() => {
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .message-content {
-    min-height: 364px;
-  }
-
   .equalizer-controls {
     flex-direction: column;
     border-radius: var(--radius-05);

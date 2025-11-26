@@ -356,6 +356,7 @@
     "noSubscriptions": "No subscriptions",
     "noSubscriptionsHint": "Search for podcasts and subscribe to find them here",
     "noPodcastsInGenre": "No podcasts found in this category",
+    "loading": "Loading...",
     "noEpisodesInQueue": "No episodes in queue",
     "noEpisodesInQueueHint": "Start listening to episodes and they will appear here",
     "markComplete": "Complete",
