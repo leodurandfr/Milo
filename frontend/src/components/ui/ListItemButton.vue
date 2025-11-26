@@ -1,17 +1,17 @@
 <!-- frontend/src/components/ui/ListItemButton.vue -->
 <template>
   <component :is="clickable ? 'button' : 'div'"
-    :class="['icon-button', `icon-button--${variant}`, { 'icon-button--clickable': clickable }]" @click="handleClick">
+    :class="['list-item-button', `list-item-button--${variant}`, { 'list-item-button--clickable': clickable }]" @click="handleClick">
     <!-- Icon on the left -->
-    <div class="icon-button__icon">
+    <div class="list-item-button__icon">
       <slot name="icon"></slot>
     </div>
 
     <!-- Title -->
-    <span class="icon-button__title text-body">{{ title }}</span>
+    <span class="list-item-button__title text-body">{{ title }}</span>
 
     <!-- Right-side action (toggle, caret, or nothing) -->
-    <div v-if="showCaret || $slots.action" class="icon-button__action">
+    <div v-if="showCaret || $slots.action" class="list-item-button__action">
       <slot name="action">
         <SvgIcon v-if="showCaret" name="caretRight" :size="24" color="var(--color-text-light)" />
       </slot>
@@ -53,7 +53,7 @@ function handleClick(event) {
 </script>
 
 <style scoped>
-.icon-button {
+.list-item-button {
   display: flex;
   align-items: center;
   gap: var(--space-03);
@@ -65,14 +65,14 @@ function handleClick(event) {
 }
 
 /* Default variant (SettingsModal) */
-.icon-button--default {
+.list-item-button--default {
   background: var(--color-background-neutral);
 }
 
 
 
 /* Outlined variant (LanguageSettings) */
-.icon-button--outlined {
+.list-item-button--outlined {
   background: var(--color-background);
   box-shadow: inset 0 0 0 1px var(--color-border);
 
@@ -81,18 +81,18 @@ function handleClick(event) {
 
 
 /* Active state (LanguageSettings) */
-.icon-button--outlined.active {
+.list-item-button--outlined.active {
   background: var(--color-background-neutral);
   box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
 /* Clickable state (with caret-right) */
-.icon-button--clickable {
+.list-item-button--clickable {
   cursor: pointer;
 }
 
 /* Left icon */
-.icon-button__icon {
+.list-item-button__icon {
   flex-shrink: 0;
   width: 40px;
   height: 40px;
@@ -101,30 +101,30 @@ function handleClick(event) {
   justify-content: center;
 }
 
-.icon-button__icon :deep(img),
-.icon-button__icon :deep(svg) {
+.list-item-button__icon :deep(img),
+.list-item-button__icon :deep(svg) {
   width: 40px;
   height: 40px;
 }
 
 /* Title */
-.icon-button__title {
+.list-item-button__title {
   flex: 1;
   color: var(--color-text);
 }
 
 /* Title in text-secondary for outlined non-active */
-.icon-button--outlined .icon-button__title {
+.list-item-button--outlined .list-item-button__title {
   color: var(--color-text-secondary);
 }
 
 /* Title in normal text for outlined active */
-.icon-button--outlined.active .icon-button__title {
+.list-item-button--outlined.active .list-item-button__title {
   color: var(--color-text);
 }
 
 /* Right action */
-.icon-button__action {
+.list-item-button__action {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -133,13 +133,13 @@ function handleClick(event) {
 
 /* Responsive - Mobile */
 @media (max-aspect-ratio: 4/3) {
-  .icon-button__icon {
+  .list-item-button__icon {
     width: 32px;
     height: 32px;
   }
 
-  .icon-button__icon :deep(img),
-  .icon-button__icon :deep(svg) {
+  .list-item-button__icon :deep(img),
+  .list-item-button__icon :deep(svg) {
     width: 32px;
     height: 32px;
   }

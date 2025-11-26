@@ -180,7 +180,7 @@ onMounted(() => {
 }
 
 /* Override: buttons with a toggle keep the same background and border even when active */
-.app-list :deep(.icon-button.active) {
+.app-list :deep(.list-item-button.active) {
   background: var(--color-background);
   box-shadow: inset 0 0 0 1px var(--color-border);
 }
