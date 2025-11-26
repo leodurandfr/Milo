@@ -1,6 +1,7 @@
 // frontend/src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router';
 import MainView from '@/views/MainView.vue';
+import StyleGuide from '@/views/StyleGuide.vue';
 
 const routes = [
   {
@@ -9,6 +10,14 @@ const routes = [
     component: MainView,
     meta: {
       title: 'Milō'
+    }
+  },
+  {
+    path: '/style-guide',
+    name: 'StyleGuide',
+    component: StyleGuide,
+    meta: {
+      title: 'Style Guide - Milō'
     }
   }
 ];

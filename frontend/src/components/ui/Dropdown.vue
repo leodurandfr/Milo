@@ -275,8 +275,6 @@ onBeforeUnmount(() => {
   border: none;
   box-shadow: none;
   width: auto;
-  min-width: 48px;
-  padding: var(--space-02) 0;
 }
 
 .dropdown-trigger--transparent:focus {
@@ -287,7 +285,6 @@ onBeforeUnmount(() => {
   color: var(--color-text-contrast-50);
   font-weight: normal;
   text-align: center;
-  min-width: 48px;
 }
 
 

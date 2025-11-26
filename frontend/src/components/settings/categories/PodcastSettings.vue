@@ -42,9 +42,10 @@
           <!-- Test connection button - Visible when no credentials OR changes -->
           <div v-if="!hasCredentials || hasChanges" class="action-buttons-sticky">
             <Button
-              variant="outline"
+              variant="brand"
               :disabled="isValidating || !localUserId || !localApiKey"
               :loading="isValidating"
+              :loading-label="false"
               @click="handleTestConnection"
             >
               {{ t('podcastSettings.validateButton') }}

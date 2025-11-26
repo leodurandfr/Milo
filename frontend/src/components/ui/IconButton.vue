@@ -32,8 +32,8 @@ const props = defineProps({
   },
   variant: {
     type: String,
-    default: 'default',
-    validator: (value) => ['default', 'light', 'dark', 'rounded'].includes(value)
+    default: 'background-strong',
+    validator: (value) => ['background-strong', 'on-dark', 'on-light', 'rounded'].includes(value)
   },
   size: {
     type: String,
@@ -63,14 +63,14 @@ const iconSize = computed(() => {
 
 // Icon color based on variant (if not overridden by color prop)
 const iconColor = computed(() => {
-  if (props.variant === 'dark') {
+  if (props.variant === 'on-light') {
     return 'var(--color-text-contrast)';
   } else if (props.variant === 'rounded') {
     return 'var(--color-text)';
-  } else if (props.variant === 'light') {
-    return 'var(--color-text-light)';
+  } else if (props.variant === 'on-dark') {
+    return 'var(--color-text-contrast)';
   } else {
-    // default
+    // background-strong
     return 'var(--color-text-secondary)';
   }
 });
@@ -95,7 +95,7 @@ function handleClick(event) {
 
 /* === SIZES (Desktop) === */
 .icon-button--small {
-  padding: 8px;
+  padding: 6px;
   border-radius: var(--radius-04);
 }
 
@@ -106,25 +106,24 @@ function handleClick(event) {
 
 .icon-button--large {
   padding: 12px;
-  border-radius: var(--radius-04);
+  border-radius: var(--radius-05);
 }
 
 /* === SIZES (Mobile) === */
 @media (max-aspect-ratio: 4/3) {
   .icon-button--small {
-    padding: 8px;
+    padding: 4px;
     border-radius: var(--radius-03);
   }
 
   .icon-button--medium {
-    padding: 6px;
+    padding: 4px;
     border-radius: var(--radius-03);
   }
 
   .icon-button--large {
-    /* Auto-downgrade to medium size on mobile */
-    padding: 6px;
-    border-radius: var(--radius-03);
+    padding: 8px;
+    border-radius: var(--radius-04);
   }
 
   .icon-button--rounded {
@@ -132,17 +131,20 @@ function handleClick(event) {
   }
 }
 
-/* === TYPES === */
-.icon-button--light {
-  background: var(--color-background-neutral-12);
-}
-
-.icon-button--default {
+/* === VARIANTS === */
+.icon-button--background-strong {
   background: var(--color-background-strong);
+  color: var(--color-text-secondary);
 }
 
-.icon-button--dark {
+.icon-button--on-dark {
+  background: var(--color-background-neutral-12);
+  color: var(--color-text-contrast);
+}
+
+.icon-button--on-light {
   background: var(--color-background-contrast-12);
+  color: var(--color-text-contrast);
 }
 
 .icon-button--rounded {
@@ -152,6 +154,7 @@ function handleClick(event) {
   -webkit-backdrop-filter: blur(12px);
   width: fit-content;
   aspect-ratio: 1 / 1;
+  color: var(--color-text);
 }
 
 /* Glass border effect for rounded type */
@@ -180,5 +183,26 @@ function handleClick(event) {
 
 .icon-button--loading {
   pointer-events: none;
+}
+
+/* === LOADING states (preserves variant styling) === */
+.icon-button--background-strong.icon-button--loading {
+  background: var(--color-background-strong);
+  color: var(--color-text-secondary);
+}
+
+.icon-button--on-dark.icon-button--loading {
+  background: var(--color-background-neutral-12);
+  color: var(--color-text-contrast);
+}
+
+.icon-button--on-light.icon-button--loading {
+  background: var(--color-background-contrast-12);
+  color: var(--color-text-contrast);
+}
+
+.icon-button--rounded.icon-button--loading {
+  background: var(--color-background-neutral-50);
+  color: var(--color-text);
 }
 </style>

@@ -8,8 +8,9 @@
           {{ t('spotifySettings.disconnectDelay') }}
         </div>
         <div class="disconnect-buttons">
-          <Button v-for="delay in disconnectPresets" :key="delay.value" variant="toggle" size="small"
-            :active="isDisconnectActive(delay.value)" @click="setSpotifyDisconnect(delay.value)">
+          <Button v-for="delay in disconnectPresets" :key="delay.value"
+            :variant="isDisconnectActive(delay.value) ? 'outline' : 'background-strong'" size="small"
+            @click="setSpotifyDisconnect(delay.value)">
             {{ delay.label }}
           </Button>
         </div>

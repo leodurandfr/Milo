@@ -1,10 +1,6 @@
 <template>
   <Transition name="audio-player" appear @after-leave="$emit('after-hide')">
-    <div
-      v-show="visible"
-      class="audio-player"
-      :class="playerClasses"
-    >
+    <div v-show="visible" class="audio-player" :class="playerClasses" :style="playerStyle">
       <!-- Background image - heavily zoomed and blurred -->
       <div class="player-art-background">
         <img v-if="artwork" :src="artwork" alt="" class="background-image" />
@@ -19,7 +15,7 @@
         <div class="player-info">
           <slot name="info">
             <p v-if="subtitle" class="player-subtitle text-mono">{{ subtitle }}</p>
-            <p class="player-title text-body-small">{{ title }}</p>
+            <p :class="['player-title', source === 'radio' ? 'display-1' : 'text-body-small']">{{ title }}</p>
           </slot>
           <slot name="progress"></slot>
 
@@ -31,7 +27,7 @@
           <slot name="controls">
             <!-- Default: Simple play/pause -->
             <div class="playback-controls">
-              <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="dark" size="large" :loading="isLoading"
+              <IconButton :icon="isPlaying ? 'pause' : 'play'" variant="on-dark" size="medium" :loading="isLoading"
                 @click="$emit('toggle-play')" />
             </div>
           </slot>
@@ -42,7 +38,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
@@ -110,15 +106,47 @@ const props = defineProps({
   isLoading: {
     type: Boolean,
     default: false
+  },
+
+  /**
+   * Fixed width for desktop (in pixels)
+   * When set, player has fixed width instead of 100%
+   */
+  width: {
+    type: Number,
+    default: null
   }
 })
 
 const emit = defineEmits(['toggle-play', 'after-hide'])
 
+// Mobile detection for responsive width handling
+const isMobile = ref(false)
+const checkMobile = () => {
+  isMobile.value = window.matchMedia('(max-aspect-ratio: 4/3)').matches
+}
+
+onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
+})
+
 // Computed classes for styling based on source
 const playerClasses = computed(() => ({
   [`source-${props.source}`]: true
 }))
+
+// Computed style for fixed width on desktop (not applied on mobile)
+const playerStyle = computed(() => {
+  if (props.width && !isMobile.value) {
+    return { width: `${props.width}px` }
+  }
+  return {}
+})
 </script>
 
 <style scoped>
@@ -126,13 +154,13 @@ const playerClasses = computed(() => ({
 .audio-player {
   display: flex;
   width: 100%;
-  margin: var(--space-07) 0 0 0;
-  max-height: 540px;
+  margin: 0;
+  height: 100%;
   flex-direction: column;
   gap: var(--space-04);
-  padding: var(--space-04) var(--space-04) var(--space-05) var(--space-04);
+  padding: var(--space-04);
   background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
+  border-radius: var(--radius-07);
   backdrop-filter: blur(16px);
   position: relative;
   overflow: hidden;
@@ -147,7 +175,7 @@ const playerClasses = computed(() => ({
   padding: 2px;
   opacity: 0.8;
   background: var(--stroke-glass);
-  border-radius: var(--radius-06);
+  border-radius: var(--radius-07);
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -190,6 +218,7 @@ const playerClasses = computed(() => ({
 
 /* Player content (sits above background) */
 .player-content {
+  height: 100%;
   position: relative;
   z-index: 2;
   display: flex;
@@ -214,6 +243,7 @@ const playerClasses = computed(() => ({
 /* Player info section */
 .player-info {
   display: flex;
+  justify-content: center;
   height: 100%;
   flex-direction: column;
   gap: var(--space-02);
@@ -224,15 +254,19 @@ const playerClasses = computed(() => ({
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   margin: 0;
 }
 
 :deep(.player-subtitle) {
   color: var(--color-text-contrast-50);
-  margin: 0;
   cursor: pointer;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 
@@ -250,7 +284,7 @@ const playerClasses = computed(() => ({
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: var(--space-03);
+  gap: var(--space-02);
 }
 
 /* Mobile: Horizontal bottom panel layout */
@@ -270,6 +304,10 @@ const playerClasses = computed(() => ({
     border-radius: var(--radius-06);
   }
 
+  .audio-player::before {
+    border-radius: var(--radius-06);
+  }
+
   .player-content {
     flex-direction: row;
     flex-wrap: wrap;
@@ -280,9 +318,9 @@ const playerClasses = computed(() => ({
   }
 
   .player-artwork {
-    width: 64px;
-    height: 64px;
-    min-width: 64px;
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
     border-radius: var(--radius-03);
   }
 
@@ -292,6 +330,9 @@ const playerClasses = computed(() => ({
     min-width: 0;
   }
 
+  :deep(.playback-controls) {
+    gap: var(--space-01);
+  }
 
 
   /* Apply same styles to slotted content (fixes scoped CSS limitation) */
@@ -319,21 +360,22 @@ const playerClasses = computed(() => ({
   .audio-player.source-podcast .player-content :deep(.progress-bar) {
     display: flex;
     width: 100%;
-    order: 2; /* Progress bar between info and controls */
+    order: 2;
+    /* Progress bar between info and controls */
   }
 
   /* Podcasts mobile: Compact vertical layout with 3 lines */
   .audio-player.source-podcast {
     flex-direction: column !important;
     gap: var(--space-03);
-    padding: var(--space-03) var(--space-04);
+    padding: var(--space-03);
   }
 
   .audio-player.source-podcast .player-content {
     flex-direction: row !important;
     flex-wrap: wrap !important;
     align-items: center;
-    gap: var(--space-03);
+    row-gap: var(--space-01);
   }
 
   /* Line 1: Artwork (48px) + Info side by side */
@@ -347,11 +389,7 @@ const playerClasses = computed(() => ({
     display: flex;
     flex-direction: column;
     gap: var(--space-01);
-  }
-
-  /* Show subtitle for podcasts */
-  .audio-player.source-podcast :deep(.player-subtitle) {
-    display: block !important;
+    padding-right: var(--space-01)
   }
 
   /* Line 3: All controls visible for podcasts */
@@ -408,7 +446,7 @@ const playerClasses = computed(() => ({
   }
 }
 
-/* Vue Transition: Mobile - slide up from bottom with fade */
+/* Vue Transition: Mobile */
 @media (max-aspect-ratio: 4/3) {
   .audio-player-enter-active {
     transition:

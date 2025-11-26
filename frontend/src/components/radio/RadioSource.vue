@@ -3,92 +3,49 @@
   <AudioSourceLayout :show-player="shouldShowNowPlayingLayout">
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div
-        ref="radioContainer"
-        class="radio-content"
-        :class="{ 'is-initial-animating': isInitialAnimating }"
-      >
+      <div ref="radioContainer" class="radio-content" :class="{ 'is-initial-animating': isInitialAnimating }">
         <!-- ModalHeader with dynamic props for smooth transitions -->
         <ModalHeader
           :title="isSearchMode ? t('audioSources.radioSource.discoverTitle') : t('audioSources.radioSource.favoritesTitle')"
-          :show-back="isSearchMode"
-          :actions-key="isSearchMode ? 'search' : 'favorites'"
-          variant="background-neutral"
-          icon="radio"
-          @back="closeSearch"
-        >
+          :show-back="isSearchMode" :actions-key="isSearchMode ? 'search' : 'favorites'" variant="background-neutral"
+          icon="radio" @back="closeSearch">
           <template v-if="!isSearchMode" #actions="{ iconVariant }">
             <IconButton icon="search" :variant="iconVariant" @click="openSearch" />
           </template>
         </ModalHeader>
 
         <!-- Favorites View -->
-        <FavoritesView
-          v-if="!isSearchMode"
-          :is-loading="radioStore.loading"
-          :current-station="radioStore.currentStation"
-          :is-playing="isCurrentlyPlaying"
-          :buffering-station-id="bufferingStationId"
-          :message-state="messageState"
-          @play-station="playStation"
-        />
+        <FavoritesView v-if="!isSearchMode" :is-loading="radioStore.loading"
+          :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
+          :buffering-station-id="bufferingStationId" :message-state="messageState" @play-station="playStation" />
 
         <!-- Search View -->
-        <SearchView
-          v-else
-          :country-options="countryOptions"
-          :genre-options="genreOptions"
-          :current-station="radioStore.currentStation"
-          :is-playing="isCurrentlyPlaying"
-          :buffering-station-id="bufferingStationId"
-          :is-loading="radioStore.loading"
-          :has-error="radioStore.hasError"
-          :transition-state="transitionState"
-          :message-state="messageState"
-          @search="handleSearch"
-          @retry="retrySearch"
-          @play-station="playStation"
-        />
+        <SearchView v-else :country-options="countryOptions" :genre-options="genreOptions"
+          :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
+          :buffering-station-id="bufferingStationId" :is-loading="radioStore.loading" :has-error="radioStore.hasError"
+          :transition-state="transitionState" :message-state="messageState" @search="handleSearch" @retry="retrySearch"
+          @play-station="playStation" />
       </div>
     </template>
 
     <!-- Player slot: AudioPlayer component -->
-    <template #player>
-      <AudioPlayer
-        v-if="radioStore.currentStation"
-        :visible="shouldShowNowPlayingLayout"
-        source="radio"
-        :artwork="stationArtwork"
-        :placeholder-artwork="placeholderImg"
-        :title="radioStore.currentStation.name"
-        :subtitle="stationMetadata"
-        :is-playing="isCurrentlyPlaying"
-        :is-loading="isBuffering"
-      >
+    <template #player="{ playerWidth }">
+      <AudioPlayer v-if="radioStore.currentStation" :visible="shouldShowNowPlayingLayout" source="radio"
+        :artwork="stationArtwork" :placeholder-artwork="placeholderImg" :title="radioStore.currentStation.name"
+        :subtitle="stationMetadata" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :width="playerWidth">
         <!-- Radio controls with favorite and play/stop -->
         <template #controls>
           <div class="radio-controls">
-            <IconButton
-              :icon="radioStore.currentStation.is_favorite ? 'heart' : 'heartOff'"
-              variant="dark"
-              @click="handleFavorite"
-            />
-            <Button
-              v-if="!isMobile"
-              variant="dark"
-              :left-icon="isCurrentlyPlaying ? 'stop' : 'play'"
-              :loading="isBuffering"
-              @click="handlePlayPause"
-            >
-              {{ isCurrentlyPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio') }}
+            <Button v-if="!isMobile" variant="on-dark" :left-icon="isCurrentlyPlaying ? 'stop' : 'play'"
+              :loading="isBuffering" @click="handlePlayPause">
+              {{ isCurrentlyPlaying ? t('audioSources.radioSource.stopRadio') : t('audioSources.radioSource.playRadio')
+              }}
             </Button>
-            <IconButton
-              v-else
-              :icon="isCurrentlyPlaying ? 'stop' : 'play'"
-              variant="dark"
-              :loading="isBuffering"
-              @click="handlePlayPause"
-            />
+            <!-- Play/stop IconButton for Mobile -->
+            <IconButton v-else :icon="isCurrentlyPlaying ? 'stop' : 'play'" variant="on-dark" :loading="isBuffering"
+              @click="handlePlayPause" />
+            <IconButton :icon="radioStore.currentStation.is_favorite ? 'heart' : 'heartOff'" variant="on-dark"
+              @click="handleFavorite" />
           </div>
         </template>
       </AudioPlayer>
@@ -539,7 +496,6 @@ onBeforeUnmount(() => {
 /* Radio controls layout */
 .radio-controls {
   display: flex;
-  flex-direction: row-reverse;
   flex-wrap: nowrap;
   gap: var(--space-02);
   justify-content: space-between;
@@ -561,6 +517,7 @@ onBeforeUnmount(() => {
     width: auto;
     justify-content: flex-end;
     gap: var(--space-01);
+    flex-direction: row-reverse;
   }
 }
 </style>

@@ -12,7 +12,7 @@
     <div
       :class="['player-wrapper', { 'has-player': showPlayer }]"
     >
-      <slot name="player"></slot>
+      <slot name="player" :playerWidth="playerWidth"></slot>
     </div>
   </div>
 </template>
@@ -27,12 +27,15 @@ const props = defineProps({
     default: false
   }
 })
+
+// Player width for desktop (310px wrapper - 32px padding)
+const playerWidth = 300
 </script>
 
 <style scoped>
 /* Layout wrapper */
 .audio-source-layout {
-  --audio-player-wrapper-width: 340px;
+  --audio-player-wrapper-width: 310px;
   display: flex;
   justify-content: center;
   width: 100%;
@@ -66,10 +69,15 @@ const props = defineProps({
 .player-wrapper {
   box-sizing: border-box;
   width: 0;
+  height: 100%;
   max-width: var(--audio-player-wrapper-width);
   padding-left: 0;
+  padding-top: var(--space-07);
+  padding-bottom: var(--space-07);
   opacity: 0;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
   transition:
     width 0.6s cubic-bezier(0.5, 0, 0, 1),
     padding-left 0.6s cubic-bezier(0.5, 0, 0, 1),
@@ -102,6 +110,7 @@ const props = defineProps({
     min-height: 100%;
     padding-bottom: var(--space-04);
     padding-top: var(--space-09);
+    gap: 0;
   }
 
   .content-container.with-player {

@@ -54,7 +54,7 @@
         <p class="text-body-small" style="color: var(--color-text-secondary);">
           {{ t('audioSources.radioSource.cannotLoadStations') }}
         </p>
-        <Button variant="toggle" :active="false" @click="$emit('retry')">
+        <Button variant="background-strong" @click="$emit('retry')">
           {{ t('audioSources.radioSource.retry') }}
         </Button>
       </div>

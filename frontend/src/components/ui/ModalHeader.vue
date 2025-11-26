@@ -9,7 +9,7 @@
     <div class="header-content">
       <Transition name="header-fade" mode="out-in" @after-leave="onAfterLeave">
         <div v-if="showBack" :key="'back-' + title" class="back-modal-header">
-          <IconButton icon="caretLeft" :variant="variant === 'contrast' ? 'light' : 'default'" @click="handleBack" />
+          <IconButton icon="caretLeft" :variant="variant === 'contrast' ? 'on-dark' : 'background-strong'" @click="handleBack" />
           <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
           <h2 v-else class="heading-1">
             <span class="title-subtitle">{{ subtitle }}</span>
@@ -30,7 +30,7 @@
     <div class="actions-container">
       <Transition name="actions-fade" mode="out-in">
         <div v-if="$slots.actions" :key="actionsKey" class="actions-wrapper">
-          <slot name="actions" :iconVariant="variant === 'contrast' ? 'light' : 'default'"></slot>
+          <slot name="actions" :iconVariant="variant === 'contrast' ? 'on-dark' : 'background-strong'"></slot>
         </div>
       </Transition>
     </div>
@@ -98,7 +98,7 @@ function handleBack() {
   display: flex;
   background: var(--color-background-contrast);
   border-radius: var(--radius-06);
-  padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05);
+  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-05);
   min-height: 72px;
   align-items: center;
   justify-content: space-between;

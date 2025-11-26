@@ -13,7 +13,7 @@
         <div class="error-message text-mono">
           {{ $t('updates.error') }}
         </div>
-        <Button variant="default" @click="loadLocalPrograms">
+        <Button variant="background-strong" @click="loadLocalPrograms">
           {{ $t('updates.retry') }}
         </Button>
       </div>
@@ -56,7 +56,7 @@
 
           <Button
             v-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')"
-            variant="primary" @click="startLocalUpdate('milo')" :disabled="isAnyUpdateInProgress()"
+            variant="brand" @click="startLocalUpdate('milo')" :disabled="isAnyUpdateInProgress()"
             class="update-button">
             {{ $t('updates.update') }}
           </Button>
@@ -111,7 +111,7 @@
 
               <Button
                 v-if="program.update_available && canUpdateLocal(key) && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)"
-                variant="primary" @click="startLocalUpdate(key)" :disabled="isAnyUpdateInProgress()"
+                variant="brand" @click="startLocalUpdate(key)" :disabled="isAnyUpdateInProgress()"
                 class="update-button">
                 {{ $t('updates.update') }}
               </Button>
@@ -145,7 +145,7 @@
         <div class="error-message text-mono">
           {{ $t('updates.errorDetectingSatellites') }}
         </div>
-        <Button variant="default" @click="loadSatellites">
+        <Button variant="background-strong" @click="loadSatellites">
           {{ $t('updates.retry') }}
         </Button>
       </div>
@@ -189,7 +189,7 @@
 
           <Button
             v-if="satellite.update_available && satellite.online && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)"
-            variant="primary" @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()"
+            variant="brand" @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()"
             class="update-button">
             {{ $t('updates.update') }}
           </Button>

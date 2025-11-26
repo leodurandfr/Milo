@@ -219,7 +219,7 @@ onMounted(() => {
 .podcasts-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-03);
+  gap: var(--space-02);
 }
 
 .episodes-list {

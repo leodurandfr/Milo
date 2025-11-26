@@ -24,7 +24,7 @@
               @select="$emit('select-podcast', podcast.uuid)" />
           </div>
           <div v-if="currentPodcastPage < pagination.podcasts.pages" class="load-more-container">
-            <Button variant="primary" :loading="loadingMorePodcasts" @click="loadMorePodcasts">
+            <Button variant="brand" :loading="loadingMorePodcasts" @click="loadMorePodcasts">
               {{ t('podcasts.loadMorePodcasts') }}
             </Button>
           </div>
@@ -41,7 +41,7 @@
               @pause="handlePause" />
           </div>
           <div v-if="currentEpisodePage < pagination.episodes.pages" class="load-more-container">
-            <Button variant="primary" :loading="loadingMoreEpisodes" @click="loadMoreEpisodes">
+            <Button variant="brand" :loading="loadingMoreEpisodes" @click="loadMoreEpisodes">
               {{ t('podcasts.loadMoreEpisodes') }}
             </Button>
           </div>
@@ -410,7 +410,7 @@ async function loadMoreEpisodes() {
 .podcasts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: var(--space-03);
+  gap: var(--space-02);
 }
 
 .episodes-list {
