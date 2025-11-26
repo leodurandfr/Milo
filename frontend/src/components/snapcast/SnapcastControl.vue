@@ -3,11 +3,11 @@
   <div class="clients-container" :class="{ opening: isOpening }" :style="{ height: containerHeight }">
     <div class="clients-list" ref="clientsListRef" :class="{ 'with-background': showBackground }">
       <!-- MESSAGE: Multiroom disabled -->
-      <Transition name="message">
-        <div v-if="showMessage" key="message" class="message-content">
-          <SvgIcon name="multiroom" :size="96" color="var(--color-background-medium-16)" />
-          <p class="text-mono">{{ $t("multiroom.disabled") }}</p>
-        </div>
+      <Transition name="fade-slide">
+        <MessageContent v-if="showMessage" key="message">
+          <SvgIcon name="multiroom" :size="64" color="var(--color-background-medium-16)" />
+          <p class="heading-2">{{ $t("multiroom.disabled") }}</p>
+        </MessageContent>
       </Transition>
 
       <!-- CLIENTS: Skeletons OR real items -->
@@ -28,6 +28,7 @@ import { useSnapcastStore } from '@/stores/snapcastStore';
 import useWebSocket from '@/services/websocket';
 import SnapclientItem from './SnapclientItem.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
+import MessageContent from '@/components/ui/MessageContent.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const snapcastStore = useSnapcastStore();
@@ -307,45 +308,10 @@ watch(isTogglingMultiroom, (isToggling, wasToggling) => {
   background: var(--color-background-neutral);
 }
 
-.message-content {
-  display: flex;
-  min-height: 232px;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-04);
-  padding: var(--space-05);
-}
-
-.message-content .text-mono {
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
 .clients-wrapper {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
-}
-
-.message-enter-active {
-  transition: opacity 300ms ease, transform 300ms ease;
-}
-
-.message-leave-active {
-  transition: opacity 300ms ease, transform 300ms ease;
-  position: absolute;
-  width: 100%;
-}
-
-.message-enter-from {
-  opacity: 0;
-  transform: translateY(12px);
-}
-
-.message-leave-to {
-  opacity: 0;
-  transform: translateY(-12px);
 }
 
 .clients-enter-active {
@@ -366,11 +332,5 @@ watch(isTogglingMultiroom, (isToggling, wasToggling) => {
 .clients-leave-to {
   opacity: 0;
   transform: translateY(-12px);
-}
-
-@media (max-aspect-ratio: 4/3) {
-  .message-content {
-    min-height: 364px;
-  }
 }
 </style>

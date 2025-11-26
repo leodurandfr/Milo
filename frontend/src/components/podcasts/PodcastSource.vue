@@ -1,58 +1,57 @@
 <template>
-  <AudioSourceLayout :show-player="shouldShowPlayerLayout && !hasCredentialsError">
+  <AudioSourceLayout
+    :show-player="shouldShowPlayerLayout && !hasCredentialsError"
+    :header-title="hasCredentialsError ? t('podcasts.podcasts') : currentTitle"
+    :header-subtitle="hasCredentialsError ? null : currentSubtitle"
+    :header-show-back="!hasCredentialsError && canGoBack"
+    header-icon="podcast"
+    header-variant="background-neutral"
+    :header-actions-key="currentView"
+    @header-back="goBack"
+  >
+    <!-- Header actions (only when not in credentials error and on home view) -->
+    <template v-if="!hasCredentialsError && currentView === 'home'" #header-actions="{ iconVariant }">
+      <IconButton icon="heart" :variant="iconVariant" :active="false" @click="goToSubscriptions" />
+      <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
+      <IconButton icon="list" :variant="iconVariant" @click="goToQueue" />
+    </template>
+
     <!-- Content slot: scrollable views -->
     <template #content>
       <div class="podcast-content" :class="{ 'search-spacing': currentView === 'search' && !hasCredentialsError }">
-        <!-- Credentials Required (avec ModalHeader sans icônes) -->
-        <CredentialsRequired v-if="hasCredentialsError" @configure="openPodcastSettings" />
+        <!-- Credentials Required -->
+        <CredentialsRequired v-if="hasCredentialsError" key="credentials" @configure="openPodcastSettings" />
 
-        <!-- Normal content when credentials valid -->
-        <template v-else>
-          <!-- Header with navigation -->
-          <ModalHeader :title="currentTitle" :subtitle="currentSubtitle" :showBack="canGoBack" icon="podcast"
-            variant="background-neutral" @back="goBack">
-            <template #actions="{ iconVariant }">
-              <IconButton v-if="currentView === 'home'" icon="heart" :variant="iconVariant" :active="false"
-                @click="goToSubscriptions" />
-              <IconButton v-if="currentView === 'home'" icon="search" :variant="iconVariant" @click="goToSearch" />
-              <IconButton v-if="currentView === 'home'" icon="list" :variant="iconVariant" @click="goToQueue" />
-            </template>
-          </ModalHeader>
+        <!-- Home View (Discovery) -->
+        <HomeView v-else-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails"
+          @select-episode="openEpisodeDetails" @play-episode="playEpisode" @browse-genre="goToGenre" />
 
-          <!-- Main content area with fade transitions -->
-          <Transition name="view-fade" mode="out-in">
-            <!-- Home View (Discovery) -->
-            <HomeView v-if="currentView === 'home'" key="home" @select-podcast="openPodcastDetails"
-              @select-episode="openEpisodeDetails" @play-episode="playEpisode" @browse-genre="goToGenre" />
+        <!-- Subscriptions View -->
+        <SubscriptionsView v-else-if="currentView === 'subscriptions'" key="subscriptions"
+          @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
-            <!-- Subscriptions View -->
-            <SubscriptionsView v-else-if="currentView === 'subscriptions'" key="subscriptions"
-              @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+        <!-- Search View -->
+        <SearchView v-else-if="currentView === 'search'" key="search" @select-podcast="openPodcastDetails"
+          @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
 
-            <!-- Search View -->
-            <SearchView v-else-if="currentView === 'search'" key="search" @select-podcast="openPodcastDetails"
-              @select-episode="openEpisodeDetails" @play-episode="playEpisode" />
+        <!-- Queue View -->
+        <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails"
+          @play-episode="playEpisode" />
 
-            <!-- Queue View -->
-            <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails"
-              @play-episode="playEpisode" />
+        <!-- Genre View -->
+        <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre"
+          :genreLabel="selectedGenreLabel" @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails"
+          @play-episode="playEpisode" />
 
-            <!-- Genre View -->
-            <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre"
-              :genreLabel="selectedGenreLabel" @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails"
-              @play-episode="playEpisode" />
+        <!-- Podcast Details (full screen overlay) -->
+        <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details"
+          :uuid="selectedPodcastUuid" @back="goBack" @play-episode="playEpisode"
+          @select-episode="openEpisodeDetails" />
 
-            <!-- Podcast Details (full screen overlay) -->
-            <PodcastDetails v-else-if="currentView === 'podcast-details'" key="podcast-details"
-              :uuid="selectedPodcastUuid" @back="goBack" @play-episode="playEpisode"
-              @select-episode="openEpisodeDetails" />
-
-            <!-- Episode Details (full screen overlay) -->
-            <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details"
-              :uuid="selectedEpisodeUuid" @back="goBack" @play-episode="playEpisode"
-              @select-podcast="openPodcastDetails" />
-          </Transition>
-        </template>
+        <!-- Episode Details (full screen overlay) -->
+        <EpisodeDetails v-else-if="currentView === 'episode-details'" key="episode-details"
+          :uuid="selectedEpisodeUuid" @back="goBack" @play-episode="playEpisode"
+          @select-podcast="openPodcastDetails" />
       </div>
     </template>
 
@@ -100,7 +99,6 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useNavigationStack } from '@/composables/useNavigationStack'
 import { useI18n } from '@/services/i18n'
-import ModalHeader from '@/components/ui/ModalHeader.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
@@ -469,18 +467,5 @@ onBeforeUnmount(() => {
 :deep(.dropdown-trigger--transparent) {
   min-width: 48px;
   padding: var(--space-02) 0;
-}
-
-
-
-/* View transition - using design system variables */
-.view-fade-enter-active,
-.view-fade-leave-active {
-  transition: opacity var(--transition-fast);
-}
-
-.view-fade-enter-from,
-.view-fade-leave-to {
-  opacity: 0;
 }
 </style>

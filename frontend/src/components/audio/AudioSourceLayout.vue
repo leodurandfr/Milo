@@ -5,7 +5,25 @@
       class="content-container"
       :class="{ 'with-player': showPlayer }"
     >
-      <slot name="content"></slot>
+      <!-- Header centralisé -->
+      <ModalHeader
+        :title="headerTitle"
+        :subtitle="headerSubtitle"
+        :show-back="headerShowBack"
+        :variant="headerVariant"
+        :icon="headerIcon"
+        :actions-key="headerActionsKey"
+        @back="$emit('header-back')"
+      >
+        <template #actions="slotProps">
+          <slot name="header-actions" v-bind="slotProps" />
+        </template>
+      </ModalHeader>
+
+      <!-- Contenu avec animation -->
+      <Transition name="fade-slide" mode="out-in">
+        <slot name="content" />
+      </Transition>
     </div>
 
     <!-- Player wrapper: animates width on desktop, transparent on mobile -->
@@ -18,6 +36,8 @@
 </template>
 
 <script setup>
+import ModalHeader from '@/components/ui/ModalHeader.vue'
+
 const props = defineProps({
   /**
    * Controls layout animation (shows/hides player space)
@@ -25,8 +45,52 @@ const props = defineProps({
   showPlayer: {
     type: Boolean,
     default: false
+  },
+  /**
+   * Header title
+   */
+  headerTitle: {
+    type: String,
+    default: ''
+  },
+  /**
+   * Header subtitle (optional)
+   */
+  headerSubtitle: {
+    type: String,
+    default: null
+  },
+  /**
+   * Show back button in header
+   */
+  headerShowBack: {
+    type: Boolean,
+    default: false
+  },
+  /**
+   * Header variant ('contrast' or 'background-neutral')
+   */
+  headerVariant: {
+    type: String,
+    default: 'background-neutral'
+  },
+  /**
+   * Header icon
+   */
+  headerIcon: {
+    type: String,
+    default: null
+  },
+  /**
+   * Key for header actions transition
+   */
+  headerActionsKey: {
+    type: String,
+    default: 'default'
   }
 })
+
+defineEmits(['header-back'])
 
 // Player width for desktop (310px wrapper - 32px padding)
 const playerWidth = 278

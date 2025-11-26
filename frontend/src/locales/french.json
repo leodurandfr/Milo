@@ -355,6 +355,7 @@
     "noSubscriptions": "Aucun abonnement",
     "noSubscriptionsHint": "Recherchez des podcasts et abonnez-vous pour les retrouver ici",
     "noPodcastsInGenre": "Aucun podcast trouvé dans cette catégorie",
+    "loading": "Chargement...",
     "noEpisodesInQueue": "Aucun épisode en cours",
     "noEpisodesInQueueHint": "Commencez à écouter des épisodes et ils apparaîtront ici",
     "markComplete": "Terminer",

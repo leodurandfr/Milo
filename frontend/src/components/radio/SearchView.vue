@@ -1,7 +1,7 @@
 <template>
-  <div class="search-view fade-in">
-    <!-- Search filters -->
-    <div class="filters">
+  <div class="search-view">
+    <!-- Filters -->
+    <div class="filters-bar">
       <InputText
         v-model="searchQuery"
         :placeholder="t('audioSources.radioSource.searchPlaceholder')"
@@ -24,79 +24,53 @@
       />
     </div>
 
-    <!-- Loading state -->
-    <div
-      v-if="transitionState === 'loading' || isLoading"
-      class="message-wrapper"
-      :class="{
-        'message-fading-in': messageState === 'fading-in',
-        'message-fading-out': messageState === 'fading-out'
-      }"
-    >
-      <div class="message-content">
-        <SvgIcon name="radio" :size="96" color="var(--color-background-medium-16)" />
-        <p class="text-mono">{{ t('audioSources.radioSource.loadingStations') }}</p>
-      </div>
-    </div>
+    <!-- Results with transitions -->
+    <div class="results">
+      <Transition name="fade-slide" mode="out-in">
+        <!-- Loading state -->
+        <div v-if="transitionState === 'loading' || isLoading" key="loading" class="message-wrapper">
+          <MessageContent loading>
+            <p class="heading-2">{{ t('audioSources.radioSource.loadingStations') }}</p>
+          </MessageContent>
+        </div>
 
-    <!-- Error state -->
-    <div
-      v-else-if="hasError && searchResults.length === 0"
-      class="message-wrapper"
-      :class="{
-        'message-fading-in': messageState === 'fading-in',
-        'message-fading-out': messageState === 'fading-out'
-      }"
-    >
-      <div class="message-content">
-        <SvgIcon name="stop" :size="96" color="var(--color-background-medium-16)" />
-        <p class="text-mono">{{ t('audioSources.radioSource.connectionError') }}</p>
-        <p class="text-body-small" style="color: var(--color-text-secondary);">
-          {{ t('audioSources.radioSource.cannotLoadStations') }}
-        </p>
-        <Button variant="background-strong" @click="$emit('retry')">
-          {{ t('audioSources.radioSource.retry') }}
-        </Button>
-      </div>
-    </div>
+        <!-- Error state -->
+        <div v-else-if="hasError && searchResults.length === 0" key="error" class="message-wrapper">
+          <MessageContent>
+            <SvgIcon name="stop" :size="64" color="var(--color-background-medium-16)" />
+            <p class="heading-2">{{ t('audioSources.radioSource.connectionError') }}</p>
+            <p class="text-mono">{{ t('audioSources.radioSource.cannotLoadStations') }}</p>
+            <Button variant="background-strong" @click="$emit('retry')">
+              {{ t('audioSources.radioSource.retry') }}
+            </Button>
+          </MessageContent>
+        </div>
 
-    <!-- Empty state -->
-    <div
-      v-else-if="searchResults.length === 0"
-      class="message-wrapper"
-      :class="{
-        'message-fading-in': messageState === 'fading-in',
-        'message-fading-out': messageState === 'fading-out'
-      }"
-    >
-      <div class="message-content">
-        <SvgIcon name="radio" :size="96" color="var(--color-background-medium-16)" />
-        <p class="text-mono">{{ t('audioSources.radioSource.noStationsFound') }}</p>
-      </div>
-    </div>
+        <!-- Empty state -->
+        <div v-else-if="searchResults.length === 0" key="empty" class="message-wrapper">
+          <MessageContent>
+            <SvgIcon name="radio" :size="64" color="var(--color-background-medium-16)" />
+            <p class="heading-2">{{ t('audioSources.radioSource.noStationsFound') }}</p>
+          </MessageContent>
+        </div>
 
-    <!-- Search results grid -->
-    <div
-      v-else-if="transitionState !== 'loading'"
-      class="search-grid"
-      :class="{
-        'transition-fading-out': transitionState === 'fading-out',
-        'transition-fading-in': transitionState === 'fading-in'
-      }"
-    >
-      <StationCard
-        v-for="station in searchResults"
-        :key="`search-${station.id}`"
-        :station="station"
-        variant="card"
-        :is-active="currentStation?.id === station.id"
-        :is-playing="currentStation?.id === station.id && isPlaying"
-        :is-loading="bufferingStationId === station.id"
-        :show-controls="true"
-        :show-country="true"
-        @click="$emit('play-station', station.id)"
-        @play="$emit('play-station', station.id)"
-      />
+        <!-- Search results -->
+        <div v-else key="results" class="results-content">
+          <StationCard
+            v-for="station in searchResults"
+            :key="`search-${station.id}`"
+            :station="station"
+            variant="card"
+            :is-active="currentStation?.id === station.id"
+            :is-playing="currentStation?.id === station.id && isPlaying"
+            :is-loading="bufferingStationId === station.id"
+            :show-controls="true"
+            :show-country="true"
+            @click="$emit('play-station', station.id)"
+            @play="$emit('play-station', station.id)"
+          />
+        </div>
+      </Transition>
     </div>
   </div>
 </template>
@@ -110,6 +84,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue'
 import InputText from '@/components/ui/InputText.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import Button from '@/components/ui/Button.vue'
+import MessageContent from '@/components/ui/MessageContent.vue'
 
 const { t } = useI18n()
 const radioStore = useRadioStore()
@@ -177,14 +152,6 @@ const props = defineProps({
   transitionState: {
     type: String,
     default: 'idle'
-  },
-
-  /**
-   * Message animation state
-   */
-  messageState: {
-    type: String,
-    default: 'idle'
   }
 })
 
@@ -226,7 +193,7 @@ const searchResults = computed(() => {
 }
 
 /* Filters */
-.filters {
+.filters-bar {
   display: flex;
   gap: var(--space-02);
   align-items: center;
@@ -235,9 +202,23 @@ const searchResults = computed(() => {
   min-height: 48px;
 }
 
-.filters > * {
+.filters-bar > * {
   flex: 1;
-  min-width: 192px;
+  min-width: 180px;
+}
+
+/* Results container */
+.results {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Results content (grid) */
+.results-content {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-01);
+  padding-bottom: var(--space-07);
 }
 
 /* Message wrapper (loading, error, empty states) */
@@ -246,35 +227,9 @@ const searchResults = computed(() => {
   border-radius: var(--radius-04);
 }
 
-.message-content {
-  display: flex;
-  min-height: 232px;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-04);
-  padding: var(--space-05);
-}
-
-.message-content .text-mono,
-.message-content .heading-2 {
-  text-align: center;
-  color: var(--color-text-secondary);
-}
-
-.message-content .text-body-small {
-  text-align: center;
-}
-
-/* Mobile: increase height for better visibility */
+/* Mobile */
 @media (max-aspect-ratio: 4/3) {
-  .message-content {
-    min-height: 364px;
-  }
-
-  .filters {
-    /* Passer de grid vertical à flex horizontal scrollable */
-    display: flex;
+  .filters-bar {
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -290,89 +245,16 @@ const searchResults = computed(() => {
     -ms-overflow-style: none;
   }
 
-  .filters::-webkit-scrollbar {
+  .filters-bar::-webkit-scrollbar {
     display: none;
   }
 
-  .filters > * {
+  .filters-bar > * {
     flex-shrink: 0;
   }
-}
 
-/* Search results grid */
-.search-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-01);
-  padding-bottom: var(--space-07);
-}
-
-/* Mobile: single column */
-@media (max-aspect-ratio: 4/3) {
-  .search-grid {
+  .results-content {
     grid-template-columns: 1fr;
   }
-}
-
-/* Transition animations */
-@keyframes fadeOutUp {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-}
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.search-grid.transition-fading-out {
-  animation: fadeOutUp 300ms ease-out forwards;
-}
-
-.search-grid.transition-fading-in {
-  animation: fadeInUp 400ms ease-out forwards;
-}
-
-/* Message animations */
-@keyframes messageFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes messageFadeOut {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-}
-
-.message-wrapper.message-fading-in {
-  animation: messageFadeIn 300ms ease-out forwards;
-}
-
-.message-wrapper.message-fading-out {
-  animation: messageFadeOut 300ms ease-out forwards;
 }
 </style>

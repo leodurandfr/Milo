@@ -1,15 +1,21 @@
 <template>
-  <div class="subscriptions-view fade-in">
+  <div class="subscriptions-view">
     <!-- My podcasts -->
     <section class="section">
       <h2 class="section-title heading-2">{{ t('podcasts.myPodcasts') }}</h2>
 
-      <LoadingSpinner v-if="loading" />
+      <div v-if="loading" class="message-wrapper">
+        <MessageContent loading>
+          <p class="heading-2">{{ t('podcasts.loading') }}</p>
+        </MessageContent>
+      </div>
 
-      <div v-else-if="subscriptions.length === 0" class="empty-state">
-        <SvgIcon name="heart" :size="48" />
-        <p>{{ t('podcasts.noSubscriptions') }}</p>
-        <p class="hint">{{ t('podcasts.noSubscriptionsHint') }}</p>
+      <div v-else-if="subscriptions.length === 0" class="message-wrapper">
+        <MessageContent>
+          <SvgIcon name="heartOff" :size="64" color="var(--color-background-medium-16)" />
+          <p class="heading-2">{{ t('podcasts.noSubscriptions') }}</p>
+          <p class="text-mono">{{ t('podcasts.noSubscriptionsHint') }}</p>
+        </MessageContent>
       </div>
 
       <div v-else class="podcasts-grid">
@@ -37,8 +43,8 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
+import MessageContent from '@/components/ui/MessageContent.vue'
 
 const { t } = useI18n()
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
@@ -129,22 +135,8 @@ onMounted(() => {
   gap: var(--space-02);
 }
 
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-08);
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
-.empty-state p {
-  margin: var(--space-02) 0 0;
-}
-
-.empty-state .hint {
-  font-size: var(--font-size-sm);
-  opacity: 0.7;
+.message-wrapper {
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
 }
 </style>

@@ -34,7 +34,7 @@ import stopIcon from '@/assets/icons/stop.svg?raw';
 import heartIcon from '@/assets/icons/heart.svg?raw';
 import heartOffIcon from '@/assets/icons/heart-off.svg?raw';
 import caretDownIcon from '@/assets/icons/caret-down.svg?raw';
-import podcastIcon from '@/assets/app-icons/podcast.svg?raw';
+import podcastIcon from '@/assets/icons/podcast.svg?raw';
 import listIcon from '@/assets/icons/list.svg?raw';
 import checkIcon from '@/assets/icons/check.svg?raw';
 import rewind15Icon from '@/assets/icons/rewind-15.svg?raw';

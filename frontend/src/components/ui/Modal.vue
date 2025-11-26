@@ -48,6 +48,9 @@ provide('modalResetScroll', () => {
   }
 });
 
+// Provide the modalContent ref for height calculations
+provide('modalContentRef', modalContent);
+
 // Variables to cancel ongoing timeouts
 let animationTimeouts = [];
 let inactivityTimer = null;
@@ -73,7 +76,7 @@ function resetInactivityTimer() {
   // Start a new 60-second timer
   inactivityTimer = setTimeout(() => {
     close();
-  }, 60000); // 60 seconds
+  }, 600000); // 600 seconds (POUR DEV - A CORRIGER ENSUITE A 60 seconds)
 }
 
 const ANIMATION_TIMINGS = {
@@ -373,7 +376,7 @@ onUnmounted(() => {
   align-items: flex-start;
   justify-content: center;
   z-index: 5000;
-  padding: 48px var(--space-04) var(--space-07) var(--space-04);
+  padding: var(--space-07) var(--space-04) var(--space-07) var(--space-04);
   opacity: 0;
 }
 
@@ -446,8 +449,8 @@ onUnmounted(() => {
   .modal-container {
     max-width: none;
   }
-  
-  .modal-container, 
+
+  .modal-container,
   .modal-content,
   .modal-container::before {
     border-radius: var(--radius-07);

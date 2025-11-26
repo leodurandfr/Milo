@@ -354,6 +354,7 @@
     "noSubscriptions": "没有订阅",
     "noSubscriptionsHint": "搜索播客并订阅以在此处找到它们",
     "noPodcastsInGenre": "此类别中没有找到播客",
+    "loading": "加载中...",
     "noEpisodesInQueue": "队列中没有剧集",
     "noEpisodesInQueueHint": "开始收听剧集，它们将显示在这里",
     "markComplete": "完成",

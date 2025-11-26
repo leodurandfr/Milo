@@ -1,7 +1,7 @@
 <template>
   <div class="home-view">
     <!-- New episodes from subscriptions (Bloc 1) -->
-    <section class="section fade-in">
+    <section class="section">
       <h2 class="section-title heading-2">{{ t('podcasts.newEpisodesFromSubscriptions') }}</h2>
       <div class="transition-container">
         <!-- Show skeletons while loading -->
@@ -33,7 +33,7 @@
     </section>
 
     <!-- Top Podcasts (Bloc 2) -->
-    <section class="section fade-in">
+    <section class="section">
       <h2 class="section-title heading-2">{{ t('podcasts.topPodcasts') }}</h2>
       <div class="transition-container">
         <!-- Show skeletons while loading -->
@@ -59,7 +59,7 @@
     </section>
 
     <!-- Browse by Genre (Bloc 3) -->
-    <section class="section fade-in">
+    <section class="section">
       <h2 class="section-title heading-2">{{ t('podcasts.browseByGenre') }}</h2>
       <div class="genres-grid">
         <div v-for="genre in mainGenres" :key="genre.value" class="genre-card" @click="browseGenre(genre.value)">
@@ -70,7 +70,7 @@
     </section>
 
     <!-- Top Episodes (Bloc 4) -->
-    <section class="section fade-in">
+    <section class="section">
       <h2 class="section-title heading-2">{{ t('podcasts.topEpisodes') }}</h2>
       <div class="transition-container">
         <!-- Show skeletons while loading -->

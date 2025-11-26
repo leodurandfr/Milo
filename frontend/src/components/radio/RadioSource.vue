@@ -1,26 +1,29 @@
 <!-- RadioSource.vue - Refactored Router Pattern -->
 <template>
-  <AudioSourceLayout :show-player="shouldShowNowPlayingLayout">
+  <AudioSourceLayout
+    :show-player="shouldShowNowPlayingLayout"
+    :header-title="isSearchMode ? t('audioSources.radioSource.discoverTitle') : t('audioSources.radioSource.favoritesTitle')"
+    :header-show-back="isSearchMode"
+    :header-actions-key="isSearchMode ? 'search' : 'favorites'"
+    header-variant="background-neutral"
+    header-icon="radio"
+    @header-back="closeSearch"
+  >
+    <!-- Header actions -->
+    <template v-if="!isSearchMode" #header-actions="{ iconVariant }">
+      <IconButton icon="search" :variant="iconVariant" @click="openSearch" />
+    </template>
+
     <!-- Content slot: scrollable views -->
     <template #content>
       <div ref="radioContainer" class="radio-content" :class="{ 'is-initial-animating': isInitialAnimating }">
-        <!-- ModalHeader with dynamic props for smooth transitions -->
-        <ModalHeader
-          :title="isSearchMode ? t('audioSources.radioSource.discoverTitle') : t('audioSources.radioSource.favoritesTitle')"
-          :show-back="isSearchMode" :actions-key="isSearchMode ? 'search' : 'favorites'" variant="background-neutral"
-          icon="radio" @back="closeSearch">
-          <template v-if="!isSearchMode" #actions="{ iconVariant }">
-            <IconButton icon="search" :variant="iconVariant" @click="openSearch" />
-          </template>
-        </ModalHeader>
-
         <!-- Favorites View -->
-        <FavoritesView v-if="!isSearchMode" :is-loading="radioStore.loading"
+        <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
           :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
           :buffering-station-id="bufferingStationId" :message-state="messageState" @play-station="playStation" />
 
         <!-- Search View -->
-        <SearchView v-else :country-options="countryOptions" :genre-options="genreOptions"
+        <SearchView v-else key="search" :country-options="countryOptions" :genre-options="genreOptions"
           :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
           :buffering-station-id="bufferingStationId" :is-loading="radioStore.loading" :has-error="radioStore.hasError"
           :transition-state="transitionState" :message-state="messageState" @search="handleSearch" @retry="retrySearch"
@@ -62,7 +65,6 @@ import useWebSocket from '@/services/websocket'
 import { useI18n } from '@/services/i18n'
 import { genreOptions as createGenreOptions } from '@/constants/music_genres'
 import { countryOptions as createCountryOptions } from '@/constants/countries'
-import ModalHeader from '@/components/ui/ModalHeader.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import Button from '@/components/ui/Button.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
