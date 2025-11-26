@@ -12,7 +12,7 @@
     <div
       :class="['player-wrapper', { 'has-player': showPlayer }]"
     >
-      <slot name="player" :playerWidth="playerWidth"></slot>
+      <slot name="player" :player-width="playerWidth"></slot>
     </div>
   </div>
 </template>
@@ -29,7 +29,7 @@ const props = defineProps({
 })
 
 // Player width for desktop (310px wrapper - 32px padding)
-const playerWidth = 300
+const playerWidth = 278
 </script>
 
 <style scoped>

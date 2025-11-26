@@ -38,7 +38,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
@@ -109,8 +109,8 @@ const props = defineProps({
   },
 
   /**
-   * Fixed width for desktop (in pixels)
-   * When set, player has fixed width instead of 100%
+   * Fixed width for leave animation (in pixels)
+   * Passed from AudioSourceLayout to maintain width during exit transition
    */
   width: {
     type: Number,
@@ -120,30 +120,15 @@ const props = defineProps({
 
 const emit = defineEmits(['toggle-play', 'after-hide'])
 
-// Mobile detection for responsive width handling
-const isMobile = ref(false)
-const checkMobile = () => {
-  isMobile.value = window.matchMedia('(max-aspect-ratio: 4/3)').matches
-}
-
-onMounted(() => {
-  checkMobile()
-  window.addEventListener('resize', checkMobile)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('resize', checkMobile)
-})
-
 // Computed classes for styling based on source
 const playerClasses = computed(() => ({
   [`source-${props.source}`]: true
 }))
 
-// Computed style for fixed width on desktop (not applied on mobile)
+// Computed style for fixed width during leave animation
 const playerStyle = computed(() => {
-  if (props.width && !isMobile.value) {
-    return { width: `${props.width}px` }
+  if (props.width) {
+    return { '--player-fixed-width': `${props.width}px` }
   }
   return {}
 })
@@ -423,6 +408,11 @@ const playerStyle = computed(() => {
 
 /* Vue Transition: Desktop - slide from right with fade */
 @media (min-aspect-ratio: 4/3) {
+  .audio-player-enter-active,
+  .audio-player-leave-active {
+    width: var(--player-fixed-width, 100%);
+  }
+
   .audio-player-enter-active {
     transition:
       transform var(--transition-spring-slow),
