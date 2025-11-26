@@ -20,10 +20,14 @@
         </template>
       </ModalHeader>
 
-      <!-- Contenu avec animation -->
-      <Transition name="fade-slide" mode="out-in">
-        <slot name="content" />
-      </Transition>
+      <!-- Contenu avec animation (wrapper pour isoler position: absolute) -->
+      <div class="transition-wrapper">
+        <Transition name="fade-slide" mode="out-in">
+          <div :key="contentKey" class="content-inner">
+            <slot name="content" />
+          </div>
+        </Transition>
+      </div>
     </div>
 
     <!-- Player wrapper: animates width on desktop, transparent on mobile -->
@@ -87,6 +91,13 @@ const props = defineProps({
   headerActionsKey: {
     type: String,
     default: 'default'
+  },
+  /**
+   * Key for content transition (triggers fade-slide on change)
+   */
+  contentKey: {
+    type: String,
+    default: 'default'
   }
 })
 
@@ -117,7 +128,7 @@ const playerWidth = 278
   display: flex;
   flex-direction: column;
   padding: var(--space-07) 0;
-  gap: var(--space-04);
+  gap: var(--space-05);
   min-height: 0;
   flex-shrink: 0;
   touch-action: pan-y;
@@ -127,6 +138,22 @@ const playerWidth = 278
 .content-container.with-player {
   width: calc(100% - var(--audio-player-wrapper-width));
   transition: width var(--transition-spring);
+}
+
+/* Transition wrapper: isolates position: absolute during fade-slide */
+.transition-wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Inner wrapper for content transition */
+.content-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
 }
 
 /* Player wrapper: animates width to create space for player */

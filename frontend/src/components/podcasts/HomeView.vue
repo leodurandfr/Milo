@@ -1,7 +1,7 @@
 <template>
   <div class="home-view">
-    <!-- New episodes from subscriptions (Bloc 1) -->
-    <section class="section">
+    <!-- New episodes from subscriptions (Bloc 1) - Only show if user has subscriptions -->
+    <section v-if="hasSubscriptions" class="section">
       <h2 class="section-title heading-2">{{ t('podcasts.newEpisodesFromSubscriptions') }}</h2>
       <div class="transition-container">
         <!-- Show skeletons while loading -->
@@ -25,9 +25,14 @@
           </div>
         </transition>
 
-        <!-- Empty state -->
+        <!-- Empty state with MessageContent when subscribed but no new episodes -->
         <transition name="content-fade">
-          <p v-if="!loadingSubscriptions && latestSubscriptionEpisodes.length === 0" key="empty-sub" class="empty-message text-body">{{ t('podcasts.noNewEpisodes') }}</p>
+          <div v-if="!loadingSubscriptions && latestSubscriptionEpisodes.length === 0" key="empty-sub" class="message-wrapper">
+            <MessageContent>
+              <SvgIcon name="heartOff" :size="64" color="var(--color-background-medium-16)" />
+              <p class="heading-2">{{ t('podcasts.noNewEpisodes') }}</p>
+            </MessageContent>
+          </div>
         </transition>
       </div>
     </section>
@@ -106,6 +111,8 @@ import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import SkeletonPodcastCard from './SkeletonPodcastCard.vue'
 import SkeletonEpisodeCard from './SkeletonEpisodeCard.vue'
+import MessageContent from '@/components/ui/MessageContent.vue'
+import SvgIcon from '@/components/ui/SvgIcon.vue'
 
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode', 'browse-genre'])
 const { t } = useI18n()
@@ -118,6 +125,7 @@ const loadingSubscriptions = ref(true)
 const topCharts = ref([])
 const topEpisodes = ref([])
 const latestSubscriptionEpisodes = ref([])
+const hasSubscriptions = ref(false)
 
 const mainGenres = computed(() => [
   { value: 'PODCASTSERIES_NEWS', label: t('podcasts.genres.news'), emoji: '📰' },
@@ -145,12 +153,19 @@ async function handlePause() {
 async function loadData() {
   // Note: Country/language is automatically derived from user settings on the backend
 
-  // Load latest episodes from subscriptions (Bloc 1)
+  // Load subscriptions count first to determine if section should show (Bloc 1)
   loadingSubscriptions.value = true
   try {
-    const latestResponse = await fetch('/api/podcast/subscriptions/latest-episodes?limit=10')
-    const latestData = await latestResponse.json()
-    latestSubscriptionEpisodes.value = podcastStore.enrichEpisodesWithProgress(latestData.results || [])
+    const subResponse = await fetch('/api/podcast/subscriptions')
+    const subData = await subResponse.json()
+    hasSubscriptions.value = (subData.subscriptions || []).length > 0
+
+    // Only load latest episodes if user has subscriptions
+    if (hasSubscriptions.value) {
+      const latestResponse = await fetch('/api/podcast/subscriptions/latest-episodes?limit=10')
+      const latestData = await latestResponse.json()
+      latestSubscriptionEpisodes.value = podcastStore.enrichEpisodesWithProgress(latestData.results || [])
+    }
   } catch (error) {
     console.error('Error loading subscription episodes:', error)
   } finally {
@@ -226,6 +241,11 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
+}
+
+.message-wrapper {
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
 }
 
 .genres-grid {

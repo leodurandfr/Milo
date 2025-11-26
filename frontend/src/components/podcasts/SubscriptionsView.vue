@@ -2,7 +2,7 @@
   <div class="subscriptions-view">
     <!-- My podcasts -->
     <section class="section">
-      <h2 class="section-title heading-2">{{ t('podcasts.myPodcasts') }}</h2>
+      <!-- <h2 class="section-title heading-2">{{ t('podcasts.myPodcasts') }}</h2> -->
 
       <div v-if="loading" class="message-wrapper">
         <MessageContent loading>

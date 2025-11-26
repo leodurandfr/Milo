@@ -5,6 +5,7 @@
     :header-title="isSearchMode ? t('audioSources.radioSource.discoverTitle') : t('audioSources.radioSource.favoritesTitle')"
     :header-show-back="isSearchMode"
     :header-actions-key="isSearchMode ? 'search' : 'favorites'"
+    :content-key="isSearchMode ? 'search' : 'favorites'"
     header-variant="background-neutral"
     header-icon="radio"
     @header-back="closeSearch"
@@ -16,18 +17,17 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div ref="radioContainer" class="radio-content" :class="{ 'is-initial-animating': isInitialAnimating }">
+      <div ref="radioContainer" class="radio-content">
         <!-- Favorites View -->
         <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
           :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
-          :buffering-station-id="bufferingStationId" :message-state="messageState" @play-station="playStation" />
+          :buffering-station-id="bufferingStationId" @play-station="playStation" />
 
         <!-- Search View -->
         <SearchView v-else key="search" :country-options="countryOptions" :genre-options="genreOptions"
           :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
           :buffering-station-id="bufferingStationId" :is-loading="radioStore.loading" :has-error="radioStore.hasError"
-          :transition-state="transitionState" :message-state="messageState" @search="handleSearch" @retry="retrySearch"
-          @play-station="playStation" />
+          @search="handleSearch" @retry="retrySearch" @play-station="playStation" />
       </div>
     </template>
 
@@ -82,9 +82,6 @@ const { t } = useI18n()
 const isSearchMode = ref(false)
 const searchDebounceTimer = ref(null)
 const availableCountries = ref([]) // Dynamic list of available countries
-const transitionState = ref('idle') // States: 'idle', 'fading-out', 'loading', 'fading-in'
-const messageState = ref('idle') // States: 'idle', 'fading-in', 'fading-out'
-const isInitialAnimating = ref(true) // Track if initial spring animation is running
 const shouldShowNowPlayingLayout = ref(false) // Controls now-playing visibility, layout and animation
 const stopTimer = ref(null) // Timer for hiding now-playing after stop
 const isMobile = ref(false) // Responsive detection for desktop vs mobile
@@ -206,60 +203,14 @@ function closeSearch() {
   }
 }
 
-// === TRANSITION ANIMATIONS ===
-async function performTransition() {
-  const hasStations = (radioStore.displayedStations || []).length > 0
-
-  if (!hasStations) {
-    // No stations: simple loading → results transition
-    transitionState.value = 'loading'
-    messageState.value = 'fading-in'
-    await new Promise(resolve => setTimeout(resolve, 300))
-
-    messageState.value = 'idle'
-    await radioStore.loadStations(false)
-
-    messageState.value = 'fading-out'
-    await new Promise(resolve => setTimeout(resolve, 300))
-
-    messageState.value = 'fading-in'
-    transitionState.value = 'fading-in'
-    await new Promise(resolve => setTimeout(resolve, 400))
-
-    messageState.value = 'idle'
-    transitionState.value = 'idle'
-    return
-  }
-
-  // Complete animation sequence
-  transitionState.value = 'fading-out'
-  await new Promise(resolve => setTimeout(resolve, 300))
-
-  transitionState.value = 'loading'
-  messageState.value = 'fading-in'
-  await new Promise(resolve => setTimeout(resolve, 300))
-
-  messageState.value = 'idle'
-  await radioStore.loadStations(false)
-
-  messageState.value = 'fading-out'
-  await new Promise(resolve => setTimeout(resolve, 300))
-
-  messageState.value = 'fading-in'
-  transitionState.value = 'fading-in'
-  await new Promise(resolve => setTimeout(resolve, 400))
-
-  messageState.value = 'idle'
-  transitionState.value = 'idle'
-}
-
+// === SEARCH ===
 function handleSearch() {
   if (searchDebounceTimer.value) {
     clearTimeout(searchDebounceTimer.value)
   }
 
   searchDebounceTimer.value = setTimeout(async () => {
-    await performTransition()
+    await radioStore.loadStations(false)
   }, 300)
 }
 
@@ -433,11 +384,6 @@ onMounted(async () => {
   updateMediaQuery()
   window.addEventListener('resize', updateMediaQuery)
 
-  // Disable initial animation after spring completes
-  setTimeout(() => {
-    isInitialAnimating.value = false
-  }, 500)
-
   // Add scroll listener for infinite scroll
   if (radioContainer.value) {
     radioContainer.value.addEventListener('scroll', handleScroll, { passive: true })
@@ -488,11 +434,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: var(--space-04);
   width: 100%;
-  height: 100%;
-}
-
-.radio-content.is-initial-animating {
-  overflow-y: visible !important;
 }
 
 /* Radio controls layout */
@@ -511,10 +452,6 @@ onBeforeUnmount(() => {
 
 /* Mobile: compact controls on the right */
 @media (max-aspect-ratio: 4/3) {
-  .radio-content {
-    height: auto;
-  }
-
   .radio-controls {
     width: auto;
     justify-content: flex-end;

@@ -28,7 +28,7 @@
     <div class="results">
       <Transition name="fade-slide" mode="out-in">
         <!-- Loading state -->
-        <div v-if="transitionState === 'loading' || isLoading" key="loading" class="message-wrapper">
+        <div v-if="isLoading" key="loading" class="message-wrapper">
           <MessageContent loading>
             <p class="heading-2">{{ t('audioSources.radioSource.loadingStations') }}</p>
           </MessageContent>
@@ -144,14 +144,6 @@ const props = defineProps({
   hasError: {
     type: Boolean,
     default: false
-  },
-
-  /**
-   * Transition animation state
-   */
-  transitionState: {
-    type: String,
-    default: 'idle'
   }
 })
 

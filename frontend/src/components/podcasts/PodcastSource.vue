@@ -7,6 +7,7 @@
     header-icon="podcast"
     header-variant="background-neutral"
     :header-actions-key="currentView"
+    :content-key="hasCredentialsError ? 'credentials' : currentView"
     @header-back="goBack"
   >
     <!-- Header actions (only when not in credentials error and on home view) -->
@@ -441,7 +442,7 @@ onBeforeUnmount(() => {
 .podcast-content {
   display: flex;
   flex-direction: column;
-  gap: var(--space-06);
+  gap: var(--space-04);
   width: 100%;
 }
 
