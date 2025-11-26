@@ -20,7 +20,7 @@ defineProps({
 <style scoped>
 .message-content {
   display: flex;
-  min-height: 232px;
+  min-height: 280px;
   flex-direction: column;
   justify-content: center;
   align-items: center;

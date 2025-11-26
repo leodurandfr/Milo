@@ -12,9 +12,9 @@
   >
     <!-- Header actions (only when not in credentials error and on home view) -->
     <template v-if="!hasCredentialsError && currentView === 'home'" #header-actions="{ iconVariant }">
-      <IconButton icon="heart" :variant="iconVariant" :active="false" @click="goToSubscriptions" />
+      <IconButton icon="heartOff" :variant="iconVariant" :active="false" @click="goToSubscriptions" />
       <IconButton icon="search" :variant="iconVariant" @click="goToSearch" />
-      <IconButton icon="list" :variant="iconVariant" @click="goToQueue" />
+      <IconButton icon="queue" :variant="iconVariant" @click="goToQueue" />
     </template>
 
     <!-- Content slot: scrollable views -->
@@ -444,6 +444,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: var(--space-04);
   width: 100%;
+  padding: 0 0 var(--space-08) 0;
 }
 
 

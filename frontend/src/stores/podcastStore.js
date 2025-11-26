@@ -22,6 +22,12 @@ export const usePodcastStore = defineStore('podcast', () => {
   // Key: episode_uuid, Value: { position, duration, lastPlayed }
   const progressCache = ref(new Map())
 
+  // === SUBSCRIPTIONS CACHE ===
+  // Cache subscriptions to avoid reloading when navigating between views
+  const subscriptions = ref([])
+  const latestSubscriptionEpisodes = ref([])
+  const subscriptionsLoaded = ref(false)
+
   // === SETTINGS ===
   // Note: Language/country are centralized in /var/lib/milo/settings.json (via settingsStore)
   const settings = ref({
@@ -55,6 +61,8 @@ export const usePodcastStore = defineStore('podcast', () => {
     if (!currentDuration.value) return 0
     return (currentPosition.value / currentDuration.value) * 100
   })
+
+  const hasSubscriptions = computed(() => subscriptions.value.length > 0)
 
   // === PLAYBACK ACTIONS ===
 
@@ -271,6 +279,34 @@ export const usePodcastStore = defineStore('podcast', () => {
     return episodes
   }
 
+  // === SUBSCRIPTIONS ACTIONS ===
+
+  async function loadSubscriptions(forceRefresh = false) {
+    // Return cached data if available and not forcing refresh
+    if (subscriptionsLoaded.value && !forceRefresh) {
+      return { subscriptions: subscriptions.value, latestEpisodes: latestSubscriptionEpisodes.value }
+    }
+
+    const subResponse = await fetch('/api/podcast/subscriptions')
+    const subData = await subResponse.json()
+    subscriptions.value = subData.subscriptions || []
+
+    if (subscriptions.value.length > 0) {
+      const latestResponse = await fetch('/api/podcast/subscriptions/latest-episodes?limit=20')
+      const latestData = await latestResponse.json()
+      latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(latestData.results || [])
+    } else {
+      latestSubscriptionEpisodes.value = []
+    }
+
+    subscriptionsLoaded.value = true
+    return { subscriptions: subscriptions.value, latestEpisodes: latestSubscriptionEpisodes.value }
+  }
+
+  function removeSubscription(uuid) {
+    subscriptions.value = subscriptions.value.filter(s => s.uuid !== uuid)
+  }
+
   // === CLEAR STATE ===
   function clearState() {
     // Clear all podcast state (called when switching away from podcast source)
@@ -310,6 +346,9 @@ export const usePodcastStore = defineStore('podcast', () => {
     playbackSpeed,
     settings,
     progressCache,
+    subscriptions,
+    latestSubscriptionEpisodes,
+    subscriptionsLoaded,
 
     // Computed
     isPlaying,
@@ -318,6 +357,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     hasCurrentEpisode,
     hasDisplayEpisode,
     progressPercentage,
+    hasSubscriptions,
 
     // Actions
     play,
@@ -336,6 +376,10 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Progress cache helpers
     getEpisodeProgress,
     setEpisodeProgress,
-    enrichEpisodesWithProgress
+    enrichEpisodesWithProgress,
+
+    // Subscriptions
+    loadSubscriptions,
+    removeSubscription
   }
 })

@@ -38,7 +38,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import PodcastCard from './PodcastCard.vue'
@@ -55,8 +55,10 @@ async function handlePause() {
 }
 
 const loading = ref(false)
-const subscriptions = ref([])
-const latestEpisodes = ref([])
+
+// Use store's cached data directly via computed
+const subscriptions = computed(() => podcastStore.subscriptions)
+const latestEpisodes = computed(() => podcastStore.latestSubscriptionEpisodes)
 
 function formatSubscription(sub) {
   return {
@@ -75,7 +77,7 @@ async function handleUnsubscribe(uuid) {
       method: 'DELETE'
     })
     if (response.ok) {
-      subscriptions.value = subscriptions.value.filter(s => s.uuid !== uuid)
+      podcastStore.removeSubscription(uuid)
     }
   } catch (error) {
     console.error('Error unsubscribing:', error)
@@ -83,20 +85,13 @@ async function handleUnsubscribe(uuid) {
 }
 
 async function loadData() {
-  loading.value = true
+  // Only show loading if no cached data available
+  if (!podcastStore.subscriptionsLoaded) {
+    loading.value = true
+  }
 
   try {
-    // Load subscriptions
-    const subResponse = await fetch('/api/podcast/subscriptions')
-    const subData = await subResponse.json()
-    subscriptions.value = subData.subscriptions || []
-
-    // Load latest episodes if there are subscriptions
-    if (subscriptions.value.length > 0) {
-      const latestResponse = await fetch('/api/podcast/subscriptions/latest-episodes?limit=20')
-      const latestData = await latestResponse.json()
-      latestEpisodes.value = podcastStore.enrichEpisodesWithProgress(latestData.results || [])
-    }
+    await podcastStore.loadSubscriptions()
   } catch (error) {
     console.error('Error loading subscriptions:', error)
   } finally {

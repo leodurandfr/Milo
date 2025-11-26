@@ -366,7 +366,7 @@ async function loadMoreEpisodes() {
 
 .filters-bar>* {
   flex: 1;
-  min-width: 180px;
+  min-width: 220px;
 }
 
 /* Mobile: scroll horizontal au lieu de wrap vertical */

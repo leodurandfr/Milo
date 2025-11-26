@@ -98,11 +98,11 @@ ${backgroundRect}
 
 /* Size variants matching SvgIcon dimensions - Desktop */
 .loading-spinner--small {
-  --spinner-size: 28px;
+  --spinner-size: 24px;
 }
 
 .loading-spinner--medium {
-  --spinner-size: 32px;
+  --spinner-size: 28px;
 }
 
 .loading-spinner--large {
@@ -112,15 +112,15 @@ ${backgroundRect}
 /* Size variants matching SvgIcon dimensions - Mobile */
 @media (max-width: 768px) {
   .loading-spinner--small {
-    --spinner-size: 24px;
+    --spinner-size: 20px;
   }
 
   .loading-spinner--medium {
-    --spinner-size: 28px;
+    --spinner-size: 24px;
   }
 
   .loading-spinner--large {
-    --spinner-size: 32px;
+    --spinner-size: 28px;
   }
 }
 

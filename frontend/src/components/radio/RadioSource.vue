@@ -1,15 +1,10 @@
 <!-- RadioSource.vue - Refactored Router Pattern -->
 <template>
-  <AudioSourceLayout
-    :show-player="shouldShowNowPlayingLayout"
+  <AudioSourceLayout :show-player="shouldShowNowPlayingLayout"
     :header-title="isSearchMode ? t('audioSources.radioSource.discoverTitle') : t('audioSources.radioSource.favoritesTitle')"
-    :header-show-back="isSearchMode"
-    :header-actions-key="isSearchMode ? 'search' : 'favorites'"
-    :content-key="isSearchMode ? 'search' : 'favorites'"
-    header-variant="background-neutral"
-    header-icon="radio"
-    @header-back="closeSearch"
-  >
+    :header-show-back="isSearchMode" :header-actions-key="isSearchMode ? 'search' : 'favorites'"
+    :content-key="isSearchMode ? 'search' : 'favorites'" header-variant="background-neutral" header-icon="radio"
+    @header-back="closeSearch">
     <!-- Header actions -->
     <template v-if="!isSearchMode" #header-actions="{ iconVariant }">
       <IconButton icon="search" :variant="iconVariant" @click="openSearch" />
@@ -434,6 +429,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: var(--space-04);
   width: 100%;
+  padding: 0 0 var(--space-08) 0;
+
 }
 
 /* Radio controls layout */

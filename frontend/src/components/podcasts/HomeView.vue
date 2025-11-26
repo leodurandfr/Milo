@@ -153,19 +153,12 @@ async function handlePause() {
 async function loadData() {
   // Note: Country/language is automatically derived from user settings on the backend
 
-  // Load subscriptions count first to determine if section should show (Bloc 1)
+  // Load subscriptions via store (cached) to determine if section should show (Bloc 1)
   loadingSubscriptions.value = true
   try {
-    const subResponse = await fetch('/api/podcast/subscriptions')
-    const subData = await subResponse.json()
-    hasSubscriptions.value = (subData.subscriptions || []).length > 0
-
-    // Only load latest episodes if user has subscriptions
-    if (hasSubscriptions.value) {
-      const latestResponse = await fetch('/api/podcast/subscriptions/latest-episodes?limit=10')
-      const latestData = await latestResponse.json()
-      latestSubscriptionEpisodes.value = podcastStore.enrichEpisodesWithProgress(latestData.results || [])
-    }
+    const { subscriptions, latestEpisodes } = await podcastStore.loadSubscriptions()
+    hasSubscriptions.value = subscriptions.length > 0
+    latestSubscriptionEpisodes.value = latestEpisodes.slice(0, 10) // HomeView shows max 10
   } catch (error) {
     console.error('Error loading subscription episodes:', error)
   } finally {
