@@ -95,39 +95,39 @@ function handleClick(event) {
 
 /* === SIZES (Desktop) === */
 .icon-button--small {
-  padding: 6px;
-  border-radius: var(--radius-04);
-}
-
-.icon-button--medium {
   padding: 8px;
   border-radius: var(--radius-04);
 }
 
+.icon-button--medium {
+  padding: 10px;
+  border-radius: var(--radius-04);
+}
+
 .icon-button--large {
-  padding: 12px;
+  padding: 14px;
   border-radius: var(--radius-05);
 }
 
 /* === SIZES (Mobile) === */
 @media (max-aspect-ratio: 4/3) {
   .icon-button--small {
-    padding: 4px;
+    padding: 6px;
     border-radius: var(--radius-03);
   }
 
   .icon-button--medium {
-    padding: 4px;
+    padding: 8px;
     border-radius: var(--radius-03);
   }
 
   .icon-button--large {
-    padding: 8px;
+    padding: 12px;
     border-radius: var(--radius-04);
   }
 
   .icon-button--rounded {
-    padding: 8px;
+    padding: 12px;
   }
 }
 

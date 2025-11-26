@@ -103,7 +103,6 @@ const favoriteStations = computed(() => {
   display: grid;
   gap: var(--space-03);
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding-bottom: var(--space-07);
 }
 
 /* Mobile: Responsive adaptations */

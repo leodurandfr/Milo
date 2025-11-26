@@ -88,7 +88,7 @@
     /* === TRANSITIONS === */
     --transition-fast: 200ms ease;
     --transition-normal: 400ms ease;
-    --transition-slow: 800ms ease;
+    --transition-slow: 600ms ease;
 
 
 
@@ -255,9 +255,11 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
 /* === VUE TRANSITIONS === */
 
 /* Fade + slide (pour MessageContent, grilles, etc.) */
-.fade-slide-enter-active,
+.fade-slide-enter-active{
+    transition: all var(--transition-slow);;
+}
 .fade-slide-leave-active {
-    transition: opacity 300ms ease-out, transform 300ms ease-out;
+    transition: all var(--transition-fast);;
 }
 
 .fade-slide-enter-from {

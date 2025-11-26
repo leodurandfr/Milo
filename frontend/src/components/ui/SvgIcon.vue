@@ -35,7 +35,7 @@ import heartIcon from '@/assets/icons/heart.svg?raw';
 import heartOffIcon from '@/assets/icons/heart-off.svg?raw';
 import caretDownIcon from '@/assets/icons/caret-down.svg?raw';
 import podcastIcon from '@/assets/icons/podcast.svg?raw';
-import listIcon from '@/assets/icons/list.svg?raw';
+import queueIcon from '@/assets/icons/queue.svg?raw';
 import checkIcon from '@/assets/icons/check.svg?raw';
 import rewind15Icon from '@/assets/icons/rewind-15.svg?raw';
 import forward30Icon from '@/assets/icons/forward-30.svg?raw';
@@ -65,7 +65,7 @@ const icons = {
   heart : heartIcon,
   heartOff : heartOffIcon,
   podcast : podcastIcon,
-  list : listIcon,
+  queue : queueIcon,
   check : checkIcon,
   rewind15 : rewind15Icon,
   forward30 : forward30Icon,
@@ -150,34 +150,34 @@ export default {
 
 /* Size variants with responsive sizing */
 .icon--size-small :deep(.svg-responsive) {
+  width: 24px;
+  height: 24px;
+}
+
+.icon--size-medium :deep(.svg-responsive) {
   width: 28px;
   height: 28px;
 }
 
-.icon--size-medium :deep(.svg-responsive) {
+.icon--size-large :deep(.svg-responsive) {
   width: 32px;
   height: 32px;
 }
 
-.icon--size-large :deep(.svg-responsive) {
-  width: 40px;
-  height: 40px;
-}
-
 @media (max-aspect-ratio: 4/3) {
   .icon--size-small :deep(.svg-responsive) {
+    width: 20px;
+    height: 20px;
+  }
+
+  .icon--size-medium :deep(.svg-responsive) {
     width: 24px;
     height: 24px;
   }
 
-  .icon--size-medium :deep(.svg-responsive) {
+  .icon--size-large :deep(.svg-responsive) {
     width: 28px;
     height: 28px;
-  }
-
-  .icon--size-large :deep(.svg-responsive) {
-    width: 32px;
-    height: 32px;
   }
 }
 </style>

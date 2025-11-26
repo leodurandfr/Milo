@@ -128,7 +128,7 @@ const playerWidth = 278
   display: flex;
   flex-direction: column;
   padding: var(--space-07) 0;
-  gap: var(--space-05);
+  gap: var(--space-06);
   min-height: 0;
   flex-shrink: 0;
   touch-action: pan-y;
@@ -201,7 +201,6 @@ const playerWidth = 278
     min-height: 100%;
     padding-bottom: var(--space-04);
     padding-top: var(--space-09);
-    gap: 0;
   }
 
   .content-container.with-player {
