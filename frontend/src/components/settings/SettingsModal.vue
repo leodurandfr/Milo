@@ -1,156 +1,129 @@
 <!-- frontend/src/components/settings/SettingsModal.vue -->
 <template>
   <div class="settings-modal">
-    <!-- Home view: list of categories -->
-    <div v-if="currentView === 'home'" class="view-home">
-      <ModalHeader :title="t('settings.title')" />
+    <!-- Single ModalHeader outside transition -->
+    <ModalHeader
+      :title="headerTitle"
+      :show-back="canGoBack"
+      :actions-key="currentView"
+      @back="handleBack"
+    >
+      <template v-if="currentView === 'multiroom'" #actions="{ iconType }">
+        <Toggle
+          v-model="isMultiroomActive"
+          :type="iconType"
+          :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling"
+          @change="handleMultiroomToggle"
+        />
+      </template>
+    </ModalHeader>
 
-      <div class="settings-nav-grid">
-        <ListItemButton :title="t('settings.languages')" :clickable="true" :show-caret="true" @click="goToView('languages')">
-          <template #icon>
-            <img :src="languagesIcon" alt="Languages" />
-          </template>
-        </ListItemButton>
+    <!-- Content area -->
+    <Transition name="view-fade" mode="out-in">
+        <!-- Home view: list of categories -->
+        <div v-if="currentView === 'home'" key="home" class="view-content">
+          <div class="settings-nav-grid">
+            <ListItemButton :title="t('settings.languages')" :clickable="true" :show-caret="true" @click="goToView('languages')">
+              <template #icon>
+                <img :src="languagesIcon" alt="Languages" />
+              </template>
+            </ListItemButton>
 
-        <ListItemButton :title="t('settings.applications')" :clickable="true" :show-caret="true" @click="goToView('apps')">
-          <template #icon>
-            <img :src="applicationsIcon" alt="Applications" />
-          </template>
-        </ListItemButton>
+            <ListItemButton :title="t('settings.applications')" :clickable="true" :show-caret="true" @click="goToView('apps')">
+              <template #icon>
+                <img :src="applicationsIcon" alt="Applications" />
+              </template>
+            </ListItemButton>
 
-        <ListItemButton :title="t('settings.volume')" :clickable="true" :show-caret="true" @click="goToView('volume')">
-          <template #icon>
-            <img :src="volumeIcon" alt="Volume" />
-          </template>
-        </ListItemButton>
+            <ListItemButton :title="t('settings.volume')" :clickable="true" :show-caret="true" @click="goToView('volume')">
+              <template #icon>
+                <img :src="volumeIcon" alt="Volume" />
+              </template>
+            </ListItemButton>
 
-        <ListItemButton :title="t('settings.screen')" :clickable="true" :show-caret="true" @click="goToView('screen')">
-          <template #icon>
-            <img :src="displayIcon" alt="Display" />
-          </template>
-        </ListItemButton>
+            <ListItemButton :title="t('settings.screen')" :clickable="true" :show-caret="true" @click="goToView('screen')">
+              <template #icon>
+                <img :src="displayIcon" alt="Display" />
+              </template>
+            </ListItemButton>
 
-        <ListItemButton v-if="settingsStore.dockApps.librespot" :title="t('audioSources.spotify')" :clickable="true" :show-caret="true" @click="goToView('spotify')">
-          <template #icon>
-            <img :src="spotifyIcon" alt="Spotify" />
-          </template>
-        </ListItemButton>
+            <ListItemButton v-if="settingsStore.dockApps.librespot" :title="t('audioSources.spotify')" :clickable="true" :show-caret="true" @click="goToView('spotify')">
+              <template #icon>
+                <img :src="spotifyIcon" alt="Spotify" />
+              </template>
+            </ListItemButton>
 
-        <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" :clickable="true" :show-caret="true" @click="goToView('multiroom')">
-          <template #icon>
-            <img :src="multiroomIcon" alt="Multiroom" />
-          </template>
-        </ListItemButton>
+            <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" :clickable="true" :show-caret="true" @click="goToView('multiroom')">
+              <template #icon>
+                <img :src="multiroomIcon" alt="Multiroom" />
+              </template>
+            </ListItemButton>
 
-        <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" :clickable="true" :show-caret="true" @click="goToView('radio')">
-          <template #icon>
-            <img :src="radioIcon" alt="Radio" />
-          </template>
-        </ListItemButton>
+            <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" :clickable="true" :show-caret="true" @click="goToView('radio')">
+              <template #icon>
+                <img :src="radioIcon" alt="Radio" />
+              </template>
+            </ListItemButton>
 
-        <ListItemButton v-if="settingsStore.dockApps.podcast" :title="t('audioSources.podcasts')" :clickable="true" :show-caret="true" @click="goToView('podcast')">
-          <template #icon>
-            <img :src="podcastIcon" alt="Podcasts" />
-          </template>
-        </ListItemButton>
+            <ListItemButton v-if="settingsStore.dockApps.podcast" :title="t('audioSources.podcasts')" :clickable="true" :show-caret="true" @click="goToView('podcast')">
+              <template #icon>
+                <img :src="podcastIcon" alt="Podcasts" />
+              </template>
+            </ListItemButton>
 
-        <ListItemButton :title="t('settings.updates')" :clickable="true" :show-caret="true" @click="goToView('updates')">
-          <template #icon>
-            <img :src="updatesIcon" alt="Updates" />
-          </template>
-        </ListItemButton>
+            <ListItemButton :title="t('settings.updates')" :clickable="true" :show-caret="true" @click="goToView('updates')">
+              <template #icon>
+                <img :src="updatesIcon" alt="Updates" />
+              </template>
+            </ListItemButton>
 
-        <ListItemButton :title="t('settings.information')" :clickable="true" :show-caret="true" @click="goToView('info')">
-          <template #icon>
-            <img :src="informationIcon" alt="Information" />
-          </template>
-        </ListItemButton>
+            <ListItemButton :title="t('settings.information')" :clickable="true" :show-caret="true" @click="goToView('info')">
+              <template #icon>
+                <img :src="informationIcon" alt="Information" />
+              </template>
+            </ListItemButton>
 
-        <!-- Placeholder for an odd number of IconButtons on desktop -->
-        <div v-if="shouldShowPlaceholder" class="icon-button-placeholder"></div>
-      </div>
-    </div>
+            <!-- Placeholder for an odd number of IconButtons on desktop -->
+            <div v-if="shouldShowPlaceholder" class="icon-button-placeholder"></div>
+          </div>
+        </div>
 
-    <!-- Languages view -->
-    <div v-else-if="currentView === 'languages'" class="view-detail">
-      <ModalHeader :title="t('settings.languages')" show-back @back="goToHome" />
-      <LanguageSettings />
-    </div>
+        <!-- Languages view -->
+        <LanguageSettings v-else-if="currentView === 'languages'" key="languages" class="view-content" />
 
-    <!-- Applications view -->
-    <div v-else-if="currentView === 'apps'" class="view-detail">
-      <ModalHeader :title="t('settings.applications')" show-back @back="goToHome" />
-      <ApplicationsSettings />
-    </div>
+        <!-- Applications view -->
+        <ApplicationsSettings v-else-if="currentView === 'apps'" key="apps" class="view-content" />
 
-    <!-- Volume view -->
-    <div v-else-if="currentView === 'volume'" class="view-detail">
-      <ModalHeader :title="t('settings.volume')" show-back @back="goToHome" />
-      <VolumeSettings />
-    </div>
+        <!-- Volume view -->
+        <VolumeSettings v-else-if="currentView === 'volume'" key="volume" class="view-content" />
 
-    <!-- Screen view -->
-    <div v-else-if="currentView === 'screen'" class="view-detail">
-      <ModalHeader :title="t('settings.screen')" show-back @back="goToHome" />
-      <ScreenSettings />
-    </div>
+        <!-- Screen view -->
+        <ScreenSettings v-else-if="currentView === 'screen'" key="screen" class="view-content" />
 
-    <!-- Spotify view -->
-    <div v-else-if="currentView === 'spotify'" class="view-detail">
-      <ModalHeader :title="t('spotifySettings.title')" show-back @back="goToHome" />
-      <SpotifySettings />
-    </div>
+        <!-- Spotify view -->
+        <SpotifySettings v-else-if="currentView === 'spotify'" key="spotify" class="view-content" />
 
-    <!-- Multiroom view -->
-    <div v-else-if="currentView === 'multiroom'" class="view-detail">
-      <ModalHeader :title="t('multiroom.title')" show-back @back="goToHome">
-        <template #actions="{ iconType }">
-          <Toggle
-            v-model="isMultiroomActive"
-            :type="iconType"
-            :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling"
-            @change="handleMultiroomToggle"
-          />
-        </template>
-      </ModalHeader>
-      <MultiroomSettings />
-    </div>
+        <!-- Multiroom view -->
+        <MultiroomSettings v-else-if="currentView === 'multiroom'" key="multiroom" class="view-content" />
 
-    <!-- Radio view -->
-    <div v-else-if="currentView === 'radio'" class="view-detail">
-      <ModalHeader title="Radio" show-back @back="goToHome" />
-      <RadioSettings ref="radioSettingsRef" @go-to-add-station="goToView('radio-add')" @edit-station="handleEditStation" />
-    </div>
+        <!-- Radio view -->
+        <RadioSettings v-else-if="currentView === 'radio'" key="radio" ref="radioSettingsRef" class="view-content" @go-to-add-station="goToView('radio-add')" @edit-station="handleEditStation" />
 
-    <!-- Radio view - Add a station -->
-    <div v-else-if="currentView === 'radio-add'" class="view-detail">
-      <ModalHeader :title="$t('radio.manageStation.addStationTitle')" show-back @back="handleBackFromRadioModal" />
-      <ManageStation mode="add" @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
-    </div>
+        <!-- Radio view - Add a station -->
+        <ManageStation v-else-if="currentView === 'radio-add'" key="radio-add" class="view-content" mode="add" @back="handleBackFromRadioModal" @success="handleRadioStationAdded" />
 
-    <!-- Radio view - Edit a station -->
-    <div v-else-if="currentView === 'radio-edit'" class="view-detail">
-      <ModalHeader :title="$t('radio.manageStation.editStationTitle')" show-back @back="handleBackFromRadioModal" />
-      <ManageStation mode="edit" :station="stationToEdit" :can-restore="canRestoreStation" :can-delete="canDeleteStation" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation" @delete="handleDeleteStation" />
-    </div>
+        <!-- Radio view - Edit a station -->
+        <ManageStation v-else-if="currentView === 'radio-edit'" key="radio-edit" class="view-content" mode="edit" :station="stationToEdit" :can-restore="canRestoreStation" :can-delete="canDeleteStation" @back="handleBackFromRadioModal" @success="handleRadioStationEdited" @restore="handleRestoreStation" @delete="handleDeleteStation" />
 
-    <!-- Podcast view -->
-    <div v-else-if="currentView === 'podcast'" class="view-detail">
-      <ModalHeader :title="t('podcastSettings.title')" show-back @back="goToHome" />
-      <PodcastSettings />
-    </div>
+        <!-- Podcast view -->
+        <PodcastSettings v-else-if="currentView === 'podcast'" key="podcast" class="view-content" />
 
-    <!-- Updates view -->
-    <div v-else-if="currentView === 'updates'" class="view-detail">
-      <ModalHeader :title="t('settings.updates')" show-back @back="goToHome" />
-      <UpdateManager />
-    </div>
+        <!-- Updates view -->
+        <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
-    <!-- Information view -->
-    <div v-else-if="currentView === 'info'" class="view-detail">
-      <ModalHeader :title="t('settings.information')" show-back @back="goToHome" />
-      <InfoSettings />
-    </div>
+        <!-- Information view -->
+        <InfoSettings v-else-if="currentView === 'info'" key="info" class="view-content" />
+    </Transition>
   </div>
 </template>
 
@@ -161,6 +134,7 @@ import { i18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
+import { useNavigationStack } from '@/composables/useNavigationStack';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
@@ -190,6 +164,13 @@ import PodcastSettings from '@/components/settings/categories/PodcastSettings.vu
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 
+const props = defineProps({
+  initialView: {
+    type: String,
+    default: 'home'
+  }
+});
+
 const emit = defineEmits(['close']);
 
 const { t } = useI18n();
@@ -201,10 +182,39 @@ const radioStore = useRadioStore();
 // Inject modal scroll reset function
 const resetScroll = inject('modalResetScroll', () => {});
 
-// Navigation
-const currentView = ref('home');
+// Navigation with stack
+const { currentView, canGoBack, push, back, reset, goTo } = useNavigationStack('home');
 const radioSettingsRef = ref(null);
 const stationToEdit = ref(null);
+
+// Dynamic header title based on current view
+const headerTitle = computed(() => {
+  const titles = {
+    'home': t('settings.title'),
+    'languages': t('settings.languages'),
+    'apps': t('settings.applications'),
+    'volume': t('settings.volume'),
+    'screen': t('settings.screen'),
+    'spotify': t('spotifySettings.title'),
+    'multiroom': t('multiroom.title'),
+    'radio': 'Radio',
+    'radio-add': t('radio.manageStation.addStationTitle'),
+    'radio-edit': t('radio.manageStation.editStationTitle'),
+    'podcast': t('podcastSettings.title'),
+    'updates': t('settings.updates'),
+    'info': t('settings.information')
+  };
+  return titles[currentView.value] || t('settings.title');
+});
+
+// Watch initialView prop for direct navigation (e.g., from CredentialsRequired)
+watch(() => props.initialView, (newView) => {
+  if (newView && newView !== 'home') {
+    goTo(newView);
+  } else {
+    reset();
+  }
+}, { immediate: true });
 
 // Reset scroll position when navigating between views
 watch(currentView, () => {
@@ -222,22 +232,26 @@ const canDeleteStation = computed(() => {
 });
 
 function goToView(view) {
-  currentView.value = view;
+  push(view);
 }
 
 function goToHome() {
-  currentView.value = 'home';
+  reset();
+}
+
+function handleBack() {
+  back();
 }
 
 // Radio navigation handling
 function handleBackFromRadioModal() {
-  currentView.value = 'radio';
+  back();
   stationToEdit.value = null; // Reset station to edit
 }
 
 function handleEditStation(station) {
   stationToEdit.value = station;
-  currentView.value = 'radio-edit';
+  push('radio-edit');
 }
 
 async function handleRestoreStation() {
@@ -258,7 +272,7 @@ async function handleRestoreStation() {
       await radioStore.loadStations(true);
 
       // Return to radio settings
-      currentView.value = 'radio';
+      back();
       stationToEdit.value = null;
 
       // After the view changes, reload the data
@@ -267,10 +281,10 @@ async function handleRestoreStation() {
         await radioSettingsRef.value.loadCustomStations();
       }
     } else {
-      console.error('❌ Échec restauration station');
+      console.error('Failed to restore station');
     }
   } catch (error) {
-    console.error('❌ Erreur restauration:', error);
+    console.error('Error restoring station:', error);
   }
 }
 
@@ -281,7 +295,7 @@ async function handleDeleteStation() {
     const success = await radioStore.removeCustomStation(stationToEdit.value.id);
 
     if (success) {
-      console.log('✅ Station supprimée');
+      console.log('Station deleted');
 
       // Wait a bit for backend to save
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -290,7 +304,7 @@ async function handleDeleteStation() {
       await radioStore.loadStations(true);
 
       // Return to radio settings
-      currentView.value = 'radio';
+      back();
       stationToEdit.value = null;
 
       // After the view changes, reload the data
@@ -299,24 +313,24 @@ async function handleDeleteStation() {
         await radioSettingsRef.value.loadCustomStations();
       }
     } else {
-      console.error('❌ Échec suppression station');
+      console.error('Failed to delete station');
     }
   } catch (error) {
-    console.error('❌ Erreur suppression:', error);
+    console.error('Error deleting station:', error);
   }
 }
 
 function handleRadioStationAdded(station) {
-  console.log('✅ Station ajoutée:', station);
+  console.log('Station added:', station);
   // Reload RadioSettings data
   if (radioSettingsRef.value) {
     radioSettingsRef.value.loadCustomStations();
   }
-  currentView.value = 'radio';
+  back();
 }
 
 async function handleRadioStationEdited(station) {
-  console.log('✅ Station éditée:', station);
+  console.log('Station edited:', station);
 
   // Reload favorites in radioStore to update RadioSource
   await radioStore.loadStations(true);
@@ -327,7 +341,7 @@ async function handleRadioStationEdited(station) {
   }
 
   stationToEdit.value = null; // Reset station to edit
-  currentView.value = 'radio';
+  back();
 }
 
 // Placeholder for odd grid
@@ -394,8 +408,7 @@ onUnmounted(() => {
   gap: var(--space-03);
 }
 
-.view-home,
-.view-detail {
+.view-content {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
@@ -412,6 +425,17 @@ onUnmounted(() => {
 .icon-button-placeholder {
   background: var(--color-background-neutral-50);
   border-radius: var(--radius-05);
+}
+
+/* View transition - using design system variables */
+.view-fade-enter-active,
+.view-fade-leave-active {
+  transition: opacity var(--transition-fast);
+}
+
+.view-fade-enter-from,
+.view-fade-leave-to {
+  opacity: 0;
 }
 
 /* Responsive */

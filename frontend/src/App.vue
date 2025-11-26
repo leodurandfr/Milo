@@ -18,8 +18,8 @@
       <EqualizerModal />
     </Modal>
 
-    <Modal :is-open="isSettingsOpen" @close="isSettingsOpen = false">
-      <SettingsModal />
+    <Modal :is-open="isSettingsOpen" @close="closeSettings">
+      <SettingsModal :initial-view="settingsInitialView" />
     </Modal>
 
     <!-- Global Virtual Keyboard -->
@@ -60,15 +60,27 @@ const isSnapcastOpen = ref(false);
 const isEqualizerOpen = ref(false);
 const isSettingsOpen = ref(false);
 
+// Settings navigation - supports direct navigation to sub-views
+const settingsInitialView = ref('home');
+
+function openSettings(initialView = 'home') {
+  settingsInitialView.value = initialView;
+  isSettingsOpen.value = true;
+}
+
+function closeSettings() {
+  isSettingsOpen.value = false;
+  settingsInitialView.value = 'home'; // Reset for next open
+}
+
 // Provide for child components
 provide('openSnapcast', () => isSnapcastOpen.value = true);
 provide('openEqualizer', () => isEqualizerOpen.value = true);
-provide('openSettings', () => isSettingsOpen.value = true);
+provide('openSettings', openSettings);
 provide('closeModals', () => {
   isSnapcastOpen.value = false;
   isEqualizerOpen.value = false;
-  isSettingsOpen.value = false;
-
+  closeSettings();
 });
 
 const cleanupFunctions = [];
