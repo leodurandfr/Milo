@@ -13,6 +13,7 @@ export const usePodcastStore = defineStore('podcast', () => {
   const currentPosition = ref(0)
   const currentDuration = ref(0)
   const playbackSpeed = ref(1.0)
+  const pendingEpisodeUuid = ref(null) // Optimistic loading state before WebSocket confirms
 
   // Timeout for delayed metadata clearing (during fade-out animation)
   let delayedClearTimeout = null
@@ -67,6 +68,8 @@ export const usePodcastStore = defineStore('podcast', () => {
   // === PLAYBACK ACTIONS ===
 
   async function play(episodeUuid) {
+    // Set pending immediately for instant UI feedback (spinner)
+    pendingEpisodeUuid.value = episodeUuid
     try {
       const response = await fetch('/api/podcast/play', {
         method: 'POST',
@@ -75,10 +78,13 @@ export const usePodcastStore = defineStore('podcast', () => {
       })
       const data = await response.json()
       if (!data.success) {
+        pendingEpisodeUuid.value = null
         throw new Error('Failed to play episode')
       }
       // State will be updated via WebSocket broadcast from backend
+      // pendingEpisodeUuid will be cleared in handleStateUpdate()
     } catch (error) {
+      pendingEpisodeUuid.value = null
       console.error('Error playing episode:', error)
       throw error
     }
@@ -203,6 +209,11 @@ export const usePodcastStore = defineStore('podcast', () => {
       currentEpisode.value = metadata.current_episode
       displayEpisode.value = metadata.current_episode
 
+      // Clear pending state - WebSocket has confirmed playback
+      if (pendingEpisodeUuid.value === metadata.current_episode.uuid) {
+        pendingEpisodeUuid.value = null
+      }
+
       // Clear any pending delayed clear
       if (delayedClearTimeout) {
         clearTimeout(delayedClearTimeout)
@@ -241,6 +252,11 @@ export const usePodcastStore = defineStore('podcast', () => {
     if (event.type === 'state_changed') {
       handleStateUpdate(event.data || {})
     }
+  }
+
+  // === PENDING STATE HELPER ===
+  function isEpisodePending(episodeUuid) {
+    return pendingEpisodeUuid.value === episodeUuid
   }
 
   // === PROGRESS CACHE HELPERS ===
@@ -344,6 +360,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     currentPosition,
     currentDuration,
     playbackSpeed,
+    pendingEpisodeUuid,
     settings,
     progressCache,
     subscriptions,
@@ -372,6 +389,9 @@ export const usePodcastStore = defineStore('podcast', () => {
     handlePluginEvent,
     clearState,
     clearDisplayEpisode,
+
+    // Pending state helper
+    isEpisodePending,
 
     // Progress cache helpers
     getEpisodeProgress,

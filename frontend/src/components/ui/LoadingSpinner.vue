@@ -110,7 +110,7 @@ ${backgroundRect}
 }
 
 /* Size variants matching SvgIcon dimensions - Mobile */
-@media (max-width: 768px) {
+@media (max-aspect-ratio: 4/3) {
   .loading-spinner--small {
     --spinner-size: 20px;
   }
