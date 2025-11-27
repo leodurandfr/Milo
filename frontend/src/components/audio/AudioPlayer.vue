@@ -462,24 +462,6 @@ const playerStyle = computed(() => {
       opacity 0.6s cubic-bezier(0.5, 0, 0, 1);
   }
 
-  /* Disable expanded container styles during leave transition to prevent brutal height changes */
-  .audio-player.expandable.expanded-container.audio-player-leave-active {
-    position: fixed !important;
-    bottom: var(--space-08) !important;
-    left: 50% !important;
-    width: calc(100% - var(--space-02) * 2) !important;
-    height: auto !important;
-    max-height: none !important;
-    top: auto !important;
-    right: auto !important;
-    inset: auto !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-    padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03) !important;
-    border-radius: var(--radius-06) !important;
-  }
-
   .audio-player-enter-from {
     opacity: 0;
     transform: translate(-50%, 120px);

@@ -4,7 +4,7 @@
     :header-title="isSearchMode ? t('audioSources.radioSource.discoverTitle') : t('audioSources.radioSource.favoritesTitle')"
     :header-show-back="isSearchMode" :header-actions-key="isSearchMode ? 'search' : 'favorites'"
     :content-key="isSearchMode ? 'search' : 'favorites'" header-variant="background-neutral" header-icon="radio"
-    @header-back="closeSearch">
+    :player-mobile-height="144" @header-back="closeSearch">
     <!-- Header actions -->
     <template v-if="!isSearchMode" #header-actions="{ iconVariant }">
       <IconButton icon="search" :variant="iconVariant" @click="openSearch" />
@@ -12,7 +12,7 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div ref="radioContainer" class="radio-content" :class="{ 'has-player': shouldShowNowPlayingLayout && isMobile }">
+      <div ref="radioContainer" class="radio-content">
         <!-- Favorites View -->
         <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
           :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
@@ -27,7 +27,7 @@
     </template>
 
     <!-- Player slot: AudioPlayer component -->
-    <template #player="{ playerWidth }">
+    <template #player="{ playerWidth, isMobile }">
       <AudioPlayer v-if="radioStore.currentStation" :visible="shouldShowNowPlayingLayout" source="radio"
         :artwork="stationArtwork" :placeholder-artwork="placeholderImg" :title="radioStore.currentStation.name"
         :subtitle="stationMetadata" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :width="playerWidth">
@@ -79,7 +79,6 @@ const searchDebounceTimer = ref(null)
 const availableCountries = ref([]) // Dynamic list of available countries
 const shouldShowNowPlayingLayout = ref(false) // Controls now-playing visibility, layout and animation
 const stopTimer = ref(null) // Timer for hiding now-playing after stop
-const isMobile = ref(false) // Responsive detection for desktop vs mobile
 
 // Reference for animations and scroll
 const radioContainer = ref(null)
@@ -372,13 +371,6 @@ onMounted(async () => {
     radioStore.updateFromWebSocket(unifiedStore.systemState.metadata)
   }
 
-  // Mobile detection
-  const updateMediaQuery = () => {
-    isMobile.value = window.matchMedia('(max-aspect-ratio: 4/3)').matches
-  }
-  updateMediaQuery()
-  window.addEventListener('resize', updateMediaQuery)
-
   // Add scroll listener for infinite scroll
   if (radioContainer.value) {
     radioContainer.value.addEventListener('scroll', handleScroll, { passive: true })
@@ -429,8 +421,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: var(--space-04);
   width: 100%;
-  padding: 0 0 var(--space-08) 0;
-
 }
 
 /* Radio controls layout */
@@ -449,10 +439,6 @@ onBeforeUnmount(() => {
 
 /* Mobile: compact controls on the right */
 @media (max-aspect-ratio: 4/3) {
-  .radio-content.has-player {
-    padding-bottom: 144px;
-  }
-
   .radio-controls {
     width: auto;
     justify-content: flex-end;

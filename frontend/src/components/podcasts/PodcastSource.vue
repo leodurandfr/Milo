@@ -8,6 +8,7 @@
     header-variant="background-neutral"
     :header-actions-key="currentView"
     :content-key="hasCredentialsError ? 'credentials' : currentView"
+    :player-mobile-height="184"
     @header-back="goBack"
   >
     <!-- Header actions (only when not in credentials error and on home view) -->
@@ -19,7 +20,7 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div class="podcast-content" :class="{ 'search-spacing': currentView === 'search' && !hasCredentialsError, 'has-player': shouldShowPlayerLayout && isMobile }">
+      <div class="podcast-content" :class="{ 'search-spacing': currentView === 'search' && !hasCredentialsError }">
         <!-- Credentials Required -->
         <CredentialsRequired v-if="hasCredentialsError" key="credentials" @configure="openPodcastSettings" />
 
@@ -60,8 +61,7 @@
     <!-- Player slot: AudioPlayer component -->
     <template #player="{ playerWidth }">
       <AudioPlayer :visible="shouldShowPlayerLayout" source="podcast" :artwork="episodeImage" :title="episodeName"
-        :subtitle="podcastName" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :expandable="true"
-        :expanded="isPlayerExpanded" :width="playerWidth" @toggle-expanded="isPlayerExpanded = !isPlayerExpanded">
+        :subtitle="podcastName" :is-playing="isCurrentlyPlaying" :is-loading="isBuffering" :width="playerWidth">
         <!-- Progress bar (seekable) -->
         <template #progress>
           <div @click.stop>
@@ -165,11 +165,6 @@ const isBuffering = computed(() => {
 // Player layout visibility control - manual ref for animation control
 const shouldShowPlayerLayout = ref(false)
 
-// Expanded player state
-const isPlayerExpanded = ref(false)
-
-// Responsive detection for desktop vs mobile
-const isMobile = ref(false)
 
 // Auto-stop timer: stops playback after 5 seconds of pause
 const stopTimer = ref(null)
@@ -203,8 +198,8 @@ watch(shouldShowPlayerLayout, (isVisible, wasVisible) => {
 })
 
 // Watcher: triggers auto-stop after 5s when paused
-watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurrentEpisode, isPlayerExpanded.value],
-  ([playing, buffering, hasEpisode, expanded]) => {
+watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurrentEpisode],
+  ([playing, buffering, hasEpisode]) => {
     // Clear any existing timer
     if (stopTimer.value) {
       clearTimeout(stopTimer.value)
@@ -214,31 +209,16 @@ watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurren
     // If paused with an episode: schedule auto-stop after 5s
     if (!playing && !buffering && hasEpisode) {
       stopTimer.value = setTimeout(async () => {
-        // If player is expanded, collapse it first
-        if (expanded) {
-          isPlayerExpanded.value = false
-          // Wait for collapse animation to complete (600ms), then hide
-          setTimeout(() => {
-            shouldShowPlayerLayout.value = false
-            // Then stop after hide animation (600ms)
-            setTimeout(async () => {
-              if (!isCurrentlyPlaying.value && !isBuffering.value) {
-                await podcastStore.stop()
-              }
-            }, 600)
-          }, 600)
-        } else {
-          // If compact, just hide the player (triggers 0.6s exit animation)
-          shouldShowPlayerLayout.value = false
+        // Hide the player (triggers 0.6s exit animation)
+        shouldShowPlayerLayout.value = false
 
-          // Wait for animation to complete (600ms), then stop
-          setTimeout(async () => {
-            // Only call stop() if still not playing (user might have resumed)
-            if (!isCurrentlyPlaying.value && !isBuffering.value) {
-              await podcastStore.stop()
-            }
-          }, 600)
-        }
+        // Wait for animation to complete (600ms), then stop
+        setTimeout(async () => {
+          // Only call stop() if still not playing (user might have resumed)
+          if (!isCurrentlyPlaying.value && !isBuffering.value) {
+            await podcastStore.stop()
+          }
+        }, 600)
       }, 5000)
     }
   }, { immediate: true })
@@ -432,13 +412,6 @@ async function handleSpeedChange(speedValue) {
 
 // Initialize
 onMounted(async () => {
-  // Mobile detection
-  const updateMediaQuery = () => {
-    isMobile.value = window.matchMedia('(max-aspect-ratio: 4/3)').matches
-  }
-  updateMediaQuery()
-  window.addEventListener('resize', updateMediaQuery)
-
   // Load settings and initial data
   await podcastStore.loadSettings()
 })
@@ -464,7 +437,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: var(--space-04);
   width: 100%;
-  padding: 0 0 var(--space-08) 0;
 }
 
 
@@ -489,12 +461,5 @@ onBeforeUnmount(() => {
 :deep(.dropdown-trigger--transparent) {
   min-width: 48px;
   padding: var(--space-02) 0;
-}
-
-/* Mobile: spacer for fixed player */
-@media (max-aspect-ratio: 4/3) {
-  .podcast-content.has-player {
-    padding-bottom: 184px;
-  }
 }
 </style>

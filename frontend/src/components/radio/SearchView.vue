@@ -210,7 +210,6 @@ const searchResults = computed(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-01);
-  padding-bottom: var(--space-07);
 }
 
 /* Message wrapper (loading, error, empty states) */
