@@ -5,7 +5,7 @@
       :class="[textClass, `dropdown-trigger--${variant}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
-      <span class="dropdown-label" :class="variant === 'transparent' ? 'text-mono' : 'text-body'">{{ selectedLabel }}</span>
+      <span class="dropdown-label" :class="variant === 'transparent' ? 'text-mono' : 'heading-3'">{{ selectedLabel }}</span>
       <SvgIcon v-if="variant === 'default'" name="caretDown" :size="24" class="dropdown-icon" />
     </button>
 
@@ -68,7 +68,7 @@ const menuPosition = ref({ top: '0px', left: '0px', width: '0px' });
 const lastScrollPosition = ref({ x: 0, y: 0 });
 
 const textClass = computed(() => {
-  return props.size === 'small' ? 'text-body-small' : 'text-body';
+  return props.size === 'small' ? 'heading-4' : 'heading-3';
 });
 
 const selectedLabel = computed(() => {

@@ -59,7 +59,7 @@ const keyboard = useVirtualKeyboard();
 const { screenResolution } = useHardwareConfig();
 
 const inputClass = computed(() => {
-  return props.size === 'small' ? 'text-body-small' : 'text-body';
+  return props.size === 'small' ? 'heading-4' : 'heading-3';
 });
 
 // Detect if the resolution matches (to show the virtual keyboard)

@@ -23,7 +23,7 @@ const props = defineProps({
   name: {
     type: String,
     required: true,
-    validator: (value) => ['bluetooth', 'librespot', 'roc', 'radio', 'podcast', 'multiroom', 'equalizer', 'settings'].includes(value)
+    validator: (value) => ['bluetooth', 'librespot', 'roc', 'radio', 'podcast', 'multiroom', 'equalizer', 'settings', 'milo'].includes(value)
   },
   size: {
     type: [String, Number],
@@ -40,7 +40,8 @@ const iconMapping = {
   'podcast': 'podcast',
   'multiroom': 'multiroom',
   'equalizer': 'equalizer',
-  'settings': 'settings'
+  'settings': 'settings',
+  'milo': 'milo'
 };
 
 const svgModules = import.meta.glob('@/assets/app-icons/*.svg', {

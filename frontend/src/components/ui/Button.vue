@@ -48,7 +48,7 @@ export default {
     emits: ['click'],
     computed: {
         buttonClasses() {
-            const baseClasses = 'btn text-body'
+            const baseClasses = 'btn heading-3'
             const variantClass = `btn--${this.variant}`
             const stateClass = this.getStateClass()
             const iconClass = (this.leftIcon || (this.loading && this.loadingLabel)) ? 'btn--with-icon' : ''

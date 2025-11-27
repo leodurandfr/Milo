@@ -343,7 +343,7 @@ function handleDisconnect() {
   position: relative;
   flex-shrink: 0;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-h3);
   text-align: center;
   white-space: nowrap;
   letter-spacing: var(--letter-spacing-sans-serif);

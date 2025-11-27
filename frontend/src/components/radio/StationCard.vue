@@ -66,7 +66,7 @@
     </div>
 
     <div class="station-details">
-      <p class="station-title text-body">{{ station.name }}</p>
+      <p class="station-title heading-3">{{ station.name }}</p>
       <p v-if="cardMetadata" class="station-subtitle text-mono">{{ cardMetadata }}</p>
     </div>
 
@@ -344,7 +344,7 @@ onMounted(() => {
 
 .station-title {
   margin: 0;
-  font-size: var(--font-size-body-small);
+  font-size: var(--font-size-h4);
   font-weight: 500;
   color: var(--color-text);
   overflow: hidden;

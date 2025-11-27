@@ -2,7 +2,7 @@
 <template>
   <section class="settings-section">
     <div class="spotify-group">
-      <h2 class="heading-2 text-body">{{ t('spotifySettings.autoDisconnect') }}</h2>
+      <h2 class="heading-2 heading-3">{{ t('spotifySettings.autoDisconnect') }}</h2>
       <div class="setting-item-container">
         <div class="spotify-description text-mono">
           {{ t('spotifySettings.disconnectDelay') }}

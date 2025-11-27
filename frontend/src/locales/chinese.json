@@ -142,7 +142,8 @@
     "multiroomServer": "多房间服务器",
     "multiroomClient": "多房间客户端",
     "bluetoothAudio": "蓝牙音频",
-    "macStreaming": "来自 macOS 的音频流"
+    "macStreaming": "来自 macOS 的音频流",
+    "upToDate": "已是最新"
   },
   "info": {
     "title": "信息",

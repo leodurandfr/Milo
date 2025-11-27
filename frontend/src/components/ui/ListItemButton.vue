@@ -8,7 +8,7 @@
     </div>
 
     <!-- Title -->
-    <span class="list-item-button__title text-body">{{ title }}</span>
+    <span class="list-item-button__title heading-3">{{ title }}</span>
 
     <!-- Right-side action (toggle, caret, or nothing) -->
     <div v-if="showCaret || $slots.action" class="list-item-button__action">

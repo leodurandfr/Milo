@@ -18,7 +18,7 @@
             <!-- Multiroom speakers -->
             <section class="settings-section">
               <div class="multiroom-group">
-                <h2 class="heading-2 text-body">{{ t('multiroom.speakers') }}</h2>
+                <h2 class="heading-2 heading-3">{{ t('multiroom.speakers') }}</h2>
 
                 <div v-if="snapcastStore.isLoading" class="loading-state">
                   <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
@@ -44,7 +44,7 @@
             <!-- Audio presets -->
             <section class="settings-section">
               <div class="multiroom-group">
-                <h2 class="heading-2 text-body">{{ t('multiroomSettings.presets') }}</h2>
+                <h2 class="heading-2 heading-3">{{ t('multiroomSettings.presets') }}</h2>
                 <div class="presets-buttons">
                   <Button v-for="preset in audioPresets" :key="preset.id"
                     :variant="isPresetActive(preset) ? 'outline' : 'background-strong'" size="small"
@@ -59,7 +59,7 @@
             <!-- Advanced settings -->
             <section class="settings-section">
               <div class="multiroom-group">
-                <h2 class="heading-2 text-body">{{ t('multiroomSettings.advanced') }}</h2>
+                <h2 class="heading-2 heading-3">{{ t('multiroomSettings.advanced') }}</h2>
 
                 <div class="form-group">
                   <label class="text-mono">{{ t('multiroomSettings.globalBuffer') }}</label>
