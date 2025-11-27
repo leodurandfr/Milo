@@ -100,10 +100,10 @@
     <!-- Button.vue -->
     <section class="style-guide__section">
       <h2 class="heading-1">Button</h2>
-      <p class="text-body-small text-secondary">Variants: background-strong, brand, on-dark, on-light, outline, important | Props: loading, loading-label</p>
+      <p class="text-body-small text-secondary">Variants: background-strong, brand, on-dark, on-grey, outline, important | Props: loading, loading-label</p>
 
       <div class="component-grid">
-        <div v-for="variant in buttonVariants" :key="variant" class="component-row">
+        <div v-for="variant in buttonVariants" :key="variant" :class="['component-row', `component-row--${variant}`]">
           <h3 class="heading-2">{{ variant }}</h3>
           <div class="component-states">
             <div class="component-state">
@@ -134,10 +134,10 @@
     <!-- IconButton.vue -->
     <section class="style-guide__section">
       <h2 class="heading-1">IconButton</h2>
-      <p class="text-body-small text-secondary">Variants: background-strong, on-dark, on-light, rounded | Sizes: small, medium, large</p>
+      <p class="text-body-small text-secondary">Variants: background-strong, on-dark, on-grey, rounded | Sizes: small, medium, large</p>
 
       <div class="component-grid">
-        <div v-for="variant in iconButtonVariants" :key="variant" class="component-row">
+        <div v-for="variant in iconButtonVariants" :key="variant" :class="['component-row', `component-row--${variant}`]">
           <h3 class="heading-2">{{ variant }}</h3>
           <div class="component-states">
             <template v-for="size in ['small', 'medium', 'large']" :key="size">
@@ -165,8 +165,8 @@
 import Button from '@/components/ui/Button.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 
-const buttonVariants = ['background-strong', 'brand', 'on-dark', 'on-light', 'outline', 'important'];
-const iconButtonVariants = ['background-strong', 'on-dark', 'on-light', 'rounded'];
+const buttonVariants = ['background-strong', 'brand', 'on-dark', 'on-grey', 'outline', 'important'];
+const iconButtonVariants = ['background-strong', 'on-dark', 'on-grey', 'rounded'];
 </script>
 
 <style scoped>
@@ -292,15 +292,19 @@ const iconButtonVariants = ['background-strong', 'on-dark', 'on-light', 'rounded
   color: var(--color-text-light);
 }
 
-/* Dark background for on-dark and on-light variants */
-.component-grid .component-row:nth-child(3),
-.component-grid .component-row:nth-child(4) {
-  background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+/* Dark background for on-dark variant */
+.component-row--on-dark {
+  background: var(--color-background-contrast);
 }
 
-.component-grid .component-row:nth-child(3) .component-state .text-mono,
-.component-grid .component-row:nth-child(4) .component-state .text-mono {
+.component-row--on-dark .component-state .text-mono {
   color: var(--color-text-contrast-50);
+}
+
+/* Strong background for on-grey and rounded variants */
+.component-row--on-grey,
+.component-row--rounded {
+  background: #858585;
 }
 
 @media (max-aspect-ratio: 4/3) {

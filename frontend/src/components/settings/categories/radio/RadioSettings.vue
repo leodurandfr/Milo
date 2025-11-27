@@ -7,7 +7,7 @@
 
         <div class="stations-list">
           <StationCard v-for="station in unmodifiedFavorites" :key="station.id" :station="station" variant="card"
-            :show-country="true" image-size="medium" @click="$emit('edit-station', station)" />
+            :show-country="true" @click="$emit('edit-station', station)" />
         </div>
       </template>
 
@@ -16,7 +16,7 @@
 
       <div v-if="modifiedStations.length > 0" class="stations-list">
         <StationCard v-for="station in modifiedStations" :key="`${station.id}-${station.name}-${updateCounter}`" :station="station"
-          variant="card" :show-country="true" image-size="medium" @click="$emit('edit-station', { ...station, _canRestore: true })" />
+          variant="card" :show-country="true" @click="$emit('edit-station', { ...station, _canRestore: true })" />
       </div>
 
       <div v-else class="empty-state text-mono">
@@ -29,7 +29,7 @@
 
       <div v-if="addedStations.length > 0" class="stations-list">
         <StationCard v-for="station in addedStations" :key="station.id" :station="station" variant="card"
-          :show-country="true" image-size="medium" @click="$emit('edit-station', { ...station, _canDelete: true })" />
+          :show-country="true" @click="$emit('edit-station', { ...station, _canDelete: true })" />
       </div>
 
       <Button variant="brand" @click="$emit('go-to-add-station')">

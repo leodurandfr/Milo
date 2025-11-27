@@ -61,7 +61,6 @@
             :key="`search-${station.id}`"
             :station="station"
             variant="card"
-            :is-active="currentStation?.id === station.id"
             :is-playing="currentStation?.id === station.id && isPlaying"
             :is-loading="bufferingStationId === station.id"
             :show-controls="true"

@@ -71,7 +71,7 @@ defineProps({
 .variant-card .skeleton-card-image {
   width: 100%;
   aspect-ratio: 1;
-  border-radius: var(--radius-03);
+  border-radius: var(--radius-02);
   flex-shrink: 0;
   background: linear-gradient(
     90deg,
@@ -106,7 +106,7 @@ defineProps({
   width: 128px;
   height: 128px;
   flex-shrink: 0;
-  border-radius: var(--radius-03);
+  border-radius: var(--radius-02);
   background: linear-gradient(
     90deg,
     var(--color-background-neutral) 0%,

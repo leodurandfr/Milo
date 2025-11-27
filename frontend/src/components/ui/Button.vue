@@ -21,7 +21,7 @@ export default {
         variant: {
             type: String,
             default: 'background-strong',
-            validator: (value) => ['background-strong', 'brand', 'on-light', 'on-dark', 'outline', 'important'].includes(value)
+            validator: (value) => ['background-strong', 'brand', 'on-grey', 'on-dark', 'outline', 'important'].includes(value)
         },
         type: {
             type: String,
@@ -119,13 +119,13 @@ export default {
     color: var(--color-text-light);
 }
 
-/* === ON-LIGHT variant (dark button for light backgrounds) === */
-.btn--on-light.btn--normal {
+/* === on-grey variant (dark button for light backgrounds) === */
+.btn--on-grey.btn--normal {
     background-color: var(--color-background-contrast-12);
     color: var(--color-text-contrast);
 }
 
-.btn--on-light.btn--disabled {
+.btn--on-grey.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
 }
@@ -157,8 +157,8 @@ export default {
 /* === IMPORTANT variant === */
 .btn--important.btn--normal {
     background-color: var(--color-background-neutral);
-    color: var(--color-brand);
-    box-shadow: inset 0 0 0 2px var(--color-brand);
+    color: var(--color-error);
+    box-shadow: inset 0 0 0 2px var(--color-error);
 }
 
 .btn--important.btn--disabled {
@@ -182,7 +182,7 @@ export default {
     color: var(--color-text-contrast);
 }
 
-.btn--on-light.btn--loading {
+.btn--on-grey.btn--loading {
     background-color: var(--color-background-contrast-12);
     color: var(--color-text-contrast);
 }
@@ -200,8 +200,8 @@ export default {
 
 .btn--important.btn--loading {
     background-color: var(--color-background-neutral);
-    color: var(--color-brand);
-    box-shadow: inset 0 0 0 2px var(--color-brand);
+    color: var(--color-error);
+    box-shadow: inset 0 0 0 2px var(--color-error);
 }
 
 /* === LOADING ONLY (spinner centered, no label) === */

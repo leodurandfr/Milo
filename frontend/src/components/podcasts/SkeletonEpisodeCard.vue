@@ -30,7 +30,7 @@
 .skeleton-card-image {
   width: 128px;
   height: 128px;
-  border-radius: var(--radius-03);
+  border-radius: var(--radius-02);
   flex-shrink: 0;
 
   /* Gradient shimmer animation */

@@ -16,7 +16,6 @@
           :key="`fav-${station.id}`"
           :station="station"
           variant="image"
-          :is-active="currentStation?.id === station.id"
           :is-playing="currentStation?.id === station.id && isPlaying"
           :is-loading="bufferingStationId === station.id"
           @click="$emit('play-station', station.id)"
