@@ -4,7 +4,6 @@
     <!-- Real content (always present so image can load) -->
     <div
       :class="['station-image', {
-        active: isActive,
         playing: isPlaying,
         loading: isLoading
       }]"
@@ -41,11 +40,10 @@
 
   <!-- "card" variant: Horizontal layout for lists -->
   <div v-else-if="variant === 'card'" :class="['station-card', {
-    active: isActive,
     playing: isPlaying,
     loading: isLoading
   }]" @click="$emit('click')">
-    <div class="station-logo" :class="imageSize">
+    <div class="station-logo">
       <img
         ref="imgRef"
         :src="getFaviconUrl(station.favicon)"
@@ -108,10 +106,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  isActive: {
-    type: Boolean,
-    default: false
-  },
   isLoading: {
     type: Boolean,
     default: false
@@ -119,11 +113,6 @@ const props = defineProps({
   showCountry: {
     type: Boolean,
     default: false
-  },
-  imageSize: {
-    type: String,
-    default: 'small',
-    validator: (value) => ['small', 'medium'].includes(value)
   }
 });
 
@@ -276,6 +265,8 @@ onMounted(() => {
   inset: 0;
   background: var(--color-background-contrast-32);
   backdrop-filter: blur(4px);
+    border-radius: var(--radius-03);
+
   display: flex;
   align-items: center;
   justify-content: center;
@@ -300,10 +291,6 @@ onMounted(() => {
 }
 
 
-.station-card.active {
-  border-color: var(--color-brand);
-}
-
 .station-card.playing {
   border-color: var(--color-brand);
   background: var(--color-background);
@@ -311,17 +298,12 @@ onMounted(() => {
 
 .station-logo {
   flex-shrink: 0;
-  width: 52px;
-  height: 52px;
+  width: 60px;
+  height: 60px;
   position: relative;
   border-radius: var(--radius-02);
   overflow: hidden;
   background: var(--color-background);
-}
-
-.station-logo.medium {
-  width: 60px;
-  height: 60px;
 }
 
 .station-logo .station-favicon {

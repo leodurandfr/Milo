@@ -3,7 +3,7 @@
   <div
     v-if="variant === 'card'"
     class="podcast-card variant-card"
-    :class="{ 'is-subscribed': isSubscribed, 'has-new': hasNewEpisodes, clickable, contrast }"
+    :class="{ 'is-subscribed': isSubscribed, clickable, contrast }"
     @click="handleCardClick"
   >
     <div class="card-image">
@@ -23,8 +23,6 @@
         class="placeholder-image"
         alt=""
       />
-      <div v-if="hasNewEpisodes" class="badge-new">{{ t('podcasts.new') }}</div>
-
       <!-- Loading overlay -->
       <div v-if="isLoading" class="loading-overlay">
         <LoadingSpinner :size="48" />
@@ -48,7 +46,7 @@
       </Button>
       <Button
         v-else
-        variant="on-dark"
+        :variant="contrast ? 'on-dark' : 'background-strong'"
         size="small"
         @click="$emit('unsubscribe', podcast.uuid)"
       >
@@ -99,7 +97,7 @@
         </p>
       </div>
 
-      <div class="row-actions" @click.stop>
+      <div v-if="showActions" class="row-actions" @click.stop>
         <Button
           v-if="!isSubscribed"
           variant="brand"
@@ -109,7 +107,7 @@
         </Button>
         <Button
           v-else
-          variant="on-dark"
+          :variant="contrast ? 'on-dark' : 'background-strong'"
           @click="$emit('unsubscribe', podcast.uuid)"
         >
           {{ t('podcasts.unsubscribe') }}
@@ -138,10 +136,6 @@ const props = defineProps({
     default: null
   },
   showActions: {
-    type: Boolean,
-    default: false
-  },
-  hasNewEpisodes: {
     type: Boolean,
     default: false
   },
@@ -257,7 +251,7 @@ onMounted(() => {
   position: relative;
   aspect-ratio: 1;
   overflow: hidden;
-  border-radius: var(--radius-03);
+  border-radius: var(--radius-02);
 }
 
 .variant-card .card-image img {
@@ -287,25 +281,13 @@ onMounted(() => {
   position: absolute;
   inset: 0;
   background: var(--color-background-contrast-32);
+  border-radius: var(--radius-02);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 10;
   color: var(--color-text-contrast);
-}
-
-.variant-card .badge-new {
-  position: absolute;
-  top: var(--space-02);
-  right: var(--space-02);
-  background: var(--color-brand);
-  color: var(--color-text-contrast);
-  font-family: 'Neue Montreal Medium';
-  font-size: var(--font-size-mono);
-  font-weight: 500;
-  padding: var(--space-01) var(--space-02);
-  border-radius: var(--radius-02);
 }
 
 .variant-card .card-info {
@@ -372,13 +354,13 @@ onMounted(() => {
   position: absolute;
   inset: 0;
   background: var(--color-background-contrast-32);
+  border-radius: var(--radius-02);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 10;
   color: var(--color-text-contrast);
-  border-radius: var(--radius-02);
 }
 
 .variant-row .row-content {

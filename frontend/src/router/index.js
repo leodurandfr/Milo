@@ -2,6 +2,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import MainView from '@/views/MainView.vue';
 import StyleGuide from '@/views/StyleGuide.vue';
+import CardsStyleGuide from '@/views/CardsStyleGuide.vue';
 
 const routes = [
   {
@@ -18,6 +19,14 @@ const routes = [
     component: StyleGuide,
     meta: {
       title: 'Style Guide - Milō'
+    }
+  },
+  {
+    path: '/cards-style-guide',
+    name: 'CardsStyleGuide',
+    component: CardsStyleGuide,
+    meta: {
+      title: 'Cards Style Guide - Milō'
     }
   }
 ];
