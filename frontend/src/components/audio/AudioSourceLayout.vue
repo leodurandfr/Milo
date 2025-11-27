@@ -3,7 +3,7 @@
     <!-- Content area: scrollable views -->
     <div
       class="content-container"
-      :class="{ 'with-player': showPlayer }"
+      :class="{ 'has-player': showPlayer }"
     >
       <!-- Header centralisé -->
       <ModalHeader
@@ -24,7 +24,7 @@
       <div class="transition-wrapper">
         <Transition name="fade-slide" mode="out-in">
           <div :key="contentKey" class="content-inner">
-            <slot name="content" />
+            <slot name="content" :is-mobile="isMobile" />
           </div>
         </Transition>
       </div>
@@ -34,13 +34,13 @@
     <div
       :class="['player-wrapper', { 'has-player': showPlayer }]"
     >
-      <slot name="player" :player-width="playerWidth"></slot>
+      <slot name="player" :player-width="playerWidth" :is-mobile="isMobile"></slot>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import ModalHeader from '@/components/ui/ModalHeader.vue'
 
 const layoutRef = ref(null)
@@ -101,6 +101,13 @@ const props = defineProps({
   contentKey: {
     type: String,
     default: 'default'
+  },
+  /**
+   * Height of the mobile player (for padding-bottom)
+   */
+  playerMobileHeight: {
+    type: Number,
+    default: 144
   }
 })
 
@@ -115,6 +122,25 @@ watch(() => props.contentKey, () => {
 
 // Player width for desktop (310px wrapper - 32px padding)
 const playerWidth = 278
+
+// Mobile detection for padding-bottom
+const isMobile = ref(false)
+
+function updateMediaQuery() {
+  isMobile.value = window.matchMedia('(max-aspect-ratio: 4/3)').matches
+}
+
+onMounted(() => {
+  updateMediaQuery()
+  window.addEventListener('resize', updateMediaQuery)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateMediaQuery)
+})
+
+// Computed padding for mobile player
+const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
 </script>
 
 <style scoped>
@@ -123,6 +149,7 @@ const playerWidth = 278
   --audio-player-wrapper-width: 310px;
   display: flex;
   justify-content: center;
+  align-items: flex-start;
   width: 100%;
   height: 100%;
   padding: 0 var(--space-07);
@@ -134,18 +161,18 @@ const playerWidth = 278
 .content-container {
   position: relative;
   width: 84%;
-  height: 100%;
+  height: auto;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   padding: var(--space-07) 0;
   gap: var(--space-06);
-  min-height: 0;
   flex-shrink: 0;
   touch-action: pan-y;
   transition: width 0.6s cubic-bezier(0.5, 0, 0, 1);
 }
 
-.content-container.with-player {
+.content-container.has-player {
   width: calc(100% - var(--audio-player-wrapper-width));
   transition: width var(--transition-spring);
 }
@@ -153,7 +180,6 @@ const playerWidth = 278
 /* Transition wrapper: isolates position: absolute during fade-slide */
 .transition-wrapper {
   position: relative;
-  flex: 1;
   min-height: 0;
 }
 
@@ -161,7 +187,6 @@ const playerWidth = 278
 .content-inner {
   display: flex;
   flex-direction: column;
-  flex: 1;
   min-height: 0;
   width: 100%;
 }
@@ -207,15 +232,15 @@ const playerWidth = 278
   .content-container {
     width: 100%;
     max-width: none;
-    height: auto;
-    min-height: 100%;
-    padding-bottom: var(--space-04);
     padding-top: var(--space-09);
+    padding-bottom: var(--space-08);
+
   }
 
-  .content-container.with-player {
+  .content-container.has-player {
     width: 100%;
     margin-right: 0;
+    padding-bottom: v-bind(mobilePlayerPadding);
   }
 
   .player-wrapper {
