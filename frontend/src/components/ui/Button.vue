@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/Button.vue -->
 <template>
     <button :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
-        <LoadingSpinner v-if="loading" :size="32" class="btn-icon" />
+        <LoadingSpinner v-if="loading" size="large" class="btn-icon" />
         <SvgIcon v-else-if="leftIcon" :name="leftIcon" :size="32" class="btn-icon" />
         <slot v-if="!loading || loadingLabel"></slot>
     </button>
@@ -214,6 +214,10 @@ export default {
     .btn .btn-icon :deep(svg) {
         width: 24px !important;
         height: 24px !important;
+    }
+
+    .btn :deep(.loading-spinner) {
+        --spinner-size: 24px !important;
     }
 }
 </style>

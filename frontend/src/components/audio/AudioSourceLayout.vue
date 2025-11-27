@@ -1,5 +1,5 @@
 <template>
-  <div class="audio-source-layout">
+  <div class="audio-source-layout" ref="layoutRef">
     <!-- Content area: scrollable views -->
     <div
       class="content-container"
@@ -22,7 +22,7 @@
 
       <!-- Contenu avec animation (wrapper pour isoler position: absolute) -->
       <div class="transition-wrapper">
-        <Transition name="fade-slide" mode="out-in">
+        <Transition name="fade-slide" mode="out-in" @after-enter="resetScroll">
           <div :key="contentKey" class="content-inner">
             <slot name="content" />
           </div>
@@ -40,7 +40,16 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import ModalHeader from '@/components/ui/ModalHeader.vue'
+
+const layoutRef = ref(null)
+
+function resetScroll() {
+  if (layoutRef.value) {
+    layoutRef.value.scrollTop = 0
+  }
+}
 
 const props = defineProps({
   /**

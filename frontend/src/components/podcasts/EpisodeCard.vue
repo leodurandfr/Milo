@@ -109,7 +109,9 @@ const isCurrentlyPlaying = computed(() => {
 })
 
 const isCurrentEpisodeBuffering = computed(() => {
-  return isCurrentEpisode.value && podcastStore.isBuffering
+  // Show loading if: pending (optimistic, immediate) OR currently buffering
+  return podcastStore.isEpisodePending(props.episode.uuid) ||
+         (isCurrentEpisode.value && podcastStore.isBuffering)
 })
 
 function handlePlayClick() {
@@ -236,7 +238,7 @@ onMounted(() => {
   width: 128px;
   height: 128px;
   flex-shrink: 0;
-  border-radius: var(--radius-03);
+  border-radius: var(--radius-02);
   overflow: hidden;
 }
 
