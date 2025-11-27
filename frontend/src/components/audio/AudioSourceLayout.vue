@@ -22,7 +22,7 @@
 
       <!-- Contenu avec animation (wrapper pour isoler position: absolute) -->
       <div class="transition-wrapper">
-        <Transition name="fade-slide" mode="out-in" @after-enter="resetScroll">
+        <Transition name="fade-slide" mode="out-in">
           <div :key="contentKey" class="content-inner">
             <slot name="content" />
           </div>
@@ -40,16 +40,10 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import ModalHeader from '@/components/ui/ModalHeader.vue'
 
 const layoutRef = ref(null)
-
-function resetScroll() {
-  if (layoutRef.value) {
-    layoutRef.value.scrollTop = 0
-  }
-}
 
 const props = defineProps({
   /**
@@ -111,6 +105,13 @@ const props = defineProps({
 })
 
 defineEmits(['header-back'])
+
+// Reset scroll synchronously BEFORE transition starts when contentKey changes
+watch(() => props.contentKey, () => {
+  if (layoutRef.value) {
+    layoutRef.value.scrollTop = 0
+  }
+}, { flush: 'sync' })
 
 // Player width for desktop (310px wrapper - 32px padding)
 const playerWidth = 278
