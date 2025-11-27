@@ -104,31 +104,74 @@
     <!-- Button.vue -->
     <section class="style-guide__section">
       <h2 class="heading-1">Button</h2>
-      <p class="text-body text-secondary">Variants: background-strong, brand, on-dark, on-grey, outline, important | Props: loading, loading-label</p>
+      <p class="text-mono text-secondary">Variants: background-strong, brand, on-dark, on-light, outline, important | Sizes: medium, small</p>
 
+      <div class="controls-panel">
+        <label class="control-item">
+          <span class="text-mono">variant</span>
+          <select v-model="buttonState.variant">
+            <option v-for="v in buttonVariants" :key="v" :value="v">{{ v }}</option>
+          </select>
+        </label>
+        <label class="control-item">
+          <span class="text-mono">size</span>
+          <select v-model="buttonState.size">
+            <option value="medium">medium</option>
+            <option value="small">small</option>
+          </select>
+        </label>
+        <label class="control-item">
+          <input type="checkbox" v-model="buttonState.disabled" />
+          <span class="text-mono">disabled</span>
+        </label>
+        <label class="control-item">
+          <input type="checkbox" v-model="buttonState.loading" />
+          <span class="text-mono">loading</span>
+        </label>
+        <label class="control-item">
+          <input type="checkbox" v-model="buttonState.loadingLabel" />
+          <span class="text-mono">loadingLabel</span>
+        </label>
+        <label class="control-item">
+          <input type="checkbox" v-model="buttonState.hasIcon" />
+          <span class="text-mono">leftIcon</span>
+        </label>
+      </div>
+
+      <div class="preview-container" :class="buttonPreviewBg">
+        <Button
+          :variant="buttonState.variant"
+          :size="buttonState.size"
+          :disabled="buttonState.disabled"
+          :loading="buttonState.loading"
+          :loading-label="buttonState.loadingLabel"
+          :left-icon="buttonState.hasIcon ? 'play' : null"
+        >
+          Label
+        </Button>
+      </div>
+
+      <!-- All variants overview -->
+      <h3 class="heading-3">All Variants</h3>
       <div class="component-grid">
         <div v-for="variant in buttonVariants" :key="variant" :class="['component-row', `component-row--${variant}`]">
-          <h3 class="heading-2">{{ variant }}</h3>
+          <h4 class="heading-4">{{ variant }}</h4>
           <div class="component-states">
             <div class="component-state">
-              <Button :variant="variant">Label</Button>
-              <span class="text-mono">normal</span>
+              <Button :variant="variant" size="medium">Label</Button>
+              <span class="text-mono">medium</span>
             </div>
             <div class="component-state">
-              <Button :variant="variant" disabled>Label</Button>
+              <Button :variant="variant" size="small">Label</Button>
+              <span class="text-mono">small</span>
+            </div>
+            <div class="component-state">
+              <Button :variant="variant" size="medium" left-icon="play">Label</Button>
+              <span class="text-mono">icon</span>
+            </div>
+            <div class="component-state">
+              <Button :variant="variant" size="medium" disabled>Label</Button>
               <span class="text-mono">disabled</span>
-            </div>
-            <div class="component-state">
-              <Button :variant="variant" loading>Label</Button>
-              <span class="text-mono">loading</span>
-            </div>
-            <div class="component-state">
-              <Button :variant="variant" left-icon="play">Label</Button>
-              <span class="text-mono">with icon</span>
-            </div>
-            <div class="component-state">
-              <Button :variant="variant" loading :loading-label="false">Label</Button>
-              <span class="text-mono">loading only</span>
             </div>
           </div>
         </div>
@@ -138,26 +181,57 @@
     <!-- IconButton.vue -->
     <section class="style-guide__section">
       <h2 class="heading-1">IconButton</h2>
-      <p class="text-body text-secondary">Variants: background-strong, on-dark, on-grey, rounded | Sizes: small, medium, large</p>
+      <p class="text-mono text-secondary">Variants: background-strong, on-dark, on-light, rounded | Sizes: small, medium, large</p>
 
+      <div class="controls-panel">
+        <label class="control-item">
+          <span class="text-mono">variant</span>
+          <select v-model="iconButtonState.variant">
+            <option v-for="v in iconButtonVariants" :key="v" :value="v">{{ v }}</option>
+          </select>
+        </label>
+        <label class="control-item">
+          <span class="text-mono">size</span>
+          <select v-model="iconButtonState.size">
+            <option value="small">small</option>
+            <option value="medium">medium</option>
+            <option value="large">large</option>
+          </select>
+        </label>
+        <label class="control-item">
+          <input type="checkbox" v-model="iconButtonState.disabled" />
+          <span class="text-mono">disabled</span>
+        </label>
+        <label class="control-item">
+          <input type="checkbox" v-model="iconButtonState.loading" />
+          <span class="text-mono">loading</span>
+        </label>
+      </div>
+
+      <div class="preview-container" :class="iconButtonPreviewBg">
+        <IconButton
+          :variant="iconButtonState.variant"
+          :size="iconButtonState.size"
+          :disabled="iconButtonState.disabled"
+          :loading="iconButtonState.loading"
+          icon="play"
+        />
+      </div>
+
+      <!-- All variants overview -->
+      <h3 class="heading-3">All Variants</h3>
       <div class="component-grid">
         <div v-for="variant in iconButtonVariants" :key="variant" :class="['component-row', `component-row--${variant}`]">
-          <h3 class="heading-2">{{ variant }}</h3>
+          <h4 class="heading-4">{{ variant }}</h4>
           <div class="component-states">
-            <template v-for="size in ['small', 'medium', 'large']" :key="size">
-              <div class="component-state">
-                <IconButton :variant="variant" :size="size" icon="play" />
-                <span class="text-mono">{{ size }}</span>
-              </div>
-              <div class="component-state">
-                <IconButton :variant="variant" :size="size" icon="play" disabled />
-                <span class="text-mono">{{ size }} disabled</span>
-              </div>
-              <div class="component-state">
-                <IconButton :variant="variant" :size="size" icon="play" loading />
-                <span class="text-mono">{{ size }} loading</span>
-              </div>
-            </template>
+            <div v-for="size in ['small', 'medium', 'large']" :key="size" class="component-state">
+              <IconButton :variant="variant" :size="size" icon="play" />
+              <span class="text-mono">{{ size }}</span>
+            </div>
+            <div class="component-state">
+              <IconButton :variant="variant" size="medium" icon="play" disabled />
+              <span class="text-mono">disabled</span>
+            </div>
           </div>
         </div>
       </div>
@@ -166,11 +240,43 @@
 </template>
 
 <script setup>
-import Button from '@/components/ui/Button.vue';
-import IconButton from '@/components/ui/IconButton.vue';
+import { ref, computed } from 'vue'
+import Button from '@/components/ui/Button.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 
-const buttonVariants = ['background-strong', 'brand', 'on-dark', 'on-grey', 'outline', 'important'];
-const iconButtonVariants = ['background-strong', 'on-dark', 'on-grey', 'rounded'];
+const buttonVariants = ['background-strong', 'brand', 'on-dark', 'on-light', 'outline', 'important']
+const iconButtonVariants = ['background-strong', 'on-dark', 'on-light', 'rounded']
+
+// Button interactive state
+const buttonState = ref({
+  variant: 'background-strong',
+  size: 'medium',
+  disabled: false,
+  loading: false,
+  loadingLabel: true,
+  hasIcon: false
+})
+
+// IconButton interactive state
+const iconButtonState = ref({
+  variant: 'background-strong',
+  size: 'medium',
+  disabled: false,
+  loading: false
+})
+
+// Compute preview background based on variant
+const buttonPreviewBg = computed(() => {
+  if (buttonState.value.variant === 'on-dark') return 'preview-bg--dark'
+  if (buttonState.value.variant === 'on-light') return 'preview-bg--light'
+  return ''
+})
+
+const iconButtonPreviewBg = computed(() => {
+  if (iconButtonState.value.variant === 'on-dark') return 'preview-bg--dark'
+  if (iconButtonState.value.variant === 'on-light' || iconButtonState.value.variant === 'rounded') return 'preview-bg--light'
+  return ''
+})
 </script>
 
 <style scoped>
@@ -196,13 +302,71 @@ const iconButtonVariants = ['background-strong', 'on-dark', 'on-grey', 'rounded'
 }
 
 .style-guide__section h3 {
-  margin-top: var(--space-04);
+  margin-top: var(--space-05);
   margin-bottom: var(--space-03);
   color: var(--color-text-secondary);
 }
 
+.style-guide__section > p {
+  margin-bottom: var(--space-04);
+}
+
 .text-secondary {
   color: var(--color-text-secondary);
+}
+
+/* Controls Panel */
+.controls-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-03);
+  padding: var(--space-04);
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-04);
+  margin-bottom: var(--space-04);
+}
+
+.control-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+  cursor: pointer;
+}
+
+.control-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.control-item select {
+  padding: var(--space-02);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-02);
+  background: var(--color-background);
+  color: var(--color-text);
+  font-family: 'Space Mono Regular';
+  font-size: var(--font-size-mono);
+}
+
+/* Preview Container */
+.preview-container {
+  padding: var(--space-05);
+  background: var(--color-background-strong);
+  border-radius: var(--radius-04);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 80px;
+  margin-bottom: var(--space-04);
+}
+
+.preview-container.preview-bg--dark {
+  background: var(--color-background-contrast);
+}
+
+.preview-container.preview-bg--light {
+  background: #858585;
 }
 
 /* Typography */
@@ -272,7 +436,7 @@ const iconButtonVariants = ['background-strong', 'on-dark', 'on-grey', 'rounded'
   border-radius: var(--radius-04);
 }
 
-.component-row h3 {
+.component-row h4 {
   margin-top: 0;
   margin-bottom: var(--space-03);
 }
@@ -305,8 +469,8 @@ const iconButtonVariants = ['background-strong', 'on-dark', 'on-grey', 'rounded'
   color: var(--color-text-contrast-50);
 }
 
-/* Strong background for on-grey and rounded variants */
-.component-row--on-grey,
+/* Strong background for on-light and rounded variants */
+.component-row--on-light,
 .component-row--rounded {
   background: #858585;
 }
@@ -319,6 +483,11 @@ const iconButtonVariants = ['background-strong', 'on-dark', 'on-grey', 'rounded'
   .color-swatch {
     width: 140px;
     height: 70px;
+  }
+
+  .controls-panel {
+    flex-direction: column;
+    gap: var(--space-02);
   }
 }
 </style>

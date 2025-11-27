@@ -1,8 +1,8 @@
 <!-- frontend/src/components/ui/Button.vue -->
 <template>
     <button :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
-        <LoadingSpinner v-if="loading" size="large" class="btn-icon" />
-        <SvgIcon v-else-if="leftIcon" :name="leftIcon" :size="32" class="btn-icon" />
+        <LoadingSpinner v-if="loading" class="btn-icon" />
+        <SvgIcon v-else-if="leftIcon" :name="leftIcon" class="btn-icon" />
         <slot v-if="!loading || loadingLabel"></slot>
     </button>
 </template>
@@ -21,7 +21,12 @@ export default {
         variant: {
             type: String,
             default: 'background-strong',
-            validator: (value) => ['background-strong', 'brand', 'on-grey', 'on-dark', 'outline', 'important'].includes(value)
+            validator: (value) => ['background-strong', 'brand', 'on-light', 'on-dark', 'outline', 'important'].includes(value)
+        },
+        size: {
+            type: String,
+            default: 'medium',
+            validator: (value) => ['medium', 'small'].includes(value)
         },
         type: {
             type: String,
@@ -48,13 +53,15 @@ export default {
     emits: ['click'],
     computed: {
         buttonClasses() {
-            const baseClasses = 'btn heading-3'
+            const typoClass = this.size === 'small' ? 'heading-4' : 'heading-3'
+            const baseClasses = `btn ${typoClass}`
             const variantClass = `btn--${this.variant}`
+            const sizeClass = `btn--${this.size}`
             const stateClass = this.getStateClass()
             const iconClass = (this.leftIcon || (this.loading && this.loadingLabel)) ? 'btn--with-icon' : ''
             const loadingOnlyClass = (this.loading && !this.loadingLabel) ? 'btn--loading-only' : ''
 
-            return `${baseClasses} ${variantClass} ${stateClass} ${iconClass} ${loadingOnlyClass}`.trim()
+            return `${baseClasses} ${variantClass} ${sizeClass} ${stateClass} ${iconClass} ${loadingOnlyClass}`.trim()
         }
     },
     methods: {
@@ -76,25 +83,60 @@ export default {
 
 <style scoped>
 .btn {
-    padding: var(--space-03) var(--space-04);
     text-align: center;
     border: none;
     cursor: pointer;
-    transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast), width var(--transition-fast);
-    border-radius: var(--radius-04);
+    transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: var(--space-01);
+    gap: 4px;
 }
 
 .btn:disabled {
     cursor: not-allowed;
 }
 
-/* Button with left icon - padding spécifique */
-.btn--with-icon {
-    padding: var(--space-02) var(--space-04) var(--space-02) var(--space-02);
+/* === SIZE variants === */
+/* Medium (default): 44px raspberry / 38px mobile */
+.btn--medium {
+    height: 44px;
+    padding: 10px 16px;
+    border-radius: var(--radius-04);
+}
+
+.btn--medium.btn--with-icon {
+    padding: 10px 16px 10px 10px;
+}
+
+/* Small: 36px raspberry / 34px mobile */
+.btn--small {
+    height: 36px;
+    padding: 8px 12px;
+    border-radius: var(--radius-03);
+}
+
+.btn--small.btn--with-icon {
+    padding: 8px 12px 8px 8px;
+}
+
+/* Icon sizes per button size */
+.btn--medium .btn-icon :deep(svg) {
+    width: 24px;
+    height: 24px;
+}
+
+.btn--medium :deep(.loading-spinner) {
+    --spinner-size: 24px;
+}
+
+.btn--small .btn-icon :deep(svg) {
+    width: 20px;
+    height: 20px;
+}
+
+.btn--small :deep(.loading-spinner) {
+    --spinner-size: 20px;
 }
 
 /* === BACKGROUND-STRONG variant === */
@@ -119,13 +161,13 @@ export default {
     color: var(--color-text-light);
 }
 
-/* === on-grey variant (dark button for light backgrounds) === */
-.btn--on-grey.btn--normal {
+/* === ON-LIGHT variant (dark button for light backgrounds) === */
+.btn--on-light.btn--normal {
     background-color: var(--color-background-contrast-12);
     color: var(--color-text-contrast);
 }
 
-.btn--on-grey.btn--disabled {
+.btn--on-light.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
 }
@@ -182,7 +224,7 @@ export default {
     color: var(--color-text-contrast);
 }
 
-.btn--on-grey.btn--loading {
+.btn--on-light.btn--loading {
     background-color: var(--color-background-contrast-12);
     color: var(--color-text-contrast);
 }
@@ -211,13 +253,36 @@ export default {
 
 /* === RESPONSIVE (Mobile) === */
 @media (max-aspect-ratio: 4/3) {
-    .btn .btn-icon :deep(svg) {
-        width: 24px !important;
-        height: 24px !important;
+    .btn--medium {
+        height: 38px;
+        padding: 8px 16px;
+        border-radius: var(--radius-03);
     }
 
-    .btn :deep(.loading-spinner) {
-        --spinner-size: 24px !important;
+    .btn--medium.btn--with-icon {
+        padding: 8px 16px 8px 8px;
+    }
+
+    .btn--medium .btn-icon :deep(svg) {
+        width: 22px;
+        height: 22px;
+    }
+
+    .btn--medium :deep(.loading-spinner) {
+        --spinner-size: 22px;
+    }
+
+    .btn--small {
+        height: 34px;
+    }
+
+    .btn--small .btn-icon :deep(svg) {
+        width: 18px;
+        height: 18px;
+    }
+
+    .btn--small :deep(.loading-spinner) {
+        --spinner-size: 18px;
     }
 }
 </style>
