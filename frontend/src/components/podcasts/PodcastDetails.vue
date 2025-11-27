@@ -9,44 +9,15 @@
       <!-- Real content -->
       <transition name="content-fade">
         <div v-if="!loading && podcast" key="loaded" class="details-content">
-          <!-- Header -->
-          <div class="details-header">
-            <div class="image-container">
-              <img
-                ref="imgRef"
-                :src="imageUrl"
-                :alt="podcast.name"
-                loading="lazy"
-                @load="handleImageLoad"
-                @error="handleImageError"
-                :class="{ loaded: imageLoaded }"
-                class="podcast-image main-image"
-              />
-              <img
-                v-if="!imageLoaded && !imageError"
-                :src="podcastPlaceholder"
-                class="podcast-image placeholder-image"
-                alt=""
-              />
-            </div>
-            <div class="header-info">
-              <h2 class="heading-1">{{ podcast.name }}</h2>
-              <p class="publisher text-body">{{ podcast.publisher || podcast.author }}</p>
-              <p class="meta text-mono">
-                {{ podcast.total_episodes }} {{ t('podcasts.episodesCount2') }}
-              </p>
-              <div v-if="podcast.is_completed || podcast.is_explicit" class="badges">
-                <span v-if="podcast.is_completed" class="badge text-mono">{{ t('podcasts.completed') }}</span>
-                <span v-if="podcast.is_explicit" class="badge warning text-mono">{{ t('podcasts.explicit') }}</span>
-              </div>
-              <Button
-                variant="on-light"
-                @click="toggleSubscription"
-              >
-                {{ podcast.is_subscribed ? t('podcasts.subscribed') : t('podcasts.subscribe') }}
-              </Button>
-            </div>
-          </div>
+          <!-- Podcast Card (row variant) -->
+          <PodcastCard
+            :podcast="podcast"
+            variant="row"
+            :clickable="false"
+            contrast
+            @subscribe="handleSubscribe"
+            @unsubscribe="handleUnsubscribe"
+          />
 
           <!-- Episodes list -->
           <div class="episodes-section">
@@ -83,10 +54,10 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
+import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
 import Button from '@/components/ui/Button.vue'
 import SkeletonPodcastDetails from './SkeletonPodcastDetails.vue'
-import podcastPlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 const { t } = useI18n()
 
@@ -109,15 +80,6 @@ const podcast = ref(null)
 const currentPage = ref(1)
 const loadingMore = ref(false)
 const allEpisodes = ref([])
-const imageError = ref(false)
-const imageLoaded = ref(false)
-const imgRef = ref(null)
-
-// Image URL with fallback
-const imageUrl = computed(() => {
-  if (imageError.value) return podcastPlaceholder
-  return podcast.value?.image_url || podcastPlaceholder
-})
 
 // Computed to check if more episodes available
 const hasMoreEpisodes = computed(() => {
@@ -146,36 +108,42 @@ async function loadPodcast() {
   }
 }
 
-async function toggleSubscription() {
+async function handleSubscribe() {
   if (!podcast.value) return
 
   try {
-    if (podcast.value.is_subscribed) {
-      const response = await fetch(`/api/podcast/subscriptions/${props.uuid}`, { method: 'DELETE' })
-      if (response.ok) {
-        podcast.value.is_subscribed = false
-      } else {
-        console.error('Failed to unsubscribe:', await response.text())
-      }
-    } else {
-      const response = await fetch('/api/podcast/subscriptions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          uuid: props.uuid,
-          name: podcast.value.name || '',
-          image_url: podcast.value.image_url || '',
-          children_hash: podcast.value.children_hash || ''
-        })
+    const response = await fetch('/api/podcast/subscriptions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        uuid: props.uuid,
+        name: podcast.value.name || '',
+        image_url: podcast.value.image_url || '',
+        children_hash: podcast.value.children_hash || ''
       })
-      if (response.ok) {
-        podcast.value.is_subscribed = true
-      } else {
-        console.error('Failed to subscribe:', await response.text())
-      }
+    })
+    if (response.ok) {
+      podcast.value.is_subscribed = true
+    } else {
+      console.error('Failed to subscribe:', await response.text())
     }
   } catch (error) {
-    console.error('Error toggling subscription:', error)
+    console.error('Error subscribing:', error)
+  }
+}
+
+async function handleUnsubscribe() {
+  if (!podcast.value) return
+
+  try {
+    const response = await fetch(`/api/podcast/subscriptions/${props.uuid}`, { method: 'DELETE' })
+    if (response.ok) {
+      podcast.value.is_subscribed = false
+    } else {
+      console.error('Failed to unsubscribe:', await response.text())
+    }
+  } catch (error) {
+    console.error('Error unsubscribing:', error)
   }
 }
 
@@ -206,30 +174,12 @@ async function loadMoreEpisodes() {
   }
 }
 
-function handleImageError() {
-  imageError.value = true
-}
-
-function handleImageLoad() {
-  imageLoaded.value = true
-}
-
-function checkImageLoaded() {
-  if (imgRef.value && imgRef.value.complete && imgRef.value.naturalHeight !== 0) {
-    imageLoaded.value = true
-  }
-}
-
-watch(() => props.uuid, async (newUuid) => {
-  imageLoaded.value = false
+watch(() => props.uuid, async () => {
   await loadPodcast()
-  checkImageLoaded()
 }, { immediate: false })
 
 onMounted(() => {
-  loadPodcast().then(() => {
-    checkImageLoaded()
-  })
+  loadPodcast()
 })
 </script>
 
@@ -237,7 +187,6 @@ onMounted(() => {
 .podcast-details {
   display: flex;
   flex-direction: column;
-  gap: var(--space-05);
 }
 
 .transition-container {
@@ -260,78 +209,11 @@ onMounted(() => {
   opacity: 0;
 }
 
-.details-header {
-  display: flex;
-  gap: var(--space-04);
-}
-
-.image-container {
-  position: relative;
-  width: 150px;
-  height: 150px;
-  border-radius: var(--radius-04);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.image-container img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  position: absolute;
-  inset: 0;
-}
-
-.image-container .main-image {
-  opacity: 0;
-  transition: opacity var(--transition-normal);
-  z-index: 1;
-}
-
-.image-container .main-image.loaded {
-  opacity: 1;
-}
-
-.image-container .placeholder-image {
-  opacity: 1;
-  z-index: 0;
-}
-
-.header-info {
+.details-content {
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
-}
-
-.header-info h2 {
-  margin: 0;
-}
-
-.publisher {
-  color: var(--color-text-secondary);
-  margin: 0;
-}
-
-.meta {
-  color: var(--color-text-secondary);
-  margin: 0;
-}
-
-.badges {
-  display: flex;
-  gap: var(--space-02);
-}
-
-.badge {
-  padding: var(--space-01) var(--space-02);
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-02);
-  color: var(--color-text-secondary);
-}
-
-.badge.warning {
-  background: var(--color-warning);
-  color: white;
+  gap: var(--space-04);
+  min-width: 0;
 }
 
 .episodes-section h3 {

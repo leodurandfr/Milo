@@ -379,7 +379,7 @@
     "monthsAgo": "Il y a {count} mois",
     "yearsAgo": "Il y a {count} ans",
     "new": "Nouveau",
-    "unsubscribe": "Désabonner",
+    "unsubscribe": "Se désabonner",
     "credentialsError": "Identifiants Taddy API requis",
     "credentialsErrorHint": "Configurez vos identifiants pour accéder aux podcasts",
     "configureButton": "Configurer",

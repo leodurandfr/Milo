@@ -126,7 +126,7 @@ onMounted(() => {
 
 .podcasts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: var(--space-02);
 }
 

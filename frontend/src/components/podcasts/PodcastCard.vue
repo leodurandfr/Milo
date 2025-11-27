@@ -1,8 +1,10 @@
 <template>
+  <!-- Card variant (default) -->
   <div
-    class="podcast-card"
-    :class="{ 'is-subscribed': isSubscribed, 'has-new': hasNewEpisodes }"
-    @click="$emit('select', podcast)"
+    v-if="variant === 'card'"
+    class="podcast-card variant-card"
+    :class="{ 'is-subscribed': isSubscribed, 'has-new': hasNewEpisodes, clickable, contrast }"
+    @click="handleCardClick"
   >
     <div class="card-image">
       <img
@@ -33,7 +35,7 @@
     <div v-if="showActions" class="card-actions" @click.stop>
       <Button
         v-if="!isSubscribed"
-        type="background-strong"
+        variant="brand"
         size="small"
         @click="$emit('subscribe', podcast.uuid)"
       >
@@ -41,12 +43,68 @@
       </Button>
       <Button
         v-else
-        type="background-strong"
+        variant="on-dark"
         size="small"
         @click="$emit('unsubscribe', podcast.uuid)"
       >
         {{ t('podcasts.unsubscribe') }}
       </Button>
+    </div>
+  </div>
+
+  <!-- Row variant -->
+  <div
+    v-else
+    class="podcast-card variant-row"
+    :class="{ 'is-subscribed': isSubscribed, clickable, contrast }"
+    @click="handleCardClick"
+  >
+    <div class="row-image">
+      <img
+        ref="imgRef"
+        :src="imageUrl"
+        :alt="podcast.name"
+        loading="lazy"
+        @load="handleImageLoad"
+        @error="handleImageError"
+        :class="{ loaded: imageLoaded }"
+        class="main-image"
+      />
+      <img
+        v-if="!imageLoaded && !imageError"
+        :src="podcastPlaceholder"
+        class="placeholder-image"
+        alt=""
+      />
+    </div>
+
+    <div class="row-content">
+      <div class="row-info">
+        <h3 class="podcast-name text-body">{{ podcast.name }}</h3>
+        <p v-if="podcast.publisher || podcast.author" class="podcast-publisher text-mono">
+          {{ podcast.publisher || podcast.author }}
+        </p>
+        <p class="podcast-meta text-mono">
+          {{ podcast.total_episodes }} {{ t('podcasts.episodesCount2') }}
+        </p>
+      </div>
+
+      <div class="row-actions" @click.stop>
+        <Button
+          v-if="!isSubscribed"
+          variant="brand"
+          @click="$emit('subscribe', podcast.uuid)"
+        >
+          {{ t('podcasts.subscribe') }}
+        </Button>
+        <Button
+          v-else
+          variant="on-dark"
+          @click="$emit('unsubscribe', podcast.uuid)"
+        >
+          {{ t('podcasts.unsubscribe') }}
+        </Button>
+      </div>
     </div>
   </div>
 </template>
@@ -75,10 +133,23 @@ const props = defineProps({
   hasNewEpisodes: {
     type: Boolean,
     default: false
+  },
+  variant: {
+    type: String,
+    default: 'card',
+    validator: (value) => ['card', 'row'].includes(value)
+  },
+  clickable: {
+    type: Boolean,
+    default: true
+  },
+  contrast: {
+    type: Boolean,
+    default: false
   }
 })
 
-defineEmits(['select', 'subscribe', 'unsubscribe'])
+const $emit = defineEmits(['select', 'subscribe', 'unsubscribe'])
 
 const imageError = ref(false)
 const imageLoaded = ref(false)
@@ -107,6 +178,12 @@ const tagText = computed(() => {
   return null
 })
 
+function handleCardClick() {
+  if (props.clickable) {
+    $emit('select', props.podcast)
+  }
+}
+
 function handleImageError() {
   imageError.value = true
 }
@@ -123,32 +200,52 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* === SHARED STYLES === */
 .podcast-card {
-  display: flex;
-  flex-direction: column;
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
   overflow: hidden;
-  cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
-  padding: var(--space-03);
-  gap: var(--space-03);
 }
 
-
+.podcast-card.clickable {
+  cursor: pointer;
+}
 
 .podcast-card:active {
   transform: translateY(0);
 }
 
-.card-image {
+.podcast-name {
+  color: var(--color-text);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.podcast-publisher {
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+/* === CARD VARIANT === */
+.variant-card {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-03);
+  gap: var(--space-03);
+}
+
+.variant-card .card-image {
   position: relative;
   aspect-ratio: 1;
   overflow: hidden;
   border-radius: var(--radius-03);
 }
 
-.card-image img {
+.variant-card .card-image img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -156,22 +253,22 @@ onMounted(() => {
   inset: 0;
 }
 
-.card-image .main-image {
+.variant-card .card-image .main-image {
   opacity: 0;
   transition: opacity var(--transition-normal);
   z-index: 1;
 }
 
-.card-image .main-image.loaded {
+.variant-card .card-image .main-image.loaded {
   opacity: 1;
 }
 
-.card-image .placeholder-image {
+.variant-card .card-image .placeholder-image {
   opacity: 1;
   z-index: 0;
 }
 
-.badge-new {
+.variant-card .badge-new {
   position: absolute;
   top: var(--space-02);
   right: var(--space-02);
@@ -184,35 +281,121 @@ onMounted(() => {
   border-radius: var(--radius-02);
 }
 
-.card-info {
+.variant-card .card-info {
   display: flex;
   flex-direction: column;
   gap: var(--space-01);
 }
 
-.podcast-name {
-  color: var(--color-text);
-  margin: 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.podcast-tag {
+.variant-card .podcast-tag {
   color: var(--color-brand);
   margin: 0;
 }
 
-.podcast-publisher {
-  color: var(--color-text-secondary);
-  margin: 0;
+.variant-card .podcast-publisher {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.card-actions {
+.variant-card .card-actions {
   padding: 0;
+}
+
+/* === ROW VARIANT === */
+.variant-row {
+  display: flex;
+  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
+  gap: var(--space-03);
+}
+
+.variant-row .row-image {
+  position: relative;
+  width: 128px;
+  height: 128px;
+  flex-shrink: 0;
+  border-radius: var(--radius-03);
+  overflow: hidden;
+}
+
+.variant-row .row-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  inset: 0;
+}
+
+.variant-row .row-image .main-image {
+  opacity: 0;
+  transition: opacity var(--transition-normal);
+  z-index: 1;
+}
+
+.variant-row .row-image .main-image.loaded {
+  opacity: 1;
+}
+
+.variant-row .row-image .placeholder-image {
+  opacity: 1;
+  z-index: 0;
+}
+
+.variant-row .row-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: var(--space-03);
+  align-items: center;
+}
+
+.variant-row .row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+}
+
+.variant-row .podcast-meta {
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.variant-row .row-actions {
+  flex-shrink: 0;
+}
+
+/* === ROW VARIANT MOBILE === */
+@media (max-aspect-ratio: 4/3) {
+  .variant-row .row-image {
+    width: 64px;
+    height: 64px;
+  }
+
+  .variant-row .podcast-meta {
+    display: none;
+  }
+}
+
+/* === CONTRAST VARIANT === */
+.podcast-card.contrast {
+  background: var(--color-background-contrast);
+}
+
+.podcast-card.contrast .podcast-name {
+  color: var(--color-text-contrast);
+}
+
+.podcast-card.contrast .podcast-publisher {
+  color: var(--color-text-contrast-50);
+}
+
+.podcast-card.contrast .podcast-tag {
+  color: var(--color-brand);
+}
+
+.podcast-card.contrast .podcast-meta {
+  color: var(--color-text-contrast-50);
 }
 </style>

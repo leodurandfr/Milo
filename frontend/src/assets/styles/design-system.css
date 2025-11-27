@@ -66,6 +66,7 @@
     --line-height-heading: 120%;
     --line-height-display: 120%;
     --line-height-body: 120%;
+    --line-height-body-light: 145%;
     --line-height-mono: 140%;
 
 
@@ -150,6 +151,12 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
 /* === FONT FACES === */
 
 @font-face {
+    font-family: 'Neue Montreal Regular';
+    src: url('../fonts/NeueMontreal-Regular.woff2') format('woff2');
+    font-weight: 500;
+}
+
+@font-face {
     font-family: 'Neue Montreal Medium';
     src: url('../fonts/NeueMontreal-Medium.woff2') format('woff2');
     font-weight: 500;
@@ -201,6 +208,14 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
     line-height: var(--line-height-body);
     letter-spacing: var(--letter-spacing-sans-serif);
     font-weight: 500;
+}
+
+.text-body-small-light {
+    font-family: 'Neue Montreal Regular';
+    font-size: var(--font-size-body-small);
+    line-height: var(--line-height-body-light);
+    letter-spacing: var(--letter-spacing-sans-serif);
+    font-weight: 400;
 }
 
 .text-mono {
