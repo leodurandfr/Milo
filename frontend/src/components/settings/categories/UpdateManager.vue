@@ -1,46 +1,53 @@
 <!-- frontend/src/components/settings/categories/UpdateManager.vue -->
 <template>
   <div class="update-manager">
-    <!-- Loading skeleton -->
-    <template v-if="localProgramsLoading">
-      <!-- Section OS skeleton -->
-      <section class="settings-section">
-        <div class="skeleton-text skeleton-heading"></div>
-        <div class="programs-list">
-          <div class="program-item-skeleton">
-            <div class="skeleton-icon"></div>
-            <div class="skeleton-text skeleton-name"></div>
-            <div class="skeleton-text skeleton-version"></div>
-            <div class="skeleton-button"></div>
-          </div>
+    <div class="transition-container">
+      <!-- Loading skeleton -->
+      <transition name="content-fade">
+        <div v-if="localProgramsLoading" key="skeleton" class="update-content">
+          <!-- Section OS skeleton -->
+          <section class="settings-section">
+            <div class="skeleton-text skeleton-heading"></div>
+            <div class="programs-list">
+              <div class="program-item-skeleton">
+                <div class="skeleton-icon"></div>
+                <div class="skeleton-text skeleton-name"></div>
+                <div class="skeleton-text skeleton-version"></div>
+                <div class="skeleton-button"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Section Programs skeleton -->
+          <section class="settings-section">
+            <div class="skeleton-text skeleton-heading"></div>
+            <div class="programs-list">
+              <div v-for="n in 4" :key="n" class="program-item-skeleton">
+                <div class="skeleton-icon"></div>
+                <div class="skeleton-text skeleton-name"></div>
+                <div class="skeleton-text skeleton-version"></div>
+                <div class="skeleton-button"></div>
+              </div>
+            </div>
+          </section>
         </div>
-      </section>
+      </transition>
 
-      <!-- Section Programs skeleton -->
-      <section class="settings-section">
-        <div class="skeleton-text skeleton-heading"></div>
-        <div class="programs-list">
-          <div v-for="n in 4" :key="n" class="program-item-skeleton">
-            <div class="skeleton-icon"></div>
-            <div class="skeleton-text skeleton-name"></div>
-            <div class="skeleton-text skeleton-version"></div>
-            <div class="skeleton-button"></div>
+      <!-- Error state -->
+      <transition name="content-fade">
+        <div v-if="localProgramsError && !localProgramsLoading" key="error" class="error-state">
+          <div class="error-message text-mono">
+            {{ $t('updates.error') }}
           </div>
+          <Button size="small" variant="background-strong" @click="loadLocalPrograms">
+            {{ $t('updates.retry') }}
+          </Button>
         </div>
-      </section>
-    </template>
+      </transition>
 
-    <!-- Error state -->
-    <div v-else-if="localProgramsError" class="error-state">
-      <div class="error-message text-mono">
-        {{ $t('updates.error') }}
-      </div>
-      <Button size="small" variant="background-strong" @click="loadLocalPrograms">
-        {{ $t('updates.retry') }}
-      </Button>
-    </div>
-
-    <template v-else>
+      <!-- Content -->
+      <transition name="content-fade">
+        <div v-if="!localProgramsLoading && !localProgramsError" key="content" class="update-content">
       <!-- Section 1: Operating System (Milo OS only) -->
       <section v-if="localPrograms.milo" class="settings-section">
         <h1 class="heading-2">{{ $t('updates.osTitle') }}</h1>
@@ -73,7 +80,7 @@
               :disabled="isAnyUpdateInProgress()">
               {{ $t('updates.update') }}
             </Button>
-            <Button v-else size="small" variant="background-strong" class="program-button" disabled>
+            <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
               {{ $t('updates.upToDate') }}
             </Button>
           </div>
@@ -113,17 +120,16 @@
                 :disabled="isAnyUpdateInProgress()">
                 {{ $t('updates.update') }}
               </Button>
-              <Button v-else size="small" variant="background-strong" class="program-button" disabled>
+              <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
                 {{ $t('updates.upToDate') }}
               </Button>
             </div>
           </template>
         </div>
       </section>
-    </template>
 
-    <!-- Section 3: Satellite Programs -->
-    <section v-if="isMultiroomEnabled" class="settings-section">
+        <!-- Section 3: Satellite Programs -->
+        <section v-if="isMultiroomEnabled" class="settings-section">
       <h1 class="heading-2">{{ $t('updates.satelliteProgramsTitle') }}</h1>
 
       <div v-if="satellitesLoading" class="loading-state">
@@ -174,12 +180,15 @@
             :disabled="isAnyUpdateInProgress()">
             {{ $t('updates.update') }}
           </Button>
-          <Button v-else size="small" variant="background-strong" class="program-button" disabled>
+          <Button v-else size="small" variant="background-strong" class="program-button btn-up-to-date" disabled>
             {{ $t('updates.upToDate') }}
           </Button>
         </div>
       </div>
-    </section>
+          </section>
+        </div>
+      </transition>
+    </div>
   </div>
 </template>
 
@@ -221,7 +230,7 @@ const isMultiroomEnabled = computed(() => unifiedStore.systemState.multiroom_ena
 
 // Local state
 const localPrograms = ref({});
-const localProgramsLoading = ref(false);
+const localProgramsLoading = ref(true);
 const localProgramsError = ref(false);
 
 const satellites = ref([]);
@@ -240,8 +249,6 @@ const supportedLocalUpdates = ['milo', 'go-librespot', 'snapserver', 'snapclient
 // === LOCAL PROGRAMS ===
 
 async function loadLocalPrograms() {
-  if (localProgramsLoading.value) return;
-
   try {
     localProgramsLoading.value = true;
     localProgramsError.value = false;
@@ -469,13 +476,41 @@ onMounted(async () => {
   gap: var(--space-02);
 }
 
+/* Transition container for cross-fade effect */
+.transition-container {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.transition-container > * {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.update-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+/* Content fade transition (skeleton to real content) */
+.content-fade-enter-active,
+.content-fade-leave-active {
+  transition: opacity var(--transition-normal);
+}
+
+.content-fade-enter-from,
+.content-fade-leave-to {
+  opacity: 0;
+}
+
 .settings-section {
   background: var(--color-background-neutral);
   border-radius: var(--radius-06);
   padding: var(--space-06) var(--space-05);
   display: flex;
   flex-direction: column;
-  gap: var(--space-05);
+  gap: var(--space-05-fixed);
 }
 
 .loading-state,
@@ -648,9 +683,9 @@ onMounted(async () => {
     grid-template-columns: auto 1fr;
     grid-template-areas:
       "icon name"
-      "version version"
+      "icon version"
       "button button";
-    gap: var(--space-02) var(--space-03);
+    gap: var(--space-01) var(--space-03);
   }
 
   .program-icon {
@@ -659,15 +694,21 @@ onMounted(async () => {
   }
 
   .program-name {
-    align-self: center;
+    align-self: end;
   }
 
   .program-version {
-    align-self: center;
+    align-self: start;
   }
 
   .program-button {
     width: 100%;
+    margin-top: var(--space-02);
+  }
+
+  /* Hide "Up to date" button on mobile */
+  .btn-up-to-date {
+    display: none;
   }
 
   /* Skeleton responsive */
@@ -675,9 +716,9 @@ onMounted(async () => {
     grid-template-columns: auto 1fr;
     grid-template-areas:
       "icon name"
-      "version version"
+      "icon version"
       "button button";
-    gap: var(--space-02) var(--space-03);
+    gap: var(--space-01) var(--space-03);
   }
 
   .skeleton-icon {
