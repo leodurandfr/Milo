@@ -23,7 +23,8 @@ const props = defineProps({
 
 const spinnerClass = computed(() => {
   // Use CSS classes for named sizes (enables responsive behavior)
-  if (typeof props.size === 'string') {
+  // 'inherit' means parent controls size via --spinner-size variable
+  if (typeof props.size === 'string' && props.size !== 'inherit') {
     return `loading-spinner--${props.size}`;
   }
   return '';
@@ -38,7 +39,8 @@ const spinnerStyle = computed(() => {
       '--spinner-size': `${props.size}px`
     };
   }
-  // For string sizes, styles are handled by CSS classes
+  // For 'inherit', let parent CSS control the size via --spinner-size
+  // For other string sizes (small, medium, large), styles are handled by CSS classes
   return {};
 });
 

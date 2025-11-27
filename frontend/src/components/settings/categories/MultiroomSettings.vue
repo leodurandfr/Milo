@@ -47,7 +47,7 @@
                 <h2 class="heading-2 heading-3">{{ t('multiroomSettings.presets') }}</h2>
                 <div class="presets-buttons">
                   <Button v-for="preset in audioPresets" :key="preset.id"
-                    :variant="isPresetActive(preset) ? 'outline' : 'background-strong'" size="small"
+                    :variant="isPresetActive(preset) ? 'outline' : 'background-strong'" size="medium"
                     :disabled="snapcastStore.isApplyingServerConfig"
                     @click="applyPreset(preset)">
                     {{ preset.name }}
@@ -76,15 +76,15 @@
                 <div class="form-group">
                   <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
                   <div class="codec-buttons">
-                    <Button :variant="snapcastStore.serverConfig.codec === 'opus' ? 'outline' : 'background-strong'" size="small"
+                    <Button :variant="snapcastStore.serverConfig.codec === 'opus' ? 'outline' : 'background-strong'" size="medium"
                       @click="selectCodec('opus')">
                       Opus
                     </Button>
-                    <Button :variant="snapcastStore.serverConfig.codec === 'flac' ? 'outline' : 'background-strong'" size="small"
+                    <Button :variant="snapcastStore.serverConfig.codec === 'flac' ? 'outline' : 'background-strong'" size="medium"
                       @click="selectCodec('flac')">
                       FLAC
                     </Button>
-                    <Button :variant="snapcastStore.serverConfig.codec === 'pcm' ? 'outline' : 'background-strong'" size="small"
+                    <Button :variant="snapcastStore.serverConfig.codec === 'pcm' ? 'outline' : 'background-strong'" size="medium"
                       @click="selectCodec('pcm')">
                       PCM
                     </Button>
@@ -93,7 +93,7 @@
               </div>
             </section>
 
-            <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="small" class="apply-button-sticky"
+            <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium" class="apply-button-sticky"
               :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
               {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
            </Button>

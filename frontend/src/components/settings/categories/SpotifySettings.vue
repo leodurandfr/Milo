@@ -9,7 +9,7 @@
         </div>
         <div class="disconnect-buttons">
           <Button v-for="delay in disconnectPresets" :key="delay.value"
-            :variant="isDisconnectActive(delay.value) ? 'outline' : 'background-strong'" size="small"
+            :variant="isDisconnectActive(delay.value) ? 'outline' : 'background-strong'" size="medium"
             @click="setSpotifyDisconnect(delay.value)">
             {{ delay.label }}
           </Button>

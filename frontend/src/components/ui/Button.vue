@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/Button.vue -->
 <template>
     <button :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
-        <LoadingSpinner v-if="loading" class="btn-icon" />
+        <LoadingSpinner v-if="loading" size="inherit" class="btn-icon" />
         <SvgIcon v-else-if="leftIcon" :name="leftIcon" class="btn-icon" />
         <slot v-if="!loading || loadingLabel"></slot>
     </button>
@@ -21,7 +21,7 @@ export default {
         variant: {
             type: String,
             default: 'background-strong',
-            validator: (value) => ['background-strong', 'brand', 'on-light', 'on-dark', 'outline', 'important'].includes(value)
+            validator: (value) => ['background-strong', 'brand', 'on-grey', 'on-dark', 'outline', 'important'].includes(value)
         },
         size: {
             type: String,
@@ -98,15 +98,15 @@ export default {
 }
 
 /* === SIZE variants === */
-/* Medium (default): 44px raspberry / 38px mobile */
+/* Medium (default): 48px raspberry / 38px mobile */
 .btn--medium {
-    height: 44px;
-    padding: 10px 16px;
+    padding: 12px 16px;
     border-radius: var(--radius-04);
 }
 
 .btn--medium.btn--with-icon {
-    padding: 10px 16px 10px 10px;
+    padding: 12px 16px 12px 12px;
+    gap: 8px;
 }
 
 /* Small: 36px raspberry / 34px mobile */
@@ -161,13 +161,13 @@ export default {
     color: var(--color-text-light);
 }
 
-/* === ON-LIGHT variant (dark button for light backgrounds) === */
-.btn--on-light.btn--normal {
+/* === on-grey variant (dark button for light backgrounds) === */
+.btn--on-grey.btn--normal {
     background-color: var(--color-background-contrast-12);
     color: var(--color-text-contrast);
 }
 
-.btn--on-light.btn--disabled {
+.btn--on-grey.btn--disabled {
     background-color: var(--color-background);
     color: var(--color-text-light);
 }
@@ -224,7 +224,7 @@ export default {
     color: var(--color-text-contrast);
 }
 
-.btn--on-light.btn--loading {
+.btn--on-grey.btn--loading {
     background-color: var(--color-background-contrast-12);
     color: var(--color-text-contrast);
 }
@@ -260,7 +260,7 @@ export default {
     }
 
     .btn--medium.btn--with-icon {
-        padding: 8px 16px 8px 8px;
+        padding: 8px 12px 8px 8px;
     }
 
     .btn--medium .btn-icon :deep(svg) {
