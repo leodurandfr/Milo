@@ -9,8 +9,8 @@
             <div class="device-info-inner">
               <!-- Plugin icon -->
               <div class="plugin-icon">
-                <AppIcon :name="pluginType" :size="32"
-                  :state="pluginState === 'starting' ? 'loading' : 'normal'" />
+                <LoadingSpinner v-if="pluginState === 'starting'" :size="26" variant="background" />
+                <AppIcon v-else :name="pluginType" :size="32" />
               </div>
 
               <!-- Text status -->
@@ -49,6 +49,7 @@
 <script setup>
 import { computed } from 'vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import { useI18n } from '@/services/i18n';
 
 const { t } = useI18n();
@@ -255,6 +256,10 @@ function handleDisconnect() {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--color-background);
+  border-radius: var(--radius-02);
 }
 
 /* Text status */

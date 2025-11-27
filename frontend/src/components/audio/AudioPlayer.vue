@@ -159,6 +159,7 @@ const playerStyle = computed(() => {
   width: 100%;
   margin: 0;
   height: 100%;
+  max-height: 500px;
   flex-direction: column;
   gap: var(--space-04);
   padding: var(--space-04);
