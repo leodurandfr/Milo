@@ -20,7 +20,7 @@ class ProgramUpdateService(ProgramVersionService):
         super().__init__()
         self.update_logger = logging.getLogger(f"{__name__}.update")
 
-        # Update-specific configuration (snapserver and snapclient separated)
+        # Update-specific configuration
         self.update_config = {
             "milo": {
                 "git_path": "/home/milo/milo",
@@ -35,15 +35,13 @@ class ProgramUpdateService(ProgramVersionService):
                 "github_asset_pattern": "go-librespot_linux_arm64.tar.gz",
                 "backup_path": "/var/lib/milo/backups/go-librespot"
             },
-            "snapserver": {
-                "services": ["milo-snapserver-multiroom.service"],
-                "github_asset": "snapserver_*_arm64_bookworm.deb",
-                "backup_path": "/var/lib/milo/backups/snapserver"
-            },
-            "snapclient": {
-                "services": ["milo-snapclient-multiroom.service"],
-                "github_asset": "snapclient_*_arm64_bookworm.deb",
-                "backup_path": "/var/lib/milo/backups/snapclient"
+            "multiroom": {
+                "services": [
+                    "milo-snapserver-multiroom.service",
+                    "milo-snapclient-multiroom.service"
+                ],
+                "components": ["snapserver", "snapclient"],
+                "backup_path": "/var/lib/milo/backups/multiroom"
             }
         }
 
@@ -66,8 +64,8 @@ class ProgramUpdateService(ProgramVersionService):
                 return await self._update_milo_app(status, progress_callback)
             elif program_key == "go-librespot":
                 return await self._update_go_librespot(status, progress_callback)
-            elif program_key in ["snapserver", "snapclient"]:
-                return await self._update_snapcast_component(program_key, status, progress_callback)
+            elif program_key == "multiroom":
+                return await self._update_multiroom(status, progress_callback)
             else:
                 return {"success": False, "error": f"Update handler not implemented for {program_key}"}
 
@@ -290,59 +288,109 @@ class ProgramUpdateService(ProgramVersionService):
             self.update_logger.error(f"go-librespot update failed: {e}")
             return {"success": False, "error": str(e)}
 
-    async def _update_snapcast_component(self, component_key: str, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Updates a snapcast component (snapserver or snapclient)"""
-        config = self.update_config[component_key]
+    async def _update_multiroom(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+        """Updates both snapserver and snapclient atomically"""
+        config = self.update_config["multiroom"]
         latest_version = status["latest"]["version"]
+        old_version = status["installed"]["versions"].get("main", "unknown")
+
+        server_download = None
+        client_download = None
 
         try:
+            # Phase 1: Download both packages (0-30%)
             if progress_callback:
-                await progress_callback(f"Downloading {component_key}...", 10)
+                await progress_callback("Downloading snapserver...", 5)
 
-            # 1. Download the .deb package
-            download_result = await self._download_snapcast_component(component_key, latest_version)
-            if not download_result["success"]:
-                return download_result
+            server_download = await self._download_snapcast_component("snapserver", latest_version)
+            if not server_download["success"]:
+                return {"success": False, "error": f"Failed to download snapserver: {server_download.get('error')}"}
 
             if progress_callback:
-                await progress_callback(f"Stopping {component_key} service...", 30)
+                await progress_callback("Downloading snapclient...", 20)
 
-            # 2. Stop the service
+            client_download = await self._download_snapcast_component("snapclient", latest_version)
+            if not client_download["success"]:
+                await self._cleanup_temp_files(server_download.get("temp_dir"))
+                return {"success": False, "error": f"Failed to download snapclient: {client_download.get('error')}"}
+
+            # Phase 2: Stop all services (30-40%)
+            if progress_callback:
+                await progress_callback("Stopping multiroom services...", 35)
+
             for service in config["services"]:
                 await self._stop_service(service)
 
+            # Phase 3: Install snapserver (40-60%)
             if progress_callback:
-                await progress_callback(f"Installing {component_key}...", 50)
+                await progress_callback("Installing snapserver...", 45)
 
-            # 3. Install the package
-            install_result = await self._install_deb_package(download_result["deb_path"])
-            if not install_result["success"]:
-                return install_result
+            server_install = await self._install_deb_package(server_download["deb_path"])
+            if not server_install["success"]:
+                for service in config["services"]:
+                    await self._start_service(service)
+                await self._cleanup_temp_files(server_download.get("temp_dir"))
+                await self._cleanup_temp_files(client_download.get("temp_dir"))
+                return {"success": False, "error": f"Failed to install snapserver: {server_install.get('error')}"}
 
+            # Phase 4: Install snapclient (60-80%)
             if progress_callback:
-                await progress_callback(f"Starting {component_key} service...", 90)
+                await progress_callback("Installing snapclient...", 65)
 
-            # 4. Restart the service
+            client_install = await self._install_deb_package(client_download["deb_path"])
+            if not client_install["success"]:
+                self.update_logger.warning(f"Snapclient installation failed after snapserver succeeded: {client_install.get('error')}")
+                for service in config["services"]:
+                    await self._start_service(service)
+                await self._cleanup_temp_files(server_download.get("temp_dir"))
+                await self._cleanup_temp_files(client_download.get("temp_dir"))
+                return {
+                    "success": False,
+                    "error": f"Snapserver updated but snapclient failed: {client_install.get('error')}",
+                    "partial_success": True
+                }
+
+            # Phase 5: Restart services (80-95%)
+            if progress_callback:
+                await progress_callback("Starting multiroom services...", 85)
+
+            all_services_started = True
             for service in config["services"]:
                 start_result = await self._start_service(service)
                 if not start_result:
-                    return {"success": False, "error": f"Failed to start {service}"}
+                    self.update_logger.error(f"Failed to start {service}")
+                    all_services_started = False
+
+            # Phase 6: Cleanup (95-100%)
+            if progress_callback:
+                await progress_callback("Cleaning up...", 95)
+
+            await self._cleanup_temp_files(server_download.get("temp_dir"))
+            await self._cleanup_temp_files(client_download.get("temp_dir"))
 
             if progress_callback:
                 await progress_callback("Update completed!", 100)
 
-            # 5. Clean up
-            await self._cleanup_temp_files(download_result.get("temp_dir"))
-
-            return {
+            result = {
                 "success": True,
-                "message": f"{component_key} updated to {latest_version}",
-                "old_version": status["installed"]["versions"].get("main"),
+                "message": f"Multiroom updated to {latest_version}",
+                "old_version": old_version,
                 "new_version": latest_version
             }
 
+            if not all_services_started:
+                result["warning"] = "Some services failed to start automatically"
+
+            return result
+
         except Exception as e:
-            self.update_logger.error(f"{component_key} update failed: {e}")
+            self.update_logger.error(f"Multiroom update failed: {e}")
+            for service in config["services"]:
+                await self._start_service(service)
+            if server_download:
+                await self._cleanup_temp_files(server_download.get("temp_dir"))
+            if client_download:
+                await self._cleanup_temp_files(client_download.get("temp_dir"))
             return {"success": False, "error": str(e)}
 
     # === UTILITY METHODS ===

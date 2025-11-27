@@ -44,20 +44,12 @@ class ProgramVersionService:
                 "repo": "devgianlu/go-librespot",
                 "version_regex": r"(\d+\.\d+\.\d+)"
             },
-            "snapserver": {
-                "name": "Snapserver",
-                "description": "updates.multiroomServer",
+            "multiroom": {
+                "name": "Multiroom",
+                "description": "updates.multiroom",
                 "commands": {
-                    "main": ["snapserver", "--version"]
-                },
-                "repo": "badaix/snapcast",
-                "version_regex": r"v(\d+\.\d+\.\d+)"
-            },
-            "snapclient": {
-                "name": "Snapclient",
-                "description": "updates.multiroomClient",
-                "commands": {
-                    "main": ["snapclient", "--version"]
+                    "snapserver": ["snapserver", "--version"],
+                    "snapclient": ["snapclient", "--version"]
                 },
                 "repo": "badaix/snapcast",
                 "version_regex": r"v(\d+\.\d+\.\d+)"
@@ -287,6 +279,13 @@ class ProgramVersionService:
 
             if isinstance(github_result, Exception):
                 github_result = {"status": "error", "message": str(github_result)}
+
+            # For multiroom, normalize to single canonical version (use snapserver)
+            if program_key == "multiroom" and installed_result.get("status") == "installed":
+                versions = installed_result.get("versions", {})
+                canonical_version = versions.get("snapserver") or versions.get("snapclient")
+                if canonical_version:
+                    installed_result["versions"] = {"main": canonical_version}
 
             # Combine results
             result = {

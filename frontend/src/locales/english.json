@@ -143,8 +143,7 @@
     "updatingInit": "Initializing update...",
     "miloApp": "Operating System",
     "spotifyConnect": "Spotify Connect",
-    "multiroomServer": "Multiroom server",
-    "multiroomClient": "Multiroom client",
+    "multiroom": "Multiroom audio",
     "bluetoothAudio": "Bluetooth audio",
     "macStreaming": "Audio streaming from macOS",
     "upToDate": "Up to date"

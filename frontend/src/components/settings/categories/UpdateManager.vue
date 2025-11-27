@@ -30,6 +30,19 @@
               </div>
             </div>
           </section>
+
+          <!-- Section Satellites skeleton -->
+          <section v-if="isMultiroomEnabled" class="settings-section">
+            <div class="skeleton-text skeleton-heading"></div>
+            <div class="programs-list">
+              <div v-for="n in 1" :key="n" class="program-item-skeleton">
+                <div class="skeleton-icon"></div>
+                <div class="skeleton-text skeleton-name"></div>
+                <div class="skeleton-text skeleton-version"></div>
+                <div class="skeleton-button"></div>
+              </div>
+            </div>
+          </section>
         </div>
       </transition>
 
@@ -96,7 +109,7 @@
               <AppIcon :name="getProgramIcon(key)" :size="48" class="program-icon" />
               <span class="program-name heading-4">{{ getProgramDisplayName(program, key) }}</span>
               <span class="program-version text-mono">
-                {{ key }} {{ getLocalInstalledVersion(program) || $t('updates.notAvailable') }}
+                {{ getVersionLabel(key) }} {{ getLocalInstalledVersion(program) || $t('updates.notAvailable') }}
                 <template v-if="program.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)">
                   <span class="version-new">> {{ getLocalLatestVersion(program) }}</span>
                 </template>
@@ -132,9 +145,12 @@
         <section v-if="isMultiroomEnabled" class="settings-section">
       <h1 class="heading-2">{{ $t('updates.satelliteProgramsTitle') }}</h1>
 
-      <div v-if="satellitesLoading" class="loading-state">
-        <div class="loading-message text-mono">
-          {{ $t('updates.searchingSatellites') }}
+      <div v-if="satellitesLoading" class="programs-list">
+        <div v-for="n in 1" :key="n" class="program-item-skeleton">
+          <div class="skeleton-icon"></div>
+          <div class="skeleton-text skeleton-name"></div>
+          <div class="skeleton-text skeleton-version"></div>
+          <div class="skeleton-button"></div>
         </div>
       </div>
 
@@ -205,8 +221,7 @@ function getProgramIcon(programKey) {
   const iconMap = {
     'milo': 'milo',
     'go-librespot': 'librespot',
-    'snapserver': 'multiroom',
-    'snapclient': 'multiroom',
+    'multiroom': 'multiroom',
     'bluez-alsa': 'bluetooth',
     'roc-toolkit': 'roc'
   };
@@ -216,10 +231,18 @@ function getProgramIcon(programKey) {
 function getProgramDisplayName(program, key) {
   const nameOverrides = {
     'go-librespot': 'Spotify Connect',
+    'multiroom': 'Multiroom',
     'bluez-alsa': 'Bluetooth',
     'roc-toolkit': 'Récepteur audio macOS'
   };
   return nameOverrides[key] || program.name;
+}
+
+function getVersionLabel(key) {
+  const labelOverrides = {
+    'multiroom': 'snapcast'
+  };
+  return labelOverrides[key] || key;
 }
 
 const { t } = useI18n();
@@ -244,7 +267,7 @@ const localCompletedUpdates = ref(new Set());
 const satelliteUpdateStates = ref({});
 const satelliteCompletedUpdates = ref(new Set());
 
-const supportedLocalUpdates = ['milo', 'go-librespot', 'snapserver', 'snapclient'];
+const supportedLocalUpdates = ['milo', 'go-librespot', 'multiroom'];
 
 // === LOCAL PROGRAMS ===
 
