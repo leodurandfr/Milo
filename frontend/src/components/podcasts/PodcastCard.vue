@@ -31,7 +31,7 @@
 
     <div class="card-info">
       <span v-if="tagText" class="podcast-tag text-mono">{{ tagText }}</span>
-      <h3 class="podcast-name text-body-small">{{ podcast.name }}</h3>
+      <h3 class="podcast-name heading-4">{{ podcast.name }}</h3>
       <p v-if="podcast.publisher" class="podcast-publisher text-mono">{{ podcast.publisher }}</p>
     </div>
 
@@ -88,7 +88,7 @@
 
     <div class="row-content">
       <div class="row-info">
-        <h3 class="podcast-name text-body">{{ podcast.name }}</h3>
+        <h3 class="podcast-name heading-3">{{ podcast.name }}</h3>
         <p v-if="podcast.publisher || podcast.author" class="podcast-publisher text-mono">
           {{ podcast.publisher || podcast.author }}
         </p>

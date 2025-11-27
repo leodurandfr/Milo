@@ -3,7 +3,7 @@
   <div class="cards-style-guide">
     <header class="style-guide__header">
       <h1 class="display-1">Cards Style Guide</h1>
-      <p class="text-body-small text-secondary">Podcast and Radio card components reference</p>
+      <p class="text-body text-secondary">Podcast and Radio card components reference</p>
     </header>
 
     <!-- PodcastCard Section -->

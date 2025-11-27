@@ -142,7 +142,8 @@
     "multiroomServer": "Server multiroom",
     "multiroomClient": "Client multiroom",
     "bluetoothAudio": "Audio bluetooth",
-    "macStreaming": "Streaming audio da macOS"
+    "macStreaming": "Streaming audio da macOS",
+    "upToDate": "Aggiornato"
   },
   "info": {
     "title": "Informazioni",

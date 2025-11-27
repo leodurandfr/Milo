@@ -12,7 +12,7 @@
               type="text"
               v-model="keyboardValue"
               :placeholder="keyboardPlaceholder"
-              class="keyboard-display-input text-body"
+              class="keyboard-display-input heading-3"
               readonly
             />
           </div>

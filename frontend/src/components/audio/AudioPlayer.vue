@@ -16,7 +16,7 @@
         <div class="player-info">
           <slot name="info">
             <p v-if="subtitle" class="player-subtitle text-mono">{{ subtitle }}</p>
-            <p :class="['player-title', source === 'radio' ? 'display-1' : 'text-body-small']">{{ title }}</p>
+            <p :class="['player-title', source === 'radio' ? 'display-1' : 'heading-4']">{{ title }}</p>
           </slot>
           <slot name="progress"></slot>
 

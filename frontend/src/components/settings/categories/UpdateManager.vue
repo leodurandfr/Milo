@@ -21,32 +21,16 @@
       <div v-else class="programs-list">
         <!-- Milo OS - displayed first, before the title -->
         <div v-if="localPrograms.milo" class="program-item">
-          <div class="program-header">
-            <div class="program-info">
-              <h3 class="program-name text-body">{{ localPrograms.milo.name }}</h3>
-              <p class="program-description text-mono">{{ $t(localPrograms.milo.description) }}</p>
-            </div>
+          <AppIcon :name="getProgramIcon('milo')" :size="52" class="program-icon" />
+          <span class="program-name heading-3">{{ localPrograms.milo.name }}</span>
+          <span class="program-version text-mono">
+            milo {{ getLocalInstalledVersion(localPrograms.milo) || $t('updates.notAvailable') }}
+            <template v-if="localPrograms.milo.update_available && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')">
+              <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
+            </template>
+          </span>
 
-            <div
-              v-if="localPrograms.milo.update_available && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')"
-              class="version-update">
-              <span class="version-update-label text-mono">{{ $t('updates.latestVersion') }}</span>
-              <span class="version-update-value text-mono">{{ getLocalLatestVersion(localPrograms.milo) || '...'
-                }}</span>
-            </div>
-
-            <div class="version-info">
-              <span class="version-label text-mono">{{ $t('updates.installed') }}</span>
-              <span class="version-value text-mono"
-                :class="{ 'version-uptodate': !localPrograms.milo.update_available, 'version-outdated': localPrograms.milo.update_available }">
-                <span v-if="getLocalInstalledVersion(localPrograms.milo)">{{
-                  getLocalInstalledVersion(localPrograms.milo) }}</span>
-                <span v-else class="text-error">{{ $t('updates.notAvailable') }}</span>
-              </span>
-            </div>
-          </div>
-
-          <!-- Progress message if an update is in progress -->
+          <!-- Progress bar (shown during update) -->
           <div v-if="isLocalUpdating('milo')" class="update-progress">
             <div class="progress-bar">
               <div class="progress-fill" :style="{ width: getLocalUpdateProgress('milo') + '%' }"></div>
@@ -54,22 +38,18 @@
             <p class="progress-message text-mono">{{ getLocalUpdateMessage('milo') }}</p>
           </div>
 
+          <!-- Update button or Up-to-date button -->
           <Button
-            v-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')"
-            variant="brand" @click="startLocalUpdate('milo')" :disabled="isAnyUpdateInProgress()"
-            class="update-button">
+            v-else-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo')"
+            variant="brand"
+            class="program-button"
+            @click="startLocalUpdate('milo')"
+            :disabled="isAnyUpdateInProgress()">
             {{ $t('updates.update') }}
           </Button>
-
-          <!-- Error details if needed -->
-          <div v-if="localPrograms.milo.installed?.errors?.length" class="program-errors">
-            <details class="error-details">
-              <summary class="text-mono">{{ $t('updates.errorDetails') }}</summary>
-              <ul class="error-list">
-                <li v-for="error in localPrograms.milo.installed.errors" :key="error" class="text-mono">{{ error }}</li>
-              </ul>
-            </details>
-          </div>
+          <Button v-else variant="background-strong" class="program-button" disabled>
+            {{ $t('updates.upToDate') }}
+          </Button>
         </div>
 
         <!-- Title for other programs -->
@@ -79,29 +59,16 @@
         <div class="programs-container">
           <template v-for="(program, key) in localPrograms" :key="key">
             <div v-if="key !== 'milo'" class="program-item">
-              <div class="program-header">
-                <div class="program-info">
-                  <h3 class="program-name text-body">{{ program.name }}</h3>
-                  <p class="program-description text-mono">{{ $t(program.description) }}</p>
-                </div>
+              <AppIcon :name="getProgramIcon(key)" :size="52" class="program-icon" />
+              <span class="program-name heading-3">{{ getProgramDisplayName(program, key) }}</span>
+              <span class="program-version text-mono">
+                {{ key }} {{ getLocalInstalledVersion(program) || $t('updates.notAvailable') }}
+                <template v-if="program.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)">
+                  <span class="version-new">> {{ getLocalLatestVersion(program) }}</span>
+                </template>
+              </span>
 
-                <div v-if="program.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)"
-                  class="version-update">
-                  <span class="version-update-label text-mono">{{ $t('updates.latestVersion') }}</span>
-                  <span class="version-update-value text-mono">{{ getLocalLatestVersion(program) || '...' }}</span>
-                </div>
-
-                <div class="version-info">
-                  <span class="version-label text-mono">{{ $t('updates.installed') }}</span>
-                  <span class="version-value text-mono"
-                    :class="{ 'version-uptodate': !program.update_available, 'version-outdated': program.update_available }">
-                    <span v-if="getLocalInstalledVersion(program)">{{ getLocalInstalledVersion(program) }}</span>
-                    <span v-else class="text-error">{{ $t('updates.notAvailable') }}</span>
-                  </span>
-                </div>
-              </div>
-
-              <!-- Progress message if an update is in progress -->
+              <!-- Progress bar (shown during update) -->
               <div v-if="isLocalUpdating(key)" class="update-progress">
                 <div class="progress-bar">
                   <div class="progress-fill" :style="{ width: getLocalUpdateProgress(key) + '%' }"></div>
@@ -109,22 +76,18 @@
                 <p class="progress-message text-mono">{{ getLocalUpdateMessage(key) }}</p>
               </div>
 
+              <!-- Update button or Up-to-date button -->
               <Button
-                v-if="program.update_available && canUpdateLocal(key) && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)"
-                variant="brand" @click="startLocalUpdate(key)" :disabled="isAnyUpdateInProgress()"
-                class="update-button">
+                v-else-if="program.update_available && canUpdateLocal(key) && !isLocalUpdateCompleted(key)"
+                variant="brand"
+                class="program-button"
+                @click="startLocalUpdate(key)"
+                :disabled="isAnyUpdateInProgress()">
                 {{ $t('updates.update') }}
               </Button>
-
-              <!-- Error details if needed -->
-              <div v-if="program.installed?.errors?.length" class="program-errors">
-                <details class="error-details">
-                  <summary class="text-mono">{{ $t('updates.errorDetails') }}</summary>
-                  <ul class="error-list">
-                    <li v-for="error in program.installed.errors" :key="error" class="text-mono">{{ error }}</li>
-                  </ul>
-                </details>
-              </div>
+              <Button v-else variant="background-strong" class="program-button" disabled>
+                {{ $t('updates.upToDate') }}
+              </Button>
             </div>
           </template>
         </div>
@@ -156,30 +119,16 @@
 
       <div v-else class="programs-list">
         <div v-for="satellite in satellites" :key="satellite.hostname" class="program-item">
-          <div class="program-header">
-            <div class="program-info">
-              <h3 class="program-name text-body">{{ $t('updates.snapclientOf') }} {{ satellite.display_name }}</h3>
-              <p class="program-description text-mono">{{ $t('updates.multiroomClient') }} {{ satellite.hostname }}</p>
-            </div>
+          <AppIcon name="multiroom" :size="52" class="program-icon" />
+          <span class="program-name heading-3">{{ $t('updates.snapclientOf') }} {{ satellite.display_name }}</span>
+          <span class="program-version text-mono">
+            snapclient {{ satellite.snapclient_version || $t('updates.notAvailable') }}
+            <template v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)">
+              <span class="version-new">> {{ satellite.latest_version }}</span>
+            </template>
+          </span>
 
-            <div
-              v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)"
-              class="version-update">
-              <span class="version-update-label text-mono">{{ $t('updates.latestVersion') }}</span>
-              <span class="version-update-value text-mono">{{ satellite.latest_version || '...' }}</span>
-            </div>
-
-            <div class="version-info">
-              <span class="version-label text-mono">{{ $t('updates.installed') }}</span>
-              <span class="version-value text-mono"
-                :class="{ 'version-uptodate': !satellite.update_available, 'version-outdated': satellite.update_available }">
-                <span v-if="satellite.snapclient_version">{{ satellite.snapclient_version }}</span>
-                <span v-else class="text-error">{{ $t('updates.notAvailable') }}</span>
-              </span>
-            </div>
-          </div>
-
-          <!-- Progress message if an update is in progress -->
+          <!-- Progress bar (shown during update) -->
           <div v-if="isSatelliteUpdating(satellite.hostname)" class="update-progress">
             <div class="progress-bar">
               <div class="progress-fill" :style="{ width: getSatelliteUpdateProgress(satellite.hostname) + '%' }"></div>
@@ -187,11 +136,17 @@
             <p class="progress-message text-mono">{{ getSatelliteUpdateMessage(satellite.hostname) }}</p>
           </div>
 
+          <!-- Update button or Up-to-date button -->
           <Button
-            v-if="satellite.update_available && satellite.online && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)"
-            variant="brand" @click="startSatelliteUpdate(satellite.hostname)" :disabled="isAnyUpdateInProgress()"
-            class="update-button">
+            v-else-if="satellite.update_available && satellite.online && !isSatelliteUpdateCompleted(satellite.hostname)"
+            variant="brand"
+            class="program-button"
+            @click="startSatelliteUpdate(satellite.hostname)"
+            :disabled="isAnyUpdateInProgress()">
             {{ $t('updates.update') }}
+          </Button>
+          <Button v-else variant="background-strong" class="program-button" disabled>
+            {{ $t('updates.upToDate') }}
           </Button>
         </div>
       </div>
@@ -204,8 +159,29 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
 import useWebSocket from '@/services/websocket';
 import Button from '@/components/ui/Button.vue';
+import AppIcon from '@/components/ui/AppIcon.vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+
+function getProgramIcon(programKey) {
+  const iconMap = {
+    'milo': 'milo',
+    'go-librespot': 'librespot',
+    'snapserver': 'multiroom',
+    'snapclient': 'multiroom',
+    'bluez-alsa': 'bluetooth',
+    'roc-toolkit': 'roc'
+  };
+  return iconMap[programKey] || 'settings';
+}
+
+function getProgramDisplayName(program, key) {
+  const nameOverrides = {
+    'bluez-alsa': 'Bluetooth',
+    'roc-toolkit': 'Récepteur audio macOS'
+  };
+  return nameOverrides[key] || program.name;
+}
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -508,49 +484,41 @@ onMounted(async () => {
   background: var(--color-background-strong);
   border-radius: var(--radius-04);
   padding: var(--space-04);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-04);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "icon name button"
+    "icon version button";
+  align-items: center;
+  gap: var(--space-01) var(--space-04);
 }
 
-.program-header {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-05);
-}
-
-.program-info {
-  flex: 1;
-  min-width: 0;
+.program-icon {
+  grid-area: icon;
 }
 
 .program-name {
+  grid-area: name;
   color: var(--color-text);
-  margin-bottom: var(--space-01);
+  align-self: end;
 }
 
-.program-description {
+.program-version {
+  grid-area: version;
   color: var(--color-text-secondary);
+  align-self: start;
 }
 
-.version-update {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-  flex-shrink: 0;
-  text-align: right;
+.version-new {
+  color: var(--color-brand);
 }
 
-.version-update-label {
-  color: var(--color-text-secondary);
-}
-
-.version-update-value {
-  color: var(--color-text);
+.program-button,
+.update-progress {
+  grid-area: button;
 }
 
 .update-progress {
-  margin-top: var(--space-03);
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
@@ -576,83 +544,36 @@ onMounted(async () => {
   text-align: center;
 }
 
-.version-info {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-01);
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.version-label {
-  color: var(--color-text-secondary);
-}
-
-.version-value {
-  color: var(--color-text);
-}
-
-.version-uptodate {
-  color: var(--color-success);
-}
-
-.version-outdated {
-  color: var(--color-brand);
-}
-
-.update-button {
-  width: 100%;
-}
-
-.program-errors {
-  margin-top: var(--space-02);
-}
-
-.error-details {
-  background: var(--color-background);
-  border-radius: var(--radius-02);
-  padding: var(--space-02);
-}
-
-.error-details summary {
-  cursor: pointer;
-  color: var(--color-text-secondary);
-}
-
-.error-list {
-  margin: var(--space-02) 0 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.error-list li {
-  color: var(--color-error);
-  padding: var(--space-01) 0;
-}
-
-.text-error {
-  color: var(--color-error);
-}
-
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .settings-section {
     border-radius: var(--radius-05);
   }
 
-  .program-header {
-    flex-wrap: wrap;
+  .program-item {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "icon name"
+      "version version"
+      "button button";
+    gap: var(--space-02) var(--space-03);
   }
 
-  .program-info {
-    flex-basis: 100%;
+  .program-icon {
+    width: 32px !important;
+    height: 32px !important;
   }
 
-  .version-update,
-  .version-info {
-    text-align: left;
-    flex: 1 1 0;
-    min-width: 0;
+  .program-name {
+    align-self: center;
+  }
+
+  .program-version {
+    align-self: center;
+  }
+
+  .program-button {
+    width: 100%;
   }
 }
 </style>

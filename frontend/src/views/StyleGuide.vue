@@ -3,7 +3,7 @@
   <div class="style-guide">
     <header class="style-guide__header">
       <h1 class="display-1">Style Guide</h1>
-      <p class="text-body-small text-secondary">Design system reference for Milo</p>
+      <p class="text-body text-secondary">Design system reference for Milo</p>
     </header>
 
     <!-- Typography -->
@@ -23,12 +23,16 @@
           <code class="text-mono">.heading-2</code>
         </div>
         <div class="typography-sample">
-          <span class="text-body">Text Body</span>
-          <code class="text-mono">.text-body</code>
+          <span class="heading-3">Heading 3</span>
+          <code class="text-mono">.heading-3</code>
         </div>
         <div class="typography-sample">
-          <span class="text-body-small">Text Body Small</span>
-          <code class="text-mono">.text-body-small</code>
+          <span class="heading-4">Heading 4</span>
+          <code class="text-mono">.heading-4</code>
+        </div>
+        <div class="typography-sample">
+          <span class="text-body">Text Body</span>
+          <code class="text-mono">.text-body</code>
         </div>
         <div class="typography-sample">
           <span class="text-mono">Text Mono</span>
@@ -100,7 +104,7 @@
     <!-- Button.vue -->
     <section class="style-guide__section">
       <h2 class="heading-1">Button</h2>
-      <p class="text-body-small text-secondary">Variants: background-strong, brand, on-dark, on-grey, outline, important | Props: loading, loading-label</p>
+      <p class="text-body text-secondary">Variants: background-strong, brand, on-dark, on-grey, outline, important | Props: loading, loading-label</p>
 
       <div class="component-grid">
         <div v-for="variant in buttonVariants" :key="variant" :class="['component-row', `component-row--${variant}`]">
@@ -134,7 +138,7 @@
     <!-- IconButton.vue -->
     <section class="style-guide__section">
       <h2 class="heading-1">IconButton</h2>
-      <p class="text-body-small text-secondary">Variants: background-strong, on-dark, on-grey, rounded | Sizes: small, medium, large</p>
+      <p class="text-body text-secondary">Variants: background-strong, on-dark, on-grey, rounded | Sizes: small, medium, large</p>
 
       <div class="component-grid">
         <div v-for="variant in iconButtonVariants" :key="variant" :class="['component-row', `component-row--${variant}`]">

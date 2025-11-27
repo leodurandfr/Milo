@@ -21,7 +21,7 @@
 
     <div class="card-content">
       <div class="content-info">
-        <h4 class="episode-name text-body">{{ episode.name }}</h4>
+        <h4 class="episode-name heading-3">{{ episode.name }}</h4>
         <p v-if="podcastName" class="podcast-name text-mono">{{ podcastName }}</p>
 
         <div class="episode-meta text-mono">

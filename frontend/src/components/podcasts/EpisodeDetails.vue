@@ -21,7 +21,7 @@
           <!-- Description block -->
           <div class="description-block">
             <h3 class="text-mono description-title">{{ t('podcasts.description') }}</h3>
-            <p class="text-body-small-light">{{ episode.description }}</p>
+            <p class="text-body">{{ episode.description }}</p>
           </div>
         </div>
       </transition>

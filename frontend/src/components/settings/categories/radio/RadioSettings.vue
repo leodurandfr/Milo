@@ -3,7 +3,7 @@
     <section class="settings-section">
       <!-- Section 1: Unmodified Favorites -->
       <template v-if="unmodifiedFavorites.length > 0">
-        <h2 class="heading-2 text-body">{{ $t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
+        <h2 class="heading-2 heading-3">{{ $t('radioSettings.unmodifiedFavoritesTitle') }}</h2>
 
         <div class="stations-list">
           <StationCard v-for="station in unmodifiedFavorites" :key="station.id" :station="station" variant="card"
@@ -12,7 +12,7 @@
       </template>
 
       <!-- Section 2: Modified Stations (from RadioBrowserAPI favorites) -->
-      <h2 class="heading-2 text-body">{{ $t('radioSettings.modifiedStationsTitle') }}</h2>
+      <h2 class="heading-2 heading-3">{{ $t('radioSettings.modifiedStationsTitle') }}</h2>
 
       <div v-if="modifiedStations.length > 0" class="stations-list">
         <StationCard v-for="station in modifiedStations" :key="`${station.id}-${station.name}-${updateCounter}`" :station="station"
@@ -25,7 +25,7 @@
 
 
       <!-- Section 3: Added Stations (manually created) -->
-      <h2 v-if="addedStations.length > 0" class="heading-2 text-body">{{ $t('radioSettings.addedStationsTitle') }}</h2>
+      <h2 v-if="addedStations.length > 0" class="heading-2 heading-3">{{ $t('radioSettings.addedStationsTitle') }}</h2>
 
       <div v-if="addedStations.length > 0" class="stations-list">
         <StationCard v-for="station in addedStations" :key="station.id" :station="station" variant="card"

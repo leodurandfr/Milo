@@ -56,15 +56,16 @@
     --font-size-d1: 30px;
     --font-size-h1: 26px;
     --font-size-h2: 22px;
-    --font-size-body: 20px;
-    --font-size-body-small: 18px;
+    --font-size-h3: 20px;
+    --font-size-h4: 18px;
+    --font-size-body: 18px;
     --font-size-mono: 16px;
 
     --letter-spacing-sans-serif: 1%;
     --letter-spacing-mono: -2%;
 
     --line-height-heading: 120%;
-    --line-height-display: 120%;
+    --line-height-display: 36px;
     --line-height-body: 120%;
     --line-height-body-light: 145%;
     --line-height-mono: 140%;
@@ -135,11 +136,13 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
 
 
         /* === STYLES DE TEXTE (Mobile) === */
-        --font-size-d1: 24px;
+        --font-size-d1: 26px;
+        --line-height-display: 30px;
         --font-size-h1: 22px;
         --font-size-h2: 20px;
-        --font-size-body: 18px;
-        --font-size-body-small: 16px;
+        --font-size-h3: 18px;
+        --font-size-h4: 16px;
+        --font-size-body: 16px;
         --font-size-mono: 14px;
 
 
@@ -194,26 +197,26 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
     font-weight: 500;
 }
 
-.text-body {
+.heading-3 {
     font-family: 'Neue Montreal Medium';
+    font-size: var(--font-size-h3);
+    line-height: var(--line-height-heading);
+    letter-spacing: var(--letter-spacing-sans-serif);
+    font-weight: 500;
+}
+
+.heading-4 {
+    font-family: 'Neue Montreal Medium';
+    font-size: var(--font-size-h4);
+    line-height: var(--line-height-heading);
+    letter-spacing: var(--letter-spacing-sans-serif);
+    font-weight: 500;
+}
+
+.text-body {
+    font-family: 'Neue Montreal Regular';
     font-size: var(--font-size-body);
     line-height: var(--line-height-body);
-    letter-spacing: var(--letter-spacing-sans-serif);
-    font-weight: 500;
-}
-
-.text-body-small {
-    font-family: 'Neue Montreal Medium';
-    font-size: var(--font-size-body-small);
-    line-height: var(--line-height-body);
-    letter-spacing: var(--letter-spacing-sans-serif);
-    font-weight: 500;
-}
-
-.text-body-small-light {
-    font-family: 'Neue Montreal Regular';
-    font-size: var(--font-size-body-small);
-    line-height: var(--line-height-body-light);
     letter-spacing: var(--letter-spacing-sans-serif);
     font-weight: 400;
 }
