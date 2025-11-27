@@ -1,14 +1,16 @@
 <!-- frontend/src/components/ui/Modal.vue -->
 <template>
   <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" @click.self="handleOverlayClick">
-    <div ref="modalContainer" class="modal-container">
+    <div ref="modalContainer" class="modal-container" :style="{ height: containerHeight }">
       <IconButton ref="closeButton" class="close-btn-position" icon="close" variant="rounded" size="large"
         aria-label="Fermer" @click="close" />
 
-      <!-- Content -->
+      <!-- Content with animated height -->
       <div ref="modalContent" class="modal-content" @pointerdown="handlePointerDown" @pointermove="handlePointerMove"
         @pointerup="handlePointerUp" @pointercancel="handlePointerUp">
-        <slot></slot>
+        <div ref="contentInner" class="modal-content-inner">
+          <slot></slot>
+        </div>
       </div>
     </div>
   </div>
@@ -17,6 +19,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick, provide } from 'vue';
 import IconButton from './IconButton.vue';
+import { useAnimatedHeight } from '@/composables/useAnimatedHeight';
 
 const props = defineProps({
   isOpen: {
@@ -36,6 +39,26 @@ const modalContent = ref(null);
 const modalContainer = ref(null);
 const modalOverlay = ref(null);
 const closeButton = ref(null);
+const contentInner = ref(null);
+
+// Animated height composable - observe contentInner, add modal-content padding
+const { containerHeight, resetFirstResize } = useAnimatedHeight(contentInner, {
+  threshold: 2,
+  skipFirstResize: true,
+  getExtraHeight: () => {
+    if (!modalContent.value) return 0;
+    const style = getComputedStyle(modalContent.value);
+    return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+  },
+  getMaxHeight: () => {
+    if (!modalOverlay.value) return Infinity;
+    const style = getComputedStyle(modalOverlay.value);
+    const paddingTop = parseFloat(style.paddingTop);
+    const paddingBottom = parseFloat(style.paddingBottom);
+    const bounceMargin = 24;
+    return modalOverlay.value.clientHeight - paddingTop - paddingBottom - bounceMargin;
+  }
+});
 
 // Animation state
 const isVisible = ref(false);
@@ -120,6 +143,7 @@ function handleOverlayClick() {
 // === ANIMATIONS ===
 async function openModal() {
   clearAllTimeouts();
+  resetFirstResize(); // Reset animated height to skip first animation
 
   isAnimating.value = true;
   isVisible.value = true;
@@ -156,7 +180,7 @@ async function openModal() {
   // Container enter animation (uses --transition-spring like the dock)
   const containerTimeout = setTimeout(() => {
     if (!modalContainer.value) return;
-    modalContainer.value.style.transition = 'transform var(--transition-spring), opacity 400ms ease-out';
+    modalContainer.value.style.transition = 'transform var(--transition-spring), opacity 400ms ease-out, height var(--transition-spring)';
     modalContainer.value.style.opacity = '1';
     modalContainer.value.style.transform = 'translateY(0) scale(1)';
   }, ANIMATION_TIMINGS.containerDelay);
@@ -206,7 +230,7 @@ async function closeModal() {
 
   const containerCloseTimeout = setTimeout(() => {
     if (!modalContainer.value) return;
-    modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out`;
+    modalContainer.value.style.transition = `transform ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, opacity ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out, height ${ANIMATION_TIMINGS.closeContainerDuration}ms ease-out`;
     modalContainer.value.style.opacity = '0';
     modalContainer.value.style.transform = 'translateY(var(--space-08)) scale(0.95)';
   }, ANIMATION_TIMINGS.closeContainerDelay);
@@ -376,7 +400,7 @@ onUnmounted(() => {
   align-items: flex-start;
   justify-content: center;
   z-index: 5000;
-  padding: var(--space-07) var(--space-04) var(--space-07) var(--space-04);
+  padding: var(--space-07) var(--space-04) var(--space-05) var(--space-04);
   opacity: 0;
 }
 
@@ -390,6 +414,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   opacity: 0;
+  overflow: visible;
+  transition: height var(--transition-spring);
 }
 
 .modal-container::before {
@@ -427,6 +453,10 @@ onUnmounted(() => {
   border-radius: var(--radius-08);
 }
 
+.modal-content-inner {
+  display: flex;
+  flex-direction: column;
+}
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {

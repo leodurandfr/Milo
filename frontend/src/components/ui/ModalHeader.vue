@@ -115,7 +115,7 @@ function handleBack() {
 
 .modal-header.has-icon,
 .modal-header.has-back {
-  padding: var(--space-03);
+  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
 }
 
 .modal-header h2 {
@@ -204,10 +204,6 @@ function handleBack() {
     border-radius: var(--radius-05);
   }
 
-  .modal-header.has-icon,
-  .modal-header.has-back {
-    padding: var(--space-03);
-  }
 
   .header-icon {
     width: 40px !important;

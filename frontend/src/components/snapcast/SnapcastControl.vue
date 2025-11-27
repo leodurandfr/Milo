@@ -1,7 +1,7 @@
 <!-- frontend/src/components/snapcast/SnapcastControl.vue -->
 <template>
-  <div class="clients-container" :class="{ opening: isOpening }" :style="{ height: containerHeight }">
-    <div class="clients-list" ref="clientsListRef" :class="{ 'with-background': showBackground }">
+  <div class="clients-container">
+    <div class="clients-list" :class="{ 'with-background': showBackground }">
       <!-- MESSAGE: Multiroom disabled -->
       <Transition name="fade-slide">
         <MessageContent v-if="showMessage" key="message">
@@ -22,7 +22,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import useWebSocket from '@/services/websocket';
@@ -34,30 +34,11 @@ const unifiedStore = useUnifiedAudioStore();
 const snapcastStore = useSnapcastStore();
 const { on } = useWebSocket();
 
-const clientsListRef = ref(null);
-const containerHeight = ref('0px');
-const isOpening = ref(true);
-
 // Local state for multiroom transitions
 const isMultiroomTransitioning = ref(false);
 const isMultiroomDeactivating = ref(false);
 
-// Height constants
-const ITEM_HEIGHT_DESKTOP = 72;
-const ITEM_HEIGHT_MOBILE = 116;
-const GAP_DESKTOP = 8;
-const GAP_MOBILE = 8;
-
-let resizeObserver = null;
 let unsubscribeFunctions = [];
-
-function calculateInitialHeight(clientsCount) {
-  const isMobile = window.matchMedia('(max-aspect-ratio: 4/3)').matches;
-  const itemHeight = isMobile ? ITEM_HEIGHT_MOBILE : ITEM_HEIGHT_DESKTOP;
-  const gap = isMobile ? GAP_MOBILE : GAP_DESKTOP;
-
-  return (clientsCount * itemHeight) + ((clientsCount - 1) * gap);
-}
 
 // === COMPUTED ===
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -113,28 +94,6 @@ const displayClients = computed(() => {
   }
   return snapcastStore.clients;
 });
-
-// === RESIZE OBSERVER ===
-function setupResizeObserver() {
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
-
-  resizeObserver = new ResizeObserver(entries => {
-    if (entries[0]) {
-      const newHeight = entries[0].contentRect.height;
-      const currentHeight = parseFloat(containerHeight.value);
-
-      if (Math.abs(newHeight - currentHeight) > 2) {
-        containerHeight.value = `${newHeight}px`;
-      }
-    }
-  });
-
-  if (clientsListRef.value) {
-    resizeObserver.observe(clientsListRef.value);
-  }
-}
 
 // === HANDLERS ===
 async function handleVolumeChange(clientId, volume) {
@@ -201,21 +160,9 @@ onMounted(async () => {
   if (isMultiroomActive.value) {
     // Preload cache synchronously to get the correct number of clients
     snapcastStore.preloadCache();
-    // Set the height immediately with the correct number of clients
-    containerHeight.value = `${calculateInitialHeight(snapcastStore.clients.length || snapcastStore.lastKnownClientCount)}px`;
     // Load fresh clients in the background
     await snapcastStore.loadClients();
-  } else {
-    containerHeight.value = `${calculateInitialHeight(snapcastStore.lastKnownClientCount)}px`;
   }
-
-  await nextTick();
-  setupResizeObserver();
-
-  // Disable the 'opening' class after the modal animation
-  setTimeout(() => {
-    isOpening.value = false;
-  }, 700);
 
   unsubscribeFunctions.push(
     on('snapcast', 'client_connected', handleClientConnected),
@@ -231,9 +178,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
 });
 
 // === WATCHERS ===
@@ -285,16 +229,6 @@ watch(isTogglingMultiroom, (isToggling, wasToggling) => {
 </script>
 
 <style scoped>
-.clients-container {
-  transition: height var(--transition-spring);
-  overflow: visible;
-  position: relative;
-}
-
-.clients-container.opening {
-  transition: none !important;
-}
-
 .clients-list {
   display: flex;
   flex-direction: column;

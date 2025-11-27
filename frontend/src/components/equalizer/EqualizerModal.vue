@@ -1,40 +1,36 @@
 <!-- frontend/src/components/equalizer/EqualizerModal.vue -->
 <template>
   <div class="equalizer-modal">
-    <div class="screen-main">
-      <!-- Header with toggle -->
-      <ModalHeader :title="$t('equalizer.title')">
-        <template #actions="{ iconVariant }">
-          <IconButton v-if="isEqualizerEnabled" icon="reset" :variant="iconVariant" :disabled="equalizerStore.isResetting"
-            @click="handleResetAllBands" />
-          <Toggle v-model="isEqualizerEnabled"
-            :disabled="unifiedStore.systemState.transitioning || isEqualizerToggling" @change="handleEqualizerToggle" />
-        </template>
-      </ModalHeader>
+    <!-- Header with toggle -->
+    <ModalHeader :title="$t('equalizer.title')">
+      <template #actions="{ iconVariant }">
+        <IconButton v-if="isEqualizerEnabled" icon="reset" :variant="iconVariant" :disabled="equalizerStore.isResetting"
+          @click="handleResetAllBands" />
+        <Toggle v-model="isEqualizerEnabled"
+          :disabled="unifiedStore.systemState.transitioning || isEqualizerToggling" @change="handleEqualizerToggle" />
+      </template>
+    </ModalHeader>
 
-      <!-- Main content with animated height -->
-      <div class="content-container" :style="{ height: containerHeight }">
-        <div class="content-wrapper" ref="contentWrapperRef" :class="{ 'with-background': !isEqualizerEnabled }">
-          <!-- MESSAGE: Equalizer disabled -->
-          <Transition name="fade-slide">
-            <MessageContent v-if="!isEqualizerEnabled" key="message">
-              <SvgIcon name="equalizer" :size="64" color="var(--color-background-medium-16)" />
-              <p class="heading-2">{{ $t('equalizer.disabled') }}</p>
-            </MessageContent>
-          </Transition>
+    <!-- Main content -->
+    <div class="content-wrapper" :class="{ 'with-background': !isEqualizerEnabled }">
+      <!-- MESSAGE: Equalizer disabled -->
+      <Transition name="fade-slide">
+        <MessageContent v-if="!isEqualizerEnabled" key="message">
+          <SvgIcon name="equalizer" :size="64" color="var(--color-background-medium-16)" />
+          <p class="heading-2">{{ $t('equalizer.disabled') }}</p>
+        </MessageContent>
+      </Transition>
 
-          <!-- EQUALIZER: Controls -->
-          <Transition name="controls">
-            <div v-if="isEqualizerEnabled" key="controls" class="equalizer-controls">
-              <RangeSliderEqualizer v-for="band in equalizerStore.bands" :key="band.id" v-model="band.value"
-                :label="band.display_name" :orientation="sliderOrientation" :min="0" :max="100" :step="1" unit="%"
-                :disabled="equalizerStore.isUpdating || !equalizerStore.bandsLoaded"
-                :class="{ 'slider-loading': !equalizerStore.bandsLoaded }" @input="handleBandInput(band.id, $event)"
-                @change="handleBandChange(band.id, $event)" />
-            </div>
-          </Transition>
+      <!-- EQUALIZER: Controls -->
+      <Transition name="controls">
+        <div v-if="isEqualizerEnabled" key="controls" class="equalizer-controls">
+          <RangeSliderEqualizer v-for="band in equalizerStore.bands" :key="band.id" v-model="band.value"
+            :label="band.display_name" :orientation="sliderOrientation" :min="0" :max="100" :step="1" unit="%"
+            :disabled="equalizerStore.isUpdating || !equalizerStore.bandsLoaded"
+            :class="{ 'slider-loading': !equalizerStore.bandsLoaded }" @input="handleBandInput(band.id, $event)"
+            @change="handleBandChange(band.id, $event)" />
         </div>
-      </div>
+      </Transition>
     </div>
   </div>
 </template>
@@ -61,11 +57,8 @@ const localEqualizerEnabled = ref(false); // Local state for instant UI
 
 // UI states
 const isMobile = ref(false);
-const contentWrapperRef = ref(null);
-const containerHeight = ref('auto');
 
 let unsubscribeFunctions = [];
-let resizeObserver = null;
 
 // Computed
 const isEqualizerEnabled = computed({
@@ -78,38 +71,6 @@ const sliderOrientation = computed(() => isMobile.value ? 'horizontal' : 'vertic
 function updateMobileStatus() {
   const aspectRatio = window.innerWidth / window.innerHeight;
   isMobile.value = aspectRatio <= 4 / 3;
-}
-
-// === RESIZE OBSERVER ===
-let isFirstResize = true;
-
-function setupResizeObserver() {
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
-
-  resizeObserver = new ResizeObserver(entries => {
-    if (entries[0]) {
-      const newHeight = entries[0].contentRect.height;
-
-      // First time: initialize without transition
-      if (isFirstResize) {
-        containerHeight.value = `${newHeight}px`;
-        isFirstResize = false;
-        return;
-      }
-
-      const currentHeight = parseFloat(containerHeight.value);
-
-      if (Math.abs(newHeight - currentHeight) > 2) {
-        containerHeight.value = `${newHeight}px`;
-      }
-    }
-  });
-
-  if (contentWrapperRef.value) {
-    resizeObserver.observe(contentWrapperRef.value);
-  }
 }
 
 // === BAND MANAGEMENT ===
@@ -220,10 +181,6 @@ onMounted(async () => {
     equalizerStore.bandsLoaded = true;
   }
 
-  // Setup ResizeObserver after the next tick so the ref is available
-  await nextTick();
-  setupResizeObserver();
-
   unsubscribeFunctions.push(
     on('equalizer', 'band_changed', handleEqualizerUpdate),
     on('equalizer', 'reset', handleEqualizerUpdate),
@@ -236,11 +193,6 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateMobileStatus);
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
   clearInterval(watcherInterval);
-
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
-
   equalizerStore.cleanup();
 });
 </script>
@@ -249,20 +201,7 @@ onUnmounted(() => {
 .equalizer-modal {
   display: flex;
   flex-direction: column;
-  height: 100%;
-}
-
-.screen-main {
-  display: flex;
-  flex-direction: column;
   gap: var(--space-03);
-  height: 100%;
-  min-height: 0;
-}
-
-.content-container {
-  transition: height var(--transition-spring);
-  overflow: visible;
 }
 
 .content-wrapper {
