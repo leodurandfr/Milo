@@ -142,8 +142,7 @@
     "updatingInit": "正在初始化更新...",
     "miloApp": "操作系统",
     "spotifyConnect": "Spotify Connect",
-    "multiroomServer": "多房间服务器",
-    "multiroomClient": "多房间客户端",
+    "multiroom": "多房间音频",
     "bluetoothAudio": "蓝牙音频",
     "macStreaming": "来自 macOS 的音频流",
     "upToDate": "已是最新"
