@@ -122,6 +122,9 @@
   },
   "updates": {
     "title": "Actualizaciones",
+    "osTitle": "Sistema operativo",
+    "programsTitle": "Programas de Milō",
+    "satelliteProgramsTitle": "Programas de satélites",
     "miloTitle": "Programas de Milō",
     "satellitesTitle": "Programas de satélites conectados",
     "checking": "Comprobando versiones...",

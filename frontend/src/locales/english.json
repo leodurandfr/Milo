@@ -123,6 +123,9 @@
   },
   "updates": {
     "title": "Updates",
+    "osTitle": "Operating System",
+    "programsTitle": "Milō Programs",
+    "satelliteProgramsTitle": "Satellite Programs",
     "miloTitle": "Milō Programs",
     "satellitesTitle": "Connected satellite programs",
     "checking": "Checking versions...",

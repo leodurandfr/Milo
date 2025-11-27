@@ -14,49 +14,49 @@
           <span class="display-1">Display 1</span>
           <div class="typography-sample__info">
             <code class="text-mono">.display-1</code>
-            <span class="text-mono text-light">30px / 26px mobile</span>
+            <span class="text-mono text-light">32/38 · 28/32 mobile</span>
           </div>
         </div>
         <div class="typography-sample">
           <span class="heading-1">Heading 1</span>
           <div class="typography-sample__info">
             <code class="text-mono">.heading-1</code>
-            <span class="text-mono text-light">26px / 22px mobile</span>
+            <span class="text-mono text-light">26/30 · 22/26 mobile</span>
           </div>
         </div>
         <div class="typography-sample">
           <span class="heading-2">Heading 2</span>
           <div class="typography-sample__info">
             <code class="text-mono">.heading-2</code>
-            <span class="text-mono text-light">22px / 20px mobile</span>
+            <span class="text-mono text-light">22/26 · 20/24 mobile</span>
           </div>
         </div>
         <div class="typography-sample">
           <span class="heading-3">Heading 3</span>
           <div class="typography-sample__info">
             <code class="text-mono">.heading-3</code>
-            <span class="text-mono text-light">20px / 18px mobile</span>
+            <span class="text-mono text-light">20/24 · 18/22 mobile</span>
           </div>
         </div>
         <div class="typography-sample">
           <span class="heading-4">Heading 4</span>
           <div class="typography-sample__info">
             <code class="text-mono">.heading-4</code>
-            <span class="text-mono text-light">18px / 16px mobile</span>
+            <span class="text-mono text-light">18/20 · 16/18 mobile</span>
           </div>
         </div>
         <div class="typography-sample">
           <span class="text-body">Text Body</span>
           <div class="typography-sample__info">
             <code class="text-mono">.text-body</code>
-            <span class="text-mono text-light">18px / 16px mobile</span>
+            <span class="text-mono text-light">18/24 · 16/22 mobile</span>
           </div>
         </div>
         <div class="typography-sample">
           <span class="text-mono">Text Mono</span>
           <div class="typography-sample__info">
             <code class="text-mono">.text-mono</code>
-            <span class="text-mono text-light">16px / 14px mobile</span>
+            <span class="text-mono text-light">16/18 · 14/20 mobile</span>
           </div>
         </div>
       </div>

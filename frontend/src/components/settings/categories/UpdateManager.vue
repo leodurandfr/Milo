@@ -1,66 +1,93 @@
 <!-- frontend/src/components/settings/categories/UpdateManager.vue -->
 <template>
   <div class="update-manager">
-    <!-- Local programs (main Milo) -->
-    <section class="settings-section">
-      <div v-if="localProgramsLoading" class="loading-state">
-        <div class="loading-message text-mono">
-          {{ $t('updates.checking') }}
-        </div>
-      </div>
-
-      <div v-else-if="localProgramsError" class="error-state">
-        <div class="error-message text-mono">
-          {{ $t('updates.error') }}
-        </div>
-        <Button variant="background-strong" @click="loadLocalPrograms">
-          {{ $t('updates.retry') }}
-        </Button>
-      </div>
-
-      <div v-else class="programs-list">
-        <!-- Milo OS - displayed first, before the title -->
-        <div v-if="localPrograms.milo" class="program-item">
-          <AppIcon :name="getProgramIcon('milo')" :size="52" class="program-icon" />
-          <span class="program-name heading-3">{{ localPrograms.milo.name }}</span>
-          <span class="program-version text-mono">
-            milo {{ getLocalInstalledVersion(localPrograms.milo) || $t('updates.notAvailable') }}
-            <template v-if="localPrograms.milo.update_available && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')">
-              <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
-            </template>
-          </span>
-
-          <!-- Progress bar (shown during update) -->
-          <div v-if="isLocalUpdating('milo')" class="update-progress">
-            <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: getLocalUpdateProgress('milo') + '%' }"></div>
-            </div>
-            <p class="progress-message text-mono">{{ getLocalUpdateMessage('milo') }}</p>
+    <!-- Loading skeleton -->
+    <template v-if="localProgramsLoading">
+      <!-- Section OS skeleton -->
+      <section class="settings-section">
+        <div class="skeleton-text skeleton-heading"></div>
+        <div class="programs-list">
+          <div class="program-item-skeleton">
+            <div class="skeleton-icon"></div>
+            <div class="skeleton-text skeleton-name"></div>
+            <div class="skeleton-text skeleton-version"></div>
+            <div class="skeleton-button"></div>
           </div>
-
-          <!-- Update button or Up-to-date button -->
-          <Button
-            v-else-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo')"
-            variant="brand"
-            class="program-button"
-            @click="startLocalUpdate('milo')"
-            :disabled="isAnyUpdateInProgress()">
-            {{ $t('updates.update') }}
-          </Button>
-          <Button v-else variant="background-strong" class="program-button" disabled>
-            {{ $t('updates.upToDate') }}
-          </Button>
         </div>
+      </section>
 
-        <!-- Title for other programs -->
-        <h1 class="heading-2">{{ $t('updates.miloTitle') }}</h1>
+      <!-- Section Programs skeleton -->
+      <section class="settings-section">
+        <div class="skeleton-text skeleton-heading"></div>
+        <div class="programs-list">
+          <div v-for="n in 4" :key="n" class="program-item-skeleton">
+            <div class="skeleton-icon"></div>
+            <div class="skeleton-text skeleton-name"></div>
+            <div class="skeleton-text skeleton-version"></div>
+            <div class="skeleton-button"></div>
+          </div>
+        </div>
+      </section>
+    </template>
 
-        <!-- Other programs container -->
-        <div class="programs-container">
+    <!-- Error state -->
+    <div v-else-if="localProgramsError" class="error-state">
+      <div class="error-message text-mono">
+        {{ $t('updates.error') }}
+      </div>
+      <Button size="small" variant="background-strong" @click="loadLocalPrograms">
+        {{ $t('updates.retry') }}
+      </Button>
+    </div>
+
+    <template v-else>
+      <!-- Section 1: Operating System (Milo OS only) -->
+      <section v-if="localPrograms.milo" class="settings-section">
+        <h1 class="heading-2">{{ $t('updates.osTitle') }}</h1>
+        <div class="programs-list">
+          <div class="program-item">
+            <AppIcon :name="getProgramIcon('milo')" :size="48" class="program-icon" />
+            <span class="program-name heading-4">{{ localPrograms.milo.name }}</span>
+            <span class="program-version text-mono">
+              milo {{ getLocalInstalledVersion(localPrograms.milo) || $t('updates.notAvailable') }}
+              <template v-if="localPrograms.milo.update_available && !isLocalUpdating('milo') && !isLocalUpdateCompleted('milo')">
+                <span class="version-new">> {{ getLocalLatestVersion(localPrograms.milo) }}</span>
+              </template>
+            </span>
+
+            <!-- Progress bar (shown during update) -->
+            <div v-if="isLocalUpdating('milo')" class="update-progress">
+              <div class="progress-bar">
+                <div class="progress-fill" :style="{ width: getLocalUpdateProgress('milo') + '%' }"></div>
+              </div>
+              <p class="progress-message text-mono">{{ getLocalUpdateMessage('milo') }}</p>
+            </div>
+
+            <!-- Update button or Up-to-date button -->
+            <Button
+              v-else-if="localPrograms.milo.update_available && canUpdateLocal('milo') && !isLocalUpdateCompleted('milo')"
+              size="small"
+              variant="brand"
+              class="program-button"
+              @click="startLocalUpdate('milo')"
+              :disabled="isAnyUpdateInProgress()">
+              {{ $t('updates.update') }}
+            </Button>
+            <Button v-else size="small" variant="background-strong" class="program-button" disabled>
+              {{ $t('updates.upToDate') }}
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2: Milo Programs -->
+      <section class="settings-section">
+        <h1 class="heading-2">{{ $t('updates.programsTitle') }}</h1>
+        <div class="programs-list">
           <template v-for="(program, key) in localPrograms" :key="key">
             <div v-if="key !== 'milo'" class="program-item">
-              <AppIcon :name="getProgramIcon(key)" :size="52" class="program-icon" />
-              <span class="program-name heading-3">{{ getProgramDisplayName(program, key) }}</span>
+              <AppIcon :name="getProgramIcon(key)" :size="48" class="program-icon" />
+              <span class="program-name heading-4">{{ getProgramDisplayName(program, key) }}</span>
               <span class="program-version text-mono">
                 {{ key }} {{ getLocalInstalledVersion(program) || $t('updates.notAvailable') }}
                 <template v-if="program.update_available && !isLocalUpdating(key) && !isLocalUpdateCompleted(key)">
@@ -79,24 +106,25 @@
               <!-- Update button or Up-to-date button -->
               <Button
                 v-else-if="program.update_available && canUpdateLocal(key) && !isLocalUpdateCompleted(key)"
+                size="small"
                 variant="brand"
                 class="program-button"
                 @click="startLocalUpdate(key)"
                 :disabled="isAnyUpdateInProgress()">
                 {{ $t('updates.update') }}
               </Button>
-              <Button v-else variant="background-strong" class="program-button" disabled>
+              <Button v-else size="small" variant="background-strong" class="program-button" disabled>
                 {{ $t('updates.upToDate') }}
               </Button>
             </div>
           </template>
         </div>
-      </div>
-    </section>
+      </section>
+    </template>
 
-    <!-- Connected satellites -->
+    <!-- Section 3: Satellite Programs -->
     <section v-if="isMultiroomEnabled" class="settings-section">
-      <h1 class="heading-2">{{ $t('updates.satellitesTitle') }}</h1>
+      <h1 class="heading-2">{{ $t('updates.satelliteProgramsTitle') }}</h1>
 
       <div v-if="satellitesLoading" class="loading-state">
         <div class="loading-message text-mono">
@@ -108,7 +136,7 @@
         <div class="error-message text-mono">
           {{ $t('updates.errorDetectingSatellites') }}
         </div>
-        <Button variant="background-strong" @click="loadSatellites">
+        <Button size="small" variant="background-strong" @click="loadSatellites">
           {{ $t('updates.retry') }}
         </Button>
       </div>
@@ -119,8 +147,8 @@
 
       <div v-else class="programs-list">
         <div v-for="satellite in satellites" :key="satellite.hostname" class="program-item">
-          <AppIcon name="multiroom" :size="52" class="program-icon" />
-          <span class="program-name heading-3">{{ $t('updates.snapclientOf') }} {{ satellite.display_name }}</span>
+          <AppIcon name="multiroom" :size="48" class="program-icon" />
+          <span class="program-name heading-4">{{ $t('updates.snapclientOf') }} {{ satellite.display_name }}</span>
           <span class="program-version text-mono">
             snapclient {{ satellite.snapclient_version || $t('updates.notAvailable') }}
             <template v-if="satellite.update_available && !isSatelliteUpdating(satellite.hostname) && !isSatelliteUpdateCompleted(satellite.hostname)">
@@ -139,13 +167,14 @@
           <!-- Update button or Up-to-date button -->
           <Button
             v-else-if="satellite.update_available && satellite.online && !isSatelliteUpdateCompleted(satellite.hostname)"
+            size="small"
             variant="brand"
             class="program-button"
             @click="startSatelliteUpdate(satellite.hostname)"
             :disabled="isAnyUpdateInProgress()">
             {{ $t('updates.update') }}
           </Button>
-          <Button v-else variant="background-strong" class="program-button" disabled>
+          <Button v-else size="small" variant="background-strong" class="program-button" disabled>
             {{ $t('updates.upToDate') }}
           </Button>
         </div>
@@ -177,6 +206,7 @@ function getProgramIcon(programKey) {
 
 function getProgramDisplayName(program, key) {
   const nameOverrides = {
+    'go-librespot': 'Spotify Connect',
     'bluez-alsa': 'Bluetooth',
     'roc-toolkit': 'Récepteur audio macOS'
   };
@@ -471,19 +501,10 @@ onMounted(async () => {
 .programs-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-05);
-}
-
-.programs-container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
+  gap: var(--space-04);
 }
 
 .program-item {
-  background: var(--color-background-strong);
-  border-radius: var(--radius-04);
-  padding: var(--space-04);
   display: grid;
   grid-template-columns: auto 1fr auto;
   grid-template-areas:
@@ -491,6 +512,11 @@ onMounted(async () => {
     "icon version button";
   align-items: center;
   gap: var(--space-01) var(--space-04);
+}
+
+.program-item:not(:last-child) {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-04);
 }
 
 .program-icon {
@@ -544,6 +570,74 @@ onMounted(async () => {
   text-align: center;
 }
 
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.program-item-skeleton {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "icon name button"
+    "icon version button";
+  align-items: center;
+  gap: var(--space-01) var(--space-04);
+}
+
+.program-item-skeleton:not(:last-child) {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-04);
+}
+
+.skeleton-icon,
+.skeleton-text,
+.skeleton-button {
+  background: linear-gradient(
+    90deg,
+    var(--color-background-strong) 0%,
+    var(--color-background) 50%,
+    var(--color-background-strong) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton-icon {
+  grid-area: icon;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-03);
+}
+
+.skeleton-name {
+  grid-area: name;
+  width: 60%;
+  height: calc(var(--font-size-h4) * 1.2);
+  border-radius: var(--radius-02);
+}
+
+.skeleton-version {
+  grid-area: version;
+  width: 40%;
+  height: calc(var(--font-size-mono) * 1.4);
+  border-radius: var(--radius-02);
+}
+
+.skeleton-button {
+  grid-area: button;
+  width: 80px;
+  height: 36px;
+  border-radius: var(--radius-03);
+}
+
+.skeleton-heading {
+  width: 200px;
+  height: calc(var(--font-size-h2) * 1.2);
+  border-radius: var(--radius-02);
+}
+
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .settings-section {
@@ -560,8 +654,8 @@ onMounted(async () => {
   }
 
   .program-icon {
-    width: 32px !important;
-    height: 32px !important;
+    width: 44px !important;
+    height: 44px !important;
   }
 
   .program-name {
@@ -573,6 +667,25 @@ onMounted(async () => {
   }
 
   .program-button {
+    width: 100%;
+  }
+
+  /* Skeleton responsive */
+  .program-item-skeleton {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "icon name"
+      "version version"
+      "button button";
+    gap: var(--space-02) var(--space-03);
+  }
+
+  .skeleton-icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .skeleton-button {
     width: 100%;
   }
 }

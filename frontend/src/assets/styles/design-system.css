@@ -53,22 +53,29 @@
 
     /* === STYLES DE TEXTE === */
 
-    --font-size-d1: 30px;
+    --font-size-d1: 32px;
+    --line-height-d1: 38px;
+
     --font-size-h1: 26px;
+    --line-height-h1: 30px;
+
     --font-size-h2: 22px;
+    --line-height-h2: 26px;
+
     --font-size-h3: 20px;
+    --line-height-h3: 24px;
+
     --font-size-h4: 18px;
+    --line-height-h4: 20px;
+
     --font-size-body: 18px;
+    --line-height-body: 24px;
+
     --font-size-mono: 16px;
+    --line-height-mono: 18px;
 
     --letter-spacing-sans-serif: 1%;
     --letter-spacing-mono: -2%;
-
-    --line-height-heading: 120%;
-    --line-height-display: 36px;
-    --line-height-body: 120%;
-    --line-height-body-light: 145%;
-    --line-height-mono: 140%;
 
 
 
@@ -136,14 +143,26 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
 
 
         /* === STYLES DE TEXTE (Mobile) === */
-        --font-size-d1: 26px;
-        --line-height-display: 30px;
+        --font-size-d1: 28px;
+        --line-height-d1: 32px;
+
         --font-size-h1: 22px;
+        --line-height-h1: 26px;
+
         --font-size-h2: 20px;
+        --line-height-h2: 24px;
+
         --font-size-h3: 18px;
+        --line-height-h3: 22px;
+
         --font-size-h4: 16px;
+        --line-height-h4: 18px;
+
         --font-size-body: 16px;
+        --line-height-body: 22px;
+
         --font-size-mono: 14px;
+        --line-height-mono: 20px;
 
 
     }
@@ -176,7 +195,7 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
 .display-1 {
     font-family: 'Neue Montreal Medium';
     font-size: var(--font-size-d1);
-    line-height: var(--line-height-display);
+    line-height: var(--line-height-d1);
     letter-spacing: var(--letter-spacing-sans-serif);
     font-weight: 500;
 }
@@ -184,7 +203,7 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
 .heading-1 {
     font-family: 'Neue Montreal Medium';
     font-size: var(--font-size-h1);
-    line-height: var(--line-height-heading);
+    line-height: var(--line-height-h1);
     letter-spacing: var(--letter-spacing-sans-serif);
     font-weight: 500;
 }
@@ -192,7 +211,7 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
 .heading-2 {
     font-family: 'Neue Montreal Medium';
     font-size: var(--font-size-h2);
-    line-height: var(--line-height-heading);
+    line-height: var(--line-height-h2);
     letter-spacing: var(--letter-spacing-sans-serif);
     font-weight: 500;
 }
@@ -200,7 +219,7 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
 .heading-3 {
     font-family: 'Neue Montreal Medium';
     font-size: var(--font-size-h3);
-    line-height: var(--line-height-heading);
+    line-height: var(--line-height-h3);
     letter-spacing: var(--letter-spacing-sans-serif);
     font-weight: 500;
 }
@@ -208,7 +227,7 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
 .heading-4 {
     font-family: 'Neue Montreal Medium';
     font-size: var(--font-size-h4);
-    line-height: var(--line-height-heading);
+    line-height: var(--line-height-h4);
     letter-spacing: var(--letter-spacing-sans-serif);
     font-weight: 500;
 }
@@ -226,7 +245,7 @@ linear(0, 0.0082, 0.0306, 0.0643, 0.1069, 0.156, 0.2098, 0.2665, 0.3247, 0.3833,
     font-size: var(--font-size-mono);
     line-height: var(--line-height-mono);
     letter-spacing: var(--letter-spacing-mono);
-    font-weight: 300;
+    font-weight: 400;
 }
 
 
