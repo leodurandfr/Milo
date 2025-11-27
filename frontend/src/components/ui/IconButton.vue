@@ -33,7 +33,7 @@ const props = defineProps({
   variant: {
     type: String,
     default: 'background-strong',
-    validator: (value) => ['background-strong', 'on-dark', 'on-grey', 'rounded'].includes(value)
+    validator: (value) => ['background-strong', 'on-dark', 'on-light', 'rounded'].includes(value)
   },
   size: {
     type: String,
@@ -63,7 +63,7 @@ const iconSize = computed(() => {
 
 // Icon color based on variant (if not overridden by color prop)
 const iconColor = computed(() => {
-  if (props.variant === 'on-grey') {
+  if (props.variant === 'on-light') {
     return 'var(--color-text-contrast)';
   } else if (props.variant === 'rounded') {
     return 'var(--color-text)';
@@ -142,7 +142,7 @@ function handleClick(event) {
   color: var(--color-text-contrast);
 }
 
-.icon-button--on-grey {
+.icon-button--on-light {
   background: var(--color-background-contrast-12);
   color: var(--color-text-contrast);
 }
@@ -196,7 +196,7 @@ function handleClick(event) {
   color: var(--color-text-contrast);
 }
 
-.icon-button--on-grey.icon-button--loading {
+.icon-button--on-light.icon-button--loading {
   background: var(--color-background-contrast-12);
   color: var(--color-text-contrast);
 }
