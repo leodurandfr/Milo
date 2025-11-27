@@ -27,7 +27,7 @@
           </div>
           <div class="timeout-buttons">
             <Button v-for="timeout in timeoutPresets" :key="timeout.value"
-              :variant="isTimeoutActive(timeout.value) ? 'outline' : 'background-strong'" size="small"
+              :variant="isTimeoutActive(timeout.value) ? 'outline' : 'background-strong'" size="medium"
               @click="setScreenTimeout(timeout.value)">
               {{ timeout.label }}
             </Button>

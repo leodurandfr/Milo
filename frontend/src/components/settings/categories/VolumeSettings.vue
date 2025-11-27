@@ -50,11 +50,11 @@
         <h2 class="heading-2 heading-3">{{ t('volumeSettings.startup') }}</h2>
 
         <div class="startup-mode-buttons">
-          <Button :variant="!config.restore_last_volume ? 'outline' : 'background-strong'" size="small"
+          <Button :variant="!config.restore_last_volume ? 'outline' : 'background-strong'" size="medium"
             @click="updateSetting('volume-startup', { startup_volume: config.startup_volume, restore_last_volume: false })">
             {{ t('volumeSettings.fixedVolume') }}
           </Button>
-          <Button :variant="config.restore_last_volume ? 'outline' : 'background-strong'" size="small"
+          <Button :variant="config.restore_last_volume ? 'outline' : 'background-strong'" size="medium"
             @click="updateSetting('volume-startup', { startup_volume: config.startup_volume, restore_last_volume: true })">
             {{ t('volumeSettings.restoreLast') }}
           </Button>
