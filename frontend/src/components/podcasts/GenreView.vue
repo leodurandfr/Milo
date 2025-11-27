@@ -15,7 +15,7 @@
       </div>
       <div v-else class="podcasts-grid">
         <PodcastCard v-for="podcast in topPodcasts" :key="podcast.itunes_id || podcast.uuid" :podcast="podcast"
-          @select="$emit('select-podcast', podcast)" />
+          :isLoading="isPodcastLoading(podcast)" @select="$emit('select-podcast', podcast)" />
       </div>
     </section>
   </div>
@@ -39,6 +39,10 @@ const props = defineProps({
   genreLabel: {
     type: String,
     required: true
+  },
+  loadingPodcastId: {
+    type: [String, Number],
+    default: null
   }
 })
 
@@ -47,6 +51,12 @@ const emit = defineEmits(['select-podcast'])
 const podcastStore = usePodcastStore()
 
 const loading = ref(false)
+
+// Check if a specific podcast is currently loading (lookup in progress)
+function isPodcastLoading(podcast) {
+  if (!props.loadingPodcastId) return false
+  return podcast.itunes_id === props.loadingPodcastId || podcast.uuid === props.loadingPodcastId
+}
 const topPodcasts = ref([])
 
 async function loadData() {

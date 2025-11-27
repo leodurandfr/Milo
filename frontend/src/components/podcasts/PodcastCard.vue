@@ -24,6 +24,11 @@
         alt=""
       />
       <div v-if="hasNewEpisodes" class="badge-new">{{ t('podcasts.new') }}</div>
+
+      <!-- Loading overlay -->
+      <div v-if="isLoading" class="loading-overlay">
+        <LoadingSpinner :size="48" />
+      </div>
     </div>
 
     <div class="card-info">
@@ -76,6 +81,11 @@
         class="placeholder-image"
         alt=""
       />
+
+      <!-- Loading overlay -->
+      <div v-if="isLoading" class="loading-overlay">
+        <LoadingSpinner :size="32" />
+      </div>
     </div>
 
     <div class="row-content">
@@ -113,6 +123,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useI18n } from '@/services/i18n'
 import Button from '@/components/ui/Button.vue'
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import podcastPlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
 
 const { t } = useI18n()
@@ -144,6 +155,10 @@ const props = defineProps({
     default: true
   },
   contrast: {
+    type: Boolean,
+    default: false
+  },
+  isLoading: {
     type: Boolean,
     default: false
   }
@@ -268,6 +283,18 @@ onMounted(() => {
   z-index: 0;
 }
 
+.variant-card .card-image .loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--color-background-contrast-32);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  color: var(--color-text-contrast);
+}
+
 .variant-card .badge-new {
   position: absolute;
   top: var(--space-02);
@@ -339,6 +366,19 @@ onMounted(() => {
 .variant-row .row-image .placeholder-image {
   opacity: 1;
   z-index: 0;
+}
+
+.variant-row .row-image .loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--color-background-contrast-32);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  color: var(--color-text-contrast);
+  border-radius: var(--radius-02);
 }
 
 .variant-row .row-content {
