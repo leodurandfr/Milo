@@ -1,6 +1,7 @@
 <template>
-  <Transition name="audio-player" appear @after-leave="$emit('after-hide')">
-    <div v-show="visible" class="audio-player" :class="playerClasses" :style="playerStyle">
+  <Teleport to="body" :disabled="!isMobile">
+    <Transition name="audio-player" appear @after-leave="$emit('after-hide')">
+      <div v-show="visible" class="audio-player" :class="playerClasses" :style="playerStyle">
       <!-- Background image - heavily zoomed and blurred -->
       <div class="player-art-background">
         <img v-if="artwork" :src="artwork" alt="" class="background-image" />
@@ -33,14 +34,31 @@
           </slot>
         </div>
       </div>
-    </div>
-  </Transition>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
+
+// Mobile detection for Teleport
+const isMobile = ref(false)
+
+const checkMobile = () => {
+  isMobile.value = window.matchMedia('(max-aspect-ratio: 4/3)').matches
+}
+
+onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
+})
 
 const props = defineProps({
   /**
@@ -149,7 +167,7 @@ const playerStyle = computed(() => {
   backdrop-filter: blur(16px);
   position: relative;
   overflow: hidden;
-  z-index: 1;
+  z-index: 50;
 }
 
 /* Glass stroke border effect (matching both radio and podcast players exactly) */
@@ -315,9 +333,6 @@ const playerStyle = computed(() => {
     min-width: 0;
   }
 
-  :deep(.playback-controls) {
-    gap: var(--space-01);
-  }
 
 
   /* Apply same styles to slotted content (fixes scoped CSS limitation) */
@@ -394,16 +409,6 @@ const playerStyle = computed(() => {
     flex-shrink: 0;
   }
 
-  /* Harmonize all IconButton sizes in controls on mobile (Radio + Podcasts) */
-  .controls :deep(.icon-button) {
-    width: 36px;
-    height: 36px;
-  }
-
-  .controls :deep(.icon-button svg) {
-    width: 28px;
-    height: 28px;
-  }
 }
 
 /* Vue Transition: Desktop - slide from right with fade */
@@ -438,6 +443,13 @@ const playerStyle = computed(() => {
 
 /* Vue Transition: Mobile */
 @media (max-aspect-ratio: 4/3) {
+  .audio-player-enter-active,
+  .audio-player-leave-active {
+    position: fixed;
+    bottom: var(--space-08);
+    left: 50%;
+  }
+
   .audio-player-enter-active {
     transition:
       transform var(--transition-spring),

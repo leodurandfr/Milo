@@ -369,32 +369,7 @@ async function loadMoreEpisodes() {
   min-width: 220px;
 }
 
-/* Mobile: scroll horizontal au lieu de wrap vertical */
-@media (max-aspect-ratio: 4/3) {
-  .filters-bar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
 
-    /* Full-bleed: compense le padding du parent AudioSourceLayout */
-    margin-left: calc(-1 * var(--space-05));
-    margin-right: calc(-1 * var(--space-05));
-    padding-left: var(--space-05);
-    padding-right: var(--space-05);
-
-    /* Masquer la scrollbar */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .filters-bar::-webkit-scrollbar {
-    display: none;
-  }
-
-  .filters-bar > * {
-    flex-shrink: 0;
-  }
-}
 
 .results {
   display: flex;
@@ -443,5 +418,31 @@ async function loadMoreEpisodes() {
 .message-wrapper {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
+}
+/* Mobile: scroll horizontal au lieu de wrap vertical */
+@media (max-aspect-ratio: 4/3) {
+  .filters-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+
+    /* Full-bleed: compense le padding du parent AudioSourceLayout */
+    margin-left: calc(-1 * var(--space-05));
+    margin-right: calc(-1 * var(--space-05));
+    padding-left: var(--space-05);
+    padding-right: var(--space-05);
+
+    /* Masquer la scrollbar */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .filters-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filters-bar > * {
+    flex-shrink: 0;
+  }
 }
 </style>

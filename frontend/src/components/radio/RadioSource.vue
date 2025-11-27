@@ -12,7 +12,7 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div ref="radioContainer" class="radio-content">
+      <div ref="radioContainer" class="radio-content" :class="{ 'has-player': shouldShowNowPlayingLayout }">
         <!-- Favorites View -->
         <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
           :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
@@ -449,6 +449,10 @@ onBeforeUnmount(() => {
 
 /* Mobile: compact controls on the right */
 @media (max-aspect-ratio: 4/3) {
+  .radio-content.has-player {
+    padding-bottom: 144px;
+  }
+
   .radio-controls {
     width: auto;
     justify-content: flex-end;

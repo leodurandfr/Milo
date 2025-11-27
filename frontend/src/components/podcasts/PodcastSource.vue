@@ -19,7 +19,7 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div class="podcast-content" :class="{ 'search-spacing': currentView === 'search' && !hasCredentialsError }">
+      <div class="podcast-content" :class="{ 'search-spacing': currentView === 'search' && !hasCredentialsError, 'has-player': shouldShowPlayerLayout }">
         <!-- Credentials Required -->
         <CredentialsRequired v-if="hasCredentialsError" key="credentials" @configure="openPodcastSettings" />
 
@@ -469,5 +469,12 @@ onBeforeUnmount(() => {
 :deep(.dropdown-trigger--transparent) {
   min-width: 48px;
   padding: var(--space-02) 0;
+}
+
+/* Mobile: spacer for fixed player */
+@media (max-aspect-ratio: 4/3) {
+  .podcast-content.has-player {
+    padding-bottom: 184px;
+  }
 }
 </style>
