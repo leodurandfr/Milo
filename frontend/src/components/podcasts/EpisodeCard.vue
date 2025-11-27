@@ -1,5 +1,5 @@
 <template>
-  <div class="episode-card" @click="$emit('select', episode)">
+  <div class="episode-card" :class="{ clickable, contrast }" @click="handleCardClick">
     <div class="card-image">
       <img
         ref="imgRef"
@@ -38,9 +38,9 @@
       </div>
 
       <div class="card-actions">
-        <IconButton v-if="showCompleteButton" icon="close" variant="background-strong" size="medium"
+        <IconButton v-if="showCompleteButton" icon="close" :variant="contrast ? 'on-dark' : 'background-strong'" size="medium"
           @click.stop="$emit('complete', episode)" />
-        <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" variant="background-strong" size="medium"
+        <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" :variant="contrast ? 'on-dark' : 'background-strong'" size="medium"
           :loading="isCurrentEpisodeBuffering" @click.stop="handlePlayClick" />
       </div>
     </div>
@@ -64,12 +64,26 @@ const props = defineProps({
   showCompleteButton: {
     type: Boolean,
     default: false
+  },
+  clickable: {
+    type: Boolean,
+    default: true
+  },
+  contrast: {
+    type: Boolean,
+    default: false
   }
 })
 
 const $emit = defineEmits(['select', 'play', 'pause', 'complete'])
 
 const podcastStore = usePodcastStore()
+
+function handleCardClick() {
+  if (props.clickable) {
+    $emit('select', props.episode)
+  }
+}
 const imageError = ref(false)
 const imageLoaded = ref(false)
 const imgRef = ref(null)
@@ -208,9 +222,12 @@ onMounted(() => {
   gap: var(--space-03);
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
-  padding: var(--space-03);
+  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
+  transition: all var(--transition-fast);
+}
+
+.episode-card.clickable {
   cursor: pointer;
-  transition: background var(--transition-fast);
 }
 
 
@@ -331,5 +348,22 @@ onMounted(() => {
   .episode-meta {
     display: none;
   }
+}
+
+/* === CONTRAST VARIANT === */
+.episode-card.contrast {
+  background: var(--color-background-contrast);
+}
+
+.episode-card.contrast .episode-name {
+  color: var(--color-text-contrast);
+}
+
+.episode-card.contrast .podcast-name {
+  color: var(--color-brand);
+}
+
+.episode-card.contrast .episode-meta {
+  color: var(--color-text-contrast-50);
 }
 </style>
