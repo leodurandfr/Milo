@@ -27,7 +27,8 @@ export const usePodcastStore = defineStore('podcast', () => {
   // Cache subscriptions to avoid reloading when navigating between views
   const subscriptions = ref([])
   const latestSubscriptionEpisodes = ref([])
-  const subscriptionsLoaded = ref(false)
+  const subscriptionsListLoaded = ref(false) // True when subscriptions list is loaded (no Taddy call)
+  const subscriptionsLoaded = ref(false) // True when latest episodes are also loaded (with Taddy call)
 
   // === SETTINGS ===
   // Note: Language/country are centralized in /var/lib/milo/settings.json (via settingsStore)
@@ -297,16 +298,38 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   // === SUBSCRIPTIONS ACTIONS ===
 
+  // Lightweight preload - only fetches subscriptions list (no Taddy API call)
+  // Called at app startup to know if hasSubscriptions before opening Podcasts
+  async function preloadSubscriptionsList() {
+    if (subscriptionsListLoaded.value) return
+
+    try {
+      const response = await fetch('/api/podcast/subscriptions')
+      const data = await response.json()
+      subscriptions.value = data.subscriptions || []
+      subscriptionsListLoaded.value = true
+    } catch (error) {
+      console.error('Error preloading subscriptions list:', error)
+    }
+  }
+
+  // Full load - fetches subscriptions list + latest episodes (Taddy API call)
+  // Called when HomeView opens
   async function loadSubscriptions(forceRefresh = false) {
-    // Return cached data if available and not forcing refresh
+    // Return cached data if fully loaded and not forcing refresh
     if (subscriptionsLoaded.value && !forceRefresh) {
       return { subscriptions: subscriptions.value, latestEpisodes: latestSubscriptionEpisodes.value }
     }
 
-    const subResponse = await fetch('/api/podcast/subscriptions')
-    const subData = await subResponse.json()
-    subscriptions.value = subData.subscriptions || []
+    // Reuse subscriptions list if already preloaded, otherwise fetch
+    if (!subscriptionsListLoaded.value) {
+      const subResponse = await fetch('/api/podcast/subscriptions')
+      const subData = await subResponse.json()
+      subscriptions.value = subData.subscriptions || []
+      subscriptionsListLoaded.value = true
+    }
 
+    // Fetch latest episodes (Taddy API call) if user has subscriptions
     if (subscriptions.value.length > 0) {
       const latestResponse = await fetch('/api/podcast/subscriptions/latest-episodes?limit=20')
       const latestData = await latestResponse.json()
@@ -399,6 +422,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     enrichEpisodesWithProgress,
 
     // Subscriptions
+    preloadSubscriptionsList,
     loadSubscriptions,
     removeSubscription
   }

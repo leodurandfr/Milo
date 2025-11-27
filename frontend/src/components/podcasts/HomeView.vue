@@ -124,8 +124,10 @@ const loadingTopEpisodes = ref(true)
 const loadingSubscriptions = ref(true)
 const topCharts = ref([])
 const topEpisodes = ref([])
-const latestSubscriptionEpisodes = ref([])
-const hasSubscriptions = ref(false)
+
+// Use store's computed for hasSubscriptions (preloaded in App.vue)
+const hasSubscriptions = computed(() => podcastStore.hasSubscriptions)
+const latestSubscriptionEpisodes = computed(() => podcastStore.latestSubscriptionEpisodes)
 
 const mainGenres = computed(() => [
   { value: 'PODCASTSERIES_NEWS', label: t('podcasts.genres.news'), emoji: '📰' },
@@ -153,12 +155,10 @@ async function handlePause() {
 async function loadData() {
   // Note: Country/language is automatically derived from user settings on the backend
 
-  // Load subscriptions via store (cached) to determine if section should show (Bloc 1)
+  // Load subscriptions via store (cached, preloaded in App.vue)
   loadingSubscriptions.value = true
   try {
-    const { subscriptions, latestEpisodes } = await podcastStore.loadSubscriptions()
-    hasSubscriptions.value = subscriptions.length > 0
-    latestSubscriptionEpisodes.value = latestEpisodes.slice(0, 10) // HomeView shows max 10
+    await podcastStore.loadSubscriptions()
   } catch (error) {
     console.error('Error loading subscription episodes:', error)
   } finally {

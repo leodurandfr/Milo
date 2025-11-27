@@ -121,6 +121,10 @@ onMounted(async () => {
   await loadHardwareInfo();
   await settingsStore.loadAllSettings();
 
+  // Preload podcast subscriptions list in background (for instant hasSubscriptions check)
+  // Only fetches local data, no Taddy API call - episodes loaded when HomeView opens
+  podcastStore.preloadSubscriptionsList()
+
   // Final synchronous setup
   unifiedStore.setVolumeBarRef(volumeBar);
 });
