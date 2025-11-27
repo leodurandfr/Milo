@@ -19,7 +19,7 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div class="podcast-content" :class="{ 'search-spacing': currentView === 'search' && !hasCredentialsError, 'has-player': shouldShowPlayerLayout }">
+      <div class="podcast-content" :class="{ 'search-spacing': currentView === 'search' && !hasCredentialsError, 'has-player': shouldShowPlayerLayout && isMobile }">
         <!-- Credentials Required -->
         <CredentialsRequired v-if="hasCredentialsError" key="credentials" @configure="openPodcastSettings" />
 
@@ -41,7 +41,8 @@
 
         <!-- Genre View -->
         <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre"
-          :genreLabel="selectedGenreLabel" @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails"
+          :genreLabel="selectedGenreLabel" :loadingPodcastId="loadingPodcastId"
+          @select-podcast="openPodcastDetails" @select-episode="openEpisodeDetails"
           @play-episode="playEpisode" />
 
         <!-- Podcast Details (full screen overlay) -->
@@ -167,6 +168,9 @@ const shouldShowPlayerLayout = ref(false)
 // Expanded player state
 const isPlayerExpanded = ref(false)
 
+// Responsive detection for desktop vs mobile
+const isMobile = ref(false)
+
 // Auto-stop timer: stops playback after 5 seconds of pause
 const stopTimer = ref(null)
 
@@ -245,6 +249,9 @@ const selectedEpisodeUuid = computed(() => currentParams.value.episodeUuid || ''
 const selectedGenre = computed(() => currentParams.value.genre || '')
 const selectedGenreLabel = computed(() => currentParams.value.genreLabel || '')
 
+// Loading state for podcast lookup (iTunes ID → UUID conversion)
+const loadingPodcastId = ref(null)
+
 // Computed title and subtitle based on view
 const currentTitle = computed(() => {
   switch (currentView.value) {
@@ -311,6 +318,8 @@ async function openPodcastDetails(podcastOrUuid) {
     uuid = podcastOrUuid.uuid
   } else if (podcastOrUuid && podcastOrUuid.itunes_id) {
     // Podcast object from iTunes RSS without UUID - need to lookup
+    // Set loading state (use itunes_id as identifier)
+    loadingPodcastId.value = podcastOrUuid.itunes_id
     try {
       // Lookup UUID from iTunes ID (pass name for better matching)
       const params = new URLSearchParams({ name: podcastOrUuid.name || '' })
@@ -320,12 +329,16 @@ async function openPodcastDetails(podcastOrUuid) {
         uuid = data.uuid
       } else {
         console.error('Failed to lookup podcast UUID from iTunes ID')
+        loadingPodcastId.value = null
         return
       }
     } catch (error) {
       console.error('Error looking up podcast UUID:', error)
+      loadingPodcastId.value = null
       return
     }
+    // Clear loading state after successful lookup
+    loadingPodcastId.value = null
   } else {
     console.error('Invalid podcast data:', podcastOrUuid)
     return
@@ -419,6 +432,13 @@ async function handleSpeedChange(speedValue) {
 
 // Initialize
 onMounted(async () => {
+  // Mobile detection
+  const updateMediaQuery = () => {
+    isMobile.value = window.matchMedia('(max-aspect-ratio: 4/3)').matches
+  }
+  updateMediaQuery()
+  window.addEventListener('resize', updateMediaQuery)
+
   // Load settings and initial data
   await podcastStore.loadSettings()
 })

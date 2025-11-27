@@ -12,7 +12,7 @@
 
     <!-- Content slot: scrollable views -->
     <template #content>
-      <div ref="radioContainer" class="radio-content" :class="{ 'has-player': shouldShowNowPlayingLayout }">
+      <div ref="radioContainer" class="radio-content" :class="{ 'has-player': shouldShowNowPlayingLayout && isMobile }">
         <!-- Favorites View -->
         <FavoritesView v-if="!isSearchMode" key="favorites" :is-loading="radioStore.loading"
           :current-station="radioStore.currentStation" :is-playing="isCurrentlyPlaying"
