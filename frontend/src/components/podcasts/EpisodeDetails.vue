@@ -123,7 +123,7 @@ onMounted(() => {
 .details-content {
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
+  gap: var(--space-03);
   min-width: 0;
 }
 
