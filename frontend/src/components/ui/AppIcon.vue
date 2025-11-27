@@ -1,10 +1,8 @@
 <template>
   <div class="app-icon" :style="iconStyle" :class="{
-    'size-large': props.size === 'large' || props.size === 72,
-    'is-loading': props.state === 'loading'
+    'size-large': props.size === 'large' || props.size === 72
   }">
-    <LoadingSpinner v-if="props.state === 'loading'" :size="props.size" variant="background" />
-    <div v-else class="app-icon-content">
+    <div class="app-icon-content">
       <div v-html="svgContent" class="app-icon-svg" />
     </div>
   </div>
@@ -17,7 +15,6 @@ let instanceCounter = 0;
 
 <script setup>
 import { computed } from 'vue';
-import LoadingSpinner from './LoadingSpinner.vue';
 
 // Generate a unique ID for this component instance
 const instanceId = ++instanceCounter;
@@ -31,11 +28,6 @@ const props = defineProps({
   size: {
     type: [String, Number],
     default: 32
-  },
-  state: {
-    type: String,
-    default: 'normal',
-    validator: (value) => ['normal', 'loading'].includes(value)
   }
 });
 
@@ -146,10 +138,6 @@ const svgContent = computed(() => {
   isolation: isolate; /* Prevent mix-blend-mode from SVGs leaking to other elements */
 }
 
-.app-icon.is-loading {
-  overflow: visible;
-}
-
 .app-icon-content {
   display: flex;
   align-items: center;
@@ -175,11 +163,6 @@ const svgContent = computed(() => {
     width: 64px !important;
     height: 64px !important;
     --icon-size: 64px;
-  }
-
-  .app-icon.size-large :deep(.loading-spinner) {
-    width: 64px !important;
-    height: 64px !important;
   }
 }
 </style>
