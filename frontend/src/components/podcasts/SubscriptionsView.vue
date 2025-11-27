@@ -1,41 +1,42 @@
-<template>
-  <div class="subscriptions-view">
-    <!-- My podcasts -->
-    <section class="section">
-      <!-- <h2 class="section-title heading-2">{{ t('podcasts.myPodcasts') }}</h2> -->
+  <template>
+    <div class="subscriptions-view">
+      <!-- My podcasts -->
+      <section class="section">
+        <!-- <h2 class="section-title heading-2">{{ t('podcasts.myPodcasts') }}</h2> -->
 
-      <div v-if="loading" class="message-wrapper">
-        <MessageContent loading>
-          <p class="heading-2">{{ t('podcasts.loading') }}</p>
-        </MessageContent>
-      </div>
+        <div v-if="loading" class="message-wrapper">
+          <MessageContent loading>
+            <p class="heading-2">{{ t('podcasts.loading') }}</p>
+          </MessageContent>
+        </div>
 
-      <div v-else-if="subscriptions.length === 0" class="message-wrapper">
-        <MessageContent>
-          <SvgIcon name="heartOff" :size="64" color="var(--color-background-medium-16)" />
-          <p class="heading-2">{{ t('podcasts.noSubscriptions') }}</p>
-          <p class="text-mono">{{ t('podcasts.noSubscriptionsHint') }}</p>
-        </MessageContent>
-      </div>
+        <div v-else-if="subscriptions.length === 0" class="message-wrapper">
+          <MessageContent>
+            <SvgIcon name="heartOff" :size="64" color="var(--color-background-medium-16)" />
+            <p class="heading-2">{{ t('podcasts.noSubscriptions') }}</p>
+            <p class="text-mono">{{ t('podcasts.noSubscriptionsHint') }}</p>
+          </MessageContent>
+        </div>
 
-      <div v-else class="podcasts-grid">
-        <PodcastCard v-for="sub in subscriptions" :key="sub.uuid" :podcast="formatSubscription(sub)" :showActions="true"
-          @select="$emit('select-podcast', sub.uuid)" @unsubscribe="handleUnsubscribe" />
-      </div>
-    </section>
+        <div v-else class="podcasts-grid">
+          <PodcastCard v-for="sub in subscriptions" :key="sub.uuid" :podcast="formatSubscription(sub)"
+            :showActions="true" @select="$emit('select-podcast', sub.uuid)" @unsubscribe="handleUnsubscribe" />
+        </div>
+      </section>
 
-    <!-- Latest episodes from subscriptions -->
-    <section v-if="latestEpisodes.length > 0" class="section">
+      <!-- Latest episodes from subscriptions -->
+      <section v-if="latestEpisodes.length > 0" class="section">
 
-      <h2 class="section-title heading-2">{{ t('podcasts.newEpisodes') }}</h2>
+        <h2 class="section-title heading-2">{{ t('podcasts.newEpisodes') }}</h2>
 
-      <div class="episodes-list">
-        <EpisodeCard v-for="episode in latestEpisodes" :key="episode.uuid" :episode="episode"
-          @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)" @pause="handlePause" />
-      </div>
-    </section>
-  </div>
-</template>
+        <div class="episodes-list">
+          <EpisodeCard v-for="episode in latestEpisodes" :key="episode.uuid" :episode="episode"
+            @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)"
+            @pause="handlePause" />
+        </div>
+      </section>
+    </div>
+  </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
@@ -133,5 +134,11 @@ onMounted(() => {
 .message-wrapper {
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .podcasts-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
 }
 </style>

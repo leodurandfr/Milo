@@ -253,6 +253,7 @@ onMounted(() => {
   opacity: 0;
   transition: opacity var(--transition-normal);
   z-index: 1;
+  background: var(--color-background-neutral);
 }
 
 .station-image .station-img.loaded {

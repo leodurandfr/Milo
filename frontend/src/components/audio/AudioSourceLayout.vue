@@ -217,14 +217,6 @@ const playerWidth = 278
     margin-right: 0;
   }
 
-  /* Spacer pour le player via pseudo-élément */
-  .content-container.with-player::after {
-    content: '';
-    display: block;
-    height: 160px;
-    flex-shrink: 0;
-  }
-
   .player-wrapper {
     display: contents;
     width: auto;

@@ -314,7 +314,7 @@ onMounted(() => {
   width: 128px;
   height: 128px;
   flex-shrink: 0;
-  border-radius: var(--radius-03);
+  border-radius: var(--radius-02);
   overflow: hidden;
 }
 
