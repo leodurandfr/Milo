@@ -122,6 +122,9 @@
   },
   "updates": {
     "title": "अपडेट",
+    "osTitle": "ऑपरेटिंग सिस्टम",
+    "programsTitle": "Milō प्रोग्राम",
+    "satelliteProgramsTitle": "सैटेलाइट प्रोग्राम",
     "miloTitle": "Milō प्रोग्राम",
     "satellitesTitle": "कनेक्टेड सैटेलाइट प्रोग्राम",
     "checking": "संस्करण जांचे जा रहे हैं...",
