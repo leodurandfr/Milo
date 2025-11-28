@@ -276,9 +276,7 @@ onBeforeUnmount(() => {
   transition: color var(--transition-fast);
 }
 
-.dropdown-trigger.has-selection .dropdown-label {
-  color: var(--color-text);
-}
+
 
 .dropdown-icon {
   flex-shrink: 0;

@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/ListItemButton.vue -->
 <template>
-  <button type="button" :class="['list-item-button', `list-item-button--${variant}`]" :disabled="disabled && action === 'toggle'" @click="handleClick">
+  <button type="button" :class="['list-item-button', `list-item-button--${variant}`]" :disabled="disabled" @click="handleClick">
     <!-- Icon on the left -->
     <div v-if="$slots.icon" class="list-item-button__icon">
       <slot name="icon"></slot>
@@ -49,8 +49,10 @@ const props = defineProps({
 const emit = defineEmits(['click', 'update:modelValue']);
 
 function handleClick(event) {
+  if (props.disabled) return;
+
   // For toggle action, toggle the value
-  if (props.action === 'toggle' && !props.disabled) {
+  if (props.action === 'toggle') {
     emit('update:modelValue', !props.modelValue);
   }
   emit('click', event);
@@ -72,7 +74,10 @@ function handleClick(event) {
 
 .list-item-button:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+}
+
+.list-item-button:disabled .list-item-button__title {
+  color: var(--color-text-light);
 }
 
 /* Default variant (navigation items - SettingsModal) */
@@ -122,6 +127,7 @@ function handleClick(event) {
 .list-item-button__title {
   flex: 1;
   color: var(--color-text);
+  transition: color var(--transition-fast);
 }
 
 /* Right action */
