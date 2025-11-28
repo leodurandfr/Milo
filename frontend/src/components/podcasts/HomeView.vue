@@ -294,5 +294,8 @@ onMounted(() => {
   .podcasts-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .genres-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 </style>

@@ -8,7 +8,7 @@
         size="small"
         icon="search"
         :icon-size="24"
-        @update:modelValue="$emit('search')"
+        @update:modelValue="onSearchInput"
       />
       <Dropdown
         v-model="countryFilter"
@@ -75,7 +75,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRadioStore } from '@/stores/radioStore'
 import { useI18n } from '@/services/i18n'
 import StationCard from './StationCard.vue'
@@ -146,7 +146,19 @@ const props = defineProps({
   }
 })
 
-defineEmits(['search', 'retry', 'play-station'])
+const emit = defineEmits(['search', 'retry', 'play-station'])
+
+// Debounce timer for search input
+const searchDebounceTimer = ref(null)
+
+function onSearchInput() {
+  if (searchDebounceTimer.value) {
+    clearTimeout(searchDebounceTimer.value)
+  }
+  searchDebounceTimer.value = setTimeout(() => {
+    emit('search')
+  }, 400)
+}
 
 // Two-way binding for filters (v-model on store properties)
 const searchQuery = computed({

@@ -3,7 +3,7 @@
     <!-- Filters -->
     <div class="filters-bar">
       <InputText v-model="searchTerm" :placeholder="t('podcasts.searchPlaceholder')" icon="search"
-        @keyup.enter="performSearch" />
+        @update:modelValue="onSearchInput" />
       <Dropdown v-model="selectedLanguage" :options="languageOptions" />
       <Dropdown v-model="selectedGenre" :options="genreOptions" />
       <Dropdown v-model="selectedDuration" :options="durationOptions" />
@@ -170,25 +170,54 @@ const loadingMorePodcasts = ref(false)
 const loadingMoreEpisodes = ref(false)
 const resultsContainer = ref(null)
 
-// Debounce timer for filter changes
+// Debounce timers
 const filterDebounceTimer = ref(null)
+const searchDebounceTimer = ref(null)
+
+// Helper to check if all filters and search term are empty
+function isEmptyState() {
+  return !searchTerm.value &&
+    !selectedLanguage.value &&
+    !selectedDuration.value &&
+    !selectedGenre.value
+}
+
+// Handle search input with debounce
+function onSearchInput() {
+  // Reset to initial state if everything is empty
+  if (isEmptyState()) {
+    hasSearched.value = false
+    podcastResults.value = []
+    episodeResults.value = []
+    return
+  }
+
+  // Debounce search
+  if (searchDebounceTimer.value) {
+    clearTimeout(searchDebounceTimer.value)
+  }
+  searchDebounceTimer.value = setTimeout(() => {
+    performSearch()
+  }, 400)
+}
 
 // Watch filters and auto-trigger search when they change
 watch([selectedLanguage, selectedDuration, selectedGenre], () => {
-  // Only auto-search if user has interacted OR filters are active
-  const hasActiveFilters = selectedLanguage.value ||
-    selectedDuration.value ||
-    selectedGenre.value
-
-  if (hasSearched.value || hasActiveFilters) {
-    // Debounce to avoid rapid API calls
-    if (filterDebounceTimer.value) {
-      clearTimeout(filterDebounceTimer.value)
-    }
-    filterDebounceTimer.value = setTimeout(() => {
-      performSearch()
-    }, 300)  // 300ms debounce
+  // Reset to initial state if everything is empty
+  if (isEmptyState()) {
+    hasSearched.value = false
+    podcastResults.value = []
+    episodeResults.value = []
+    return
   }
+
+  // Auto-search if filters are active
+  if (filterDebounceTimer.value) {
+    clearTimeout(filterDebounceTimer.value)
+  }
+  filterDebounceTimer.value = setTimeout(() => {
+    performSearch()
+  }, 400)
 })
 
 async function performSearch() {

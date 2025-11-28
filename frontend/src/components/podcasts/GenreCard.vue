@@ -60,7 +60,7 @@ const genreImage = computed(() => GENRE_IMAGES[props.value])
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
-  padding: var(--space-03);
+  padding: var(--space-03) var(--space-03) var(--space-04) var(--space-03);
   background: var(--color-background-neutral);
   border-radius: var(--radius-04);
   cursor: pointer;
@@ -83,6 +83,5 @@ const genreImage = computed(() => GENRE_IMAGES[props.value])
 .genre-label {
   margin: 0;
   color: var(--color-text);
-  text-align: center;
 }
 </style>
