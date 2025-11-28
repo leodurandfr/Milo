@@ -92,16 +92,6 @@ export function useAnimatedHeight(contentRef, options = {}) {
 
 
   onMounted(async () => {
-    await loadLocalPrograms();
-    await loadSatellites();
-
-    // DEBUG: forcer l'état de mise à jour pour "multiroom"
-    localUpdateStates.value['multiroom'] = {
-      updating: true,
-      progress: 45,
-      message: 'Installing snapserver...'
-    };
-
     await nextTick();
     if (contentRef.value) {
       setupObserver();

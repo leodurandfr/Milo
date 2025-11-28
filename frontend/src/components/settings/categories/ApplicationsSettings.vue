@@ -8,53 +8,68 @@
         <p class="app-group-title text-mono">{{ t('audioSources.title') }}</p>
 
         <div class="app-list">
-          <ListItemButton variant="outlined" :title="t('applications.spotify')" :class="{ 'active': config.librespot }" @click="toggleApp('librespot')">
+          <ListItemButton
+            :title="t('applications.spotify')"
+            :model-value="config.librespot"
+            :variant="config.librespot ? 'active' : 'inactive'"
+            action="toggle"
+            :disabled="!canDisableAudioSource('librespot')"
+            @update:model-value="(val) => handleToggle('librespot', val)"
+          >
             <template #icon>
               <AppIcon name="librespot" :size="40" />
             </template>
-            <template #action>
-              <Toggle v-model="config.librespot" size="compact"
-                :disabled="!canDisableAudioSource('librespot')" @click.stop @change="updateDockApps" />
-            </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('applications.bluetooth')" :class="{ 'active': config.bluetooth }" @click="toggleApp('bluetooth')">
+          <ListItemButton
+            :title="t('applications.bluetooth')"
+            :model-value="config.bluetooth"
+            :variant="config.bluetooth ? 'active' : 'inactive'"
+            action="toggle"
+            :disabled="!canDisableAudioSource('bluetooth')"
+            @update:model-value="(val) => handleToggle('bluetooth', val)"
+          >
             <template #icon>
               <AppIcon name="bluetooth" :size="40" />
             </template>
-            <template #action>
-              <Toggle v-model="config.bluetooth" size="compact"
-                :disabled="!canDisableAudioSource('bluetooth')" @click.stop @change="updateDockApps" />
-            </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('applications.macOS')" :class="{ 'active': config.roc }" @click="toggleApp('roc')">
+          <ListItemButton
+            :title="t('applications.macOS')"
+            :model-value="config.roc"
+            :variant="config.roc ? 'active' : 'inactive'"
+            action="toggle"
+            :disabled="!canDisableAudioSource('roc')"
+            @update:model-value="(val) => handleToggle('roc', val)"
+          >
             <template #icon>
               <AppIcon name="roc" :size="40" />
             </template>
-            <template #action>
-              <Toggle v-model="config.roc" size="compact" :disabled="!canDisableAudioSource('roc')"
-                @click.stop @change="updateDockApps" />
-            </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('audioSources.radio')" :class="{ 'active': config.radio }" @click="toggleApp('radio')">
+          <ListItemButton
+            :title="t('audioSources.radio')"
+            :model-value="config.radio"
+            :variant="config.radio ? 'active' : 'inactive'"
+            action="toggle"
+            :disabled="!canDisableAudioSource('radio')"
+            @update:model-value="(val) => handleToggle('radio', val)"
+          >
             <template #icon>
               <AppIcon name="radio" :size="40" />
             </template>
-            <template #action>
-              <Toggle v-model="config.radio" size="compact"
-                :disabled="!canDisableAudioSource('radio')" @click.stop @change="updateDockApps" />
-            </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('podcasts.podcasts')" :class="{ 'active': config.podcast }" @click="toggleApp('podcast')">
+          <ListItemButton
+            :title="t('podcasts.podcasts')"
+            :model-value="config.podcast"
+            :variant="config.podcast ? 'active' : 'inactive'"
+            action="toggle"
+            :disabled="!canDisableAudioSource('podcast')"
+            @update:model-value="(val) => handleToggle('podcast', val)"
+          >
             <template #icon>
               <AppIcon name="podcast" :size="40" />
-            </template>
-            <template #action>
-              <Toggle v-model="config.podcast" size="compact"
-                :disabled="!canDisableAudioSource('podcast')" @click.stop @change="updateDockApps" />
             </template>
           </ListItemButton>
         </div>
@@ -64,30 +79,39 @@
         <p class="app-group-title text-mono">{{ t('applications.features') }}</p>
 
         <div class="app-list">
-          <ListItemButton variant="outlined" :title="t('multiroom.title')" :class="{ 'active': config.multiroom }" @click="toggleApp('multiroom')">
+          <ListItemButton
+            :title="t('multiroom.title')"
+            :model-value="config.multiroom"
+            :variant="config.multiroom ? 'active' : 'inactive'"
+            action="toggle"
+            @update:model-value="(val) => handleToggle('multiroom', val)"
+          >
             <template #icon>
               <AppIcon name="multiroom" :size="40" />
             </template>
-            <template #action>
-              <Toggle v-model="config.multiroom" size="compact" @click.stop @change="updateDockApps" />
-            </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('equalizer.title')" :class="{ 'active': config.equalizer }" @click="toggleApp('equalizer')">
+          <ListItemButton
+            :title="t('equalizer.title')"
+            :model-value="config.equalizer"
+            :variant="config.equalizer ? 'active' : 'inactive'"
+            action="toggle"
+            @update:model-value="(val) => handleToggle('equalizer', val)"
+          >
             <template #icon>
               <AppIcon name="equalizer" :size="40" />
             </template>
-            <template #action>
-              <Toggle v-model="config.equalizer" size="compact" @click.stop @change="updateDockApps" />
-            </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('common.settings')" :class="{ 'active': config.settings }" @click="toggleApp('settings')">
+          <ListItemButton
+            :title="t('common.settings')"
+            :model-value="config.settings"
+            :variant="config.settings ? 'active' : 'inactive'"
+            action="toggle"
+            @update:model-value="(val) => handleToggle('settings', val)"
+          >
             <template #icon>
               <AppIcon name="settings" :size="40" />
-            </template>
-            <template #action>
-              <Toggle v-model="config.settings" size="compact" @click.stop @change="updateDockApps" />
             </template>
           </ListItemButton>
         </div>
@@ -103,7 +127,6 @@ import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
-import Toggle from '@/components/ui/Toggle.vue';
 import AppIcon from '@/components/ui/AppIcon.vue';
 
 const { t } = useI18n();
@@ -131,16 +154,8 @@ function updateDockApps() {
   debouncedUpdate('dock-apps', 'dock-apps', { enabled_apps: enabledApps }, 500);
 }
 
-function toggleApp(appName) {
-  const audioSources = ['librespot', 'bluetooth', 'roc', 'radio', 'podcast'];
-  const isAudioSource = audioSources.includes(appName);
-
-  // Don't allow disabling if it's the last audio source
-  if (isAudioSource && config.value[appName] && !canDisableAudioSource(appName)) {
-    return;
-  }
-
-  config.value[appName] = !config.value[appName];
+function handleToggle(appName, value) {
+  config.value[appName] = value;
   updateDockApps();
 }
 
@@ -192,11 +207,6 @@ onMounted(() => {
   gap: var(--space-01);
 }
 
-/* Override: buttons with a toggle keep the same background and border even when active */
-.app-list :deep(.list-item-button.active) {
-  background: var(--color-background);
-  box-shadow: inset 0 0 0 1px var(--color-border);
-}
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
