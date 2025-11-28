@@ -154,7 +154,7 @@ class SatelliteProgramUpdateService:
             url = f"http://{ip}:{self.satellite_api_port}/update"
 
             if progress_callback:
-                await progress_callback(f"Starting update for {hostname}", 0)
+                await progress_callback("updates.progress.startingUpdate", 0)
 
             # Lancer la mise à jour via l'API du satellite
             timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes timeout
@@ -166,7 +166,7 @@ class SatelliteProgramUpdateService:
                         if data.get("success"):
                             if progress_callback:
                                 await progress_callback(
-                                    f"Update initiated on {hostname}",
+                                    "updates.progress.updateInitiated",
                                     10
                                 )
 
@@ -215,7 +215,7 @@ class SatelliteProgramUpdateService:
 
             if progress_callback:
                 await progress_callback(
-                    f"Update in progress on {hostname}...",
+                    "updates.progress.updateInProgress",
                     int(progress)
                 )
 
@@ -240,7 +240,7 @@ class SatelliteProgramUpdateService:
 
                                         if progress_callback:
                                             await progress_callback(
-                                                f"Update completed on {hostname}",
+                                                "updates.progress.completed",
                                                 100
                                             )
 

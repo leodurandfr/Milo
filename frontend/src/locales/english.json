@@ -107,7 +107,8 @@
     "invalidCredentials": "Your Taddy API credentials are not valid",
     "apiUsage": "Taddy API Usage",
     "requestsPerMonth": "requests",
-    "resetsMonthly": "API limits reset monthly"
+    "resetsMonthly": "API limits reset monthly",
+    "resetsOn": "API limits reset on {month} {day}"
   },
   "multiroomSettings": {
     "presets": "Presets",
@@ -125,7 +126,7 @@
     "title": "Updates",
     "osTitle": "Operating System",
     "programsTitle": "Milō Programs",
-    "satelliteProgramsTitle": "Satellite Programs",
+    "satelliteProgramsTitle": "Milō Sat Programs",
     "miloTitle": "Milō Programs",
     "satellitesTitle": "Connected satellite programs",
     "checking": "Checking versions...",
@@ -139,14 +140,26 @@
     "searchingSatellites": "Searching for satellites...",
     "errorDetectingSatellites": "Error detecting satellites",
     "noSatellites": "No satellite detected on the network",
-    "snapclientOf": "Snapclient of",
     "updatingInit": "Initializing update...",
     "miloApp": "Operating System",
     "spotifyConnect": "Spotify Connect",
     "multiroom": "Multiroom audio",
     "bluetoothAudio": "Bluetooth audio",
     "macStreaming": "Audio streaming from macOS",
-    "upToDate": "Up to date"
+    "upToDate": "Up to date",
+    "progress": {
+      "downloadingSnapserver": "Downloading snapserver...",
+      "downloadingSnapclient": "Downloading snapclient...",
+      "stoppingMultiroom": "Stopping multiroom services...",
+      "installingSnapserver": "Installing snapserver...",
+      "installingSnapclient": "Installing snapclient...",
+      "startingMultiroom": "Starting multiroom services...",
+      "cleaningUp": "Cleaning up...",
+      "completed": "Update completed!",
+      "startingUpdate": "Starting update...",
+      "updateInitiated": "Update initiated...",
+      "updateInProgress": "Update in progress..."
+    }
   },
   "info": {
     "title": "Information",
@@ -388,7 +401,7 @@
     "credentialsErrorHint": "Configure your credentials to access podcasts",
     "configureButton": "Configure",
     "rateLimitError": "API limit reached",
-    "rateLimitErrorHint": "The Taddy API limit of 500 requests has been reached. It will reset next month."
+    "rateLimitErrorHint": "You have reached the Taddy API limit of 500 requests. The limit resets automatically each month from the date of your first use."
   },
   "countries": {
     "usa": "USA",

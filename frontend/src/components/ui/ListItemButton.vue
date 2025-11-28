@@ -1,9 +1,8 @@
 <!-- frontend/src/components/ui/ListItemButton.vue -->
 <template>
-  <component :is="clickable ? 'button' : 'div'"
-    :class="['list-item-button', `list-item-button--${variant}`, { 'list-item-button--clickable': clickable }]" @click="handleClick">
+  <button type="button" :class="['list-item-button', `list-item-button--${variant}`]" @click="$emit('click', $event)">
     <!-- Icon on the left -->
-    <div class="list-item-button__icon">
+    <div v-if="$slots.icon" class="list-item-button__icon">
       <slot name="icon"></slot>
     </div>
 
@@ -16,22 +15,18 @@
         <SvgIcon v-if="showCaret" name="caretRight" :size="24" color="var(--color-text-light)" />
       </slot>
     </div>
-  </component>
+  </button>
 </template>
 
 <script setup>
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
-const props = defineProps({
+defineProps({
   title: {
     type: String,
     required: true
   },
   showCaret: {
-    type: Boolean,
-    default: false
-  },
-  clickable: {
     type: Boolean,
     default: false
   },
@@ -42,14 +37,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['click']);
-
-function handleClick(event) {
-  // If it's a toggle, don't emit click (the toggle handles its own event)
-  if (props.clickable) {
-    emit('click', event);
-  }
-}
+defineEmits(['click']);
 </script>
 
 <style scoped>
@@ -62,6 +50,7 @@ function handleClick(event) {
   transition: all var(--transition-fast);
   width: 100%;
   text-align: left;
+  cursor: pointer;
 }
 
 /* Default variant (SettingsModal) */
@@ -69,26 +58,16 @@ function handleClick(event) {
   background: var(--color-background-neutral);
 }
 
-
-
-/* Outlined variant (LanguageSettings) */
+/* Outlined variant (LanguageSettings, ApplicationsSettings) */
 .list-item-button--outlined {
   background: var(--color-background);
   box-shadow: inset 0 0 0 1px var(--color-border);
-
 }
 
-
-
-/* Active state (LanguageSettings) */
+/* Active state */
 .list-item-button--outlined.active {
   background: var(--color-background-neutral);
   box-shadow: inset 0 0 0 2px var(--color-brand);
-}
-
-/* Clickable state (with caret-right) */
-.list-item-button--clickable {
-  cursor: pointer;
 }
 
 /* Left icon */

@@ -6,7 +6,6 @@
         v-for="language in availableLanguages"
         :key="language.code"
         :title="language.name"
-        :clickable="true"
         variant="outlined"
         :class="{ 'active': currentLanguage === language.code }"
         @click="selectLanguage(language.code)"

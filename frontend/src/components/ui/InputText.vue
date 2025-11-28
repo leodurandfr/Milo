@@ -3,7 +3,7 @@
   <div class="input-wrapper">
     <div class="input-container">
       <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
-        :maxlength="maxlength" :class="inputClass" @input="handleInput" @focus="handleFocus"
+        :maxlength="maxlength" class="heading-3" @input="handleInput" @focus="handleFocus"
         @blur="handleBlur" />
       <SvgIcon v-if="icon" :name="icon" :size="iconSize" class="input-icon" />
     </div>
@@ -37,11 +37,6 @@ const props = defineProps({
     type: Number,
     default: undefined
   },
-  size: {
-    type: String,
-    default: 'default',
-    validator: (value) => ['default', 'small'].includes(value)
-  },
   icon: {
     type: String,
     default: ''
@@ -57,10 +52,6 @@ const emit = defineEmits(['update:modelValue', 'focus', 'blur']);
 const inputRef = ref(null);
 const keyboard = useVirtualKeyboard();
 const { screenResolution } = useHardwareConfig();
-
-const inputClass = computed(() => {
-  return props.size === 'small' ? 'heading-4' : 'heading-3';
-});
 
 // Detect if the resolution matches (to show the virtual keyboard)
 const shouldShowKeyboard = computed(() => {
@@ -152,7 +143,12 @@ defineExpose({
   -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-border);
   -moz-box-shadow: inset 0px 0px 0px 2px var(--color-border);
   box-shadow: inset 0px 0px 0px 2px var(--color-border);
-  transition: box-shadow var(--transition-fast);
+  transition: box-shadow var(--transition-fast), opacity var(--transition-fast);
+}
+
+.input-container:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .input-container:focus-within {
@@ -179,7 +175,6 @@ input::placeholder {
 }
 
 input:disabled {
-  opacity: 0.5;
   cursor: not-allowed;
 }
 

@@ -187,6 +187,9 @@ class SettingsService:
             'taddy_user_id': str(podcast_input.get('taddy_user_id', '')),
             'taddy_api_key': str(podcast_input.get('taddy_api_key', ''))
         }
+        # Preserve credentials_validated_at if present
+        if 'credentials_validated_at' in podcast_input:
+            validated['podcast']['credentials_validated_at'] = int(podcast_input['credentials_validated_at'])
 
         # Dock avec validation au moins une source audio
         dock_input = settings.get('dock', {})

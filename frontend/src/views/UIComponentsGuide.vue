@@ -166,16 +166,9 @@
       <!-- InputText -->
       <div class="component-block">
         <h3 class="heading-2">InputText</h3>
-        <p class="text-mono text-secondary">Sizes: default, small | Types: text, password, email, number</p>
+        <p class="text-mono text-secondary">Types: text, password, email, number | Props: icon, maxlength</p>
 
         <div class="controls-panel">
-          <label class="control-item">
-            <span class="text-mono">size</span>
-            <select v-model="inputState.size">
-              <option value="default">default</option>
-              <option value="small">small</option>
-            </select>
-          </label>
           <label class="control-item">
             <span class="text-mono">type</span>
             <select v-model="inputState.type">
@@ -200,7 +193,6 @@
             <InputText
               v-model="inputState.value"
               :type="inputState.type"
-              :size="inputState.size"
               :disabled="inputState.disabled"
               :icon="inputState.hasIcon ? 'search' : ''"
               placeholder="Enter text..."
@@ -212,22 +204,14 @@
       <!-- Dropdown -->
       <div class="component-block">
         <h3 class="heading-2">Dropdown</h3>
-        <p class="text-mono text-secondary">Variants: default, minimal, transparent | Sizes: default, small</p>
+        <p class="text-mono text-secondary">Variants: default, transparent</p>
 
         <div class="controls-panel">
           <label class="control-item">
             <span class="text-mono">variant</span>
             <select v-model="dropdownState.variant">
               <option value="default">default</option>
-              <option value="minimal">minimal</option>
               <option value="transparent">transparent</option>
-            </select>
-          </label>
-          <label class="control-item">
-            <span class="text-mono">size</span>
-            <select v-model="dropdownState.size">
-              <option value="default">default</option>
-              <option value="small">small</option>
             </select>
           </label>
           <label class="control-item">
@@ -242,7 +226,6 @@
               v-model="dropdownState.value"
               :options="dropdownOptions"
               :variant="dropdownState.variant"
-              :size="dropdownState.size"
               :disabled="dropdownState.disabled"
               placeholder="Select option"
             />
@@ -393,7 +376,7 @@
       <!-- ListItemButton -->
       <div class="component-block">
         <h3 class="heading-2">ListItemButton</h3>
-        <p class="text-mono text-secondary">Variants: default, outlined | Props: showCaret, clickable</p>
+        <p class="text-mono text-secondary">Variants: default, outlined | Props: showCaret</p>
 
         <div class="controls-panel">
           <label class="control-item">
@@ -406,10 +389,6 @@
           <label class="control-item">
             <input type="checkbox" v-model="listItemState.showCaret" />
             <span class="text-mono">showCaret</span>
-          </label>
-          <label class="control-item">
-            <input type="checkbox" v-model="listItemState.clickable" />
-            <span class="text-mono">clickable</span>
           </label>
           <label class="control-item">
             <input type="checkbox" v-model="listItemState.hasIcon" />
@@ -427,7 +406,6 @@
               title="List item title"
               :variant="listItemState.variant"
               :show-caret="listItemState.showCaret"
-              :clickable="listItemState.clickable"
             >
               <template v-if="listItemState.hasIcon" #icon>
                 <SvgIcon name="settings" :size="32" />
@@ -534,7 +512,6 @@ const iconButtonState = ref({
 const inputState = ref({
   value: '',
   type: 'text',
-  size: 'default',
   disabled: false,
   hasIcon: false
 })
@@ -543,7 +520,6 @@ const inputState = ref({
 const dropdownState = ref({
   value: '',
   variant: 'default',
-  size: 'default',
   disabled: false
 })
 
@@ -586,7 +562,6 @@ const doubleRangeState = ref({
 const listItemState = ref({
   variant: 'default',
   showCaret: false,
-  clickable: false,
   hasIcon: true,
   hasAction: true,
   toggleValue: false

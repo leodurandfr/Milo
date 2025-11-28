@@ -543,12 +543,15 @@ def create_settings_router(
         user_id = str(payload.get('taddy_user_id', '')).strip()
         api_key = str(payload.get('taddy_api_key', '')).strip()
 
-        # Save both fields
+        # Save credentials and validation timestamp in one operation
         async def save_credentials():
-            success = await settings.set_setting('podcast.taddy_user_id', user_id)
-            if success:
-                success = await settings.set_setting('podcast.taddy_api_key', api_key)
-            return success
+            import time
+            podcast_config = {
+                'taddy_user_id': user_id,
+                'taddy_api_key': api_key,
+                'credentials_validated_at': int(time.time())
+            }
+            return await settings.set_setting('podcast', podcast_config)
 
         # Reload credentials in the podcast plugin without restarting
         async def reload_plugin_credentials():
@@ -627,6 +630,7 @@ def create_settings_router(
             podcast = await settings.get_setting('podcast') or {}
             user_id = str(podcast.get('taddy_user_id', '')).strip()
             api_key = str(podcast.get('taddy_api_key', '')).strip()
+            validated_at = podcast.get('credentials_validated_at')
 
             # No credentials configured
             if not user_id or not api_key:
@@ -640,9 +644,9 @@ def create_settings_router(
                 if remaining == -1:
                     return {"status": "invalid"}
                 elif remaining == 0:
-                    return {"status": "rate_limited", "requests_used": 500}
+                    return {"status": "rate_limited", "requests_used": 500, "credentials_validated_at": validated_at}
                 else:
-                    return {"status": "valid", "requests_used": 500 - remaining}
+                    return {"status": "valid", "requests_used": 500 - remaining, "credentials_validated_at": validated_at}
             finally:
                 await taddy_api.close()
 
