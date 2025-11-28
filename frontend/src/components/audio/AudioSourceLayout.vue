@@ -22,7 +22,7 @@
 
       <!-- Contenu avec animation (wrapper pour isoler position: absolute) -->
       <div class="transition-wrapper">
-        <Transition name="fade-slide" mode="out-in">
+        <Transition name="fade-slide" mode="out-in" @after-leave="resetScroll">
           <div :key="contentKey" class="content-inner">
             <slot name="content" :is-mobile="isMobile" />
           </div>
@@ -113,12 +113,12 @@ const props = defineProps({
 
 defineEmits(['header-back'])
 
-// Reset scroll synchronously BEFORE transition starts when contentKey changes
-watch(() => props.contentKey, () => {
+// Reset scroll after fade-out completes (called by Transition @after-leave hook)
+function resetScroll() {
   if (layoutRef.value) {
     layoutRef.value.scrollTop = 0
   }
-}, { flush: 'sync' })
+}
 
 // Player width for desktop (310px wrapper - 32px padding)
 const playerWidth = 278
