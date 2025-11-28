@@ -171,7 +171,7 @@ input {
 }
 
 input::placeholder {
-  color: var(--color-text-light);
+  color: var(--color-text-secondary);
 }
 
 input:disabled {

@@ -204,14 +204,14 @@
       <!-- Dropdown -->
       <div class="component-block">
         <h3 class="heading-2">Dropdown</h3>
-        <p class="text-mono text-secondary">Variants: default, transparent</p>
+        <p class="text-mono text-secondary">Variants: default, minimal</p>
 
         <div class="controls-panel">
           <label class="control-item">
             <span class="text-mono">variant</span>
             <select v-model="dropdownState.variant">
               <option value="default">default</option>
-              <option value="transparent">transparent</option>
+              <option value="minimal">minimal</option>
             </select>
           </label>
           <label class="control-item">
@@ -376,27 +376,32 @@
       <!-- ListItemButton -->
       <div class="component-block">
         <h3 class="heading-2">ListItemButton</h3>
-        <p class="text-mono text-secondary">Variants: default, outlined | Props: showCaret</p>
+        <p class="text-mono text-secondary">Variants: default, active, inactive | Actions: none, caret, toggle</p>
 
         <div class="controls-panel">
           <label class="control-item">
             <span class="text-mono">variant</span>
             <select v-model="listItemState.variant">
               <option value="default">default</option>
-              <option value="outlined">outlined</option>
+              <option value="active">active</option>
+              <option value="inactive">inactive</option>
             </select>
           </label>
           <label class="control-item">
-            <input type="checkbox" v-model="listItemState.showCaret" />
-            <span class="text-mono">showCaret</span>
+            <span class="text-mono">action</span>
+            <select v-model="listItemState.action">
+              <option value="none">none</option>
+              <option value="caret">caret</option>
+              <option value="toggle">toggle</option>
+            </select>
           </label>
           <label class="control-item">
             <input type="checkbox" v-model="listItemState.hasIcon" />
-            <span class="text-mono">icon slot</span>
+            <span class="text-mono">icon</span>
           </label>
           <label class="control-item">
-            <input type="checkbox" v-model="listItemState.hasAction" />
-            <span class="text-mono">action slot</span>
+            <input type="checkbox" v-model="listItemState.disabled" />
+            <span class="text-mono">disabled</span>
           </label>
         </div>
 
@@ -405,15 +410,56 @@
             <ListItemButton
               title="List item title"
               :variant="listItemState.variant"
-              :show-caret="listItemState.showCaret"
+              :action="listItemState.action"
+              :model-value="listItemState.toggleValue"
+              :disabled="listItemState.disabled"
+              @update:model-value="listItemState.toggleValue = $event"
             >
               <template v-if="listItemState.hasIcon" #icon>
-                <SvgIcon name="settings" :size="32" />
-              </template>
-              <template v-if="listItemState.hasAction" #action>
-                <Toggle v-model="listItemState.toggleValue" size="compact" />
+                <SvgIcon name="settings" :size="40" />
               </template>
             </ListItemButton>
+          </div>
+        </div>
+
+        <!-- All variants overview -->
+        <h4 class="heading-3">All Variants</h4>
+        <div class="component-grid">
+          <div class="component-row">
+            <h5 class="heading-4">default (navigation)</h5>
+            <div class="component-states component-states--vertical">
+              <ListItemButton title="With caret" action="caret">
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+              <ListItemButton title="Without action">
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+            </div>
+          </div>
+          <div class="component-row">
+            <h5 class="heading-4">active / inactive (selection)</h5>
+            <div class="component-states component-states--vertical">
+              <ListItemButton title="Active item" variant="active">
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+              <ListItemButton title="Inactive item" variant="inactive">
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+            </div>
+          </div>
+          <div class="component-row">
+            <h5 class="heading-4">toggle action</h5>
+            <div class="component-states component-states--vertical">
+              <ListItemButton title="Toggle on" variant="active" action="toggle" :model-value="true">
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+              <ListItemButton title="Toggle off" variant="inactive" action="toggle" :model-value="false">
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+              <ListItemButton title="Disabled" variant="inactive" action="toggle" :model-value="false" disabled>
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+            </div>
           </div>
         </div>
       </div>
@@ -561,9 +607,9 @@ const doubleRangeState = ref({
 // ListItemButton state
 const listItemState = ref({
   variant: 'default',
-  showCaret: false,
+  action: 'caret',
   hasIcon: true,
-  hasAction: true,
+  disabled: false,
   toggleValue: false
 })
 
@@ -770,6 +816,11 @@ const iconButtonPreviewBg = computed(() => {
   flex-wrap: wrap;
   gap: var(--space-04);
   align-items: flex-start;
+}
+
+.component-states--vertical {
+  flex-direction: column;
+  gap: var(--space-02);
 }
 
 .component-state {

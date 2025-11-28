@@ -103,12 +103,12 @@ const loading = ref(false)
 const hasSearched = ref(false)
 
 // Filters
-const selectedLanguage = ref('all')
-const selectedDuration = ref('all')
-const selectedGenre = ref('all')
+const selectedLanguage = ref('')
+const selectedDuration = ref('')
+const selectedGenre = ref('')
 
 const languageOptions = [
-  { value: 'all', label: t('podcasts.languageFilter.all') },
+  { value: '', label: t('podcasts.languageFilter.all') },
   { value: 'ENGLISH', label: t('podcasts.languageFilter.english') },
   { value: 'FRENCH', label: t('podcasts.languageFilter.french') },
   { value: 'SPANISH', label: t('podcasts.languageFilter.spanish') },
@@ -128,14 +128,14 @@ const languageOptions = [
 ]
 
 const durationOptions = [
-  { value: 'all', label: t('podcasts.duration.label') },
+  { value: '', label: t('podcasts.duration.label') },
   { value: 'short', label: t('podcasts.duration.short') },
   { value: 'medium', label: t('podcasts.duration.medium') },
   { value: 'long', label: t('podcasts.duration.long') }
 ]
 
 const genreOptions = [
-  { value: 'all', label: t('podcasts.genreFilter.all') },
+  { value: '', label: t('podcasts.genreFilter.all') },
   { value: 'PODCASTSERIES_ARTS', label: t('podcasts.genres.arts') },
   { value: 'PODCASTSERIES_BUSINESS', label: t('podcasts.genres.business') },
   { value: 'PODCASTSERIES_COMEDY', label: t('podcasts.genres.comedy') },
@@ -176,9 +176,9 @@ const filterDebounceTimer = ref(null)
 // Watch filters and auto-trigger search when they change
 watch([selectedLanguage, selectedDuration, selectedGenre], () => {
   // Only auto-search if user has interacted OR filters are active
-  const hasActiveFilters = selectedLanguage.value !== 'all' ||
-    selectedDuration.value !== 'all' ||
-    selectedGenre.value !== 'all'
+  const hasActiveFilters = selectedLanguage.value ||
+    selectedDuration.value ||
+    selectedGenre.value
 
   if (hasSearched.value || hasActiveFilters) {
     // Debounce to avoid rapid API calls
@@ -211,7 +211,7 @@ async function performSearch() {
     })
 
     // Add duration filter if selected
-    if (selectedDuration.value !== 'all') {
+    if (selectedDuration.value) {
       const durationMap = {
         short: { min: 0, max: 900 },      // 0-15 min
         medium: { min: 900, max: 2700 },  // 15-45 min
@@ -223,12 +223,12 @@ async function performSearch() {
     }
 
     // Add genre filter if selected
-    if (selectedGenre.value !== 'all') {
+    if (selectedGenre.value) {
       params.append('genres', selectedGenre.value)
     }
 
     // Add language filter if selected
-    if (selectedLanguage.value !== 'all') {
+    if (selectedLanguage.value) {
       params.append('languages', selectedLanguage.value)
     }
 
@@ -266,7 +266,7 @@ async function loadMorePodcasts() {
       page: currentPodcastPage.value.toString()
     })
 
-    if (selectedDuration.value !== 'all') {
+    if (selectedDuration.value) {
       const durationMap = {
         short: { min: 0, max: 900 },
         medium: { min: 900, max: 2700 },
@@ -277,11 +277,11 @@ async function loadMorePodcasts() {
       params.append('duration_max', duration.max.toString())
     }
 
-    if (selectedGenre.value !== 'all') {
+    if (selectedGenre.value) {
       params.append('genres', selectedGenre.value)
     }
 
-    if (selectedLanguage.value !== 'all') {
+    if (selectedLanguage.value) {
       params.append('languages', selectedLanguage.value)
     }
 
@@ -311,7 +311,7 @@ async function loadMoreEpisodes() {
       page: currentEpisodePage.value.toString()
     })
 
-    if (selectedDuration.value !== 'all') {
+    if (selectedDuration.value) {
       const durationMap = {
         short: { min: 0, max: 900 },
         medium: { min: 900, max: 2700 },
@@ -322,11 +322,11 @@ async function loadMoreEpisodes() {
       params.append('duration_max', duration.max.toString())
     }
 
-    if (selectedGenre.value !== 'all') {
+    if (selectedGenre.value) {
       params.append('genres', selectedGenre.value)
     }
 
-    if (selectedLanguage.value !== 'all') {
+    if (selectedLanguage.value) {
       params.append('languages', selectedLanguage.value)
     }
 

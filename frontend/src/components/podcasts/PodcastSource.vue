@@ -74,7 +74,7 @@
         <template #controls>
           <!-- Speed selector -->
           <div class="speed-selector" @click.stop>
-            <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="transparent"
+            <Dropdown v-model="selectedSpeed" :options="speedOptions" variant="minimal"
               @change="handleSpeedChange" />
           </div>
 

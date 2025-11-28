@@ -23,61 +23,61 @@
         <!-- Home view: list of categories -->
         <div v-if="currentView === 'home'" key="home" class="view-content">
           <div class="settings-nav-grid">
-            <ListItemButton :title="t('settings.languages')" :show-caret="true" @click="goToView('languages')">
+            <ListItemButton :title="t('settings.languages')" action="caret" @click="goToView('languages')">
               <template #icon>
                 <img :src="languagesIcon" alt="Languages" />
               </template>
             </ListItemButton>
 
-            <ListItemButton :title="t('settings.applications')" :show-caret="true" @click="goToView('apps')">
+            <ListItemButton :title="t('settings.applications')" action="caret" @click="goToView('apps')">
               <template #icon>
                 <img :src="applicationsIcon" alt="Applications" />
               </template>
             </ListItemButton>
 
-            <ListItemButton :title="t('settings.volume')" :show-caret="true" @click="goToView('volume')">
+            <ListItemButton :title="t('settings.volume')" action="caret" @click="goToView('volume')">
               <template #icon>
                 <img :src="volumeIcon" alt="Volume" />
               </template>
             </ListItemButton>
 
-            <ListItemButton :title="t('settings.screen')" :show-caret="true" @click="goToView('screen')">
+            <ListItemButton :title="t('settings.screen')" action="caret" @click="goToView('screen')">
               <template #icon>
                 <img :src="displayIcon" alt="Display" />
               </template>
             </ListItemButton>
 
-            <ListItemButton v-if="settingsStore.dockApps.librespot" :title="t('audioSources.spotify')" :show-caret="true" @click="goToView('spotify')">
+            <ListItemButton v-if="settingsStore.dockApps.librespot" :title="t('audioSources.spotify')" action="caret" @click="goToView('spotify')">
               <template #icon>
                 <img :src="spotifyIcon" alt="Spotify" />
               </template>
             </ListItemButton>
 
-            <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" :show-caret="true" @click="goToView('multiroom')">
+            <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" action="caret" @click="goToView('multiroom')">
               <template #icon>
                 <img :src="multiroomIcon" alt="Multiroom" />
               </template>
             </ListItemButton>
 
-            <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" :show-caret="true" @click="goToView('radio')">
+            <ListItemButton v-if="settingsStore.dockApps.radio" :title="t('audioSources.radio')" action="caret" @click="goToView('radio')">
               <template #icon>
                 <img :src="radioIcon" alt="Radio" />
               </template>
             </ListItemButton>
 
-            <ListItemButton v-if="settingsStore.dockApps.podcast" :title="t('audioSources.podcasts')" :show-caret="true" @click="goToView('podcast')">
+            <ListItemButton v-if="settingsStore.dockApps.podcast" :title="t('audioSources.podcasts')" action="caret" @click="goToView('podcast')">
               <template #icon>
                 <img :src="podcastIcon" alt="Podcasts" />
               </template>
             </ListItemButton>
 
-            <ListItemButton :title="t('settings.updates')" :show-caret="true" @click="goToView('updates')">
+            <ListItemButton :title="t('settings.updates')" action="caret" @click="goToView('updates')">
               <template #icon>
                 <img :src="updatesIcon" alt="Updates" />
               </template>
             </ListItemButton>
 
-            <ListItemButton :title="t('settings.information')" :show-caret="true" @click="goToView('info')">
+            <ListItemButton :title="t('settings.information')" action="caret" @click="goToView('info')">
               <template #icon>
                 <img :src="informationIcon" alt="Information" />
               </template>
