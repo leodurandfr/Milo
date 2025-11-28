@@ -410,7 +410,7 @@ async def search_mixed(
         plugin = container.podcast_plugin()
 
         # Only return empty if BOTH term is empty AND no filters are active
-        if not term and not genres and not duration_min and not duration_max:
+        if not term and not genres and not languages and not duration_min and not duration_max:
             return {
                 "podcasts": [],
                 "episodes": [],

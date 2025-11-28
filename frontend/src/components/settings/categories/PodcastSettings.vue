@@ -2,7 +2,7 @@
 <template>
   <section class="settings-section">
     <div class="podcast-group">
-      <h2 class="heading-2 heading-3">{{ t('podcastSettings.taddyCredentials') }}</h2>
+      <h2 class="heading-2">{{ t('podcastSettings.taddyCredentials') }}</h2>
       <div class="setting-item-container">
         <div class="podcast-description text-mono">
           {{ t('podcastSettings.credentialsDescription') }}

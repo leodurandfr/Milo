@@ -4,7 +4,7 @@
     <!-- Volume controls -->
     <section class="settings-section">
       <div class="volume-group">
-        <h2 class="heading-2 heading-3">{{ t('volumeSettings.controls') }}</h2>
+        <h2 class="heading-2">{{ t('volumeSettings.controls') }}</h2>
 
         <div class="setting-item-container">
           <div class="volume-item-setting text-mono">
@@ -31,7 +31,7 @@
     <!-- Volume limits -->
     <section class="settings-section">
       <div class="volume-group">
-        <h2 class="heading-2 heading-3">{{ t('volumeSettings.limits') }}</h2>
+        <h2 class="heading-2">{{ t('volumeSettings.limits') }}</h2>
         <div class="setting-item-container">
           <div class="volume-item-setting text-mono">
             {{ t('volumeSettings.minMax') }}
@@ -47,7 +47,7 @@
     <!-- Startup volume -->
     <section class="settings-section">
       <div class="volume-group">
-        <h2 class="heading-2 heading-3">{{ t('volumeSettings.startup') }}</h2>
+        <h2 class="heading-2">{{ t('volumeSettings.startup') }}</h2>
 
         <div class="startup-mode-buttons">
           <Button :variant="!config.restore_last_volume ? 'outline' : 'background-strong'" size="medium"

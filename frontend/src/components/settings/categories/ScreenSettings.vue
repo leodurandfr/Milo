@@ -4,7 +4,7 @@
     <!-- Brightness -->
     <section class="settings-section">
       <div class="screen-group">
-        <h2 class="heading-2 heading-3">{{ t('screenSettings.brightness') }}</h2>
+        <h2 class="heading-2">{{ t('screenSettings.brightness') }}</h2>
         <div class="setting-item-container">
           <div class="screen-description text-mono">
             {{ t('screenSettings.brightnessIntensity') }}
@@ -20,7 +20,7 @@
     <!-- Auto sleep -->
     <section class="settings-section">
       <div class="screen-group">
-        <h2 class="heading-2 heading-3">{{ t('screenSettings.autoSleep') }}</h2>
+        <h2 class="heading-2">{{ t('screenSettings.autoSleep') }}</h2>
         <div class="setting-item-container">
           <div class="screen-description text-mono">
             {{ t('screenSettings.sleepDelay') }}
