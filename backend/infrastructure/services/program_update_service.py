@@ -300,14 +300,14 @@ class ProgramUpdateService(ProgramVersionService):
         try:
             # Phase 1: Download both packages (0-30%)
             if progress_callback:
-                await progress_callback("Downloading snapserver...", 5)
+                await progress_callback("updates.progress.downloadingSnapserver", 5)
 
             server_download = await self._download_snapcast_component("snapserver", latest_version)
             if not server_download["success"]:
                 return {"success": False, "error": f"Failed to download snapserver: {server_download.get('error')}"}
 
             if progress_callback:
-                await progress_callback("Downloading snapclient...", 20)
+                await progress_callback("updates.progress.downloadingSnapclient", 20)
 
             client_download = await self._download_snapcast_component("snapclient", latest_version)
             if not client_download["success"]:
@@ -316,14 +316,14 @@ class ProgramUpdateService(ProgramVersionService):
 
             # Phase 2: Stop all services (30-40%)
             if progress_callback:
-                await progress_callback("Stopping multiroom services...", 35)
+                await progress_callback("updates.progress.stoppingMultiroom", 35)
 
             for service in config["services"]:
                 await self._stop_service(service)
 
             # Phase 3: Install snapserver (40-60%)
             if progress_callback:
-                await progress_callback("Installing snapserver...", 45)
+                await progress_callback("updates.progress.installingSnapserver", 45)
 
             server_install = await self._install_deb_package(server_download["deb_path"])
             if not server_install["success"]:
@@ -335,7 +335,7 @@ class ProgramUpdateService(ProgramVersionService):
 
             # Phase 4: Install snapclient (60-80%)
             if progress_callback:
-                await progress_callback("Installing snapclient...", 65)
+                await progress_callback("updates.progress.installingSnapclient", 65)
 
             client_install = await self._install_deb_package(client_download["deb_path"])
             if not client_install["success"]:
@@ -352,7 +352,7 @@ class ProgramUpdateService(ProgramVersionService):
 
             # Phase 5: Restart services (80-95%)
             if progress_callback:
-                await progress_callback("Starting multiroom services...", 85)
+                await progress_callback("updates.progress.startingMultiroom", 85)
 
             all_services_started = True
             for service in config["services"]:
@@ -363,13 +363,13 @@ class ProgramUpdateService(ProgramVersionService):
 
             # Phase 6: Cleanup (95-100%)
             if progress_callback:
-                await progress_callback("Cleaning up...", 95)
+                await progress_callback("updates.progress.cleaningUp", 95)
 
             await self._cleanup_temp_files(server_download.get("temp_dir"))
             await self._cleanup_temp_files(client_download.get("temp_dir"))
 
             if progress_callback:
-                await progress_callback("Update completed!", 100)
+                await progress_callback("updates.progress.completed", 100)
 
             result = {
                 "success": True,

@@ -2,14 +2,9 @@
 <template>
   <div class="toggle-container">
     <h2 v-if="title" class="heading-2">{{ title }}</h2>
-    
+
     <label :class="['toggle', `toggle--${variant}`, `toggle--${size}`]">
-      <input 
-        type="checkbox" 
-        :checked="modelValue"
-        @change="handleToggle"
-        :disabled="disabled"
-      >
+      <input type="checkbox" :checked="modelValue" @change="handleToggle" :disabled="disabled">
       <span class="slider"></span>
     </label>
   </div>
@@ -65,6 +60,7 @@ function handleToggle(event) {
 .toggle {
   position: relative;
   display: inline-block;
+  transition: opacity 300ms ease;
 }
 
 /* Default - Desktop */
@@ -80,13 +76,13 @@ function handleToggle(event) {
   bottom: 2px;
 }
 
-.toggle--default input:checked + .slider:before {
+.toggle--default input:checked+.slider:before {
   transform: translateX(30px);
 }
 
 /* Compact - Desktop */
 .toggle--compact {
-  width: 62px;
+  width: 56px;
   height: 32px;
 }
 
@@ -97,8 +93,8 @@ function handleToggle(event) {
   bottom: 2px;
 }
 
-.toggle--compact input:checked + .slider:before {
-  transform: translateX(30px);
+.toggle--compact input:checked+.slider:before {
+  transform: translateX(24px);
 }
 
 .toggle input {
@@ -131,7 +127,7 @@ function handleToggle(event) {
   background-color: var(--color-text-light);
 }
 
-.toggle--primary input:checked + .slider {
+.toggle--primary input:checked+.slider {
   background-color: var(--color-brand);
 }
 
@@ -139,32 +135,37 @@ function handleToggle(event) {
   background-color: var(--color-background-strong);
 }
 
-.toggle--secondary input:checked + .slider {
+.toggle--secondary input:checked+.slider {
   background-color: var(--color-background-contrast);
 }
 
 /* Disabled */
-input:disabled + .slider {
-  background-color: #999;
+.toggle:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input:disabled+.slider {
   cursor: not-allowed;
 }
 
 /* Responsive  */
 @media (max-aspect-ratio: 4/3) {
+
   .toggle--default,
   .toggle--compact {
     width: 56px;
     height: 32px;
   }
-  
+
   .toggle--default .slider:before,
   .toggle--compact .slider:before {
     height: 28px;
     width: 28px;
   }
-  
-  .toggle--default input:checked + .slider:before,
-  .toggle--compact input:checked + .slider:before {
+
+  .toggle--default input:checked+.slider:before,
+  .toggle--compact input:checked+.slider:before {
     transform: translateX(24px);
   }
 }

@@ -5,7 +5,7 @@
       <div class="station-header-row">
         <div class="form-group">
           <label class="text-mono">{{ $t('radio.manageStation.name') }} *</label>
-          <InputText v-model="formData.name" type="text" size="small" :placeholder="$t('radio.manageStation.namePlaceholder')" />
+          <InputText v-model="formData.name" type="text" :placeholder="$t('radio.manageStation.namePlaceholder')" />
         </div>
 
         <div class="image-upload-group">
@@ -29,19 +29,19 @@
 
       <div class="form-group">
         <label class="text-mono">{{ $t('radio.manageStation.url') }} *</label>
-        <InputText v-model="formData.url" type="url" size="small"
+        <InputText v-model="formData.url" type="url"
           :placeholder="$t('radio.manageStation.urlPlaceholder')" />
       </div>
 
       <div class="form-row">
         <div class="form-group">
           <label class="text-mono">{{ $t('radio.manageStation.country') }}</label>
-          <Dropdown v-model="formData.country" :options="countryOptions" size="small" :placeholder="$t('radio.manageStation.selectCountry')" />
+          <Dropdown v-model="formData.country" :options="countryOptions" :placeholder="$t('radio.manageStation.selectCountry')" />
         </div>
 
         <div class="form-group">
           <label class="text-mono">{{ $t('radio.manageStation.genre') }}</label>
-          <InputText v-model="formData.genre" type="text" size="small"
+          <InputText v-model="formData.genre" type="text"
             :placeholder="$t('radio.manageStation.genrePlaceholder')" />
         </div>
       </div>
@@ -49,13 +49,13 @@
       <div class="form-row">
         <div class="form-group">
           <label class="text-mono">{{ $t('radio.manageStation.codec') }}</label>
-          <InputText v-model="formData.codec" type="text" size="small"
+          <InputText v-model="formData.codec" type="text"
             :placeholder="$t('radio.manageStation.codecPlaceholder')" />
         </div>
 
         <div class="form-group">
           <label class="text-mono">{{ $t('radio.manageStation.bitrate') }}</label>
-          <InputText v-model="formData.bitrate" type="number" size="small"
+          <InputText v-model="formData.bitrate" type="number"
             :placeholder="$t('radio.manageStation.bitratePlaceholder')" />
         </div>
       </div>

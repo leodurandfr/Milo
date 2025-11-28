@@ -31,12 +31,13 @@
           <div v-if="requestsUsed !== null" class="usage-display">
             <div class="usage-header">
               <label class="form-label text-mono">{{ t('podcastSettings.apiUsage') }}</label>
-              <span class="usage-value text-mono">{{ requestsUsed }} / 500 {{ t('podcastSettings.requestsPerMonth') }}</span>
+              <span class="usage-value text-mono">{{ requestsUsed }}/500 {{ t('podcastSettings.requestsPerMonth') }}</span>
             </div>
             <div class="progress-bar">
               <div class="progress-fill" :style="{ width: usagePercentage + '%' }"></div>
             </div>
-            <span class="usage-description text-mono">{{ t('podcastSettings.resetsMonthly') }}</span>
+            <span v-if="resetDateText" class="usage-description text-mono">{{ resetDateText }}</span>
+            <span v-else class="usage-description text-mono">{{ t('podcastSettings.resetsMonthly') }}</span>
           </div>
 
           <!-- Test connection button - Visible when no credentials OR changes -->
@@ -83,6 +84,34 @@ const errorMessage = ref('');
 
 // Read usage from settingsStore (loaded at app startup)
 const requestsUsed = computed(() => settingsStore.podcastApiUsage);
+const credentialsValidatedAt = computed(() => settingsStore.podcastCredentialsValidatedAt);
+
+// Map Milo language codes to BCP 47 locale codes
+const localeMap = {
+  english: 'en',
+  french: 'fr',
+  german: 'de',
+  spanish: 'es',
+  italian: 'it',
+  portuguese: 'pt',
+  chinese: 'zh',
+  hindi: 'hi'
+};
+
+// Calculate API reset date (1 month after validation)
+const resetDateText = computed(() => {
+  if (!credentialsValidatedAt.value) return null;
+
+  const validatedDate = new Date(credentialsValidatedAt.value * 1000);
+  const resetDate = new Date(validatedDate);
+  resetDate.setMonth(resetDate.getMonth() + 1);
+
+  const locale = localeMap[settingsStore.language] || 'en';
+  const day = resetDate.getDate();
+  const month = resetDate.toLocaleDateString(locale, { month: 'long' });
+
+  return t('podcastSettings.resetsOn', { day, month });
+});
 
 // Reset error when fields change
 watch([localUserId, localApiKey], () => {

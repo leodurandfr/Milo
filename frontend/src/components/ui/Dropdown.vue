@@ -2,7 +2,7 @@
 <template>
   <div ref="dropdownRef" class="dropdown">
     <button type="button" class="dropdown-trigger"
-      :class="[textClass, `dropdown-trigger--${variant}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
+      :class="[`dropdown-trigger--${variant}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
       <span class="dropdown-label" :class="variant === 'transparent' ? 'text-mono' : 'heading-3'">{{ selectedLabel }}</span>
@@ -14,8 +14,8 @@
         <div v-if="isOpen" ref="menuRef" class="dropdown-menu" :class="{ 'open-upward': openUpward }"
           :style="{ top: menuPosition.top, left: menuPosition.left, minWidth: menuPosition.width }"
           @scroll.stop>
-          <div v-for="(option, index) in options" :key="option.value" class="dropdown-item"
-            :class="[textClass, { 'is-selected': option.value === modelValue }]" @click="selectOption(option.value)">
+          <div v-for="(option, index) in options" :key="option.value" class="dropdown-item heading-3"
+            :class="{ 'is-selected': option.value === modelValue }" @click="selectOption(option.value)">
             {{ option.label }}
           </div>
         </div>
@@ -46,15 +46,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  size: {
-    type: String,
-    default: 'default',
-    validator: (value) => ['default', 'small'].includes(value)
-  },
   variant: {
     type: String,
     default: 'default',
-    validator: (value) => ['default', 'minimal', 'transparent'].includes(value)
+    validator: (value) => ['default', 'transparent'].includes(value)
   }
 });
 
@@ -66,10 +61,6 @@ const isOpen = ref(false);
 const openUpward = ref(false);
 const menuPosition = ref({ top: '0px', left: '0px', width: '0px' });
 const lastScrollPosition = ref({ x: 0, y: 0 });
-
-const textClass = computed(() => {
-  return props.size === 'small' ? 'heading-4' : 'heading-3';
-});
 
 const selectedLabel = computed(() => {
   const selected = props.options.find(opt => opt.value === props.modelValue);
@@ -235,7 +226,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   outline: none;
   gap: var(--space-01);
-  transition: box-shadow var(--transition-fast);
+  transition: box-shadow var(--transition-fast), opacity var(--transition-fast);
 
   -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-border);
   -moz-box-shadow: inset 0px 0px 0px 2px var(--color-border);
@@ -252,21 +243,8 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
-/* Minimal variant */
-.dropdown-trigger--minimal {
-  background: none;
-  border: none;
-  box-shadow: none;
-  min-width: auto;
-}
-
-.dropdown-trigger--minimal:focus {
-  box-shadow: none;
-}
-
-.dropdown-trigger--minimal .dropdown-label {
-  color: var(--color-text-contrast-50);
-  font-weight: normal;
+.dropdown-trigger:disabled .dropdown-label {
+  color: var(--color-text-light);
 }
 
 /* Transparent variant */
@@ -287,8 +265,6 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-
-
 .dropdown-label {
   flex: 1;
   text-align: left;
@@ -296,21 +272,17 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  transition: color var(--transition-fast);
 }
-
-/* .dropdown-trigger.has-selection .dropdown-label {
-  color: var(--color-text);
-} */
 
 .dropdown-icon {
   flex-shrink: 0;
   color: var(--color-text-secondary);
-  transition: transform var(--transition-fast);
+  transition: transform var(--transition-fast), color var(--transition-fast);
 }
 
 .dropdown-trigger.is-open .dropdown-icon {
   transform: rotate(180deg);
-
 }
 
 .dropdown-menu {

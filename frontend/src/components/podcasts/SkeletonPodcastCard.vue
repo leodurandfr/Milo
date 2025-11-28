@@ -16,7 +16,6 @@
         <div class="skeleton-text-line skeleton-publisher"></div>
         <div class="skeleton-text-line skeleton-meta"></div>
       </div>
-      <div class="skeleton-button"></div>
     </div>
   </div>
 </template>
@@ -146,7 +145,7 @@ defineProps({
   width: 40%;
 }
 
-.variant-row .skeleton-button {
+.variant-row {
   width: 100px;
   height: 40px;
   border-radius: var(--radius-03);

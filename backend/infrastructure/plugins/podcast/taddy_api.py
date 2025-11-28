@@ -23,7 +23,7 @@ GENRE_TO_ITUNES_ID = {
     'PODCASTSERIES_KIDS_AND_FAMILY': 1305,
     'PODCASTSERIES_MUSIC': 1310,
     'PODCASTSERIES_RELIGION_AND_SPIRITUALITY': 1314,
-    'PODCASTSERIES_SCIENCE': 1315,
+    'PODCASTSERIES_SCIENCE': 1533,
     'PODCASTSERIES_SOCIETY_AND_CULTURE': 1324,
     'PODCASTSERIES_TV_AND_FILM': 1309,
 }
@@ -136,16 +136,23 @@ class TaddyAPI:
             ) as resp:
                 if resp.status == 429:
                     self.logger.warning("Taddy API rate limit exceeded")
-                    return None
+                    return {"_rate_limited": True}
 
                 if resp.status != 200:
                     error_text = await resp.text()
                     self.logger.error(f"Taddy API error: HTTP {resp.status} - {error_text[:500]}")
+                    # Check for rate limit in HTTP 500 response
+                    if "API_RATE_LIMIT_EXCEEDED" in error_text:
+                        return {"_rate_limited": True}
                     return None
 
                 data = await resp.json()
 
                 if "errors" in data:
+                    # Check for rate limit in GraphQL errors
+                    for err in data['errors']:
+                        if err.get('code') == 'API_RATE_LIMIT_EXCEEDED':
+                            return {"_rate_limited": True}
                     error_messages = [err.get('message', str(err)) for err in data['errors']]
                     self.logger.error(f"GraphQL errors: {error_messages}")
                     return None
@@ -1160,6 +1167,11 @@ class TaddyAPI:
         """
 
         data = await self._make_graphql_request(query)
+
+        # Rate limit exceeded (HTTP 429)
+        if data and data.get("_rate_limited"):
+            return 0
+
         if not data or "getApiRequestsRemaining" not in data:
             return -1
 

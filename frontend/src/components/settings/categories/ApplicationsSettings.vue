@@ -8,53 +8,53 @@
         <p class="app-group-title text-mono">{{ t('audioSources.title') }}</p>
 
         <div class="app-list">
-          <ListItemButton variant="outlined" :title="t('applications.spotify')" :class="{ 'active': config.librespot }">
+          <ListItemButton variant="outlined" :title="t('applications.spotify')" :class="{ 'active': config.librespot }" @click="toggleApp('librespot')">
             <template #icon>
               <AppIcon name="librespot" :size="40" />
             </template>
             <template #action>
               <Toggle v-model="config.librespot" size="compact"
-                :disabled="!canDisableAudioSource('librespot')" @change="updateDockApps" />
+                :disabled="!canDisableAudioSource('librespot')" @click.stop @change="updateDockApps" />
             </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('applications.bluetooth')" :class="{ 'active': config.bluetooth }">
+          <ListItemButton variant="outlined" :title="t('applications.bluetooth')" :class="{ 'active': config.bluetooth }" @click="toggleApp('bluetooth')">
             <template #icon>
               <AppIcon name="bluetooth" :size="40" />
             </template>
             <template #action>
               <Toggle v-model="config.bluetooth" size="compact"
-                :disabled="!canDisableAudioSource('bluetooth')" @change="updateDockApps" />
+                :disabled="!canDisableAudioSource('bluetooth')" @click.stop @change="updateDockApps" />
             </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('applications.macOS')" :class="{ 'active': config.roc }">
+          <ListItemButton variant="outlined" :title="t('applications.macOS')" :class="{ 'active': config.roc }" @click="toggleApp('roc')">
             <template #icon>
               <AppIcon name="roc" :size="40" />
             </template>
             <template #action>
               <Toggle v-model="config.roc" size="compact" :disabled="!canDisableAudioSource('roc')"
-                @change="updateDockApps" />
+                @click.stop @change="updateDockApps" />
             </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('audioSources.radio')" :class="{ 'active': config.radio }">
+          <ListItemButton variant="outlined" :title="t('audioSources.radio')" :class="{ 'active': config.radio }" @click="toggleApp('radio')">
             <template #icon>
               <AppIcon name="radio" :size="40" />
             </template>
             <template #action>
               <Toggle v-model="config.radio" size="compact"
-                :disabled="!canDisableAudioSource('radio')" @change="updateDockApps" />
+                :disabled="!canDisableAudioSource('radio')" @click.stop @change="updateDockApps" />
             </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('podcasts.podcasts')" :class="{ 'active': config.podcast }">
+          <ListItemButton variant="outlined" :title="t('podcasts.podcasts')" :class="{ 'active': config.podcast }" @click="toggleApp('podcast')">
             <template #icon>
               <AppIcon name="podcast" :size="40" />
             </template>
             <template #action>
               <Toggle v-model="config.podcast" size="compact"
-                :disabled="!canDisableAudioSource('podcast')" @change="updateDockApps" />
+                :disabled="!canDisableAudioSource('podcast')" @click.stop @change="updateDockApps" />
             </template>
           </ListItemButton>
         </div>
@@ -64,30 +64,30 @@
         <p class="app-group-title text-mono">{{ t('applications.features') }}</p>
 
         <div class="app-list">
-          <ListItemButton variant="outlined" :title="t('multiroom.title')" :class="{ 'active': config.multiroom }">
+          <ListItemButton variant="outlined" :title="t('multiroom.title')" :class="{ 'active': config.multiroom }" @click="toggleApp('multiroom')">
             <template #icon>
               <AppIcon name="multiroom" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.multiroom" size="compact" @change="updateDockApps" />
+              <Toggle v-model="config.multiroom" size="compact" @click.stop @change="updateDockApps" />
             </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('equalizer.title')" :class="{ 'active': config.equalizer }">
+          <ListItemButton variant="outlined" :title="t('equalizer.title')" :class="{ 'active': config.equalizer }" @click="toggleApp('equalizer')">
             <template #icon>
               <AppIcon name="equalizer" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.equalizer" size="compact" @change="updateDockApps" />
+              <Toggle v-model="config.equalizer" size="compact" @click.stop @change="updateDockApps" />
             </template>
           </ListItemButton>
 
-          <ListItemButton variant="outlined" :title="t('common.settings')" :class="{ 'active': config.settings }">
+          <ListItemButton variant="outlined" :title="t('common.settings')" :class="{ 'active': config.settings }" @click="toggleApp('settings')">
             <template #icon>
               <AppIcon name="settings" :size="40" />
             </template>
             <template #action>
-              <Toggle v-model="config.settings" size="compact" @change="updateDockApps" />
+              <Toggle v-model="config.settings" size="compact" @click.stop @change="updateDockApps" />
             </template>
           </ListItemButton>
         </div>
@@ -129,6 +129,19 @@ function getEnabledAppsArray() {
 function updateDockApps() {
   const enabledApps = getEnabledAppsArray();
   debouncedUpdate('dock-apps', 'dock-apps', { enabled_apps: enabledApps }, 500);
+}
+
+function toggleApp(appName) {
+  const audioSources = ['librespot', 'bluetooth', 'roc', 'radio', 'podcast'];
+  const isAudioSource = audioSources.includes(appName);
+
+  // Don't allow disabling if it's the last audio source
+  if (isAudioSource && config.value[appName] && !canDisableAudioSource(appName)) {
+    return;
+  }
+
+  config.value[appName] = !config.value[appName];
+  updateDockApps();
 }
 
 // WebSocket listener

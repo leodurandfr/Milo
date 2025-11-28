@@ -54,6 +54,7 @@ export const useSettingsStore = defineStore('settings', () => {
   // Podcast credentials status (checked at startup)
   const podcastCredentialsStatus = ref('unknown'); // 'unknown', 'valid', 'missing', 'invalid', 'rate_limited', 'error'
   const podcastApiUsage = ref(null); // requests_used (null if no valid credentials)
+  const podcastCredentialsValidatedAt = ref(null); // Unix timestamp when credentials were validated
 
   // === SCREEN ===
   const screenTimeout = ref({
@@ -167,6 +168,7 @@ export const useSettingsStore = defineStore('settings', () => {
       if (podcastStatusResponse.data) {
         podcastCredentialsStatus.value = podcastStatusResponse.data.status ?? 'error';
         podcastApiUsage.value = podcastStatusResponse.data.requests_used ?? null;
+        podcastCredentialsValidatedAt.value = podcastStatusResponse.data.credentials_validated_at ?? null;
       }
 
       // Screen timeout
@@ -260,9 +262,11 @@ export const useSettingsStore = defineStore('settings', () => {
       const response = await axios.get('/api/settings/podcast-credentials/status');
       podcastCredentialsStatus.value = response.data.status ?? 'error';
       podcastApiUsage.value = response.data.requests_used ?? null;
+      podcastCredentialsValidatedAt.value = response.data.credentials_validated_at ?? null;
     } catch {
       podcastCredentialsStatus.value = 'error';
       podcastApiUsage.value = null;
+      podcastCredentialsValidatedAt.value = null;
     }
   }
 
@@ -293,6 +297,7 @@ export const useSettingsStore = defineStore('settings', () => {
     podcastCredentials,
     podcastCredentialsStatus,
     podcastApiUsage,
+    podcastCredentialsValidatedAt,
     screenTimeout,
     screenBrightness,
 

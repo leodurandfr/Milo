@@ -106,7 +106,8 @@
     "invalidCredentials": "आपके Taddy API क्रेडेंशियल मान्य नहीं हैं",
     "apiUsage": "Taddy API उपयोग",
     "requestsPerMonth": "अनुरोध",
-    "resetsMonthly": "API सीमाएं मासिक रूप से रीसेट होती हैं"
+    "resetsMonthly": "API सीमाएं मासिक रूप से रीसेट होती हैं",
+    "resetsOn": "API सीमाएं {day} {month} को रीसेट होंगी"
   },
   "multiroomSettings": {
     "presets": "प्रीसेट्स",
@@ -124,7 +125,7 @@
     "title": "अपडेट",
     "osTitle": "ऑपरेटिंग सिस्टम",
     "programsTitle": "Milō प्रोग्राम",
-    "satelliteProgramsTitle": "सैटेलाइट प्रोग्राम",
+    "satelliteProgramsTitle": "Milō Sat प्रोग्राम",
     "miloTitle": "Milō प्रोग्राम",
     "satellitesTitle": "कनेक्टेड सैटेलाइट प्रोग्राम",
     "checking": "संस्करण जांचे जा रहे हैं...",
@@ -138,14 +139,26 @@
     "searchingSatellites": "सैटेलाइट खोजे जा रहे हैं...",
     "errorDetectingSatellites": "सैटेलाइट का पता लगाने में त्रुटि",
     "noSatellites": "नेटवर्क पर कोई सैटेलाइट का पता नहीं चला",
-    "snapclientOf": "का Snapclient",
     "updatingInit": "अपडेट प्रारंभ हो रहा है...",
     "miloApp": "ऑपरेटिंग सिस्टम",
     "spotifyConnect": "Spotify Connect",
     "multiroom": "मल्टीरूम ऑडियो",
     "bluetoothAudio": "ब्लूटूथ ऑडियो",
     "macStreaming": "macOS से ऑडियो स्ट्रीमिंग",
-    "upToDate": "अप टू डेट"
+    "upToDate": "अप टू डेट",
+    "progress": {
+      "downloadingSnapserver": "snapserver डाउनलोड हो रहा है...",
+      "downloadingSnapclient": "snapclient डाउनलोड हो रहा है...",
+      "stoppingMultiroom": "मल्टीरूम सेवाएं बंद हो रही हैं...",
+      "installingSnapserver": "snapserver इंस्टॉल हो रहा है...",
+      "installingSnapclient": "snapclient इंस्टॉल हो रहा है...",
+      "startingMultiroom": "मल्टीरूम सेवाएं शुरू हो रही हैं...",
+      "cleaningUp": "सफाई हो रही है...",
+      "completed": "अपडेट पूर्ण!",
+      "startingUpdate": "अपडेट शुरू हो रहा है...",
+      "updateInitiated": "अपडेट शुरू किया गया...",
+      "updateInProgress": "अपडेट प्रगति में..."
+    }
   },
   "info": {
     "title": "जानकारी",
@@ -386,7 +399,7 @@
     "credentialsErrorHint": "पॉडकास्ट एक्सेस करने के लिए अपने क्रेडेंशियल कॉन्फ़िगर करें",
     "configureButton": "कॉन्फ़िगर करें",
     "rateLimitError": "API सीमा पूरी हुई",
-    "rateLimitErrorHint": "Taddy API की 500 अनुरोधों की सीमा पूरी हो गई है। यह अगले महीने रीसेट हो जाएगी।"
+    "rateLimitErrorHint": "आपने Taddy API की 500 अनुरोधों की सीमा पूरी कर ली है। सीमा आपके पहले उपयोग की तारीख से हर महीने स्वचालित रूप से रीसेट हो जाती है।"
   },
   "countries": {
     "usa": "अमेरिका",

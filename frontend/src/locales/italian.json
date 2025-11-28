@@ -106,7 +106,8 @@
     "invalidCredentials": "Le tue credenziali Taddy API non sono valide",
     "apiUsage": "Utilizzo Taddy API",
     "requestsPerMonth": "richieste",
-    "resetsMonthly": "I limiti API vengono reimpostati mensilmente"
+    "resetsMonthly": "I limiti API vengono reimpostati mensilmente",
+    "resetsOn": "Limiti API resettati il {day} {month}"
   },
   "multiroomSettings": {
     "presets": "Preset",
@@ -124,7 +125,7 @@
     "title": "Aggiornamenti",
     "osTitle": "Sistema operativo",
     "programsTitle": "Programmi Milō",
-    "satelliteProgramsTitle": "Programmi dei satelliti",
+    "satelliteProgramsTitle": "Programmi Milō Sat",
     "miloTitle": "Programmi Milō",
     "satellitesTitle": "Programmi dei satelliti connessi",
     "checking": "Verifica versioni...",
@@ -138,14 +139,26 @@
     "searchingSatellites": "Ricerca satelliti...",
     "errorDetectingSatellites": "Errore rilevamento satelliti",
     "noSatellites": "Nessun satellite rilevato sulla rete",
-    "snapclientOf": "Snapclient di",
     "updatingInit": "Inizializzazione aggiornamento...",
     "miloApp": "Sistema operativo",
     "spotifyConnect": "Spotify Connect",
     "multiroom": "Audio multiroom",
     "bluetoothAudio": "Audio bluetooth",
     "macStreaming": "Streaming audio da macOS",
-    "upToDate": "Aggiornato"
+    "upToDate": "Aggiornato",
+    "progress": {
+      "downloadingSnapserver": "Download di snapserver...",
+      "downloadingSnapclient": "Download di snapclient...",
+      "stoppingMultiroom": "Arresto servizi multiroom...",
+      "installingSnapserver": "Installazione di snapserver...",
+      "installingSnapclient": "Installazione di snapclient...",
+      "startingMultiroom": "Avvio servizi multiroom...",
+      "cleaningUp": "Pulizia...",
+      "completed": "Aggiornamento completato!",
+      "startingUpdate": "Avvio aggiornamento...",
+      "updateInitiated": "Aggiornamento avviato...",
+      "updateInProgress": "Aggiornamento in corso..."
+    }
   },
   "info": {
     "title": "Informazioni",
@@ -386,7 +399,7 @@
     "credentialsErrorHint": "Configura le tue credenziali per accedere ai podcast",
     "configureButton": "Configura",
     "rateLimitError": "Limite API raggiunto",
-    "rateLimitErrorHint": "È stato raggiunto il limite di 500 richieste API Taddy. Verrà ripristinato il mese prossimo."
+    "rateLimitErrorHint": "Hai raggiunto il limite di 500 richieste API Taddy. Il limite si ripristina automaticamente ogni mese dalla data del tuo primo utilizzo."
   },
   "countries": {
     "usa": "USA",

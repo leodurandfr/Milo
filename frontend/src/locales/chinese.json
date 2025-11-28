@@ -106,7 +106,8 @@
     "invalidCredentials": "您的 Taddy API 凭证无效",
     "apiUsage": "Taddy API 使用情况",
     "requestsPerMonth": "请求",
-    "resetsMonthly": "API 限制每月重置"
+    "resetsMonthly": "API 限制每月重置",
+    "resetsOn": "API 限制将于 {month} {day} 日重置"
   },
   "multiroomSettings": {
     "presets": "预设",
@@ -124,7 +125,7 @@
     "title": "更新",
     "osTitle": "操作系统",
     "programsTitle": "Milō 程序",
-    "satelliteProgramsTitle": "卫星程序",
+    "satelliteProgramsTitle": "Milō Sat 程序",
     "miloTitle": "Milō 程序",
     "satellitesTitle": "已连接卫星程序",
     "checking": "正在检查版本...",
@@ -138,14 +139,26 @@
     "searchingSatellites": "正在搜索卫星...",
     "errorDetectingSatellites": "检测卫星时出错",
     "noSatellites": "网络上未检测到卫星",
-    "snapclientOf": "的 Snapclient",
     "updatingInit": "正在初始化更新...",
     "miloApp": "操作系统",
     "spotifyConnect": "Spotify Connect",
     "multiroom": "多房间音频",
     "bluetoothAudio": "蓝牙音频",
     "macStreaming": "来自 macOS 的音频流",
-    "upToDate": "已是最新"
+    "upToDate": "已是最新",
+    "progress": {
+      "downloadingSnapserver": "正在下载 snapserver...",
+      "downloadingSnapclient": "正在下载 snapclient...",
+      "stoppingMultiroom": "正在停止多房间服务...",
+      "installingSnapserver": "正在安装 snapserver...",
+      "installingSnapclient": "正在安装 snapclient...",
+      "startingMultiroom": "正在启动多房间服务...",
+      "cleaningUp": "正在清理...",
+      "completed": "更新完成！",
+      "startingUpdate": "正在开始更新...",
+      "updateInitiated": "更新已启动...",
+      "updateInProgress": "更新进行中..."
+    }
   },
   "info": {
     "title": "信息",
@@ -386,7 +399,7 @@
     "credentialsErrorHint": "配置您的凭据以访问播客",
     "configureButton": "配置",
     "rateLimitError": "已达到 API 限制",
-    "rateLimitErrorHint": "Taddy API 500 次请求限制已达到。将于下月重置。"
+    "rateLimitErrorHint": "您已达到 Taddy API 500 次请求限制。限制从您首次使用之日起每月自动重置。"
   },
   "countries": {
     "usa": "美国",

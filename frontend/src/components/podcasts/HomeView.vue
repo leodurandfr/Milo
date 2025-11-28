@@ -67,10 +67,13 @@
     <section class="section">
       <h2 class="section-title heading-2">{{ t('podcasts.browseByGenre') }}</h2>
       <div class="genres-grid">
-        <div v-for="genre in mainGenres" :key="genre.value" class="genre-card" @click="browseGenre(genre.value)">
-          <span class="genre-emoji">{{ genre.emoji }}</span>
-          <span>{{ genre.label }}</span>
-        </div>
+        <GenreCard
+          v-for="genre in mainGenres"
+          :key="genre.value"
+          :value="genre.value"
+          :label="genre.label"
+          @click="browseGenre(genre.value)"
+        />
       </div>
     </section>
 
@@ -109,6 +112,7 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
+import GenreCard from './GenreCard.vue'
 import SkeletonPodcastCard from './SkeletonPodcastCard.vue'
 import SkeletonEpisodeCard from './SkeletonEpisodeCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
@@ -130,14 +134,18 @@ const hasSubscriptions = computed(() => podcastStore.hasSubscriptions)
 const latestSubscriptionEpisodes = computed(() => podcastStore.latestSubscriptionEpisodes)
 
 const mainGenres = computed(() => [
-  { value: 'PODCASTSERIES_NEWS', label: t('podcasts.genres.news'), emoji: '📰' },
-  { value: 'PODCASTSERIES_COMEDY', label: t('podcasts.genres.comedy'), emoji: '😂' },
-  { value: 'PODCASTSERIES_TRUE_CRIME', label: t('podcasts.genres.trueCrime'), emoji: '🔍' },
-  { value: 'PODCASTSERIES_TECHNOLOGY', label: t('podcasts.genres.tech'), emoji: '💻' },
-  { value: 'PODCASTSERIES_SPORTS', label: t('podcasts.genres.sports'), emoji: '🏆' },
-  { value: 'PODCASTSERIES_EDUCATION', label: t('podcasts.genres.education'), emoji: '🎓' },
-  { value: 'PODCASTSERIES_BUSINESS', label: t('podcasts.genres.business'), emoji: '💼' },
-  { value: 'PODCASTSERIES_HEALTH_AND_FITNESS', label: t('podcasts.genres.health'), emoji: '❤️' }
+  { value: 'PODCASTSERIES_COMEDY', label: t('podcasts.genres.comedy') },
+  { value: 'PODCASTSERIES_SOCIETY_AND_CULTURE', label: t('podcasts.genres.society_and_culture') },
+  { value: 'PODCASTSERIES_NEWS', label: t('podcasts.genres.news') },
+  { value: 'PODCASTSERIES_TRUE_CRIME', label: t('podcasts.genres.trueCrime') },
+  { value: 'PODCASTSERIES_BUSINESS', label: t('podcasts.genres.business') },
+  { value: 'PODCASTSERIES_EDUCATION', label: t('podcasts.genres.education') },
+  { value: 'PODCASTSERIES_HEALTH_AND_FITNESS', label: t('podcasts.genres.health') },
+  { value: 'PODCASTSERIES_SPORTS', label: t('podcasts.genres.sports') },
+  { value: 'PODCASTSERIES_ARTS', label: t('podcasts.genres.arts') },
+  { value: 'PODCASTSERIES_SCIENCE', label: t('podcasts.genres.science') },
+  { value: 'PODCASTSERIES_TV_AND_FILM', label: t('podcasts.genres.tv_and_film') },
+  { value: 'PODCASTSERIES_MUSIC', label: t('podcasts.genres.music') }
 ])
 
 function browseGenre(genreValue) {
@@ -243,33 +251,8 @@ onMounted(() => {
 
 .genres-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--space-02);
-}
-
-.genre-emoji {
-  font-size: 24px;
-}
-
-.genre-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-02);
-  padding: var(--space-04);
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
-  cursor: pointer;
-  transition: background var(--transition-fast), transform var(--transition-fast);
-}
-
-
-
-.genre-card span {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text);
-  text-align: center;
 }
 
 /* Content fade transition (skeleton to real content) */
