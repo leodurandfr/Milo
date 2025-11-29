@@ -153,7 +153,7 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
   width: 100%;
   height: 100%;
   padding: 0 var(--space-07);
-  transition: all var(--transition-spring-slow);
+  /* transition: all var(--transition-spring-slow); */
   overflow-y: auto;
 }
 

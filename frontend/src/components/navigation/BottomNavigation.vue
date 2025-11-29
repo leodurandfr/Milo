@@ -322,6 +322,12 @@ const onVolumeHoldEnd = (event) => {
 // === DOCK MANAGEMENT ===
 const showDock = () => {
   if (isVisible.value) return;
+
+  // Reset items: désactiver transition, forcer reflow, réactiver
+  dockContainer.value.classList.add('resetting');
+  void dockContainer.value.offsetHeight;
+  dockContainer.value.classList.remove('resetting');
+
   isVisible.value = true;
   isFullyVisible.value = false;
   startHideTimer();
@@ -973,6 +979,12 @@ onUnmounted(() => {
 .dock-container.visible.fully-visible .dock-separator,
 .dock-container.visible.fully-visible .volume-controls {
   transition-delay: 0s !important;
+}
+
+.dock-container.resetting .dock-item,
+.dock-container.resetting .dock-separator,
+.dock-container.resetting .volume-controls {
+  transition: none !important;
 }
 
 .dock-item-icon {
