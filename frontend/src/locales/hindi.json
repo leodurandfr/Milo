@@ -15,6 +15,7 @@
     "macReceiver": "Mac ऑडियो रिसीवर",
     "rocReception": "Mac ऑडियो रिसेप्शन",
     "radio": "रेडियो",
+    "podcasts": "पॉडकास्ट",
     "radioSource": {
       "favoritesTitle": "पसंदीदा रेडियो",
       "discoverTitle": "रेडियो खोजें",
@@ -29,8 +30,8 @@
       "noStationsFound": "कोई स्टेशन नहीं मिला",
       "noFavorites": "कोई पसंदीदा रेडियो नहीं",
       "stationNoImage": "बिना छवि के स्टेशन",
-      "playRadio": "रेडियो चलाएं",
-      "stopRadio": "रेडियो बंद करें"
+      "playRadio": "सुनें",
+      "stopRadio": "रोकें"
     }
   },
   "multiroom": {
@@ -45,7 +46,7 @@
   },
   "equalizer": {
     "title": "इक्वलाइज़र",
-    "disabled": "इक्वलाइज़र बंद",
+    "disabled": "इक्वलाइज़र अक्षम",
     "loading": "इक्वलाइज़र लोड हो रहा है",
     "presets": "ऑडियो प्रीसेट्स"
   },
@@ -89,12 +90,12 @@
   "podcastSettings": {
     "title": "पॉडकास्ट",
     "taddyCredentials": "Taddy API क्रेडेंशियल",
-    "credentialsDescription": "पॉडकास्ट सामग्री तक पहुंचने के लिए अपने Taddy API क्रेडेंशियल कॉन्फ़िगर करें। taddy.org पर अपने क्रेडेंशियल प्राप्त करें",
+    "credentialsDescription": "पॉडकास्ट सामग्री तक पहुंचने के लिए अपने Taddy API क्रेडेंशियल कॉन्फ़िगर करें। https://taddy.org/signup/developers पर अपने क्रेडेंशियल प्राप्त करें",
     "userId": "यूजर आईडी",
     "userIdPlaceholder": "अपना Taddy यूजर आईडी दर्ज करें",
     "apiKey": "API कुंजी",
     "apiKeyPlaceholder": "अपनी Taddy API कुंजी दर्ज करें",
-    "saveButton": "सहेजें",
+    "saveButton": "सत्यापित करें",
     "validateButton": "कनेक्शन टेस्ट करें",
     "validating": "टेस्ट हो रहा है...",
     "saveSuccess": "क्रेडेंशियल सफलतापूर्वक सहेजे गए",
@@ -325,7 +326,7 @@
     "searchPrompt": "पॉडकास्ट या एपिसोड खोजें",
     "languages": {
       "all": "सभी भाषाएं",
-      "french": "फ्रेंच",
+      "french": "फ़्रांसीसी",
       "english": "अंग्रेज़ी",
       "spanish": "स्पेनिश",
       "german": "जर्मन",
@@ -366,6 +367,7 @@
     "loadMorePodcasts": "अधिक पॉडकास्ट लोड करें",
     "loadMoreEpisodes": "अधिक एपिसोड लोड करें",
     "newEpisodes": "नए एपिसोड",
+    "noNewEpisodes": "कोई नया एपिसोड नहीं",
     "myPodcasts": "मेरे पॉडकास्ट",
     "noSubscriptions": "कोई सदस्यता नहीं",
     "noSubscriptionsHint": "पॉडकास्ट खोजें और उन्हें यहां खोजने के लिए सदस्यता लें",
@@ -377,7 +379,7 @@
     "remove": "हटाएं",
     "episodesCount2": "एपिसोड",
     "completed": "पूर्ण",
-    "explicit": "स्पष्ट",
+    "explicit": "अश्लील",
     "subscribed": "सदस्यता ली गई",
     "subscribe": "सदस्यता लें",
     "description": "विवरण",

@@ -15,6 +15,7 @@
     "macReceiver": "Receptor de áudio Mac",
     "rocReception": "Recepção de áudio Mac",
     "radio": "Rádio",
+    "podcasts": "Podcasts",
     "radioSource": {
       "favoritesTitle": "Rádios favoritas",
       "discoverTitle": "Descobrir rádios",
@@ -29,8 +30,8 @@
       "noStationsFound": "Nenhuma estação encontrada",
       "noFavorites": "Nenhuma rádio favorita",
       "stationNoImage": "Estação sem imagem",
-      "playRadio": "Reproduzir rádio",
-      "stopRadio": "Parar rádio"
+      "playRadio": "Ouvir",
+      "stopRadio": "Parar"
     }
   },
   "multiroom": {
@@ -89,12 +90,12 @@
   "podcastSettings": {
     "title": "Podcasts",
     "taddyCredentials": "Credenciais da API Taddy",
-    "credentialsDescription": "Configure suas credenciais da API Taddy para acessar conteúdo de podcasts. Obtenha suas credenciais em taddy.org",
+    "credentialsDescription": "Configure suas credenciais da API Taddy para acessar conteúdo de podcasts. Obtenha suas credenciais em https://taddy.org/signup/developers",
     "userId": "User ID",
     "userIdPlaceholder": "Digite seu User ID Taddy",
     "apiKey": "API Key",
     "apiKeyPlaceholder": "Digite sua API Key Taddy",
-    "saveButton": "Salvar",
+    "saveButton": "Validar",
     "validateButton": "Testar conexão",
     "validating": "Testando...",
     "saveSuccess": "Credenciais salvas com sucesso",
@@ -366,6 +367,7 @@
     "loadMorePodcasts": "Carregar mais podcasts",
     "loadMoreEpisodes": "Carregar mais episódios",
     "newEpisodes": "Novos episódios",
+    "noNewEpisodes": "Nenhum episódio novo",
     "myPodcasts": "Os meus podcasts",
     "noSubscriptions": "Sem subscrições",
     "noSubscriptionsHint": "Pesquise podcasts e subscreva para os encontrar aqui",
