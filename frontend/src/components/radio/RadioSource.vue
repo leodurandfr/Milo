@@ -248,58 +248,6 @@ async function handleFavorite() {
   }
 }
 
-// === POINTER SCROLL ===
-let isDragging = false
-let startY = 0
-let startScrollTop = 0
-let pointerId = null
-
-function handlePointerDown(event) {
-  if (!radioContainer.value) return
-
-  const isSlider = event.target.closest('input[type="range"]')
-  const isButton = event.target.closest('button')
-  const isInput = event.target.closest('input, select, textarea')
-  const isDropdown = event.target.closest('.dropdown')
-
-  if (isSlider || isButton || isInput || isDropdown) {
-    return
-  }
-
-  isDragging = true
-  pointerId = event.pointerId
-  startY = event.clientY
-  startScrollTop = radioContainer.value.scrollTop
-}
-
-function handlePointerMove(event) {
-  if (!isDragging || event.pointerId !== pointerId || !radioContainer.value) return
-
-  const deltaY = Math.abs(startY - event.clientY)
-
-  if (deltaY > 5) {
-    if (!radioContainer.value.hasPointerCapture(event.pointerId)) {
-      radioContainer.value.setPointerCapture(event.pointerId)
-    }
-
-    event.preventDefault()
-
-    const scrollDelta = startY - event.clientY
-    radioContainer.value.scrollTop = startScrollTop + scrollDelta
-  }
-}
-
-function handlePointerUp(event) {
-  if (event.pointerId === pointerId) {
-    isDragging = false
-    pointerId = null
-
-    if (radioContainer.value && radioContainer.value.hasPointerCapture(event.pointerId)) {
-      radioContainer.value.releasePointerCapture(event.pointerId)
-    }
-  }
-}
-
 // === NOW PLAYING VISIBILITY ===
 watch(isCurrentlyPlaying, (isPlaying) => {
   if (stopTimer.value) {
@@ -309,9 +257,7 @@ watch(isCurrentlyPlaying, (isPlaying) => {
 
   if (isPlaying && radioStore.currentStation) {
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        shouldShowNowPlayingLayout.value = true
-      })
+      shouldShowNowPlayingLayout.value = true
     })
   } else if (!isPlaying && radioStore.currentStation) {
     stopTimer.value = setTimeout(() => {
@@ -374,15 +320,6 @@ onMounted(async () => {
   // Add scroll listener for infinite scroll
   if (radioContainer.value) {
     radioContainer.value.addEventListener('scroll', handleScroll, { passive: true })
-
-    // Add pointer event listeners only on desktop
-    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches
-    if (!isTouchDevice) {
-      radioContainer.value.addEventListener('pointerdown', handlePointerDown, { passive: false })
-      radioContainer.value.addEventListener('pointermove', handlePointerMove, { passive: false })
-      radioContainer.value.addEventListener('pointerup', handlePointerUp, { passive: false })
-      radioContainer.value.addEventListener('pointercancel', handlePointerUp, { passive: false })
-    }
   }
 })
 
@@ -398,14 +335,6 @@ onBeforeUnmount(() => {
 
   if (radioContainer.value) {
     radioContainer.value.removeEventListener('scroll', handleScroll)
-
-    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches
-    if (!isTouchDevice) {
-      radioContainer.value.removeEventListener('pointerdown', handlePointerDown)
-      radioContainer.value.removeEventListener('pointermove', handlePointerMove)
-      radioContainer.value.removeEventListener('pointerup', handlePointerUp)
-      radioContainer.value.removeEventListener('pointercancel', handlePointerUp)
-    }
   }
 })
 </script>

@@ -817,23 +817,23 @@ onUnmounted(() => {
 }
 
 .additional-apps-container.visible .additional-app-content:first-child {
-  transition-delay: 0.1s;
+  transition-delay: 0.075s;
 }
 
 .additional-apps-container.visible .additional-app-content:nth-child(2) {
-  transition-delay: 0.137s;
+  transition-delay: 0.115s;
 }
 
 .additional-apps-container.visible .additional-app-content:nth-child(3) {
-  transition-delay: 0.175s;
+  transition-delay: 0.155s;
 }
 
 .additional-apps-container.visible .additional-app-content:nth-child(4) {
-  transition-delay: 0.212s;
+  transition-delay: 0.195s;
 }
 
 .additional-apps-container.visible .additional-app-content:nth-child(5) {
-  transition-delay: 0.250s;
+  transition-delay: 0.235s;
 }
 
 .app-title {

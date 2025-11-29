@@ -209,16 +209,12 @@ watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurren
     // If paused with an episode: schedule auto-stop after 5s
     if (!playing && !buffering && hasEpisode) {
       stopTimer.value = setTimeout(async () => {
-        // Hide the player (triggers 0.6s exit animation)
+        // Hide the player and stop playback
         shouldShowPlayerLayout.value = false
-
-        // Wait for animation to complete (600ms), then stop
-        setTimeout(async () => {
-          // Only call stop() if still not playing (user might have resumed)
-          if (!isCurrentlyPlaying.value && !isBuffering.value) {
-            await podcastStore.stop()
-          }
-        }, 600)
+        // Only call stop() if still not playing (user might have resumed)
+        if (!isCurrentlyPlaying.value && !isBuffering.value) {
+          await podcastStore.stop()
+        }
       }, 5000)
     }
   }, { immediate: true })

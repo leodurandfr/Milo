@@ -59,7 +59,7 @@ const props = defineProps({
   pluginType: {
     type: String,
     required: true,
-    validator: (value) => ['librespot', 'bluetooth', 'roc', 'radio', 'podcast'].includes(value)
+    validator: (value) => ['librespot', 'bluetooth', 'roc', 'radio', 'podcast', 'none'].includes(value)
   },
   pluginState: {
     type: String,
@@ -338,7 +338,6 @@ function handleDisconnect() {
   cursor: pointer;
   font-family: 'Neue Montreal Medium';
   font-weight: 500;
-  line-height: 0;
   font-style: normal;
   position: relative;
   flex-shrink: 0;
