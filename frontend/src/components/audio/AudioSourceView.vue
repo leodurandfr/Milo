@@ -147,8 +147,15 @@ const currentDeviceName = computed(() => {
   }
 });
 
-// Simple key based on displayed source for transitions
-const contentKey = computed(() => displayedSource.value);
+// Key for transitions - includes state for PluginStatus to animate between states
+const contentKey = computed(() => {
+  // Pour PluginStatus: inclure l'état pour déclencher les transitions entre états
+  if (shouldShowPluginStatus.value) {
+    return `${displayedSource.value}-${currentPluginState.value}-${!!currentDeviceName.value}`;
+  }
+  // Pour les vues complètes (Radio, Podcast, Librespot): la source suffit
+  return displayedSource.value;
+});
 
 </script>
 

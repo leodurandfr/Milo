@@ -16,7 +16,7 @@
         <div class="player-info">
           <slot name="info">
             <p v-if="subtitle" class="player-subtitle text-mono">{{ subtitle }}</p>
-            <p :class="['player-title', source === 'radio' ? 'display-1' : 'heading-4']">{{ title }}</p>
+            <p :class="['player-title', source === 'radio' ? 'heading-1' : 'heading-4']">{{ title }}</p>
           </slot>
           <slot name="progress"></slot>
 
@@ -344,8 +344,6 @@ const playerStyle = computed(() => {
     -webkit-line-clamp: unset;
     -webkit-box-orient: unset;
     display: block;
-    color: var(--color-text-contrast);
-    margin: 0;
   }
 
   :deep(.player-subtitle) {
