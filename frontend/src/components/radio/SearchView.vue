@@ -207,7 +207,7 @@ const searchResults = computed(() => {
 
 .filters-bar > * {
   flex: 1;
-  min-width: 220px;
+  min-width: 180px;
 }
 
 /* Results container */
