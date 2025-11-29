@@ -154,17 +154,17 @@ const stationMetadata = computed(() => {
 const countryOptions = computed(() => {
   if (availableCountries.value.length === 0) {
     return [
-      { label: t('audioSources.radioSource.allCountries'), value: '' },
+      { label: t('radio.country'), value: '' },
       { label: t('audioSources.radioSource.loadingCountries'), value: '', disabled: true }
     ]
   }
 
-  return createCountryOptions(t, availableCountries.value, t('audioSources.radioSource.allCountries'))
+  return createCountryOptions(t, availableCountries.value, t('radio.country'))
 })
 
 // Genre options for dropdown
 const genreOptions = computed(() => {
-  return createGenreOptions(t, t('audioSources.radioSource.allGenres'))
+  return createGenreOptions(t, t('radio.genre'))
 })
 
 // === NAVIGATION ===
