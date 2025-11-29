@@ -1,9 +1,11 @@
 // frontend/src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router';
 import MainView from '@/views/MainView.vue';
-import StyleGuide from '@/views/StyleGuide.vue';
-import CardsStyleGuide from '@/views/CardsStyleGuide.vue';
-import UIComponentsGuide from '@/views/UIComponentsGuide.vue';
+
+// Dev routes - lazy loaded
+const StyleGuide = () => import('@/views/StyleGuide.vue');
+const CardsStyleGuide = () => import('@/views/CardsStyleGuide.vue');
+const UIComponentsGuide = () => import('@/views/UIComponentsGuide.vue');
 
 const routes = [
   {

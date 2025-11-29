@@ -36,15 +36,20 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
 import Logo from '@/components/ui/Logo.vue';
-
 import Modal from '@/components/ui/Modal.vue';
-import SettingsModal from '@/components/settings/SettingsModal.vue';
-import RadioScreensaver from '@/components/radio/RadioScreensaver.vue';
+
+// Lazy-loaded components
+const SettingsModal = defineAsyncComponent(() =>
+  import('@/components/settings/SettingsModal.vue')
+);
+const RadioScreensaver = defineAsyncComponent(() =>
+  import('@/components/radio/RadioScreensaver.vue')
+);
 
 const unifiedStore = useUnifiedAudioStore();
 

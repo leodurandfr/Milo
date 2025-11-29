@@ -26,10 +26,17 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue';
-import LibrespotSource from '../librespot/LibrespotSource.vue';
-import RadioSource from '../radio/RadioSource.vue';
-import PodcastSource from '../podcasts/PodcastSource.vue';
+import { computed, ref, onMounted, defineAsyncComponent } from 'vue';
+
+const LibrespotSource = defineAsyncComponent(() =>
+  import('../librespot/LibrespotSource.vue')
+);
+const RadioSource = defineAsyncComponent(() =>
+  import('../radio/RadioSource.vue')
+);
+const PodcastSource = defineAsyncComponent(() =>
+  import('../podcasts/PodcastSource.vue')
+);
 import AudioSourceStatus from './AudioSourceStatus.vue';
 
 // Props

@@ -512,6 +512,97 @@
           </div>
         </div>
       </div>
+
+      <!-- ModalHeader -->
+      <div class="component-block">
+        <h3 class="heading-2">ModalHeader</h3>
+        <p class="text-mono text-secondary">Variants: contrast, background-neutral | Props: title, subtitle, showBack, icon, actionsKey</p>
+
+        <div class="controls-panel">
+          <label class="control-item">
+            <span class="text-mono">variant</span>
+            <select v-model="modalHeaderState.variant">
+              <option value="contrast">contrast</option>
+              <option value="background-neutral">background-neutral</option>
+            </select>
+          </label>
+          <label class="control-item">
+            <input type="checkbox" v-model="modalHeaderState.showBack" />
+            <span class="text-mono">showBack</span>
+          </label>
+          <label class="control-item">
+            <input type="checkbox" :checked="!!modalHeaderState.subtitle" @change="modalHeaderState.subtitle = $event.target.checked ? 'Subtitle' : ''" />
+            <span class="text-mono">subtitle</span>
+          </label>
+          <label class="control-item">
+            <input type="checkbox" :checked="!!modalHeaderState.icon" @change="modalHeaderState.icon = $event.target.checked ? 'radio' : ''" />
+            <span class="text-mono">icon</span>
+          </label>
+          <label class="control-item">
+            <input type="checkbox" v-model="modalHeaderState.hasActions" />
+            <span class="text-mono">actions slot</span>
+          </label>
+        </div>
+
+        <div class="preview-container">
+          <div class="preview-wrapper row-width">
+            <ModalHeader
+              :title="modalHeaderState.title"
+              :subtitle="modalHeaderState.subtitle || null"
+              :show-back="modalHeaderState.showBack"
+              :variant="modalHeaderState.variant"
+              :icon="modalHeaderState.icon || null"
+              @back="() => {}"
+            >
+              <template v-if="modalHeaderState.hasActions" #actions="{ iconVariant }">
+                <IconButton icon="settings" :variant="iconVariant" />
+              </template>
+            </ModalHeader>
+          </div>
+        </div>
+
+        <!-- All variants overview -->
+        <h4 class="heading-3">All Variants</h4>
+        <div class="component-grid">
+          <div class="component-row">
+            <h5 class="heading-4">contrast (default)</h5>
+            <div class="component-states component-states--vertical">
+              <ModalHeader title="Simple Title" variant="contrast" />
+              <ModalHeader title="With Subtitle" subtitle="Subtitle" variant="contrast" />
+              <ModalHeader title="With Back" variant="contrast" :show-back="true" @back="() => {}" />
+              <ModalHeader title="Back + Subtitle" subtitle="Subtitle" variant="contrast" :show-back="true" @back="() => {}" />
+              <ModalHeader title="With Icon" variant="contrast" icon="radio" />
+              <ModalHeader title="Icon + Subtitle" subtitle="Subtitle" variant="contrast" icon="radio" />
+            </div>
+          </div>
+          <div class="component-row">
+            <h5 class="heading-4">background-neutral</h5>
+            <div class="component-states component-states--vertical">
+              <ModalHeader title="Simple Title" variant="background-neutral" />
+              <ModalHeader title="With Subtitle" subtitle="Subtitle" variant="background-neutral" />
+              <ModalHeader title="With Back" variant="background-neutral" :show-back="true" @back="() => {}" />
+              <ModalHeader title="Back + Subtitle" subtitle="Subtitle" variant="background-neutral" :show-back="true" @back="() => {}" />
+              <ModalHeader title="With Icon" variant="background-neutral" icon="radio" />
+              <ModalHeader title="Icon + Subtitle" subtitle="Subtitle" variant="background-neutral" icon="radio" />
+            </div>
+          </div>
+          <div class="component-row">
+            <h5 class="heading-4">with actions slot</h5>
+            <div class="component-states component-states--vertical">
+              <ModalHeader title="With Actions" variant="contrast">
+                <template #actions="{ iconVariant }">
+                  <IconButton icon="settings" :variant="iconVariant" />
+                </template>
+              </ModalHeader>
+              <ModalHeader title="Back + Actions" variant="contrast" :show-back="true" @back="() => {}">
+                <template #actions="{ iconVariant }">
+                  <IconButton icon="close" :variant="iconVariant" />
+                </template>
+              </ModalHeader>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 </template>
@@ -530,6 +621,7 @@ import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue'
 import ListItemButton from '@/components/ui/ListItemButton.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
+import ModalHeader from '@/components/ui/ModalHeader.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
 
 // Variants
@@ -622,6 +714,16 @@ const spinnerState = ref({
 // MessageContent state
 const messageState = ref({
   loading: false
+})
+
+// ModalHeader state
+const modalHeaderState = ref({
+  title: 'Modal Title',
+  subtitle: '',
+  showBack: false,
+  variant: 'contrast',
+  icon: '',
+  hasActions: false
 })
 
 // Computed preview backgrounds

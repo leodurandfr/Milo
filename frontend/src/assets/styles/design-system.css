@@ -310,7 +310,7 @@
 
 .fade-slide-leave-to {
     opacity: 0;
-    transform: translateY(calc(-1 * var(--space-04)));
+    transform: translateY(calc(-1 * var(--space-03)));
 }
 
 
