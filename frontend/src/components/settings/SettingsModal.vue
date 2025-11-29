@@ -19,7 +19,7 @@
     </ModalHeader>
 
     <!-- Content area -->
-    <Transition name="view-fade" mode="out-in">
+    <Transition name="fade-slide" mode="out-in">
         <!-- Home view: list of categories -->
         <div v-if="currentView === 'home'" key="home" class="view-content">
           <div class="settings-nav-grid">
@@ -425,17 +425,6 @@ onUnmounted(() => {
 .icon-button-placeholder {
   background: var(--color-background-neutral-50);
   border-radius: var(--radius-05);
-}
-
-/* View transition - using design system variables */
-.view-fade-enter-active,
-.view-fade-leave-active {
-  transition: opacity var(--transition-fast);
-}
-
-.view-fade-enter-from,
-.view-fade-leave-to {
-  opacity: 0;
 }
 
 /* Responsive */
