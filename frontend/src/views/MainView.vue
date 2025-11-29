@@ -18,12 +18,7 @@
     </div>
 
     <!-- Logo -->
-    <Logo
-      :position="logoPosition"
-      :size="logoSize"
-      :visible="logoVisible"
-      :transition-mode="logoTransitionMode"
-    />
+    <Logo :state="logoState" />
 
     <!-- Settings modal -->
     <Modal :is-open="isSettingsOpen" @close="closeSettings" height-mode="auto">
@@ -36,7 +31,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue';
+import { computed, ref, watch, onUnmounted, defineAsyncComponent } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 import AudioSourceView from '@/components/audio/AudioSourceView.vue';
@@ -136,110 +131,35 @@ watch(shouldMonitorInactivity, (shouldMonitor) => {
   }
 }, { immediate: true });
 
-// === Logo states ===
-const logoPosition = ref('center');  // 'center' | 'top'
-const logoSize = ref('large');       // 'large' | 'small'
-const logoVisible = ref(true);
-const logoTransitionMode = ref('normal'); // 'normal' | 'librespot-hide' | 'librespot-show'
-const isInitialLoad = ref(true); // To distinguish refresh vs. state transitions
+// === LOGO STATE ===
+const logoState = computed(() => {
+  const { active_source, plugin_state, metadata, transitioning } = unifiedStore.systemState;
 
-let logoTimeout = null;
-
-// === COMPUTED TARGET STATES ===
-const isLibrespotFullScreen = computed(() => {
-  const hasCompleteTrackInfo = !!(
-    unifiedStore.systemState.plugin_state === 'connected' &&
-    unifiedStore.systemState.metadata?.title &&
-    unifiedStore.systemState.metadata?.artist
-  );
-
-  return unifiedStore.systemState.active_source === 'librespot' &&
-    unifiedStore.systemState.plugin_state === 'connected' &&
-    hasCompleteTrackInfo &&
-    !unifiedStore.systemState.transitioning;
-});
-
-const shouldShowLogo = computed(() => {
-  // Hide logo for librespot, radio, and podcast
-  if (unifiedStore.systemState.active_source === 'radio' ||
-      unifiedStore.systemState.active_source === 'podcast') {
-    return false;
+  // Pendant une transition → toujours en haut
+  if (transitioning) {
+    return 'top';
   }
-  return !isLibrespotFullScreen.value;
-});
 
-const targetPosition = computed(() => {
-  if (unifiedStore.systemState.active_source === 'none' && !unifiedStore.systemState.transitioning) {
+  // Librespot connecté avec track info → caché
+  if (active_source === 'librespot' &&
+      plugin_state === 'connected' &&
+      metadata?.title &&
+      metadata?.artist) {
+    return 'hidden';
+  }
+
+  // Radio ou Podcast → caché
+  if (active_source === 'radio' || active_source === 'podcast') {
+    return 'hidden';
+  }
+
+  // Aucun plugin actif → centré
+  if (active_source === 'none') {
     return 'center';
   }
+
+  // Tout autre cas (bluetooth, roc, librespot en attente) → en haut
   return 'top';
-});
-
-const targetSize = computed(() => {
-  return targetPosition.value === 'center' ? 'large' : 'small';
-});
-
-// === MAIN LOGIC ===
-watch([targetPosition, targetSize, shouldShowLogo], ([newPos, newSize, newVisible]) => {
-  if (logoTimeout) {
-    clearTimeout(logoTimeout);
-    logoTimeout = null;
-  }
-
-  // CASE 1 & 2: Logo visible → hidden for librespot
-  if (!newVisible && logoVisible.value) {
-    logoTransitionMode.value = 'librespot-hide';
-
-    // Immediate transition if not the initial load
-    if (!isInitialLoad.value) {
-      logoVisible.value = false;
-      return;
-    }
-
-    // Delay only on initial load (refresh)
-    logoTimeout = setTimeout(() => {
-      logoVisible.value = false;
-    }, 900);
-    return;
-  }
-
-  // CASE 3: Logo hidden → visible (leaving librespot)
-  if (newVisible && !logoVisible.value) {
-    logoTransitionMode.value = 'librespot-show';
-    logoPosition.value = 'top';
-    logoSize.value = 'small';
-    logoVisible.value = true;
-    isInitialLoad.value = false;
-    return;
-  }
-
-  // CASE 1 & 2: Normal changes
-  logoTransitionMode.value = 'normal';
-
-  // Immediate transition if not the initial load
-  if (!isInitialLoad.value) {
-    logoPosition.value = newPos;
-    logoSize.value = newSize;
-    logoVisible.value = newVisible;
-    return;
-  }
-
-  // Delay only on initial load (refresh)
-  logoTimeout = setTimeout(() => {
-    logoPosition.value = newPos;
-    logoSize.value = newSize;
-    logoVisible.value = newVisible;
-    isInitialLoad.value = false;
-  }, 900);
-}, { immediate: true });
-
-// Initialization on mount
-onMounted(() => {
-  // Always start big+center, even for librespot connected
-  logoPosition.value = 'center';
-  logoSize.value = 'large';
-  logoVisible.value = true;
-  logoTransitionMode.value = 'normal';
 });
 
 // === ACTION HANDLERS ===
@@ -328,7 +248,6 @@ function handleSettingsClick() {
 onUnmounted(() => {
   // Cleanup when leaving the view
   if (clickWindowTimer) clearTimeout(clickWindowTimer);
-  if (logoTimeout) clearTimeout(logoTimeout);
 
   // Screensaver cleanup
   removeActivityListeners();

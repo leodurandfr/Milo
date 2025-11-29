@@ -1,10 +1,9 @@
-<!-- Logo.vue - Version simplifiée avec 3 modes de transition -->
+<!-- Logo.vue - Composant simplifié avec 3 états -->
 <template>
-  <div class="logo-container" :class="logoClasses">
-    <svg 
-      xmlns="http://www.w3.org/2000/svg" 
+  <div class="logo-container" :class="`logo-${state}`">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
       class="logo-svg"
-      :class="sizeClass"
       viewBox="0 0 57 32"
       preserveAspectRatio="xMidYMid meet"
     >
@@ -19,125 +18,74 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
-
-const props = defineProps({
-  position: {
+defineProps({
+  state: {
     type: String,
-    default: 'center', // 'center' | 'top'
-    validator: (value) => ['center', 'top'].includes(value)
-  },
-  size: {
-    type: String,
-    default: 'large', // 'large' | 'small'  
-    validator: (value) => ['large', 'small'].includes(value)
-  },
-  visible: {
-    type: Boolean,
-    default: true
-  },
-  transitionMode: {
-    type: String,
-    default: 'normal', // 'normal' | 'librespot-hide' | 'librespot-show'
-    validator: (value) => ['normal', 'librespot-hide', 'librespot-show'].includes(value)
+    default: 'center',
+    validator: (value) => ['center', 'top', 'hidden'].includes(value)
   }
 });
-
-const logoClasses = computed(() => ({
-  'logo-center': props.position === 'center',
-  'logo-top': props.position === 'top',
-  'logo-hidden': !props.visible,
-  'logo-librespot-hide': props.transitionMode === 'librespot-hide',
-  'logo-librespot-show': props.transitionMode === 'librespot-show'
-}));
-
-const sizeClass = computed(() => ({
-  'logo-large': props.size === 'large',
-  'logo-small': props.size === 'small'
-}));
 </script>
 
 <style scoped>
 .logo-container {
   position: fixed;
   left: 50%;
-  transform: translateX(-50%);
   z-index: 100;
-  transition: all var(--transition-spring-slow);
   pointer-events: none;
+  transition: all var(--transition-spring);
 }
 
+.logo-svg {
+  display: block;
+  height: 32px;
+}
+
+/* === État CENTER - Logo grand, centré === */
 .logo-center {
   top: 50%;
-  transform: translateX(-50%) translateY(-50%);
+  transform: translate(-50%, -50%);
+  opacity: 1;
 }
 
+.logo-center .logo-svg {
+  height: 48px;
+  width: auto;
+}
+
+/* === État TOP - Logo petit, en haut === */
 .logo-top {
-  top: var(--space-06); /* 32px */
-  transform: translateX(-50%);
-}
-
-/* === VISIBILITY STATES === */
-
-.logo-hidden:not(.logo-librespot-hide):not(.logo-librespot-show) {
-  opacity: 0;
-  transform: translateX(-50%) translateY(-50%) scale(0.8);
-}
-
-/* Mode librespot-hide */
-.logo-librespot-hide.logo-hidden {
-  opacity: 0;
-}
-
-.logo-librespot-hide.logo-hidden.logo-center {
-  transform: translateX(-50%) translateY(-50%) translateY(-24px);
-}
-
-.logo-librespot-hide.logo-hidden.logo-top {
-  transform: translateX(-50%) translateY(-24px);
-}
-
-/* Mode librespot-show  */
-.logo-librespot-show.logo-top {
   top: var(--space-06);
   transform: translateX(-50%);
   opacity: 1;
 }
 
-/* === SIZES === */
-.logo-svg {
-  display: block;
-  transition: all var(--transition-spring-soft);
-}
-
-.logo-large {
-  height: 48px;
+.logo-top .logo-svg {
   width: auto;
 }
 
-.logo-small {
-  height: 32px;
+/* === État HIDDEN - Disparition vers le haut === */
+.logo-hidden {
+  top: var(--space-06);
+  opacity: 0;
+  transform: translateX(-50%) translateY(calc( -1 * var(--space-05)));
+}
+
+.logo-hidden .logo-svg {
   width: auto;
 }
 
 /* === RESPONSIVE - MOBILE === */
 @media (max-aspect-ratio: 4/3) {
-  .logo-large {
-    height: 40px;
-  }
-  
 
-  .logo-librespot-hide.logo-hidden.logo-center {
-    transform: translateX(-50%) translateY(-50%) translateY(-16px);
-  }
-  
-  .logo-librespot-hide.logo-hidden.logo-top {
-    transform: translateX(-50%) translateY(-16px);
-  }
+  /* .logo-hidden {
+    transform: translateX(-50%) translateY(calc( -1 * var(--space-04)));
+  } */
 }
 
 /* === iOS === */
-.ios-app .logo-top {
+.ios-app .logo-top,
+.ios-app .logo-hidden {
   top: var(--space-09);
 }
 </style>
