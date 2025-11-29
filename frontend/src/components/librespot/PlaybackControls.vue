@@ -1,13 +1,13 @@
 <template>
   <div class="controls">
     <div @click="onPrevious" class="control-button previous">
-      <SvgIcon name="previous" :size="48" class="icon-secondary" />
+      <SvgIcon name="previous" responsive class="icon-secondary" />
     </div>
     <div @click="onPlayPause" class="control-button play-pause">
-      <SvgIcon :name="isPlaying ? 'pause' : 'play'" :size="48" class="icon-primary" />
+      <SvgIcon :name="isPlaying ? 'pause' : 'play'" responsive class="icon-primary" />
     </div>
     <div @click="onNext" class="control-button next">
-      <SvgIcon name="next" :size="48" class="icon-secondary" />
+      <SvgIcon name="next" responsive class="icon-secondary" />
     </div>
   </div>
 </template>
@@ -15,12 +15,8 @@
 <script setup>
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 
-const props = defineProps({
+defineProps({
   isPlaying: {
-    type: Boolean,
-    default: false
-  },
-  isLoading: {
     type: Boolean,
     default: false
   }
@@ -28,30 +24,9 @@ const props = defineProps({
 
 const emit = defineEmits(['play-pause', 'previous', 'next']);
 
-function addPressEffect(e) {
-  const button = e.currentTarget;
-  if (!button || button.disabled) return;
-
-  button.classList.add('is-pressed');
-  setTimeout(() => {
-    button.classList.remove('is-pressed');
-  }, 150);
-}
-
-function onPlayPause(e) {
-  addPressEffect(e);
-  emit('play-pause');
-}
-
-function onPrevious(e) {
-  addPressEffect(e);
-  emit('previous');
-}
-
-function onNext(e) {
-  addPressEffect(e);
-  emit('next');
-}
+const onPlayPause = () => emit('play-pause');
+const onPrevious = () => emit('previous');
+const onNext = () => emit('next');
 </script>
 
 <style scoped>
@@ -77,8 +52,6 @@ function onNext(e) {
   transition: background-color 0.2s, transform var(--transition-spring), opacity 0.2s;
 }
 
-
-
 .control-button.play-pause {
   width: 90px;
   height: 90px;
@@ -100,5 +73,15 @@ function onNext(e) {
   pointer-events: none;
 }
 
-@media (max-aspect-ratio: 4/3) {}
+.control-button :deep(.svg-responsive) {
+  width: 48px;
+  height: 48px;
+}
+
+@media (max-aspect-ratio: 4/3) {
+  .control-button :deep(.svg-responsive) {
+    width: 40px;
+    height: 40px;
+  }
+}
 </style>
