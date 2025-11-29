@@ -12,7 +12,7 @@
     <!-- Right-side action -->
     <div v-if="action !== 'none'" class="list-item-button__action">
       <SvgIcon v-if="action === 'caret'" name="caretRight" :size="24" class="caret-icon" />
-      <Toggle v-else-if="action === 'toggle'" :model-value="modelValue" size="compact" :disabled="disabled" @click.stop />
+      <Toggle v-else-if="action === 'toggle'" :model-value="modelValue" size="compact" :disabled="disabled" @click.stop @update:model-value="(val) => emit('update:modelValue', val)" />
     </div>
   </button>
 </template>

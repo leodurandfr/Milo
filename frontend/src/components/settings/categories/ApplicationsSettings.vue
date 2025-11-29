@@ -121,7 +121,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
+import { onMounted } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
@@ -134,8 +135,8 @@ const { on } = useWebSocket();
 const { debouncedUpdate } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
-// Using the store
-const config = computed(() => settingsStore.dockApps);
+// Using storeToRefs for proper reactivity
+const { dockApps: config } = storeToRefs(settingsStore);
 
 function canDisableAudioSource(sourceId) {
   const audioSources = ['librespot', 'bluetooth', 'roc', 'radio', 'podcast'];
