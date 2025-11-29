@@ -8,7 +8,7 @@
     <!-- Content container with fixed height -->
     <div class="header-content">
       <Transition name="header-fade" mode="out-in" @after-leave="onAfterLeave">
-        <div v-if="showBack" :key="'back-' + title" class="back-modal-header">
+        <div v-if="showBack" :key="'back-' + title + '-' + subtitle" class="back-modal-header">
           <IconButton icon="caretLeft" :variant="variant === 'contrast' ? 'on-dark' : 'background-strong'" @click="handleBack" />
           <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
           <h2 v-else class="heading-1">
@@ -16,12 +16,20 @@
             <span class="title-main">{{ title }}</span>
           </h2>
         </div>
-        <div v-else-if="icon" :key="'icon-' + title" class="title-with-icon">
+        <div v-else-if="icon" :key="'icon-' + title + '-' + subtitle" class="title-with-icon">
           <AppIcon :name="icon" :size="48" class="header-icon" />
-          <h2 class="heading-1">{{ title }}</h2>
+          <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
+          <h2 v-else class="heading-1">
+            <span class="title-subtitle">{{ subtitle }}</span>
+            <span class="title-main">{{ title }}</span>
+          </h2>
         </div>
-        <div v-else :key="'title-' + title" class="title-only">
-          <h2 class="heading-1">{{ title }}</h2>
+        <div v-else :key="'title-' + title + '-' + subtitle" class="title-only">
+          <h2 v-if="!subtitle" class="heading-1">{{ title }}</h2>
+          <h2 v-else class="heading-1">
+            <span class="title-subtitle">{{ subtitle }}</span>
+            <span class="title-main">{{ title }}</span>
+          </h2>
         </div>
       </Transition>
     </div>
@@ -32,6 +40,7 @@
         <div v-if="$slots.actions" :key="actionsKey" class="actions-wrapper">
           <slot name="actions" :iconVariant="variant === 'contrast' ? 'on-dark' : 'background-strong'"></slot>
         </div>
+        <div v-else key="no-actions" class="actions-placeholder"></div>
       </Transition>
     </div>
   </div>
@@ -167,11 +176,19 @@ function handleBack() {
 }
 
 .title-subtitle {
-  color: var(--color-text-secondary);
+  color: var(--color-text-contrast-50);
   margin-right: var(--space-02);
 }
 
 .title-main {
+  color: var(--color-text-contrast);
+}
+
+.modal-header.variant-background-neutral .title-subtitle {
+  color: var(--color-text-secondary);
+}
+
+.modal-header.variant-background-neutral .title-main {
   color: var(--color-text);
 }
 

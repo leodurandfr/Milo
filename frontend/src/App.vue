@@ -29,14 +29,24 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, provide } from 'vue';
+import { ref, onMounted, onUnmounted, provide, defineAsyncComponent } from 'vue';
 import VolumeBar from '@/components/ui/VolumeBar.vue';
 import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 import Modal from '@/components/ui/Modal.vue';
-import SnapcastModal from '@/components/snapcast/SnapcastModal.vue';
-import EqualizerModal from '@/components/equalizer/EqualizerModal.vue';
-import SettingsModal from '@/components/settings/SettingsModal.vue';
-import VirtualKeyboard from '@/components/ui/VirtualKeyboard.vue';
+
+// Lazy-loaded modals
+const SnapcastModal = defineAsyncComponent(() =>
+  import('@/components/snapcast/SnapcastModal.vue')
+);
+const EqualizerModal = defineAsyncComponent(() =>
+  import('@/components/equalizer/EqualizerModal.vue')
+);
+const SettingsModal = defineAsyncComponent(() =>
+  import('@/components/settings/SettingsModal.vue')
+);
+const VirtualKeyboard = defineAsyncComponent(() =>
+  import('@/components/ui/VirtualKeyboard.vue')
+);
 
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
