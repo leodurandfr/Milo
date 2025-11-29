@@ -6,8 +6,7 @@
         aria-label="Fermer" @click="close" />
 
       <!-- Content with animated height -->
-      <div ref="modalContent" class="modal-content" @pointerdown="handlePointerDown" @pointermove="handlePointerMove"
-        @pointerup="handlePointerUp" @pointercancel="handlePointerUp">
+      <div ref="modalContent" class="modal-content">
         <div ref="contentInner" class="modal-content-inner">
           <slot></slot>
         </div>
@@ -122,13 +121,6 @@ const ANIMATION_TIMINGS = {
   closeContainerDuration: 200,
   closeButtonDurationOut: 200
 };
-
-// Pointer scroll variables
-let isDragging = false;
-let startY = 0;
-let startScrollTop = 0;
-let pointerId = null;
-let hasMoved = false;
 
 function close() {
   emit('close');
@@ -261,64 +253,6 @@ async function closeModal() {
 // User activity handler
 function handleUserActivity() {
   resetInactivityTimer();
-}
-
-// Pointer scroll handling
-function handlePointerDown(event) {
-  if (!modalContent.value) return;
-
-  // Disable pointer scroll on touch devices (mobile)
-  // Raspberry with mouse (pointer: fine) will keep manual scroll
-  const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
-  if (isTouchDevice) {
-    return;
-  }
-
-  // Exclude sliders and other interactive controls
-  const isSlider = event.target.closest('input[type="range"]');
-  const isButton = event.target.closest('button');
-  const isInput = event.target.closest('input, select, textarea');
-
-  if (isSlider || isButton || isInput) {
-    return;
-  }
-
-  isDragging = true;
-  hasMoved = false;
-  pointerId = event.pointerId;
-  startY = event.clientY;
-  startScrollTop = modalContent.value.scrollTop;
-}
-
-function handlePointerMove(event) {
-  if (!isDragging || event.pointerId !== pointerId || !modalContent.value) return;
-
-  const deltaY = Math.abs(startY - event.clientY);
-
-  if (deltaY > 5) {
-    hasMoved = true;
-
-    if (!modalContent.value.hasPointerCapture(event.pointerId)) {
-      modalContent.value.setPointerCapture(event.pointerId);
-    }
-
-    event.preventDefault();
-
-    const scrollDelta = startY - event.clientY;
-    modalContent.value.scrollTop = startScrollTop + scrollDelta;
-  }
-}
-
-function handlePointerUp(event) {
-  if (event.pointerId === pointerId) {
-    isDragging = false;
-    pointerId = null;
-    hasMoved = false;
-
-    if (modalContent.value && modalContent.value.hasPointerCapture(event.pointerId)) {
-      modalContent.value.releasePointerCapture(event.pointerId);
-    }
-  }
 }
 
 // Escape handling
