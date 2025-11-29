@@ -1,28 +1,11 @@
 <template>
   <!-- Card variant (default) -->
-  <div
-    v-if="variant === 'card'"
-    class="podcast-card variant-card"
-    :class="{ 'is-subscribed': isSubscribed, clickable, contrast }"
-    @click="handleCardClick"
-  >
+  <div v-if="variant === 'card'" class="podcast-card variant-card"
+    :class="{ 'is-subscribed': isSubscribed, clickable, contrast }" @click="handleCardClick">
     <div class="card-image">
-      <img
-        ref="imgRef"
-        :src="imageUrl"
-        :alt="podcast.name"
-        loading="lazy"
-        @load="handleImageLoad"
-        @error="handleImageError"
-        :class="{ loaded: imageLoaded }"
-        class="main-image"
-      />
-      <img
-        v-if="!imageLoaded && !imageError"
-        :src="podcastPlaceholder"
-        class="placeholder-image"
-        alt=""
-      />
+      <img ref="imgRef" :src="imageUrl" :alt="podcast.name" loading="lazy" @load="handleImageLoad"
+        @error="handleImageError" :class="{ loaded: imageLoaded }" class="main-image" />
+      <img v-if="!imageLoaded && !imageError" :src="podcastPlaceholder" class="placeholder-image" alt="" />
       <!-- Loading overlay -->
       <div v-if="isLoading" class="loading-overlay">
         <LoadingSpinner :size="48" />
@@ -36,49 +19,23 @@
     </div>
 
     <div v-if="showActions" class="card-actions" @click.stop>
-      <Button
-        v-if="!isSubscribed"
-        variant="brand"
-        size="small"
-        @click="$emit('subscribe', podcast.uuid)"
-      >
+      <Button v-if="!isSubscribed" variant="brand" size="small" @click="$emit('subscribe', podcast.uuid)">
         {{ t('podcasts.subscribe') }}
       </Button>
-      <Button
-        v-else
-        :variant="contrast ? 'on-dark' : 'background-strong'"
-        size="small"
-        @click="$emit('unsubscribe', podcast.uuid)"
-      >
+      <Button v-else :variant="contrast ? 'on-dark' : 'background-strong'" size="small"
+        @click="$emit('unsubscribe', podcast.uuid)">
         {{ t('podcasts.unsubscribe') }}
       </Button>
     </div>
   </div>
 
   <!-- Row variant -->
-  <div
-    v-else
-    class="podcast-card variant-row"
-    :class="{ 'is-subscribed': isSubscribed, clickable, contrast }"
-    @click="handleCardClick"
-  >
+  <div v-else class="podcast-card variant-row" :class="{ 'is-subscribed': isSubscribed, clickable, contrast }"
+    @click="handleCardClick">
     <div class="row-image">
-      <img
-        ref="imgRef"
-        :src="imageUrl"
-        :alt="podcast.name"
-        loading="lazy"
-        @load="handleImageLoad"
-        @error="handleImageError"
-        :class="{ loaded: imageLoaded }"
-        class="main-image"
-      />
-      <img
-        v-if="!imageLoaded && !imageError"
-        :src="podcastPlaceholder"
-        class="placeholder-image"
-        alt=""
-      />
+      <img ref="imgRef" :src="imageUrl" :alt="podcast.name" loading="lazy" @load="handleImageLoad"
+        @error="handleImageError" :class="{ loaded: imageLoaded }" class="main-image" />
+      <img v-if="!imageLoaded && !imageError" :src="podcastPlaceholder" class="placeholder-image" alt="" />
 
       <!-- Loading overlay -->
       <div v-if="isLoading" class="loading-overlay">
@@ -98,18 +55,11 @@
       </div>
 
       <div v-if="showActions" class="row-actions" @click.stop>
-        <Button
-          v-if="!isSubscribed"
-          variant="brand"
-          @click="$emit('subscribe', podcast.uuid)"
-        >
+        <Button v-if="!isSubscribed" variant="brand" @click="$emit('subscribe', podcast.uuid)">
           {{ t('podcasts.subscribe') }}
         </Button>
-        <Button
-          v-else
-          :variant="contrast ? 'on-dark' : 'background-strong'"
-          @click="$emit('unsubscribe', podcast.uuid)"
-        >
+        <Button v-else :variant="contrast ? 'on-dark' : 'background-strong'"
+          @click="$emit('unsubscribe', podcast.uuid)">
           {{ t('podcasts.unsubscribe') }}
         </Button>
       </div>
@@ -243,7 +193,7 @@ onMounted(() => {
 .variant-card {
   display: flex;
   flex-direction: column;
-  padding: var(--space-03);
+  padding: var(--space-03) var(--space-03) var(--space-04) var(--space-03);
   gap: var(--space-03);
 }
 

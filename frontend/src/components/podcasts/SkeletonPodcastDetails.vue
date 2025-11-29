@@ -22,32 +22,29 @@ import SkeletonEpisodeCard from './SkeletonEpisodeCard.vue'
 .skeleton-podcast-details {
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
+  gap: var(--space-06);
 }
 
 .skeleton-episodes-section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
+  gap: var(--space-03);
 }
 
 .skeleton-text-line {
   height: 16px;
   border-radius: var(--radius-02);
-  background: linear-gradient(
-    90deg,
-    var(--color-background-neutral) 0%,
-    var(--color-background-strong) 50%,
-    var(--color-background-neutral) 100%
-  );
+  background: linear-gradient(90deg,
+      var(--color-background-neutral) 0%,
+      var(--color-background-strong) 50%,
+      var(--color-background-neutral) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
 .skeleton-section-title {
   width: 200px;
-  height: 24px;
-  margin-bottom: var(--space-03);
+  height: 26px;
 }
 
 .skeleton-episodes-list {
@@ -60,8 +57,16 @@ import SkeletonEpisodeCard from './SkeletonEpisodeCard.vue'
   0% {
     background-position: 200% 0;
   }
+
   100% {
     background-position: -200% 0;
+  }
+}
+
+
+@media (max-aspect-ratio: 4/3) {
+  .skeleton-section-title {
+    height: 24px;
   }
 }
 </style>

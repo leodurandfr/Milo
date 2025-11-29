@@ -97,7 +97,7 @@ defineProps({
 /* === ROW VARIANT === */
 .variant-row {
   display: flex;
-  padding: var(--space-03);
+  padding: var(--space-03) var(--space-04) var(--space-03) var(--space-03);
   gap: var(--space-03);
 }
 
@@ -129,7 +129,7 @@ defineProps({
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
+  gap: var(--space-01);
 }
 
 .variant-row .skeleton-name {
@@ -143,21 +143,6 @@ defineProps({
 
 .variant-row .skeleton-meta {
   width: 40%;
-}
-
-.variant-row {
-  width: 100px;
-  height: 40px;
-  border-radius: var(--radius-03);
-  flex-shrink: 0;
-  background: linear-gradient(
-    90deg,
-    var(--color-background-neutral) 0%,
-    var(--color-background-strong) 50%,
-    var(--color-background-neutral) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 /* === ROW VARIANT MOBILE === */

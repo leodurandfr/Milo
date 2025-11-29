@@ -329,7 +329,7 @@ onUnmounted(() => {
     flex: 1;
     order: 1;
     min-width: 0;
-    height: 24px;
+    height: 26px;
   }
 
   .toggle-wrapper {
