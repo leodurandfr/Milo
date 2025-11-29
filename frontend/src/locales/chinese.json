@@ -15,6 +15,7 @@
     "macReceiver": "Mac 音频接收器",
     "rocReception": "Mac 音频接收",
     "radio": "广播",
+    "podcasts": "播客",
     "radioSource": {
       "favoritesTitle": "喜爱的广播",
       "discoverTitle": "发现广播",
@@ -29,8 +30,8 @@
       "noStationsFound": "未找到电台",
       "noFavorites": "没有喜爱的广播",
       "stationNoImage": "无图片的电台",
-      "playRadio": "播放电台",
-      "stopRadio": "停止电台"
+      "playRadio": "收听",
+      "stopRadio": "停止"
     }
   },
   "multiroom": {
@@ -45,7 +46,7 @@
   },
   "equalizer": {
     "title": "均衡器",
-    "disabled": "均衡器已关闭",
+    "disabled": "均衡器已禁用",
     "loading": "正在加载均衡器",
     "presets": "音频预设"
   },
@@ -89,12 +90,12 @@
   "podcastSettings": {
     "title": "播客",
     "taddyCredentials": "Taddy API 凭证",
-    "credentialsDescription": "配置您的 Taddy API 凭证以访问播客内容。在 taddy.org 获取您的凭证",
+    "credentialsDescription": "配置您的 Taddy API 凭证以访问播客内容。在 https://taddy.org/signup/developers 获取您的凭证",
     "userId": "用户 ID",
     "userIdPlaceholder": "输入您的 Taddy 用户 ID",
     "apiKey": "API 密钥",
     "apiKeyPlaceholder": "输入您的 Taddy API 密钥",
-    "saveButton": "保存",
+    "saveButton": "验证",
     "validateButton": "测试连接",
     "validating": "测试中...",
     "saveSuccess": "凭证保存成功",
@@ -366,6 +367,7 @@
     "loadMorePodcasts": "加载更多播客",
     "loadMoreEpisodes": "加载更多剧集",
     "newEpisodes": "新剧集",
+    "noNewEpisodes": "没有新剧集",
     "myPodcasts": "我的播客",
     "noSubscriptions": "没有订阅",
     "noSubscriptionsHint": "搜索播客并订阅以在此处找到它们",
@@ -377,7 +379,7 @@
     "remove": "删除",
     "episodesCount2": "剧集",
     "completed": "已完成",
-    "explicit": "成人内容",
+    "explicit": "露骨内容",
     "subscribed": "已订阅",
     "subscribe": "订阅",
     "description": "描述",

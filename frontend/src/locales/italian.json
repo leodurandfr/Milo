@@ -15,6 +15,7 @@
     "macReceiver": "Ricevitore Audio Mac",
     "rocReception": "Ricezione audio Mac",
     "radio": "Radio",
+    "podcasts": "Podcast",
     "radioSource": {
       "favoritesTitle": "Radio preferite",
       "discoverTitle": "Scopri radio",
@@ -29,8 +30,8 @@
       "noStationsFound": "Nessuna stazione trovata",
       "noFavorites": "Nessuna radio preferita",
       "stationNoImage": "Stazione senza immagine",
-      "playRadio": "Riproduci radio",
-      "stopRadio": "Ferma radio"
+      "playRadio": "Ascolta",
+      "stopRadio": "Ferma"
     }
   },
   "multiroom": {
@@ -89,12 +90,12 @@
   "podcastSettings": {
     "title": "Podcast",
     "taddyCredentials": "Credenziali API Taddy",
-    "credentialsDescription": "Configura le tue credenziali Taddy API per accedere ai contenuti podcast. Ottieni le tue credenziali su taddy.org",
+    "credentialsDescription": "Configura le tue credenziali Taddy API per accedere ai contenuti podcast. Ottieni le tue credenziali su https://taddy.org/signup/developers",
     "userId": "User ID",
     "userIdPlaceholder": "Inserisci il tuo User ID Taddy",
     "apiKey": "API Key",
     "apiKeyPlaceholder": "Inserisci la tua API Key Taddy",
-    "saveButton": "Salva",
+    "saveButton": "Valida",
     "validateButton": "Testa connessione",
     "validating": "Test in corso...",
     "saveSuccess": "Credenziali salvate con successo",
@@ -207,7 +208,7 @@
   "common": {
     "settings": "Impostazioni",
     "parameters": "Impostazioni",
-    "configuration": "Impostazioni",
+    "configuration": "Configurazione",
     "language": "Lingua",
     "unknown": "Sconosciuto",
     "cancel": "Annulla",
@@ -302,7 +303,7 @@
       "business": "Business",
       "health": "Salute e Fitness",
       "arts": "Arte",
-      "fiction": "Narrativa",
+      "fiction": "Fiction",
       "government": "Governo",
       "health_and_fitness": "Salute e Fitness",
       "history": "Storia",
@@ -366,6 +367,7 @@
     "loadMorePodcasts": "Carica più podcast",
     "loadMoreEpisodes": "Carica più episodi",
     "newEpisodes": "Nuovi episodi",
+    "noNewEpisodes": "Nessun nuovo episodio",
     "myPodcasts": "I miei podcast",
     "noSubscriptions": "Nessuna iscrizione",
     "noSubscriptionsHint": "Cerca podcast e iscriviti per trovarli qui",

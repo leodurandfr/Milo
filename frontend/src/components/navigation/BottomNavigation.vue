@@ -222,7 +222,7 @@ const activeSourceIndex = computed(() => {
 const indicatorStyle = ref({
   opacity: '0',
   transform: 'translateX(0px)',
-  transition: 'all var(--transition-spring)'
+  // transition: 'all var(--transition-normal)'
 });
 
 // === UTILITIES ===
@@ -551,7 +551,7 @@ const updateActiveIndicator = () => {
       indicatorStyle.value = {
         opacity: '1',
         transform: `translateX(${offsetX}px)`,
-        transition: 'opacity var(--transition-normal), transform var(--transition-spring)'
+        // transition: 'opacity var(--transition-normal), transform var(--transition-spring)'
       };
     }, 50);
   });
@@ -569,7 +569,7 @@ const moveIndicatorTo = (index) => {
     indicatorStyle.value = {
       opacity: '1',
       transform: `translateX(${offsetX}px)`,
-      transition: 'all var(--transition-spring-slow)'
+      // transition: 'all var(--transition-spring)'
     };
   });
 };
@@ -1005,7 +1005,7 @@ onUnmounted(() => {
   border-radius: var(--radius-full);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--transition-slow), transform var(--transition-spring);
+  transition: opacity var(--transition-slow), transform var(--transition-spring-slow);
 }
 
 .dock-item:disabled {
@@ -1042,7 +1042,7 @@ onUnmounted(() => {
     z-index: 998;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 600ms ease-in-out;
+    /* transition: opacity 600ms ease-in-out; */
     cursor: pointer;
   }
 
@@ -1053,7 +1053,7 @@ onUnmounted(() => {
 
   .dock-indicator.hidden {
     opacity: 0 !important;
-    transition: opacity var(--transition-normal) !important;
+    /* transition: opacity var(--transition-normal) !important; */
   }
 }
 

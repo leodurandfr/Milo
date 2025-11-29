@@ -30,8 +30,8 @@
       "noStationsFound": "Aucune station trouvée",
       "noFavorites": "Aucune radio favorite",
       "stationNoImage": "Station sans image",
-      "playRadio": "Jouer la radio",
-      "stopRadio": "Arrêter la radio"
+      "playRadio": "Écouter",
+      "stopRadio": "Arrêter"
     }
   },
   "multiroom": {
@@ -52,9 +52,9 @@
   },
   "status": {
     "loading": "Démarrage...",
-    "loadingOf": "Chargement de",
-    "loadingOfMasculine": "Chargement du",
-    "loadingOfFeminine": "Chargement de la",
+    "loadingOf": "Démarrage de",
+    "loadingOfMasculine": "Démarrage du",
+    "loadingOfFeminine": "Démarrage de la",
     "ready": "Prêt à se connecter",
     "readyToStream": "Prêt à diffuser",
     "waiting": "En attente...",
@@ -289,9 +289,9 @@
     "nowPlaying": "En cours de lecture",
     "noEpisode": "Aucun épisode",
     "newEpisodesFromSubscriptions": "Nouveaux épisodes des podcasts abonnés",
-    "topPodcasts": "Classement des podcasts",
+    "topPodcasts": "Top Podcasts",
     "browseByGenre": "Parcourir par genre",
-    "topEpisodes": "Classement des épisodes",
+    "topEpisodes": "Top Épisodes",
     "genres": {
       "news": "Actualités",
       "comedy": "Comédie",
@@ -342,7 +342,7 @@
     },
     "languageFilter": {
       "label": "Langue",
-      "all": "Langues",
+      "all": "Langue",
       "english": "Anglais",
       "french": "Français",
       "spanish": "Espagnol",
@@ -361,7 +361,7 @@
       "turkish": "Turc"
     },
     "genreFilter": {
-      "all": "Genres"
+      "all": "Genre"
     },
     "loadMorePodcasts": "Charger plus de podcasts",
     "loadMoreEpisodes": "Charger plus d'épisodes",

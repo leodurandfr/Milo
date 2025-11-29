@@ -30,8 +30,8 @@
       "noStationsFound": "No stations found",
       "noFavorites": "No favorite radios",
       "stationNoImage": "Station without image",
-      "playRadio": "Play radio",
-      "stopRadio": "Stop radio"
+      "playRadio": "Listen",
+      "stopRadio": "Stop"
     }
   },
   "multiroom": {
@@ -90,12 +90,12 @@
   "podcastSettings": {
     "title": "Podcasts",
     "taddyCredentials": "Taddy API Credentials",
-    "credentialsDescription": "Configure your Taddy API credentials to access podcast content. Get your credentials at taddy.org",
+    "credentialsDescription": "Configure your Taddy API credentials to access podcast content. Get your credentials at https://taddy.org/signup/developers",
     "userId": "User ID",
     "userIdPlaceholder": "Enter your Taddy User ID",
     "apiKey": "API Key",
     "apiKeyPlaceholder": "Enter your Taddy API Key",
-    "saveButton": "Save",
+    "saveButton": "Validate",
     "validateButton": "Test Connection",
     "validating": "Testing...",
     "saveSuccess": "Credentials saved successfully",

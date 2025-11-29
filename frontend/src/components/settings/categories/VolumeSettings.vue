@@ -228,7 +228,7 @@ onUnmounted(() => {
     border-radius: var(--radius-05);
   }
   .startup-mode-buttons {
-    flex-direction: column;
+    flex-direction: column-reverse;
   }
 
   .volume-steps-control,
