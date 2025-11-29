@@ -128,7 +128,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, inject, watch, defineAsyncComponent } from 'vue';
+import { ref, computed, onMounted, onUnmounted, inject, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { i18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -140,10 +140,7 @@ import axios from 'axios';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
-// Lazy-loaded settings categories
-const LanguageSettings = defineAsyncComponent(() =>
-  import('@/components/settings/categories/LanguageSettings.vue')
-);
+import LanguageSettings from '@/components/settings/categories/LanguageSettings.vue';
 
 // Import settings icons
 import languagesIcon from '@/assets/settings-icons/languages.svg';
@@ -156,36 +153,16 @@ import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
 import podcastIcon from '@/assets/settings-icons/podcast.svg';
-const ApplicationsSettings = defineAsyncComponent(() =>
-  import('@/components/settings/categories/ApplicationsSettings.vue')
-);
-const VolumeSettings = defineAsyncComponent(() =>
-  import('@/components/settings/categories/VolumeSettings.vue')
-);
-const ScreenSettings = defineAsyncComponent(() =>
-  import('@/components/settings/categories/ScreenSettings.vue')
-);
-const SpotifySettings = defineAsyncComponent(() =>
-  import('@/components/settings/categories/SpotifySettings.vue')
-);
-const MultiroomSettings = defineAsyncComponent(() =>
-  import('@/components/settings/categories/MultiroomSettings.vue')
-);
-const RadioSettings = defineAsyncComponent(() =>
-  import('@/components/settings/categories/radio/RadioSettings.vue')
-);
-const ManageStation = defineAsyncComponent(() =>
-  import('@/components/settings/categories/radio/ManageStation.vue')
-);
-const PodcastSettings = defineAsyncComponent(() =>
-  import('@/components/settings/categories/PodcastSettings.vue')
-);
-const UpdateManager = defineAsyncComponent(() =>
-  import('@/components/settings/categories/UpdateManager.vue')
-);
-const InfoSettings = defineAsyncComponent(() =>
-  import('@/components/settings/categories/InfoSettings.vue')
-);
+import ApplicationsSettings from '@/components/settings/categories/ApplicationsSettings.vue';
+import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
+import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
+import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
+import MultiroomSettings from '@/components/settings/categories/MultiroomSettings.vue';
+import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
+import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
+import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';
+import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
+import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
 
 const props = defineProps({
   initialView: {

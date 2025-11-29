@@ -135,6 +135,14 @@ onMounted(async () => {
   // Only fetches local data, no Taddy API call - episodes loaded when HomeView opens
   podcastStore.preloadSubscriptionsList()
 
+  // Preload modals in background for instant display when user opens them
+  Promise.all([
+    import('@/components/snapcast/SnapcastModal.vue'),
+    import('@/components/equalizer/EqualizerModal.vue'),
+    import('@/components/settings/SettingsModal.vue'),
+    import('@/components/ui/VirtualKeyboard.vue')
+  ]);
+
   // Final synchronous setup
   unifiedStore.setVolumeBarRef(volumeBar);
 });
