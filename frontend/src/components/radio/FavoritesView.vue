@@ -2,12 +2,7 @@
   <div class="favorites-view">
     <Transition name="fade-slide" mode="out-in">
       <!-- Empty state -->
-      <div v-if="!isLoading && favoriteStations.length === 0" key="empty" class="message-wrapper">
-        <MessageContent>
-          <SvgIcon name="radio" :size="64" color="var(--color-background-medium-16)" />
-          <p class="heading-2">{{ t('audioSources.radioSource.noFavorites') }}</p>
-        </MessageContent>
-      </div>
+      <MessageContent v-if="!isLoading && favoriteStations.length === 0" key="empty" icon="radio" :title="t('audioSources.radioSource.noFavorites')" />
 
       <!-- Favorites grid -->
       <div v-else key="favorites" class="favorites-grid">
@@ -30,7 +25,6 @@ import { computed } from 'vue'
 import { useRadioStore } from '@/stores/radioStore'
 import { useI18n } from '@/services/i18n'
 import StationCard from './StationCard.vue'
-import SvgIcon from '@/components/ui/SvgIcon.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
 const { t } = useI18n()
@@ -89,12 +83,6 @@ const favoriteStations = computed(() => {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-}
-
-/* Message wrapper (empty state) */
-.message-wrapper {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
 }
 
 /* Favorites grid */

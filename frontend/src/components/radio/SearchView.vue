@@ -28,31 +28,22 @@
     <div class="results">
       <Transition name="fade-slide" mode="out-in">
         <!-- Loading state -->
-        <div v-if="isLoading" key="loading" class="message-wrapper">
-          <MessageContent loading>
-            <p class="heading-2">{{ t('audioSources.radioSource.loadingStations') }}</p>
-          </MessageContent>
-        </div>
+        <MessageContent v-if="isLoading" key="loading" loading :title="t('audioSources.radioSource.loadingStations')" />
 
         <!-- Error state -->
-        <div v-else-if="hasError && searchResults.length === 0" key="error" class="message-wrapper">
-          <MessageContent>
-            <SvgIcon name="stop" :size="64" color="var(--color-background-medium-16)" />
-            <p class="heading-2">{{ t('audioSources.radioSource.connectionError') }}</p>
-            <p class="text-mono">{{ t('audioSources.radioSource.cannotLoadStations') }}</p>
-            <Button variant="background-strong" @click="$emit('retry')">
-              {{ t('audioSources.radioSource.retry') }}
-            </Button>
-          </MessageContent>
-        </div>
+        <MessageContent
+          v-else-if="hasError && searchResults.length === 0"
+          key="error"
+          icon="stop"
+          :title="t('audioSources.radioSource.connectionError')"
+          :subtitle="t('audioSources.radioSource.cannotLoadStations')"
+          :cta-label="t('audioSources.radioSource.retry')"
+          cta-variant="background-strong"
+          :cta-click="() => $emit('retry')"
+        />
 
         <!-- Empty state -->
-        <div v-else-if="searchResults.length === 0" key="empty" class="message-wrapper">
-          <MessageContent>
-            <SvgIcon name="radio" :size="64" color="var(--color-background-medium-16)" />
-            <p class="heading-2">{{ t('audioSources.radioSource.noStationsFound') }}</p>
-          </MessageContent>
-        </div>
+        <MessageContent v-else-if="searchResults.length === 0" key="empty" icon="radio" :title="t('audioSources.radioSource.noStationsFound')" />
 
         <!-- Search results -->
         <div v-else key="results" class="results-content">
@@ -79,10 +70,8 @@ import { computed, ref } from 'vue'
 import { useRadioStore } from '@/stores/radioStore'
 import { useI18n } from '@/services/i18n'
 import StationCard from './StationCard.vue'
-import SvgIcon from '@/components/ui/SvgIcon.vue'
 import InputText from '@/components/ui/InputText.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
-import Button from '@/components/ui/Button.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
 const { t } = useI18n()
@@ -221,12 +210,6 @@ const searchResults = computed(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-01);
-}
-
-/* Message wrapper (loading, error, empty states) */
-.message-wrapper {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
 }
 
 /* Mobile */

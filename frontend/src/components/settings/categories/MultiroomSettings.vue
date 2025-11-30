@@ -6,10 +6,7 @@
       <div class="content-wrapper" ref="contentWrapperRef" :class="{ 'with-background': !isMultiroomActive }">
         <!-- MESSAGE: Multiroom disabled -->
         <Transition name="fade-slide">
-          <MessageContent v-if="!isMultiroomActive" key="message">
-            <SvgIcon name="multiroom" :size="64" color="var(--color-background-medium-16)" />
-            <p class="heading-2">{{ t("multiroom.disabled") }}</p>
-          </MessageContent>
+          <MessageContent v-if="!isMultiroomActive" key="message" icon="multiroom" :title="t('multiroom.disabled')" />
         </Transition>
 
         <!-- SETTINGS: Sections visible only if multiroom is enabled -->
@@ -113,7 +110,6 @@ import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import SvgIcon from '@/components/ui/SvgIcon.vue';
 import InputText from '@/components/ui/InputText.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 

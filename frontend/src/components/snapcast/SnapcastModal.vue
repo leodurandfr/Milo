@@ -80,7 +80,7 @@ onUnmounted(() => {
 }
 
 .main-content {
-  flex: 1;
-  overflow: visible;
+  display: flex;
+  flex-direction: column;
 }
 </style>

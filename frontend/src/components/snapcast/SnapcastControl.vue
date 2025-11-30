@@ -1,18 +1,14 @@
 <!-- frontend/src/components/snapcast/SnapcastControl.vue -->
 <template>
   <div class="clients-container">
-    <div class="clients-list" :class="{ 'with-background': showBackground }">
-      <!-- MESSAGE: Multiroom disabled -->
-      <Transition name="fade-slide">
-        <MessageContent v-if="showMessage" key="message">
-          <SvgIcon name="multiroom" :size="64" color="var(--color-background-medium-16)" />
-          <p class="heading-2">{{ $t("multiroom.disabled") }}</p>
-        </MessageContent>
-      </Transition>
+    <div class="clients-list">
+      <!-- Single Transition for both states -->
+      <Transition name="fade-slide" mode="out-in">
+        <!-- MESSAGE: Multiroom disabled -->
+        <MessageContent v-if="showMessage" key="message" icon="multiroom" :title="$t('multiroom.disabled')" />
 
-      <!-- CLIENTS: Skeletons OR real items -->
-      <Transition name="clients">
-        <div v-if="!showMessage" key="clients" class="clients-wrapper">
+        <!-- CLIENTS: Skeletons OR real items -->
+        <div v-else key="clients" class="clients-wrapper">
           <SnapclientItem v-for="(client, index) in displayClients" :key="index" :client="client"
             :is-loading="shouldShowLoading" @volume-change="handleVolumeChange" @mute-toggle="handleMuteToggle" />
         </div>
@@ -27,7 +23,6 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSnapcastStore } from '@/stores/snapcastStore';
 import useWebSocket from '@/services/websocket';
 import SnapclientItem from './SnapclientItem.vue';
-import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
 const unifiedStore = useUnifiedAudioStore();
@@ -58,10 +53,6 @@ const showMessage = computed(() => {
   }
 
   return !isMultiroomActive.value;
-});
-
-const showBackground = computed(() => {
-  return showMessage.value;
 });
 
 // Force loading mode during toggling or loading
@@ -232,39 +223,12 @@ watch(isTogglingMultiroom, (isToggling, wasToggling) => {
 .clients-list {
   display: flex;
   flex-direction: column;
-  overflow: visible;
-  border-radius: var(--radius-04);
-  transition: 400ms ease;
   position: relative;
-}
-
-.clients-list.with-background {
-  background: var(--color-background-neutral);
 }
 
 .clients-wrapper {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
-}
-
-.clients-enter-active {
-  transition: opacity 300ms ease 100ms, transform 300ms ease 100ms;
-}
-
-.clients-leave-active {
-  transition: opacity 300ms ease, transform 300ms ease;
-  position: absolute;
-  width: 100%;
-}
-
-.clients-enter-from {
-  opacity: 0;
-  transform: translateY(12px);
-}
-
-.clients-leave-to {
-  opacity: 0;
-  transform: translateY(-12px);
 }
 </style>

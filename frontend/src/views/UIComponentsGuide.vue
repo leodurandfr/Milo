@@ -495,20 +495,57 @@
       <!-- MessageContent -->
       <div class="component-block">
         <h3 class="heading-2">MessageContent</h3>
-        <p class="text-mono text-secondary">Props: loading | Slot-only: no predefined text/icon fields</p>
+        <p class="text-mono text-secondary">Props: loading, icon, title, subtitle, ctaLabel, ctaVariant, ctaClick</p>
 
         <div class="controls-panel">
           <label class="control-item">
             <input type="checkbox" v-model="messageState.loading" />
             <span class="text-mono">loading</span>
           </label>
+          <label class="control-item">
+            <span class="text-mono">icon</span>
+            <select v-model="messageState.icon">
+              <option value="">none</option>
+              <option value="radio">radio</option>
+              <option value="podcast">podcast</option>
+              <option value="search">search</option>
+              <option value="heartOff">heartOff</option>
+              <option value="stop">stop</option>
+              <option value="multiroom">multiroom</option>
+            </select>
+          </label>
+          <label class="control-item">
+            <input type="checkbox" v-model="messageState.hasTitle" />
+            <span class="text-mono">title</span>
+          </label>
+          <label class="control-item">
+            <input type="checkbox" v-model="messageState.hasSubtitle" />
+            <span class="text-mono">subtitle</span>
+          </label>
+          <label class="control-item">
+            <input type="checkbox" v-model="messageState.hasCta" />
+            <span class="text-mono">ctaLabel</span>
+          </label>
+          <label class="control-item" v-if="messageState.hasCta">
+            <span class="text-mono">ctaVariant</span>
+            <select v-model="messageState.ctaVariant">
+              <option value="brand">brand</option>
+              <option value="background-strong">background-strong</option>
+            </select>
+          </label>
         </div>
 
         <div class="preview-container">
           <div class="preview-wrapper row-width">
-            <MessageContent :loading="messageState.loading">
-              <p class="text-body text-secondary">Custom message content goes here</p>
-            </MessageContent>
+            <MessageContent
+              :loading="messageState.loading"
+              :icon="messageState.icon || null"
+              :title="messageState.hasTitle ? 'Message title' : null"
+              :subtitle="messageState.hasSubtitle ? 'Additional details here' : null"
+              :cta-label="messageState.hasCta ? 'Action' : null"
+              :cta-variant="messageState.ctaVariant"
+              :cta-click="() => {}"
+            />
           </div>
         </div>
       </div>
@@ -713,7 +750,12 @@ const spinnerState = ref({
 
 // MessageContent state
 const messageState = ref({
-  loading: false
+  loading: false,
+  icon: '',
+  hasTitle: true,
+  hasSubtitle: false,
+  hasCta: false,
+  ctaVariant: 'brand'
 })
 
 // ModalHeader state

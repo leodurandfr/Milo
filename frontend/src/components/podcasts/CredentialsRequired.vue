@@ -1,25 +1,22 @@
 <template>
   <div class="credentials-required">
     <!-- Credentials error: missing or invalid -->
-    <div v-if="showCredentialsError" class="message-wrapper">
-      <MessageContent>
-        <SvgIcon name="podcast" :size="64" color="var(--color-background-medium-16)" />
-        <p class="heading-2">{{ t('podcasts.credentialsError') }}</p>
-        <p class="text-mono">{{ t('podcasts.credentialsErrorHint') }}</p>
-        <Button variant="brand" @click="$emit('configure')">
-          {{ t('podcasts.configureButton') }}
-        </Button>
-      </MessageContent>
-    </div>
+    <MessageContent
+      v-if="showCredentialsError"
+      icon="podcast"
+      :title="t('podcasts.credentialsError')"
+      :subtitle="t('podcasts.credentialsErrorHint')"
+      :cta-label="t('podcasts.configureButton')"
+      :cta-click="() => $emit('configure')"
+    />
 
     <!-- Rate limit error -->
-    <div v-else-if="showRateLimitError" class="message-wrapper">
-      <MessageContent>
-        <SvgIcon name="podcast" :size="64" color="var(--color-background-medium-16)" />
-        <p class="heading-2">{{ t('podcasts.rateLimitError') }}</p>
-        <p class="text-mono">{{ t('podcasts.rateLimitErrorHint') }}</p>
-      </MessageContent>
-    </div>
+    <MessageContent
+      v-else-if="showRateLimitError"
+      icon="podcast"
+      :title="t('podcasts.rateLimitError')"
+      :subtitle="t('podcasts.rateLimitErrorHint')"
+    />
   </div>
 </template>
 
@@ -27,9 +24,7 @@
 import { computed } from 'vue'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useI18n } from '@/services/i18n'
-import Button from '@/components/ui/Button.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
-import SvgIcon from '@/components/ui/SvgIcon.vue'
 
 defineEmits(['configure'])
 
@@ -54,8 +49,4 @@ const showRateLimitError = computed(() => {
   width: 100%;
 }
 
-.message-wrapper {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
-}
 </style>

@@ -13,11 +13,7 @@
     <div class="results" ref="resultsContainer">
       <Transition name="fade-slide" mode="out-in">
         <!-- Loading state -->
-        <div v-if="loading" key="loading" class="message-wrapper">
-          <MessageContent loading>
-            <p class="heading-2">{{ t('podcasts.loading') }}</p>
-          </MessageContent>
-        </div>
+        <MessageContent v-if="loading" key="loading" loading :title="t('podcasts.loading')" />
 
         <!-- Search results -->
         <div v-else-if="hasSearched && (podcastResults.length > 0 || episodeResults.length > 0)" key="results" class="results-content">
@@ -56,22 +52,15 @@
         </div>
 
         <!-- No results -->
-        <div v-else-if="hasSearched" key="no-results" class="message-wrapper">
-          <MessageContent>
-            <SvgIcon name="search" :size="64" color="var(--color-background-medium-16)" />
-            <p class="heading-2">
-              {{ lastSearchTerm ? t('podcasts.noResultsFor', { query: lastSearchTerm }) : t('podcasts.noResults') }}
-            </p>
-          </MessageContent>
-        </div>
+        <MessageContent
+          v-else-if="hasSearched"
+          key="no-results"
+          icon="search"
+          :title="lastSearchTerm ? t('podcasts.noResultsFor', { query: lastSearchTerm }) : t('podcasts.noResults')"
+        />
 
         <!-- Initial state -->
-        <div v-else key="initial" class="message-wrapper">
-          <MessageContent>
-            <SvgIcon name="search" :size="64" color="var(--color-background-medium-16)" />
-            <p class="heading-2">{{ t('podcasts.searchPrompt') }}</p>
-          </MessageContent>
-        </div>
+        <MessageContent v-else key="initial" icon="search" :title="t('podcasts.searchPrompt')" />
       </Transition>
     </div>
   </div>
@@ -86,7 +75,6 @@ import EpisodeCard from './EpisodeCard.vue'
 import InputText from '@/components/ui/InputText.vue'
 import Button from '@/components/ui/Button.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
-import SvgIcon from '@/components/ui/SvgIcon.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode'])
@@ -444,10 +432,6 @@ async function loadMoreEpisodes() {
   margin-top: var(--space-02);
 }
 
-.message-wrapper {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
-}
 /* Mobile: scroll horizontal au lieu de wrap vertical */
 @media (max-aspect-ratio: 4/3) {
   .filters-bar {

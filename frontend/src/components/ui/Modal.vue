@@ -73,6 +73,9 @@ provide('modalResetScroll', () => {
 // Provide the modalContent ref for height calculations
 provide('modalContentRef', modalContent);
 
+// Provide resetFirstResize for children to signal data loaded
+provide('modalResetFirstResize', resetFirstResize);
+
 // Variables to cancel ongoing timeouts
 let animationTimeouts = [];
 let inactivityTimer = null;
