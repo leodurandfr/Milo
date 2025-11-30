@@ -148,6 +148,12 @@
     "macStreaming": "macOS से ऑडियो स्ट्रीमिंग",
     "upToDate": "अप टू डेट",
     "progress": {
+      "creatingBackup": "बैकअप बनाया जा रहा है...",
+      "downloadingGoLibrespot": "go-librespot डाउनलोड हो रहा है...",
+      "stoppingService": "सेवा बंद हो रही है...",
+      "installingVersion": "नया संस्करण इंस्टॉल हो रहा है...",
+      "startingService": "सेवा शुरू हो रही है...",
+      "verifyingUpdate": "अपडेट सत्यापित हो रहा है...",
       "downloadingSnapserver": "snapserver डाउनलोड हो रहा है...",
       "downloadingSnapclient": "snapclient डाउनलोड हो रहा है...",
       "stoppingMultiroom": "मल्टीरूम सेवाएं बंद हो रही हैं...",

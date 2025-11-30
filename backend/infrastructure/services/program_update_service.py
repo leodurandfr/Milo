@@ -216,7 +216,7 @@ class ProgramUpdateService(ProgramVersionService):
 
         try:
             if progress_callback:
-                await progress_callback("Creating backup...", 10)
+                await progress_callback("updates.progress.creatingBackup", 10)
 
             # 1. Create a backup
             backup_result = await self._backup_go_librespot(config)
@@ -224,7 +224,7 @@ class ProgramUpdateService(ProgramVersionService):
                 return backup_result
 
             if progress_callback:
-                await progress_callback("Downloading new version...", 20)
+                await progress_callback("updates.progress.downloadingGoLibrespot", 20)
 
             # 2. Download the new version
             download_result = await self._download_go_librespot(latest_version)
@@ -232,7 +232,7 @@ class ProgramUpdateService(ProgramVersionService):
                 return download_result
 
             if progress_callback:
-                await progress_callback("Stopping service...", 60)
+                await progress_callback("updates.progress.stoppingService", 60)
 
             # 3. Stop the service
             stop_result = await self._stop_service(config["service_name"])
@@ -240,7 +240,7 @@ class ProgramUpdateService(ProgramVersionService):
                 return {"success": False, "error": "Failed to stop service"}
 
             if progress_callback:
-                await progress_callback("Installing new version...", 70)
+                await progress_callback("updates.progress.installingVersion", 70)
 
             # 4. Replace the binary
             install_result = await self._install_go_librespot_binary(download_result["binary_path"])
@@ -250,7 +250,7 @@ class ProgramUpdateService(ProgramVersionService):
                 return install_result
 
             if progress_callback:
-                await progress_callback("Starting service...", 90)
+                await progress_callback("updates.progress.startingService", 90)
 
             # 5. Restart the service
             start_result = await self._start_service(config["service_name"])
@@ -260,7 +260,7 @@ class ProgramUpdateService(ProgramVersionService):
                 return {"success": False, "error": "Failed to start service after update"}
 
             if progress_callback:
-                await progress_callback("Verifying update...", 95)
+                await progress_callback("updates.progress.verifyingUpdate", 95)
 
             # 6. Verify that the update worked
             verify_result = await self._verify_go_librespot_update(latest_version)
@@ -270,9 +270,14 @@ class ProgramUpdateService(ProgramVersionService):
                 return verify_result
 
             if progress_callback:
-                await progress_callback("Update completed!", 100)
+                await progress_callback("updates.progress.completed", 100)
 
-            # 7. Clean up temporary files
+            # 7. Save version to file (new binaries don't embed version)
+            version_file = Path("/var/lib/milo/go-librespot-version")
+            async with aiofiles.open(version_file, 'w') as f:
+                await f.write(latest_version)
+
+            # 8. Clean up temporary files
             await self._cleanup_temp_files(download_result.get("temp_dir"))
 
             return {
@@ -594,6 +599,10 @@ class ProgramUpdateService(ProgramVersionService):
             )
             await proc.communicate()
 
+            # Force filesystem sync to ensure binary is fully written
+            proc = await asyncio.create_subprocess_exec("sync")
+            await proc.wait()
+
             return {"success": True}
 
         except Exception as e:
@@ -736,20 +745,25 @@ class ProgramUpdateService(ProgramVersionService):
             return False
 
     async def _verify_go_librespot_update(self, expected_version: str) -> Dict[str, Any]:
-        """Verifies that go-librespot was updated correctly"""
+        """Verifies that go-librespot was updated by checking binary exists and service runs"""
         try:
-            # Check installed version
-            result = await self.get_installed_version("go-librespot")
+            # Check binary exists
+            binary_path = Path("/usr/local/bin/go-librespot")
+            if not binary_path.exists():
+                return {"success": False, "error": "go-librespot binary not found after update"}
 
-            if result["status"] != "installed":
-                return {"success": False, "error": "go-librespot not detected after update"}
+            # Check service is running
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "is-active", "milo-go-librespot.service",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await proc.communicate()
 
-            installed_version = list(result["versions"].values())[0]
+            if stdout.decode().strip() != "active":
+                return {"success": False, "error": "go-librespot service not running after update"}
 
-            if installed_version != expected_version:
-                return {"success": False, "error": f"Version mismatch: expected {expected_version}, got {installed_version}"}
-
-            return {"success": True, "verified_version": installed_version}
+            return {"success": True, "verified_version": expected_version}
 
         except Exception as e:
             return {"success": False, "error": f"Verification failed: {e}"}

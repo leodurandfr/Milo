@@ -148,6 +148,12 @@
     "macStreaming": "来自 macOS 的音频流",
     "upToDate": "已是最新",
     "progress": {
+      "creatingBackup": "正在创建备份...",
+      "downloadingGoLibrespot": "正在下载 go-librespot...",
+      "stoppingService": "正在停止服务...",
+      "installingVersion": "正在安装新版本...",
+      "startingService": "正在启动服务...",
+      "verifyingUpdate": "正在验证更新...",
       "downloadingSnapserver": "正在下载 snapserver...",
       "downloadingSnapclient": "正在下载 snapclient...",
       "stoppingMultiroom": "正在停止多房间服务...",
