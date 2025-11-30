@@ -148,6 +148,12 @@
     "macStreaming": "Transmissão de áudio do macOS",
     "upToDate": "Atualizado",
     "progress": {
+      "creatingBackup": "Criando backup...",
+      "downloadingGoLibrespot": "Baixando go-librespot...",
+      "stoppingService": "Parando serviço...",
+      "installingVersion": "Instalando nova versão...",
+      "startingService": "Iniciando serviço...",
+      "verifyingUpdate": "Verificando atualização...",
       "downloadingSnapserver": "Baixando snapserver...",
       "downloadingSnapclient": "Baixando snapclient...",
       "stoppingMultiroom": "Parando serviços multiroom...",
