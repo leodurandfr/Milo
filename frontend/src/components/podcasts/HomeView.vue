@@ -27,12 +27,7 @@
 
         <!-- Empty state with MessageContent when subscribed but no new episodes -->
         <transition name="content-fade">
-          <div v-if="!loadingSubscriptions && latestSubscriptionEpisodes.length === 0" key="empty-sub" class="message-wrapper">
-            <MessageContent>
-              <SvgIcon name="heartOff" :size="64" color="var(--color-background-medium-16)" />
-              <p class="heading-2">{{ t('podcasts.noNewEpisodes') }}</p>
-            </MessageContent>
-          </div>
+          <MessageContent v-if="!loadingSubscriptions && latestSubscriptionEpisodes.length === 0" key="empty-sub" icon="heartOff" :title="t('podcasts.noNewEpisodes')" />
         </transition>
       </div>
     </section>
@@ -116,7 +111,6 @@ import GenreCard from './GenreCard.vue'
 import SkeletonPodcastCard from './SkeletonPodcastCard.vue'
 import SkeletonEpisodeCard from './SkeletonEpisodeCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
-import SvgIcon from '@/components/ui/SvgIcon.vue'
 
 const emit = defineEmits(['select-podcast', 'select-episode', 'play-episode', 'browse-genre'])
 const { t } = useI18n()
@@ -242,11 +236,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
-}
-
-.message-wrapper {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
 }
 
 .genres-grid {

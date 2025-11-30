@@ -2,17 +2,8 @@
   <div class="genre-view">
     <!-- Top podcasts of the genre -->
     <section class="section">
-      <div v-if="loading" class="message-wrapper">
-        <MessageContent loading>
-          <p class="heading-2">{{ t('podcasts.loading') }}</p>
-        </MessageContent>
-      </div>
-      <div v-else-if="topPodcasts.length === 0" class="message-wrapper">
-        <MessageContent>
-          <SvgIcon name="podcast" :size="64" color="var(--color-background-medium-16)" />
-          <p class="heading-2">{{ t('podcasts.noPodcastsInGenre') }}</p>
-        </MessageContent>
-      </div>
+      <MessageContent v-if="loading" loading :title="t('podcasts.loading')" />
+      <MessageContent v-else-if="topPodcasts.length === 0" icon="podcast" :title="t('podcasts.noPodcastsInGenre')" />
       <div v-else class="podcasts-grid">
         <PodcastCard v-for="podcast in topPodcasts" :key="podcast.itunes_id || podcast.uuid" :podcast="podcast"
           :isLoading="isPodcastLoading(podcast)" @select="$emit('select-podcast', podcast)" />
@@ -26,7 +17,6 @@ import { ref, onMounted, watch } from 'vue'
 import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import PodcastCard from './PodcastCard.vue'
-import SvgIcon from '@/components/ui/SvgIcon.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
 const { t } = useI18n()
@@ -119,11 +109,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: var(--space-02);
-}
-
-.message-wrapper {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
 }
 
 @media (max-aspect-ratio: 4/3) {

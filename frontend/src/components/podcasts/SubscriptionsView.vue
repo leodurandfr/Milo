@@ -4,19 +4,14 @@
       <section class="section">
         <!-- <h2 class="section-title heading-2">{{ t('podcasts.myPodcasts') }}</h2> -->
 
-        <div v-if="loading" class="message-wrapper">
-          <MessageContent loading>
-            <p class="heading-2">{{ t('podcasts.loading') }}</p>
-          </MessageContent>
-        </div>
+        <MessageContent v-if="loading" loading :title="t('podcasts.loading')" />
 
-        <div v-else-if="subscriptions.length === 0" class="message-wrapper">
-          <MessageContent>
-            <SvgIcon name="heartOff" :size="64" color="var(--color-background-medium-16)" />
-            <p class="heading-2">{{ t('podcasts.noSubscriptions') }}</p>
-            <p class="text-mono">{{ t('podcasts.noSubscriptionsHint') }}</p>
-          </MessageContent>
-        </div>
+        <MessageContent
+          v-else-if="subscriptions.length === 0"
+          icon="heartOff"
+          :title="t('podcasts.noSubscriptions')"
+          :subtitle="t('podcasts.noSubscriptionsHint')"
+        />
 
         <div v-else class="podcasts-grid">
           <PodcastCard v-for="sub in subscriptions" :key="sub.uuid" :podcast="formatSubscription(sub)"
@@ -44,7 +39,6 @@ import { usePodcastStore } from '@/stores/podcastStore'
 import { useI18n } from '@/services/i18n'
 import PodcastCard from './PodcastCard.vue'
 import EpisodeCard from './EpisodeCard.vue'
-import SvgIcon from '@/components/ui/SvgIcon.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
 const { t } = useI18n()
@@ -129,11 +123,6 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: var(--space-02);
-}
-
-.message-wrapper {
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-04);
 }
 
 @media (max-aspect-ratio: 4/3) {

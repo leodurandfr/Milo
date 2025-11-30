@@ -12,18 +12,14 @@
     </ModalHeader>
 
     <!-- Main content -->
-    <div class="content-wrapper" :class="{ 'with-background': !isEqualizerEnabled }">
-      <!-- MESSAGE: Equalizer disabled -->
-      <Transition name="fade-slide">
-        <MessageContent v-if="!isEqualizerEnabled" key="message">
-          <SvgIcon name="equalizer" :size="64" color="var(--color-background-medium-16)" />
-          <p class="heading-2">{{ $t('equalizer.disabled') }}</p>
-        </MessageContent>
-      </Transition>
+    <div class="content-wrapper">
+      <!-- Single Transition for both states -->
+      <Transition name="fade-slide" mode="out-in">
+        <!-- MESSAGE: Equalizer disabled -->
+        <MessageContent v-if="!isEqualizerEnabled" key="message" icon="equalizer" :title="$t('equalizer.disabled')" />
 
-      <!-- EQUALIZER: Controls -->
-      <Transition name="controls">
-        <div v-if="isEqualizerEnabled" key="controls" class="equalizer-controls">
+        <!-- EQUALIZER: Controls -->
+        <div v-else key="controls" class="equalizer-controls">
           <RangeSliderEqualizer v-for="band in equalizerStore.bands" :key="band.id" v-model="band.value"
             :label="band.display_name" :orientation="sliderOrientation" :min="0" :max="100" :step="1" unit="%"
             :disabled="equalizerStore.isUpdating || !equalizerStore.bandsLoaded"
@@ -44,7 +40,6 @@ import ModalHeader from '@/components/ui/ModalHeader.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import RangeSliderEqualizer from './RangeSliderEqualizer.vue';
-import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
 const unifiedStore = useUnifiedAudioStore();
@@ -53,7 +48,7 @@ const { on } = useWebSocket();
 
 // Local state for toggling and optimistic UI
 const isEqualizerToggling = ref(false);
-const localEqualizerEnabled = ref(false); // Local state for instant UI
+const localEqualizerEnabled = ref(unifiedStore.systemState.equalizer_enabled);
 
 // UI states
 const isMobile = ref(false);
@@ -168,9 +163,6 @@ onMounted(async () => {
   updateMobileStatus();
   window.addEventListener('resize', updateMobileStatus);
 
-  // Initialize local state BEFORE loading
-  localEqualizerEnabled.value = unifiedStore.systemState.equalizer_enabled;
-
   // Initialize bands immediately
   equalizerStore.initializeBands();
 
@@ -207,15 +199,7 @@ onUnmounted(() => {
 .content-wrapper {
   display: flex;
   flex-direction: column;
-  overflow: visible;
-  transition: background 400ms ease;
   position: relative;
-  border-radius: var(--radius-06);
-
-}
-
-.content-wrapper.with-background {
-  background: var(--color-background-neutral);
 }
 
 .equalizer-controls {
@@ -226,27 +210,6 @@ onUnmounted(() => {
   gap: var(--space-02);
   padding: var(--space-05);
   overflow-x: auto;
-}
-
-/* Transitions for controls */
-.controls-enter-active {
-  transition: opacity 300ms ease 100ms, transform 300ms ease 100ms;
-}
-
-.controls-leave-active {
-  transition: opacity 300ms ease, transform 300ms ease;
-  position: absolute;
-  width: 100%;
-}
-
-.controls-enter-from {
-  opacity: 0;
-  transform: translateY(12px);
-}
-
-.controls-leave-to {
-  opacity: 0;
-  transform: translateY(-12px);
 }
 
 /* Loading animation for sliders */
