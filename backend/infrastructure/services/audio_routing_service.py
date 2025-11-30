@@ -138,6 +138,9 @@ class AudioRoutingService:
             elif not self.multiroom_enabled and services_running:
                 self.logger.info("Persisted state requires direct mode, stopping snapcast services")
                 await self._stop_snapcast()
+            else:
+                mode = "multiroom" if self.multiroom_enabled else "direct"
+                self.logger.info(f"Snapcast services already in correct state for {mode} mode")
 
             self._initial_detection_done = True
             current_multiroom = await self._get_multiroom_enabled()

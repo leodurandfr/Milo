@@ -24,6 +24,9 @@ from backend.infrastructure.hardware.screen_controller import ScreenController
 from backend.presentation.websockets.manager import WebSocketManager
 from backend.presentation.websockets.events import WebSocketEventHandler
 from backend.domain.audio_state import AudioSource
+from backend.infrastructure.services.program_version_service import ProgramVersionService
+from backend.infrastructure.services.program_update_service import ProgramUpdateService
+from backend.infrastructure.services.satellite_program_update_service import SatelliteProgramUpdateService
 
 class Container(containers.DeclarativeContainer):
     """Dependency injection container for Milo with SettingsService injection"""
@@ -93,6 +96,14 @@ class Container(containers.DeclarativeContainer):
         state_machine=audio_state_machine,
         settings_service=settings_service,
         hardware_service=hardware_service
+    )
+
+    # Program management services (Singletons to avoid multiple instantiations)
+    program_version_service = providers.Singleton(ProgramVersionService)
+    program_update_service = providers.Singleton(ProgramUpdateService)
+    satellite_program_update_service = providers.Singleton(
+        SatelliteProgramUpdateService,
+        snapcast_service=snapcast_service
     )
 
     # Audio plugins with SettingsService instead of static config

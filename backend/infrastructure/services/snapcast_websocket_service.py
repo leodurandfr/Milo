@@ -27,6 +27,8 @@ class SnapcastWebSocketService:
         self.reconnect_task = None
         self._known_client_ids = set()
 
+        # Initialization state - suppress verbose logs during startup
+        self._is_initializing = False
 
         # ID for JSON-RPC requests
         self.request_id = 0
@@ -155,8 +157,11 @@ class SnapcastWebSocketService:
             # Send initial ping to verify connection
             await self._send_request("Server.GetRPCVersion")
 
-            # Initialize already connected clients
+            # Initialize already connected clients (suppress notification logs during this phase)
+            # Keep _is_initializing True for 2 seconds after init to catch async notifications
+            self._is_initializing = True
             await self._initialize_existing_clients()
+            asyncio.create_task(self._clear_init_flag_after_delay(2.0))
 
             # Listen for messages
             async for msg in self.websocket:
@@ -180,6 +185,12 @@ class SnapcastWebSocketService:
         finally:
             self.websocket = None
     
+    async def _clear_init_flag_after_delay(self, delay: float) -> None:
+        """Clears the initialization flag after a delay to suppress async notifications"""
+        await asyncio.sleep(delay)
+        self._is_initializing = False
+        self.logger.debug("Snapcast WebSocket initialization phase complete, notifications now logged")
+
     async def _initialize_existing_clients(self) -> None:
         """Initializes clients already connected at the time of WebSocket connection"""
         try:
@@ -261,8 +272,12 @@ class SnapcastWebSocketService:
         """Processes a Snapcast notification"""
         method = notification.get("method")
         params = notification.get("params", {})
-        
-        self.logger.info(f"📨 SNAPCAST NOTIFICATION RECEIVED: {method}")
+
+        # Suppress verbose logs during initialization (notifications from initial sync)
+        if self._is_initializing:
+            self.logger.debug(f"📨 SNAPCAST NOTIFICATION (init phase): {method}")
+        else:
+            self.logger.info(f"📨 SNAPCAST NOTIFICATION RECEIVED: {method}")
         
         non_volume_notifications = {
             "Client.OnConnect": lambda p: self._handle_client_connect(p),
