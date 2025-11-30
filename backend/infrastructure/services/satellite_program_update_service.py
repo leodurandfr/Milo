@@ -19,7 +19,7 @@ class SatelliteProgramUpdateService:
         # Token GitHub (optionnel)
         self.github_token = os.environ.get('GITHUB_TOKEN')
         if self.github_token:
-            self.logger.info("GitHub token detected for satellite updates")
+            self.logger.debug("GitHub token detected for satellite updates")
 
         # Cache pour les satellites détectés
         self._satellites_cache = {}

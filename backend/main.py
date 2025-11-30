@@ -152,7 +152,9 @@ app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
 programs_router = create_programs_router(
     ws_manager=container.websocket_manager(),
-    snapcast_service=container.snapcast_service()
+    program_version_service=container.program_version_service(),
+    program_update_service=container.program_update_service(),
+    satellite_program_update_service=container.satellite_program_update_service()
 )
 app.include_router(programs_router)
 

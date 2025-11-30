@@ -206,13 +206,13 @@ class UnifiedAudioStateMachine:
             is_transitioning = self.system_state.transitioning
 
         if source != current_active_source:
-            self.logger.warning("Ignoring state update from inactive source: %s", source.value)
+            self.logger.debug("Ignoring state update from inactive source: %s", source.value)
             return
 
         if is_transitioning:
             async with self._buffer_lock:
                 queue_size = len(self._buffered_updates)
-                self.logger.info(
+                self.logger.debug(
                     "🔄 Buffering update during transition: %s -> %s (queue size: %d)",
                     source.value,
                     new_state.value,
@@ -357,7 +357,7 @@ class UnifiedAudioStateMachine:
                 return
 
             buffered_count = len(self._buffered_updates)
-            self.logger.info("📤 Replaying %d buffered update(s) after transition", buffered_count)
+            self.logger.debug("📤 Replaying %d buffered update(s) after transition", buffered_count)
 
             while self._buffered_updates:
                 source, new_state, metadata = self._buffered_updates.popleft()
@@ -386,7 +386,7 @@ class UnifiedAudioStateMachine:
                         source.value
                     )
 
-        self.logger.info("✅ Finished replaying buffered updates")
+        self.logger.debug("✅ Finished replaying buffered updates")
 
     async def _clear_buffered_updates(self) -> None:
         """Clear buffered updates queue."""

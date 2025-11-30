@@ -63,7 +63,7 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
     async def control_service(self, service_name: str, action: str) -> bool:
         """Controls a systemd service (start, stop, restart)"""
         try:
-            self.logger.info(f"{action.capitalize()} service {service_name}")
+            self.logger.debug(f"{action.capitalize()} service {service_name}")
 
             actions = {
                 "start": self.service_manager.start,

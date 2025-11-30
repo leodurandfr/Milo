@@ -19,9 +19,9 @@ class ProgramVersionService:
         # Get GitHub token from environment (optional)
         self.github_token = os.environ.get('GITHUB_TOKEN')
         if self.github_token:
-            self.logger.info("GitHub token detected - using authenticated API (5000 req/hour)")
+            self.logger.debug("GitHub token detected - using authenticated API (5000 req/hour)")
         else:
-            self.logger.info("No GitHub token - using anonymous API (60 req/hour)")
+            self.logger.debug("No GitHub token - using anonymous API (60 req/hour)")
 
         # Program configuration (snapserver and snapclient separated)
         self.programs = {
