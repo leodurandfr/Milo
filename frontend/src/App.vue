@@ -4,14 +4,14 @@
     <router-view />
     <VolumeBar ref="volumeBar" />
     <BottomNavigation
-      @open-snapcast="isSnapcastOpen = true"
+      @open-multiroom="isMultiroomOpen = true"
       @open-equalizer="isEqualizerOpen = true"
       @open-settings="isSettingsOpen = true"
 
     />
 
-    <Modal :is-open="isSnapcastOpen" @close="isSnapcastOpen = false">
-      <SnapcastModal />
+    <Modal :is-open="isMultiroomOpen" @close="isMultiroomOpen = false">
+      <MultiroomModal />
     </Modal>
 
     <Modal :is-open="isEqualizerOpen" @close="isEqualizerOpen = false">
@@ -35,8 +35,8 @@ import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
 import Modal from '@/components/ui/Modal.vue';
 
 // Lazy-loaded modals
-const SnapcastModal = defineAsyncComponent(() =>
-  import('@/components/snapcast/SnapcastModal.vue')
+const MultiroomModal = defineAsyncComponent(() =>
+  import('@/components/multiroom/MultiroomModal.vue')
 );
 const EqualizerModal = defineAsyncComponent(() =>
   import('@/components/equalizer/EqualizerModal.vue')
@@ -66,7 +66,7 @@ const { loadHardwareInfo } = useHardwareConfig();
 useScreenActivity();
 
 const volumeBar = ref(null);
-const isSnapcastOpen = ref(false);
+const isMultiroomOpen = ref(false);
 const isEqualizerOpen = ref(false);
 const isSettingsOpen = ref(false);
 
@@ -84,11 +84,11 @@ function closeSettings() {
 }
 
 // Provide for child components
-provide('openSnapcast', () => isSnapcastOpen.value = true);
+provide('openMultiroom', () => isMultiroomOpen.value = true);
 provide('openEqualizer', () => isEqualizerOpen.value = true);
 provide('openSettings', openSettings);
 provide('closeModals', () => {
-  isSnapcastOpen.value = false;
+  isMultiroomOpen.value = false;
   isEqualizerOpen.value = false;
   closeSettings();
 });
@@ -137,7 +137,7 @@ onMounted(async () => {
 
   // Preload modals in background for instant display when user opens them
   Promise.all([
-    import('@/components/snapcast/SnapcastModal.vue'),
+    import('@/components/multiroom/MultiroomModal.vue'),
     import('@/components/equalizer/EqualizerModal.vue'),
     import('@/components/settings/SettingsModal.vue'),
     import('@/components/ui/VirtualKeyboard.vue')

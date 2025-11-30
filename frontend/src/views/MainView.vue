@@ -51,8 +51,8 @@ const unifiedStore = useUnifiedAudioStore();
 // === Disconnecting states for each plugin ===
 const disconnectingStates = ref({
   bluetooth: false,
-  roc: false,
-  librespot: false,
+  mac: false,
+  spotify: false,
   radio: false
 });
 
@@ -140,8 +140,8 @@ const logoState = computed(() => {
     return 'top';
   }
 
-  // Librespot connecté avec track info → caché
-  if (active_source === 'librespot' &&
+  // Spotify connecté avec track info → caché
+  if (active_source === 'spotify' &&
       plugin_state === 'connected' &&
       metadata?.title &&
       metadata?.artist) {
@@ -158,7 +158,7 @@ const logoState = computed(() => {
     return 'center';
   }
 
-  // Tout autre cas (bluetooth, roc, librespot en attente) → en haut
+  // Tout autre cas (bluetooth, mac, spotify en attente) → en haut
   return 'top';
 });
 
@@ -179,8 +179,8 @@ async function handleDisconnect() {
           headers: { 'Content-Type': 'application/json' }
         });
         break;
-      case 'roc':
-        console.log('ROC disconnect not implemented');
+      case 'mac':
+        console.log('MAC disconnect not implemented');
         return;
       default:
         console.warn(`Disconnect not supported for ${currentSource}`);

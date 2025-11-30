@@ -4,9 +4,9 @@
     <!-- SIMPLIFIED transition without absolute positioning -->
     <Transition name="audio-content" mode="out-in">
 
-      <!-- LibrespotView -->
-      <div v-if="shouldShowLibrespot" :key="contentKey" class="librespot-container">
-        <LibrespotSource />
+      <!-- SpotifyView -->
+      <div v-if="shouldShowSpotify" :key="contentKey" class="spotify-container">
+        <SpotifySource />
       </div>
 
       <!-- RadioView -->
@@ -28,8 +28,8 @@
 <script setup>
 import { computed, defineAsyncComponent } from 'vue';
 
-const LibrespotSource = defineAsyncComponent(() =>
-  import('../librespot/LibrespotSource.vue')
+const SpotifySource = defineAsyncComponent(() =>
+  import('../spotify/SpotifySource.vue')
 );
 const RadioSource = defineAsyncComponent(() =>
   import('../radio/RadioSource.vue')
@@ -86,8 +86,8 @@ const hasCompleteTrackInfo = computed(() => {
   );
 });
 
-const shouldShowLibrespot = computed(() => {
-  return displayedSource.value === 'librespot' &&
+const shouldShowSpotify = computed(() => {
+  return displayedSource.value === 'spotify' &&
     props.pluginState === 'connected' &&
     hasCompleteTrackInfo.value &&
     !props.transitioning;
@@ -112,11 +112,11 @@ const shouldShowPluginStatus = computed(() => {
   // Transition in progress
   if (props.transitioning) return true;
 
-  // bluetooth/roc sources
-  if (['bluetooth', 'roc'].includes(displayedSource.value)) return true;
+  // bluetooth/mac sources
+  if (['bluetooth', 'mac'].includes(displayedSource.value)) return true;
 
-  // Librespot without complete conditions
-  if (displayedSource.value === 'librespot') {
+  // Spotify without complete conditions
+  if (displayedSource.value === 'spotify') {
     return !hasCompleteTrackInfo.value || props.pluginState !== 'connected';
   }
 
@@ -139,7 +139,7 @@ const currentDeviceName = computed(() => {
   switch (displayedSource.value) {
     case 'bluetooth':
       return metadata.device_name || '';
-    case 'roc':
+    case 'mac':
       // Support multiple clients: return the array or a single string
       return metadata.client_names || metadata.client_name || [];
     default:
@@ -173,8 +173,8 @@ const contentKey = computed(() => {
 
 /* === SIMPLIFIED CONTAINERS === */
 
-/* LibrespotView: natural full-screen */
-.librespot-container {
+/* SpotifyView: natural full-screen */
+.spotify-container {
   width: 100%;
   height: 100%;
 }

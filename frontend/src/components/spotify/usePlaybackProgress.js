@@ -1,14 +1,14 @@
-// frontend/src/composables/usePlaybackProgress.js
+// frontend/src/components/spotify/usePlaybackProgress.js
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 export function usePlaybackProgress() {
   const unifiedStore = useUnifiedAudioStore();
-  
+
   const localPosition = ref(0);
   let intervalId = null;
   let isApiSyncing = false;
-  
+
   // Computed properties
   const duration = computed(() => unifiedStore.systemState.metadata?.duration || 0);
   const currentPosition = computed(() => localPosition.value);
@@ -31,7 +31,7 @@ export function usePlaybackProgress() {
       startProgressTimer();
     }
   }, { immediate: true });
-  
+
   function startProgressTimer() {
     if (!intervalId) {
       intervalId = setInterval(() => {
@@ -41,30 +41,30 @@ export function usePlaybackProgress() {
       }, 100);
     }
   }
-  
+
   function stopProgressTimer() {
     if (intervalId) {
       clearInterval(intervalId);
       intervalId = null;
     }
   }
-  
+
   function seekTo(position) {
     isApiSyncing = true;
     localPosition.value = position;
-    
-    unifiedStore.sendCommand('librespot', 'seek', { position_ms: position });
-    
-    setTimeout(() => { 
-      isApiSyncing = false; 
+
+    unifiedStore.sendCommand('spotify', 'seek', { position_ms: position });
+
+    setTimeout(() => {
+      isApiSyncing = false;
     }, 200);
   }
-  
+
   // Cleanup
   onUnmounted(() => {
     stopProgressTimer();
   });
-  
+
   return {
     currentPosition,
     duration,

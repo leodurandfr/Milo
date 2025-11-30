@@ -30,17 +30,17 @@ class TestUnifiedAudioStateMachine:
 
     def test_register_plugin(self, state_machine, mock_plugin):
         """Test de l'enregistrement d'un plugin"""
-        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+        state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
-        assert state_machine.plugins[AudioSource.LIBRESPOT] == mock_plugin
-        assert state_machine.get_plugin(AudioSource.LIBRESPOT) == mock_plugin
+        assert state_machine.plugins[AudioSource.SPOTIFY] == mock_plugin
+        assert state_machine.get_plugin(AudioSource.SPOTIFY) == mock_plugin
 
     def test_get_plugin_metadata(self, state_machine):
         """Test de récupération des métadonnées d'un plugin"""
-        state_machine.system_state.active_source = AudioSource.LIBRESPOT
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.metadata = {"title": "Test Song"}
 
-        metadata = state_machine.get_plugin_metadata(AudioSource.LIBRESPOT)
+        metadata = state_machine.get_plugin_metadata(AudioSource.SPOTIFY)
         assert metadata == {"title": "Test Song"}
 
         # Source non-active devrait retourner {}
@@ -49,10 +49,10 @@ class TestUnifiedAudioStateMachine:
 
     def test_get_plugin_state(self, state_machine):
         """Test de récupération de l'état d'un plugin"""
-        state_machine.system_state.active_source = AudioSource.LIBRESPOT
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.plugin_state = PluginState.CONNECTED
 
-        state = state_machine.get_plugin_state(AudioSource.LIBRESPOT)
+        state = state_machine.get_plugin_state(AudioSource.SPOTIFY)
         assert state == PluginState.CONNECTED
 
         # Source non-active devrait retourner INACTIVE
@@ -73,11 +73,11 @@ class TestUnifiedAudioStateMachine:
     @pytest.mark.asyncio
     async def test_transition_to_same_source(self, state_machine, mock_plugin):
         """Test de transition vers la même source (devrait être no-op)"""
-        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
-        state_machine.system_state.active_source = AudioSource.LIBRESPOT
+        state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.plugin_state = PluginState.CONNECTED
 
-        result = await state_machine.transition_to_source(AudioSource.LIBRESPOT)
+        result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is True
         mock_plugin.stop.assert_not_called()
@@ -86,8 +86,8 @@ class TestUnifiedAudioStateMachine:
     @pytest.mark.asyncio
     async def test_transition_to_none(self, state_machine, mock_plugin):
         """Test de transition vers NONE (arrêt de la source active)"""
-        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
-        state_machine.system_state.active_source = AudioSource.LIBRESPOT
+        state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.plugin_state = PluginState.CONNECTED
 
         result = await state_machine.transition_to_source(AudioSource.NONE)
@@ -101,20 +101,20 @@ class TestUnifiedAudioStateMachine:
     async def test_transition_to_new_source_success(self, state_machine, mock_plugin):
         """Test de transition réussie vers une nouvelle source"""
         mock_plugin._initialized = True
-        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+        state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
-        result = await state_machine.transition_to_source(AudioSource.LIBRESPOT)
+        result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is True
         mock_plugin.start.assert_called_once()
-        assert state_machine.system_state.active_source == AudioSource.LIBRESPOT
+        assert state_machine.system_state.active_source == AudioSource.SPOTIFY
         # L'état devrait être au moins READY
         assert state_machine.system_state.plugin_state in [PluginState.READY, PluginState.CONNECTED]
 
     @pytest.mark.asyncio
     async def test_transition_to_unregistered_source(self, state_machine):
         """Test de transition vers une source non-enregistrée (devrait échouer)"""
-        result = await state_machine.transition_to_source(AudioSource.LIBRESPOT)
+        result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is False
 
@@ -123,9 +123,9 @@ class TestUnifiedAudioStateMachine:
         """Test de transition avec échec du démarrage"""
         mock_plugin.start = AsyncMock(return_value=False)
         mock_plugin._initialized = True
-        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+        state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
-        result = await state_machine.transition_to_source(AudioSource.LIBRESPOT)
+        result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is False
         # Devrait se retrouver en état NONE après échec
@@ -141,9 +141,9 @@ class TestUnifiedAudioStateMachine:
 
         mock_plugin.start = slow_start
         mock_plugin._initialized = True
-        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+        state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
-        result = await state_machine.transition_to_source(AudioSource.LIBRESPOT)
+        result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is False
         # Le timeout se produit mais error peut être None si _emergency_stop réinitialise l'état
@@ -153,12 +153,12 @@ class TestUnifiedAudioStateMachine:
     @pytest.mark.asyncio
     async def test_update_plugin_state_active_source(self, state_machine):
         """Test de mise à jour de l'état d'un plugin actif"""
-        state_machine.system_state.active_source = AudioSource.LIBRESPOT
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.plugin_state = PluginState.READY
 
         metadata = {"title": "Test Song"}
         await state_machine.update_plugin_state(
-            AudioSource.LIBRESPOT,
+            AudioSource.SPOTIFY,
             PluginState.CONNECTED,
             metadata
         )
@@ -169,7 +169,7 @@ class TestUnifiedAudioStateMachine:
     @pytest.mark.asyncio
     async def test_update_plugin_state_inactive_source_ignored(self, state_machine):
         """Test que les updates d'une source inactive sont ignorées"""
-        state_machine.system_state.active_source = AudioSource.LIBRESPOT
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.plugin_state = PluginState.CONNECTED
 
         # Tenter de mettre à jour une source non-active
@@ -180,17 +180,17 @@ class TestUnifiedAudioStateMachine:
         )
 
         # L'état ne devrait pas avoir changé
-        assert state_machine.system_state.active_source == AudioSource.LIBRESPOT
+        assert state_machine.system_state.active_source == AudioSource.SPOTIFY
 
     @pytest.mark.asyncio
     async def test_update_plugin_state_during_transition_ignored(self, state_machine):
         """Test que les updates pendant une transition sont ignorées"""
-        state_machine.system_state.active_source = AudioSource.LIBRESPOT
+        state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.transitioning = True
         old_state = state_machine.system_state.plugin_state
 
         await state_machine.update_plugin_state(
-            AudioSource.LIBRESPOT,
+            AudioSource.SPOTIFY,
             PluginState.CONNECTED,
             {}
         )
@@ -235,11 +235,11 @@ class TestUnifiedAudioStateMachine:
             return True
 
         mock_plugin.start = slow_start
-        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+        state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
         # Lancer deux transitions en parallèle
-        task1 = asyncio.create_task(state_machine.transition_to_source(AudioSource.LIBRESPOT))
-        task2 = asyncio.create_task(state_machine.transition_to_source(AudioSource.LIBRESPOT))
+        task1 = asyncio.create_task(state_machine.transition_to_source(AudioSource.SPOTIFY))
+        task2 = asyncio.create_task(state_machine.transition_to_source(AudioSource.SPOTIFY))
 
         results = await asyncio.gather(task1, task2)
 
@@ -257,11 +257,11 @@ class TestUnifiedAudioStateMachine:
             return True
 
         mock_plugin.start = slow_start
-        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+        state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
         # Démarrer une transition
         transition_task = asyncio.create_task(
-            state_machine.transition_to_source(AudioSource.LIBRESPOT)
+            state_machine.transition_to_source(AudioSource.SPOTIFY)
         )
 
         # Attendre un peu que la transition commence
@@ -269,7 +269,7 @@ class TestUnifiedAudioStateMachine:
 
         # Essayer d'envoyer un update pendant la transition
         await state_machine.update_plugin_state(
-            AudioSource.LIBRESPOT,
+            AudioSource.SPOTIFY,
             PluginState.CONNECTED,
             {"title": "Test Song"}
         )
@@ -289,11 +289,11 @@ class TestUnifiedAudioStateMachine:
             return True
 
         mock_plugin.start = slow_start
-        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+        state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
         # Démarrer une transition
         transition_task = asyncio.create_task(
-            state_machine.transition_to_source(AudioSource.LIBRESPOT)
+            state_machine.transition_to_source(AudioSource.SPOTIFY)
         )
 
         # Attendre que la transition commence
@@ -301,7 +301,7 @@ class TestUnifiedAudioStateMachine:
 
         # Envoyer des updates pendant la transition
         await state_machine.update_plugin_state(
-            AudioSource.LIBRESPOT,
+            AudioSource.SPOTIFY,
             PluginState.CONNECTED,
             {"title": "Test Song", "artist": "Test Artist"}
         )
@@ -320,11 +320,11 @@ class TestUnifiedAudioStateMachine:
             return True
 
         mock_plugin.start = timeout_start
-        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+        state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
         # Démarrer une transition
         transition_task = asyncio.create_task(
-            state_machine.transition_to_source(AudioSource.LIBRESPOT)
+            state_machine.transition_to_source(AudioSource.SPOTIFY)
         )
 
         # Attendre que la transition commence
@@ -332,7 +332,7 @@ class TestUnifiedAudioStateMachine:
 
         # Envoyer un update pendant la transition
         await state_machine.update_plugin_state(
-            AudioSource.LIBRESPOT,
+            AudioSource.SPOTIFY,
             PluginState.CONNECTED,
             {"title": "Test Song"}
         )
@@ -360,11 +360,11 @@ class TestUnifiedAudioStateMachine:
             return True
 
         mock_plugin.start = slow_start
-        state_machine.register_plugin(AudioSource.LIBRESPOT, mock_plugin)
+        state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
         # Démarrer une transition
         transition_task = asyncio.create_task(
-            state_machine.transition_to_source(AudioSource.LIBRESPOT)
+            state_machine.transition_to_source(AudioSource.SPOTIFY)
         )
 
         # Attendre que la transition commence
@@ -373,7 +373,7 @@ class TestUnifiedAudioStateMachine:
         # Envoyer plus d'updates que la capacité max
         for i in range(state_machine.MAX_BUFFERED_UPDATES + 10):
             await state_machine.update_plugin_state(
-                AudioSource.LIBRESPOT,
+                AudioSource.SPOTIFY,
                 PluginState.CONNECTED,
                 {"index": i}
             )

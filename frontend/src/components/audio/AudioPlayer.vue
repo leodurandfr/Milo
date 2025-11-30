@@ -67,7 +67,7 @@ const props = defineProps({
   source: {
     type: String,
     required: true,
-    validator: (value) => ['radio', 'podcast', 'bluetooth', 'roc'].includes(value)
+    validator: (value) => ['radio', 'podcast', 'bluetooth', 'mac'].includes(value)
   },
 
   /**

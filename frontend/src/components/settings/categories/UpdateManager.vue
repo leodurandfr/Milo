@@ -220,10 +220,10 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 function getProgramIcon(programKey) {
   const iconMap = {
     'milo': 'milo',
-    'go-librespot': 'librespot',
+    'go-librespot': 'spotify',
     'multiroom': 'multiroom',
     'bluez-alsa': 'bluetooth',
-    'roc-toolkit': 'roc'
+    'roc-toolkit': 'mac'
   };
   return iconMap[programKey] || 'settings';
 }

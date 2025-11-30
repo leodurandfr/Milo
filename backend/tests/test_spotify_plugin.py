@@ -21,7 +21,7 @@ class TestLibrespotPlugin:
         sm = Mock()
         sm.update_plugin_state = AsyncMock()
         sm.system_state = Mock()
-        sm.system_state.active_source = AudioSource.LIBRESPOT
+        sm.system_state.active_source = AudioSource.SPOTIFY
         sm.system_state.plugin_state = PluginState.READY
         sm.system_state.metadata = {}
         return sm
@@ -309,11 +309,11 @@ class TestLibrespotPlugin:
 
     def test_get_audio_source(self, plugin):
         """Test de récupération de l'AudioSource enum"""
-        assert plugin._get_audio_source() == AudioSource.LIBRESPOT
+        assert plugin._get_audio_source() == AudioSource.SPOTIFY
 
     def test_is_active_plugin_true(self, plugin, mock_state_machine):
         """Test is_active_plugin quand le plugin est actif"""
-        mock_state_machine.system_state.active_source = AudioSource.LIBRESPOT
+        mock_state_machine.system_state.active_source = AudioSource.SPOTIFY
 
         assert plugin.is_active_plugin() is True
 

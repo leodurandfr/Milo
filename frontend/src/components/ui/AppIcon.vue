@@ -23,7 +23,7 @@ const props = defineProps({
   name: {
     type: String,
     required: true,
-    validator: (value) => ['bluetooth', 'librespot', 'roc', 'radio', 'podcast', 'multiroom', 'equalizer', 'settings', 'milo'].includes(value)
+    validator: (value) => ['bluetooth', 'spotify', 'mac', 'radio', 'podcast', 'multiroom', 'equalizer', 'settings', 'milo'].includes(value)
   },
   size: {
     type: [String, Number],
@@ -33,8 +33,8 @@ const props = defineProps({
 
 
 const iconMapping = {
-  'librespot': 'spotify',
-  'roc': 'macos',
+  'spotify': 'spotify',
+  'mac': 'macos',
   'bluetooth': 'bluetooth',
   'radio': 'radio',
   'podcast': 'podcast',

@@ -1,44 +1,45 @@
+# backend/presentation/api/routes/mac.py
 """
-API routes for ROC plugin
+API routes for Mac audio plugin (uses ROC toolkit internally)
 """
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Dict, Any
 from backend.domain.audio_state import PluginState
 
 router = APIRouter(
-    prefix="/api/roc",
-    tags=["roc"],
+    prefix="/mac",
+    tags=["mac"],
     responses={404: {"description": "Not found"}},
 )
 
-roc_plugin_dependency = None
+mac_plugin_dependency = None
 
-def setup_roc_routes(plugin_provider):
+def setup_mac_routes(plugin_provider):
     """
-    Configures ROC routes with plugin reference
+    Configures Mac audio routes with plugin reference
 
     Args:
-        plugin_provider: Function that returns ROC plugin instance
+        plugin_provider: Function that returns Mac audio plugin instance
     """
-    global roc_plugin_dependency
-    roc_plugin_dependency = plugin_provider
+    global mac_plugin_dependency
+    mac_plugin_dependency = plugin_provider
     return router
 
-def get_roc_plugin():
-    """Dependency to get ROC plugin"""
-    if roc_plugin_dependency is None:
+def get_mac_plugin():
+    """Dependency to get Mac audio plugin"""
+    if mac_plugin_dependency is None:
         raise HTTPException(
             status_code=500,
-            detail="ROC plugin not initialized. Call setup_roc_routes first."
+            detail="Mac audio plugin not initialized. Call setup_mac_routes first."
         )
-    return roc_plugin_dependency()
+    return mac_plugin_dependency()
 
 @router.get("/status")
-async def get_roc_status(plugin = Depends(get_roc_plugin)):
-    """Gets current ROC receiver status"""
+async def get_mac_status(plugin = Depends(get_mac_plugin)):
+    """Gets current Mac audio receiver status"""
     try:
         status = await plugin.get_status()
-        
+
         return {
             "status": "ok",
             "is_active": plugin.current_state != PluginState.INACTIVE,
@@ -62,8 +63,8 @@ async def get_roc_status(plugin = Depends(get_roc_plugin)):
         }
 
 @router.post("/restart")
-async def restart_roc_service(plugin = Depends(get_roc_plugin)):
-    """Restarts ROC service"""
+async def restart_mac_service(plugin = Depends(get_mac_plugin)):
+    """Restarts Mac audio service"""
     try:
         result = await plugin.handle_command("restart", {})
 
@@ -79,8 +80,8 @@ async def restart_roc_service(plugin = Depends(get_roc_plugin)):
         }
 
 @router.get("/logs")
-async def get_roc_logs(plugin = Depends(get_roc_plugin)):
-    """Gets ROC service logs"""
+async def get_mac_logs(plugin = Depends(get_mac_plugin)):
+    """Gets Mac audio service logs"""
     try:
         result = await plugin.handle_command("get_logs", {})
 
@@ -101,8 +102,8 @@ async def get_roc_logs(plugin = Depends(get_roc_plugin)):
         }
 
 @router.get("/info")
-async def get_roc_info(plugin = Depends(get_roc_plugin)):
-    """Gets ROC configuration information"""
+async def get_mac_info(plugin = Depends(get_mac_plugin)):
+    """Gets Mac audio configuration information"""
     try:
         status = await plugin.get_status()
 
@@ -128,7 +129,7 @@ async def get_roc_info(plugin = Depends(get_roc_plugin)):
 
 
 @router.get("/connections")
-async def get_roc_connections(plugin = Depends(get_roc_plugin)):
+async def get_mac_connections(plugin = Depends(get_mac_plugin)):
     """Gets list of active connections"""
     try:
         result = await plugin.handle_command("get_connections", {})

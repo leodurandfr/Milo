@@ -23,8 +23,8 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
     def _get_audio_source(self) -> AudioSource:
         """Returns the AudioSource enum corresponding to this plugin"""
         sources = {
-            'librespot': AudioSource.LIBRESPOT,
-            'roc': AudioSource.ROC,
+            'librespot': AudioSource.SPOTIFY,
+            'roc': AudioSource.MAC,
             'bluetooth': AudioSource.BLUETOOTH,
             'radio': AudioSource.RADIO,
             'podcast': AudioSource.PODCAST

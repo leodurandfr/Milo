@@ -1,6 +1,6 @@
-<!-- frontend/src/components/snapcast/SnapcastModal.vue -->
+<!-- frontend/src/components/multiroom/MultiroomModal.vue -->
 <template>
-  <div class="snapcast-modal">
+  <div class="multiroom-modal">
     <ModalHeader :title="$t('multiroom.title')">
       <template #actions="{ iconType }">
         <Toggle
@@ -13,7 +13,7 @@
     </ModalHeader>
 
     <div class="main-content">
-      <SnapcastControl />
+      <MultiroomControl />
     </div>
   </div>
 </template>
@@ -24,7 +24,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
-import SnapcastControl from './SnapcastControl.vue';
+import MultiroomControl from './MultiroomControl.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
@@ -73,7 +73,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.snapcast-modal {
+.multiroom-modal {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);

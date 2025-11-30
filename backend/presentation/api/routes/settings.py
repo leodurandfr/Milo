@@ -506,7 +506,7 @@ def create_settings_router(
         
         async def apply_to_plugin():
             try:
-                plugin = state_machine.get_plugin(AudioSource.LIBRESPOT)
+                plugin = state_machine.get_plugin(AudioSource.SPOTIFY)
                 if plugin:
                     enabled = delay != 0
                     return await plugin.set_auto_disconnect_config(enabled=enabled, delay=delay, save_to_settings=False)

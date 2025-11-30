@@ -1,11 +1,11 @@
-// frontend/src/stores/snapcastStore.js
+// frontend/src/stores/multiroomStore.js
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 
-const CACHE_KEY = 'snapcast_clients_cache';
+const CACHE_KEY = 'multiroom_clients_cache';
 
-export const useSnapcastStore = defineStore('snapcast', () => {
+export const useMultiroomStore = defineStore('multiroom', () => {
   // === STATE ===
   const clients = ref([]);
   const isLoading = ref(false);
@@ -49,7 +49,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     try {
       localStorage.setItem(CACHE_KEY, JSON.stringify(clientsList));
     } catch (error) {
-      console.error('Error saving snapcast cache:', error);
+      console.error('Error saving multiroom cache:', error);
     }
   }
 
@@ -57,7 +57,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
     try {
       localStorage.removeItem(CACHE_KEY);
     } catch (error) {
-      console.error('Error clearing snapcast cache:', error);
+      console.error('Error clearing multiroom cache:', error);
     }
   }
 
@@ -67,7 +67,7 @@ export const useSnapcastStore = defineStore('snapcast', () => {
       const response = await axios.get('/api/routing/snapcast/clients');
       return response.data.clients || [];
     } catch (error) {
-      console.error('Error fetching snapcast clients:', error);
+      console.error('Error fetching multiroom clients:', error);
       return [];
     }
   }
@@ -210,12 +210,12 @@ export const useSnapcastStore = defineStore('snapcast', () => {
 
       if (response.data.status === 'success') {
         originalServerConfig.value = JSON.parse(JSON.stringify(serverConfig.value));
-        console.log('Snapcast server config applied successfully');
+        console.log('Multiroom server config applied successfully');
         return true;
       }
       return false;
     } catch (error) {
-      console.error('Error applying snapcast server config:', error);
+      console.error('Error applying multiroom server config:', error);
       return false;
     } finally {
       isApplyingServerConfig.value = false;

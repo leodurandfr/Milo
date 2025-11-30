@@ -210,10 +210,10 @@ class TestAudioRoutingService:
         mock_sm.system_state.equalizer_enabled = False
         mock_sm._state_lock = mock_async_lock
         routing_service.set_state_machine(mock_sm)
-        routing_service.set_plugin_callback(lambda source: mock_plugin if source == AudioSource.LIBRESPOT else None)
+        routing_service.set_plugin_callback(lambda source: mock_plugin if source == AudioSource.SPOTIFY else None)
 
         with patch.object(routing_service, '_update_systemd_environment', new_callable=AsyncMock):
-            result = await routing_service.set_equalizer_enabled(True, active_source=AudioSource.LIBRESPOT)
+            result = await routing_service.set_equalizer_enabled(True, active_source=AudioSource.SPOTIFY)
 
         assert result is True
         mock_plugin.restart.assert_called_once()

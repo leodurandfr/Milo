@@ -59,7 +59,7 @@ const props = defineProps({
   pluginType: {
     type: String,
     required: true,
-    validator: (value) => ['librespot', 'bluetooth', 'roc', 'radio', 'podcast', 'none'].includes(value)
+    validator: (value) => ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'none'].includes(value)
   },
   pluginState: {
     type: String,
@@ -108,9 +108,9 @@ const displayedStatusLines = computed(() => {
     switch (props.pluginType) {
       case 'bluetooth':
         return [t('status.loadingOfMasculine'), t('audioSources.bluetooth')];
-      case 'roc':
+      case 'mac':
         return [t('status.loadingOfMasculine'), t('audioSources.macReceiver')];
-      case 'librespot':
+      case 'spotify':
         return [t('status.loadingOf'), t('audioSources.spotify')];
       case 'radio':
         return [t('status.loadingOfFeminine'), t('audioSources.radio')];
@@ -126,9 +126,9 @@ const displayedStatusLines = computed(() => {
     switch (props.pluginType) {
       case 'bluetooth':
         return [t('audioSources.bluetooth'), t('status.ready')];
-      case 'roc':
+      case 'mac':
         return [t('audioSources.macReceiver'), t('status.readyToStream')];
-      case 'librespot':
+      case 'spotify':
         return [t('audioSources.spotify'), t('status.ready')];
       case 'radio':
         return [t('audioSources.radio'), t('status.readyToStream')];
@@ -146,7 +146,7 @@ const displayedStatusLines = computed(() => {
     switch (props.pluginType) {
       case 'bluetooth':
         return [t('status.connectedTo'), formattedDeviceNames];
-      case 'roc':
+      case 'mac':
         return [t('status.connectedToMac'), formattedDeviceNames];
       default:
         return [t('status.connectedTo'), formattedDeviceNames];

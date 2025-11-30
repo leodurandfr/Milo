@@ -47,7 +47,7 @@
               </template>
             </ListItemButton>
 
-            <ListItemButton v-if="settingsStore.dockApps.librespot" :title="t('audioSources.spotify')" action="caret" @click="goToView('spotify')">
+            <ListItemButton v-if="settingsStore.dockApps.spotify" :title="t('audioSources.spotify')" action="caret" @click="goToView('spotify')">
               <template #icon>
                 <img :src="spotifyIcon" alt="Spotify" />
               </template>
@@ -348,7 +348,7 @@ async function handleRadioStationEdited(station) {
 const shouldShowPlaceholder = computed(() => {
   // Count the number of visible IconButtons
   let count = 6; // Base: Languages, Applications, Volume, Screen, Updates, Information
-  if (settingsStore.dockApps.librespot) count++;
+  if (settingsStore.dockApps.spotify) count++;
   if (settingsStore.dockApps.multiroom) count++;
   if (settingsStore.dockApps.radio) count++;
   if (settingsStore.dockApps.podcast) count++;
@@ -373,7 +373,7 @@ function handleMultiroomDisabling() {
   isMultiroomToggling.value = true;
 }
 
-// Watcher multiroom state (similar to SnapcastModal.vue)
+// Watcher multiroom state (similar to MultiroomModal.vue)
 let lastMultiroomState = isMultiroomActive.value;
 const watcherInterval = setInterval(() => {
   if (lastMultiroomState !== isMultiroomActive.value) {
@@ -390,7 +390,7 @@ onMounted(async () => {
     settingsStore.loadAllSettings()
   ]);
 
-  // Note: Snapcast settings are now loaded directly by MultiroomSettings.vue via snapcastStore
+  // Note: Multiroom settings are now loaded directly by MultiroomSettings.vue via multiroomStore
 
   on('routing', 'multiroom_enabling', handleMultiroomEnabling);
   on('routing', 'multiroom_disabling', handleMultiroomDisabling);
