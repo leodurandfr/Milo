@@ -159,7 +159,7 @@ Pour plus de détails sur les tests, voir :
 async def test_mon_nouveau_test(self, state_machine):
     """Test de ma nouvelle fonctionnalité"""
     # Arrange (préparation)
-    state_machine.system_state.active_source = AudioSource.LIBRESPOT
+    state_machine.system_state.active_source = AudioSource.SPOTIFY
 
     # Act (action)
     result = await state_machine.ma_fonction()

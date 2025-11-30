@@ -67,7 +67,7 @@ class TestSettingsService:
             'screen': {'timeout_seconds': 15, 'brightness_on': 7},
             'spotify': {'auto_disconnect_delay': 20.0},
             'routing': {'multiroom_enabled': True, 'equalizer_enabled': False},
-            'dock': {'enabled_apps': ['librespot', 'bluetooth']}
+            'dock': {'enabled_apps': ['spotify', 'bluetooth']}
         }
 
         with open(temp_settings_file, 'w') as f:
@@ -170,14 +170,14 @@ class TestSettingsService:
         """Test de validation des apps du dock"""
         # Apps valides
         result = service._validate_and_merge({
-            'dock': {'enabled_apps': ['librespot', 'bluetooth', 'settings']}
+            'dock': {'enabled_apps': ['spotify', 'bluetooth', 'settings']}
         })
-        assert 'librespot' in result['dock']['enabled_apps']
+        assert 'spotify' in result['dock']['enabled_apps']
         assert 'bluetooth' in result['dock']['enabled_apps']
 
         # Apps invalides filtrées
         result = service._validate_and_merge({
-            'dock': {'enabled_apps': ['librespot', 'invalid_app', 'bluetooth']}
+            'dock': {'enabled_apps': ['spotify', 'invalid_app', 'bluetooth']}
         })
         assert 'invalid_app' not in result['dock']['enabled_apps']
 
@@ -185,7 +185,7 @@ class TestSettingsService:
         result = service._validate_and_merge({
             'dock': {'enabled_apps': ['settings', 'equalizer']}
         })
-        assert 'librespot' in result['dock']['enabled_apps']
+        assert 'spotify' in result['dock']['enabled_apps']
 
     def test_validate_and_merge_routing(self, service):
         """Test de validation du routing"""

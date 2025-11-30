@@ -1,6 +1,6 @@
-<!-- frontend/src/components/snapcast/SnapclientItem.vue -->
+<!-- frontend/src/components/multiroom/MultiroomClientItem.vue -->
 <template>
-  <div class="snapclient-item">
+  <div class="multiroom-client-item">
     <!-- CLIENT NAME -->
     <div class="client-name-wrapper">
       <!-- Skeleton shimmer -->
@@ -147,7 +147,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.snapclient-item {
+.multiroom-client-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -317,7 +317,7 @@ onUnmounted(() => {
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .snapclient-item {
+  .multiroom-client-item {
     display: flex;
     flex-wrap: wrap;
     align-items: center;

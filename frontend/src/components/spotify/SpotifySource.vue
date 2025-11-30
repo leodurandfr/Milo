@@ -1,6 +1,6 @@
-<!-- LibrespotSource.vue - Version with automatic stagger -->
+<!-- SpotifySource.vue - Version with automatic stagger -->
 <template>
-  <div class="librespot-player">
+  <div class="spotify-player">
     <div class="now-playing-spotify">
       <!-- Left side: Cover image with CSS staggering -->
       <div class="album-art-section stagger-1">
@@ -40,7 +40,7 @@
       </div>
     </div>
 
-    <div v-if="unifiedStore.systemState.error && unifiedStore.systemState.active_source === 'librespot'" class="error-message">
+    <div v-if="unifiedStore.systemState.error && unifiedStore.systemState.active_source === 'spotify'" class="error-message">
       {{ unifiedStore.systemState.error }}
     </div>
   </div>
@@ -49,15 +49,15 @@
 <script setup>
 import { computed, watch, onMounted, ref } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useLibrespotControl } from '../librespot/useLibrespotControl';
-import { usePlaybackProgress } from '../librespot/usePlaybackProgress';
+import { useSpotifyControl } from './useSpotifyControl';
+import { usePlaybackProgress } from './usePlaybackProgress';
 import axios from 'axios';
 
-import PlaybackControls from '../librespot/PlaybackControls.vue';
-import ProgressBar from '../librespot/ProgressBar.vue';
+import PlaybackControls from './PlaybackControls.vue';
+import ProgressBar from './ProgressBar.vue';
 
 const unifiedStore = useUnifiedAudioStore();
-const { togglePlayPause, previousTrack, nextTrack } = useLibrespotControl();
+const { togglePlayPause, previousTrack, nextTrack } = useSpotifyControl();
 const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackProgress();
 
 // === METADATA PERSISTENCE ===
@@ -96,17 +96,17 @@ watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
 
 // === LIFECYCLE ===
 onMounted(async () => {
-  console.log('🎬 LibrespotView mounted - natural stagger');
-  
+  console.log('SpotifyView mounted - natural stagger');
+
   try {
-    const response = await axios.get('/librespot/status');
+    const response = await axios.get('/spotify/status');
     if (response.data.status === 'ok') {
       const metadata = response.data.metadata || {};
 
       unifiedStore.updateState({
         data: {
           full_state: {
-            active_source: 'librespot',
+            active_source: 'spotify',
             plugin_state: response.data.plugin_state,
             transitioning: false,
             metadata: metadata,
@@ -115,10 +115,10 @@ onMounted(async () => {
         }
       });
 
-      console.log("Position initiale chargée:", metadata.position);
+      console.log("Position initiale chargee:", metadata.position);
     }
   } catch (error) {
-    console.error('Error fetching librespot status:', error);
+    console.error('Error fetching spotify status:', error);
   }
 });
 </script>
@@ -137,22 +137,22 @@ onMounted(async () => {
 }
 
 /* Animation with two separate effects */
-.librespot-player .stagger-1,
-.librespot-player .stagger-2,
-.librespot-player .stagger-3,
-.librespot-player .stagger-4,
-.librespot-player .stagger-5 {
-  animation: 
+.spotify-player .stagger-1,
+.spotify-player .stagger-2,
+.spotify-player .stagger-3,
+.spotify-player .stagger-4,
+.spotify-player .stagger-5 {
+  animation:
     stagger-transform var(--transition-spring) forwards,
     stagger-opacity 0.4s ease forwards;
 }
 
 /* Simple staggered delays */
-.librespot-player .stagger-1 { animation-delay: 0ms; }
-.librespot-player .stagger-2 { animation-delay: 0ms; }
-.librespot-player .stagger-3 { animation-delay: 100ms; }
-.librespot-player .stagger-4 { animation-delay: 200ms; }
-.librespot-player .stagger-5 { animation-delay: 300ms; }
+.spotify-player .stagger-1 { animation-delay: 0ms; }
+.spotify-player .stagger-2 { animation-delay: 0ms; }
+.spotify-player .stagger-3 { animation-delay: 100ms; }
+.spotify-player .stagger-4 { animation-delay: 200ms; }
+.spotify-player .stagger-5 { animation-delay: 300ms; }
 
 /* Spring animation for transform */
 @keyframes stagger-transform {
@@ -169,7 +169,7 @@ onMounted(async () => {
 }
 
 /* === COMPONENT STYLES === */
-.librespot-player {
+.spotify-player {
   width: 100%;
   height: 100%;
   overflow: hidden;

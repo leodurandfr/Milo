@@ -21,8 +21,8 @@ from backend.presentation.api.routes.routing import create_routing_router
 from backend.presentation.api.routes.snapcast import create_snapcast_router
 from backend.presentation.api.routes.equalizer import create_equalizer_router
 from backend.presentation.api.routes.volume import create_volume_router
-from backend.presentation.api.routes.librespot import setup_librespot_routes
-from backend.presentation.api.routes.roc import setup_roc_routes
+from backend.presentation.api.routes.spotify import setup_spotify_routes
+from backend.presentation.api.routes.mac import setup_mac_routes
 from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
 from backend.presentation.api.routes.radio import router as radio_router
 from backend.presentation.api.routes.podcast import router as podcast_router
@@ -121,15 +121,15 @@ app.include_router(equalizer_router)
 volume_router = create_volume_router(volume_service)
 app.include_router(volume_router)
 
-librespot_router = setup_librespot_routes(
-    lambda: state_machine.plugins.get(AudioSource.LIBRESPOT)
+spotify_router = setup_spotify_routes(
+    lambda: state_machine.plugins.get(AudioSource.SPOTIFY)
 )
-app.include_router(librespot_router)
+app.include_router(spotify_router)
 
-roc_router = setup_roc_routes(
-    lambda: state_machine.plugins.get(AudioSource.ROC)
+mac_router = setup_mac_routes(
+    lambda: state_machine.plugins.get(AudioSource.MAC)
 )
-app.include_router(roc_router)
+app.include_router(mac_router)
 
 bluetooth_router = setup_bluetooth_routes(
     lambda: state_machine.plugins.get(AudioSource.BLUETOOTH)

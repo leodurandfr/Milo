@@ -112,18 +112,18 @@ const $t = instance.appContext.config.globalProperties.$t;
 const { on } = useWebSocket();
 
 // === STATIC CONFIGURATION ===
-const ALL_AUDIO_SOURCES = ['librespot', 'bluetooth', 'roc', 'radio', 'podcast'];
+const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
 
 
 // Actions with reactive titles
 const ALL_ADDITIONAL_ACTIONS = computed(() => [
-  { id: 'multiroom', icon: 'multiroom', title: t('multiroom.title'), handler: () => emit('open-snapcast') },
+  { id: 'multiroom', icon: 'multiroom', title: t('multiroom.title'), handler: () => emit('open-multiroom') },
   { id: 'equalizer', icon: 'equalizer', title: t('equalizer.title'), handler: () => emit('open-equalizer') },
   { id: 'settings', icon: 'settings', title: t('common.settings'), handler: () => emit('open-settings') }
 ]);
 
 // === DYNAMIC CONFIGURATION ===
-const enabledApps = ref(["librespot", "bluetooth", "roc", "radio", "podcast", "multiroom", "equalizer", "settings"]);
+const enabledApps = ref(["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "equalizer", "settings"]);
 const mobileVolumeSteps = ref(5);
 
 // Computed to separate audio plugins and features
@@ -162,7 +162,7 @@ const volumeControlsWithSteps = computed(() => [
 ]);
 
 // === EMISSIONS ===
-const emit = defineEmits(['open-snapcast', 'open-equalizer', 'open-settings']);
+const emit = defineEmits(['open-multiroom', 'open-equalizer', 'open-settings']);
 
 // === MAIN REFS ===
 const dragZone = ref(null);
@@ -510,9 +510,9 @@ const handleAdditionalAppClick = (appId) => {
 const getAppTitle = (appId) => {
   // Translations for audio sources
   const audioSourceTitles = {
-    'librespot': t('applications.spotify'),
+    'spotify': t('applications.spotify'),
     'bluetooth': t('applications.bluetooth'),
-    'roc': t('applications.macOS'),
+    'mac': t('applications.macOS'),
     'radio': t('audioSources.radio'),
     'podcast': 'Podcasts'
   };
@@ -641,7 +641,7 @@ const loadDockConfig = async () => {
     const response = await fetch('/api/settings/dock-apps');
     const data = await response.json();
     if (data.status === 'success') {
-      enabledApps.value = data.config.enabled_apps || ["librespot", "bluetooth", "roc", "radio", "podcast", "multiroom", "equalizer", "settings"];
+      enabledApps.value = data.config.enabled_apps || ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "equalizer", "settings"];
     }
   } catch (error) {
     console.error('Error loading dock config:', error);

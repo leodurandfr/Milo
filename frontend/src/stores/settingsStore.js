@@ -30,9 +30,9 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // === DOCK APPS ===
   const dockApps = ref({
-    librespot: true,
+    spotify: true,
     bluetooth: true,
-    roc: true,
+    mac: true,
     radio: true,
     podcast: true,
     multiroom: true,
@@ -94,7 +94,7 @@ export const useSettingsStore = defineStore('settings', () => {
         axios.get('/api/settings/volume-startup').catch(() => ({ data: { config: { startup_volume: 37, restore_last_volume: false } } })),
         axios.get('/api/settings/volume-steps').catch(() => ({ data: { config: { mobile_volume_steps: 5 } } })),
         axios.get('/api/settings/rotary-steps').catch(() => ({ data: { config: { rotary_volume_steps: 2 } } })),
-        axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['librespot', 'bluetooth', 'roc', 'radio', 'podcast', 'multiroom', 'equalizer', 'settings'] } } })),
+        axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'multiroom', 'equalizer', 'settings'] } } })),
         axios.get('/api/settings/spotify-disconnect').catch(() => ({ data: { config: { auto_disconnect_delay: 10.0 } } })),
         axios.get('/api/settings/podcast-credentials').catch(() => ({ data: { config: { taddy_user_id: '', taddy_api_key: '' } } })),
         axios.get('/api/settings/podcast-credentials/status').catch(() => ({ data: { status: 'error' } })),
@@ -138,9 +138,9 @@ export const useSettingsStore = defineStore('settings', () => {
       if (dockAppsResponse.data.config?.enabled_apps) {
         const enabledApps = dockAppsResponse.data.config.enabled_apps;
         dockApps.value = {
-          librespot: enabledApps.includes('librespot'),
+          spotify: enabledApps.includes('spotify'),
           bluetooth: enabledApps.includes('bluetooth'),
-          roc: enabledApps.includes('roc'),
+          mac: enabledApps.includes('mac'),
           radio: enabledApps.includes('radio'),
           podcast: enabledApps.includes('podcast'),
           multiroom: enabledApps.includes('multiroom'),
@@ -229,9 +229,9 @@ export const useSettingsStore = defineStore('settings', () => {
    */
   function updateDockApps(enabledApps) {
     dockApps.value = {
-      librespot: enabledApps.includes('librespot'),
+      spotify: enabledApps.includes('spotify'),
       bluetooth: enabledApps.includes('bluetooth'),
-      roc: enabledApps.includes('roc'),
+      mac: enabledApps.includes('mac'),
       radio: enabledApps.includes('radio'),
       podcast: enabledApps.includes('podcast'),
       multiroom: enabledApps.includes('multiroom'),

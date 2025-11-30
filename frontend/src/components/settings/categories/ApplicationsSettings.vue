@@ -10,14 +10,14 @@
         <div class="app-list">
           <ListItemButton
             :title="t('applications.spotify')"
-            :model-value="config.librespot"
-            :variant="config.librespot ? 'active' : 'inactive'"
+            :model-value="config.spotify"
+            :variant="config.spotify ? 'active' : 'inactive'"
             action="toggle"
-            :disabled="!canDisableAudioSource('librespot')"
-            @update:model-value="(val) => handleToggle('librespot', val)"
+            :disabled="!canDisableAudioSource('spotify')"
+            @update:model-value="(val) => handleToggle('spotify', val)"
           >
             <template #icon>
-              <AppIcon name="librespot" :size="40" />
+              <AppIcon name="spotify" :size="40" />
             </template>
           </ListItemButton>
 
@@ -36,14 +36,14 @@
 
           <ListItemButton
             :title="t('applications.macOS')"
-            :model-value="config.roc"
-            :variant="config.roc ? 'active' : 'inactive'"
+            :model-value="config.mac"
+            :variant="config.mac ? 'active' : 'inactive'"
             action="toggle"
-            :disabled="!canDisableAudioSource('roc')"
-            @update:model-value="(val) => handleToggle('roc', val)"
+            :disabled="!canDisableAudioSource('mac')"
+            @update:model-value="(val) => handleToggle('mac', val)"
           >
             <template #icon>
-              <AppIcon name="roc" :size="40" />
+              <AppIcon name="mac" :size="40" />
             </template>
           </ListItemButton>
 
@@ -139,7 +139,7 @@ const settingsStore = useSettingsStore();
 const { dockApps: config } = storeToRefs(settingsStore);
 
 function canDisableAudioSource(sourceId) {
-  const audioSources = ['librespot', 'bluetooth', 'roc', 'radio', 'podcast'];
+  const audioSources = ['spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
   const enabledAudioSources = audioSources.filter(source =>
     config.value[source] && source !== sourceId
   );

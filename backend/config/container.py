@@ -260,9 +260,9 @@ class Container(containers.DeclarativeContainer):
         # ============================================================
         # STEP 3: Register plugins (MUST be done BEFORE init_async)
         # ============================================================
-        state_machine.register_plugin(AudioSource.LIBRESPOT, container.librespot_plugin())
+        state_machine.register_plugin(AudioSource.SPOTIFY, container.librespot_plugin())
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
-        state_machine.register_plugin(AudioSource.ROC, container.roc_plugin())
+        state_machine.register_plugin(AudioSource.MAC, container.roc_plugin())
         state_machine.register_plugin(AudioSource.RADIO, container.radio_plugin())
         state_machine.register_plugin(AudioSource.PODCAST, container.podcast_plugin())
 

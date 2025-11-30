@@ -1,17 +1,17 @@
-// frontend/src/composables/useLibrespotControl.js
+// frontend/src/components/spotify/useSpotifyControl.js
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { ref } from 'vue';
 
-export function useLibrespotControl() {
+export function useSpotifyControl() {
   const unifiedStore = useUnifiedAudioStore();
   const isLoading = ref(false);
 
   async function executeCommand(command) {
     isLoading.value = true;
     try {
-      await unifiedStore.sendCommand('librespot', command);
+      await unifiedStore.sendCommand('spotify', command);
     } catch (error) {
-      console.error(`Erreur lors de l'exécution de la commande ${command}:`, error);
+      console.error(`Erreur lors de l'execution de la commande ${command}:`, error);
     } finally {
       setTimeout(() => {
         isLoading.value = false;
@@ -33,7 +33,7 @@ export function useLibrespotControl() {
   }
 
   async function seekTo(positionMs) {
-    await unifiedStore.sendCommand('librespot', 'seek', { position_ms: positionMs });
+    await unifiedStore.sendCommand('spotify', 'seek', { position_ms: positionMs });
   }
 
   return {

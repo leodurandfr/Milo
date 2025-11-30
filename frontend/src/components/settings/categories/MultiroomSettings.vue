@@ -17,16 +17,16 @@
               <div class="multiroom-group">
                 <h2 class="heading-2">{{ t('multiroom.speakers') }}</h2>
 
-                <div v-if="snapcastStore.isLoading" class="loading-state">
+                <div v-if="multiroomStore.isLoading" class="loading-state">
                   <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
                 </div>
 
-                <div v-else-if="sortedSnapcastClients.length === 0" class="no-clients-state">
+                <div v-else-if="sortedMultiroomClients.length === 0" class="no-clients-state">
                   <p class="text-mono">{{ t('multiroom.noSpeakers') }}</p>
                 </div>
 
                 <div v-else class="clients-list" :style="clientsGridStyle">
-                  <div v-for="(client, index) in sortedSnapcastClients" :key="client.id" class="client-config-item"
+                  <div v-for="(client, index) in sortedMultiroomClients" :key="client.id" class="client-config-item"
                     :style="getClientGridStyle(index)">
                     <div class="client-info-wrapper">
                       <span class="client-hostname text-mono">{{ client.host }}</span>
@@ -45,7 +45,7 @@
                 <div class="presets-buttons">
                   <Button v-for="preset in audioPresets" :key="preset.id"
                     :variant="isPresetActive(preset) ? 'outline' : 'background-strong'" size="medium"
-                    :disabled="snapcastStore.isApplyingServerConfig"
+                    :disabled="multiroomStore.isApplyingServerConfig"
                     @click="applyPreset(preset)">
                     {{ preset.name }}
                   </Button>
@@ -60,28 +60,28 @@
 
                 <div class="form-group">
                   <label class="text-mono">{{ t('multiroomSettings.globalBuffer') }}</label>
-                  <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
+                  <RangeSlider v-model="multiroomStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
                     value-unit="ms" />
                 </div>
 
                 <div class="form-group">
                   <label class="text-mono">{{ t('multiroomSettings.chunkSize') }}</label>
-                  <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
+                  <RangeSlider v-model="multiroomStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
                     value-unit="ms" />
                 </div>
 
                 <div class="form-group">
                   <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
                   <div class="codec-buttons">
-                    <Button :variant="snapcastStore.serverConfig.codec === 'opus' ? 'outline' : 'background-strong'" size="medium"
+                    <Button :variant="multiroomStore.serverConfig.codec === 'opus' ? 'outline' : 'background-strong'" size="medium"
                       @click="selectCodec('opus')">
                       Opus
                     </Button>
-                    <Button :variant="snapcastStore.serverConfig.codec === 'flac' ? 'outline' : 'background-strong'" size="medium"
+                    <Button :variant="multiroomStore.serverConfig.codec === 'flac' ? 'outline' : 'background-strong'" size="medium"
                       @click="selectCodec('flac')">
                       FLAC
                     </Button>
-                    <Button :variant="snapcastStore.serverConfig.codec === 'pcm' ? 'outline' : 'background-strong'" size="medium"
+                    <Button :variant="multiroomStore.serverConfig.codec === 'pcm' ? 'outline' : 'background-strong'" size="medium"
                       @click="selectCodec('pcm')">
                       PCM
                     </Button>
@@ -90,9 +90,9 @@
               </div>
             </section>
 
-            <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium" class="apply-button-sticky"
-              :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
-              {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
+            <Button v-if="multiroomStore.hasServerConfigChanges" variant="brand" size="medium" class="apply-button-sticky"
+              :disabled="multiroomStore.isApplyingServerConfig" @click="applyServerConfig">
+              {{ multiroomStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
            </Button>
           </div>
         </Transition>
@@ -106,7 +106,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
-import { useSnapcastStore } from '@/stores/snapcastStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
@@ -115,7 +115,7 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
-const snapcastStore = useSnapcastStore();
+const multiroomStore = useMultiroomStore();
 const unifiedStore = useUnifiedAudioStore();
 
 // Multiroom state
@@ -131,7 +131,7 @@ let isFirstResize = true;
 const clientNames = ref({});
 
 // Sorted clients with "milo" first
-const sortedSnapcastClients = computed(() => snapcastStore.sortedClients);
+const sortedMultiroomClients = computed(() => multiroomStore.sortedClients);
 
 const audioPresets = computed(() => [
   {
@@ -153,7 +153,7 @@ const audioPresets = computed(() => [
 
 // Dynamic style for the grid
 const clientsGridStyle = computed(() => {
-  const count = sortedSnapcastClients.value.length;
+  const count = sortedMultiroomClients.value.length;
 
   if (count <= 1) {
     return { display: 'flex', flexDirection: 'column' };
@@ -184,7 +184,7 @@ const clientsGridStyle = computed(() => {
 
 // Grid position for each item (short row on top)
 const getClientGridStyle = (index) => {
-  const count = sortedSnapcastClients.value.length;
+  const count = sortedMultiroomClients.value.length;
 
   // No specific positioning for 1–4 items
   if (count <= 4) return {};
@@ -214,7 +214,7 @@ const getClientGridStyle = (index) => {
 };
 
 function isPresetActive(preset) {
-  const current = snapcastStore.serverConfig;
+  const current = multiroomStore.serverConfig;
   const presetConfig = preset.config;
   return current.buffer === presetConfig.buffer &&
     current.codec === presetConfig.codec &&
@@ -223,16 +223,16 @@ function isPresetActive(preset) {
 
 // === MULTIROOM - CLIENTS ===
 
-async function loadSnapcastData() {
+async function loadMultiroomData() {
   // Load clients and server config from the store
   await Promise.all([
-    snapcastStore.loadClients(),
-    snapcastStore.loadServerConfig()
+    multiroomStore.loadClients(),
+    multiroomStore.loadServerConfig()
   ]);
 
   // Initialize local names
   clientNames.value = {};
-  snapcastStore.clients.forEach(client => {
+  multiroomStore.clients.forEach(client => {
     clientNames.value[client.id] = client.name || client.host;
   });
 }
@@ -241,21 +241,21 @@ async function updateClientName(clientId) {
   const newName = clientNames.value[clientId]?.trim();
   if (!newName) return;
 
-  await snapcastStore.updateClientName(clientId, newName);
+  await multiroomStore.updateClientName(clientId, newName);
 }
 
 // === MULTIROOM - SERVER CONFIG ===
 
 function applyPreset(preset) {
-  snapcastStore.applyPreset(preset);
+  multiroomStore.applyPreset(preset);
 }
 
 function selectCodec(codecName) {
-  snapcastStore.selectCodec(codecName);
+  multiroomStore.selectCodec(codecName);
 }
 
 async function applyServerConfig() {
-  await snapcastStore.applyServerConfig();
+  await multiroomStore.applyServerConfig();
 }
 
 // === INPUT HANDLERS ===
@@ -302,21 +302,21 @@ const handleClientNameChanged = (msg) => {
     clientNames.value[client_id] = name;
   }
   // The store updates itself via its own handler
-  snapcastStore.handleClientNameChanged(msg);
+  multiroomStore.handleClientNameChanged(msg);
 };
 
 // Watcher to load data when multiroom is enabled
 watch(isMultiroomActive, async (newValue, oldValue) => {
   if (newValue && !oldValue) {
     // Multiroom has just been enabled, load data
-    await loadSnapcastData();
+    await loadMultiroomData();
   }
 });
 
 onMounted(async () => {
   // Load only if multiroom is enabled
   if (isMultiroomActive.value) {
-    await loadSnapcastData();
+    await loadMultiroomData();
   }
 
   // Setup ResizeObserver after next tick so the ref is available

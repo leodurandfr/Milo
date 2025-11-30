@@ -46,7 +46,7 @@ class SettingsService:
                 "equalizer_enabled": False
             },
             "dock": {
-                "enabled_apps": ["librespot", "bluetooth", "roc", "radio", "podcast", "multiroom", "equalizer", "settings"]
+                "enabled_apps": ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "equalizer", "settings"]
             }
         }
     
@@ -193,18 +193,18 @@ class SettingsService:
 
         # Dock avec validation au moins une source audio
         dock_input = settings.get('dock', {})
-        all_valid_apps = ["librespot", "bluetooth", "roc", "radio", "podcast", "multiroom", "equalizer", "settings"]
-        audio_sources = ["librespot", "bluetooth", "roc", "radio", "podcast"]
+        all_valid_apps = ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "equalizer", "settings"]
+        audio_sources = ["spotify", "bluetooth", "mac", "radio", "podcast"]
         other_apps = ["multiroom", "equalizer", "settings"]
-        
+
         enabled_apps = dock_input.get('enabled_apps', [])
         filtered_apps = [app for app in enabled_apps if app in all_valid_apps]
-        
+
         # Vérifier qu'au moins une source audio est activée
         enabled_audio_sources = [app for app in filtered_apps if app in audio_sources]
         if not enabled_audio_sources:
-            # Forcer au moins librespot si aucune source audio
-            filtered_apps = ['librespot'] + [app for app in filtered_apps if app in other_apps]
+            # Forcer au moins spotify si aucune source audio
+            filtered_apps = ['spotify'] + [app for app in filtered_apps if app in other_apps]
         
         validated['dock'] = {
             'enabled_apps': filtered_apps if filtered_apps else self.defaults['dock']['enabled_apps'].copy()

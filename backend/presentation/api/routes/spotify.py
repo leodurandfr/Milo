@@ -1,6 +1,6 @@
-# backend/presentation/api/routes/librespot.py
+# backend/presentation/api/routes/spotify.py
 """
-API routes for librespot plugin
+API routes for Spotify plugin (uses go-librespot internally)
 """
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
@@ -11,35 +11,35 @@ from typing import Dict, Any, Optional
 from backend.domain.audio_state import PluginState
 
 router = APIRouter(
-    prefix="/librespot",
-    tags=["librespot"],
+    prefix="/spotify",
+    tags=["spotify"],
     responses={404: {"description": "Not found"}},
 )
 
-librespot_plugin_dependency = None
+spotify_plugin_dependency = None
 
-def setup_librespot_routes(plugin_provider):
+def setup_spotify_routes(plugin_provider):
     """
-    Configures librespot routes with plugin reference
+    Configures Spotify routes with plugin reference
 
     Args:
-        plugin_provider: Function that returns librespot plugin instance
+        plugin_provider: Function that returns Spotify plugin instance
     """
-    global librespot_plugin_dependency
-    librespot_plugin_dependency = plugin_provider
+    global spotify_plugin_dependency
+    spotify_plugin_dependency = plugin_provider
     return router
 
-def get_librespot_plugin():
-    """Dependency to get librespot plugin"""
-    if librespot_plugin_dependency is None:
+def get_spotify_plugin():
+    """Dependency to get Spotify plugin"""
+    if spotify_plugin_dependency is None:
         raise HTTPException(
             status_code=500,
-            detail="Librespot plugin not initialized. Call setup_librespot_routes first."
+            detail="Spotify plugin not initialized. Call setup_spotify_routes first."
         )
-    return librespot_plugin_dependency()
+    return spotify_plugin_dependency()
 
 @router.get("/fresh-status")
-async def get_fresh_librespot_status():
+async def get_fresh_spotify_status():
     """
     Gets fresh status directly from go-librespot API
     This endpoint calls go-librespot API server-side to avoid CORS issues
@@ -69,7 +69,7 @@ async def get_fresh_librespot_status():
                         }
 
                     transformed_metadata["is_playing"] = not fresh_data.get("paused", True) and not fresh_data.get("stopped", True)
-                    
+
                     return {
                         "status": "success",
                         "fresh_metadata": transformed_metadata,
@@ -83,10 +83,10 @@ async def get_fresh_librespot_status():
                         "message": f"go-librespot API returned status {response.status}",
                         "source": "go-librespot-api"
                     }
-                    
+
     except aiohttp.ClientConnectorError:
         return {
-            "status": "error", 
+            "status": "error",
             "message": "Cannot connect to go-librespot API - server may not be running",
             "source": "connection_error"
         }
@@ -104,8 +104,8 @@ async def get_fresh_librespot_status():
         }
 
 @router.get("/status")
-async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
-    """Gets current go-librespot status with all metadata"""
+async def get_spotify_status(plugin = Depends(get_spotify_plugin)):
+    """Gets current Spotify status with all metadata"""
     try:
         if plugin.session:
             await plugin._refresh_metadata()
@@ -135,7 +135,7 @@ async def get_librespot_status(plugin = Depends(get_librespot_plugin)):
         }
 
 @router.post("/connect")
-async def restart_librespot_connection(plugin = Depends(get_librespot_plugin)):
+async def restart_spotify_connection(plugin = Depends(get_spotify_plugin)):
     """Restarts connection with go-librespot"""
     try:
         result = await plugin.handle_command("refresh_metadata", {})
@@ -159,7 +159,7 @@ async def restart_librespot_connection(plugin = Depends(get_librespot_plugin)):
         }
 
 @router.post("/restart")
-async def restart_go_librespot(plugin = Depends(get_librespot_plugin)):
+async def restart_spotify_service(plugin = Depends(get_spotify_plugin)):
     """Completely restarts go-librespot process"""
     try:
         result = await plugin.handle_command("restart", {})
@@ -176,8 +176,8 @@ async def restart_go_librespot(plugin = Depends(get_librespot_plugin)):
         }
 
 @router.post("/force-disconnect")
-async def force_librespot_disconnect(plugin = Depends(get_librespot_plugin)):
-    """Forces sending of disconnect event for librespot"""
+async def force_spotify_disconnect(plugin = Depends(get_spotify_plugin)):
+    """Forces sending of disconnect event for Spotify"""
     try:
         result = await plugin.handle_command("force_disconnect", {})
 
@@ -193,9 +193,9 @@ async def force_librespot_disconnect(plugin = Depends(get_librespot_plugin)):
         }
 
 @router.get("/logs")
-async def get_librespot_logs(
+async def get_spotify_logs(
     lines: int = Query(20, gt=0, le=200),
-    plugin = Depends(get_librespot_plugin)
+    plugin = Depends(get_spotify_plugin)
 ):
     """Gets last lines of go-librespot logs"""
     try:

@@ -1,4 +1,4 @@
-<!-- frontend/src/components/snapcast/SnapcastControl.vue -->
+<!-- frontend/src/components/multiroom/MultiroomControl.vue -->
 <template>
   <div class="clients-container">
     <div class="clients-list">
@@ -9,7 +9,7 @@
 
         <!-- CLIENTS: Skeletons OR real items -->
         <div v-else key="clients" class="clients-wrapper">
-          <SnapclientItem v-for="(client, index) in displayClients" :key="index" :client="client"
+          <MultiroomClientItem v-for="(client, index) in displayClients" :key="index" :client="client"
             :is-loading="shouldShowLoading" @volume-change="handleVolumeChange" @mute-toggle="handleMuteToggle" />
         </div>
       </Transition>
@@ -20,13 +20,13 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useSnapcastStore } from '@/stores/snapcastStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import useWebSocket from '@/services/websocket';
-import SnapclientItem from './SnapclientItem.vue';
+import MultiroomClientItem from './MultiroomClientItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
 const unifiedStore = useUnifiedAudioStore();
-const snapcastStore = useSnapcastStore();
+const multiroomStore = useMultiroomStore();
 const { on } = useWebSocket();
 
 // Local state for multiroom transitions
@@ -61,13 +61,13 @@ const shouldShowLoading = computed(() => {
   if (isTogglingMultiroom.value && isMultiroomDeactivating.value) {
     return false; // No skeletons during deactivation
   }
-  return snapcastStore.isLoading || isTogglingMultiroom.value;
+  return multiroomStore.isLoading || isTogglingMultiroom.value;
 });
 
 const displayClients = computed(() => {
   // If we are activating multiroom, show empty placeholders for skeletons
   if (isTogglingMultiroom.value && !isMultiroomDeactivating.value) {
-    return Array.from({ length: snapcastStore.lastKnownClientCount }, (_, i) => ({
+    return Array.from({ length: multiroomStore.lastKnownClientCount }, (_, i) => ({
       id: `placeholder-${i}`,
       name: '',
       volume: 0,
@@ -75,49 +75,49 @@ const displayClients = computed(() => {
     }));
   }
 
-  if (snapcastStore.clients.length === 0 && snapcastStore.isLoading) {
-    return Array.from({ length: snapcastStore.lastKnownClientCount }, (_, i) => ({
+  if (multiroomStore.clients.length === 0 && multiroomStore.isLoading) {
+    return Array.from({ length: multiroomStore.lastKnownClientCount }, (_, i) => ({
       id: `placeholder-${i}`,
       name: '',
       volume: 0,
       muted: false
     }));
   }
-  return snapcastStore.clients;
+  return multiroomStore.clients;
 });
 
 // === HANDLERS ===
 async function handleVolumeChange(clientId, volume) {
-  await snapcastStore.updateClientVolume(clientId, volume);
+  await multiroomStore.updateClientVolume(clientId, volume);
 }
 
 async function handleMuteToggle(clientId, muted) {
-  await snapcastStore.toggleClientMute(clientId, muted);
+  await multiroomStore.toggleClientMute(clientId, muted);
 }
 
 // === WEBSOCKET HANDLERS ===
 function handleClientConnected(event) {
   if (!isMultiroomDeactivating.value) {
-    snapcastStore.handleClientConnected(event);
+    multiroomStore.handleClientConnected(event);
   }
 }
 
 function handleClientDisconnected(event) {
   if (!isMultiroomDeactivating.value) {
-    snapcastStore.handleClientDisconnected(event);
+    multiroomStore.handleClientDisconnected(event);
   }
 }
 
 function handleClientVolumeChanged(event) {
-  snapcastStore.handleClientVolumeChanged(event);
+  multiroomStore.handleClientVolumeChanged(event);
 }
 
 function handleClientNameChanged(event) {
-  snapcastStore.handleClientNameChanged(event);
+  multiroomStore.handleClientNameChanged(event);
 }
 
 function handleClientMuteChanged(event) {
-  snapcastStore.handleClientMuteChanged(event);
+  multiroomStore.handleClientMuteChanged(event);
 }
 
 function handleSystemStateChanged(event) {
@@ -127,14 +127,14 @@ function handleSystemStateChanged(event) {
 async function handleMultiroomEnabling() {
   isTogglingMultiroom.value = true;
   isMultiroomTransitioning.value = true;
-  snapcastStore.isLoading = true;
-  snapcastStore.clearCache();
+  multiroomStore.isLoading = true;
+  multiroomStore.clearCache();
 }
 
 async function handleMultiroomDisabling() {
   isTogglingMultiroom.value = true;
   isMultiroomDeactivating.value = true;
-  snapcastStore.isLoading = false;
+  multiroomStore.isLoading = false;
   // Clients will be cleared after the end of toggling via the watcher
 }
 
@@ -150,9 +150,9 @@ onMounted(async () => {
 
   if (isMultiroomActive.value) {
     // Preload cache synchronously to get the correct number of clients
-    snapcastStore.preloadCache();
+    multiroomStore.preloadCache();
     // Load fresh clients in the background
-    await snapcastStore.loadClients();
+    await multiroomStore.loadClients();
   }
 
   unsubscribeFunctions.push(
@@ -182,13 +182,13 @@ watch(() => unifiedStore.systemState.transitioning, (isTransitioning, wasTransit
       // We are deactivating multiroom
       isTogglingMultiroom.value = true;
       isMultiroomDeactivating.value = true;
-      snapcastStore.isLoading = false;
+      multiroomStore.isLoading = false;
     } else {
       // We are activating multiroom
       isTogglingMultiroom.value = true;
       isMultiroomTransitioning.value = true;
-      snapcastStore.isLoading = true;
-      snapcastStore.clearCache();
+      multiroomStore.isLoading = true;
+      multiroomStore.clearCache();
     }
   }
 });
@@ -198,7 +198,7 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
     isMultiroomDeactivating.value = false;
 
     const forceNoCache = isMultiroomTransitioning.value;
-    await snapcastStore.loadClients(forceNoCache);
+    await multiroomStore.loadClients(forceNoCache);
 
     isMultiroomTransitioning.value = false;
     isTogglingMultiroom.value = false;
@@ -213,8 +213,8 @@ watch(isMultiroomActive, async (newValue, oldValue) => {
 watch(isTogglingMultiroom, (isToggling, wasToggling) => {
   if (!isToggling && wasToggling && !isMultiroomActive.value) {
     // End of deactivation toggling: clear clients
-    snapcastStore.clients = [];
-    snapcastStore.clearCache();
+    multiroomStore.clients = [];
+    multiroomStore.clearCache();
   }
 });
 </script>

@@ -10,9 +10,9 @@ from typing import Optional, Dict, Any
 class AudioSource(Enum):
     """Available audio sources in the system."""
     NONE = "none"
-    LIBRESPOT = "librespot"
+    SPOTIFY = "spotify"
     BLUETOOTH = "bluetooth"
-    ROC = "roc"
+    MAC = "mac"
     RADIO = "radio"
     PODCAST = "podcast"
 
