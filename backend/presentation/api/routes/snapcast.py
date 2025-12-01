@@ -71,7 +71,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
         for client in clients:
             converted_client = client.copy()
             alsa_volume = client.get("volume", 0)
-            display_volume = volume_service.convert_alsa_to_display(alsa_volume)
+            display_volume = volume_service.converter.alsa_to_display(alsa_volume)
             converted_client["volume"] = display_volume
             converted_client["volume_alsa"] = alsa_volume
             converted_clients.append(converted_client)
@@ -119,7 +119,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
 
             volume_service = _get_volume_service()
             if volume_service:
-                alsa_volume = volume_service.convert_display_to_alsa(display_volume)
+                alsa_volume = volume_service.converter.display_to_alsa(display_volume)
                 success = await snapcast_service.set_volume(client_id, alsa_volume)
             else:
                 success = await snapcast_service.set_volume(client_id, display_volume)
@@ -153,7 +153,7 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
 
                 if client and volume_service:
                     alsa_volume = client.get("volume", 0)
-                    display_volume = volume_service.convert_alsa_to_display(alsa_volume)
+                    display_volume = volume_service.converter.alsa_to_display(alsa_volume)
                     volume_service.update_client_display_volume(client_id, display_volume)
                 else:
                     display_volume = client.get("volume", 0) if client else 0

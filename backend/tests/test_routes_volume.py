@@ -24,8 +24,7 @@ class TestVolumeRoutes:
         service.get_display_volume = AsyncMock(return_value=50)
         service.set_display_volume = AsyncMock(return_value=True)
         service.adjust_display_volume = AsyncMock(return_value=True)
-        service.increase_display_volume = AsyncMock(return_value=True)
-        service.decrease_display_volume = AsyncMock(return_value=True)
+        # Note: increase/decrease endpoints now use adjust_display_volume(±5)
         return service
 
     @pytest.fixture
@@ -163,27 +162,31 @@ class TestVolumeRoutes:
     # ===================
 
     def test_increase_volume(self, client):
-        """Test POST /api/volume/increase"""
+        """Test POST /api/volume/increase - now uses adjust_display_volume(5)"""
         response = client.post("/api/volume/increase")
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        client._mock_service.increase_display_volume.assert_called_once_with(5)
+        # Now uses adjust_display_volume(5) instead of increase_display_volume(5)
+        client._mock_service.adjust_display_volume.assert_called_with(5)
 
     def test_increase_volume_service_failure(self, client):
         """Test POST /api/volume/increase when service fails"""
-        client._mock_service.increase_display_volume = AsyncMock(return_value=False)
+        client._mock_service.adjust_display_volume = AsyncMock(return_value=False)
         response = client.post("/api/volume/increase")
         assert response.status_code == 500
 
     def test_decrease_volume(self, client):
-        """Test POST /api/volume/decrease"""
+        """Test POST /api/volume/decrease - now uses adjust_display_volume(-5)"""
+        # Reset mock to track new calls
+        client._mock_service.adjust_display_volume = AsyncMock(return_value=True)
         response = client.post("/api/volume/decrease")
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        client._mock_service.decrease_display_volume.assert_called_once_with(5)
+        # Now uses adjust_display_volume(-5) instead of decrease_display_volume(5)
+        client._mock_service.adjust_display_volume.assert_called_with(-5)
 
     def test_decrease_volume_service_failure(self, client):
         """Test POST /api/volume/decrease when service fails"""
-        client._mock_service.decrease_display_volume = AsyncMock(return_value=False)
+        client._mock_service.adjust_display_volume = AsyncMock(return_value=False)
         response = client.post("/api/volume/decrease")
         assert response.status_code == 500

@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
 from backend.infrastructure.services.volume_service import VolumeService
+from backend.infrastructure.services.volume_converter_service import VolumeConverterService
 
 
 class TestVolumeService:
@@ -54,64 +55,64 @@ class TestVolumeService:
         """Test de l'initialisation du service"""
         assert service.state_machine is not None
         assert service.snapcast_service is not None
-        assert service._alsa_min_volume == 0
-        assert service._alsa_max_volume == 65
-        assert service._mobile_volume_steps == 5
-        assert service._rotary_volume_steps == 2
+        assert service.config.config.alsa_min == 0
+        assert service.config.config.alsa_max == 65
+        assert service.config.config.mobile_volume_steps == 5
+        assert service.config.config.rotary_volume_steps == 2
 
     def test_alsa_to_display_conversion(self, service):
         """Test de conversion ALSA → Display (0-100%)"""
         # Min volume
-        assert service._alsa_to_display(0) == 0
+        assert service.converter.alsa_to_display(0) == 0
 
         # Max volume
-        assert service._alsa_to_display(65) == 100
+        assert service.converter.alsa_to_display(65) == 100
 
         # Mid volume (32/65 ≈ 49%)
-        result = service._alsa_to_display(32)
+        result = service.converter.alsa_to_display(32)
         assert 48 <= result <= 50
 
     def test_display_to_alsa_conversion(self, service):
         """Test de conversion Display → ALSA"""
         # Min volume
-        assert service._display_to_alsa(0) == 0
+        assert service.converter.display_to_alsa(0) == 0
 
         # Max volume
-        assert service._display_to_alsa(100) == 65
+        assert service.converter.display_to_alsa(100) == 65
 
         # Mid volume (50% → 32/33)
-        result = service._display_to_alsa(50)
+        result = service.converter.display_to_alsa(50)
         assert 31 <= result <= 34
 
     def test_display_to_alsa_precise_conversion(self, service):
         """Test de conversion Display précise → ALSA"""
         # Test avec float
-        result = service._display_to_alsa_precise(50.5)
+        result = service.converter.display_to_alsa_precise(50.5)
         assert isinstance(result, int)
         assert 31 <= result <= 34
 
     def test_round_half_up(self, service):
         """Test de l'arrondi standard"""
-        assert service._round_half_up(1.4) == 1
-        assert service._round_half_up(1.5) == 2
-        assert service._round_half_up(1.6) == 2
-        assert service._round_half_up(2.0) == 2
+        assert VolumeConverterService.round_half_up(1.4) == 1
+        assert VolumeConverterService.round_half_up(1.5) == 2
+        assert VolumeConverterService.round_half_up(1.6) == 2
+        assert VolumeConverterService.round_half_up(2.0) == 2
 
     def test_clamp_display_volume(self, service):
         """Test du clamping du volume display (0-100%)"""
-        assert service._clamp_display_volume(-10.0) == 0.0
-        assert service._clamp_display_volume(0.0) == 0.0
-        assert service._clamp_display_volume(50.0) == 50.0
-        assert service._clamp_display_volume(100.0) == 100.0
-        assert service._clamp_display_volume(110.0) == 100.0
+        assert service.converter.clamp_display(-10.0) == 0.0
+        assert service.converter.clamp_display(0.0) == 0.0
+        assert service.converter.clamp_display(50.0) == 50.0
+        assert service.converter.clamp_display(100.0) == 100.0
+        assert service.converter.clamp_display(110.0) == 100.0
 
     def test_clamp_alsa_volume(self, service):
         """Test du clamping du volume ALSA (min-max)"""
-        assert service._clamp_alsa_volume(-10) == 0  # alsa_min
-        assert service._clamp_alsa_volume(0) == 0
-        assert service._clamp_alsa_volume(30) == 30
-        assert service._clamp_alsa_volume(65) == 65  # alsa_max
-        assert service._clamp_alsa_volume(100) == 65
+        assert service.converter.clamp_alsa(-10) == 0  # alsa_min
+        assert service.converter.clamp_alsa(0) == 0
+        assert service.converter.clamp_alsa(30) == 30
+        assert service.converter.clamp_alsa(65) == 65  # alsa_max
+        assert service.converter.clamp_alsa(100) == 65
 
     @pytest.mark.asyncio
     async def test_load_volume_config(self, service):
@@ -129,21 +130,21 @@ class TestVolumeService:
 
         await service._load_volume_config()
 
-        assert service._alsa_min_volume == 10
-        assert service._alsa_max_volume == 70
-        assert service._default_startup_display_volume == 40
-        assert service._restore_last_volume is True
-        assert service._mobile_volume_steps == 3
-        assert service._rotary_volume_steps == 1
+        assert service.config.config.alsa_min == 10
+        assert service.config.config.alsa_max == 70
+        assert service.config.config.startup_volume == 40
+        assert service.config.config.restore_last_volume is True
+        assert service.config.config.mobile_volume_steps == 3
+        assert service.config.config.rotary_volume_steps == 1
 
     def test_display_to_alsa_old_limits(self, service):
         """Test de conversion avec anciennes limites"""
         # Conversion avec old_min=0, old_max=50
-        result = service._display_to_alsa_old_limits(50, 0, 50)
+        result = service.converter.display_to_alsa_with_old_limits(50, 0, 50)
         assert result == 25
 
         # Conversion avec old_min=10, old_max=60
-        result = service._display_to_alsa_old_limits(100, 10, 60)
+        result = service.converter.display_to_alsa_with_old_limits(100, 10, 60)
         assert result == 60
 
     def test_invalidate_all_caches(self, service):
@@ -191,24 +192,24 @@ class TestVolumeService:
 
         assert service._is_multiroom_enabled() is False
 
-    def test_get_rotary_step(self, service):
-        """Test de récupération du step rotary"""
+    def test_config_rotary_steps(self, service):
+        """Test d'accès au step rotary via sub-service config"""
         # Default rotary_volume_steps from fixture is 2
-        assert service.get_rotary_step() == 2
+        assert service.config.config.rotary_volume_steps == 2
 
         # Test with different value via config service
         service._config_service._config.rotary_volume_steps = 3
-        assert service.get_rotary_step() == 3
+        assert service.config.config.rotary_volume_steps == 3
 
-    def test_convert_alsa_to_display_public(self, service):
-        """Test de la méthode publique de conversion ALSA → Display"""
-        assert service.convert_alsa_to_display(0) == 0
-        assert service.convert_alsa_to_display(65) == 100
+    def test_converter_alsa_to_display(self, service):
+        """Test de conversion ALSA → Display via sub-service converter"""
+        assert service.converter.alsa_to_display(0) == 0
+        assert service.converter.alsa_to_display(65) == 100
 
-    def test_convert_display_to_alsa_public(self, service):
-        """Test de la méthode publique de conversion Display → ALSA"""
-        assert service.convert_display_to_alsa(0) == 0
-        assert service.convert_display_to_alsa(100) == 65
+    def test_converter_display_to_alsa(self, service):
+        """Test de conversion Display → ALSA via sub-service converter"""
+        assert service.converter.display_to_alsa(0) == 0
+        assert service.converter.display_to_alsa(100) == 65
 
     def test_get_volume_config_public(self, service):
         """Test de récupération de la config publique"""
@@ -238,7 +239,7 @@ class TestVolumeService:
         result = await service.reload_volume_steps_config()
 
         assert result is True
-        assert service._mobile_volume_steps == 7
+        assert service.config.config.mobile_volume_steps == 7
 
     @pytest.mark.asyncio
     async def test_reload_rotary_steps_config(self, service):
@@ -257,7 +258,7 @@ class TestVolumeService:
         result = await service.reload_rotary_steps_config()
 
         assert result is True
-        assert service._rotary_volume_steps == 4
+        assert service.config.config.rotary_volume_steps == 4
 
     @pytest.mark.asyncio
     async def test_reload_startup_config(self, service):
@@ -276,8 +277,8 @@ class TestVolumeService:
         result = await service.reload_startup_config()
 
         assert result is True
-        assert service._default_startup_display_volume == 50
-        assert service._restore_last_volume is True
+        assert service.config.config.startup_volume == 50
+        assert service.config.config.restore_last_volume is True
 
     def test_determine_startup_volume_default(self, service):
         """Test de détermination du volume startup (mode par défaut)"""

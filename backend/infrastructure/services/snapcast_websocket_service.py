@@ -363,7 +363,7 @@ class SnapcastWebSocketService:
             self.logger.error("❌ VolumeService not available - cannot convert volume")
             return  # Don't send event with incorrect volume
         
-        display_volume = volume_service.convert_alsa_to_display(alsa_volume)
+        display_volume = volume_service.converter.alsa_to_display(alsa_volume)
         
         self.logger.info(f"🔵 NEW CLIENT CONNECTED:")
         self.logger.info(f"  - ID: {client_id}")
@@ -421,7 +421,7 @@ class SnapcastWebSocketService:
             await volume_service.sync_client_volume_from_external(client_id, alsa_volume)
 
             # Broadcast correct event type based on notification
-            display_volume = volume_service.convert_alsa_to_display(alsa_volume)
+            display_volume = volume_service.converter.alsa_to_display(alsa_volume)
             if method == "Client.OnVolumeChanged":
                 await self._broadcast_snapcast_event("client_volume_changed", {
                     "client_id": client_id,
