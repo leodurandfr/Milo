@@ -63,7 +63,7 @@ def create_volume_router(volume_service):
     async def increase_volume():
         """Increases display volume by 5%"""
         try:
-            success = await volume_service.increase_display_volume(5)
+            success = await volume_service.adjust_display_volume(5)
             if success:
                 current_volume = await volume_service.get_display_volume()
                 return {"status": "success", "volume": current_volume}
@@ -76,7 +76,7 @@ def create_volume_router(volume_service):
     async def decrease_volume():
         """Decreases display volume by 5%"""
         try:
-            success = await volume_service.decrease_display_volume(5)
+            success = await volume_service.adjust_display_volume(-5)
             if success:
                 current_volume = await volume_service.get_display_volume()
                 return {"status": "success", "volume": current_volume}

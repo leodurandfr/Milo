@@ -44,8 +44,10 @@ class TestSnapcastRoutes:
         sm = Mock()
         sm.broadcast_event = AsyncMock()
         sm.volume_service = Mock()
-        sm.volume_service.convert_alsa_to_display = Mock(side_effect=lambda x: x)
-        sm.volume_service.convert_display_to_alsa = Mock(side_effect=lambda x: x)
+        # New converter sub-service API
+        sm.volume_service.converter = Mock()
+        sm.volume_service.converter.alsa_to_display = Mock(side_effect=lambda x: x)
+        sm.volume_service.converter.display_to_alsa = Mock(side_effect=lambda x: x)
         sm.volume_service.update_client_display_volume = Mock()
         return sm
 

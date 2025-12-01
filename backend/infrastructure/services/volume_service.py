@@ -52,70 +52,23 @@ class VolumeService:
         self.BROADCAST_DELAY_MS = 30
 
     # ============================================================================
-    # PROPERTIES (delegate to extracted services)
+    # EXPOSED SUB-SERVICES (for external access)
     # ============================================================================
 
     @property
-    def _alsa_min_volume(self) -> int:
-        """Get ALSA min volume from config service."""
-        return self._config_service.alsa_min
+    def converter(self) -> VolumeConverterService:
+        """Access to volume converter service for ALSA/display conversions."""
+        return self._converter
 
     @property
-    def _alsa_max_volume(self) -> int:
-        """Get ALSA max volume from config service."""
-        return self._config_service.alsa_max
+    def config(self) -> VolumeConfigService:
+        """Access to volume configuration service."""
+        return self._config_service
 
     @property
-    def _default_startup_display_volume(self) -> int:
-        """Get startup volume from config service."""
-        return self._config_service.startup_volume
-
-    @property
-    def _restore_last_volume(self) -> bool:
-        """Get restore last volume flag from config service."""
-        return self._config_service.restore_last_volume
-
-    @property
-    def _mobile_volume_steps(self) -> int:
-        """Get mobile volume steps from config service."""
-        return self._config_service.mobile_volume_steps
-
-    @property
-    def _rotary_volume_steps(self) -> int:
-        """Get rotary volume steps from config service."""
-        return self._config_service.rotary_volume_steps
-
-    # ============================================================================
-    # VOLUME CONVERSIONS (delegate to converter service)
-    # ============================================================================
-
-    def _alsa_to_display(self, alsa_volume: int) -> int:
-        """Convert ALSA raw volume to display percentage (0-100%)."""
-        return self._converter.alsa_to_display(alsa_volume)
-
-    def _display_to_alsa(self, display_volume: int) -> int:
-        """Convert display percentage to ALSA raw volume."""
-        return self._converter.display_to_alsa(display_volume)
-
-    def _display_to_alsa_precise(self, display_volume: float) -> int:
-        """Convert precise display volume (float) to ALSA raw volume."""
-        return self._converter.display_to_alsa_precise(display_volume)
-
-    def _round_half_up(self, value: float) -> int:
-        """Standard mathematical rounding (half-up)."""
-        return VolumeConverterService.round_half_up(value)
-
-    def _clamp_display_volume(self, display_volume: float) -> float:
-        """Clamp display volume to valid range (0-100%)."""
-        return self._converter.clamp_display(display_volume)
-
-    def _clamp_alsa_volume(self, alsa_volume: int) -> int:
-        """Clamp ALSA volume to configured min/max range."""
-        return self._converter.clamp_alsa(alsa_volume)
-
-    def _display_to_alsa_old_limits(self, display_volume: int, old_min: int, old_max: int) -> int:
-        """Convert display volume using old ALSA limits (for limit change migration)."""
-        return self._converter.display_to_alsa_with_old_limits(display_volume, old_min, old_max)
+    def storage(self) -> VolumeStorageService:
+        """Access to volume storage service for persistence."""
+        return self._storage
 
     # ============================================================================
     # CONFIGURATION LOADING
@@ -126,23 +79,19 @@ class VolumeService:
         await self._config_service.load()
         # Update converter with new limits
         self._converter.update_limits(
-            self._config_service.alsa_min,
-            self._config_service.alsa_max
+            self._config_service.config.alsa_min,
+            self._config_service.config.alsa_max
         )
 
     def _save_last_volume(self, display_volume: int) -> None:
         """Save last volume in background (async write to prevent blocking)."""
-        self._storage.save(display_volume, self._restore_last_volume)
-
-    def _load_last_volume(self) -> Optional[int]:
-        """Load last saved volume from persistent storage."""
-        return self._storage.load()
+        self._storage.save(display_volume, self.config.config.restore_last_volume)
 
     def _determine_startup_volume(self) -> int:
         """Determine startup volume (restored or default)."""
         return self._storage.get_startup_volume(
-            self._default_startup_display_volume,
-            self._restore_last_volume
+            self.config.config.startup_volume,
+            self.config.config.restore_last_volume
         )
 
     async def reload_volume_limits(self) -> bool:
@@ -153,22 +102,23 @@ class VolumeService:
 
             # Update converter with new limits
             self._converter.update_limits(
-                self._config_service.alsa_min,
-                self._config_service.alsa_max
+                self._config_service.config.alsa_min,
+                self._config_service.config.alsa_max
             )
 
-            if not self._config_service.limits_changed(old_min, old_max):
+            # No change in limits - nothing to do
+            if old_min == self.config.config.alsa_min and old_max == self.config.config.alsa_max:
                 return True
 
             self._invalidate_all_caches()
 
             if not self._is_multiroom_enabled():
-                old_alsa_volume = self._display_to_alsa_old_limits(old_display_volume, old_min, old_max)
-                new_display_volume = self._alsa_to_display(old_alsa_volume)
+                old_alsa_volume = self.converter.display_to_alsa_with_old_limits(old_display_volume, old_min, old_max)
+                new_display_volume = self.converter.alsa_to_display(old_alsa_volume)
 
-                if old_alsa_volume < self._alsa_min_volume or old_alsa_volume > self._alsa_max_volume:
-                    center_volume = (self._alsa_min_volume + self._alsa_max_volume) // 2
-                    safe_display_volume = self._alsa_to_display(center_volume)
+                if old_alsa_volume < self.config.config.alsa_min or old_alsa_volume > self.config.config.alsa_max:
+                    center_volume = (self.config.config.alsa_min + self.config.config.alsa_max) // 2
+                    safe_display_volume = self.converter.alsa_to_display(center_volume)
                     await self.set_display_volume(safe_display_volume, show_bar=False)
                 else:
                     self._precise_display_volume = float(new_display_volume)
@@ -181,12 +131,17 @@ class VolumeService:
 
     async def reload_startup_config(self) -> bool:
         """Reload startup configuration."""
-        return await self._config_service.reload_startup_config()
+        try:
+            await self._config_service.load()
+            return True
+        except Exception as e:
+            self.logger.error(f"Error reloading startup config: {e}")
+            return False
 
     async def reload_volume_steps_config(self) -> bool:
         """Reload volume step configuration."""
         try:
-            await self._config_service.reload_mobile_steps()
+            await self._config_service.load()
             await self._schedule_broadcast(show_bar=False)
             return True
         except Exception as e:
@@ -196,7 +151,7 @@ class VolumeService:
     async def reload_rotary_steps_config(self) -> bool:
         """Reload rotary encoder step configuration."""
         try:
-            await self._config_service.reload_rotary_steps()
+            await self._config_service.load()
             return True
         except Exception as e:
             self.logger.error(f"Error reloading rotary steps: {e}")
@@ -220,81 +175,53 @@ class VolumeService:
     async def initialize_new_client_volume(self, client_id: str, client_alsa_volume: int) -> bool:
         """Initialize new client and apply current volume in multiroom mode."""
         try:
-            self.logger.info(f"🔵 initialize_new_client_volume: {client_id}, alsa={client_alsa_volume}")
-            self.logger.info(f"  Current _client_display_states: {list(self._client_display_states.keys())}")
-
             if client_id in self._client_display_states:
-                self.logger.info(f"⚪ Client {client_id} already known")
                 await self.sync_client_volume_from_external(client_id, client_alsa_volume)
                 return True
 
-            self.logger.info(f"🟢 Client {client_id} is NEW")
-
             is_multiroom = self._is_multiroom_enabled()
-            self.logger.info(f"  is_multiroom: {is_multiroom}")
-            self.logger.info(f"  _multiroom_volume: {self._multiroom_volume}")
 
             if is_multiroom:
-                # Calculate target volume from existing clients only (exclude the new one)
+                # Calculate target volume from existing clients or use startup volume
                 if len(self._client_display_states) > 0:
                     existing_volumes = list(self._client_display_states.values())
                     target_display = sum(existing_volumes) / len(existing_volumes)
-                    self.logger.info(f"  Calculated average from {len(existing_volumes)} existing clients: {target_display}%")
                 else:
-                    # No existing clients - use configured startup volume
                     target_display = self._determine_startup_volume()
-                    self.logger.info(f"  No existing clients, using startup volume: {target_display}%")
 
-                self.logger.info(f"  target_display: {target_display}")
+                target_alsa = self.converter.display_to_alsa_precise(target_display)
+                target_alsa_clamped = self.converter.clamp_alsa(target_alsa)
 
-                target_alsa = self._display_to_alsa_precise(target_display)
-                self.logger.info(f"  target_alsa (before clamp): {target_alsa}")
-
-                target_alsa_clamped = self._clamp_alsa_volume(target_alsa)
-                self.logger.info(f"  target_alsa_clamped: {target_alsa_clamped}")
-
-                self.logger.info(
-                    f"🎯 Applying multiroom volume {self._round_half_up(target_display)}% "
-                    f"(was {self._alsa_to_display(client_alsa_volume)}%)"
-                )
-
-                self.logger.info(f"  Calling snapcast_service.set_volume...")
                 success = await self.snapcast_service.set_volume(client_id, target_alsa_clamped)
-                self.logger.info(f"  snapcast set_volume returned: {success}")
 
                 if success:
                     self._client_display_states[client_id] = target_display
-
                     await self.state_machine.broadcast_event("snapcast", "client_volume_changed", {
                         "client_id": client_id,
-                        "volume": self._round_half_up(target_display),
+                        "volume": VolumeConverterService.round_half_up(target_display),
                         "muted": False,
                         "source": "new_client_multiroom_sync"
                     })
-
-                    self.logger.info(f"✅ Client {client_id} synced")
+                    self.logger.debug(f"New client {client_id} synced to {VolumeConverterService.round_half_up(target_display)}%")
                     return True
                 else:
-                    self.logger.error(f"❌ Failed to set volume for {client_id}")
+                    self.logger.error(f"Failed to set volume for new client {client_id}")
                     return False
             else:
-                self.logger.info(f"  Multiroom NOT enabled, using direct mode")
-                display_volume = float(self._alsa_to_display(client_alsa_volume))
+                display_volume = float(self.converter.alsa_to_display(client_alsa_volume))
                 self._client_display_states[client_id] = display_volume
-                self.logger.info(f"⚪ Direct mode, keeping {self._round_half_up(display_volume)}%")
 
             return True
 
         except Exception as e:
-            self.logger.error(f"❌ Error initializing client: {e}", exc_info=True)
+            self.logger.error(f"Error initializing client {client_id}: {e}")
             return False
 
     async def sync_existing_client_from_snapcast(self, client_id: str, snapcast_alsa_volume: int) -> bool:
         """Synchronize existing client from Snapcast WITHOUT modifying its volume."""
         try:
-            display_volume = self._alsa_to_display(snapcast_alsa_volume)
+            display_volume = self.converter.alsa_to_display(snapcast_alsa_volume)
             self._client_display_states[client_id] = float(display_volume)
-            self.logger.info(f"✅ Synced existing client {client_id}: {self._round_half_up(display_volume)}% (from Snapcast)")
             return True
         except Exception as e:
             self.logger.error(f"Error syncing existing client {client_id}: {e}")
@@ -313,7 +240,7 @@ class VolumeService:
             for client in clients:
                 client_id = client["id"]
                 alsa_vol = client.get("volume", 0)
-                display_vol = self._alsa_to_display(alsa_vol)
+                display_vol = self.converter.alsa_to_display(alsa_vol)
                 self._client_display_states[client_id] = float(display_vol)
                 total += display_vol
                 count += 1
@@ -327,7 +254,7 @@ class VolumeService:
 
     def _set_client_display_volume(self, client_id: str, display_volume: float) -> None:
         """Set client display volume (internal state)."""
-        clamped = self._clamp_display_volume(display_volume)
+        clamped = self.converter.clamp_display(display_volume)
         self._client_display_states[client_id] = clamped
 
     async def sync_client_volume_from_external(self, client_id: str, new_alsa_volume: int) -> None:
@@ -336,7 +263,7 @@ class VolumeService:
             return
 
         old = self._client_display_states.get(client_id, "unknown")
-        new_display = float(self._alsa_to_display(new_alsa_volume))
+        new_display = float(self.converter.alsa_to_display(new_alsa_volume))
 
         if isinstance(old, float) and abs(old - new_display) < 0.5:
             return
@@ -346,7 +273,7 @@ class VolumeService:
         try:
             await self.state_machine.broadcast_event("snapcast", "client_volume_changed", {
                 "client_id": client_id,
-                "volume": self._round_half_up(new_display),
+                "volume": VolumeConverterService.round_half_up(new_display),
                 "muted": False,
                 "source": "external_sync"
             })
@@ -375,7 +302,7 @@ class VolumeService:
 
                 if precise is None:
                     alsa = client.get("volume", 0)
-                    precise = float(self._alsa_to_display(alsa))
+                    precise = float(self.converter.alsa_to_display(alsa))
                     self._client_display_states[client_id] = precise
 
                 volumes.append(precise)
@@ -383,7 +310,7 @@ class VolumeService:
             self._multiroom_volume = sum(volumes) / len(volumes)
 
             if abs(self._multiroom_volume - old_volume) > 0.5:
-                rounded = self._round_half_up(self._multiroom_volume)
+                rounded = VolumeConverterService.round_half_up(self._multiroom_volume)
                 self._save_last_volume(rounded)
 
         except Exception as e:
@@ -405,7 +332,7 @@ class VolumeService:
                 return False
 
             startup_display = self._determine_startup_volume()
-            startup_alsa = self._display_to_alsa(startup_display)
+            startup_alsa = self.converter.display_to_alsa(startup_display)
 
             if self._is_multiroom_enabled():
                 await self._set_startup_volume_multiroom(startup_alsa)
@@ -448,9 +375,9 @@ class VolumeService:
     async def get_display_volume(self) -> int:
         """Get current centralized volume (0-100%)."""
         if self._is_multiroom_enabled():
-            return self._round_half_up(self._multiroom_volume)
+            return VolumeConverterService.round_half_up(self._multiroom_volume)
         else:
-            return self._round_half_up(self._precise_display_volume)
+            return VolumeConverterService.round_half_up(self._precise_display_volume)
 
     async def set_display_volume(self, display_volume: int, show_bar: bool = True) -> bool:
         """Set volume to specific level (0-100%) with timeout protection."""
@@ -459,13 +386,14 @@ class VolumeService:
                 async with self._volume_lock:
                     try:
                         self._adjustment_counter += 1
-                        clamped = self._clamp_display_volume(float(display_volume))
+                        clamped = self.converter.clamp_display(float(display_volume))
 
                         if self._is_multiroom_enabled():
-                            success = await self._set_multiroom_volume_centralized(int(clamped))
+                            delta = int(clamped) - self._multiroom_volume
+                            success = await self._apply_multiroom_delta(delta, fallback_volume=float(clamped))
                         else:
-                            alsa = self._display_to_alsa(int(clamped))
-                            success = await self._apply_alsa_volume_direct(alsa)
+                            alsa = self.converter.display_to_alsa(int(clamped))
+                            success = await self._set_amixer_volume_fast(alsa)
                             if success:
                                 self._precise_display_volume = clamped
 
@@ -492,7 +420,7 @@ class VolumeService:
                         self._adjustment_counter += 1
 
                         if self._is_multiroom_enabled():
-                            success = await self._adjust_multiroom_volume_centralized(delta)
+                            success = await self._apply_multiroom_delta(delta)
                         else:
                             success = await self._adjust_volume_direct(delta)
 
@@ -515,11 +443,11 @@ class VolumeService:
         """Adjust volume in direct mode (no multiroom)."""
         try:
             current = self._precise_display_volume
-            new_precise = self._clamp_display_volume(current + delta)
-            new_display = self._round_half_up(new_precise)
-            new_alsa = self._display_to_alsa(new_display)
+            new_precise = self.converter.clamp_display(current + delta)
+            new_display = VolumeConverterService.round_half_up(new_precise)
+            new_alsa = self.converter.display_to_alsa(new_display)
 
-            success = await self._apply_alsa_volume_direct(new_alsa)
+            success = await self._set_amixer_volume_fast(new_alsa)
             if success:
                 self._precise_display_volume = new_precise
             return success
@@ -527,8 +455,13 @@ class VolumeService:
             self.logger.error(f"Error direct adjust: {e}")
             return False
 
-    async def _adjust_multiroom_volume_centralized(self, delta: int) -> bool:
-        """Adjust multiroom volume with precise per-client tracking."""
+    async def _apply_multiroom_delta(self, delta: float, fallback_volume: float = None) -> bool:
+        """Apply delta to all multiroom clients with precise per-client tracking.
+
+        Args:
+            delta: Volume change to apply to each client
+            fallback_volume: Volume to set when no active clients (used by set_display_volume)
+        """
         try:
             clients = await self._get_snapcast_clients_cached()
             if not clients:
@@ -546,19 +479,19 @@ class VolumeService:
 
                 if current is None:
                     alsa = client.get("volume", 0)
-                    current = float(self._alsa_to_display(alsa))
+                    current = float(self.converter.alsa_to_display(alsa))
                     self._client_display_states[client_id] = current
 
-                new_precise = self._clamp_display_volume(current + delta)
+                new_precise = self.converter.clamp_display(current + delta)
                 self._client_display_states[client_id] = new_precise
 
-                alsa = self._display_to_alsa_precise(new_precise)
-                alsa_clamped = self._clamp_alsa_volume(alsa)
+                alsa = self.converter.display_to_alsa_precise(new_precise)
+                alsa_clamped = self.converter.clamp_alsa(alsa)
 
                 operations.append((client_id, alsa_clamped))
                 events.append({
                     "client_id": client_id,
-                    "volume": self._round_half_up(new_precise),
+                    "volume": VolumeConverterService.round_half_up(new_precise),
                     "muted": client.get("muted", False)
                 })
 
@@ -567,6 +500,8 @@ class VolumeService:
 
             if new_volumes:
                 self._multiroom_volume = sum(new_volumes) / len(new_volumes)
+            elif fallback_volume is not None:
+                self._multiroom_volume = fallback_volume
 
             await asyncio.gather(
                 *[self.snapcast_service.set_volume(cid, alsa) for cid, alsa in operations]
@@ -577,7 +512,7 @@ class VolumeService:
                     "client_id": evt["client_id"],
                     "volume": evt["volume"],
                     "muted": evt["muted"],
-                    "source": "multiroom_precise"
+                    "source": "multiroom"
                 })
 
             self._snapcast_clients_cache = []
@@ -586,73 +521,7 @@ class VolumeService:
             return True
 
         except Exception as e:
-            self.logger.error(f"Error multiroom adjust: {e}")
-            return False
-
-    async def _set_multiroom_volume_centralized(self, target: int) -> bool:
-        """Set multiroom volume with uniform delta across all clients."""
-        try:
-            clients = await self._get_snapcast_clients_cached()
-            if not clients:
-                return False
-
-            await self._initialize_client_display_states()
-            old = self._multiroom_volume
-            delta = target - old
-
-            operations = []
-            events = []
-            new_volumes = []
-
-            for client in clients:
-                client_id = client["id"]
-                current = self._client_display_states.get(client_id)
-
-                if current is None:
-                    alsa = client.get("volume", 0)
-                    current = float(self._alsa_to_display(alsa))
-                    self._client_display_states[client_id] = current
-
-                new_precise = self._clamp_display_volume(current + delta)
-                self._client_display_states[client_id] = new_precise
-
-                alsa = self._display_to_alsa_precise(new_precise)
-                alsa_clamped = self._clamp_alsa_volume(alsa)
-
-                operations.append((client_id, alsa_clamped))
-                events.append({
-                    "client_id": client_id,
-                    "volume": self._round_half_up(new_precise),
-                    "muted": client.get("muted", False)
-                })
-
-                if not client.get("muted", False):
-                    new_volumes.append(new_precise)
-
-            if new_volumes:
-                self._multiroom_volume = sum(new_volumes) / len(new_volumes)
-            else:
-                self._multiroom_volume = float(target)
-
-            await asyncio.gather(
-                *[self.snapcast_service.set_volume(cid, alsa) for cid, alsa in operations]
-            )
-
-            for evt in events:
-                await self.state_machine.broadcast_event("snapcast", "client_volume_changed", {
-                    "client_id": evt["client_id"],
-                    "volume": evt["volume"],
-                    "muted": evt["muted"],
-                    "source": "multiroom_uniform"
-                })
-
-            self._snapcast_clients_cache = []
-            self._snapcast_cache_time = 0
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error set multiroom: {e}")
+            self.logger.error(f"Error applying multiroom delta: {e}")
             return False
 
     # ============================================================================
@@ -686,7 +555,7 @@ class VolumeService:
                 "multiroom_mode": self._is_multiroom_enabled(),
                 "show_bar": show_bar,
                 "source": "volume_service",
-                "mobile_steps": self._mobile_volume_steps
+                "mobile_steps": self.config.config.mobile_volume_steps
             })
         except Exception as e:
             self.logger.error(f"Error broadcast: {e}")
@@ -695,56 +564,10 @@ class VolumeService:
     # UTILITY METHODS
     # ============================================================================
 
-    async def increase_display_volume(self, delta: int = None) -> bool:
-        step = delta if delta is not None else self._mobile_volume_steps
-        return await self.adjust_display_volume(step)
-
-    async def decrease_display_volume(self, delta: int = None) -> bool:
-        step = delta if delta is not None else self._mobile_volume_steps
-        return await self.adjust_display_volume(-step)
-
-    async def _apply_alsa_volume_direct(self, alsa_volume: int) -> bool:
-        """Apply ALSA volume in direct mode (uses amixer)."""
-        try:
-            return await self._set_amixer_volume_fast(alsa_volume)
-        except Exception:
-            return False
-
-    async def _get_amixer_volume_fast(self) -> Optional[int]:
-        """Fast amixer read with caching to avoid excessive subprocess calls."""
-        current_time = time.time()
-
-        if self._adjustment_counter > 0 and (current_time - self._alsa_cache_time) < 0.01:
-            return self._last_alsa_volume
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "amixer", "-M", "get", "Digital",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            stdout, _ = await proc.communicate()
-
-            if proc.returncode != 0:
-                return self._last_alsa_volume
-
-            output = stdout.decode()
-            match = re.search(r'\[(\d+)%\]', output)
-
-            if match:
-                volume = int(match.group(1))
-                self._last_alsa_volume = volume
-                self._alsa_cache_time = current_time
-                return volume
-            else:
-                return self._last_alsa_volume
-        except Exception:
-            return self._last_alsa_volume
-
     async def _set_amixer_volume_fast(self, alsa_volume: int) -> bool:
         """Fast amixer write (async subprocess)."""
         try:
-            limited = self._clamp_alsa_volume(alsa_volume)
+            limited = self.converter.clamp_alsa(alsa_volume)
 
             proc = await asyncio.create_subprocess_exec(
                 "amixer", "-M", "set", "Digital", f"{limited}%",
@@ -783,7 +606,7 @@ class VolumeService:
         try:
             success = await self._set_amixer_volume_fast(alsa_volume)
             if success:
-                display = self._alsa_to_display(alsa_volume)
+                display = self.converter.alsa_to_display(alsa_volume)
                 self.logger.info(f"Direct startup: {display}%")
             return success
         except Exception as e:
@@ -797,7 +620,7 @@ class VolumeService:
             if not clients:
                 return True
 
-            display = self._alsa_to_display(alsa_volume)
+            display = self.converter.alsa_to_display(alsa_volume)
             operations = []
 
             for client in clients:
@@ -824,27 +647,15 @@ class VolumeService:
     def update_client_display_volume(self, client_id: str, display_volume: int) -> None:
         """Update client display volume (called from API routes)."""
         try:
-            clamped = self._clamp_display_volume(float(display_volume))
+            clamped = self.converter.clamp_display(float(display_volume))
             self._client_display_states[client_id] = clamped
             self.logger.debug(f"Updated client {client_id} display volume to {display_volume}%")
         except Exception as e:
             self.logger.error(f"Error updating client volume: {e}")
 
-    def convert_alsa_to_display(self, alsa_volume: int) -> int:
-        """Convert ALSA to display volume (public wrapper)."""
-        return self._alsa_to_display(alsa_volume)
-
-    def convert_display_to_alsa(self, display_volume: int) -> int:
-        """Convert display to ALSA volume (public wrapper)."""
-        return self._display_to_alsa(display_volume)
-
     def get_volume_config_public(self) -> Dict[str, Any]:
         """Get current volume configuration."""
         return self._config_service.get_config_dict()
-
-    def get_rotary_step(self) -> int:
-        """Get current rotary encoder step size."""
-        return self._rotary_volume_steps
 
     async def get_status(self) -> dict:
         """Get complete volume service status."""
@@ -873,13 +684,13 @@ class VolumeService:
                         "name": client.get("name", "Unknown"),
                         "alsa_volume": client.get("volume", 0),
                         "display_volume_precise": precise,
-                        "display_volume_rounded": self._round_half_up(precise) if isinstance(precise, float) else "N/A",
+                        "display_volume_rounded": VolumeConverterService.round_half_up(precise) if isinstance(precise, float) else "N/A",
                         "muted": client.get("muted", False)
                     })
 
                 status.update({
                     "mode": "multiroom",
-                    "multiroom_volume": self._round_half_up(self._multiroom_volume),
+                    "multiroom_volume": VolumeConverterService.round_half_up(self._multiroom_volume),
                     "client_count": len(clients),
                     "clients": details
                 })

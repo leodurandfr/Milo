@@ -91,8 +91,8 @@ class RotaryVolumeController:
                 if should_process:
                     self.is_processing = True
                     
-                    # Get dynamic step from VolumeService
-                    volume_step = self.volume_service.get_rotary_step()
+                    # Get dynamic step from config service
+                    volume_step = self.volume_service.config.config.rotary_volume_steps
                     
                     # Calculate display volume change (0-100%)
                     volume_delta = self.rotation_accumulator * volume_step

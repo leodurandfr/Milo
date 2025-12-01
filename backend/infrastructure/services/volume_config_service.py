@@ -35,38 +35,8 @@ class VolumeConfigService:
 
     @property
     def config(self) -> VolumeConfig:
-        """Get current configuration."""
+        """Get current configuration (use config.alsa_min, config.startup_volume, etc.)."""
         return self._config
-
-    @property
-    def alsa_min(self) -> int:
-        """Get ALSA minimum volume."""
-        return self._config.alsa_min
-
-    @property
-    def alsa_max(self) -> int:
-        """Get ALSA maximum volume."""
-        return self._config.alsa_max
-
-    @property
-    def startup_volume(self) -> int:
-        """Get startup volume."""
-        return self._config.startup_volume
-
-    @property
-    def restore_last_volume(self) -> bool:
-        """Get restore last volume flag."""
-        return self._config.restore_last_volume
-
-    @property
-    def mobile_volume_steps(self) -> int:
-        """Get mobile volume steps."""
-        return self._config.mobile_volume_steps
-
-    @property
-    def rotary_volume_steps(self) -> int:
-        """Get rotary encoder volume steps."""
-        return self._config.rotary_volume_steps
 
     async def load(self) -> VolumeConfig:
         """
@@ -107,57 +77,6 @@ class VolumeConfigService:
 
         return old_min, old_max
 
-    async def reload_startup_config(self) -> bool:
-        """
-        Reload startup configuration only.
-
-        Returns:
-            True if successful
-        """
-        try:
-            self.settings_service.invalidate_cache()
-            volume_config = await self.settings_service.get_setting('volume') or {}
-
-            self._config.startup_volume = volume_config.get("startup_volume", 37)
-            self._config.restore_last_volume = volume_config.get("restore_last_volume", False)
-
-            return True
-        except Exception as e:
-            self.logger.error(f"Error reloading startup config: {e}")
-            return False
-
-    async def reload_mobile_steps(self) -> int:
-        """
-        Reload mobile volume steps.
-
-        Returns:
-            New mobile volume steps value
-        """
-        try:
-            self.settings_service.invalidate_cache()
-            volume_config = await self.settings_service.get_setting('volume') or {}
-            self._config.mobile_volume_steps = volume_config.get("mobile_volume_steps", 5)
-            return self._config.mobile_volume_steps
-        except Exception as e:
-            self.logger.error(f"Error reloading mobile steps: {e}")
-            return self._config.mobile_volume_steps
-
-    async def reload_rotary_steps(self) -> int:
-        """
-        Reload rotary encoder steps.
-
-        Returns:
-            New rotary volume steps value
-        """
-        try:
-            self.settings_service.invalidate_cache()
-            volume_config = await self.settings_service.get_setting('volume') or {}
-            self._config.rotary_volume_steps = volume_config.get("rotary_volume_steps", 2)
-            return self._config.rotary_volume_steps
-        except Exception as e:
-            self.logger.error(f"Error reloading rotary steps: {e}")
-            return self._config.rotary_volume_steps
-
     def get_config_dict(self) -> Dict[str, Any]:
         """
         Get configuration as dictionary.
@@ -173,16 +92,3 @@ class VolumeConfigService:
             "mobile_steps": self._config.mobile_volume_steps,
             "rotary_steps": self._config.rotary_volume_steps
         }
-
-    def limits_changed(self, old_min: int, old_max: int) -> bool:
-        """
-        Check if limits have changed.
-
-        Args:
-            old_min: Previous ALSA minimum
-            old_max: Previous ALSA maximum
-
-        Returns:
-            True if limits changed
-        """
-        return old_min != self._config.alsa_min or old_max != self._config.alsa_max
