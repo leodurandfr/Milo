@@ -599,6 +599,7 @@ class TaddyAPI:
         countries: List[str] = None,
         duration_min: int = None,
         duration_max: int = None,
+        published_after: int = None,
         safe_mode: bool = False,
         sort_by: str = "EXACTNESS",
         page: int = 1,
@@ -607,13 +608,16 @@ class TaddyAPI:
         """
         Search for both podcasts AND episodes in a single query
 
+        Args:
+            published_after: Epoch timestamp - only return episodes published after this date
+
         Returns:
             Dict with 'podcasts' and 'episodes' lists, plus pagination info
         """
         limit = min(limit, 25)
         page = max(1, min(page, 20))
 
-        cache_key = f"mixed_{term}_{genres}_{languages}_{countries}_{duration_min}_{duration_max}_{safe_mode}_{sort_by}_{page}_{limit}"
+        cache_key = f"mixed_{term}_{genres}_{languages}_{countries}_{duration_min}_{duration_max}_{published_after}_{safe_mode}_{sort_by}_{page}_{limit}"
         cached = self._check_cache(self._search_cache, cache_key)
         if cached:
             return cached
@@ -639,6 +643,8 @@ class TaddyAPI:
             filters.append(f'filterForDurationGreaterThan: {duration_min}')
         if duration_max is not None:
             filters.append(f'filterForDurationLessThan: {duration_max}')
+        if published_after is not None:
+            filters.append(f'filterForPublishedAfter: {published_after}')
         if safe_mode:
             filters.append('isSafeMode: true')
 

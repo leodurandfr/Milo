@@ -328,6 +328,8 @@
     "searchPlaceholder": "Pesquisar",
     "podcastsCount": "Podcasts ({count})",
     "episodesCount": "Episódios ({count})",
+    "podcastsTitle": "Podcasts",
+    "recentEpisodesTitle": "Episódios das últimas duas semanas",
     "loadingMoreResults": "A carregar mais resultados...",
     "noResultsFor": "Sem resultados para \"{query}\"",
     "noResults": "Sem resultados encontrados",

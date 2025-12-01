@@ -328,6 +328,8 @@
     "searchPlaceholder": "खोजें",
     "podcastsCount": "पॉडकास्ट ({count})",
     "episodesCount": "एपिसोड ({count})",
+    "podcastsTitle": "पॉडकास्ट",
+    "recentEpisodesTitle": "पिछले दो हफ्तों के एपिसोड",
     "loadingMoreResults": "अधिक परिणाम लोड हो रहे हैं...",
     "noResultsFor": "\"{query}\" के लिए कोई परिणाम नहीं",
     "noResults": "कोई परिणाम नहीं मिला",

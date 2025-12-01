@@ -257,6 +257,13 @@ const currentSubtitle = computed(() => {
   return null
 })
 
+// Clear search when navigating back to home
+watch(currentView, (newView) => {
+  if (newView === 'home') {
+    podcastStore.clearSearch()
+  }
+})
+
 // Navigation methods using composable
 function goToHome() {
   reset()
@@ -419,6 +426,8 @@ onBeforeUnmount(() => {
     clearTimeout(stopTimer.value)
     stopTimer.value = null
   }
+  // Clear search state when leaving Podcasts module
+  podcastStore.clearSearch()
 })
 </script>
 

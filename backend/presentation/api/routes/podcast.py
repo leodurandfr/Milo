@@ -2,6 +2,7 @@
 API routes for the Podcast plugin
 Complete implementation with discovery, search, playback, subscriptions, queue, and settings
 """
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from pydantic import BaseModel
@@ -425,6 +426,9 @@ async def search_mixed(
         language_list = [l.strip() for l in languages.split(",")] if languages else None
         country_list = [c.strip() for c in countries.split(",")] if countries else None
 
+        # Filter episodes to last 14 days
+        published_after = int((datetime.now(timezone.utc) - timedelta(days=14)).timestamp())
+
         result = await plugin.taddy_api.search_mixed(
             term=term,
             genres=genre_list,
@@ -432,6 +436,7 @@ async def search_mixed(
             countries=country_list,
             duration_min=duration_min,
             duration_max=duration_max,
+            published_after=published_after,
             safe_mode=safe_mode,
             sort_by=sort_by,
             page=page,
