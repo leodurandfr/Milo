@@ -13,6 +13,7 @@
         :variant="headerVariant"
         :icon="headerIcon"
         :actions-key="headerActionsKey"
+        :class="{ 'header-hidden': headerHidden }"
         @back="$emit('header-back')"
       >
         <template #actions="slotProps">
@@ -22,7 +23,7 @@
 
       <!-- Contenu avec animation (wrapper pour isoler position: absolute) -->
       <div class="transition-wrapper">
-        <Transition name="fade-slide" mode="out-in" @after-leave="resetScroll">
+        <Transition name="fade-slide" mode="out-in" @before-leave="onBeforeLeave" @after-leave="onAfterLeave" @enter="onEnter">
           <div :key="contentKey" class="content-inner">
             <slot name="content" :is-mobile="isMobile" />
           </div>
@@ -40,10 +41,14 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import ModalHeader from '@/components/ui/ModalHeader.vue'
 
 const layoutRef = ref(null)
+
+// Header hidden state (only when scrolled)
+const headerHidden = ref(false)
+const wasScrolled = ref(false)
 
 const props = defineProps({
   /**
@@ -113,7 +118,30 @@ const props = defineProps({
 
 defineEmits(['header-back'])
 
-// Reset scroll after fade-out completes (called by Transition @after-leave hook)
+// Transition hooks for header hide/show (only when scrolled)
+function onBeforeLeave() {
+  // Check if scrolled and hide header immediately so it fades out with content
+  wasScrolled.value = layoutRef.value?.scrollTop > 0
+  if (wasScrolled.value) {
+    headerHidden.value = true
+  }
+}
+
+function onAfterLeave() {
+  // Reset scroll after content fade-out completes (header already hidden)
+  resetScroll()
+}
+
+function onEnter() {
+  // Double RAF to ensure browser paints hidden state before fade-in
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      headerHidden.value = false
+    })
+  })
+}
+
+// Reset scroll to top
 function resetScroll() {
   if (layoutRef.value) {
     layoutRef.value.scrollTop = 0
@@ -253,5 +281,15 @@ const mobilePlayerPadding = computed(() => `${props.playerMobileHeight}px`)
     width: auto;
     opacity: 1;
   }
+}
+
+/* Header hide/show transition (only when scroll reset is needed) */
+:deep(.modal-header) {
+  transition: opacity var(--transition-in-out); /* Fade-in: 400ms cubic-bezier(0.5,0,0.1,1) */
+}
+
+:deep(.modal-header.header-hidden) {
+  opacity: 0;
+  transition: opacity var(--transition-ultra-fast); /* Fade-out: 150ms ease */
 }
 </style>
