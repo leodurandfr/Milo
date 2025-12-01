@@ -15,6 +15,7 @@
             variant="row"
             :clickable="false"
             contrast
+            showActions
             @subscribe="handleSubscribe"
             @unsubscribe="handleUnsubscribe"
           />

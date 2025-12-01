@@ -12,8 +12,8 @@
           <!-- Episode Card -->
           <EpisodeCard
             :episode="enrichedEpisode"
-            :clickable="false"
             contrast
+            @select="handlePlayClick"
             @play="handlePlayClick"
             @pause="handlePause"
           />
@@ -141,7 +141,6 @@ onMounted(() => {
 .description-title {
   color: var(--color-text-secondary);
   margin: 0;
-  text-transform: uppercase;
 }
 
 .description-block p {

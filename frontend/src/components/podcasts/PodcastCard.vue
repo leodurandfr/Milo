@@ -360,7 +360,7 @@ onMounted(() => {
 }
 
 .podcast-card.contrast .podcast-publisher {
-  color: var(--color-text-contrast-50);
+  color: var(--color-brand);
 }
 
 .podcast-card.contrast .podcast-tag {
