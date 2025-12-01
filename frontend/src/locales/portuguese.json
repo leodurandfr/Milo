@@ -42,7 +42,9 @@
     "speakers": "Colunas multiroom",
     "loadingSpeakers": "Carregando colunas...",
     "noSpeakers": "Nenhuma coluna conectada",
-    "restarting": "Reiniciando multiroom..."
+    "restarting": "Reiniciando multiroom...",
+    "error": "Erro ao ativar multiroom",
+    "timeout_error": "Tempo limite de ativação. Por favor, tente novamente."
   },
   "equalizer": {
     "title": "Equalizador",

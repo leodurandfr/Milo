@@ -42,7 +42,9 @@
     "speakers": "多房间扬声器",
     "loadingSpeakers": "正在加载扬声器...",
     "noSpeakers": "没有扬声器连接",
-    "restarting": "正在重启多房间..."
+    "restarting": "正在重启多房间...",
+    "error": "激活多房间时出错",
+    "timeout_error": "激活超时，请重试。"
   },
   "equalizer": {
     "title": "均衡器",

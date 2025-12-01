@@ -6,7 +6,7 @@
         <Toggle
           v-model="isMultiroomActive"
           :type="iconType"
-          :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling"
+          :disabled="unifiedStore.systemState.transitioning || isToggling"
           @change="handleMultiroomToggle"
         />
       </template>
@@ -19,7 +19,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
@@ -29,7 +29,7 @@ import MultiroomControl from './MultiroomControl.vue';
 const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
-const isMultiroomToggling = ref(false);
+const isToggling = ref(false);
 
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
@@ -39,36 +39,43 @@ async function handleMultiroomToggle(enabled) {
 
 // === WEBSOCKET HANDLERS ===
 function handleMultiroomEnabling() {
-  isMultiroomToggling.value = true;
+  isToggling.value = true;
 }
 
 function handleMultiroomDisabling() {
-  isMultiroomToggling.value = true;
+  isToggling.value = true;
 }
 
-// Watcher multiroom state
-let lastMultiroomState = isMultiroomActive.value;
-const watcherInterval = setInterval(() => {
-  if (lastMultiroomState !== isMultiroomActive.value) {
-    lastMultiroomState = isMultiroomActive.value;
+function handleMultiroomReady() {
+  isToggling.value = false;
+}
 
-    isMultiroomToggling.value = false;
-  }
-}, 100);
+function handleMultiroomError() {
+  isToggling.value = false;
+}
 
 let unsubscribeFunctions = [];
+
+// Watch for state changes to reset toggling (handles disabling case)
+watch(isMultiroomActive, (newValue, oldValue) => {
+  if (!newValue && oldValue) {
+    // Multiroom was disabled - reset toggle state
+    isToggling.value = false;
+  }
+});
 
 // === LIFECYCLE ===
 onMounted(() => {
   unsubscribeFunctions.push(
     on('routing', 'multiroom_enabling', handleMultiroomEnabling),
-    on('routing', 'multiroom_disabling', handleMultiroomDisabling)
+    on('routing', 'multiroom_disabling', handleMultiroomDisabling),
+    on('routing', 'multiroom_ready', handleMultiroomReady),
+    on('routing', 'multiroom_error', handleMultiroomError)
   );
 });
 
 onUnmounted(() => {
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
-  clearInterval(watcherInterval);
 });
 </script>
 

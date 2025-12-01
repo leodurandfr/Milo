@@ -4,8 +4,8 @@
     <div class="clients-list">
       <!-- Single Transition for both states -->
       <Transition name="fade-slide" mode="out-in">
-        <!-- MESSAGE: Multiroom disabled -->
-        <MessageContent v-if="showMessage" key="message" icon="multiroom" :title="$t('multiroom.disabled')" />
+        <!-- MESSAGE: Multiroom disabled or error -->
+        <MessageContent v-if="showMessage" key="message" :icon="messageIcon" :title="messageTitle" />
 
         <!-- CLIENTS: Skeletons OR real items -->
         <div v-else key="clients" class="clients-wrapper">
@@ -19,54 +19,68 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import useWebSocket from '@/services/websocket';
 import MultiroomClientItem from './MultiroomClientItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
+const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const { on } = useWebSocket();
 
-// Local state for multiroom transitions
-const isMultiroomTransitioning = ref(false);
-const isMultiroomDeactivating = ref(false);
+// Single transition state instead of 3 separate flags
+// 'idle' | 'enabling' | 'disabling' | 'error'
+const transitionState = ref('idle');
+const errorMessage = ref('');
+
+// Timeout for transition (15 seconds)
+const TRANSITION_TIMEOUT_MS = 15000;
+let transitionTimeoutId = null;
 
 let unsubscribeFunctions = [];
 
 // === COMPUTED ===
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
-// Local state for toggling
-const isTogglingMultiroom = ref(false);
-
 const showMessage = computed(() => {
-  // If we are deactivating, show the message immediately
-  if (isTogglingMultiroom.value && isMultiroomDeactivating.value) {
+  // Show message when:
+  // - Error state
+  // - Disabling (show "disabled" message immediately)
+  // - Multiroom is off and not enabling
+  if (transitionState.value === 'error') {
     return true;
   }
-
-  // During activation, do not show the message
-  if (isTogglingMultiroom.value || isMultiroomTransitioning.value) {
+  if (transitionState.value === 'disabling') {
+    return true;
+  }
+  if (transitionState.value === 'enabling') {
     return false;
   }
-
   return !isMultiroomActive.value;
 });
 
-// Force loading mode during toggling or loading
-// But not during deactivation (we just let the fade-out happen)
-const shouldShowLoading = computed(() => {
-  if (isTogglingMultiroom.value && isMultiroomDeactivating.value) {
-    return false; // No skeletons during deactivation
+const messageIcon = computed(() => {
+  return transitionState.value === 'error' ? 'error' : 'multiroom';
+});
+
+const messageTitle = computed(() => {
+  if (transitionState.value === 'error') {
+    return errorMessage.value || t('multiroom.error');
   }
-  return multiroomStore.isLoading || isTogglingMultiroom.value;
+  return t('multiroom.disabled');
+});
+
+// Show loading skeletons during enabling or store loading
+const shouldShowLoading = computed(() => {
+  return transitionState.value === 'enabling' || multiroomStore.isLoading;
 });
 
 const displayClients = computed(() => {
-  // If we are activating multiroom, show empty placeholders for skeletons
-  if (isTogglingMultiroom.value && !isMultiroomDeactivating.value) {
+  // During enabling, show placeholders for skeleton loading
+  if (transitionState.value === 'enabling') {
     return Array.from({ length: multiroomStore.lastKnownClientCount }, (_, i) => ({
       id: `placeholder-${i}`,
       name: '',
@@ -75,6 +89,7 @@ const displayClients = computed(() => {
     }));
   }
 
+  // When loading with no clients, show skeleton placeholders
   if (multiroomStore.clients.length === 0 && multiroomStore.isLoading) {
     return Array.from({ length: multiroomStore.lastKnownClientCount }, (_, i) => ({
       id: `placeholder-${i}`,
@@ -83,6 +98,7 @@ const displayClients = computed(() => {
       muted: false
     }));
   }
+
   return multiroomStore.clients;
 });
 
@@ -95,15 +111,35 @@ async function handleMuteToggle(clientId, muted) {
   await multiroomStore.toggleClientMute(clientId, muted);
 }
 
+// === TRANSITION HELPERS ===
+function startTransitionTimeout() {
+  clearTransitionTimeout();
+  transitionTimeoutId = setTimeout(() => {
+    if (transitionState.value === 'enabling' || transitionState.value === 'disabling') {
+      console.warn('[MultiroomControl] Transition timeout reached');
+      transitionState.value = 'error';
+      errorMessage.value = t('multiroom.timeout_error');
+      multiroomStore.isLoading = false;
+    }
+  }, TRANSITION_TIMEOUT_MS);
+}
+
+function clearTransitionTimeout() {
+  if (transitionTimeoutId) {
+    clearTimeout(transitionTimeoutId);
+    transitionTimeoutId = null;
+  }
+}
+
 // === WEBSOCKET HANDLERS ===
 function handleClientConnected(event) {
-  if (!isMultiroomDeactivating.value) {
+  if (transitionState.value !== 'disabling') {
     multiroomStore.handleClientConnected(event);
   }
 }
 
 function handleClientDisconnected(event) {
-  if (!isMultiroomDeactivating.value) {
+  if (transitionState.value !== 'disabling') {
     multiroomStore.handleClientDisconnected(event);
   }
 }
@@ -124,35 +160,52 @@ function handleSystemStateChanged(event) {
   unifiedStore.updateState(event);
 }
 
-async function handleMultiroomEnabling() {
-  isTogglingMultiroom.value = true;
-  isMultiroomTransitioning.value = true;
+function handleMultiroomEnabling() {
+  console.log('[MultiroomControl] Received multiroom_enabling event');
+  transitionState.value = 'enabling';
+  errorMessage.value = '';
   multiroomStore.isLoading = true;
   multiroomStore.clearCache();
+  startTransitionTimeout();
 }
 
-async function handleMultiroomDisabling() {
-  isTogglingMultiroom.value = true;
-  isMultiroomDeactivating.value = true;
+function handleMultiroomDisabling() {
+  console.log('[MultiroomControl] Received multiroom_disabling event');
+  transitionState.value = 'disabling';
+  errorMessage.value = '';
   multiroomStore.isLoading = false;
-  // Clients will be cleared after the end of toggling via the watcher
+  startTransitionTimeout();
+}
+
+async function handleMultiroomReady() {
+  console.log('[MultiroomControl] Received multiroom_ready event');
+  clearTransitionTimeout();
+
+  // Load clients now that services are ready
+  await multiroomStore.loadClients(true); // forceNoCache=true
+
+  transitionState.value = 'idle';
+}
+
+function handleMultiroomError(event) {
+  console.error('[MultiroomControl] Received multiroom_error event:', event);
+  clearTransitionTimeout();
+  transitionState.value = 'error';
+  errorMessage.value = event?.message || t('multiroom.error');
+  multiroomStore.isLoading = false;
 }
 
 // === LIFECYCLE ===
 onMounted(async () => {
-  if (isMultiroomTransitioning.value && isMultiroomActive.value) {
-    isMultiroomTransitioning.value = false;
-  }
-
-  if (isMultiroomDeactivating.value && !isMultiroomActive.value) {
-    isMultiroomDeactivating.value = false;
-  }
-
+  // Reset transition state on mount based on current state
   if (isMultiroomActive.value) {
+    transitionState.value = 'idle';
     // Preload cache synchronously to get the correct number of clients
     multiroomStore.preloadCache();
     // Load fresh clients in the background
     await multiroomStore.loadClients();
+  } else {
+    transitionState.value = 'idle';
   }
 
   unsubscribeFunctions.push(
@@ -163,56 +216,26 @@ onMounted(async () => {
     on('snapcast', 'client_mute_changed', handleClientMuteChanged),
     on('system', 'state_changed', handleSystemStateChanged),
     on('routing', 'multiroom_enabling', handleMultiroomEnabling),
-    on('routing', 'multiroom_disabling', handleMultiroomDisabling)
+    on('routing', 'multiroom_disabling', handleMultiroomDisabling),
+    on('routing', 'multiroom_ready', handleMultiroomReady),
+    on('routing', 'multiroom_error', handleMultiroomError)
   );
 });
 
 onUnmounted(() => {
   unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
+  clearTransitionTimeout();
 });
 
 // === WATCHERS ===
-// Watcher to detect when the store is transitioning (API call in progress)
-watch(() => unifiedStore.systemState.transitioning, (isTransitioning, wasTransitioning) => {
-  if (isTransitioning && !wasTransitioning) {
-    // Start of a transition: trigger the animation immediately
-    const currentMultiroomState = isMultiroomActive.value;
-
-    if (currentMultiroomState) {
-      // We are deactivating multiroom
-      isTogglingMultiroom.value = true;
-      isMultiroomDeactivating.value = true;
-      multiroomStore.isLoading = false;
-    } else {
-      // We are activating multiroom
-      isTogglingMultiroom.value = true;
-      isMultiroomTransitioning.value = true;
-      multiroomStore.isLoading = true;
-      multiroomStore.clearCache();
-    }
-  }
-});
-
-watch(isMultiroomActive, async (newValue, oldValue) => {
-  if (newValue && !oldValue) {
-    isMultiroomDeactivating.value = false;
-
-    const forceNoCache = isMultiroomTransitioning.value;
-    await multiroomStore.loadClients(forceNoCache);
-
-    isMultiroomTransitioning.value = false;
-    isTogglingMultiroom.value = false;
-  } else if (!newValue && oldValue) {
-    // Deactivation: reset immediately to show the message
-    isMultiroomDeactivating.value = false;
-    isTogglingMultiroom.value = false;
-  }
-});
-
-// Clean clients after deactivation toggling ends
-watch(isTogglingMultiroom, (isToggling, wasToggling) => {
-  if (!isToggling && wasToggling && !isMultiroomActive.value) {
-    // End of deactivation toggling: clear clients
+// Watch for deactivation completion (when state becomes false)
+watch(isMultiroomActive, (newValue, oldValue) => {
+  if (!newValue && oldValue) {
+    // Multiroom was deactivated
+    console.log('[MultiroomControl] Multiroom deactivated');
+    clearTransitionTimeout();
+    transitionState.value = 'idle';
+    // Clear clients after deactivation
     multiroomStore.clients = [];
     multiroomStore.clearCache();
   }

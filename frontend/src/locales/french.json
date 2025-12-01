@@ -42,7 +42,9 @@
     "speakers": "Enceintes multiroom",
     "loadingSpeakers": "Chargement des enceintes...",
     "noSpeakers": "Aucune enceinte connectée",
-    "restarting": "Redémarrage du multiroom en cours..."
+    "restarting": "Redémarrage du multiroom en cours...",
+    "error": "Erreur lors de l'activation du multiroom",
+    "timeout_error": "Délai d'activation dépassé. Veuillez réessayer."
   },
   "equalizer": {
     "title": "Égaliseur",

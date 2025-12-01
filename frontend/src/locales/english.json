@@ -42,7 +42,9 @@
     "speakers": "Multiroom speakers",
     "loadingSpeakers": "Loading speakers...",
     "noSpeakers": "No speakers connected",
-    "restarting": "Restarting multiroom..."
+    "restarting": "Restarting multiroom...",
+    "error": "Error activating multiroom",
+    "timeout_error": "Activation timeout. Please try again."
   },
   "equalizer": {
     "title": "Equalizer",
