@@ -6,6 +6,7 @@
       :title="headerTitle"
       :show-back="canGoBack"
       :actions-key="currentView"
+      :class="{ 'header-hidden': headerHidden }"
       @back="handleBack"
     >
       <template v-if="currentView === 'multiroom'" #actions="{ iconType }">
@@ -19,7 +20,7 @@
     </ModalHeader>
 
     <!-- Content area -->
-    <Transition name="fade-slide" mode="out-in">
+    <Transition name="fade-slide" mode="out-in" @before-leave="onBeforeLeave" @after-leave="onAfterLeave" @enter="onEnter">
         <!-- Home view: list of categories -->
         <div v-if="currentView === 'home'" key="home" class="view-content">
           <div class="settings-nav-grid">
@@ -179,8 +180,13 @@ const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 const radioStore = useRadioStore();
 
-// Inject modal scroll reset function
+// Inject modal scroll reset function and content ref for scroll position check
 const resetScroll = inject('modalResetScroll', () => {});
+const modalContentRef = inject('modalContentRef', null);
+
+// Header hidden state (only when scrolled)
+const headerHidden = ref(false);
+const wasScrolled = ref(false);
 
 // Navigation with stack
 const { currentView, canGoBack, push, back, reset, goTo } = useNavigationStack('home');
@@ -216,10 +222,6 @@ watch(() => props.initialView, (newView) => {
   }
 }, { immediate: true });
 
-// Reset scroll position when navigating between views
-watch(currentView, () => {
-  resetScroll();
-});
 
 // Check if the station can be restored (only modified stations)
 const canRestoreStation = computed(() => {
@@ -241,6 +243,29 @@ function goToHome() {
 
 function handleBack() {
   back();
+}
+
+// Transition hooks for header hide/show (only when scrolled)
+function onBeforeLeave() {
+  // Check if scrolled and hide header immediately so it fades out with content
+  wasScrolled.value = modalContentRef?.value?.scrollTop > 0;
+  if (wasScrolled.value) {
+    headerHidden.value = true;
+  }
+}
+
+function onAfterLeave() {
+  // Reset scroll after content fade-out completes (header already hidden)
+  resetScroll();
+}
+
+function onEnter() {
+  // Double RAF to ensure browser paints the hidden state before fading in
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      headerHidden.value = false;
+    });
+  });
 }
 
 // Radio navigation handling
@@ -406,6 +431,16 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
+}
+
+/* Header hide/show transition (only when scroll reset is needed) */
+:deep(.modal-header) {
+  transition: opacity var(--transition-in-out); /* Fade-in: 400ms cubic-bezier(0.5,0,0.1,1) */
+}
+
+:deep(.modal-header.header-hidden) {
+  opacity: 0;
+  transition: opacity var(--transition-ultra-fast); /* Fade-out: 150ms ease */
 }
 
 .view-content {
