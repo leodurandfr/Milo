@@ -6,6 +6,7 @@ import pytest
 import json
 import os
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
 from backend.infrastructure.services.volume_service import VolumeService
 
@@ -112,9 +113,12 @@ class TestVolumeService:
         assert service._clamp_alsa_volume(65) == 65  # alsa_max
         assert service._clamp_alsa_volume(100) == 65
 
-    def test_load_volume_config(self, service):
+    @pytest.mark.asyncio
+    async def test_load_volume_config(self, service):
         """Test du chargement de la configuration volume"""
-        service.settings_service.get_volume_config = Mock(return_value={
+        # Le code utilise get_setting('volume'), pas get_volume_config
+        service.settings_service.invalidate_cache = Mock()
+        service.settings_service.get_setting = AsyncMock(return_value={
             "alsa_min": 10,
             "alsa_max": 70,
             "startup_volume": 40,
@@ -123,7 +127,7 @@ class TestVolumeService:
             "rotary_volume_steps": 1
         })
 
-        service._load_volume_config()
+        await service._load_volume_config()
 
         assert service._alsa_min_volume == 10
         assert service._alsa_max_volume == 70
@@ -189,8 +193,11 @@ class TestVolumeService:
 
     def test_get_rotary_step(self, service):
         """Test de récupération du step rotary"""
-        service._rotary_volume_steps = 3
+        # Default rotary_volume_steps from fixture is 2
+        assert service.get_rotary_step() == 2
 
+        # Test with different value via config service
+        service._config_service._config.rotary_volume_steps = 3
         assert service.get_rotary_step() == 3
 
     def test_convert_alsa_to_display_public(self, service):
@@ -217,7 +224,9 @@ class TestVolumeService:
     @pytest.mark.asyncio
     async def test_reload_volume_steps_config(self, service):
         """Test du rechargement des volume steps"""
-        service.settings_service.get_volume_config = Mock(return_value={
+        # Le code utilise get_setting('volume'), pas get_volume_config
+        service.settings_service.invalidate_cache = Mock()
+        service.settings_service.get_setting = AsyncMock(return_value={
             "alsa_min": 0,
             "alsa_max": 65,
             "startup_volume": 37,
@@ -234,7 +243,9 @@ class TestVolumeService:
     @pytest.mark.asyncio
     async def test_reload_rotary_steps_config(self, service):
         """Test du rechargement des rotary steps"""
-        service.settings_service.get_volume_config = Mock(return_value={
+        # Le code utilise get_setting('volume'), pas get_volume_config
+        service.settings_service.invalidate_cache = Mock()
+        service.settings_service.get_setting = AsyncMock(return_value={
             "alsa_min": 0,
             "alsa_max": 65,
             "startup_volume": 37,
@@ -251,7 +262,9 @@ class TestVolumeService:
     @pytest.mark.asyncio
     async def test_reload_startup_config(self, service):
         """Test du rechargement de la config startup"""
-        service.settings_service.get_volume_config = Mock(return_value={
+        # Le code utilise get_setting('volume'), pas get_volume_config
+        service.settings_service.invalidate_cache = Mock()
+        service.settings_service.get_setting = AsyncMock(return_value={
             "alsa_min": 0,
             "alsa_max": 65,
             "startup_volume": 50,
@@ -268,44 +281,48 @@ class TestVolumeService:
 
     def test_determine_startup_volume_default(self, service):
         """Test de détermination du volume startup (mode par défaut)"""
-        service._restore_last_volume = False
-        service._default_startup_display_volume = 37
+        # Configure via config service (restore disabled)
+        service._config_service._config.restore_last_volume = False
+        service._config_service._config.startup_volume = 37
 
         volume = service._determine_startup_volume()
 
         assert volume == 37
 
     def test_determine_startup_volume_no_saved_file(self, service):
-        """Test de détermination du volume startup sans fichier sauvegardé"""
-        service._restore_last_volume = True
-        service._default_startup_display_volume = 37
+        """Test of startup volume determination without saved file"""
+        # Configure via config service (restore enabled)
+        service._config_service._config.restore_last_volume = True
+        service._config_service._config.startup_volume = 37
 
-        # S'assurer qu'il n'y a pas de fichier
-        if service.LAST_VOLUME_FILE.exists():
-            os.unlink(service.LAST_VOLUME_FILE)
+        # Ensure no file exists by using a temp path
+        temp_path = tempfile.mktemp(suffix='.json')
+        service._storage.file_path = Path(temp_path)
 
         volume = service._determine_startup_volume()
 
-        # Devrait fallback au default
+        # Should fallback to default since no file exists
         assert volume == 37
 
     def test_save_last_volume_disabled(self, service):
-        """Test que save_last_volume ne sauvegarde pas si désactivé"""
-        service._restore_last_volume = False
+        """Test that save_last_volume does not save when disabled"""
+        # Configure via config service (restore disabled)
+        service._config_service._config.restore_last_volume = False
 
-        # Ne devrait rien sauvegarder
+        # Should not save anything
         service._save_last_volume(50)
 
-        # Vérifier qu'aucun fichier n'est créé (test asynchrone donc pas de garantie immédiate)
-        # On teste juste que la fonction ne lève pas d'exception
+        # Verify no file is created (async test so no immediate guarantee)
+        # We just test that the function doesn't raise an exception
 
     def test_ensure_data_directory_exists(self, service):
-        """Test que le répertoire de données est créé"""
-        # La méthode est appelée dans __init__
-        parent_dir = service.LAST_VOLUME_FILE.parent
+        """Test that the data directory is created"""
+        # The storage service handles directory creation in __init__
+        # Access the storage service's file path
+        parent_dir = service._storage.file_path.parent
 
-        # Le répertoire devrait exister (ou ne pas lever d'exception si impossible à créer)
-        assert parent_dir.exists() or True  # Tolérance si impossible à créer
+        # The directory should exist (or not raise an exception if impossible to create)
+        assert parent_dir.exists() or True  # Tolerance if impossible to create
 
     @pytest.mark.asyncio
     async def test_get_snapcast_clients_cached(self, service, mock_snapcast_service):

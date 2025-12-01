@@ -51,10 +51,10 @@ def mock_plugin():
 def mock_settings_service():
     """Mock du SettingsService"""
     service = Mock()
-    service.get_setting = Mock(return_value=None)
-    service.set_setting = Mock(return_value=True)
-    service.load_settings = Mock(return_value={})
-    service.save_settings = Mock(return_value=True)
+    service.get_setting = AsyncMock(return_value=None)
+    service.set_setting = AsyncMock(return_value=True)
+    service.load_settings = AsyncMock(return_value={})
+    service.save_settings = AsyncMock(return_value=True)
     return service
 
 

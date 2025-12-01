@@ -1,6 +1,6 @@
-# backend/tests/test_librespot_plugin.py
+# backend/tests/test_spotify_plugin.py
 """
-Tests unitaires pour LibrespotPlugin
+Unit tests for SpotifyPlugin
 """
 import pytest
 import asyncio
@@ -8,12 +8,12 @@ import os
 import tempfile
 import yaml
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from backend.infrastructure.plugins.librespot.plugin import LibrespotPlugin
+from backend.infrastructure.plugins.spotify.plugin import SpotifyPlugin
 from backend.domain.audio_state import PluginState, AudioSource
 
 
-class TestLibrespotPlugin:
-    """Tests pour le plugin Librespot"""
+class TestSpotifyPlugin:
+    """Tests for the Spotify plugin"""
 
     @pytest.fixture
     def mock_state_machine(self):
@@ -53,14 +53,14 @@ class TestLibrespotPlugin:
     def plugin_config(self, temp_config_file):
         """Configuration du plugin"""
         return {
-            'service_name': 'milo-go-librespot.service',
+            'service_name': 'milo-spotify.service',
             'config_path': temp_config_file
         }
 
     @pytest.fixture
     def plugin(self, plugin_config, mock_state_machine, mock_settings_service):
-        """Fixture pour créer un plugin librespot"""
-        return LibrespotPlugin(
+        """Fixture to create a Spotify plugin"""
+        return SpotifyPlugin(
             config=plugin_config,
             state_machine=mock_state_machine,
             settings_service=mock_settings_service
@@ -69,7 +69,7 @@ class TestLibrespotPlugin:
     def test_initialization_config(self, plugin):
         """Test de l'initialisation de base du plugin"""
         assert plugin.name == "librespot"
-        assert plugin.service_name == "milo-go-librespot.service"
+        assert plugin.service_name == "milo-spotify.service"
         assert plugin._initialized is False
         assert plugin.auto_disconnect_enabled is True
         assert plugin.pause_disconnect_delay == 10.0
@@ -81,7 +81,7 @@ class TestLibrespotPlugin:
             # Mock du processus systemctl
             mock_process = AsyncMock()
             mock_process.returncode = 0
-            mock_process.communicate = AsyncMock(return_value=(b'milo-go-librespot.service', b''))
+            mock_process.communicate = AsyncMock(return_value=(b'milo-spotify.service', b''))
             mock_exec.return_value = mock_process
 
             result = await plugin.initialize()
@@ -109,7 +109,7 @@ class TestLibrespotPlugin:
     @pytest.mark.asyncio
     async def test_load_settings_config_enabled(self, plugin, mock_settings_service):
         """Test du chargement de config avec auto-disconnect activé"""
-        mock_settings_service.get_setting = Mock(return_value=15.0)
+        mock_settings_service.get_setting = AsyncMock(return_value=15.0)
 
         await plugin._load_settings_config()
 
@@ -119,7 +119,7 @@ class TestLibrespotPlugin:
     @pytest.mark.asyncio
     async def test_load_settings_config_disabled_with_zero(self, plugin, mock_settings_service):
         """Test du chargement de config avec delay = 0 (désactivé)"""
-        mock_settings_service.get_setting = Mock(return_value=0.0)
+        mock_settings_service.get_setting = AsyncMock(return_value=0.0)
 
         await plugin._load_settings_config()
 
@@ -129,7 +129,7 @@ class TestLibrespotPlugin:
     @pytest.mark.asyncio
     async def test_load_settings_config_no_settings_service(self):
         """Test du chargement de config sans SettingsService"""
-        plugin = LibrespotPlugin(
+        plugin = SpotifyPlugin(
             config={'service_name': 'test.service', 'config_path': '/tmp/test.yaml'},
             state_machine=None,
             settings_service=None
@@ -178,7 +178,7 @@ class TestLibrespotPlugin:
         old_delay = plugin.pause_disconnect_delay
 
         # Mock un échec de sauvegarde
-        mock_settings_service.set_setting = Mock(return_value=False)
+        mock_settings_service.set_setting = AsyncMock(return_value=False)
 
         result = await plugin.set_auto_disconnect_config(enabled=False, delay=5.0)
 
@@ -305,7 +305,7 @@ class TestLibrespotPlugin:
         result = await plugin.handle_command("invalid_command", {})
 
         assert result["success"] is False
-        assert "non supportée" in result["error"].lower()
+        assert "unsupported" in result["error"].lower()
 
     def test_get_audio_source(self, plugin):
         """Test de récupération de l'AudioSource enum"""

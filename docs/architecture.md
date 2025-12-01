@@ -352,10 +352,10 @@ All components are managed by systemd:
 ```bash
 milo-backend              # FastAPI backend
 milo-frontend             # Frontend (npm preview)
-milo-go-librespot         # Spotify Connect
+milo-spotify              # Spotify Connect (go-librespot)
 milo-bluealsa             # Bluetooth daemon
 milo-bluealsa-aplay       # Bluetooth player
-milo-roc                  # ROC receiver
+milo-mac                  # Mac receiver (ROC)
 milo-radio                # Radio player (mpv)
 milo-snapserver-multiroom # Snapcast server
 milo-snapclient-multiroom # Local snapcast client

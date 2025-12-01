@@ -14,8 +14,8 @@ class TestEqualizerService:
     def mock_settings_service(self):
         """Mock du SettingsService"""
         service = Mock()
-        service.get_setting = Mock(return_value=None)
-        service.set_setting = Mock(return_value=True)
+        service.get_setting = AsyncMock(return_value=None)
+        service.set_setting = AsyncMock(return_value=True)
         return service
 
     @pytest.fixture
@@ -344,7 +344,7 @@ Simple mixer control '01. 63 Hz',0
             {"id": "00", "value": 66},
             {"id": "01", "value": 75}
         ]
-        mock_settings_service.get_setting = Mock(return_value=saved_bands)
+        mock_settings_service.get_setting = AsyncMock(return_value=saved_bands)
 
         with patch.object(service, 'set_band_value', new_callable=AsyncMock) as mock_set:
             mock_set.return_value = True
@@ -359,7 +359,7 @@ Simple mixer control '01. 63 Hz',0
     @pytest.mark.asyncio
     async def test_restore_saved_bands_no_saved_data(self, service, mock_settings_service):
         """Test de restauration sans données sauvegardées"""
-        mock_settings_service.get_setting = Mock(return_value=None)
+        mock_settings_service.get_setting = AsyncMock(return_value=None)
 
         result = await service.restore_saved_bands()
 
@@ -373,7 +373,7 @@ Simple mixer control '01. 63 Hz',0
             {"id": "00", "value": 66},
             {"id": "01", "value": 75}
         ]
-        mock_settings_service.get_setting = Mock(return_value=saved_bands)
+        mock_settings_service.get_setting = AsyncMock(return_value=saved_bands)
 
         call_count = 0
 
@@ -397,7 +397,7 @@ Simple mixer control '01. 63 Hz',0
     @pytest.mark.asyncio
     async def test_restore_saved_bands_exception(self, service, mock_settings_service):
         """Test de restauration avec exception"""
-        mock_settings_service.get_setting = Mock(side_effect=Exception("Error"))
+        mock_settings_service.get_setting = AsyncMock(side_effect=Exception("Error"))
 
         result = await service.restore_saved_bands()
 

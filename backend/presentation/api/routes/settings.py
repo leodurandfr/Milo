@@ -3,10 +3,23 @@
 Settings Routes – Version with app deactivation and process stopping
 """
 from fastapi import APIRouter, HTTPException
-from typing import Dict, Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional
 from backend.infrastructure.services.settings_service import SettingsService
 from backend.domain.audio_state import AudioSource
 from backend.infrastructure.plugins.podcast.taddy_api import TaddyAPI
+from backend.presentation.api.models import (
+    LanguageRequest,
+    VolumeLimitsRequest,
+    VolumeLimitsToggleRequest,
+    VolumeStartupRequest,
+    VolumeStepsRequest,
+    RotaryStepsRequest,
+    DockAppsRequest,
+    SpotifyDisconnectRequest,
+    PodcastCredentialsRequest,
+    ScreenTimeoutRequest,
+    ScreenBrightnessRequest
+)
 import logging
 import asyncio
 
@@ -75,8 +88,8 @@ def create_settings_router(
     def _get_services_for_source(source: str) -> list:
         """Return the list of systemd services for an audio source"""
         services_map = {
-            'librespot': ['milo-go-librespot.service'],
-            'roc': ['milo-roc.service'],
+            'spotify': ['milo-spotify.service'],
+            'mac': ['milo-mac.service'],
             'bluetooth': ['milo-bluealsa-aplay.service', 'milo-bluealsa.service'],
             'radio': ['milo-radio.service']
         }
@@ -86,17 +99,15 @@ def create_settings_router(
     @router.get("/language")
     async def get_language():
         return {"status": "success", "language": await settings.get_setting('language') or 'english'}
-    
-    @router.post("/language")
-    async def set_language(payload: Dict[str, Any]):
-        new_language = payload.get('language')
 
+    @router.post("/language")
+    async def set_language(payload: LanguageRequest):
         return await _handle_setting_update(
             payload,
-            validator=lambda p: p.get('language') in ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german'],
-            setter=lambda: settings.set_setting('language', new_language),
+            validator=lambda p: True,  # Validated by Pydantic
+            setter=lambda: settings.set_setting('language', payload.language),
             event_type="language_changed",
-            event_data={"language": new_language}
+            event_data={"language": payload.language}
         )
     
     # Volume limits
@@ -113,32 +124,25 @@ def create_settings_router(
         }
     
     @router.post("/volume-limits")
-    async def set_volume_limits(payload: Dict[str, Any]):
-        alsa_min = payload.get('alsa_min')
-        alsa_max = payload.get('alsa_max')
-
+    async def set_volume_limits(payload: VolumeLimitsRequest):
         async def setter():
             return (
-                await settings.set_setting('volume.alsa_min', alsa_min) and
-                await settings.set_setting('volume.alsa_max', alsa_max)
+                await settings.set_setting('volume.alsa_min', payload.alsa_min) and
+                await settings.set_setting('volume.alsa_max', payload.alsa_max)
             )
 
         return await _handle_setting_update(
             payload,
-            validator=lambda p: (
-                p.get('alsa_min') is not None and p.get('alsa_max') is not None and
-                0 <= p['alsa_min'] <= 100 and 0 <= p['alsa_max'] <= 100 and
-                p['alsa_max'] - p['alsa_min'] >= 10
-            ),
+            validator=lambda p: True,  # Validated by Pydantic
             setter=setter,
             event_type="volume_limits_changed",
-            event_data={"limits": {"alsa_min": alsa_min, "alsa_max": alsa_max}},
+            event_data={"limits": {"alsa_min": payload.alsa_min, "alsa_max": payload.alsa_max}},
             reload_callback=volume_service.reload_volume_limits
         )
     
     @router.post("/volume-limits/toggle")
-    async def toggle_volume_limits(payload: Dict[str, Any]):
-        enabled = payload.get('enabled')
+    async def toggle_volume_limits(payload: VolumeLimitsToggleRequest):
+        enabled = payload.enabled
 
         if enabled:
             current_min = await settings.get_setting('volume.alsa_min') or 0
@@ -156,7 +160,7 @@ def create_settings_router(
 
         return await _handle_setting_update(
             payload,
-            validator=lambda p: isinstance(p.get('enabled'), bool),
+            validator=lambda p: True,  # Validated by Pydantic
             setter=setter,
             event_type="volume_limits_toggled",
             event_data={
@@ -182,25 +186,19 @@ def create_settings_router(
         }
     
     @router.post("/volume-startup")
-    async def set_volume_startup(payload: Dict[str, Any]):
-        startup_volume = payload.get('startup_volume')
-        restore_last_volume = payload.get('restore_last_volume')
-
+    async def set_volume_startup(payload: VolumeStartupRequest):
         async def setter():
             return (
-                await settings.set_setting('volume.startup_volume', startup_volume) and
-                await settings.set_setting('volume.restore_last_volume', restore_last_volume)
+                await settings.set_setting('volume.startup_volume', payload.startup_volume) and
+                await settings.set_setting('volume.restore_last_volume', payload.restore_last_volume)
             )
 
         return await _handle_setting_update(
             payload,
-            validator=lambda p: (
-                p.get('startup_volume') is not None and p.get('restore_last_volume') is not None and
-                0 <= p['startup_volume'] <= 100 and isinstance(p['restore_last_volume'], bool)
-            ),
+            validator=lambda p: True,  # Validated by Pydantic
             setter=setter,
             event_type="volume_startup_changed",
-            event_data={"config": {"startup_volume": startup_volume, "restore_last_volume": restore_last_volume}},
+            event_data={"config": {"startup_volume": payload.startup_volume, "restore_last_volume": payload.restore_last_volume}},
             reload_callback=volume_service.reload_startup_config
         )
     
@@ -214,15 +212,13 @@ def create_settings_router(
         }
     
     @router.post("/volume-steps")
-    async def set_volume_steps(payload: Dict[str, Any]):
-        steps = payload.get('mobile_volume_steps')
-        
+    async def set_volume_steps(payload: VolumeStepsRequest):
         return await _handle_setting_update(
             payload,
-            validator=lambda p: p.get('mobile_volume_steps') is not None and 1 <= p['mobile_volume_steps'] <= 10,
-            setter=lambda: settings.set_setting('volume.mobile_volume_steps', steps),
+            validator=lambda p: True,  # Validated by Pydantic
+            setter=lambda: settings.set_setting('volume.mobile_volume_steps', payload.mobile_volume_steps),
             event_type="volume_steps_changed",
-            event_data={"config": {"mobile_volume_steps": steps}},
+            event_data={"config": {"mobile_volume_steps": payload.mobile_volume_steps}},
             reload_callback=volume_service.reload_volume_steps_config
         )
     
@@ -236,15 +232,13 @@ def create_settings_router(
         }
     
     @router.post("/rotary-steps")
-    async def set_rotary_steps(payload: Dict[str, Any]):
-        steps = payload.get('rotary_volume_steps')
-        
+    async def set_rotary_steps(payload: RotaryStepsRequest):
         return await _handle_setting_update(
             payload,
-            validator=lambda p: p.get('rotary_volume_steps') is not None and 1 <= p['rotary_volume_steps'] <= 10,
-            setter=lambda: settings.set_setting('volume.rotary_volume_steps', steps),
+            validator=lambda p: True,  # Validated by Pydantic
+            setter=lambda: settings.set_setting('volume.rotary_volume_steps', payload.rotary_volume_steps),
             event_type="rotary_steps_changed",
-            event_data={"config": {"rotary_volume_steps": steps}},
+            event_data={"config": {"rotary_volume_steps": payload.rotary_volume_steps}},
             reload_callback=volume_service.reload_rotary_steps_config
         )
     
@@ -260,7 +254,7 @@ def create_settings_router(
         }
     
     @router.post("/dock-apps")
-    async def set_dock_apps(payload: Dict[str, Any]):
+    async def set_dock_apps(payload: DockAppsRequest):
         """
         Update the enabled apps in the dock.
         If an app is disabled, stop the associated processes.
@@ -268,18 +262,8 @@ def create_settings_router(
         Strict approach: one error = full rollback.
         """
         try:
-            enabled_apps = payload.get('enabled_apps', [])
-            
-            # Basic validation
-            valid_apps = ["librespot", "bluetooth", "roc", "radio", "podcast", "multiroom", "equalizer", "settings"]
-            if not isinstance(enabled_apps, list) or not all(app in valid_apps for app in enabled_apps):
-                raise HTTPException(status_code=400, detail="Invalid enabled_apps list")
-
-            # At least one audio source must be enabled
-            audio_sources = ["librespot", "bluetooth", "roc", "radio", "podcast"]
-            enabled_audio_sources = [app for app in enabled_apps if app in audio_sources]
-            if not enabled_audio_sources:
-                raise HTTPException(status_code=400, detail="At least one audio source must be enabled")
+            enabled_apps = payload.enabled_apps
+            # Validation done by Pydantic
             
             # Load previous config
             old_settings = await settings.load_settings()
@@ -501,9 +485,9 @@ def create_settings_router(
         }
     
     @router.post("/spotify-disconnect")
-    async def set_spotify_disconnect(payload: Dict[str, Any]):
-        delay = payload.get('auto_disconnect_delay')
-        
+    async def set_spotify_disconnect(payload: SpotifyDisconnectRequest):
+        delay = payload.auto_disconnect_delay
+
         async def apply_to_plugin():
             try:
                 plugin = state_machine.get_plugin(AudioSource.SPOTIFY)
@@ -513,13 +497,10 @@ def create_settings_router(
             except Exception:
                 pass
             return False
-        
+
         return await _handle_setting_update(
             payload,
-            validator=lambda p: (
-                p.get('auto_disconnect_delay') is not None and
-                (p['auto_disconnect_delay'] == 0 or (1.0 <= p['auto_disconnect_delay'] <= 9999))
-            ),
+            validator=lambda p: True,  # Validated by Pydantic
             setter=lambda: settings.set_setting('spotify.auto_disconnect_delay', delay),
             event_type="spotify_disconnect_changed",
             event_data={"config": {"auto_disconnect_delay": delay}},
@@ -539,9 +520,9 @@ def create_settings_router(
         }
 
     @router.post("/podcast-credentials")
-    async def set_podcast_credentials(payload: Dict[str, Any]):
-        user_id = str(payload.get('taddy_user_id', '')).strip()
-        api_key = str(payload.get('taddy_api_key', '')).strip()
+    async def set_podcast_credentials(payload: PodcastCredentialsRequest):
+        user_id = payload.taddy_user_id
+        api_key = payload.taddy_api_key
 
         # Save credentials and validation timestamp in one operation
         async def save_credentials():
@@ -566,7 +547,7 @@ def create_settings_router(
 
         return await _handle_setting_update(
             payload,
-            validator=lambda p: 'taddy_user_id' in p and 'taddy_api_key' in p,
+            validator=lambda p: True,  # Validated by Pydantic
             setter=save_credentials,
             event_type="podcast_credentials_changed",
             event_data={"config": {"taddy_user_id": user_id, "taddy_api_key": api_key}},
@@ -574,13 +555,13 @@ def create_settings_router(
         )
 
     @router.post("/podcast-credentials/validate")
-    async def validate_podcast_credentials(payload: Dict[str, Any]):
+    async def validate_podcast_credentials(payload: PodcastCredentialsRequest):
         """Test Taddy API credentials by checking remaining API requests"""
         try:
-            user_id = str(payload.get('taddy_user_id', '')).strip()
-            api_key = str(payload.get('taddy_api_key', '')).strip()
+            user_id = payload.taddy_user_id
+            api_key = payload.taddy_api_key
 
-            # Validation de base
+            # Empty check (Pydantic allows empty strings by default)
             if not user_id or not api_key:
                 return {
                     "status": "error",
@@ -671,20 +652,13 @@ def create_settings_router(
         }
     
     @router.post("/screen-timeout")
-    async def set_screen_timeout(payload: Dict[str, Any]):
-        timeout_enabled = payload.get('screen_timeout_enabled')
-        timeout_seconds = payload.get('screen_timeout_seconds')
-        
+    async def set_screen_timeout(payload: ScreenTimeoutRequest):
         return await _handle_setting_update(
             payload,
-            validator=lambda p: (
-                p.get('screen_timeout_enabled') is not None and isinstance(p['screen_timeout_enabled'], bool) and
-                p.get('screen_timeout_seconds') is not None and
-                (p['screen_timeout_seconds'] == 0 or (3 <= p['screen_timeout_seconds'] <= 3600))
-            ),
-            setter=lambda: settings.set_setting('screen.timeout_seconds', timeout_seconds),
+            validator=lambda p: True,  # Validated by Pydantic
+            setter=lambda: settings.set_setting('screen.timeout_seconds', payload.screen_timeout_seconds),
             event_type="screen_timeout_changed",
-            event_data={"config": {"screen_timeout_enabled": timeout_enabled, "screen_timeout_seconds": timeout_seconds}},
+            event_data={"config": {"screen_timeout_enabled": payload.screen_timeout_enabled, "screen_timeout_seconds": payload.screen_timeout_seconds}},
             reload_callback=screen_controller.reload_timeout_config
         )
     
@@ -698,26 +672,21 @@ def create_settings_router(
         }
     
     @router.post("/screen-brightness")
-    async def set_screen_brightness(payload: Dict[str, Any]):
-        brightness_on = payload.get('brightness_on')
-        
+    async def set_screen_brightness(payload: ScreenBrightnessRequest):
         return await _handle_setting_update(
             payload,
-            validator=lambda p: p.get('brightness_on') is not None and 1 <= p['brightness_on'] <= 10,
-            setter=lambda: settings.set_setting('screen.brightness_on', brightness_on),
+            validator=lambda p: True,  # Validated by Pydantic
+            setter=lambda: settings.set_setting('screen.brightness_on', payload.brightness_on),
             event_type="screen_brightness_changed",
-            event_data={"config": {"brightness_on": brightness_on}},
+            event_data={"config": {"brightness_on": payload.brightness_on}},
             reload_callback=screen_controller.reload_timeout_config
         )
     
     @router.post("/screen-brightness/apply")
-    async def apply_brightness_instantly(payload: Dict[str, Any]):
+    async def apply_brightness_instantly(payload: ScreenBrightnessRequest):
         """Instant brightness application + restart timeout"""
         try:
-            brightness_on = payload.get('brightness_on')
-
-            if not brightness_on or not (1 <= brightness_on <= 10):
-                raise HTTPException(status_code=400, detail="brightness_on must be between 1 and 10")
+            brightness_on = payload.brightness_on
 
             # Use screen_controller which handles different screen types
             screen_controller.brightness_on = brightness_on

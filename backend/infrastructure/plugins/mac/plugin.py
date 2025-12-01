@@ -1,6 +1,6 @@
-# backend/infrastructure/plugins/roc/plugin.py
+# backend/infrastructure/plugins/mac/plugin.py
 """
-ROC plugin for Milo - Multi-client support with IPv4/IPv6 and mDNS
+Mac plugin (uses ROC toolkit internally) - Multi-client support with IPv4/IPv6 and mDNS
 Handles multiple Macs connected simultaneously by tracking their IPs and names via ROC logs.
 """
 import asyncio
@@ -47,9 +47,9 @@ def _normalize_ip_for_storage(ip: Optional[str]) -> Optional[str]:
     return ip.strip('[]')
 
 
-class RocPlugin(UnifiedAudioPlugin):
+class MacPlugin(UnifiedAudioPlugin):
     """
-    ROC plugin with simultaneous multi-client support.
+    Mac plugin (uses ROC toolkit internally) with simultaneous multi-client support.
 
     Features:
     - Tracking multiple connected Macs via dict {ip: display_name}
@@ -61,7 +61,7 @@ class RocPlugin(UnifiedAudioPlugin):
     def __init__(self, config: Dict[str, Any], state_machine=None):
         super().__init__("roc", state_machine)
         self.config = config
-        self.service_name = config.get("service_name", "milo-roc.service")
+        self.service_name = config.get("service_name", "milo-mac.service")
 
         # ROC parameters
         self.rtp_port = config.get("rtp_port", 10001)

@@ -31,13 +31,13 @@ This directory contains all systemd service files for the Milo Audio System. The
 
 These services are **NOT enabled at boot**. They are started/stopped by the Milo backend based on active audio source selection. All bind to `milo-backend.service` and stop when backend stops.
 
-#### milo-go-librespot.service
+#### milo-spotify.service
 - **Role**: Spotify Connect via go-librespot
 - **Device Name**: "Milō"
 - **Port**: 3678 (API)
 - **Dependencies**: milo-backend.service, network-online.target, sound.service
 - **ALSA Device**: milo_spotify (dynamic routing via routing.env)
-- **Managed By**: LibrespotPlugin
+- **Managed By**: SpotifyPlugin
 
 #### milo-bluealsa.service + milo-bluealsa-aplay.service
 - **Role**: Bluetooth A2DP sink
@@ -47,12 +47,12 @@ These services are **NOT enabled at boot**. They are started/stopped by the Milo
 - **Managed By**: BluetoothPlugin
 - **Notes**: Two services work together (daemon + player)
 
-#### milo-roc.service
-- **Role**: ROC audio receiver (Mac streaming via network)
+#### milo-mac.service
+- **Role**: Mac audio receiver via ROC toolkit
 - **Ports**: 10001-10003 (RTP, RS8M, RTCP)
 - **Dependencies**: milo-backend.service, network.target, sound.service
 - **ALSA Device**: milo_roc (dynamic routing via routing.env)
-- **Managed By**: RocPlugin
+- **Managed By**: MacPlugin
 
 #### milo-radio.service
 - **Role**: Internet radio player via mpv
@@ -111,10 +111,10 @@ multi-user.target
   ├─ milo-disable-wifi-power-management.service
   │
   └─ (dynamically started by backend)
-       ├─ milo-go-librespot.service
+       ├─ milo-spotify.service
        ├─ milo-bluealsa.service
        │    └─ milo-bluealsa-aplay.service
-       ├─ milo-roc.service
+       ├─ milo-mac.service
        ├─ milo-radio.service
        ├─ milo-podcast.service
        └─ (multiroom mode only)
@@ -167,7 +167,7 @@ sudo journalctl -u milo-backend -f
 sudo systemctl restart milo-backend
 
 # Check service status
-sudo systemctl status milo-go-librespot
+sudo systemctl status milo-spotify
 
 # Manually start/stop audio service (not recommended)
 sudo systemctl start milo-radio

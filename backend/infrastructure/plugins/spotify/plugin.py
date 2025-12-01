@@ -1,6 +1,6 @@
-# backend/infrastructure/plugins/librespot/plugin.py
+# backend/infrastructure/plugins/spotify/plugin.py
 """
-Librespot plugin with 0 = disabled support for auto_disconnect
+Spotify plugin (uses go-librespot internally) with 0 = disabled support for auto_disconnect
 """
 import os
 import yaml
@@ -13,8 +13,8 @@ from backend.infrastructure.plugins.base import UnifiedAudioPlugin
 from backend.domain.audio_state import PluginState
 from backend.infrastructure.plugins.plugin_utils import WebSocketManager
 
-class LibrespotPlugin(UnifiedAudioPlugin):
-    """Spotify plugin via go-librespot with 0 = disabled support"""
+class SpotifyPlugin(UnifiedAudioPlugin):
+    """Spotify plugin (uses go-librespot internally) with 0 = disabled support"""
     
     def __init__(self, config: Dict[str, Any], state_machine=None, settings_service=None):
         super().__init__("librespot", state_machine)

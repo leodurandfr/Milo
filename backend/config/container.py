@@ -6,8 +6,8 @@ import json
 import os
 from dependency_injector import containers, providers
 from backend.infrastructure.state.state_machine import UnifiedAudioStateMachine
-from backend.infrastructure.plugins.librespot import LibrespotPlugin
-from backend.infrastructure.plugins.roc import RocPlugin
+from backend.infrastructure.plugins.spotify import SpotifyPlugin
+from backend.infrastructure.plugins.mac import MacPlugin
 from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
 from backend.infrastructure.plugins.radio import RadioPlugin
 from backend.infrastructure.plugins.podcast import PodcastPlugin
@@ -107,20 +107,20 @@ class Container(containers.DeclarativeContainer):
     )
 
     # Audio plugins with SettingsService instead of static config
-    librespot_plugin = providers.Singleton(
-        LibrespotPlugin,
+    spotify_plugin = providers.Singleton(
+        SpotifyPlugin,
         config=providers.Dict({
-            "config_path": "/var/lib/milo/go-librespot/config.yml", 
-            "service_name": "milo-go-librespot.service"
+            "config_path": "/var/lib/milo/go-librespot/config.yml",
+            "service_name": "milo-spotify.service"
         }),
         state_machine=audio_state_machine,
         settings_service=settings_service
     )
-    
-    roc_plugin = providers.Singleton(
-        RocPlugin,
+
+    mac_plugin = providers.Singleton(
+        MacPlugin,
         config=providers.Dict({
-            "service_name": "milo-roc.service",
+            "service_name": "milo-mac.service",
             "rtp_port": 10001,
             "rs8m_port": 10002,
             "rtcp_port": 10003,
@@ -271,9 +271,9 @@ class Container(containers.DeclarativeContainer):
         # ============================================================
         # STEP 3: Register plugins (MUST be done BEFORE init_async)
         # ============================================================
-        state_machine.register_plugin(AudioSource.SPOTIFY, container.librespot_plugin())
+        state_machine.register_plugin(AudioSource.SPOTIFY, container.spotify_plugin())
         state_machine.register_plugin(AudioSource.BLUETOOTH, container.bluetooth_plugin())
-        state_machine.register_plugin(AudioSource.MAC, container.roc_plugin())
+        state_machine.register_plugin(AudioSource.MAC, container.mac_plugin())
         state_machine.register_plugin(AudioSource.RADIO, container.radio_plugin())
         state_machine.register_plugin(AudioSource.PODCAST, container.podcast_plugin())
 

@@ -1448,8 +1448,8 @@ enable_services() {
    # Note: getty@tty1 is masked (milo-kiosk.service takes control of tty1)
 
    # Note: The following services are managed dynamically by the Milo backend:
-   # - milo-go-librespot.service
-   # - milo-roc.service
+   # - milo-spotify.service
+   # - milo-mac.service
    # - milo-radio.service
    # - milo-snapserver-multiroom.service
    # - milo-snapclient-multiroom.service

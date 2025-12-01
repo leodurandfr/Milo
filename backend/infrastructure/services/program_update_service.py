@@ -31,7 +31,7 @@ class ProgramUpdateService(ProgramVersionService):
             "go-librespot": {
                 "binary_path": "/usr/local/bin/go-librespot",
                 "config_path": "/var/lib/milo/go-librespot/config.yml",
-                "service_name": "milo-go-librespot.service",
+                "service_name": "milo-spotify.service",
                 "github_asset_pattern": "go-librespot_linux_arm64.tar.gz",
                 "backup_path": "/var/lib/milo/backups/go-librespot"
             },
@@ -754,7 +754,7 @@ class ProgramUpdateService(ProgramVersionService):
 
             # Check service is running
             proc = await asyncio.create_subprocess_exec(
-                "systemctl", "is-active", "milo-go-librespot.service",
+                "systemctl", "is-active", "milo-spotify.service",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )

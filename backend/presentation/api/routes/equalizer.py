@@ -2,8 +2,11 @@
 """
 API routes for equalizer
 """
+from typing import Optional
 from fastapi import APIRouter
-from typing import Dict, Any
+
+from backend.presentation.api.models import EqualizerBandRequest, EqualizerResetRequest
+
 
 def create_equalizer_router(equalizer_service, state_machine):
     """Creates equalizer router"""
@@ -32,16 +35,10 @@ def create_equalizer_router(equalizer_service, state_machine):
             return {"bands": [], "error": str(e)}
 
     @router.post("/band/{band_id}")
-    async def set_band_value(band_id: str, payload: Dict[str, Any]):
+    async def set_band_value(band_id: str, payload: EqualizerBandRequest):
         """Sets band value"""
         try:
-            value = payload.get("value")
-
-            if not isinstance(value, int) or not (0 <= value <= 100):
-                return {
-                    "status": "error",
-                    "message": "Invalid value (0-100 required)"
-                }
+            value = payload.value
 
             success = await equalizer_service.set_band_value(band_id, value)
 
@@ -60,17 +57,10 @@ def create_equalizer_router(equalizer_service, state_machine):
             return {"status": "error", "message": str(e)}
 
     @router.post("/reset")
-    async def reset_all_bands(payload: Dict[str, Any] = None):
+    async def reset_all_bands(payload: Optional[EqualizerResetRequest] = None):
         """Resets all bands to given value (default 50%)"""
         try:
-            reset_value = 50
-            if payload and "value" in payload:
-                reset_value = payload["value"]
-                if not isinstance(reset_value, int) or not (0 <= reset_value <= 100):
-                    return {
-                        "status": "error",
-                        "message": "Invalid reset value (0-100 required)"
-                    }
+            reset_value = payload.value if payload else 50
 
             success = await equalizer_service.reset_all_bands(reset_value)
 
