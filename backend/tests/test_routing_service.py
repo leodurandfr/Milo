@@ -39,6 +39,36 @@ class TestAudioRoutingService:
         assert routing_service.state_machine is None
         # Plus de self.state - utilise directement state_machine.system_state
 
+    def test_to_bool_conversion(self):
+        """Test of _to_bool helper for safe boolean conversion"""
+        # Test None -> False
+        assert AudioRoutingService._to_bool(None) is False
+
+        # Test bool values
+        assert AudioRoutingService._to_bool(True) is True
+        assert AudioRoutingService._to_bool(False) is False
+
+        # Test string true values
+        assert AudioRoutingService._to_bool("true") is True
+        assert AudioRoutingService._to_bool("True") is True
+        assert AudioRoutingService._to_bool("TRUE") is True
+        assert AudioRoutingService._to_bool("1") is True
+        assert AudioRoutingService._to_bool("yes") is True
+        assert AudioRoutingService._to_bool("on") is True
+        assert AudioRoutingService._to_bool("enabled") is True
+
+        # Test string false values
+        assert AudioRoutingService._to_bool("false") is False
+        assert AudioRoutingService._to_bool("False") is False
+        assert AudioRoutingService._to_bool("0") is False
+        assert AudioRoutingService._to_bool("no") is False
+        assert AudioRoutingService._to_bool("off") is False
+        assert AudioRoutingService._to_bool("") is False
+
+        # Test other types
+        assert AudioRoutingService._to_bool(1) is True
+        assert AudioRoutingService._to_bool(0) is False
+
     def test_set_plugin_callback(self, routing_service):
         """Test de définition du callback des plugins"""
         callback = lambda source: None
@@ -96,10 +126,14 @@ class TestAudioRoutingService:
         mock_sm._state_lock = mock_async_lock
         routing_service.set_state_machine(mock_sm)
 
-        mock_settings_service.get_setting = Mock(side_effect=lambda key: {
-            'routing.multiroom_enabled': True,
-            'routing.equalizer_enabled': False
-        }.get(key))
+        # Use AsyncMock with side_effect for async method
+        async def get_setting_side_effect(key):
+            return {
+                'routing.multiroom_enabled': True,
+                'routing.equalizer_enabled': False
+            }.get(key)
+
+        mock_settings_service.get_setting = AsyncMock(side_effect=get_setting_side_effect)
 
         with patch.object(routing_service, '_update_systemd_environment', new_callable=AsyncMock):
             with patch.object(routing_service, 'get_snapcast_status', new_callable=AsyncMock, return_value={"multiroom_available": False}):
@@ -203,7 +237,7 @@ class TestAudioRoutingService:
         mock_settings_service.set_setting.assert_called_with('routing.equalizer_enabled', True)
 
     @pytest.mark.asyncio
-    async def test_set_equalizer_enabled_with_plugin_restart(self, routing_service, mock_plugin, mock_async_lock):
+    async def test_set_equalizer_enabled_with_plugin_restart(self, routing_service, mock_plugin, mock_settings_service, mock_async_lock):
         """Test d'activation de l'equalizer avec restart du plugin actif"""
         mock_sm = Mock()
         mock_sm.system_state = Mock()

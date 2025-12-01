@@ -1,5 +1,5 @@
 [Unit]
-Description=Milo ROC Audio Receiver
+Description=Milo Mac Audio Receiver (ROC)
 Documentation=https://roc-streaming.org/
 After=network.target sound.service milo-backend.service
 Wants=network.target milo-backend.service
@@ -33,7 +33,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=milo-roc
+SyslogIdentifier=milo-mac
 
 [Install]
 WantedBy=multi-user.target

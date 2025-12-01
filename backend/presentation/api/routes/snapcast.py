@@ -5,7 +5,13 @@ API routes for Snapcast
 import time
 import logging
 from fastapi import APIRouter, HTTPException
-from typing import Dict, Any
+
+from backend.presentation.api.models import (
+    SnapcastVolumeRequest,
+    SnapcastClientMuteRequest,
+    SnapcastClientNameRequest,
+    SnapcastServerConfigRequest
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,12 +112,10 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
             return {"clients": [], "error": str(e)}
 
     @router.post("/client/{client_id}/volume")
-    async def set_snapcast_volume(client_id: str, payload: Dict[str, Any]):
+    async def set_snapcast_volume(client_id: str, payload: SnapcastVolumeRequest):
         """Changes client volume"""
         try:
-            display_volume = payload.get("volume")
-            if not isinstance(display_volume, int) or not (0 <= display_volume <= 100):
-                return {"status": "error", "message": "Invalid volume (0-100%)"}
+            display_volume = payload.volume
 
             volume_service = _get_volume_service()
             if volume_service:
@@ -135,12 +139,10 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
             return {"status": "error", "message": str(e)}
 
     @router.post("/client/{client_id}/mute")
-    async def set_snapcast_mute(client_id: str, payload: Dict[str, Any]):
+    async def set_snapcast_mute(client_id: str, payload: SnapcastClientMuteRequest):
         """Mutes/unmutes a client"""
         try:
-            muted = payload.get("muted")
-            if not isinstance(muted, bool):
-                return {"status": "error", "message": "Invalid muted state (true/false)"}
+            muted = payload.muted
 
             success = await snapcast_service.set_mute(client_id, muted)
 
@@ -163,14 +165,10 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
             return {"status": "error", "message": str(e)}
 
     @router.post("/client/{client_id}/name")
-    async def set_client_name(client_id: str, payload: Dict[str, Any]):
+    async def set_client_name(client_id: str, payload: SnapcastClientNameRequest):
         """Sets client name"""
         try:
-            name = payload.get("name")
-            if not isinstance(name, str) or not name.strip():
-                return {"status": "error", "message": "Invalid name"}
-
-            success = await snapcast_service.set_client_name(client_id, name.strip())
+            success = await snapcast_service.set_client_name(client_id, payload.name)
 
             if success:
                 await _publish_snapcast_update()
@@ -237,11 +235,10 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
     # === SERVER CONFIGURATION ROUTES ===
 
     @router.post("/server/config")
-    async def update_server_config(payload: Dict[str, Any]):
+    async def update_server_config(payload: SnapcastServerConfigRequest):
         """Updates server configuration"""
         try:
-            config = payload.get("config", {})
-            success = await snapcast_service.update_server_config(config)
+            success = await snapcast_service.update_server_config(payload.config)
 
             if success:
                 await _publish_snapcast_update()

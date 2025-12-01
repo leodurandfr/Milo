@@ -32,7 +32,11 @@ from backend.presentation.api.routes.health import create_health_router
 from backend.presentation.websockets.server import WebSocketServer
 from backend.domain.audio_state import AudioSource
 
-logging.basicConfig(level=logging.INFO)
+# Configurable log level via MILO_LOG_LEVEL environment variable
+# Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
+_log_level_name = os.environ.get('MILO_LOG_LEVEL', 'INFO').upper()
+_log_level = getattr(logging, _log_level_name, logging.INFO)
+logging.basicConfig(level=_log_level)
 logger = logging.getLogger(__name__)
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])

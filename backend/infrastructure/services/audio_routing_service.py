@@ -59,6 +59,19 @@ class AudioRoutingService:
         if not self.get_plugin:
             self.get_plugin = callback
 
+    # === Helper methods ===
+
+    @staticmethod
+    def _to_bool(value) -> bool:
+        """Convert various types to boolean safely."""
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ('true', '1', 'yes', 'on', 'enabled')
+        return bool(value)
+
     # === Propriétés d'accès à l'état unifié (state_machine.system_state) ===
 
     async def _get_multiroom_enabled(self) -> bool:
@@ -116,8 +129,9 @@ class AudioRoutingService:
             if self.settings_service:
                 multiroom = await self.settings_service.get_setting('routing.multiroom_enabled')
                 equalizer = await self.settings_service.get_setting('routing.equalizer_enabled')
-                await self._set_multiroom_state(multiroom if multiroom is not None else False)
-                await self._set_equalizer_state(equalizer if equalizer is not None else False)
+                # Explicit bool conversion for defensive programming
+                await self._set_multiroom_state(self._to_bool(multiroom))
+                await self._set_equalizer_state(self._to_bool(equalizer))
                 current_multiroom = await self._get_multiroom_enabled()
                 current_equalizer = await self._get_equalizer_enabled()
                 self.logger.info(f"Loaded state from settings: multiroom={current_multiroom}, equalizer={current_equalizer}")
@@ -434,7 +448,7 @@ class AudioRoutingService:
         services_status = {}
         
         services_to_check = [
-            "milo-go-librespot.service", "milo-roc.service", 
+            "milo-spotify.service", "milo-mac.service", 
             "milo-bluealsa-aplay.service", self.snapserver_service, self.snapclient_service
         ]
         

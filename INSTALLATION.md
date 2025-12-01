@@ -572,14 +572,14 @@ EOF
 
 
 
-## ROC
+## Mac (ROC)
 
-**milo-roc.service** 
+**milo-mac.service**
 
 ```bash
-sudo tee /etc/systemd/system/milo-roc.service > /dev/null << 'EOF'
+sudo tee /etc/systemd/system/milo-mac.service > /dev/null << 'EOF'
 [Unit]
-Description=Milo ROC Audio Receiver
+Description=Milo Mac Audio Receiver (ROC)
 Documentation=https://roc-streaming.org/
 After=network.target sound.service milo-backend.service
 Wants=network.target
@@ -608,7 +608,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 # Journalisation
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=milo-roc
+SyslogIdentifier=milo-mac
 
 [Install]
 WantedBy=multi-user.target
@@ -616,11 +616,11 @@ EOF
 ```
 
 
-## go-librespot
+## Spotify (go-librespot)
 
-**milo-go-librespot.service** 
+**milo-spotify.service**
 ```bash
-sudo tee /etc/systemd/system/milo-go-librespot.service > /dev/null << 'EOF'
+sudo tee /etc/systemd/system/milo-spotify.service > /dev/null << 'EOF'
 [Unit]
 Description=Milo Spotify Connect via go-librespot
 After=network-online.target sound.service milo-backend.service
@@ -641,7 +641,7 @@ RestartSec=5
 # Journalisation
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=milo-go-librespot
+SyslogIdentifier=milo-spotify
 
 [Install]
 WantedBy=multi-user.target
