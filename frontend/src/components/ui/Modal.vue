@@ -101,7 +101,7 @@ function resetInactivityTimer() {
   // Start a new 60-second timer
   inactivityTimer = setTimeout(() => {
     close();
-  }, 600000); // 600 seconds (POUR DEV - A CORRIGER ENSUITE A 60 seconds)
+  }, 30000); // 300 seconds before auto-close 
 }
 
 const ANIMATION_TIMINGS = {
