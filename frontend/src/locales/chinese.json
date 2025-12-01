@@ -328,6 +328,8 @@
     "searchPlaceholder": "搜索",
     "podcastsCount": "播客 ({count})",
     "episodesCount": "剧集 ({count})",
+    "podcastsTitle": "播客",
+    "recentEpisodesTitle": "最近两周的剧集",
     "loadingMoreResults": "正在加载更多结果...",
     "noResultsFor": "没有找到\"{query}\"的结果",
     "noResults": "没有找到结果",

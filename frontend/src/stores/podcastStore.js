@@ -30,6 +30,34 @@ export const usePodcastStore = defineStore('podcast', () => {
   const subscriptionsListLoaded = ref(false) // True when subscriptions list is loaded (no Taddy call)
   const subscriptionsLoaded = ref(false) // True when latest episodes are also loaded (with Taddy call)
 
+  // === SEARCH STATE ===
+  // Persisted across navigation within Podcasts module
+  const searchTerm = ref('')
+  const lastSearchTerm = ref('')
+  const searchFilters = ref({
+    language: '',
+    duration: '',
+    genre: ''
+  })
+  const searchResults = ref({
+    podcasts: [],
+    episodes: []
+  })
+  const searchPagination = ref({
+    podcasts: { total: 0, pages: 0 },
+    episodes: { total: 0, pages: 0 }
+  })
+  const searchCurrentPage = ref({
+    podcasts: 1,
+    episodes: 1
+  })
+  const hasSearched = ref(false)
+  const searchLoading = ref(false)
+  const searchLoadingMore = ref({
+    podcasts: false,
+    episodes: false
+  })
+
   // === SETTINGS ===
   // Note: Language/country are centralized in /var/lib/milo/settings.json (via settingsStore)
   const settings = ref({
@@ -360,6 +388,48 @@ export const usePodcastStore = defineStore('podcast', () => {
     )
   }
 
+  // === SEARCH ACTIONS ===
+
+  function setSearchResults(podcasts, episodes, pagination) {
+    searchResults.value = {
+      podcasts: podcasts || [],
+      episodes: enrichEpisodesWithProgress(episodes || [])
+    }
+    searchPagination.value = pagination || {
+      podcasts: { total: 0, pages: 0 },
+      episodes: { total: 0, pages: 0 }
+    }
+    searchCurrentPage.value = { podcasts: 1, episodes: 1 }
+    hasSearched.value = true
+    lastSearchTerm.value = searchTerm.value
+  }
+
+  function appendSearchResults(type, items) {
+    if (type === 'podcasts') {
+      searchResults.value.podcasts = [...searchResults.value.podcasts, ...items]
+      searchCurrentPage.value.podcasts++
+    } else if (type === 'episodes') {
+      const enrichedItems = enrichEpisodesWithProgress(items)
+      searchResults.value.episodes = [...searchResults.value.episodes, ...enrichedItems]
+      searchCurrentPage.value.episodes++
+    }
+  }
+
+  function clearSearch() {
+    searchTerm.value = ''
+    lastSearchTerm.value = ''
+    searchFilters.value = { language: '', duration: '', genre: '' }
+    searchResults.value = { podcasts: [], episodes: [] }
+    searchPagination.value = {
+      podcasts: { total: 0, pages: 0 },
+      episodes: { total: 0, pages: 0 }
+    }
+    searchCurrentPage.value = { podcasts: 1, episodes: 1 }
+    hasSearched.value = false
+    searchLoading.value = false
+    searchLoadingMore.value = { podcasts: false, episodes: false }
+  }
+
   // === CLEAR STATE ===
   function clearState() {
     // Clear all podcast state (called when switching away from podcast source)
@@ -404,6 +474,17 @@ export const usePodcastStore = defineStore('podcast', () => {
     latestSubscriptionEpisodes,
     subscriptionsLoaded,
 
+    // Search state
+    searchTerm,
+    lastSearchTerm,
+    searchFilters,
+    searchResults,
+    searchPagination,
+    searchCurrentPage,
+    hasSearched,
+    searchLoading,
+    searchLoadingMore,
+
     // Computed
     isPlaying,
     isPaused,
@@ -439,6 +520,11 @@ export const usePodcastStore = defineStore('podcast', () => {
     preloadSubscriptionsList,
     loadSubscriptions,
     addSubscription,
-    removeSubscription
+    removeSubscription,
+
+    // Search
+    setSearchResults,
+    appendSearchResults,
+    clearSearch
   }
 })
