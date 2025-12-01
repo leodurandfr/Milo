@@ -342,8 +342,22 @@ export const usePodcastStore = defineStore('podcast', () => {
     return { subscriptions: subscriptions.value, latestEpisodes: latestSubscriptionEpisodes.value }
   }
 
+  function addSubscription(subscription) {
+    // Add to subscriptions list if not already present
+    const exists = subscriptions.value.some(s => s.uuid === subscription.uuid)
+    if (!exists) {
+      subscriptions.value = [...subscriptions.value, subscription]
+    }
+    // Mark as needing refresh to fetch latest episodes on next HomeView load
+    subscriptionsLoaded.value = false
+  }
+
   function removeSubscription(uuid) {
     subscriptions.value = subscriptions.value.filter(s => s.uuid !== uuid)
+    // Also remove episodes from this podcast in latestSubscriptionEpisodes
+    latestSubscriptionEpisodes.value = latestSubscriptionEpisodes.value.filter(
+      ep => ep.podcast?.uuid !== uuid
+    )
   }
 
   // === CLEAR STATE ===
@@ -424,6 +438,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Subscriptions
     preloadSubscriptionsList,
     loadSubscriptions,
+    addSubscription,
     removeSubscription
   }
 })

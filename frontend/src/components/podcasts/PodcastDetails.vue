@@ -125,6 +125,11 @@ async function handleSubscribe() {
     })
     if (response.ok) {
       podcast.value.is_subscribed = true
+      podcastStore.addSubscription({
+        uuid: props.uuid,
+        name: podcast.value.name || '',
+        imageUrl: podcast.value.image_url || ''
+      })
     } else {
       console.error('Failed to subscribe:', await response.text())
     }
@@ -140,6 +145,7 @@ async function handleUnsubscribe() {
     const response = await fetch(`/api/podcast/subscriptions/${props.uuid}`, { method: 'DELETE' })
     if (response.ok) {
       podcast.value.is_subscribed = false
+      podcastStore.removeSubscription(props.uuid)
     } else {
       console.error('Failed to unsubscribe:', await response.text())
     }
