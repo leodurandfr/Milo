@@ -42,7 +42,9 @@
     "speakers": "Altoparlanti multiroom",
     "loadingSpeakers": "Caricamento altoparlanti...",
     "noSpeakers": "Nessun altoparlante connesso",
-    "restarting": "Riavvio multiroom..."
+    "restarting": "Riavvio multiroom...",
+    "error": "Errore durante l'attivazione del multiroom",
+    "timeout_error": "Timeout di attivazione. Si prega di riprovare."
   },
   "equalizer": {
     "title": "Equalizzatore",

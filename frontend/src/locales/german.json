@@ -42,7 +42,9 @@
     "speakers": "Multiroom-Lautsprecher",
     "loadingSpeakers": "Lautsprecher werden geladen...",
     "noSpeakers": "Keine Lautsprecher verbunden",
-    "restarting": "Multiroom wird neu gestartet..."
+    "restarting": "Multiroom wird neu gestartet...",
+    "error": "Fehler beim Aktivieren von Multiroom",
+    "timeout_error": "Aktivierungszeitüberschreitung. Bitte versuchen Sie es erneut."
   },
   "equalizer": {
     "title": "Equalizer",

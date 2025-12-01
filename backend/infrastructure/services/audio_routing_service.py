@@ -219,6 +219,11 @@ class AudioRoutingService:
                     await self._set_multiroom_state(old_state)
                     await self._update_systemd_environment()
                     self.logger.error(f"Failed to transition multiroom to {enabled}, reverting to {old_state}")
+                    # Broadcast error event to frontend
+                    if self.state_machine:
+                        await self.state_machine.broadcast_event("routing", "multiroom_error", {
+                            "message": f"Failed to {'enable' if enabled else 'disable'} multiroom"
+                        })
                     return False
 
                 if enabled and success:
@@ -229,6 +234,11 @@ class AudioRoutingService:
                         await self.snapcast_websocket_service.start_connection()
                     else:
                         await self.snapcast_websocket_service.stop_connection()
+
+                # Broadcast multiroom_ready event after services are started
+                if enabled and self.state_machine:
+                    self.logger.info("📢 Broadcasting multiroom_ready event")
+                    await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
 
                 # Sauvegarder l'état via SettingsService
                 if self.settings_service:
@@ -242,6 +252,11 @@ class AudioRoutingService:
                 await self._set_multiroom_state(old_state)
                 await self._update_systemd_environment()
                 self.logger.error(f"Error changing multiroom state: {e}")
+                # Broadcast error event to frontend
+                if self.state_machine:
+                    await self.state_machine.broadcast_event("routing", "multiroom_error", {
+                        "message": str(e)
+                    })
                 return False
     
     async def _auto_configure_multiroom(self):
