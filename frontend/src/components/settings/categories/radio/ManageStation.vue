@@ -11,7 +11,7 @@
         <div class="image-upload-group">
           <div class="form-group">
             <label class="text-mono">{{ $t('radio.manageStation.image') }}</label>
-            <Button variant="outline" size="small" class="full-width-btn" @click="$refs.fileInput.click()">
+            <Button variant="outline" size="medium" class="full-width-btn" @click="$refs.fileInput.click()">
               {{ $t('radio.manageStation.chooseImage') }}
             </Button>
           </div>
@@ -68,22 +68,22 @@
       <!-- Actions -->
       <div class="form-actions" :class="{ 'two-buttons': !canRestore && !canDelete }">
         <div v-if="canRestore || canDelete" class="left-actions">
-          <Button v-if="canRestore" variant="important" size="small"
+          <Button v-if="canRestore" variant="important" size="medium"
             @click="handleRestoreClick" :disabled="isSubmitting">
             {{ isConfirmingRestore ? $t('radio.manageStation.confirmRestore') : $t('common.restore') }}
           </Button>
-          <Button v-if="canDelete" variant="important" size="small"
+          <Button v-if="canDelete" variant="important" size="medium"
             @click="handleDeleteClick" :disabled="isSubmitting">
             {{ isConfirmingDelete ? $t('radio.manageStation.confirmDelete') : $t('common.delete') }}
           </Button>
-          <Button variant="background-strong" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
+          <Button variant="background-strong" size="medium" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
             {{ $t('common.cancel') }}
           </Button>
         </div>
-        <Button v-else variant="background-strong" size="small" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
+        <Button v-else variant="background-strong" size="medium" class="cancel-btn" @click="$emit('back')" :disabled="isSubmitting">
           {{ $t('common.cancel') }}
         </Button>
-        <Button variant="brand" size="small" class="save-btn" type="submit" :disabled="isSubmitting || !formData.name || !formData.url">
+        <Button variant="brand" size="medium" class="save-btn" type="submit" :disabled="isSubmitting || !formData.name || !formData.url">
           {{ submitButtonText }}
         </Button>
       </div>

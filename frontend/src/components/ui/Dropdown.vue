@@ -290,7 +290,7 @@ onBeforeUnmount(() => {
 
 .dropdown-menu {
   position: fixed;
-  z-index: 1000;
+  z-index: 5001;
   background: var(--color-background-neutral);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-04);
