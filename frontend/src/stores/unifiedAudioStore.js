@@ -21,12 +21,20 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     currentVolume: 0
   });
 
-  let volumeBarRef = null;
+  // Volume bar visibility state (replaces component coupling)
+  const showVolumeBar = ref(false);
+  let volumeBarHideTimer = null;
+
+  // Loading states for async operations
+  const isChangingSource = ref(false);
+  const isSendingCommand = ref(false);
+
   let lastWebSocketUpdate = 0;
 
 
   // === AUDIO ACTIONS ===
   async function changeSource(source) {
+    isChangingSource.value = true;
     try {
       console.log('🚀 CHANGING SOURCE TO:', source);
       const response = await axios.post(`/api/audio/source/${source}`);
@@ -36,10 +44,13 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     } catch (err) {
       console.error('Change source error:', err);
       return false;
+    } finally {
+      isChangingSource.value = false;
     }
   }
 
   async function sendCommand(source, command, data = {}) {
+    isSendingCommand.value = true;
     try {
       const response = await axios.post(`/api/audio/control/${source}`, {
         command,
@@ -49,6 +60,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     } catch (err) {
       console.error(`Command error (${source}/${command}):`, err);
       return false;
+    } finally {
+      isSendingCommand.value = false;
     }
   }
 
@@ -93,13 +106,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   async function adjustVolume(delta, showBar = true) {
-    fetch('/api/volume/adjust', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ delta, show_bar: showBar })
-    }).catch(error => {
-      console.error('Erreur volume:', error);
-    });
+    try {
+      await axios.post('/api/volume/adjust', { delta, show_bar: showBar });
+    } catch (error) {
+      console.error('Error adjusting volume:', error);
+    }
   }
 
   async function increaseVolume() {
@@ -214,24 +225,27 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     if (event.data && typeof event.data.volume === 'number') {
       volumeState.value.currentVolume = event.data.volume;
 
-      if (volumeBarRef && volumeBarRef.value) {
-        try {
-          volumeBarRef.value.showVolume();
-        } catch (error) {
-          console.warn('Failed to show volume bar:', error);
-        }
-      }
+      // Show volume bar and auto-hide after 3 seconds
+      if (volumeBarHideTimer) clearTimeout(volumeBarHideTimer);
+      showVolumeBar.value = true;
+      volumeBarHideTimer = setTimeout(() => {
+        showVolumeBar.value = false;
+      }, 3000);
     }
   }
 
-  function setVolumeBarRef(reactiveRef) {
-    volumeBarRef = reactiveRef;
+  function hideVolumeBar() {
+    if (volumeBarHideTimer) clearTimeout(volumeBarHideTimer);
+    showVolumeBar.value = false;
   }
 
   return {
     // State
     systemState,
     volumeState,
+    showVolumeBar,
+    isChangingSource,
+    isSendingCommand,
 
     // Actions
     changeSource,
@@ -244,7 +258,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     increaseVolume,
     decreaseVolume,
     handleVolumeEvent,
-    setVolumeBarRef,
+    hideVolumeBar,
     setupVisibilityListener
   };
 });

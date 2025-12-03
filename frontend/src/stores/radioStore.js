@@ -4,8 +4,17 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 
 export const useRadioStore = defineStore('radio', () => {
-  // === STATE ===
-  const currentStation = ref(null);
+  // === STATE (NORMALIZED) ===
+  // Single source of truth: Map of all stations by ID
+  const stations = ref(new Map());
+
+  // Favorite station IDs
+  const favoriteStationIds = ref(new Set());
+
+  // Currently playing station ID
+  const currentStationId = ref(null);
+
+  // UI state
   const loading = ref(false);
   const hasError = ref(false);
 
@@ -14,15 +23,12 @@ export const useRadioStore = defineStore('radio', () => {
   const countryFilter = ref('');
   const genreFilter = ref('');
 
-  // Current stations (result of the latest search)
-  const currentStations = ref([]);
+  // Search result IDs (ordered by API response)
+  const searchResultIds = ref([]);
   const currentTotal = ref(0);
 
-  // Favorites (loaded once, reloaded on change)
-  const favoriteStations = ref([]);
-
-  // Stations currently visible (for progressive rendering)
-  const visibleStations = ref([]);
+  // Visible station IDs (for progressive rendering)
+  const visibleStationIds = ref([]);
 
   // Top stations cache (for instant display when no filters are applied)
   const topStationsCache = ref(null);
@@ -77,28 +83,78 @@ export const useRadioStore = defineStore('radio', () => {
   // AbortController to cancel ongoing requests
   let currentAbortController = null;
 
-  // === GETTERS ===
+  // === HELPER FUNCTIONS ===
+
+  /**
+   * Add or update station in the map
+   */
+  function upsertStation(station) {
+    const enrichedStation = {
+      ...station,
+      is_favorite: favoriteStationIds.value.has(station.id)
+    };
+    stations.value.set(station.id, enrichedStation);
+  }
+
+  /**
+   * Add multiple stations to the map
+   */
+  function upsertStations(stationList) {
+    stationList.forEach(station => upsertStation(station));
+  }
+
+  /**
+   * Get station by ID with is_favorite enrichment
+   */
+  function getStation(stationId) {
+    const station = stations.value.get(stationId);
+    if (!station) return null;
+    return {
+      ...station,
+      is_favorite: favoriteStationIds.value.has(stationId)
+    };
+  }
+
+  // === COMPUTED PROPERTIES (API COMPATIBILITY) ===
+
+  // Currently playing station (backward compatible)
+  const currentStation = computed(() => {
+    if (!currentStationId.value) return null;
+    return getStation(currentStationId.value);
+  });
+
+  // All search result stations
+  const currentStations = computed(() => {
+    return searchResultIds.value
+      .map(id => getStation(id))
+      .filter(Boolean);
+  });
 
   // Total available stations
   const totalStations = computed(() => currentTotal.value);
 
   // Displayed stations (progressively accumulated)
-  const displayedStations = computed(() => visibleStations.value);
+  const displayedStations = computed(() => {
+    return visibleStationIds.value
+      .map(id => getStation(id))
+      .filter(Boolean);
+  });
 
   // Are there more stations to show?
   const hasMoreStations = computed(() => {
-    return visibleStations.value.length < currentStations.value.length;
+    return visibleStationIds.value.length < searchResultIds.value.length;
   });
 
   // Remaining stations count
   const remainingStations = computed(() => {
-    return Math.max(0, currentStations.value.length - visibleStations.value.length);
+    return Math.max(0, searchResultIds.value.length - visibleStationIds.value.length);
   });
 
   // Sorted favorite stations
   const sortedFavorites = computed(() => {
-    return favoriteStations.value
-      .filter(s => s.is_favorite)
+    return Array.from(favoriteStationIds.value)
+      .map(id => getStation(id))
+      .filter(Boolean)
       .sort((a, b) => a.name.localeCompare(b.name));
   });
 
@@ -120,7 +176,10 @@ export const useRadioStore = defineStore('radio', () => {
           params: { limit: 10000, favorites_only: true }
         });
 
-        favoriteStations.value = response.data.stations;
+        // Update normalized store
+        upsertStations(response.data.stations);
+        favoriteStationIds.value = new Set(response.data.stations.map(s => s.id));
+
         console.log(`✅ Loaded ${response.data.stations.length} favorites`);
         return true;
       } catch (error) {
@@ -144,9 +203,12 @@ export const useRadioStore = defineStore('radio', () => {
         if (cacheAge < CACHE_DURATION_MS) {
           // Cache is valid, use it immediately
           console.log(`✅ Using cached top stations (age: ${Math.round(cacheAge / 1000)}s)`);
-          currentStations.value = topStationsCache.value;
+
+          // Update normalized store
+          upsertStations(topStationsCache.value);
+          searchResultIds.value = topStationsCache.value.map(s => s.id);
           currentTotal.value = topStationsCache.value.length;
-          visibleStations.value = topStationsCache.value.slice(0, 40);
+          visibleStationIds.value = searchResultIds.value.slice(0, 40);
 
           // If cache is getting old (> 5 min), refresh in background
           if (cacheAge > BACKGROUND_REFRESH_THRESHOLD_MS) {
@@ -165,18 +227,19 @@ export const useRadioStore = defineStore('radio', () => {
         const localStorageData = loadFromLocalStorage();
 
         if (localStorageData) {
-          const { stations, timestamp } = localStorageData;
+          const { stations: cachedStations, timestamp } = localStorageData;
           const cacheAge = Date.now() - timestamp;
 
-          console.log(`📦 Using localStorage fallback (age: ${Math.round(cacheAge / 1000)}s, ${stations.length} stations)`);
+          console.log(`📦 Using localStorage fallback (age: ${Math.round(cacheAge / 1000)}s, ${cachedStations.length} stations)`);
 
-          // Display immediately from localStorage
-          currentStations.value = stations;
-          currentTotal.value = stations.length;
-          visibleStations.value = stations.slice(0, 40);
+          // Update normalized store
+          upsertStations(cachedStations);
+          searchResultIds.value = cachedStations.map(s => s.id);
+          currentTotal.value = cachedStations.length;
+          visibleStationIds.value = searchResultIds.value.slice(0, 40);
 
           // Also populate memory cache
-          topStationsCache.value = stations;
+          topStationsCache.value = cachedStations;
           topStationsCacheTimestamp.value = timestamp;
 
           // Always refresh in background when using localStorage
@@ -205,8 +268,8 @@ export const useRadioStore = defineStore('radio', () => {
     // Load from API (loading already set to true at function start)
 
     // IMPORTANT: Clear old data BEFORE API call to prevent showing stale data during loading
-    visibleStations.value = [];
-    currentStations.value = [];
+    visibleStationIds.value = [];
+    searchResultIds.value = [];
     currentTotal.value = 0;
 
     try {
@@ -222,12 +285,13 @@ export const useRadioStore = defineStore('radio', () => {
       console.log(`📻 Fetching stations from API`);
       const response = await axios.get('/api/radio/stations', { params, signal });
 
-      // Store stations
-      currentStations.value = response.data.stations;
+      // Update normalized store
+      upsertStations(response.data.stations);
+      searchResultIds.value = response.data.stations.map(s => s.id);
       currentTotal.value = response.data.total;
 
       // Initialize visible stations with the first 40
-      visibleStations.value = response.data.stations.slice(0, 40);
+      visibleStationIds.value = searchResultIds.value.slice(0, 40);
 
       // If this was a top stations request, cache the results
       if (isTopStationsRequest) {
@@ -249,9 +313,9 @@ export const useRadioStore = defineStore('radio', () => {
 
       console.error('❌ Error loading stations:', error);
       hasError.value = true;
-      currentStations.value = [];
+      searchResultIds.value = [];
       currentTotal.value = 0;
-      visibleStations.value = [];
+      visibleStationIds.value = [];
       return false;
     } finally {
       loading.value = false;
@@ -279,12 +343,16 @@ export const useRadioStore = defineStore('radio', () => {
 
       // If user is still viewing top stations (no filters), update the display
       const isStillViewingTopStations = !searchQuery.value && !countryFilter.value && !genreFilter.value;
-      if (isStillViewingTopStations && currentStations.value.length > 0) {
+      if (isStillViewingTopStations && searchResultIds.value.length > 0) {
         // Only update if data actually changed (compare first station ID)
-        if (currentStations.value[0]?.id !== response.data.stations[0]?.id) {
-          currentStations.value = response.data.stations;
+        const firstCurrentId = searchResultIds.value[0];
+        const firstNewId = response.data.stations[0]?.id;
+
+        if (firstCurrentId !== firstNewId) {
+          upsertStations(response.data.stations);
+          searchResultIds.value = response.data.stations.map(s => s.id);
           currentTotal.value = response.data.total;
-          // Preserve current scroll position by keeping visibleStations as is
+          // Preserve current scroll position by keeping visibleStationIds as is
           console.log('✅ Background refresh complete, display updated');
         } else {
           console.log('✅ Background refresh complete, no changes');
@@ -303,17 +371,16 @@ export const useRadioStore = defineStore('radio', () => {
    */
   function loadMore() {
     const increment = 40;
-    const currentVisible = visibleStations.value.length;
-    const maxAvailable = currentStations.value.length;
+    const currentVisible = visibleStationIds.value.length;
+    const maxAvailable = searchResultIds.value.length;
 
     // Calculate how many we can add
     const newLimit = Math.min(currentVisible + increment, maxAvailable);
 
-    // Add new stations to the visible list
-    const newStations = currentStations.value.slice(currentVisible, newLimit);
-    visibleStations.value = [...visibleStations.value, ...newStations];
+    // Add new station IDs to the visible list
+    visibleStationIds.value = searchResultIds.value.slice(0, newLimit);
 
-    console.log(`📻 Load more: displaying ${visibleStations.value.length} / ${maxAvailable} stations (added ${newStations.length})`);
+    console.log(`📻 Load more: displaying ${visibleStationIds.value.length} / ${maxAvailable} stations (added ${newLimit - currentVisible})`);
   }
 
 
@@ -339,26 +406,8 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function addFavorite(stationId) {
     try {
-      // Find the full station object
-      let station = null;
-
-      // Search in visibleStations
-      station = visibleStations.value.find(s => s.id === stationId);
-
-      // If not found, search in currentStation
-      if (!station && currentStation.value?.id === stationId) {
-        station = currentStation.value;
-      }
-
-      // If not found, search in favoriteStations
-      if (!station) {
-        station = favoriteStations.value.find(s => s.id === stationId);
-      }
-
-      // If not found, search in currentStations
-      if (!station) {
-        station = currentStations.value.find(s => s.id === stationId);
-      }
+      // Get station from normalized store
+      const station = getStation(stationId);
 
       // Send the full station (or just the ID if not found)
       const payload = station
@@ -384,16 +433,8 @@ export const useRadioStore = defineStore('radio', () => {
   }
 
   async function toggleFavorite(stationId) {
-    // Find the station
-    let station = currentStations.value.find(s => s.id === stationId);
-
-    if (!station) {
-      station = visibleStations.value.find(s => s.id === stationId);
-    }
-
-    if (!station && currentStation.value?.id === stationId) {
-      station = currentStation.value;
-    }
+    // Get station from normalized store
+    const station = getStation(stationId);
 
     if (!station) {
       console.warn('toggleFavorite: station not found', stationId);
@@ -412,11 +453,12 @@ export const useRadioStore = defineStore('radio', () => {
       const response = await axios.post('/api/radio/broken/mark', { station_id: stationId });
 
       if (response.data.success) {
-        // Remove from visibleStations
-        visibleStations.value = visibleStations.value.filter(s => s.id !== stationId);
+        // Remove from visible and search results
+        visibleStationIds.value = visibleStationIds.value.filter(id => id !== stationId);
+        searchResultIds.value = searchResultIds.value.filter(id => id !== stationId);
 
-        // Remove from currentStations
-        currentStations.value = currentStations.value.filter(s => s.id !== stationId);
+        // Remove from normalized store
+        stations.value.delete(stationId);
 
         return true;
       }
@@ -485,9 +527,12 @@ export const useRadioStore = defineStore('radio', () => {
       if (response.data.success) {
         console.log('📻 Custom station removed:', stationId);
 
-        // Remove from visibleStations and currentStations
-        visibleStations.value = visibleStations.value.filter(s => s.id !== stationId);
-        currentStations.value = currentStations.value.filter(s => s.id !== stationId);
+        // Remove from visible and search results
+        visibleStationIds.value = visibleStationIds.value.filter(id => id !== stationId);
+        searchResultIds.value = searchResultIds.value.filter(id => id !== stationId);
+
+        // Remove from normalized store
+        stations.value.delete(stationId);
 
         return true;
       }
@@ -516,17 +561,8 @@ export const useRadioStore = defineStore('radio', () => {
         const updatedStation = response.data.station;
         console.log('🖼️ Image removed:', stationId);
 
-        // Update in visibleStations
-        const visibleIndex = visibleStations.value.findIndex(s => s.id === stationId);
-        if (visibleIndex !== -1) {
-          visibleStations.value[visibleIndex] = updatedStation;
-        }
-
-        // Update in currentStations
-        const currentIndex = currentStations.value.findIndex(s => s.id === stationId);
-        if (currentIndex !== -1) {
-          currentStations.value[currentIndex] = updatedStation;
-        }
+        // Update in normalized store
+        upsertStation(updatedStation);
 
         return { success: true, station: updatedStation };
       } else {
@@ -542,19 +578,14 @@ export const useRadioStore = defineStore('radio', () => {
   function updateFromWebSocket(metadata) {
     // Update from WebSocket (via unifiedAudioStore)
     if (metadata.station_id) {
-      // Search the station in current stations
-      let station = currentStations.value.find(s => s.id === metadata.station_id);
-
-      // Otherwise, search in favorites
-      if (!station) {
-        station = favoriteStations.value.find(s => s.id === metadata.station_id);
-      }
+      // Get station from normalized store
+      let station = getStation(metadata.station_id);
 
       if (station) {
-        currentStation.value = station;
+        currentStationId.value = metadata.station_id;
       } else {
         // Station not yet loaded, create a minimal object
-        currentStation.value = {
+        const minimalStation = {
           id: metadata.station_id,
           name: metadata.station_name || 'Station inconnue',
           country: metadata.country || '',
@@ -562,6 +593,8 @@ export const useRadioStore = defineStore('radio', () => {
           favicon: metadata.favicon || '',
           is_favorite: metadata.is_favorite || false
         };
+        upsertStation(minimalStation);
+        currentStationId.value = metadata.station_id;
       }
     } else {
       // No station playing - DON'T clear immediately to allow animation
@@ -573,40 +606,30 @@ export const useRadioStore = defineStore('radio', () => {
     // Sync favorite status from the backend
     console.log(`🔄 Syncing favorite status: ${stationId} = ${isFavorite}`);
 
-    // Update in currentStations
-    const currentStationObj = currentStations.value.find(s => s.id === stationId);
-    if (currentStationObj) {
-      currentStationObj.is_favorite = isFavorite;
+    // Update favorite status in normalized store
+    if (isFavorite) {
+      favoriteStationIds.value.add(stationId);
+    } else {
+      favoriteStationIds.value.delete(stationId);
     }
 
-    // Update in visibleStations
-    const visibleStation = visibleStations.value.find(s => s.id === stationId);
-    if (visibleStation) {
-      visibleStation.is_favorite = isFavorite;
+    // If station exists in map, update it
+    const station = stations.value.get(stationId);
+    if (station) {
+      station.is_favorite = isFavorite;
     }
 
-    // Update in favoriteStations
-    const favoriteStation = favoriteStations.value.find(s => s.id === stationId);
-    if (favoriteStation) {
-      favoriteStation.is_favorite = isFavorite;
-    }
-
-    // If added to favorites, reload favorites
-    if (isFavorite && !favoriteStation) {
+    // If added to favorites and station not in map, reload favorites
+    if (isFavorite && !station) {
       console.log('📻 New favorite added, reloading favorites');
       await loadStations(true);
-    }
-
-    // Update currentStation if it is the current one
-    if (currentStation.value?.id === stationId) {
-      currentStation.value.is_favorite = isFavorite;
     }
   }
 
   function clearCurrentStation() {
     // Clear current station
     console.log('📻 Clearing current station');
-    currentStation.value = null;
+    currentStationId.value = null;
   }
 
   return {

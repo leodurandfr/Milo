@@ -7,76 +7,70 @@
     </button>
 </template>
 
-<script>
+<script setup>
+import { computed } from 'vue'
 import SvgIcon from './SvgIcon.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 
-export default {
-    name: 'Button',
-    components: {
-        SvgIcon,
-        LoadingSpinner
+const props = defineProps({
+    variant: {
+        type: String,
+        default: 'background-strong',
+        validator: (value) => ['background-strong', 'brand', 'on-grey', 'on-dark', 'outline', 'important'].includes(value)
     },
-    props: {
-        variant: {
-            type: String,
-            default: 'background-strong',
-            validator: (value) => ['background-strong', 'brand', 'on-grey', 'on-dark', 'outline', 'important'].includes(value)
-        },
-        size: {
-            type: String,
-            default: 'medium',
-            validator: (value) => ['medium', 'small'].includes(value)
-        },
-        type: {
-            type: String,
-            default: 'button',
-            validator: (value) => ['button', 'submit', 'reset'].includes(value)
-        },
-        disabled: {
-            type: Boolean,
-            default: false
-        },
-        leftIcon: {
-            type: String,
-            default: null
-        },
-        loading: {
-            type: Boolean,
-            default: false
-        },
-        loadingLabel: {
-            type: Boolean,
-            default: true
-        }
+    size: {
+        type: String,
+        default: 'medium',
+        validator: (value) => ['medium', 'small'].includes(value)
     },
-    emits: ['click'],
-    computed: {
-        buttonClasses() {
-            const typoClass = this.size === 'small' ? 'heading-4' : 'heading-3'
-            const baseClasses = `btn ${typoClass}`
-            const variantClass = `btn--${this.variant}`
-            const sizeClass = `btn--${this.size}`
-            const stateClass = this.getStateClass()
-            const iconClass = (this.leftIcon || (this.loading && this.loadingLabel)) ? 'btn--with-icon' : ''
-            const loadingOnlyClass = (this.loading && !this.loadingLabel) ? 'btn--loading-only' : ''
+    type: {
+        type: String,
+        default: 'button',
+        validator: (value) => ['button', 'submit', 'reset'].includes(value)
+    },
+    disabled: {
+        type: Boolean,
+        default: false
+    },
+    leftIcon: {
+        type: String,
+        default: null
+    },
+    loading: {
+        type: Boolean,
+        default: false
+    },
+    loadingLabel: {
+        type: Boolean,
+        default: true
+    }
+})
 
-            return `${baseClasses} ${variantClass} ${sizeClass} ${stateClass} ${iconClass} ${loadingOnlyClass}`.trim()
-        }
-    },
-    methods: {
-        getStateClass() {
-            // Loading state takes precedence - keeps variant style
-            if (this.loading) {
-                return 'btn--loading'
-            }
-            return this.disabled ? 'btn--disabled' : 'btn--normal'
-        },
-        handleClick(event) {
-            if (!this.disabled) {
-                this.$emit('click', event)
-            }
-        }
+const emit = defineEmits(['click'])
+
+function getStateClass() {
+    // Loading state takes precedence - keeps variant style
+    if (props.loading) {
+        return 'btn--loading'
+    }
+    return props.disabled ? 'btn--disabled' : 'btn--normal'
+}
+
+const buttonClasses = computed(() => {
+    const typoClass = props.size === 'small' ? 'heading-4' : 'heading-3'
+    const baseClasses = `btn ${typoClass}`
+    const variantClass = `btn--${props.variant}`
+    const sizeClass = `btn--${props.size}`
+    const stateClass = getStateClass()
+    const iconClass = (props.leftIcon || (props.loading && props.loadingLabel)) ? 'btn--with-icon' : ''
+    const loadingOnlyClass = (props.loading && !props.loadingLabel) ? 'btn--loading-only' : ''
+
+    return `${baseClasses} ${variantClass} ${sizeClass} ${stateClass} ${iconClass} ${loadingOnlyClass}`.trim()
+})
+
+function handleClick(event) {
+    if (!props.disabled) {
+        emit('click', event)
     }
 }
 </script>

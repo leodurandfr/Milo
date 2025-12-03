@@ -2,7 +2,7 @@
 <template>
   <div class="app-container">
     <router-view />
-    <VolumeBar ref="volumeBar" />
+    <VolumeBar />
     <BottomNavigation
       @open-multiroom="isMultiroomOpen = true"
       @open-equalizer="isEqualizerOpen = true"
@@ -65,7 +65,6 @@ const { loadHardwareInfo } = useHardwareConfig();
 // Enable screen activity detection (touch, mouse, keyboard)
 useScreenActivity();
 
-const volumeBar = ref(null);
 const isMultiroomOpen = ref(false);
 const isEqualizerOpen = ref(false);
 const isSettingsOpen = ref(false);
@@ -142,9 +141,6 @@ onMounted(async () => {
     import('@/components/settings/SettingsModal.vue'),
     import('@/components/ui/VirtualKeyboard.vue')
   ]);
-
-  // Final synchronous setup
-  unifiedStore.setVolumeBarRef(volumeBar);
 });
 
 onUnmounted(() => {
