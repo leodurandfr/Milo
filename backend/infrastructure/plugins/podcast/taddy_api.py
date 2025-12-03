@@ -1251,7 +1251,12 @@ class TaddyAPI:
 
         if include_episodes and 'episodes' in series:
             normalized['episodes'] = [
-                self._normalize_episode(ep, podcast_name=series.get('name'), podcast_image=image_url)
+                self._normalize_episode(
+                    ep,
+                    podcast_name=series.get('name'),
+                    podcast_image=image_url,
+                    podcast_uuid=series.get('uuid')
+                )
                 for ep in series.get('episodes', [])
             ]
 
@@ -1261,7 +1266,8 @@ class TaddyAPI:
         self,
         episode: Dict[str, Any],
         podcast_name: str = None,
-        podcast_image: str = None
+        podcast_image: str = None,
+        podcast_uuid: str = None
     ) -> Dict[str, Any]:
         """Normalize episode from Taddy API format"""
         podcast_series = episode.get('podcastSeries') or {}
@@ -1303,7 +1309,7 @@ class TaddyAPI:
             }
         elif podcast_name:
             normalized['podcast'] = {
-                'uuid': '',
+                'uuid': podcast_uuid or '',
                 'name': podcast_name,
                 'image_url': podcast_image or ''
             }

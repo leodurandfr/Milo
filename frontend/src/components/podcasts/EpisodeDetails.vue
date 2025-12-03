@@ -16,6 +16,7 @@
             @select="handlePlayClick"
             @play="handlePlayClick"
             @pause="handlePause"
+            @select-podcast="handleSelectPodcast"
           />
 
           <!-- Description block -->
@@ -83,6 +84,10 @@ function handlePlayClick() {
 
 async function handlePause() {
   await podcastStore.pause()
+}
+
+function handleSelectPodcast(podcast) {
+  emit('select-podcast', podcast)
 }
 
 watch(() => props.uuid, async () => {

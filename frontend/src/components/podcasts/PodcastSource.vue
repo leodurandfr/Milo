@@ -38,7 +38,7 @@
 
         <!-- Queue View -->
         <QueueView v-else-if="currentView === 'queue'" key="queue" @select-episode="openEpisodeDetails"
-          @play-episode="playEpisode" />
+          @play-episode="playEpisode" @select-podcast="openPodcastDetails" />
 
         <!-- Genre View -->
         <GenreView v-else-if="currentView === 'genre'" key="genre" :genre="selectedGenre"
