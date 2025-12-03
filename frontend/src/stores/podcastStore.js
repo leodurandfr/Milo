@@ -1,6 +1,7 @@
 // frontend/src/stores/podcastStore.js
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import axios from 'axios'
 import { useUnifiedAudioStore } from './unifiedAudioStore'
 
 export const usePodcastStore = defineStore('podcast', () => {
@@ -100,13 +101,8 @@ export const usePodcastStore = defineStore('podcast', () => {
     // Set pending immediately for instant UI feedback (spinner)
     pendingEpisodeUuid.value = episodeUuid
     try {
-      const response = await fetch('/api/podcast/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ episode_uuid: episodeUuid })
-      })
-      const data = await response.json()
-      if (!data.success) {
+      const response = await axios.post('/api/podcast/play', { episode_uuid: episodeUuid })
+      if (!response.data.success) {
         pendingEpisodeUuid.value = null
         throw new Error('Failed to play episode')
       }
@@ -121,7 +117,7 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   async function pause() {
     try {
-      await fetch('/api/podcast/pause', { method: 'POST' })
+      await axios.post('/api/podcast/pause')
       // State will be updated via WebSocket broadcast from backend
     } catch (error) {
       console.error('Error pausing:', error)
@@ -130,7 +126,7 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   async function resume() {
     try {
-      await fetch('/api/podcast/resume', { method: 'POST' })
+      await axios.post('/api/podcast/resume')
       // State will be updated via WebSocket broadcast from backend
     } catch (error) {
       console.error('Error resuming:', error)
@@ -139,11 +135,7 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   async function seek(position) {
     try {
-      await fetch('/api/podcast/seek', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ position: Math.floor(position) })
-      })
+      await axios.post('/api/podcast/seek', { position: Math.floor(position) })
       currentPosition.value = position
     } catch (error) {
       console.error('Error seeking:', error)
@@ -152,7 +144,7 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   async function stop() {
     try {
-      await fetch('/api/podcast/stop', { method: 'POST' })
+      await axios.post('/api/podcast/stop')
       // State will be cleared via WebSocket broadcast from backend
       currentEpisode.value = null
       displayEpisode.value = null
@@ -171,14 +163,9 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   async function setSpeed(speed) {
     try {
-      const response = await fetch('/api/podcast/speed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ speed })
-      })
-      const data = await response.json()
-      if (data.success) {
-        playbackSpeed.value = data.speed
+      const response = await axios.post('/api/podcast/speed', { speed })
+      if (response.data.success) {
+        playbackSpeed.value = response.data.speed
       }
     } catch (error) {
       console.error('Error setting speed:', error)
@@ -189,11 +176,10 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   async function loadSettings() {
     try {
-      const response = await fetch('/api/podcast/settings')
-      const data = await response.json()
-      if (data.settings) {
-        settings.value = { ...settings.value, ...data.settings }
-        playbackSpeed.value = data.settings.playbackSpeed || 1.0
+      const response = await axios.get('/api/podcast/settings')
+      if (response.data.settings) {
+        settings.value = { ...settings.value, ...response.data.settings }
+        playbackSpeed.value = response.data.settings.playbackSpeed || 1.0
       }
     } catch (error) {
       console.error('Error loading settings:', error)
@@ -202,11 +188,7 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   async function updateSettings(newSettings) {
     try {
-      await fetch('/api/podcast/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newSettings)
-      })
+      await axios.post('/api/podcast/settings', newSettings)
       settings.value = { ...settings.value, ...newSettings }
     } catch (error) {
       console.error('Error updating settings:', error)
@@ -332,9 +314,8 @@ export const usePodcastStore = defineStore('podcast', () => {
     if (subscriptionsListLoaded.value) return
 
     try {
-      const response = await fetch('/api/podcast/subscriptions')
-      const data = await response.json()
-      subscriptions.value = data.subscriptions || []
+      const response = await axios.get('/api/podcast/subscriptions')
+      subscriptions.value = response.data.subscriptions || []
       subscriptionsListLoaded.value = true
     } catch (error) {
       console.error('Error preloading subscriptions list:', error)
@@ -351,17 +332,15 @@ export const usePodcastStore = defineStore('podcast', () => {
 
     // Reuse subscriptions list if already preloaded, otherwise fetch
     if (!subscriptionsListLoaded.value) {
-      const subResponse = await fetch('/api/podcast/subscriptions')
-      const subData = await subResponse.json()
-      subscriptions.value = subData.subscriptions || []
+      const response = await axios.get('/api/podcast/subscriptions')
+      subscriptions.value = response.data.subscriptions || []
       subscriptionsListLoaded.value = true
     }
 
     // Fetch latest episodes (Taddy API call) if user has subscriptions
     if (subscriptions.value.length > 0) {
-      const latestResponse = await fetch('/api/podcast/subscriptions/latest-episodes?limit=20')
-      const latestData = await latestResponse.json()
-      latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(latestData.results || [])
+      const response = await axios.get('/api/podcast/subscriptions/latest-episodes', { params: { limit: 20 } })
+      latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(response.data.results || [])
     } else {
       latestSubscriptionEpisodes.value = []
     }

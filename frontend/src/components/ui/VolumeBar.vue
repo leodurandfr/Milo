@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/VolumeBar.vue -->
 <template>
-  <div class="volume-bar" :class="{ visible: isVisible }">
+  <div class="volume-bar" :class="{ visible: unifiedStore.showVolumeBar }">
     <div class="volume-slider">
       <div class="volume-fill" :style="volumeFillStyle"></div>
       <div class="text-mono">{{ unifiedStore.volumeState.currentVolume }} %</div>
@@ -9,13 +9,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { computed } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 
 const unifiedStore = useUnifiedAudioStore();
-
-const isVisible = ref(false);
-let hideTimer = null;
 
 const volumeFillStyle = computed(() => {
   const volume = unifiedStore.volumeState.currentVolume;
@@ -23,23 +20,6 @@ const volumeFillStyle = computed(() => {
     width: '100%',
     transform: `translateX(${volume - 100}%)`
   };
-});
-
-function showVolume() {
-  if (hideTimer) clearTimeout(hideTimer);
-  isVisible.value = true;
-  hideTimer = setTimeout(() => isVisible.value = false, 3000);
-}
-
-function hideVolume() {
-  if (hideTimer) clearTimeout(hideTimer);
-  isVisible.value = false;
-}
-
-defineExpose({ showVolume, hideVolume });
-
-onMounted(() => {
-  unifiedStore.setVolumeBarRef({ showVolume, hideVolume });
 });
 </script>
 

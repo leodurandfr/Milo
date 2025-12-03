@@ -141,8 +141,8 @@ function handlePointerUp() {
   width: 100%;
   height: 40px;
   background: linear-gradient(to right,
-      #767C76 0%,
-      #767C76 var(--progress),
+      var(--color-text-secondary) 0%,
+      var(--color-text-secondary) var(--progress),
       var(--color-background) var(--progress),
       var(--color-background) 100%);
 }
@@ -154,8 +154,8 @@ function handlePointerUp() {
   writing-mode: vertical-lr;
   direction: rtl;
   background: linear-gradient(to top,
-      #767C76 0%,
-      #767C76 var(--progress),
+      var(--color-text-secondary) 0%,
+      var(--color-text-secondary) var(--progress),
       var(--color-background) var(--progress),
       var(--color-background) 100%);
 }
@@ -166,8 +166,8 @@ function handlePointerUp() {
   width: 62px;
   height: 40px;
   border-radius: 20px;
-  background: #FFFFFF;
-  border: 2px solid #767C76;
+  background: var(--color-background-neutral);
+  border: 2px solid var(--color-text-secondary);
   cursor: pointer;
   box-shadow: none;
   pointer-events: auto;
@@ -177,8 +177,8 @@ function handlePointerUp() {
   width: 58px;
   height: 36px;
   border-radius: 20px;
-  background: #FFFFFF;
-  border: 2px solid #767C76;
+  background: var(--color-background-neutral);
+  border: 2px solid var(--color-text-secondary);
   cursor: pointer;
   pointer-events: auto;
 }
@@ -189,8 +189,8 @@ function handlePointerUp() {
   width: 40px;
   height: 62px;
   border-radius: 20px;
-  background: #FFFFFF;
-  border: 2px solid #767C76;
+  background: var(--color-background-neutral);
+  border: 2px solid var(--color-text-secondary);
   cursor: pointer;
   pointer-events: auto;
 }
@@ -199,8 +199,8 @@ function handlePointerUp() {
   width: 36px;
   height: 58px;
   border-radius: 20px;
-  background: #FFFFFF;
-  border: 2px solid #767C76;
+  background: var(--color-background-neutral);
+  border: 2px solid var(--color-text-secondary);
   cursor: pointer;
   pointer-events: auto;
 }
