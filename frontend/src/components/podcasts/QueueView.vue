@@ -18,6 +18,7 @@
           @play="$emit('play-episode', formatQueueEpisode(episode))"
           @pause="handlePause"
           @complete="markComplete(episode.episodeUuid)"
+          @select-podcast="(podcast) => $emit('select-podcast', podcast)"
         />
       </div>
     </div>
@@ -32,7 +33,7 @@ import EpisodeCard from './EpisodeCard.vue'
 import MessageContent from '@/components/ui/MessageContent.vue'
 
 const { t } = useI18n()
-const emit = defineEmits(['select-episode', 'play-episode'])
+const emit = defineEmits(['select-episode', 'play-episode', 'select-podcast'])
 const podcastStore = usePodcastStore()
 
 async function handlePause() {

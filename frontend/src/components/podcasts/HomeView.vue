@@ -21,6 +21,7 @@
               @select="$emit('select-episode', episode.uuid)"
               @play="$emit('play-episode', episode)"
               @pause="handlePause"
+              @select-podcast="(podcast) => $emit('select-podcast', podcast)"
             />
           </div>
         </transition>
@@ -93,6 +94,7 @@
               @select="$emit('select-episode', episode.uuid)"
               @play="$emit('play-episode', episode)"
               @pause="handlePause"
+              @select-podcast="(podcast) => $emit('select-podcast', podcast)"
             />
           </div>
         </transition>

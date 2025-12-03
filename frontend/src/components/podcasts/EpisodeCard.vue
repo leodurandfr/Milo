@@ -22,7 +22,7 @@
     <div class="card-content">
       <div class="content-info">
         <h4 class="episode-name heading-3">{{ episode.name }}</h4>
-        <p v-if="podcastName" class="podcast-name text-mono">{{ podcastName }}</p>
+        <p v-if="podcastName" class="podcast-name text-mono clickable-link" @click.stop="handlePodcastClick">{{ podcastName }}</p>
 
         <div class="episode-meta text-mono">
           <span class="duration">
@@ -75,13 +75,19 @@ const props = defineProps({
   }
 })
 
-const $emit = defineEmits(['select', 'play', 'pause', 'complete'])
+const $emit = defineEmits(['select', 'play', 'pause', 'complete', 'select-podcast'])
 
 const podcastStore = usePodcastStore()
 
 function handleCardClick() {
   if (props.clickable) {
     $emit('select', props.episode)
+  }
+}
+
+function handlePodcastClick() {
+  if (props.episode.podcast) {
+    $emit('select-podcast', props.episode.podcast)
   }
 }
 const imageError = ref(false)
@@ -303,6 +309,10 @@ onMounted(() => {
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.podcast-name.clickable-link {
+  cursor: pointer;
 }
 
 .episode-meta {

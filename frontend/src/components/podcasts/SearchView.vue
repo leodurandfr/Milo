@@ -41,7 +41,7 @@
             <div class="episodes-list">
               <EpisodeCard v-for="episode in searchResults.episodes" :key="episode.uuid" :episode="episode"
                 @select="$emit('select-episode', episode.uuid)" @play="$emit('play-episode', episode)"
-                @pause="handlePause" />
+                @pause="handlePause" @select-podcast="(podcast) => $emit('select-podcast', podcast)" />
             </div>
             <div v-if="searchCurrentPage.episodes < searchPagination.episodes.pages" class="load-more-container">
               <Button variant="brand" :loading="searchLoadingMore.episodes" @click="loadMoreEpisodes">
