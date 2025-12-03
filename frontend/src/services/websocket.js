@@ -36,7 +36,10 @@ class WebSocketSingleton {
   }
 
   createConnection() {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+    // Prevent overlapping connections (both OPEN and CONNECTING states)
+    if (this.socket &&
+        (this.socket.readyState === WebSocket.OPEN ||
+         this.socket.readyState === WebSocket.CONNECTING)) {
       return;
     }
 
@@ -67,7 +70,9 @@ class WebSocketSingleton {
       this.startPingCheck();
 
       // Send ready signal to request initial state
-      this.socket.send(JSON.stringify({ type: "ready" }));
+      if (this.socket.readyState === WebSocket.OPEN) {
+        this.socket.send(JSON.stringify({ type: "ready" }));
+      }
 
       if (wasReconnecting) {
         console.log('WebSocket reconnected - requested state sync');
@@ -130,27 +135,10 @@ class WebSocketSingleton {
     if (this.visibilityHandler) return;
 
     this.visibilityHandler = () => {
-      if (document.hidden) {
-        // Disconnect when the tab is hidden
-        if (this.socket) {
-          this.socket.close();
-        }
-      } else {
-        // Reconnect when the tab becomes visible again
-        if (this.subscribers.size > 0) {
-          // Reset backoff counter on visibility change (user interaction)
-          this.reconnectAttempts = 0;
-
-          // Close any existing connection
-          if (this.socket) {
-            this.socket.close();
-          }
-
-          // Reconnect after a short delay
-          setTimeout(() => {
-            this.createConnection();
-          }, 200);
-        }
+      // When tab becomes visible, request fresh state (no disconnect/reconnect needed)
+      if (!document.hidden && this.socket?.readyState === WebSocket.OPEN) {
+        this.socket.send(JSON.stringify({ type: "ready" }));
+        console.log('Tab visible - requested state refresh');
       }
     };
 
@@ -177,7 +165,7 @@ class WebSocketSingleton {
       if (timeSinceLastPing > 90000 && !document.hidden) {
         console.warn('WebSocket ping timeout, reconnecting...');
         this.closeConnection();
-        this.createConnection();
+        // onclose handler will reconnect with exponential backoff
       }
     }, 60000);
   }
