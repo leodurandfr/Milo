@@ -148,31 +148,34 @@ class TestVolumeService:
         assert result == 60
 
     def test_invalidate_all_caches(self, service):
-        """Test de l'invalidation des caches"""
-        service._client_display_states = {"client1": 50.0}
-        service._client_states_initialized = True
-        service._snapcast_clients_cache = [{"id": "client1"}]
-        service._snapcast_cache_time = 12345
+        """Test de l'invalidation des caches (via multiroom handler)"""
+        # Set up multiroom handler state
+        handler = service._multiroom_handler
+        handler._client_display_states = {"client1": 50.0}
+        handler._client_states_initialized = True
+        handler._snapcast_clients_cache = [{"id": "client1"}]
+        handler._snapcast_cache_time = 12345
 
-        service._invalidate_all_caches()
+        service.invalidate_client_caches()
 
-        assert service._client_display_states == {}
-        assert service._client_states_initialized is False
-        assert service._snapcast_clients_cache == []
-        assert service._snapcast_cache_time == 0
+        assert handler._client_display_states == {}
+        assert handler._client_states_initialized is False
+        assert handler._snapcast_clients_cache == []
+        assert handler._snapcast_cache_time == 0
 
     def test_set_client_display_volume(self, service):
-        """Test de définition du volume display d'un client"""
-        service._set_client_display_volume("client1", 75.5)
+        """Test de définition du volume display d'un client (via multiroom handler)"""
+        handler = service._multiroom_handler
+        handler._set_client_display_volume("client1", 75.5)
 
-        assert service._client_display_states["client1"] == 75.5
+        assert handler._client_display_states["client1"] == 75.5
 
         # Test clamping
-        service._set_client_display_volume("client2", 150.0)
-        assert service._client_display_states["client2"] == 100.0
+        handler._set_client_display_volume("client2", 150.0)
+        assert handler._client_display_states["client2"] == 100.0
 
-        service._set_client_display_volume("client3", -10.0)
-        assert service._client_display_states["client3"] == 0.0
+        handler._set_client_display_volume("client3", -10.0)
+        assert handler._client_display_states["client3"] == 0.0
 
     def test_is_multiroom_enabled_true(self, service, mock_state_machine):
         """Test de vérification multiroom activé"""
@@ -327,7 +330,8 @@ class TestVolumeService:
 
     @pytest.mark.asyncio
     async def test_get_snapcast_clients_cached(self, service, mock_snapcast_service):
-        """Test du cache des clients snapcast"""
+        """Test du cache des clients snapcast (via multiroom handler)"""
+        handler = service._multiroom_handler
         mock_clients = [
             {"id": "client1", "name": "Client 1"},
             {"id": "client2", "name": "Client 2"}
@@ -335,25 +339,26 @@ class TestVolumeService:
         mock_snapcast_service.get_clients = AsyncMock(return_value=mock_clients)
 
         # Premier appel - devrait récupérer depuis snapcast
-        clients = await service._get_snapcast_clients_cached()
+        clients = await handler._get_snapcast_clients_cached()
         assert len(clients) == 2
         assert clients[0]["id"] == "client1"
 
         # Deuxième appel immédiat - devrait utiliser le cache
         mock_snapcast_service.get_clients = AsyncMock(return_value=[])  # Changer le mock
-        clients = await service._get_snapcast_clients_cached()
+        clients = await handler._get_snapcast_clients_cached()
         assert len(clients) == 2  # Toujours depuis le cache
 
     @pytest.mark.asyncio
     async def test_get_snapcast_clients_cached_error_fallback(self, service, mock_snapcast_service):
-        """Test du fallback du cache en cas d'erreur"""
+        """Test du fallback du cache en cas d'erreur (via multiroom handler)"""
+        handler = service._multiroom_handler
         # Premier appel réussi
         mock_snapcast_service.get_clients = AsyncMock(return_value=[{"id": "client1"}])
-        clients = await service._get_snapcast_clients_cached()
+        clients = await handler._get_snapcast_clients_cached()
         assert len(clients) == 1
 
         # Deuxième appel avec erreur - devrait retourner le cache
-        service._snapcast_cache_time = 0  # Invalider le cache
+        handler._snapcast_cache_time = 0  # Invalider le cache
         mock_snapcast_service.get_clients = AsyncMock(side_effect=Exception("Connection error"))
-        clients = await service._get_snapcast_clients_cached()
+        clients = await handler._get_snapcast_clients_cached()
         assert len(clients) == 1  # Devrait retourner l'ancien cache
