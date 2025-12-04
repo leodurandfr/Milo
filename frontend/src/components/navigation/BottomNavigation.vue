@@ -1052,8 +1052,7 @@ onUnmounted(() => {
   }
 
   .dock-indicator.hidden {
-    opacity: 0 !important;
-    /* transition: opacity var(--transition-normal) !important; */
+    opacity: 0;
   }
 }
 

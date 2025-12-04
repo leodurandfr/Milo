@@ -39,7 +39,7 @@
 
       <div class="card-actions">
         <IconButton v-if="showCompleteButton" icon="close" :variant="contrast ? 'on-dark' : 'background-strong'" size="medium"
-          @click.stop="$emit('complete', episode)" />
+          @click.stop="emit('complete', episode)" />
         <IconButton :icon="isCurrentlyPlaying ? 'pause' : 'play'" :variant="contrast ? 'on-dark' : 'background-strong'" size="medium"
           :loading="isCurrentEpisodeBuffering" @click.stop="handlePlayClick" />
       </div>
@@ -75,19 +75,19 @@ const props = defineProps({
   }
 })
 
-const $emit = defineEmits(['select', 'play', 'pause', 'complete', 'select-podcast'])
+const emit = defineEmits(['select', 'play', 'pause', 'complete', 'select-podcast'])
 
 const podcastStore = usePodcastStore()
 
 function handleCardClick() {
   if (props.clickable) {
-    $emit('select', props.episode)
+    emit('select', props.episode)
   }
 }
 
 function handlePodcastClick() {
   if (props.episode.podcast) {
-    $emit('select-podcast', props.episode.podcast)
+    emit('select-podcast', props.episode.podcast)
   }
 }
 const imageError = ref(false)
@@ -122,11 +122,9 @@ const isCurrentEpisodeBuffering = computed(() => {
 
 function handlePlayClick() {
   if (isCurrentlyPlaying.value) {
-    // Pause si cet épisode est en cours de lecture
-    $emit('pause')
+    emit('pause')
   } else {
-    // Play sinon
-    $emit('play', props.episode)
+    emit('play', props.episode)
   }
 }
 

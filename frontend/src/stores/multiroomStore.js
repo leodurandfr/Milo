@@ -17,6 +17,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   });
   const originalServerConfig = ref({});
   const isApplyingServerConfig = ref(false);
+  const isLoadingServerConfig = ref(false);
 
   // Memorization of the last known number of clients (for skeletons)
   const lastKnownClientCount = ref(3);
@@ -40,7 +41,8 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     try {
       const cached = localStorage.getItem(CACHE_KEY);
       return cached ? JSON.parse(cached) : null;
-    } catch {
+    } catch (error) {
+      console.warn('Error loading multiroom cache (corrupted?):', error);
       return null;
     }
   }
@@ -192,10 +194,15 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   // === ACTIONS - SERVER CONFIG ===
   async function loadServerConfig() {
-    const config = await fetchServerConfig();
-    if (config) {
-      serverConfig.value = config;
-      originalServerConfig.value = JSON.parse(JSON.stringify(config));
+    isLoadingServerConfig.value = true;
+    try {
+      const config = await fetchServerConfig();
+      if (config) {
+        serverConfig.value = config;
+        originalServerConfig.value = JSON.parse(JSON.stringify(config));
+      }
+    } finally {
+      isLoadingServerConfig.value = false;
     }
   }
 
@@ -305,6 +312,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     serverConfig,
     originalServerConfig,
     isApplyingServerConfig,
+    isLoadingServerConfig,
     lastKnownClientCount,
 
     // Computed
