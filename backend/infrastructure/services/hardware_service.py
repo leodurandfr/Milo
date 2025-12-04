@@ -35,23 +35,16 @@ class HardwareService:
         """
         Returns the screen type configured during installation.
 
-        Supports two formats:
-        - New : {"screen": {"waveshare_8_dsi": {"resolution": "1280x800"}}}
-        - Old  : {"screen": {"type": "waveshare_7_usb"}}
+        Format: {"screen": {"waveshare_8_dsi": {"resolution": "1280x800"}}}
 
         Returns:
-            str: "waveshare_7_usb", "waveshare_8_dsi", ou "none"
+            str: "waveshare_7_usb", "waveshare_8_dsi", or "none"
         """
         if self._cache is None:
             self._cache = self._load_hardware_config()
 
         screen_config = self._cache.get('screen', {})
 
-        # Old format : {"type": "waveshare_7_usb"}
-        if 'type' in screen_config:
-            return screen_config['type']
-
-        # New format : {"waveshare_8_dsi": {"resolution": "1280x800"}}
         # Screen type is the main key
         for key in screen_config.keys():
             if key in ['waveshare_7_usb', 'waveshare_8_dsi', 'none']:
@@ -61,10 +54,10 @@ class HardwareService:
 
     def get_screen_resolution(self) -> Optional[Dict[str, int]]:
         """
-        Retourne la résolution de l'écran configuré.
+        Returns the configured screen resolution.
 
         Returns:
-            dict: {"width": 1280, "height": 800} ou None si non définie
+            dict: {"width": 1280, "height": 800} or None if not defined
         """
         if self._cache is None:
             self._cache = self._load_hardware_config()
@@ -72,7 +65,7 @@ class HardwareService:
         screen_config = self._cache.get('screen', {})
         screen_type = self.get_screen_type()
 
-        # New format: read resolution from screen type config
+        # Read resolution from screen type config
         if screen_type in screen_config and isinstance(screen_config[screen_type], dict):
             resolution_str = screen_config[screen_type].get('resolution')
             if resolution_str:
@@ -83,14 +76,7 @@ class HardwareService:
                 except (ValueError, AttributeError) as e:
                     self.logger.warning(f"Invalid resolution format: {resolution_str}, error: {e}")
 
-        # Fallback: hardcoded mapping for backward compatibility
-        resolution_map = {
-            "waveshare_7_usb": {"width": 1024, "height": 600},
-            "waveshare_8_dsi": {"width": 1280, "height": 800},
-            "none": {"width": None, "height": None}
-        }
-
-        return resolution_map.get(screen_type, {"width": None, "height": None})
+        return None
 
     def get_screen_info(self) -> Dict:
         """

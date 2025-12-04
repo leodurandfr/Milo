@@ -261,8 +261,8 @@ function updateTrackWidth() {
   background: linear-gradient(to right,
     var(--color-background) 0%,
     var(--color-background) var(--progress-min),
-    #767C76 var(--progress-min),
-    #767C76 var(--progress-max),
+    var(--color-text-secondary) var(--progress-min),
+    var(--color-text-secondary) var(--progress-max),
     var(--color-background) var(--progress-max),
     var(--color-background) 100%);
   pointer-events: none;
@@ -276,7 +276,7 @@ function updateTrackWidth() {
   height: 40px;
   border-radius: 20px;
   background: #FFFFFF;
-  border: 2px solid #767C76;
+  border: 2px solid var(--color-text-secondary);
   cursor: pointer;
   transform: translateX(-50%);
 }

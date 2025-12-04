@@ -35,17 +35,16 @@ class RadioDataService:
                 async with self._file_lock:
                     async with aiofiles.open(self.data_file, 'r', encoding='utf-8') as f:
                         data = json.loads(await f.read())
-                        # Ensure new structure keys exist (for backwards compatibility)
+                        # Ensure favorites_cache key exists
                         if 'favorites_cache' not in data:
                             data['favorites_cache'] = {}
-                        if isinstance(data.get('custom_stations'), list):
-                            # Old format: convert list to dict
-                            data['custom_stations'] = {}
                         return data
             else:
-                # First time: migrate from milo_settings.json
-                self.logger.info("radio_data.json not found, migrating from milo_settings.json")
-                return await self._migrate_from_settings()
+                # First time: create empty data file
+                self.logger.info("radio_data.json not found, creating new file")
+                default_data = {"favorites": [], "broken_stations": [], "custom_stations": {}, "favorites_cache": {}}
+                await self.save_data(default_data)
+                return default_data
 
         except json.JSONDecodeError as e:
             self.logger.error(f"JSON error in radio_data.json: {e}")
@@ -83,71 +82,3 @@ class RadioDataService:
         except Exception as e:
             self.logger.error(f"Error saving radio_data.json: {e}")
             return False
-
-    async def _migrate_from_settings(self) -> Dict[str, Any]:
-        """
-        Migrates data from milo_settings.json (once only)
-
-        Returns:
-            Migrated data
-        """
-        settings_file = '/var/lib/milo/settings.json'
-
-        if not os.path.exists(settings_file):
-            return {"favorites": [], "broken_stations": [], "custom_stations": []}
-
-        try:
-            async with aiofiles.open(settings_file, 'r', encoding='utf-8') as f:
-                settings = json.loads(await f.read())
-
-            radio_section = settings.get('radio', {})
-
-            # Extract data
-            old_favorites_ids = radio_section.get('favorites', [])
-            broken_stations = radio_section.get('broken_stations', [])
-            custom_stations = radio_section.get('custom_stations', [])
-            station_images = radio_section.get('station_images', {})
-
-            # Convert favorites: merge IDs + metadata
-            new_favorites = []
-            for station_id in old_favorites_ids:
-                if station_id.startswith("custom_"):
-                    # Custom station
-                    custom = next((s for s in custom_stations if s.get('id') == station_id), None)
-                    if custom:
-                        new_favorites.append(custom)
-                    else:
-                        new_favorites.append({"id": station_id})
-                elif station_id in station_images:
-                    # Station with metadata
-                    metadata = station_images[station_id]
-                    new_favorites.append({
-                        'id': station_id,
-                        'name': metadata.get('name', ''),
-                        'country': metadata.get('country', ''),
-                        'genre': metadata.get('genre', ''),
-                        'favicon': metadata.get('favicon', ''),
-                        'url': '',
-                        'bitrate': 0,
-                        'codec': 'Unknown'
-                    })
-                else:
-                    # Just the ID
-                    new_favorites.append({"id": station_id})
-
-            migrated = {
-                "favorites": new_favorites,
-                "broken_stations": broken_stations,
-                "custom_stations": custom_stations,
-                "favorites_cache": {}  # Empty cache, will be populated on first load
-            }
-
-            # Save immediately
-            await self.save_data(migrated)
-            self.logger.info(f"✅ Migrated {len(new_favorites)} favorites from milo_settings.json")
-
-            return migrated
-
-        except Exception as e:
-            self.logger.error(f"Migration error: {e}")
-            return {"favorites": [], "broken_stations": [], "custom_stations": {}, "favorites_cache": {}}
