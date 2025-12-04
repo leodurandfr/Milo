@@ -98,19 +98,11 @@ const props = defineProps({
     required: true,
     validator: (value) => ['card', 'image'].includes(value)
   },
-  showControls: {
-    type: Boolean,
-    default: true
-  },
   isPlaying: {
     type: Boolean,
     default: false
   },
   isLoading: {
-    type: Boolean,
-    default: false
-  },
-  showCountry: {
     type: Boolean,
     default: false
   }

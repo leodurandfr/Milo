@@ -29,6 +29,9 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   const isResetting = ref(false);
   const bandsLoaded = ref(false);
 
+  // AbortController for cancelling ongoing requests
+  let loadAbortController = null;
+
   // Throttling management
   const bandThrottleMap = new Map();
 
@@ -45,21 +48,27 @@ export const useEqualizerStore = defineStore('equalizer', () => {
   }
 
   // === API CALLS ===
-  async function fetchStatus() {
+  async function fetchStatus(signal = null) {
     try {
-      const response = await axios.get('/api/equalizer/status');
+      const response = await axios.get('/api/equalizer/status', { signal });
       return response.data;
     } catch (error) {
+      if (axios.isCancel(error) || error.name === 'CanceledError') {
+        return null; // Request was cancelled
+      }
       console.error('Error fetching equalizer status:', error);
       return null;
     }
   }
 
-  async function fetchBands() {
+  async function fetchBands(signal = null) {
     try {
-      const response = await axios.get('/api/equalizer/bands');
+      const response = await axios.get('/api/equalizer/bands', { signal });
       return response.data.bands || [];
     } catch (error) {
+      if (axios.isCancel(error) || error.name === 'CanceledError') {
+        return null; // Request was cancelled
+      }
       console.error('Error fetching equalizer bands:', error);
       return [];
     }
@@ -87,14 +96,26 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === ACTIONS ===
   async function loadBands() {
+    // Cancel previous request if it exists
+    if (loadAbortController) {
+      loadAbortController.abort();
+    }
+    loadAbortController = new AbortController();
+    const signal = loadAbortController.signal;
+
     isLoading.value = true;
     bandsLoaded.value = false;
 
     try {
       const [statusData, bandsData] = await Promise.all([
-        fetchStatus(),
-        fetchBands()
+        fetchStatus(signal),
+        fetchBands(signal)
       ]);
+
+      // Check if request was cancelled
+      if (statusData === null || bandsData === null) {
+        return;
+      }
 
       if (statusData?.available && bandsData.length > 0) {
         // Update to real values from the API
@@ -109,9 +130,13 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
       bandsLoaded.value = true;
     } catch (error) {
+      if (axios.isCancel(error) || error.name === 'CanceledError') {
+        return; // Request was cancelled
+      }
       console.error('Error loading equalizer data:', error);
     } finally {
       isLoading.value = false;
+      loadAbortController = null;
     }
   }
 
@@ -219,6 +244,11 @@ export const useEqualizerStore = defineStore('equalizer', () => {
 
   // === CLEANUP ===
   function cleanup() {
+    // Cancel pending requests
+    if (loadAbortController) {
+      loadAbortController.abort();
+      loadAbortController = null;
+    }
     clearAllThrottles();
     bandsLoaded.value = false;
   }
