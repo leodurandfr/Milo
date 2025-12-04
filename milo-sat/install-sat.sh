@@ -215,11 +215,11 @@ install_dependencies() {
     
     log_info "Installation des dépendances minimales..."
     sudo apt install -y \
+        git \
         python3-pip \
         python3-venv \
         python3-dev \
         libasound2-dev \
-        wget \
         avahi-utils
     
     sudo rm -f /etc/apt/apt.conf.d/local
