@@ -166,7 +166,20 @@
       "completed": "更新完成！",
       "startingUpdate": "正在开始更新...",
       "updateInitiated": "更新已启动...",
-      "updateInProgress": "更新进行中..."
+      "updateInProgress": "更新进行中...",
+      "checkingRepository": "正在检查仓库...",
+      "fetchingUpdates": "正在从 GitHub 获取更新...",
+      "checkingLocalChanges": "正在检查本地更改...",
+      "pullingChanges": "正在下载最新更改...",
+      "installingFrontendDeps": "正在安装前端依赖...",
+      "buildingFrontend": "正在编译前端...",
+      "installingPythonDeps": "正在安装 Python 依赖...",
+      "restartingBackend": "正在重启后端服务...",
+      "restartingKiosk": "正在重启 kiosk...",
+      "rollingBack": "正在回滚到之前版本...",
+      "rollbackRebuilding": "回滚后重新编译...",
+      "rollbackRestarting": "回滚后重启服务...",
+      "rollbackComplete": "回滚完成"
     }
   },
   "info": {

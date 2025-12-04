@@ -104,7 +104,7 @@ const shouldShowPodcast = computed(() => {
 });
 
 const shouldShowPluginStatus = computed(() => {
-  // Ne pas afficher le status lors d'une transition vers "none" (désactivation)
+  // Don't show status during transition to "none" (deactivation)
   if (props.transitioning && props.targetSource === 'none') {
     return false;
   }
@@ -149,11 +149,11 @@ const currentDeviceName = computed(() => {
 
 // Key for transitions - includes state for PluginStatus to animate between states
 const contentKey = computed(() => {
-  // Pour PluginStatus: inclure l'état pour déclencher les transitions entre états
+  // For PluginStatus: include state to trigger transitions between states
   if (shouldShowPluginStatus.value) {
     return `${displayedSource.value}-${currentPluginState.value}-${!!currentDeviceName.value}`;
   }
-  // Pour les vues complètes (Radio, Podcast, Librespot): la source suffit
+  // For complete views (Radio, Podcast, Librespot): source is enough
   return displayedSource.value;
 });
 

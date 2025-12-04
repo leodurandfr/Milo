@@ -1,6 +1,6 @@
 # backend/tests/test_equalizer_service.py
 """
-Tests unitaires pour EqualizerService
+Unit tests for EqualizerService
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
@@ -8,11 +8,11 @@ from backend.infrastructure.services.equalizer_service import EqualizerService
 
 
 class TestEqualizerService:
-    """Tests pour le service equalizer"""
+    """Tests for the equalizer service"""
 
     @pytest.fixture
     def mock_settings_service(self):
-        """Mock du SettingsService"""
+        """Mock of SettingsService"""
         service = Mock()
         service.get_setting = AsyncMock(return_value=None)
         service.set_setting = AsyncMock(return_value=True)
@@ -20,16 +20,16 @@ class TestEqualizerService:
 
     @pytest.fixture
     def service(self, mock_settings_service):
-        """Fixture pour créer un EqualizerService"""
+        """Fixture to create an EqualizerService"""
         return EqualizerService(settings_service=mock_settings_service)
 
     @pytest.fixture
     def service_no_settings(self):
-        """Fixture pour créer un service sans SettingsService"""
+        """Fixture to create a service without SettingsService"""
         return EqualizerService(settings_service=None)
 
     def test_initialization(self, service):
-        """Test de l'initialisation du service"""
+        """Service initialization test"""
         assert service.settings_service is not None
         assert len(service.BANDS) == 10
         assert service.BANDS[0]["id"] == "00"
@@ -38,33 +38,33 @@ class TestEqualizerService:
         assert service.BANDS[9]["freq"] == "16 kHz"
 
     def test_bands_configuration(self, service):
-        """Test de la configuration des bandes"""
-        # Vérifier que toutes les bandes ont id et freq
+        """Bands configuration test"""
+        # Check that all bands have id and freq
         for band in service.BANDS:
             assert "id" in band
             assert "freq" in band
 
     def test_format_frequency_display_khz(self, service):
-        """Test du formatage des fréquences kHz"""
+        """kHz frequency formatting test"""
         assert service._format_frequency_display("1 kHz") == "1K"
         assert service._format_frequency_display("2 kHz") == "2K"
         assert service._format_frequency_display("16 kHz") == "16K"
 
     def test_format_frequency_display_hz(self, service):
-        """Test du formatage des fréquences Hz"""
+        """Hz frequency formatting test"""
         assert service._format_frequency_display("31 Hz") == "31"
         assert service._format_frequency_display("125 Hz") == "125"
         assert service._format_frequency_display("500 Hz") == "500"
 
     def test_format_frequency_display_edge_cases(self, service):
-        """Test du formatage avec espaces et cas edge"""
+        """Formatting test with spaces and edge cases"""
         assert service._format_frequency_display("  1 kHz  ") == "1K"
         assert service._format_frequency_display("  125 Hz  ") == "125"
         assert service._format_frequency_display("unknown") == "unknown"
 
     def test_parse_amixer_output_valid(self, service):
-        """Test du parsing d'une sortie amixer valide"""
-        # Sortie simulée d'amixer
+        """Valid amixer output parsing test"""
+        # Simulated amixer output
         amixer_output = """Simple mixer control '00. 31 Hz',0
   Capabilities: pvolume pvolume-joined
   Playback channels: Front Left - Front Right
@@ -95,19 +95,19 @@ Simple mixer control '01. 63 Hz',0
         assert bands[1]["display_name"] == "63"
 
     def test_parse_amixer_output_empty(self, service):
-        """Test du parsing d'une sortie vide"""
+        """Empty output parsing test"""
         bands = service._parse_amixer_output("")
         assert bands == []
 
     def test_parse_amixer_output_malformed(self, service):
-        """Test du parsing d'une sortie malformée"""
+        """Malformed output parsing test"""
         malformed_output = "Invalid output\nNo valid data"
         bands = service._parse_amixer_output(malformed_output)
         assert bands == []
 
     @pytest.mark.asyncio
     async def test_get_all_bands_success(self, service):
-        """Test de récupération de toutes les bandes avec succès"""
+        """Successful retrieval of all bands test"""
         amixer_output = b"""Simple mixer control '00. 31 Hz',0
   Front Left: Playback 66 [66%] [0.00dB]
 Simple mixer control '01. 63 Hz',0
@@ -128,7 +128,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_get_all_bands_amixer_error(self, service):
-        """Test de récupération des bandes avec erreur amixer"""
+        """Bands retrieval test with amixer error"""
         with patch('asyncio.create_subprocess_exec') as mock_exec:
             mock_process = AsyncMock()
             mock_process.returncode = 1
@@ -141,7 +141,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_get_all_bands_exception(self, service):
-        """Test de récupération des bandes avec exception"""
+        """Bands retrieval test with exception"""
         with patch('asyncio.create_subprocess_exec', side_effect=Exception("Process failed")):
             bands = await service.get_all_bands()
 
@@ -149,7 +149,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_set_band_value_success(self, service):
-        """Test de modification d'une bande avec succès"""
+        """Successful band modification test"""
         with patch('asyncio.create_subprocess_exec') as mock_exec:
             mock_process = AsyncMock()
             mock_process.returncode = 0
@@ -166,25 +166,25 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_set_band_value_invalid_value_too_low(self, service):
-        """Test de modification avec valeur trop basse"""
+        """Modification test with value too low"""
         result = await service.set_band_value("00", -10)
         assert result is False
 
     @pytest.mark.asyncio
     async def test_set_band_value_invalid_value_too_high(self, service):
-        """Test de modification avec valeur trop haute"""
+        """Modification test with value too high"""
         result = await service.set_band_value("00", 150)
         assert result is False
 
     @pytest.mark.asyncio
     async def test_set_band_value_invalid_band_id(self, service):
-        """Test de modification avec band_id invalide"""
+        """Modification test with invalid band_id"""
         result = await service.set_band_value("99", 50)
         assert result is False
 
     @pytest.mark.asyncio
     async def test_set_band_value_amixer_error(self, service):
-        """Test de modification avec erreur amixer"""
+        """Modification test with amixer error"""
         with patch('asyncio.create_subprocess_exec') as mock_exec:
             mock_process = AsyncMock()
             mock_process.returncode = 1
@@ -197,7 +197,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_set_band_value_exception(self, service):
-        """Test de modification avec exception"""
+        """Modification test with exception"""
         with patch('asyncio.create_subprocess_exec', side_effect=Exception("Process failed")):
             result = await service.set_band_value("00", 75)
 
@@ -205,50 +205,50 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_reset_all_bands_success(self, service):
-        """Test de reset de toutes les bandes avec succès"""
+        """Successful reset of all bands test"""
         with patch.object(service, 'set_band_value', new_callable=AsyncMock) as mock_set:
             mock_set.return_value = True
 
             result = await service.reset_all_bands(66)
 
             assert result is True
-            assert mock_set.call_count == 10  # 10 bandes
-            # Vérifier que toutes les bandes ont été appelées avec 66
+            assert mock_set.call_count == 10  # 10 bands
+            # Check that all bands were called with 66
             for call in mock_set.call_args_list:
                 assert call[0][1] == 66
 
     @pytest.mark.asyncio
     async def test_reset_all_bands_default_value(self, service):
-        """Test de reset avec valeur par défaut (66)"""
+        """Reset test with default value (66)"""
         with patch.object(service, 'set_band_value', new_callable=AsyncMock) as mock_set:
             mock_set.return_value = True
 
             result = await service.reset_all_bands()
 
             assert result is True
-            # Vérifier la valeur par défaut
+            # Check the default value
             for call in mock_set.call_args_list:
                 assert call[0][1] == 66
 
     @pytest.mark.asyncio
     async def test_reset_all_bands_partial_failure(self, service):
-        """Test de reset avec échec partiel"""
+        """Reset test with partial failure"""
         call_count = 0
 
         async def mock_set_band(band_id, value):
             nonlocal call_count
             call_count += 1
-            # Les 5 premières réussissent, les 5 suivantes échouent
+            # First 5 succeed, next 5 fail
             return call_count <= 5
 
         with patch.object(service, 'set_band_value', side_effect=mock_set_band):
             result = await service.reset_all_bands(66)
 
-            assert result is False  # Pas toutes réussies
+            assert result is False  # Not all successful
 
     @pytest.mark.asyncio
     async def test_reset_all_bands_exception(self, service):
-        """Test de reset avec exception"""
+        """Reset test with exception"""
         with patch.object(service, 'set_band_value', side_effect=Exception("Error")):
             result = await service.reset_all_bands(66)
 
@@ -256,7 +256,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_is_available_true(self, service):
-        """Test de disponibilité quand l'equalizer est disponible"""
+        """Availability test when equalizer is available"""
         with patch('asyncio.create_subprocess_exec') as mock_exec:
             mock_process = AsyncMock()
             mock_process.returncode = 0
@@ -269,7 +269,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_is_available_false(self, service):
-        """Test de disponibilité quand l'equalizer n'est pas disponible"""
+        """Availability test when equalizer is not available"""
         with patch('asyncio.create_subprocess_exec') as mock_exec:
             mock_process = AsyncMock()
             mock_process.returncode = 1
@@ -282,7 +282,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_is_available_exception(self, service):
-        """Test de disponibilité avec exception"""
+        """Availability test with exception"""
         with patch('asyncio.create_subprocess_exec', side_effect=Exception("Error")):
             result = await service.is_available()
 
@@ -290,7 +290,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_save_current_bands_success(self, service, mock_settings_service):
-        """Test de sauvegarde des bandes avec succès"""
+        """Successful bands save test"""
         mock_bands = [
             {"id": "00", "freq": "31 Hz", "value": 66, "display_name": "31"},
             {"id": "01", "freq": "63 Hz", "value": 75, "display_name": "63"}
@@ -305,7 +305,7 @@ Simple mixer control '01. 63 Hz',0
             mock_settings_service.set_setting.assert_called_once()
             args = mock_settings_service.set_setting.call_args[0]
             assert args[0] == 'equalizer.saved_bands'
-            # Vérifier que seulement id et value sont sauvegardés
+            # Check that only id and value are saved
             saved_data = args[1]
             assert len(saved_data) == 2
             assert saved_data[0] == {"id": "00", "value": 66}
@@ -313,7 +313,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_save_current_bands_no_bands(self, service, mock_settings_service):
-        """Test de sauvegarde sans bandes disponibles"""
+        """Save test without available bands"""
         with patch.object(service, 'get_all_bands', new_callable=AsyncMock) as mock_get:
             mock_get.return_value = []
 
@@ -324,14 +324,14 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_save_current_bands_no_settings_service(self, service_no_settings):
-        """Test de sauvegarde sans SettingsService"""
+        """Save test without SettingsService"""
         result = await service_no_settings.save_current_bands()
 
         assert result is False
 
     @pytest.mark.asyncio
     async def test_save_current_bands_exception(self, service):
-        """Test de sauvegarde avec exception"""
+        """Save test with exception"""
         with patch.object(service, 'get_all_bands', side_effect=Exception("Error")):
             result = await service.save_current_bands()
 
@@ -339,7 +339,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_restore_saved_bands_success(self, service, mock_settings_service):
-        """Test de restauration des bandes avec succès"""
+        """Successful bands restore test"""
         saved_bands = [
             {"id": "00", "value": 66},
             {"id": "01", "value": 75}
@@ -358,17 +358,17 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_restore_saved_bands_no_saved_data(self, service, mock_settings_service):
-        """Test de restauration sans données sauvegardées"""
+        """Restore test without saved data"""
         mock_settings_service.get_setting = AsyncMock(return_value=None)
 
         result = await service.restore_saved_bands()
 
-        # Pas une erreur, juste rien à restaurer
+        # Not an error, just nothing to restore
         assert result is True
 
     @pytest.mark.asyncio
     async def test_restore_saved_bands_partial_failure(self, service, mock_settings_service):
-        """Test de restauration avec échec partiel"""
+        """Restore test with partial failure"""
         saved_bands = [
             {"id": "00", "value": 66},
             {"id": "01", "value": 75}
@@ -380,7 +380,7 @@ Simple mixer control '01. 63 Hz',0
         async def mock_set_band(band_id, value):
             nonlocal call_count
             call_count += 1
-            return call_count == 1  # Première réussit, deuxième échoue
+            return call_count == 1  # First succeeds, second fails
 
         with patch.object(service, 'set_band_value', side_effect=mock_set_band):
             result = await service.restore_saved_bands()
@@ -389,14 +389,14 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_restore_saved_bands_no_settings_service(self, service_no_settings):
-        """Test de restauration sans SettingsService"""
+        """Restore test without SettingsService"""
         result = await service_no_settings.restore_saved_bands()
 
         assert result is False
 
     @pytest.mark.asyncio
     async def test_restore_saved_bands_exception(self, service, mock_settings_service):
-        """Test de restauration avec exception"""
+        """Restore test with exception"""
         mock_settings_service.get_setting = AsyncMock(side_effect=Exception("Error"))
 
         result = await service.restore_saved_bands()
@@ -405,7 +405,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_get_equalizer_status_available(self, service):
-        """Test de récupération du status quand disponible"""
+        """Status retrieval test when available"""
         mock_bands = [
             {"id": "00", "freq": "31 Hz", "value": 66, "display_name": "31"}
         ]
@@ -423,7 +423,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_get_equalizer_status_not_available(self, service):
-        """Test de récupération du status quand non disponible"""
+        """Status retrieval test when not available"""
         with patch.object(service, 'is_available', new_callable=AsyncMock) as mock_avail:
             mock_avail.return_value = False
 
@@ -435,7 +435,7 @@ Simple mixer control '01. 63 Hz',0
 
     @pytest.mark.asyncio
     async def test_get_equalizer_status_exception(self, service):
-        """Test de récupération du status avec exception"""
+        """Status retrieval test with exception"""
         with patch.object(service, 'is_available', side_effect=Exception("Error")):
             status = await service.get_equalizer_status()
 

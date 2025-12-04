@@ -1,6 +1,6 @@
 # backend/infrastructure/services/satellite_program_update_service.py
 """
-Service de mise à jour des programmes satellites - Version avec support token GitHub
+Satellite program update service - Version with GitHub token support
 """
 import asyncio
 import aiohttp
@@ -16,18 +16,18 @@ class SatelliteProgramUpdateService:
         self.logger = logging.getLogger(__name__)
         self.satellite_api_port = 8001
 
-        # Token GitHub (optionnel)
+        # GitHub token (optional)
         self.github_token = os.environ.get('GITHUB_TOKEN')
         if self.github_token:
             self.logger.debug("GitHub token detected for satellite updates")
 
-        # Cache pour les satellites détectés
+        # Cache for detected satellites
         self._satellites_cache = {}
-        self._cache_timeout = 30  # 30 secondes
+        self._cache_timeout = 30  # 30 seconds
         self._last_cache_time = 0
 
     def _get_github_headers(self) -> Dict[str, str]:
-        """Retourne les headers pour les requêtes GitHub (avec token si disponible)"""
+        """Returns headers for GitHub requests (with token if available)"""
         headers = {
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": "Milo-Audio-System"
@@ -39,9 +39,9 @@ class SatelliteProgramUpdateService:
         return headers
 
     async def discover_satellites(self) -> List[Dict[str, Any]]:
-        """Découvre les satellites actifs sur le réseau"""
+        """Discovers active satellites on the network"""
         try:
-            # Récupérer les clients Snapcast
+            # Get Snapcast clients
             clients = await self.snapcast_service.get_clients()
 
             satellites = []
@@ -56,7 +56,7 @@ class SatelliteProgramUpdateService:
                 if not ip:
                     continue
 
-                # Tester si l'API satellite répond
+                # Check if satellite API responds
                 satellite_info = await self._check_satellite_api(hostname, ip)
 
                 if satellite_info["online"]:
@@ -138,9 +138,9 @@ class SatelliteProgramUpdateService:
         hostname: str,
         progress_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
-        """Lance la mise à jour d'un satellite"""
+        """Launches a satellite update"""
         try:
-            # Récupérer l'IP du satellite
+            # Get satellite IP
             satellites = await self.discover_satellites()
             satellite = next((s for s in satellites if s["hostname"] == hostname), None)
 
@@ -156,7 +156,7 @@ class SatelliteProgramUpdateService:
             if progress_callback:
                 await progress_callback("updates.progress.startingUpdate", 0)
 
-            # Lancer la mise à jour via l'API du satellite
+            # Launch update via satellite API
             timeout = aiohttp.ClientTimeout(total=300)  # 5 minutes timeout
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url) as response:
@@ -170,7 +170,7 @@ class SatelliteProgramUpdateService:
                                     10
                                 )
 
-                            # Attendre que la mise à jour se termine
+                            # Wait for update to complete
                             update_result = await self._wait_for_update_completion(
                                 hostname,
                                 ip,
@@ -202,9 +202,9 @@ class SatelliteProgramUpdateService:
         ip: str,
         progress_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
-        """Attend la fin de la mise à jour sur le satellite"""
+        """Waits for update completion on the satellite"""
         max_wait_time = 180  # 3 minutes max
-        check_interval = 5   # Vérifier toutes les 5 secondes
+        check_interval = 5   # Check every 5 seconds
         elapsed = 0
 
         while elapsed < max_wait_time:
@@ -219,7 +219,7 @@ class SatelliteProgramUpdateService:
                     int(progress)
                 )
 
-            # Vérifier le statut de la mise à jour
+            # Check update status
             try:
                 url = f"http://{ip}:{self.satellite_api_port}/update/status"
                 timeout = aiohttp.ClientTimeout(total=3)
@@ -230,7 +230,7 @@ class SatelliteProgramUpdateService:
                             data = await response.json()
 
                             if not data.get("update_in_progress", False):
-                                # Mise à jour terminée, vérifier la nouvelle version
+                                # Update complete, check new version
                                 status_url = f"http://{ip}:{self.satellite_api_port}/status"
 
                                 async with session.get(status_url) as status_response:
@@ -273,7 +273,7 @@ class SatelliteProgramUpdateService:
                         data = await response.json()
                         tag_name = data.get("tag_name", "")
 
-                        # Extraire le numéro de version (v0.31.0 -> 0.31.0)
+                        # Extract version number (v0.31.0 -> 0.31.0)
                         return tag_name.lstrip('v')
                     elif response.status == 403:
                         self.logger.warning("GitHub API rate limit - snapclient version unavailable")
@@ -285,7 +285,7 @@ class SatelliteProgramUpdateService:
             return None
 
     def _compare_versions(self, current: Optional[str], latest: Optional[str]) -> bool:
-        """Compare deux versions (retourne True si mise à jour disponible)"""
+        """Compares two versions (returns True if update available)"""
         if not current or not latest:
             return False
 

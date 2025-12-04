@@ -569,12 +569,12 @@ def create_settings_router(
                     "message": "User ID and API Key are required"
                 }
 
-            # Créer une instance temporaire de TaddyAPI
+            # Create a temporary TaddyAPI instance
             taddy_api = TaddyAPI(user_id=user_id, api_key=api_key)
 
             try:
-                # Utiliser get_api_requests_remaining() pour valider les credentials
-                # Retourne le nombre de requêtes restantes, ou -1 si erreur
+                # Use get_api_requests_remaining() to validate credentials
+                # Returns the number of remaining requests, or -1 if error
                 remaining = await taddy_api.get_api_requests_remaining()
 
                 if remaining >= 0:

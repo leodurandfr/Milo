@@ -73,24 +73,103 @@ class ProgramUpdateService(ProgramVersionService):
             self.update_logger.error(f"Update failed for {program_key}: {e}")
             return {"success": False, "error": str(e)}
 
+    async def _get_current_commit(self, git_path: str) -> str:
+        """Get current HEAD commit hash"""
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", git_path, "rev-parse", "HEAD",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
+        return stdout.decode().strip()
+
+    async def _rollback_milo_to_commit(self, commit_hash: str, progress_callback: Optional[Callable] = None) -> bool:
+        """Rollback Milo to a specific commit and rebuild"""
+        config = self.update_config["milo"]
+        try:
+            self.update_logger.info(f"Rolling back Milo to commit {commit_hash[:8]}...")
+
+            # Hard reset to the original commit
+            proc = await asyncio.create_subprocess_exec(
+                "git", "-C", config["git_path"], "reset", "--hard", commit_hash,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await proc.communicate()
+
+            if proc.returncode != 0:
+                self.update_logger.error(f"Git reset failed: {stderr.decode()}")
+                return False
+
+            if progress_callback:
+                await progress_callback("updates.progress.rollbackRebuilding", 92)
+
+            # Rebuild frontend after rollback
+            frontend_dir = Path(config["git_path"]) / "frontend"
+            if frontend_dir.exists():
+                proc = await asyncio.create_subprocess_exec(
+                    "npm", "install",
+                    cwd=str(frontend_dir),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await proc.communicate()
+
+                proc = await asyncio.create_subprocess_exec(
+                    "npm", "run", "build",
+                    cwd=str(frontend_dir),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await proc.communicate()
+
+            # Reinstall Python dependencies
+            requirements_file = Path(config["git_path"]) / "backend" / "requirements.txt"
+            if requirements_file.exists():
+                proc = await asyncio.create_subprocess_exec(
+                    "pip3", "install", "-r", str(requirements_file),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await proc.communicate()
+
+            if progress_callback:
+                await progress_callback("updates.progress.rollbackRestarting", 96)
+
+            # Restart services
+            await self._restart_service(config["service_name"])
+            await self._restart_service("milo-kiosk.service")
+
+            self.update_logger.info("Milo rollback completed successfully")
+            return True
+
+        except Exception as e:
+            self.update_logger.error(f"Milo rollback failed: {e}")
+            return False
+
     async def _update_milo_app(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Updates Milo application via git pull"""
+        """Updates Milo application via git pull with automatic rollback on failure"""
         config = self.update_config["milo"]
         latest_version = status["latest"]["version"]
+        original_commit = None
 
         try:
             if progress_callback:
-                await progress_callback("Checking git repository status...", 10)
+                await progress_callback("updates.progress.checkingRepository", 5)
 
             # 1. Check that the directory is a git repository
             git_dir = Path(config["git_path"]) / ".git"
             if not git_dir.exists():
                 return {"success": False, "error": "Not a git repository"}
 
-            if progress_callback:
-                await progress_callback("Fetching updates from GitHub...", 15)
+            # 2. Save current commit for potential rollback
+            original_commit = await self._get_current_commit(config["git_path"])
+            self.update_logger.info(f"Current commit before update: {original_commit[:8]}")
 
-            # 2. Do a git fetch to retrieve the latest information
+            if progress_callback:
+                await progress_callback("updates.progress.fetchingUpdates", 10)
+
+            # 3. Do a git fetch to retrieve the latest information
             proc = await asyncio.create_subprocess_exec(
                 "git", "-C", config["git_path"], "fetch", "origin", config["git_branch"],
                 stdout=asyncio.subprocess.PIPE,
@@ -102,9 +181,9 @@ class ProgramUpdateService(ProgramVersionService):
                 return {"success": False, "error": f"Git fetch failed: {stderr.decode()}"}
 
             if progress_callback:
-                await progress_callback("Checking for local changes...", 20)
+                await progress_callback("updates.progress.checkingLocalChanges", 15)
 
-            # 3. Check if there are uncommitted local changes
+            # 4. Check if there are uncommitted local changes
             proc = await asyncio.create_subprocess_exec(
                 "git", "-C", config["git_path"], "status", "--porcelain",
                 stdout=asyncio.subprocess.PIPE,
@@ -116,9 +195,9 @@ class ProgramUpdateService(ProgramVersionService):
                 return {"success": False, "error": "Local changes detected. Please commit or stash them first."}
 
             if progress_callback:
-                await progress_callback("Pulling latest changes...", 30)
+                await progress_callback("updates.progress.pullingChanges", 20)
 
-            # 4. Do the git pull
+            # 5. Do the git pull
             proc = await asyncio.create_subprocess_exec(
                 "git", "-C", config["git_path"], "pull", "origin", config["git_branch"],
                 stdout=asyncio.subprocess.PIPE,
@@ -127,12 +206,13 @@ class ProgramUpdateService(ProgramVersionService):
             stdout, stderr = await proc.communicate()
 
             if proc.returncode != 0:
-                return {"success": False, "error": f"Git pull failed: {stderr.decode()}"}
+                error_msg = f"Git pull failed: {stderr.decode()}"
+                raise Exception(error_msg)
 
             if progress_callback:
-                await progress_callback("Installing frontend dependencies...", 40)
+                await progress_callback("updates.progress.installingFrontendDeps", 30)
 
-            # 5. Install frontend npm dependencies
+            # 6. Install frontend npm dependencies
             frontend_dir = Path(config["git_path"]) / "frontend"
             if frontend_dir.exists():
                 proc = await asyncio.create_subprocess_exec(
@@ -144,12 +224,13 @@ class ProgramUpdateService(ProgramVersionService):
                 stdout, stderr = await proc.communicate()
 
                 if proc.returncode != 0:
-                    return {"success": False, "error": f"npm install failed: {stderr.decode()}"}
+                    error_msg = f"npm install failed: {stderr.decode()}"
+                    raise Exception(error_msg)
 
             if progress_callback:
-                await progress_callback("Building frontend...", 55)
+                await progress_callback("updates.progress.buildingFrontend", 45)
 
-            # 6. Build the frontend
+            # 7. Build the frontend
             if frontend_dir.exists():
                 proc = await asyncio.create_subprocess_exec(
                     "npm", "run", "build",
@@ -160,12 +241,13 @@ class ProgramUpdateService(ProgramVersionService):
                 stdout, stderr = await proc.communicate()
 
                 if proc.returncode != 0:
-                    return {"success": False, "error": f"npm run build failed: {stderr.decode()}"}
+                    error_msg = f"npm run build failed: {stderr.decode()}"
+                    raise Exception(error_msg)
 
             if progress_callback:
-                await progress_callback("Installing Python dependencies...", 70)
+                await progress_callback("updates.progress.installingPythonDeps", 60)
 
-            # 7. Install Python dependencies if requirements.txt exists
+            # 8. Install Python dependencies if requirements.txt exists
             requirements_file = Path(config["git_path"]) / "backend" / "requirements.txt"
             if requirements_file.exists():
                 proc = await asyncio.create_subprocess_exec(
@@ -176,25 +258,25 @@ class ProgramUpdateService(ProgramVersionService):
                 await proc.communicate()
 
             if progress_callback:
-                await progress_callback("Restarting backend service...", 85)
+                await progress_callback("updates.progress.restartingBackend", 75)
 
-            # 8. Restart the backend service
+            # 9. Restart the backend service
             restart_result = await self._restart_service(config["service_name"])
             if not restart_result:
-                return {"success": False, "error": "Failed to restart backend service"}
+                raise Exception("Failed to restart backend service")
 
             if progress_callback:
-                await progress_callback("Restarting kiosk...", 95)
+                await progress_callback("updates.progress.restartingKiosk", 90)
 
-            # 9. Restart kiosk service to reload frontend
+            # 10. Restart kiosk service to reload frontend
             kiosk_restart_result = await self._restart_service("milo-kiosk.service")
             if not kiosk_restart_result:
                 self.update_logger.warning("Failed to restart kiosk service, but update was successful")
 
             if progress_callback:
-                await progress_callback("Update completed!", 100)
+                await progress_callback("updates.progress.completed", 100)
 
-            # 10. Get the new version
+            # 11. Get the new version
             new_status = await self.get_installed_version("milo")
             new_version = list(new_status.get("versions", {}).values())[0] if new_status.get("versions") else "unknown"
 
@@ -207,6 +289,30 @@ class ProgramUpdateService(ProgramVersionService):
 
         except Exception as e:
             self.update_logger.error(f"Milo app update failed: {e}")
+
+            # Automatic rollback if we have an original commit
+            if original_commit:
+                self.update_logger.info("Initiating automatic rollback...")
+                if progress_callback:
+                    await progress_callback("updates.progress.rollingBack", 90)
+
+                rollback_success = await self._rollback_milo_to_commit(original_commit, progress_callback)
+
+                if rollback_success:
+                    if progress_callback:
+                        await progress_callback("updates.progress.rollbackComplete", 100)
+                    return {
+                        "success": False,
+                        "error": f"Update failed: {str(e)}. Rolled back to previous version.",
+                        "rolled_back": True
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Update failed: {str(e)}. Rollback also failed - manual intervention required.",
+                        "rolled_back": False
+                    }
+
             return {"success": False, "error": str(e)}
 
     async def _update_go_librespot(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:

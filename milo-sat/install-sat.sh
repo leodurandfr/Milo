@@ -56,70 +56,70 @@ show_banner() {
 
 check_root() {
     if [[ $EUID -eq 0 ]]; then
-        log_error "Ce script ne doit pas être exécuté en tant que root."
+        log_error "This script must not be run as root."
         exit 1
     fi
 }
 
 check_system() {
-    log_info "Vérification du système..."
-    
+    log_info "Checking system..."
+
     if ! grep -q "Raspberry Pi" /proc/cpuinfo; then
-        log_error "Ce script est conçu pour Raspberry Pi uniquement."
+        log_error "This script is designed for Raspberry Pi only."
         exit 1
     fi
-    
+
     ARCH=$(uname -m)
     if [[ "$ARCH" != "aarch64" ]]; then
-        log_error "Architecture non supportée: $ARCH. Raspberry Pi OS 64bit requis."
+        log_error "Unsupported architecture: $ARCH. Raspberry Pi OS 64-bit required."
         exit 1
     fi
-    
-    log_success "Système compatible détecté"
+
+    log_success "Compatible system detected"
 }
 
 discover_milo_principal() {
-    log_info "Recherche de Milo principal sur le réseau..."
-    
+    log_info "Searching for main Milo on the network..."
+
     if MILO_PRINCIPAL_IP=$(getent hosts milo.local 2>/dev/null | awk '{print $1}' | head -1); then
-        log_success "Milo principal trouvé à l'adresse: $MILO_PRINCIPAL_IP (milo.local)"
+        log_success "Main Milo found at: $MILO_PRINCIPAL_IP (milo.local)"
         return 0
     fi
-    
-    log_error "Impossible de trouver Milo principal automatiquement."
+
+    log_error "Unable to find main Milo automatically."
     echo ""
-    read -p "Entrez l'adresse IP de Milo principal: " MILO_PRINCIPAL_IP
+    read -p "Enter the IP address of main Milo: " MILO_PRINCIPAL_IP
     if [[ -z "$MILO_PRINCIPAL_IP" ]]; then
-        log_error "Adresse IP requise. Installation annulée."
+        log_error "IP address required. Installation cancelled."
         exit 1
     fi
 }
 
 collect_user_choices() {
     echo ""
-    log_info "Configuration du satellite Milo - Répondez aux questions suivantes :"
+    log_info "Milo satellite configuration - Answer the following questions:"
     echo ""
-    
+
     # 1. Hostname choice
-    echo "Choisissez un numéro pour ce satellite (01-99):"
+    echo "Choose a number for this satellite (01-99):"
     while true; do
-        read -p "Numéro du satellite [01]: " USER_HOSTNAME_CHOICE
+        read -p "Satellite number [01]: " USER_HOSTNAME_CHOICE
         USER_HOSTNAME_CHOICE=${USER_HOSTNAME_CHOICE:-01}
-        
+
         if [[ $USER_HOSTNAME_CHOICE =~ ^[0-9]{1,2}$ ]]; then
             USER_HOSTNAME_CHOICE=$(printf "%02d" $USER_HOSTNAME_CHOICE)
             log_success "Hostname: milo-sat-$USER_HOSTNAME_CHOICE"
             break
         else
-            echo "Veuillez entrer un nombre entre 01 et 99."
+            echo "Please enter a number between 01 and 99."
         fi
     done
-    
+
     # 2. HiFiBerry card choice
     echo ""
-    log_info "Configuration de la carte audio HiFiBerry..."
+    log_info "Configuring HiFiBerry audio card..."
     echo ""
-    echo "Sélectionnez votre carte audio HiFiBerry:"
+    echo "Select your HiFiBerry audio card:"
     echo ""
     echo "1) Amp2"
     echo "2) Amp4"
@@ -127,23 +127,23 @@ collect_user_choices() {
     echo "4) Amp100"
     echo "5) Beocreate 4CA"
     echo ""
-    
+
     while true; do
-        read -p "Votre choix [1]: " USER_HIFIBERRY_CHOICE
+        read -p "Your choice [1]: " USER_HIFIBERRY_CHOICE
         USER_HIFIBERRY_CHOICE=${USER_HIFIBERRY_CHOICE:-1}
-        
+
         case $USER_HIFIBERRY_CHOICE in
-            1) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Carte sélectionnée: Amp2"; break;;
-            2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Carte sélectionnée: Amp4"; break;;
-            3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; log_success "Carte sélectionnée: Amp4 Pro"; break;;
-            4) HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; log_success "Carte sélectionnée: Amp100"; break;;
-            5) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; log_success "Carte sélectionnée: Beocreate 4CA"; break;;
-            *) echo "Choix invalide. Veuillez entrer un nombre entre 1 et 5.";;
+            1) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Amp2"; break;;
+            2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Amp4"; break;;
+            3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Amp4 Pro"; break;;
+            4) HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Amp100"; break;;
+            5) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Beocreate 4CA"; break;;
+            *) echo "Invalid choice. Please enter a number between 1 and 5.";;
         esac
     done
-    
+
     echo ""
-    log_success "Configuration terminée ! L'installation va maintenant se poursuivre automatiquement..."
+    log_success "Configuration complete! Installation will now continue automatically..."
     echo ""
     sleep 2
 }
@@ -151,69 +151,69 @@ collect_user_choices() {
 setup_hostname() {
     local new_hostname="milo-sat-$USER_HOSTNAME_CHOICE"
     local current_hostname=$(hostname)
-    
+
     if [ "$current_hostname" != "$new_hostname" ]; then
-        log_info "Configuration du hostname '$new_hostname'..."
+        log_info "Configuring hostname '$new_hostname'..."
         echo "$new_hostname" | sudo tee /etc/hostname > /dev/null
         sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$new_hostname/" /etc/hosts
         sudo hostnamectl set-hostname "$new_hostname"
-        log_success "Hostname configuré"
+        log_success "Hostname configured"
         REBOOT_REQUIRED=true
     else
-        log_success "Hostname '$new_hostname' déjà configuré"
+        log_success "Hostname '$new_hostname' already configured"
     fi
 }
 
 configure_audio_hardware() {
-    log_info "Configuration du hardware audio pour HiFiBerry..."
-    
+    log_info "Configuring audio hardware for HiFiBerry..."
+
     local config_file="/boot/firmware/config.txt"
-    
+
     if [[ ! -f "$config_file" ]]; then
         config_file="/boot/config.txt"
         if [[ ! -f "$config_file" ]]; then
-            log_error "Fichier config.txt non trouvé"
+            log_error "config.txt file not found"
             exit 1
         fi
     fi
-    
+
     sudo cp "$config_file" "$config_file.backup.$(date +%Y%m%d_%H%M%S)"
-    
+
     sudo sed -i '/^dtparam=audio=on/d' "$config_file"
-    
+
     if grep -q "vc4-fkms-v3d" "$config_file"; then
         sudo sed -i 's/dtoverlay=vc4-fkms-v3d.*/dtoverlay=vc4-fkms-v3d,audio=off/' "$config_file"
     fi
-    
+
     if grep -q "vc4-kms-v3d" "$config_file"; then
         sudo sed -i 's/dtoverlay=vc4-kms-v3d.*/dtoverlay=vc4-kms-v3d,noaudio/' "$config_file"
     fi
-    
+
     if ! grep -q "$HIFIBERRY_OVERLAY" "$config_file"; then
         echo "" | sudo tee -a "$config_file"
         echo "# Milo Sat - HiFiBerry Audio" | sudo tee -a "$config_file"
         echo "dtoverlay=$HIFIBERRY_OVERLAY" | sudo tee -a "$config_file"
     fi
-    
-    log_success "Configuration audio hardware terminée"
+
+    log_success "Audio hardware configuration complete"
     REBOOT_REQUIRED=true
 }
 
 install_dependencies() {
-    log_info "Mise à jour du système..."
-    
+    log_info "Updating system..."
+
     export DEBIAN_FRONTEND=noninteractive
     export DEBCONF_NONINTERACTIVE_SEEN=true
-    
+
     echo 'Dpkg::Options {
        "--force-confdef";
        "--force-confnew";
     }' | sudo tee /etc/apt/apt.conf.d/local >/dev/null
-    
+
     sudo apt update
     sudo apt upgrade -y
-    
-    log_info "Installation des dépendances minimales..."
+
+    log_info "Installing minimal dependencies..."
     sudo apt install -y \
         git \
         python3-pip \
@@ -221,27 +221,27 @@ install_dependencies() {
         python3-dev \
         libasound2-dev \
         avahi-utils
-    
+
     sudo rm -f /etc/apt/apt.conf.d/local
-    
-    log_success "Dépendances installées"
+
+    log_success "Dependencies installed"
 }
 
 create_milo_sat_user() {
     if id "$MILO_SAT_USER" &>/dev/null; then
-        log_info "Utilisateur '$MILO_SAT_USER' existe déjà"
+        log_info "User '$MILO_SAT_USER' already exists"
     else
-        log_info "Création de l'utilisateur '$MILO_SAT_USER'..."
+        log_info "Creating user '$MILO_SAT_USER'..."
         sudo useradd -m -s /bin/bash -G audio,sudo "$MILO_SAT_USER"
-        log_success "Utilisateur '$MILO_SAT_USER' créé"
+        log_success "User '$MILO_SAT_USER' created"
     fi
-    
+
     sudo mkdir -p "$MILO_SAT_DATA_DIR"
     sudo chown -R "$MILO_SAT_USER:audio" "$MILO_SAT_DATA_DIR"
 }
 
 install_snapclient() {
-    log_info "Installation de Snapclient..."
+    log_info "Installing Snapclient..."
 
     # Install snapclient from Debian repositories
     # This automatically resolves dependencies according to the Debian version
@@ -251,11 +251,11 @@ install_snapclient() {
     sudo systemctl stop snapclient.service || true
     sudo systemctl disable snapclient.service || true
 
-    log_success "Snapclient installé"
+    log_success "Snapclient installed"
 }
 
 clone_milo_sat_repo() {
-    log_info "Clonage du repository Milo (sparse checkout)..."
+    log_info "Cloning Milo repository (sparse checkout)..."
 
     # Clone with sparse checkout (only milo-sat directory)
     sudo -u "$MILO_SAT_USER" git clone --no-checkout --depth 1 "$MILO_SAT_REPO_URL" "$MILO_SAT_REPO_DIR"
@@ -263,22 +263,22 @@ clone_milo_sat_repo() {
     sudo -u "$MILO_SAT_USER" git -C "$MILO_SAT_REPO_DIR" sparse-checkout set milo-sat
     sudo -u "$MILO_SAT_USER" git -C "$MILO_SAT_REPO_DIR" checkout
 
-    log_success "Repository cloné (sparse checkout: milo-sat/)"
+    log_success "Repository cloned (sparse checkout: milo-sat/)"
 }
 
 install_milo_sat_application() {
-    log_info "Configuration de l'environnement Python pour Milo Sat..."
+    log_info "Configuring Python environment for Milo Sat..."
 
     sudo -u "$MILO_SAT_USER" python3 -m venv "$MILO_SAT_VENV_DIR"
     sudo -u "$MILO_SAT_USER" bash -c "source $MILO_SAT_VENV_DIR/bin/activate && pip install --upgrade pip"
     sudo -u "$MILO_SAT_USER" bash -c "source $MILO_SAT_VENV_DIR/bin/activate && pip install -r $MILO_SAT_APP_DIR/requirements.txt"
 
-    log_success "Application Milo Sat installée"
+    log_success "Milo Sat application installed"
 }
 
 configure_alsa() {
-    log_info "Configuration ALSA..."
-    
+    log_info "Configuring ALSA..."
+
     sudo tee /etc/asound.conf > /dev/null << 'EOF'
 # ALSA configuration for Milo Sat
 pcm.!default {
@@ -295,12 +295,12 @@ ctl.!default {
     card sndrpihifiberry
 }
 EOF
-    
-    log_success "Configuration ALSA terminée"
+
+    log_success "ALSA configuration complete"
 }
 
 create_systemd_services() {
-    log_info "Installation des services systemd..."
+    log_info "Installing systemd services..."
 
     # Copy static service files from repo
     sudo cp "$MILO_SAT_SYSTEM_DIR/milo-sat.service" /etc/systemd/system/
@@ -316,21 +316,21 @@ EOF
 
     sudo systemctl daemon-reload
 
-    log_success "Services systemd installés"
+    log_success "Systemd services installed"
 }
 
 enable_services() {
-    log_info "Activation des services..."
-    
+    log_info "Enabling services..."
+
     sudo systemctl daemon-reload
     sudo systemctl enable milo-sat.service
     sudo systemctl enable milo-sat-snapclient.service
-    
-    log_success "Services activés"
+
+    log_success "Services enabled"
 }
 
 install_wrapper_script() {
-    log_info "Installation du script wrapper sécurisé..."
+    log_info "Installing secure wrapper script..."
 
     sudo tee /usr/local/bin/milo-sat-install-snapclient > /dev/null << 'WRAPPER_EOF'
 #!/bin/bash
@@ -378,11 +378,11 @@ WRAPPER_EOF
     sudo chmod 755 /usr/local/bin/milo-sat-install-snapclient
     sudo chown root:root /usr/local/bin/milo-sat-install-snapclient
 
-    log_success "Script wrapper installé"
+    log_success "Wrapper script installed"
 }
 
 configure_sudoers() {
-    log_info "Configuration des permissions sudo pour milo-sat..."
+    log_info "Configuring sudo permissions for milo-sat..."
 
     sudo tee /etc/sudoers.d/milo-sat > /dev/null << 'EOF'
 # Milo Sat - Permissions for automatic updates
@@ -393,59 +393,59 @@ milo-sat ALL=(root) NOPASSWD: /usr/local/bin/milo-sat-install-snapclient
 EOF
 
     sudo chmod 0440 /etc/sudoers.d/milo-sat
-    log_success "Permissions sudo configurées"
+    log_success "Sudo permissions configured"
 }
 
 
 finalize_installation() {
-    log_info "Finalisation de l'installation..."
-    
+    log_info "Finalizing installation..."
+
     echo ""
     echo -e "${GREEN}=================================${NC}"
-    echo -e "${GREEN}  Installation Milo Sat terminée !${NC}"
+    echo -e "${GREEN}  Milo Sat installation complete!${NC}"
     echo -e "${GREEN}=================================${NC}"
     echo ""
-    echo -e "${BLUE}Configuration :${NC}"
-    echo "  • Hostname: milo-sat-$USER_HOSTNAME_CHOICE"
-    echo "  • Utilisateur: $MILO_SAT_USER"
-    echo "  • Application: $MILO_SAT_APP_DIR"
-    echo "  • Carte audio: $HIFIBERRY_OVERLAY"
-    echo "  • Milo principal: $MILO_PRINCIPAL_IP"
-    echo "  • Volume par défaut: 16%"
+    echo -e "${BLUE}Configuration:${NC}"
+    echo "  - Hostname: milo-sat-$USER_HOSTNAME_CHOICE"
+    echo "  - User: $MILO_SAT_USER"
+    echo "  - Application: $MILO_SAT_APP_DIR"
+    echo "  - Audio card: $HIFIBERRY_OVERLAY"
+    echo "  - Main Milo: $MILO_PRINCIPAL_IP"
+    echo "  - Default volume: 16%"
     echo ""
-    echo -e "${BLUE}Services :${NC}"
-    echo "  • milo-sat.service (API sur port 8001)"
-    echo "  • milo-sat-snapclient.service"
+    echo -e "${BLUE}Services:${NC}"
+    echo "  - milo-sat.service (API on port 8001)"
+    echo "  - milo-sat-snapclient.service"
     echo ""
-    
+
     if [[ "$REBOOT_REQUIRED" == "true" ]]; then
-        echo -e "${YELLOW}⚠️  REDÉMARRAGE REQUIS${NC}"
+        echo -e "${YELLOW}REBOOT REQUIRED${NC}"
         echo ""
-        
+
         while true; do
-            read -p "Redémarrer maintenant ? (O/n): " restart_choice
+            read -p "Reboot now? (Y/n): " restart_choice
             case $restart_choice in
                 [Nn]* )
-                    echo -e "${YELLOW}Pensez à redémarrer manuellement avec: sudo reboot${NC}"
+                    echo -e "${YELLOW}Remember to reboot manually with: sudo reboot${NC}"
                     break
                     ;;
-                [Oo]* | "" )
-                    log_info "Redémarrage dans 5 secondes..."
+                [Yy]* | "" )
+                    log_info "Rebooting in 5 seconds..."
                     sleep 5
                     sudo reboot
                     ;;
                 * )
-                    echo "Veuillez répondre par 'O' (oui) ou 'n' (non)."
+                    echo "Please answer 'Y' (yes) or 'n' (no)."
                     ;;
             esac
         done
     else
-        log_info "Démarrage des services..."
+        log_info "Starting services..."
         sudo systemctl start milo-sat.service
         sudo systemctl start milo-sat-snapclient.service
-        
+
         echo ""
-        echo -e "${GREEN}✅ Milo Sat est prêt ! Il devrait apparaître automatiquement dans Milo principal.${NC}"
+        echo -e "${GREEN}Milo Sat is ready! It should appear automatically in main Milo.${NC}"
     fi
 }
 
@@ -453,124 +453,124 @@ finalize_installation() {
 
 uninstall_milo_sat() {
     echo -e "${YELLOW}"
-    echo "╔════════════════════════════════════════╗"
-    echo "║  DÉSINSTALLATION DE MILO SAT           ║"
-    echo "╔════════════════════════════════════════╗"
+    echo "========================================"
+    echo "       MILO SAT UNINSTALLATION          "
+    echo "========================================"
     echo -e "${NC}"
     echo ""
-    echo -e "${RED}⚠️  Cette opération va supprimer :${NC}"
-    echo "  • Les services milo-sat et milo-sat-snapclient"
-    echo "  • L'utilisateur milo-sat et ses données"
-    echo "  • La configuration audio HiFiBerry"
-    echo "  • Snapclient"
+    echo -e "${RED}This operation will remove:${NC}"
+    echo "  - milo-sat and milo-sat-snapclient services"
+    echo "  - The milo-sat user and its data"
+    echo "  - HiFiBerry audio configuration"
+    echo "  - Snapclient"
     echo ""
-    
-    read -p "Êtes-vous sûr de vouloir continuer ? (oui/non): " confirm
-    if [[ "$confirm" != "oui" ]]; then
-        log_info "Désinstallation annulée"
+
+    read -p "Are you sure you want to continue? (yes/no): " confirm
+    if [[ "$confirm" != "yes" ]]; then
+        log_info "Uninstallation cancelled"
         exit 0
     fi
-    
-    log_info "Début de la désinstallation..."
+
+    log_info "Starting uninstallation..."
     echo ""
-    
+
     # 1. Stop and disable services
-    log_info "Arrêt des services..."
+    log_info "Stopping services..."
     sudo systemctl stop milo-sat.service 2>/dev/null || true
     sudo systemctl stop milo-sat-snapclient.service 2>/dev/null || true
     sudo systemctl disable milo-sat.service 2>/dev/null || true
     sudo systemctl disable milo-sat-snapclient.service 2>/dev/null || true
-    
+
     # 2. Remove service files
-    log_info "Suppression des services systemd..."
+    log_info "Removing systemd services..."
     sudo rm -f /etc/systemd/system/milo-sat.service
     sudo rm -f /etc/systemd/system/milo-sat-snapclient.service
     sudo systemctl daemon-reload
-    
+
     # 3. Remove sudoers rules and wrapper script
-    log_info "Suppression des règles sudoers..."
+    log_info "Removing sudoers rules..."
     sudo rm -f /etc/sudoers.d/milo-sat
     sudo rm -f /usr/local/bin/milo-sat-install-snapclient
 
     # 4. Uninstall Snapclient
-    log_info "Désinstallation de Snapclient..."
+    log_info "Uninstalling Snapclient..."
     sudo apt remove -y snapclient 2>/dev/null || true
     sudo apt autoremove -y
-    
+
     # 5. Remove ALSA configuration
-    log_info "Suppression de la configuration ALSA..."
+    log_info "Removing ALSA configuration..."
     sudo rm -f /etc/asound.conf
-    
+
     # 6. Restore config.txt (remove HiFiBerry)
-    log_info "Restauration de la configuration audio..."
+    log_info "Restoring audio configuration..."
     local config_file="/boot/firmware/config.txt"
     if [[ ! -f "$config_file" ]]; then
         config_file="/boot/config.txt"
     fi
-    
+
     if [[ -f "$config_file" ]]; then
         sudo sed -i '/# Milo Sat - HiFiBerry Audio/d' "$config_file"
         sudo sed -i '/dtoverlay=hifiberry-/d' "$config_file"
-        
+
         # Re-enable built-in audio
         if ! grep -q "^dtparam=audio=on" "$config_file"; then
             echo "dtparam=audio=on" | sudo tee -a "$config_file" > /dev/null
         fi
-        
+
         REBOOT_REQUIRED=true
     fi
-    
+
     # 7. Remove application directories
-    log_info "Suppression des fichiers de l'application..."
+    log_info "Removing application files..."
     sudo rm -rf "$MILO_SAT_REPO_DIR"
     sudo rm -rf "$MILO_SAT_VENV_DIR"
     sudo rm -rf "$MILO_SAT_DATA_DIR"
-    
+
     # 8. Remove milo-sat user
-    log_info "Suppression de l'utilisateur milo-sat..."
+    log_info "Removing milo-sat user..."
     if id "$MILO_SAT_USER" &>/dev/null; then
         sudo userdel -r "$MILO_SAT_USER" 2>/dev/null || true
     fi
-    
+
     # 9. Restore default hostname (optional)
     local current_hostname=$(hostname)
     if [[ "$current_hostname" == milo-sat-* ]]; then
-        log_info "Restauration du hostname par défaut..."
+        log_info "Restoring default hostname..."
         echo "raspberrypi" | sudo tee /etc/hostname > /dev/null
         sudo sed -i "s/127.0.1.1.*/127.0.1.1\traspberrypi/" /etc/hosts
         sudo hostnamectl set-hostname "raspberrypi"
         REBOOT_REQUIRED=true
     fi
-    
+
     echo ""
     echo -e "${GREEN}=================================${NC}"
-    echo -e "${GREEN}  Désinstallation terminée !${NC}"
+    echo -e "${GREEN}   Uninstallation complete!      ${NC}"
     echo -e "${GREEN}=================================${NC}"
     echo ""
-    
+
     if [[ "$REBOOT_REQUIRED" == "true" ]]; then
-        echo -e "${YELLOW}⚠️  REDÉMARRAGE REQUIS pour finaliser${NC}"
+        echo -e "${YELLOW}REBOOT REQUIRED to finalize${NC}"
         echo ""
-        
+
         while true; do
-            read -p "Redémarrer maintenant ? (O/n): " restart_choice
+            read -p "Reboot now? (Y/n): " restart_choice
             case $restart_choice in
                 [Nn]* )
-                    echo -e "${YELLOW}Pensez à redémarrer manuellement avec: sudo reboot${NC}"
+                    echo -e "${YELLOW}Remember to reboot manually with: sudo reboot${NC}"
                     break
                     ;;
-                [Oo]* | "" )
-                    log_info "Redémarrage dans 5 secondes..."
+                [Yy]* | "" )
+                    log_info "Rebooting in 5 seconds..."
                     sleep 5
                     sudo reboot
                     ;;
                 * )
-                    echo "Veuillez répondre par 'O' (oui) ou 'n' (non)."
+                    echo "Please answer 'Y' (yes) or 'n' (no)."
                     ;;
             esac
         done
     else
-        log_success "Système nettoyé. Milo Sat a été complètement supprimé."
+        log_success "System cleaned. Milo Sat has been completely removed."
     fi
 }
 
@@ -584,28 +584,28 @@ main() {
         uninstall_milo_sat
         exit 0
     fi
-    
+
     # Normal installation
     show_banner
-    
+
     check_root
     check_system
-    
-    log_info "Début de l'installation de Milo Sat"
+
+    log_info "Starting Milo Sat installation"
     echo ""
-    
+
     discover_milo_principal
     collect_user_choices
-    
+
     install_dependencies
     setup_hostname
     configure_audio_hardware
-    
+
     create_milo_sat_user
     install_snapclient
     clone_milo_sat_repo
     install_milo_sat_application
-    
+
     configure_alsa
     create_systemd_services
     enable_services

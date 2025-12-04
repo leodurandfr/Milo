@@ -166,7 +166,20 @@
       "completed": "अपडेट पूर्ण!",
       "startingUpdate": "अपडेट शुरू हो रहा है...",
       "updateInitiated": "अपडेट शुरू किया गया...",
-      "updateInProgress": "अपडेट प्रगति में..."
+      "updateInProgress": "अपडेट प्रगति में...",
+      "checkingRepository": "रिपॉजिटरी जांची जा रही है...",
+      "fetchingUpdates": "GitHub से अपडेट प्राप्त हो रहे हैं...",
+      "checkingLocalChanges": "स्थानीय परिवर्तन जांचे जा रहे हैं...",
+      "pullingChanges": "नवीनतम परिवर्तन डाउनलोड हो रहे हैं...",
+      "installingFrontendDeps": "फ्रंटएंड डिपेंडेंसी इंस्टॉल हो रही हैं...",
+      "buildingFrontend": "फ्रंटएंड कंपाइल हो रहा है...",
+      "installingPythonDeps": "Python डिपेंडेंसी इंस्टॉल हो रही हैं...",
+      "restartingBackend": "बैकएंड सेवा पुनः आरंभ हो रही है...",
+      "restartingKiosk": "कियोस्क पुनः आरंभ हो रहा है...",
+      "rollingBack": "पिछले संस्करण पर वापस जा रहे हैं...",
+      "rollbackRebuilding": "रोलबैक के बाद पुनः संकलन...",
+      "rollbackRestarting": "रोलबैक के बाद सेवाएं पुनः आरंभ...",
+      "rollbackComplete": "रोलबैक पूर्ण"
     }
   },
   "info": {

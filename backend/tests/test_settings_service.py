@@ -1,6 +1,6 @@
 # backend/tests/test_settings_service.py
 """
-Tests unitaires pour SettingsService
+Unit tests for SettingsService
 """
 import pytest
 import json
@@ -11,11 +11,11 @@ from backend.infrastructure.services.settings_service import SettingsService
 
 
 class TestSettingsService:
-    """Tests pour le service de settings"""
+    """Tests for the settings service"""
 
     @pytest.fixture
     def temp_settings_file(self):
-        """Crée un fichier temporaire pour les tests"""
+        """Creates a temporary file for tests"""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             temp_path = f.name
 
@@ -27,7 +27,7 @@ class TestSettingsService:
         except:
             pass
 
-        # Cleanup du fichier .tmp aussi si présent
+        # Cleanup .tmp file too if present
         try:
             os.unlink(temp_path + '.tmp')
         except:
@@ -35,13 +35,13 @@ class TestSettingsService:
 
     @pytest.fixture
     def service(self, temp_settings_file):
-        """Fixture pour créer un service de settings"""
+        """Fixture to create a settings service"""
         service = SettingsService()
         service.settings_file = temp_settings_file
         return service
 
     def test_initialization(self, service):
-        """Test de l'initialisation du service"""
+        """Service initialization test"""
         assert service.settings_file is not None
         assert service._cache is None
         assert 'volume' in service.defaults
@@ -51,12 +51,12 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_load_settings_file_not_exists(self, service):
-        """Test du chargement quand le fichier n'existe pas"""
+        """Loading test when file does not exist"""
         settings = await service.load_settings()
 
-        # Devrait créer le fichier avec les defaults (après validation)
+        # Should create file with defaults (after validation)
         assert os.path.exists(service.settings_file)
-        # Vérifier les clés principales (la validation peut modifier certaines clés)
+        # Check main keys (validation may modify some keys)
         assert settings['language'] == 'english'
         assert settings['volume']['alsa_min'] == service.defaults['volume']['alsa_min']
         assert settings['volume']['alsa_max'] == service.defaults['volume']['alsa_max']
@@ -65,8 +65,8 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_load_settings_file_exists(self, service, temp_settings_file):
-        """Test du chargement d'un fichier existant"""
-        # Écrire des settings dans le fichier
+        """Existing file loading test"""
+        # Write settings to file
         test_settings = {
             'language': 'english',
             'volume': {'alsa_min': 10, 'alsa_max': 80},
@@ -87,7 +87,7 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_save_settings_success(self, service):
-        """Test de sauvegarde réussie"""
+        """Successful save test"""
         test_settings = service.defaults.copy()
         test_settings['language'] = 'spanish'
 
@@ -96,37 +96,37 @@ class TestSettingsService:
         assert result is True
         assert os.path.exists(service.settings_file)
 
-        # Vérifier que le fichier contient bien les settings
+        # Check that file contains the settings
         with open(service.settings_file, 'r') as f:
             saved = json.load(f)
             assert saved['language'] == 'spanish'
 
     def test_validate_and_merge_language(self, service):
-        """Test de validation de la langue"""
-        # Langue valide
+        """Language validation test"""
+        # Valid language
         result = service._validate_and_merge({'language': 'english'})
         assert result['language'] == 'english'
 
-        # Langue invalide - fallback à english (default)
+        # Invalid language - fallback to english (default)
         result = service._validate_and_merge({'language': 'invalid'})
         assert result['language'] == 'english'
 
     def test_validate_and_merge_volume(self, service):
-        """Test de validation du volume"""
-        # Valeurs normales
+        """Volume validation test"""
+        # Normal values
         result = service._validate_and_merge({
             'volume': {'alsa_min': 20, 'alsa_max': 70}
         })
         assert result['volume']['alsa_min'] == 20
         assert result['volume']['alsa_max'] == 70
 
-        # Gap minimum de 10
+        # Minimum gap of 10
         result = service._validate_and_merge({
             'volume': {'alsa_min': 50, 'alsa_max': 55}
         })
         assert result['volume']['alsa_max'] - result['volume']['alsa_min'] >= 10
 
-        # Valeurs hors limites
+        # Out of bounds values
         result = service._validate_and_merge({
             'volume': {'alsa_min': -10, 'alsa_max': 150}
         })
@@ -134,68 +134,68 @@ class TestSettingsService:
         assert result['volume']['alsa_max'] <= 100
 
     def test_validate_and_merge_screen_timeout_zero(self, service):
-        """Test de validation du timeout screen avec 0 = désactivé"""
-        # Timeout à 0 (désactivé)
+        """Screen timeout validation test with 0 = disabled"""
+        # Timeout at 0 (disabled)
         result = service._validate_and_merge({
             'screen': {'timeout_seconds': 0, 'brightness_on': 5}
         })
         assert result['screen']['timeout_seconds'] == 0
 
-        # Timeout normal
+        # Normal timeout
         result = service._validate_and_merge({
             'screen': {'timeout_seconds': 15, 'brightness_on': 5}
         })
         assert result['screen']['timeout_seconds'] == 15
 
-        # Timeout trop petit (minimum 3s si non-zero)
+        # Timeout too small (minimum 3s if non-zero)
         result = service._validate_and_merge({
             'screen': {'timeout_seconds': 1, 'brightness_on': 5}
         })
         assert result['screen']['timeout_seconds'] == 3
 
     def test_validate_and_merge_spotify_disconnect_zero(self, service):
-        """Test de validation du delay Spotify avec 0 = désactivé"""
-        # Delay à 0 (désactivé)
+        """Spotify delay validation test with 0 = disabled"""
+        # Delay at 0 (disabled)
         result = service._validate_and_merge({
             'spotify': {'auto_disconnect_delay': 0.0}
         })
         assert result['spotify']['auto_disconnect_delay'] == 0.0
 
-        # Delay normal
+        # Normal delay
         result = service._validate_and_merge({
             'spotify': {'auto_disconnect_delay': 15.0}
         })
         assert result['spotify']['auto_disconnect_delay'] == 15.0
 
-        # Delay trop petit (minimum 1.0s si non-zero)
+        # Delay too small (minimum 1.0s if non-zero)
         result = service._validate_and_merge({
             'spotify': {'auto_disconnect_delay': 0.5}
         })
         assert result['spotify']['auto_disconnect_delay'] == 1.0
 
     def test_validate_and_merge_dock_apps(self, service):
-        """Test de validation des apps du dock"""
-        # Apps valides
+        """Dock apps validation test"""
+        # Valid apps
         result = service._validate_and_merge({
             'dock': {'enabled_apps': ['spotify', 'bluetooth', 'settings']}
         })
         assert 'spotify' in result['dock']['enabled_apps']
         assert 'bluetooth' in result['dock']['enabled_apps']
 
-        # Apps invalides filtrées
+        # Invalid apps filtered out
         result = service._validate_and_merge({
             'dock': {'enabled_apps': ['spotify', 'invalid_app', 'bluetooth']}
         })
         assert 'invalid_app' not in result['dock']['enabled_apps']
 
-        # Aucune source audio - devrait forcer librespot
+        # No audio source - should force librespot
         result = service._validate_and_merge({
             'dock': {'enabled_apps': ['settings', 'equalizer']}
         })
         assert 'spotify' in result['dock']['enabled_apps']
 
     def test_validate_and_merge_routing(self, service):
-        """Test de validation du routing"""
+        """Routing validation test"""
         result = service._validate_and_merge({
             'routing': {'multiroom_enabled': True, 'equalizer_enabled': False}
         })
@@ -203,7 +203,7 @@ class TestSettingsService:
         assert result['routing']['equalizer_enabled'] is False
 
     def test_validate_and_merge_equalizer_preserved(self, service):
-        """Test que la section equalizer est préservée"""
+        """Equalizer section preservation test"""
         result = service._validate_and_merge({
             'equalizer': {
                 'saved_bands': {'preset1': [65, 66, 67]},
@@ -215,7 +215,7 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_get_setting_simple(self, service):
-        """Test de récupération d'une setting simple"""
+        """Simple setting retrieval test"""
         service._cache = {'language': 'french'}
 
         value = await service.get_setting('language')
@@ -224,7 +224,7 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_get_setting_nested(self, service):
-        """Test de récupération d'une setting imbriquée"""
+        """Nested setting retrieval test"""
         service._cache = {
             'volume': {'alsa_min': 10, 'alsa_max': 65}
         }
@@ -235,7 +235,7 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_get_setting_not_found(self, service):
-        """Test de récupération d'une setting inexistante"""
+        """Non-existent setting retrieval test"""
         service._cache = {'language': 'french'}
 
         value = await service.get_setting('nonexistent.key')
@@ -244,8 +244,8 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_get_setting_loads_if_no_cache(self, service, temp_settings_file):
-        """Test que get_setting charge les settings si le cache est vide"""
-        # Écrire des settings dans le fichier
+        """Test that get_setting loads settings if cache is empty"""
+        # Write settings to file
         test_settings = service.defaults.copy()
         test_settings['language'] = 'english'
 
@@ -261,53 +261,53 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_set_setting_simple(self, service):
-        """Test de modification d'une setting simple"""
+        """Simple setting modification test"""
         service._cache = service.defaults.copy()
 
         result = await service.set_setting('language', 'spanish')
 
         assert result is True
 
-        # Vérifier que le cache a été invalidé
+        # Check that cache has been invalidated
         assert service._cache is None
 
-        # Vérifier que la valeur a été sauvegardée
+        # Check that value has been saved
         saved_value = await service.get_setting('language')
         assert saved_value == 'spanish'
 
     @pytest.mark.asyncio
     async def test_set_setting_nested(self, service):
-        """Test de modification d'une setting imbriquée"""
+        """Nested setting modification test"""
         service._cache = service.defaults.copy()
 
         result = await service.set_setting('volume.alsa_min', 20)
 
         assert result is True
 
-        # Vérifier que la valeur a été sauvegardée
+        # Check that value has been saved
         saved_value = await service.get_setting('volume.alsa_min')
         assert saved_value == 20
 
     @pytest.mark.asyncio
     async def test_set_setting_create_nested_path_in_existing_section(self, service):
-        """Test de création d'un chemin imbriqué dans une section existante"""
-        # Initialiser le fichier avec les defaults
+        """Nested path creation test in existing section"""
+        # Initialize file with defaults
         await service.save_settings(service.defaults)
-        service._cache = None  # Forcer le reload
+        service._cache = None  # Force reload
 
-        # Créer un nouveau chemin dans la section 'volume' qui existe déjà
+        # Create a new path in the 'volume' section which already exists
         result = await service.set_setting('volume.new_setting', 123)
 
         assert result is True
 
-        # Vérifier que le chemin a été créé
+        # Check that path has been created
         saved_value = await service.get_setting('volume.new_setting')
-        # Note: La validation peut supprimer les clés inconnues, donc on vérifie juste que save a réussi
-        # Ce test vérifie surtout que la création du chemin ne lève pas d'exception
+        # Note: Validation may remove unknown keys, so we just check that save succeeded
+        # This test mainly verifies that path creation doesn't raise an exception
         assert result is True
 
     def test_get_volume_config(self, service):
-        """Test de récupération de la config volume complète"""
+        """Complete volume config retrieval test"""
         service._cache = {
             'volume': {
                 'alsa_min': 10,
@@ -330,8 +330,8 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_migration_display_to_screen(self, service, temp_settings_file):
-        """Test de migration display → screen"""
-        # Écrire des settings avec l'ancien format 'display'
+        """Migration test from display to screen"""
+        # Write settings with old 'display' format
         old_settings = {
             'language': 'french',
             'display': {
@@ -345,7 +345,7 @@ class TestSettingsService:
 
         settings = await service.load_settings()
 
-        # Vérifier que display a été migré vers screen
+        # Check that display has been migrated to screen
         assert 'display' not in settings
         assert 'screen' in settings
         assert settings['screen']['timeout_seconds'] == 20
@@ -353,15 +353,15 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_load_settings_error_fallback_to_defaults(self, service):
-        """Test du fallback aux defaults en cas d'erreur de chargement"""
-        # Forcer une erreur en utilisant un fichier corrompu
+        """Fallback to defaults test in case of loading error"""
+        # Force an error by using a corrupted file
         with open(service.settings_file, 'w') as f:
             f.write('{"invalid json')
 
         settings = await service.load_settings()
 
-        # Devrait fallback aux defaults (après validation, certaines clés peuvent être absentes)
-        # Vérifier les clés principales au lieu d'une égalité stricte
+        # Should fallback to defaults (after validation, some keys may be absent)
+        # Check main keys instead of strict equality
         assert settings['language'] == 'english'
         assert settings['volume']['alsa_min'] == service.defaults['volume']['alsa_min']
         assert settings['volume']['alsa_max'] == service.defaults['volume']['alsa_max']
@@ -370,8 +370,8 @@ class TestSettingsService:
 
     @pytest.mark.asyncio
     async def test_save_settings_error_cleanup_temp_file(self, service):
-        """Test du nettoyage du fichier temporaire en cas d'erreur"""
-        # Mock aiofiles.open pour lever une exception (le service utilise aiofiles, pas builtins.open)
+        """Temporary file cleanup test in case of error"""
+        # Mock aiofiles.open to raise an exception (service uses aiofiles, not builtins.open)
         with patch('aiofiles.open', side_effect=Exception('Write error')):
             result = await service.save_settings({'language': 'french'})
 
