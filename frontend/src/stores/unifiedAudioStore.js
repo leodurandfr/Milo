@@ -107,9 +107,11 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   async function adjustVolume(delta, showBar = true) {
     try {
-      await axios.post('/api/volume/adjust', { delta, show_bar: showBar });
+      const response = await axios.post('/api/volume/adjust', { delta, show_bar: showBar });
+      return response.data.status === 'success';
     } catch (error) {
       console.error('Error adjusting volume:', error);
+      return false;
     }
   }
 
