@@ -8,6 +8,10 @@ const CACHE_KEY = 'multiroom_clients_cache';
 export const useMultiroomStore = defineStore('multiroom', () => {
   // === STATE ===
   const clients = ref([]);
+
+  // AbortController for cancelling ongoing requests
+  let clientsAbortController = null;
+  let serverConfigAbortController = null;
   const isLoading = ref(false);
   const serverConfig = ref({
     buffer: 1000,
@@ -64,19 +68,22 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   }
 
   // === API CALLS ===
-  async function fetchClients() {
+  async function fetchClients(signal = null) {
     try {
-      const response = await axios.get('/api/routing/snapcast/clients');
+      const response = await axios.get('/api/routing/snapcast/clients', { signal });
       return response.data.clients || [];
     } catch (error) {
+      if (axios.isCancel(error) || error.name === 'CanceledError') {
+        return null; // Request was cancelled
+      }
       console.error('Error fetching multiroom clients:', error);
       return [];
     }
   }
 
-  async function fetchServerConfig() {
+  async function fetchServerConfig(signal = null) {
     try {
-      const response = await axios.get('/api/routing/snapcast/server-config');
+      const response = await axios.get('/api/routing/snapcast/server-config', { signal });
       if (response.data.config) {
         const fileConfig = response.data.config.file_config?.parsed_config?.stream || {};
         const streamConfig = response.data.config.stream_config || {};
@@ -90,6 +97,9 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       }
       return null;
     } catch (error) {
+      if (axios.isCancel(error) || error.name === 'CanceledError') {
+        return null; // Request was cancelled
+      }
       console.error('Error fetching server config:', error);
       return null;
     }
@@ -112,12 +122,21 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   }
 
   async function loadClients(forceNoCache = false) {
+    // Cancel previous request if it exists
+    if (clientsAbortController) {
+      clientsAbortController.abort();
+    }
+    clientsAbortController = new AbortController();
+    const signal = clientsAbortController.signal;
+
     // If clients are already loaded (via preloadCache), just refresh
     if (clients.value.length > 0 && !forceNoCache) {
       isLoading.value = false;
 
       // Refresh in the background
-      const freshClients = await fetchClients();
+      const freshClients = await fetchClients(signal);
+      if (freshClients === null) return; // Request was cancelled
+
       const sortedFresh = sortClients(freshClients);
 
       if (JSON.stringify(sortedFresh) !== JSON.stringify(clients.value)) {
@@ -125,6 +144,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
         lastKnownClientCount.value = sortedFresh.length;
         saveCache(sortedFresh);
       }
+      clientsAbortController = null;
       return;
     }
 
@@ -137,7 +157,9 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       isLoading.value = false;
 
       // Refresh in the background
-      const freshClients = await fetchClients();
+      const freshClients = await fetchClients(signal);
+      if (freshClients === null) return; // Request was cancelled
+
       const sortedFresh = sortClients(freshClients);
 
       if (JSON.stringify(sortedFresh) !== JSON.stringify(cache)) {
@@ -147,7 +169,12 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     } else {
       // No cache: load with skeleton
       isLoading.value = true;
-      const freshClients = await fetchClients();
+      const freshClients = await fetchClients(signal);
+      if (freshClients === null) {
+        isLoading.value = false;
+        return; // Request was cancelled
+      }
+
       const sortedClients = sortClients(freshClients);
 
       lastKnownClientCount.value = sortedClients.length || 3;
@@ -155,6 +182,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       saveCache(sortedClients);
       isLoading.value = false;
     }
+    clientsAbortController = null;
   }
 
   async function updateClientVolume(clientId, volume) {
@@ -194,15 +222,23 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   // === ACTIONS - SERVER CONFIG ===
   async function loadServerConfig() {
+    // Cancel previous request if it exists
+    if (serverConfigAbortController) {
+      serverConfigAbortController.abort();
+    }
+    serverConfigAbortController = new AbortController();
+    const signal = serverConfigAbortController.signal;
+
     isLoadingServerConfig.value = true;
     try {
-      const config = await fetchServerConfig();
+      const config = await fetchServerConfig(signal);
       if (config) {
         serverConfig.value = config;
         originalServerConfig.value = JSON.parse(JSON.stringify(config));
       }
     } finally {
       isLoadingServerConfig.value = false;
+      serverConfigAbortController = null;
     }
   }
 
@@ -305,6 +341,18 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     });
   }
 
+  // === CLEANUP ===
+  function cancelPendingRequests() {
+    if (clientsAbortController) {
+      clientsAbortController.abort();
+      clientsAbortController = null;
+    }
+    if (serverConfigAbortController) {
+      serverConfigAbortController.abort();
+      serverConfigAbortController = null;
+    }
+  }
+
   return {
     // State
     clients,
@@ -339,6 +387,9 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     handleClientDisconnected,
     handleClientVolumeChanged,
     handleClientNameChanged,
-    handleClientMuteChanged
+    handleClientMuteChanged,
+
+    // Cleanup
+    cancelPendingRequests
   };
 });
