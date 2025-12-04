@@ -253,12 +253,18 @@ install_snapclient() {
 
 download_milo_sat_files() {
     log_info "Téléchargement des fichiers Milo Sat..."
-    
+
     sudo -u "$MILO_SAT_USER" mkdir -p "$MILO_SAT_APP_DIR"
-    
+    sudo -u "$MILO_SAT_USER" mkdir -p "$MILO_SAT_HOME/system"
+
+    # Download application files
     sudo -u "$MILO_SAT_USER" wget -O "$MILO_SAT_APP_DIR/main.py" "$MILO_SAT_REPO_BASE/app/main.py"
     sudo -u "$MILO_SAT_USER" wget -O "$MILO_SAT_APP_DIR/requirements.txt" "$MILO_SAT_REPO_BASE/app/requirements.txt"
-    
+
+    # Download service files
+    sudo -u "$MILO_SAT_USER" wget -O "$MILO_SAT_HOME/system/milo-sat.service" "$MILO_SAT_REPO_BASE/system/milo-sat.service"
+    sudo -u "$MILO_SAT_USER" wget -O "$MILO_SAT_HOME/system/milo-sat-snapclient.service" "$MILO_SAT_REPO_BASE/system/milo-sat-snapclient.service"
+
     log_success "Fichiers Milo Sat téléchargés"
 }
 
@@ -297,57 +303,28 @@ EOF
 }
 
 create_systemd_services() {
-    log_info "Création des services systemd..."
-    
-    sudo tee /etc/systemd/system/milo-sat.service > /dev/null << EOF
-[Unit]
-Description=Milo Sat API Service
-After=network.target
+    log_info "Installation des services systemd..."
 
-[Service]
-Type=simple
-User=$MILO_SAT_USER
-Group=audio
-WorkingDirectory=$MILO_SAT_APP_DIR
-ExecStart=$MILO_SAT_APP_DIR/venv/bin/python3 main.py
+    # Determine system directory location
+    local system_dir="$MILO_SAT_HOME/system"
 
-Restart=always
-RestartSec=5
-TimeoutStopSec=10
+    # Copy static service files (same pattern as main Milo)
+    for service_file in "$system_dir"/*.service; do
+        if [[ -f "$service_file" ]]; then
+            local service_name=$(basename "$service_file")
+            sudo cp "$service_file" /etc/systemd/system/
+            log_success "Installed $service_name"
+        fi
+    done
 
-Environment=MILO_PRINCIPAL_IP=$MILO_PRINCIPAL_IP
-
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
+    # Create environment file with dynamic value
+    sudo tee "$MILO_SAT_DATA_DIR/env" > /dev/null << EOF
+MILO_PRINCIPAL_IP=$MILO_PRINCIPAL_IP
 EOF
-    
-    sudo tee /etc/systemd/system/milo-sat-snapclient.service > /dev/null << EOF
-[Unit]
-Description=Snapclient for Milo Sat
-After=network-online.target
-Wants=network-online.target
 
-[Service]
-Type=simple
-User=$MILO_SAT_USER
-Group=audio
+    sudo systemctl daemon-reload
 
-ExecStart=/usr/bin/snapclient -h milo.local -p 1704 --logsink=system --soundcard default:CARD=$CARD_NAME --mixer hardware:'Digital'
-
-Restart=always
-RestartSec=5
-
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    log_success "Services systemd créés"
+    log_success "Services systemd installés"
 }
 
 enable_services() {
@@ -554,6 +531,7 @@ uninstall_milo_sat() {
     # 7. Remove application directories
     log_info "Suppression des fichiers de l'application..."
     sudo rm -rf "$MILO_SAT_APP_DIR"
+    sudo rm -rf "$MILO_SAT_HOME/system"
     sudo rm -rf "$MILO_SAT_DATA_DIR"
     
     # 8. Remove milo-sat user

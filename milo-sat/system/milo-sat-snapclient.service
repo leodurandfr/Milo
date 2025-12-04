@@ -1,0 +1,20 @@
+[Unit]
+Description=Snapclient for Milo Sat
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=milo-sat
+Group=audio
+
+ExecStart=/usr/bin/snapclient -h milo.local -p 1704 --logsink=system --soundcard default:CARD=sndrpihifiberry --mixer hardware:'Digital'
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
