@@ -133,7 +133,7 @@ async function toggleDropdown() {
   if (!isOpen.value) {
     calculateDropdownDirection();
 
-    // Initialiser la position de scroll pour la détection
+    // Initialize scroll position for detection
     const target = dropdownRef.value?.parentElement;
     lastScrollPosition.value = {
       x: target?.scrollLeft || window.scrollX || 0,
@@ -171,7 +171,7 @@ function handleResize() {
 function handleScroll(event) {
   if (!isOpen.value) return;
 
-  // Détecter si c'est un scroll horizontal ou vertical
+  // Detect if scroll is horizontal or vertical
   const target = event.target === document ? window : event.target;
   const currentScrollX = target.scrollLeft || window.scrollX || 0;
   const currentScrollY = target.scrollTop || window.scrollY || 0;
@@ -179,10 +179,10 @@ function handleScroll(event) {
   const deltaX = Math.abs(currentScrollX - lastScrollPosition.value.x);
   const deltaY = Math.abs(currentScrollY - lastScrollPosition.value.y);
 
-  // Mettre à jour la position
+  // Update position
   lastScrollPosition.value = { x: currentScrollX, y: currentScrollY };
 
-  // Si scroll horizontal détecté, fermer le dropdown
+  // If horizontal scroll detected, close dropdown
   if (deltaX > 0) {
     isOpen.value = false;
     return;

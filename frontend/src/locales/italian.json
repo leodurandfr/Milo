@@ -166,7 +166,20 @@
       "completed": "Aggiornamento completato!",
       "startingUpdate": "Avvio aggiornamento...",
       "updateInitiated": "Aggiornamento avviato...",
-      "updateInProgress": "Aggiornamento in corso..."
+      "updateInProgress": "Aggiornamento in corso...",
+      "checkingRepository": "Verifica repository...",
+      "fetchingUpdates": "Recupero aggiornamenti da GitHub...",
+      "checkingLocalChanges": "Verifica modifiche locali...",
+      "pullingChanges": "Download ultime modifiche...",
+      "installingFrontendDeps": "Installazione dipendenze frontend...",
+      "buildingFrontend": "Compilazione frontend...",
+      "installingPythonDeps": "Installazione dipendenze Python...",
+      "restartingBackend": "Riavvio servizio backend...",
+      "restartingKiosk": "Riavvio kiosk...",
+      "rollingBack": "Ripristino versione precedente...",
+      "rollbackRebuilding": "Ricompilazione dopo rollback...",
+      "rollbackRestarting": "Riavvio servizi dopo rollback...",
+      "rollbackComplete": "Rollback completato"
     }
   },
   "info": {

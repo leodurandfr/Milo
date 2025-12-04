@@ -17,7 +17,7 @@ class TestSpotifyPlugin:
 
     @pytest.fixture
     def mock_state_machine(self):
-        """Mock de la state machine"""
+        """Mock of the state machine"""
         sm = Mock()
         sm.update_plugin_state = AsyncMock()
         sm.system_state = Mock()
@@ -28,7 +28,7 @@ class TestSpotifyPlugin:
 
     @pytest.fixture
     def temp_config_file(self):
-        """Crée un fichier de config temporaire pour les tests"""
+        """Creates a temporary config file for tests"""
         config_data = {
             'audio_device': 'milo_spotify',
             'server': {
@@ -51,7 +51,7 @@ class TestSpotifyPlugin:
 
     @pytest.fixture
     def plugin_config(self, temp_config_file):
-        """Configuration du plugin"""
+        """Plugin configuration"""
         return {
             'service_name': 'milo-spotify.service',
             'config_path': temp_config_file
@@ -67,7 +67,7 @@ class TestSpotifyPlugin:
         )
 
     def test_initialization_config(self, plugin):
-        """Test de l'initialisation de base du plugin"""
+        """Basic plugin initialization test"""
         assert plugin.name == "librespot"
         assert plugin.service_name == "milo-spotify.service"
         assert plugin._initialized is False
@@ -76,9 +76,9 @@ class TestSpotifyPlugin:
 
     @pytest.mark.asyncio
     async def test_initialize_success(self, plugin):
-        """Test de l'initialisation réussie"""
+        """Successful initialization test"""
         with patch('asyncio.create_subprocess_exec') as mock_exec:
-            # Mock du processus systemctl
+            # Mock systemctl process
             mock_process = AsyncMock()
             mock_process.returncode = 0
             mock_process.communicate = AsyncMock(return_value=(b'milo-spotify.service', b''))
@@ -93,9 +93,9 @@ class TestSpotifyPlugin:
 
     @pytest.mark.asyncio
     async def test_initialize_service_not_found(self, plugin):
-        """Test de l'initialisation avec service introuvable"""
+        """Initialization test with service not found"""
         with patch('asyncio.create_subprocess_exec') as mock_exec:
-            # Mock du processus systemctl qui ne trouve pas le service
+            # Mock systemctl process that doesn't find the service
             mock_process = AsyncMock()
             mock_process.returncode = 1
             mock_process.communicate = AsyncMock(return_value=(b'', b'not found'))
@@ -108,7 +108,7 @@ class TestSpotifyPlugin:
 
     @pytest.mark.asyncio
     async def test_load_settings_config_enabled(self, plugin, mock_settings_service):
-        """Test du chargement de config avec auto-disconnect activé"""
+        """Config loading test with auto-disconnect enabled"""
         mock_settings_service.get_setting = AsyncMock(return_value=15.0)
 
         await plugin._load_settings_config()
@@ -118,24 +118,24 @@ class TestSpotifyPlugin:
 
     @pytest.mark.asyncio
     async def test_load_settings_config_disabled_with_zero(self, plugin, mock_settings_service):
-        """Test du chargement de config avec delay = 0 (désactivé)"""
+        """Config loading test with delay = 0 (disabled)"""
         mock_settings_service.get_setting = AsyncMock(return_value=0.0)
 
         await plugin._load_settings_config()
 
         assert plugin.auto_disconnect_enabled is False
-        assert plugin.pause_disconnect_delay == 10.0  # Valeur par défaut
+        assert plugin.pause_disconnect_delay == 10.0  # Default value
 
     @pytest.mark.asyncio
     async def test_load_settings_config_no_settings_service(self):
-        """Test du chargement de config sans SettingsService"""
+        """Config loading test without SettingsService"""
         plugin = SpotifyPlugin(
             config={'service_name': 'test.service', 'config_path': '/tmp/test.yaml'},
             state_machine=None,
             settings_service=None
         )
 
-        # Ne devrait pas lever d'exception
+        # Should not raise an exception
         await plugin._load_settings_config()
 
         assert plugin.auto_disconnect_enabled is True
@@ -143,7 +143,7 @@ class TestSpotifyPlugin:
 
     @pytest.mark.asyncio
     async def test_set_auto_disconnect_config_enable(self, plugin, mock_settings_service):
-        """Test de l'activation de l'auto-disconnect"""
+        """Auto-disconnect activation test"""
         result = await plugin.set_auto_disconnect_config(enabled=True, delay=20.0)
 
         assert result is True
@@ -153,17 +153,17 @@ class TestSpotifyPlugin:
 
     @pytest.mark.asyncio
     async def test_set_auto_disconnect_config_disable_with_zero(self, plugin, mock_settings_service):
-        """Test de la désactivation avec delay = 0"""
+        """Deactivation test with delay = 0"""
         result = await plugin.set_auto_disconnect_config(enabled=True, delay=0.0)
 
         assert result is True
         assert plugin.auto_disconnect_enabled is False
-        assert plugin.pause_disconnect_delay == 10.0  # Valeur par défaut
+        assert plugin.pause_disconnect_delay == 10.0  # Default value
         mock_settings_service.set_setting.assert_called_with('spotify.auto_disconnect_delay', 0.0)
 
     @pytest.mark.asyncio
     async def test_set_auto_disconnect_config_no_save(self, plugin, mock_settings_service):
-        """Test de config sans sauvegarde"""
+        """Config test without save"""
         result = await plugin.set_auto_disconnect_config(enabled=False, delay=5.0, save_to_settings=False)
 
         assert result is True
@@ -172,23 +172,23 @@ class TestSpotifyPlugin:
 
     @pytest.mark.asyncio
     async def test_set_auto_disconnect_config_save_failure_rollback(self, plugin, mock_settings_service):
-        """Test du rollback en cas d'échec de sauvegarde"""
-        # Sauvegarder les valeurs initiales
+        """Rollback test in case of save failure"""
+        # Save initial values
         old_enabled = plugin.auto_disconnect_enabled
         old_delay = plugin.pause_disconnect_delay
 
-        # Mock un échec de sauvegarde
+        # Mock a save failure
         mock_settings_service.set_setting = AsyncMock(return_value=False)
 
         result = await plugin.set_auto_disconnect_config(enabled=False, delay=5.0)
 
         assert result is False
-        # Vérifier le rollback
+        # Check rollback
         assert plugin.auto_disconnect_enabled == old_enabled
         assert plugin.pause_disconnect_delay == old_delay
 
     def test_get_auto_disconnect_config(self, plugin):
-        """Test de récupération de la config auto-disconnect"""
+        """Auto-disconnect config retrieval test"""
         plugin.auto_disconnect_enabled = True
         plugin.pause_disconnect_delay = 15.0
         plugin._pause_disconnect_timer = None
@@ -200,8 +200,8 @@ class TestSpotifyPlugin:
         assert config["timer_active"] is False
 
     def test_cancel_pause_timer(self, plugin):
-        """Test de l'annulation du timer de pause"""
-        # Créer un faux timer
+        """Pause timer cancellation test"""
+        # Create a fake timer
         mock_timer = Mock()
         plugin._pause_disconnect_timer = mock_timer
 
@@ -211,7 +211,7 @@ class TestSpotifyPlugin:
         assert plugin._pause_disconnect_timer is None
 
     def test_start_pause_timer_when_disabled(self, plugin):
-        """Test que le timer ne démarre pas quand auto-disconnect est désactivé"""
+        """Test that timer doesn't start when auto-disconnect is disabled"""
         plugin.auto_disconnect_enabled = False
 
         plugin._start_pause_timer()
@@ -220,23 +220,23 @@ class TestSpotifyPlugin:
 
     @pytest.mark.asyncio
     async def test_start_pause_timer_when_enabled(self, plugin):
-        """Test que le timer démarre quand auto-disconnect est activé"""
+        """Test that timer starts when auto-disconnect is enabled"""
         plugin.auto_disconnect_enabled = True
         plugin.pause_disconnect_delay = 5.0
 
         plugin._start_pause_timer()
 
-        # Vérifier qu'un timer a été créé
+        # Check that a timer has been created
         assert plugin._pause_disconnect_timer is not None
 
         # Cleanup
         plugin._cancel_pause_timer()
-        # Attendre que la task soit annulée
+        # Wait for task to be cancelled
         await asyncio.sleep(0.01)
 
     @pytest.mark.asyncio
     async def test_get_status(self, plugin):
-        """Test de récupération du status"""
+        """Status retrieval test"""
         plugin._device_connected = True
         plugin._ws_connected = True
         plugin._is_playing = True
@@ -257,7 +257,7 @@ class TestSpotifyPlugin:
 
     @pytest.mark.asyncio
     async def test_get_status_error_fallback(self, plugin):
-        """Test du fallback en cas d'erreur lors de get_status"""
+        """Fallback test in case of get_status error"""
         plugin._current_device = "milo_spotify"
 
         with patch.object(plugin.service_manager, 'get_status', new_callable=AsyncMock) as mock_status:
@@ -272,8 +272,8 @@ class TestSpotifyPlugin:
 
     @pytest.mark.asyncio
     async def test_stop_plugin(self, plugin):
-        """Test de l'arrêt du plugin"""
-        # Setup état initial
+        """Plugin stop test"""
+        # Setup initial state
         mock_timer = Mock()
         plugin._pause_disconnect_timer = mock_timer
 
@@ -301,24 +301,24 @@ class TestSpotifyPlugin:
 
     @pytest.mark.asyncio
     async def test_handle_command_unsupported(self, plugin):
-        """Test de commande non supportée"""
+        """Unsupported command test"""
         result = await plugin.handle_command("invalid_command", {})
 
         assert result["success"] is False
         assert "unsupported" in result["error"].lower()
 
     def test_get_audio_source(self, plugin):
-        """Test de récupération de l'AudioSource enum"""
+        """AudioSource enum retrieval test"""
         assert plugin._get_audio_source() == AudioSource.SPOTIFY
 
     def test_is_active_plugin_true(self, plugin, mock_state_machine):
-        """Test is_active_plugin quand le plugin est actif"""
+        """is_active_plugin test when plugin is active"""
         mock_state_machine.system_state.active_source = AudioSource.SPOTIFY
 
         assert plugin.is_active_plugin() is True
 
     def test_is_active_plugin_false(self, plugin, mock_state_machine):
-        """Test is_active_plugin quand le plugin n'est pas actif"""
+        """is_active_plugin test when plugin is not active"""
         mock_state_machine.system_state.active_source = AudioSource.BLUETOOTH
 
         assert plugin.is_active_plugin() is False

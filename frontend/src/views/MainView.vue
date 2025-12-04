@@ -135,12 +135,12 @@ watch(shouldMonitorInactivity, (shouldMonitor) => {
 const logoState = computed(() => {
   const { active_source, plugin_state, metadata, transitioning } = unifiedStore.systemState;
 
-  // Pendant une transition → toujours en haut
+  // During transition → always at top
   if (transitioning) {
     return 'top';
   }
 
-  // Spotify connecté avec track info → caché
+  // Spotify connected with track info → hidden
   if (active_source === 'spotify' &&
       plugin_state === 'connected' &&
       metadata?.title &&
@@ -148,17 +148,17 @@ const logoState = computed(() => {
     return 'hidden';
   }
 
-  // Radio ou Podcast → caché
+  // Radio or Podcast → hidden
   if (active_source === 'radio' || active_source === 'podcast') {
     return 'hidden';
   }
 
-  // Aucun plugin actif → centré
+  // No active plugin → centered
   if (active_source === 'none') {
     return 'center';
   }
 
-  // Tout autre cas (bluetooth, mac, spotify en attente) → en haut
+  // All other cases (bluetooth, mac, spotify waiting) → at top
   return 'top';
 });
 

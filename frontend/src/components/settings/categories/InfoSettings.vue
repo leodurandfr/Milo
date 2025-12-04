@@ -4,7 +4,11 @@
     <div class="info-grid">
       <div class="info-item">
         <span class="info-label text-mono">{{ t('info.miloVersion') }}</span>
-        <span class="info-value text-mono">0.1.0</span>
+        <span class="info-value text-mono">
+          <span v-if="versionLoading && miloVersion === null">...</span>
+          <span v-else-if="miloVersion !== null">{{ miloVersion }}</span>
+          <span v-else class="text-error">{{ t('updates.notAvailable') }}</span>
+        </span>
       </div>
 
       <div class="info-item">
@@ -35,10 +39,27 @@ import axios from 'axios';
 
 const { t } = useI18n();
 
+const miloVersion = ref(null);
+const versionLoading = ref(false);
 const systemTemperature = ref(null);
 const temperatureLoading = ref(false);
 const ipAddress = ref(null);
 const ipLoading = ref(false);
+
+async function loadMiloVersion() {
+  if (versionLoading.value) return;
+
+  try {
+    versionLoading.value = true;
+    const response = await axios.get('/api/programs/milo/installed');
+    miloVersion.value = response.data.installed?.versions?.main || null;
+  } catch (error) {
+    console.error('Error loading Milo version:', error);
+    miloVersion.value = null;
+  } finally {
+    versionLoading.value = false;
+  }
+}
 
 async function loadSystemTemperature() {
   if (temperatureLoading.value) return;
@@ -83,6 +104,7 @@ async function loadNetworkInfo() {
 let temperatureInterval = null;
 
 onMounted(async () => {
+  await loadMiloVersion();
   await loadSystemTemperature();
   await loadNetworkInfo();
   temperatureInterval = setInterval(loadSystemTemperature, 5000);

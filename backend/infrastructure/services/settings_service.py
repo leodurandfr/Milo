@@ -1,6 +1,6 @@
 # backend/infrastructure/services/settings_service.py
 """
-Service de gestion des settings - Version OPTIM avec I/O async
+Settings management service - OPTIM version with async I/O
 """
 import json
 import os
@@ -16,7 +16,7 @@ class SettingsService:
         self.logger = logging.getLogger(__name__)
         self.settings_file = '/var/lib/milo/settings.json'
         self._cache = None
-        self._file_lock = asyncio.Lock()  # Lock async natif au lieu de fcntl.flock
+        self._file_lock = asyncio.Lock()  # Native async lock instead of fcntl.flock
         
         self.defaults = {
             "language": "english",
@@ -51,7 +51,7 @@ class SettingsService:
         }
     
     async def load_settings(self) -> Dict[str, Any]:
-        """Charge et valide les settings avec async lock"""
+        """Loads and validates settings with async lock"""
         try:
             if os.path.exists(self.settings_file):
                 async with self._file_lock:
@@ -69,20 +69,20 @@ class SettingsService:
                                 'brightness_on': display_config.get('brightness_on', 5)
                             }
 
-                    # Fusion avec defaults et validation
+                    # Merge with defaults and validate
                     validated = self._validate_and_merge(settings)
 
                     self._cache = validated
                     return validated
             else:
-                # Créer le fichier avec les defaults
+                # Create file with defaults
                 self._cache = self.defaults.copy()
                 await self.save_settings(self.defaults)
                 return self._cache
 
         except json.JSONDecodeError as e:
             self.logger.error(f"JSON decode error in settings file: {e}")
-            # Save le fichier corrompu
+            # Save corrupted file
             if os.path.exists(self.settings_file):
                 backup_corrupted = self.settings_file + '.corrupted'
                 async with aiofiles.open(self.settings_file, 'r', encoding='utf-8') as src:
@@ -99,25 +99,25 @@ class SettingsService:
             return self._cache
     
     async def save_settings(self, settings: Dict[str, Any]) -> bool:
-        """Sauvegarde avec async lock et écriture atomique"""
+        """Saves with async lock and atomic write"""
         try:
             validated = self._validate_and_merge(settings)
 
             async with self._file_lock:
-                # Atomic write via fichier temporaire
+                # Atomic write via temp file
                 temp_file = self.settings_file + '.tmp'
 
-                # Générer le JSON
+                # Generate JSON
                 json_content = json.dumps(validated, ensure_ascii=False, indent=2)
 
-                # Écrire le contenu
+                # Write content
                 async with aiofiles.open(temp_file, 'w', encoding='utf-8') as f:
                     await f.write(json_content)
                     await f.write('\n')
                     await f.flush()
                     os.fsync(f.fileno())
 
-                # Renommage atomique
+                # Atomic rename
                 os.replace(temp_file, self.settings_file)
 
             self._cache = validated
@@ -126,7 +126,7 @@ class SettingsService:
 
         except Exception as e:
             self.logger.error(f"Error saving settings: {e}")
-            # Nettoyer le fichier temporaire si échec
+            # Clean up temp file on failure
             try:
                 if os.path.exists(self.settings_file + '.tmp'):
                     os.remove(self.settings_file + '.tmp')
@@ -135,7 +135,7 @@ class SettingsService:
             return False
     
     def _validate_and_merge(self, settings: Dict[str, Any]) -> Dict[str, Any]:
-        """Validation et fusion avec defaults - Support 0 = désactivé"""
+        """Validation and merge with defaults - Support 0 = disabled"""
         validated = {}
         
         # Language
@@ -149,7 +149,7 @@ class SettingsService:
         vol['alsa_min'] = max(0, min(100, int(vol_input.get('alsa_min', 0))))
         vol['alsa_max'] = max(0, min(100, int(vol_input.get('alsa_max', 65))))
         
-        # Garantir gap minimum
+        # Guarantee minimum gap
         if vol['alsa_max'] - vol['alsa_min'] < 10:
             vol['alsa_max'] = vol['alsa_min'] + 10
             if vol['alsa_max'] > 100:
@@ -162,22 +162,22 @@ class SettingsService:
         vol['rotary_volume_steps'] = max(1, min(10, int(vol_input.get('rotary_volume_steps', 2))))
         validated['volume'] = vol
         
-        # Screen - MODIFIÉ : Accepter 0 pour timeout_seconds (désactivé)
+        # Screen - MODIFIED: Accept 0 for timeout_seconds (disabled)
         screen_input = settings.get('screen', {})
         timeout_seconds_raw = int(screen_input.get('timeout_seconds', 10))
-        
+
         validated['screen'] = {
-            # 0 = désactivé, sinon minimum 3 secondes
+            # 0 = disabled, otherwise minimum 3 seconds
             'timeout_seconds': 0 if timeout_seconds_raw == 0 else max(3, min(9999, timeout_seconds_raw)),
             'brightness_on': max(1, min(10, int(screen_input.get('brightness_on', 5))))
         }
         
-        # Spotify - MODIFIÉ : Accepter 0 pour auto_disconnect_delay (désactivé)
+        # Spotify - MODIFIED: Accept 0 for auto_disconnect_delay (disabled)
         spotify_input = settings.get('spotify', {})
         disconnect_delay_raw = float(spotify_input.get('auto_disconnect_delay', 10.0))
-        
+
         validated['spotify'] = {
-            # 0 = désactivé, sinon minimum 1.0 seconde, maximum 1h (3600s)
+            # 0 = disabled, otherwise minimum 1.0 second, maximum 1h (3600s)
             'auto_disconnect_delay': 0.0 if disconnect_delay_raw == 0.0 else max(1.0, min(9999.0, disconnect_delay_raw))
         }
 
@@ -191,7 +191,7 @@ class SettingsService:
         if 'credentials_validated_at' in podcast_input:
             validated['podcast']['credentials_validated_at'] = int(podcast_input['credentials_validated_at'])
 
-        # Dock avec validation au moins une source audio
+        # Dock with validation for at least one audio source
         dock_input = settings.get('dock', {})
         all_valid_apps = ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "equalizer", "settings"]
         audio_sources = ["spotify", "bluetooth", "mac", "radio", "podcast"]
@@ -200,10 +200,10 @@ class SettingsService:
         enabled_apps = dock_input.get('enabled_apps', [])
         filtered_apps = [app for app in enabled_apps if app in all_valid_apps]
 
-        # Vérifier qu'au moins une source audio est activée
+        # Check that at least one audio source is enabled
         enabled_audio_sources = [app for app in filtered_apps if app in audio_sources]
         if not enabled_audio_sources:
-            # Forcer au moins spotify si aucune source audio
+            # Force at least spotify if no audio source
             filtered_apps = ['spotify'] + [app for app in filtered_apps if app in other_apps]
         
         validated['dock'] = {
@@ -217,16 +217,16 @@ class SettingsService:
             'equalizer_enabled': bool(routing_input.get('equalizer_enabled', False))
         }
 
-        # Equalizer (saved_bands) - Préserver la section equalizer sans validation stricte
+        # Equalizer (saved_bands) - Preserve equalizer section without strict validation
         equalizer_input = settings.get('equalizer', {})
         if equalizer_input:
-            # Préserver la section equalizer telle quelle (pas de validation stricte)
+            # Preserve equalizer section as-is (no strict validation)
             validated['equalizer'] = equalizer_input
 
-        # Radio (favorites + broken_stations) - Préserver la section radio sans validation stricte
+        # Radio (favorites + broken_stations) - Preserve radio section without strict validation
         radio_input = settings.get('radio', {})
         if radio_input:
-            # Préserver la section radio telle quelle (pas de validation stricte)
+            # Preserve radio section as-is (no strict validation)
             validated['radio'] = radio_input
 
         return validated
@@ -234,7 +234,7 @@ class SettingsService:
     def get_setting_sync(self, key_path: str) -> Any:
         """Gets a setting by path (SYNCHRONOUS - uses cache or blocking load)"""
         if not self._cache:
-            # Charger de manière synchrone si nécessaire (bloquant mais rare)
+            # Load synchronously if needed (blocking but rare)
             try:
                 if os.path.exists(self.settings_file):
                     with open(self.settings_file, 'r', encoding='utf-8') as f:
@@ -268,11 +268,11 @@ class SettingsService:
             return None
 
     def invalidate_cache(self) -> None:
-        """Invalide le cache pour forcer un rechargement"""
+        """Invalidates cache to force a reload"""
         self._cache = None
 
     async def set_setting(self, key_path: str, value: Any) -> bool:
-        """Définit une setting et invalide le cache (async)"""
+        """Sets a setting and invalidates cache (async)"""
         try:
             settings = await self.load_settings()
 
@@ -287,7 +287,7 @@ class SettingsService:
 
             success = await self.save_settings(settings)
 
-            # Invalider le cache pour forcer un reload
+            # Invalidate cache to force reload
             if success:
                 self._cache = None
 
@@ -298,7 +298,7 @@ class SettingsService:
             return False
     
     def get_volume_config(self) -> Dict[str, Any]:
-        """Méthode helper synchrone (utilise cache uniquement)"""
+        """Synchronous helper method (uses cache only)"""
         volume_settings = self._cache.get('volume', {}) if self._cache else {}
         return {
             "alsa_min": volume_settings.get("alsa_min", 0),
@@ -310,7 +310,7 @@ class SettingsService:
         }
 
     async def get_volume_config_async(self) -> Dict[str, Any]:
-        """Méthode helper async pour récupérer la config volume"""
+        """Async helper method to get volume config"""
         volume_settings = await self.get_setting('volume') or {}
         return {
             "alsa_min": volume_settings.get("alsa_min", 0),

@@ -31,7 +31,7 @@ class ProgramVersionService:
                 "commands": {
                     "main": ["git", "-C", "/home/milo/milo", "describe", "--tags", "--always"]
                 },
-                "repo": "Leshauts/Milo",
+                "repo": "leodurandfr/Milo",
                 "version_regex": r"v?(\d+\.\d+\.\d+)",
                 "git_path": "/home/milo/milo"
             },

@@ -323,7 +323,7 @@ const onVolumeHoldEnd = (event) => {
 const showDock = () => {
   if (isVisible.value) return;
 
-  // Reset items: désactiver transition, forcer reflow, réactiver
+  // Reset items: disable transition, force reflow, re-enable
   dockContainer.value.classList.add('resetting');
   void dockContainer.value.offsetHeight;
   dockContainer.value.classList.remove('resetting');

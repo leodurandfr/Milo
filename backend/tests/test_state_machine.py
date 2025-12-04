@@ -1,6 +1,6 @@
 # backend/tests/test_state_machine.py
 """
-Tests unitaires pour UnifiedAudioStateMachine
+Unit tests for UnifiedAudioStateMachine
 """
 import pytest
 import asyncio
@@ -10,11 +10,11 @@ from backend.domain.audio_state import AudioSource, PluginState, SystemAudioStat
 
 
 class TestUnifiedAudioStateMachine:
-    """Tests pour la machine à états unifiée"""
+    """Tests for the unified state machine"""
 
     @pytest.fixture
     def state_machine(self, mock_websocket_handler, mock_routing_service):
-        """Fixture pour créer une state machine"""
+        """Fixture to create a state machine"""
         sm = UnifiedAudioStateMachine(
             routing_service=mock_routing_service,
             websocket_handler=mock_websocket_handler
@@ -22,46 +22,46 @@ class TestUnifiedAudioStateMachine:
         return sm
 
     def test_initialization(self, state_machine):
-        """Test de l'initialisation de la state machine"""
+        """State machine initialization test"""
         assert state_machine.system_state.active_source == AudioSource.NONE
         assert state_machine.system_state.plugin_state == PluginState.INACTIVE
         assert state_machine.system_state.transitioning is False
         assert state_machine.system_state.target_source is None
 
     def test_register_plugin(self, state_machine, mock_plugin):
-        """Test de l'enregistrement d'un plugin"""
+        """Plugin registration test"""
         state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
         assert state_machine.plugins[AudioSource.SPOTIFY] == mock_plugin
         assert state_machine.get_plugin(AudioSource.SPOTIFY) == mock_plugin
 
     def test_get_plugin_metadata(self, state_machine):
-        """Test de récupération des métadonnées d'un plugin"""
+        """Plugin metadata retrieval test"""
         state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.metadata = {"title": "Test Song"}
 
         metadata = state_machine.get_plugin_metadata(AudioSource.SPOTIFY)
         assert metadata == {"title": "Test Song"}
 
-        # Source non-active devrait retourner {}
+        # Non-active source should return {}
         metadata_other = state_machine.get_plugin_metadata(AudioSource.BLUETOOTH)
         assert metadata_other == {}
 
     def test_get_plugin_state(self, state_machine):
-        """Test de récupération de l'état d'un plugin"""
+        """Plugin state retrieval test"""
         state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.plugin_state = PluginState.CONNECTED
 
         state = state_machine.get_plugin_state(AudioSource.SPOTIFY)
         assert state == PluginState.CONNECTED
 
-        # Source non-active devrait retourner INACTIVE
+        # Non-active source should return INACTIVE
         state_other = state_machine.get_plugin_state(AudioSource.BLUETOOTH)
         assert state_other == PluginState.INACTIVE
 
     @pytest.mark.asyncio
     async def test_get_current_state(self, state_machine):
-        """Test de récupération de l'état actuel"""
+        """Current state retrieval test"""
         state = await state_machine.get_current_state()
 
         assert "active_source" in state
@@ -72,7 +72,7 @@ class TestUnifiedAudioStateMachine:
 
     @pytest.mark.asyncio
     async def test_transition_to_same_source(self, state_machine, mock_plugin):
-        """Test de transition vers la même source (devrait être no-op)"""
+        """Transition to same source test (should be no-op)"""
         state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
         state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.plugin_state = PluginState.CONNECTED
@@ -85,7 +85,7 @@ class TestUnifiedAudioStateMachine:
 
     @pytest.mark.asyncio
     async def test_transition_to_none(self, state_machine, mock_plugin):
-        """Test de transition vers NONE (arrêt de la source active)"""
+        """Transition to NONE test (stop active source)"""
         state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
         state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.plugin_state = PluginState.CONNECTED
@@ -99,7 +99,7 @@ class TestUnifiedAudioStateMachine:
 
     @pytest.mark.asyncio
     async def test_transition_to_new_source_success(self, state_machine, mock_plugin):
-        """Test de transition réussie vers une nouvelle source"""
+        """Successful transition to new source test"""
         mock_plugin._initialized = True
         state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
@@ -108,19 +108,19 @@ class TestUnifiedAudioStateMachine:
         assert result is True
         mock_plugin.start.assert_called_once()
         assert state_machine.system_state.active_source == AudioSource.SPOTIFY
-        # L'état devrait être au moins READY
+        # State should be at least READY
         assert state_machine.system_state.plugin_state in [PluginState.READY, PluginState.CONNECTED]
 
     @pytest.mark.asyncio
     async def test_transition_to_unregistered_source(self, state_machine):
-        """Test de transition vers une source non-enregistrée (devrait échouer)"""
+        """Transition to unregistered source test (should fail)"""
         result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is False
 
     @pytest.mark.asyncio
     async def test_transition_start_fail(self, state_machine, mock_plugin):
-        """Test de transition avec échec du démarrage"""
+        """Transition test with start failure"""
         mock_plugin.start = AsyncMock(return_value=False)
         mock_plugin._initialized = True
         state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
@@ -128,15 +128,15 @@ class TestUnifiedAudioStateMachine:
         result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is False
-        # Devrait se retrouver en état NONE après échec
+        # Should end up in NONE state after failure
         assert state_machine.system_state.active_source == AudioSource.NONE
 
     @pytest.mark.asyncio
     async def test_transition_timeout(self, state_machine, mock_plugin):
-        """Test de timeout durant une transition"""
-        # Simuler un plugin qui prend trop de temps à démarrer
+        """Timeout during transition test"""
+        # Simulate a plugin that takes too long to start
         async def slow_start():
-            await asyncio.sleep(10)  # Plus long que TRANSITION_TIMEOUT (5s)
+            await asyncio.sleep(10)  # Longer than TRANSITION_TIMEOUT (5s)
             return True
 
         mock_plugin.start = slow_start
@@ -146,13 +146,13 @@ class TestUnifiedAudioStateMachine:
         result = await state_machine.transition_to_source(AudioSource.SPOTIFY)
 
         assert result is False
-        # Le timeout se produit mais error peut être None si _emergency_stop réinitialise l'état
+        # Timeout occurs but error may be None if _emergency_stop resets state
         assert state_machine.system_state.transitioning is False
         assert state_machine.system_state.active_source == AudioSource.NONE
 
     @pytest.mark.asyncio
     async def test_update_plugin_state_active_source(self, state_machine):
-        """Test de mise à jour de l'état d'un plugin actif"""
+        """Active plugin state update test"""
         state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.plugin_state = PluginState.READY
 
@@ -168,23 +168,23 @@ class TestUnifiedAudioStateMachine:
 
     @pytest.mark.asyncio
     async def test_update_plugin_state_inactive_source_ignored(self, state_machine):
-        """Test que les updates d'une source inactive sont ignorées"""
+        """Test that updates from inactive source are ignored"""
         state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.plugin_state = PluginState.CONNECTED
 
-        # Tenter de mettre à jour une source non-active
+        # Try to update a non-active source
         await state_machine.update_plugin_state(
             AudioSource.BLUETOOTH,
             PluginState.CONNECTED,
             {}
         )
 
-        # L'état ne devrait pas avoir changé
+        # State should not have changed
         assert state_machine.system_state.active_source == AudioSource.SPOTIFY
 
     @pytest.mark.asyncio
     async def test_update_plugin_state_during_transition_ignored(self, state_machine):
-        """Test que les updates pendant une transition sont ignorées"""
+        """Test that updates during transition are ignored"""
         state_machine.system_state.active_source = AudioSource.SPOTIFY
         state_machine.system_state.transitioning = True
         old_state = state_machine.system_state.plugin_state
@@ -195,26 +195,26 @@ class TestUnifiedAudioStateMachine:
             {}
         )
 
-        # L'état ne devrait pas avoir changé
+        # State should not have changed
         assert state_machine.system_state.plugin_state == old_state
 
     @pytest.mark.asyncio
     async def test_update_multiroom_state(self, state_machine):
-        """Test de mise à jour de l'état multiroom"""
+        """Multiroom state update test"""
         await state_machine.update_multiroom_state(True)
 
         assert state_machine.system_state.multiroom_enabled is True
 
     @pytest.mark.asyncio
     async def test_update_equalizer_state(self, state_machine):
-        """Test de mise à jour de l'état equalizer"""
+        """Equalizer state update test"""
         await state_machine.update_equalizer_state(True)
 
         assert state_machine.system_state.equalizer_enabled is True
 
     @pytest.mark.asyncio
     async def test_broadcast_event(self, state_machine, mock_websocket_handler):
-        """Test de broadcast d'événements"""
+        """Event broadcast test"""
         await state_machine.broadcast_event("test", "test_event", {"data": "value"})
 
         mock_websocket_handler.handle_event.assert_called_once()
@@ -226,10 +226,10 @@ class TestUnifiedAudioStateMachine:
 
     @pytest.mark.asyncio
     async def test_concurrent_transitions_prevented(self, state_machine, mock_plugin):
-        """Test que les transitions concurrentes sont empêchées par le lock"""
+        """Test that concurrent transitions are prevented by the lock"""
         mock_plugin._initialized = True
 
-        # Simuler un plugin qui prend du temps à démarrer
+        # Simulate a plugin that takes time to start
         async def slow_start():
             await asyncio.sleep(0.5)
             return True
@@ -237,21 +237,21 @@ class TestUnifiedAudioStateMachine:
         mock_plugin.start = slow_start
         state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
-        # Lancer deux transitions en parallèle
+        # Launch two transitions in parallel
         task1 = asyncio.create_task(state_machine.transition_to_source(AudioSource.SPOTIFY))
         task2 = asyncio.create_task(state_machine.transition_to_source(AudioSource.SPOTIFY))
 
         results = await asyncio.gather(task1, task2)
 
-        # L'une devrait réussir, l'autre devrait être no-op (déjà sur la source)
-        assert any(results)  # Au moins une réussie
+        # One should succeed, the other should be no-op (already on source)
+        assert any(results)  # At least one succeeded
 
     @pytest.mark.asyncio
     async def test_buffered_updates_max_capacity(self, state_machine, mock_plugin):
-        """Test que la queue de updates a une capacité maximale"""
+        """Test that update queue has maximum capacity"""
         mock_plugin._initialized = True
 
-        # Simuler un plugin qui prend du temps
+        # Simulate a plugin that takes time
         async def slow_start():
             await asyncio.sleep(0.3)
             return True
@@ -259,31 +259,31 @@ class TestUnifiedAudioStateMachine:
         mock_plugin.start = slow_start
         state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
-        # Démarrer une transition
+        # Start a transition
         transition_task = asyncio.create_task(
             state_machine.transition_to_source(AudioSource.SPOTIFY)
         )
 
-        # Attendre un peu que la transition commence
+        # Wait a bit for transition to start
         await asyncio.sleep(0.1)
 
-        # Essayer d'envoyer un update pendant la transition
+        # Try to send an update during transition
         await state_machine.update_plugin_state(
             AudioSource.SPOTIFY,
             PluginState.CONNECTED,
             {"title": "Test Song"}
         )
 
-        # Vérifier que l'update est bufferisé
+        # Check that update is buffered
         assert len(state_machine._buffered_updates) == 1
 
-        # Attendre la fin de la transition
+        # Wait for transition to complete
         await transition_task
 
-        # Après la transition, la queue devrait être vide (updates rejoués)
+        # After transition, queue should be empty (updates replayed)
         assert len(state_machine._buffered_updates) == 0
 
-        # Simuler un plugin qui prend du temps à démarrer
+        # Simulate a plugin that takes time to start
         async def slow_start():
             await asyncio.sleep(0.3)
             return True
@@ -291,70 +291,70 @@ class TestUnifiedAudioStateMachine:
         mock_plugin.start = slow_start
         state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
-        # Démarrer une transition
+        # Start a transition
         transition_task = asyncio.create_task(
             state_machine.transition_to_source(AudioSource.SPOTIFY)
         )
 
-        # Attendre que la transition commence
+        # Wait for transition to start
         await asyncio.sleep(0.1)
 
-        # Envoyer des updates pendant la transition
+        # Send updates during transition
         await state_machine.update_plugin_state(
             AudioSource.SPOTIFY,
             PluginState.CONNECTED,
             {"title": "Test Song", "artist": "Test Artist"}
         )
 
-        # Attendre la fin de la transition
+        # Wait for transition to complete
         await transition_task
 
-        # Vérifier que l'update a été appliqué
+        # Check that update has been applied
         assert state_machine.system_state.plugin_state == PluginState.CONNECTED
         assert state_machine.system_state.metadata.get("title") == "Test Song"
         assert state_machine.system_state.metadata.get("artist") == "Test Artist"
 
-        # Simuler un plugin qui timeout
+        # Simulate a plugin that timeouts
         async def timeout_start():
-            await asyncio.sleep(10)  # Plus long que TRANSITION_TIMEOUT
+            await asyncio.sleep(10)  # Longer than TRANSITION_TIMEOUT
             return True
 
         mock_plugin.start = timeout_start
         state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
-        # Démarrer une transition
+        # Start a transition
         transition_task = asyncio.create_task(
             state_machine.transition_to_source(AudioSource.SPOTIFY)
         )
 
-        # Attendre que la transition commence
+        # Wait for transition to start
         await asyncio.sleep(0.1)
 
-        # Envoyer un update pendant la transition
+        # Send an update during transition
         await state_machine.update_plugin_state(
             AudioSource.SPOTIFY,
             PluginState.CONNECTED,
             {"title": "Test Song"}
         )
 
-        # Vérifier que l'update est bufferisé
+        # Check that update is buffered
         assert len(state_machine._buffered_updates) == 1
 
-        # Attendre que la transition timeout
+        # Wait for transition to timeout
         result = await transition_task
 
-        # La transition devrait échouer
+        # Transition should fail
         assert result is False
 
-        # La queue devrait être vidée
+        # Queue should be cleared
         assert len(state_machine._buffered_updates) == 0
 
     @pytest.mark.asyncio
     async def test_buffered_updates_max_capacity(self, state_machine, mock_plugin):
-        """Test que la queue de updates a une capacité maximale"""
+        """Test that update queue has maximum capacity"""
         mock_plugin._initialized = True
 
-        # Simuler un plugin qui prend du temps
+        # Simulate a plugin that takes time
         async def slow_start():
             await asyncio.sleep(0.5)
             return True
@@ -362,15 +362,15 @@ class TestUnifiedAudioStateMachine:
         mock_plugin.start = slow_start
         state_machine.register_plugin(AudioSource.SPOTIFY, mock_plugin)
 
-        # Démarrer une transition
+        # Start a transition
         transition_task = asyncio.create_task(
             state_machine.transition_to_source(AudioSource.SPOTIFY)
         )
 
-        # Attendre que la transition commence
+        # Wait for transition to start
         await asyncio.sleep(0.1)
 
-        # Envoyer plus d'updates que la capacité max
+        # Send more updates than max capacity
         for i in range(state_machine.MAX_BUFFERED_UPDATES + 10):
             await state_machine.update_plugin_state(
                 AudioSource.SPOTIFY,
@@ -378,8 +378,8 @@ class TestUnifiedAudioStateMachine:
                 {"index": i}
             )
 
-        # La queue ne devrait pas dépasser la capacité max
+        # Queue should not exceed max capacity
         assert len(state_machine._buffered_updates) <= state_machine.MAX_BUFFERED_UPDATES
 
-        # Attendre la fin de la transition
+        # Wait for transition to complete
         await transition_task
