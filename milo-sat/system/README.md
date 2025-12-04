@@ -28,13 +28,26 @@ MILO_PRINCIPAL_IP=192.168.1.100  # IP of main Milo (discovered during installati
 
 This file is created by `install-sat.sh` during installation.
 
+## Directory Structure
+
+Milo Sat uses sparse checkout to clone only the `milo-sat/` directory from the main Milo repository:
+
+```
+/home/milo-sat/
+├── repo/                          # Sparse checkout of Milo repository
+│   └── milo-sat/
+│       ├── app/                   # Application files (main.py, requirements.txt)
+│       └── system/                # Systemd service files
+└── venv/                          # Python virtual environment
+```
+
 ## Installation
 
 Services are automatically installed by `install-sat.sh`:
 
 ```bash
-# During installation, all .service files are copied:
-sudo cp /home/milo-sat/system/*.service /etc/systemd/system/
+# During installation, service files are copied from the repo:
+sudo cp /home/milo-sat/repo/milo-sat/system/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
 # Services are enabled at boot:

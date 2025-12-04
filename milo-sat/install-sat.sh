@@ -5,9 +5,12 @@ set -e
 
 MILO_SAT_USER="milo-sat"
 MILO_SAT_HOME="/home/$MILO_SAT_USER"
-MILO_SAT_APP_DIR="$MILO_SAT_HOME/milo-sat"
+MILO_SAT_REPO_DIR="$MILO_SAT_HOME/repo"
+MILO_SAT_APP_DIR="$MILO_SAT_REPO_DIR/milo-sat/app"
+MILO_SAT_SYSTEM_DIR="$MILO_SAT_REPO_DIR/milo-sat/system"
+MILO_SAT_VENV_DIR="$MILO_SAT_HOME/venv"
 MILO_SAT_DATA_DIR="/var/lib/milo-sat"
-MILO_SAT_REPO_BASE="https://raw.githubusercontent.com/leodurandfr/Milo/main/milo-sat"
+MILO_SAT_REPO_URL="https://github.com/leodurandfr/Milo.git"
 REBOOT_REQUIRED=false
 
 # Variables to store user choices
@@ -251,29 +254,24 @@ install_snapclient() {
     log_success "Snapclient installé"
 }
 
-download_milo_sat_files() {
-    log_info "Téléchargement des fichiers Milo Sat..."
+clone_milo_sat_repo() {
+    log_info "Clonage du repository Milo (sparse checkout)..."
 
-    sudo -u "$MILO_SAT_USER" mkdir -p "$MILO_SAT_APP_DIR"
-    sudo -u "$MILO_SAT_USER" mkdir -p "$MILO_SAT_HOME/system"
+    # Clone with sparse checkout (only milo-sat directory)
+    sudo -u "$MILO_SAT_USER" git clone --no-checkout --depth 1 "$MILO_SAT_REPO_URL" "$MILO_SAT_REPO_DIR"
+    sudo -u "$MILO_SAT_USER" git -C "$MILO_SAT_REPO_DIR" sparse-checkout init --cone
+    sudo -u "$MILO_SAT_USER" git -C "$MILO_SAT_REPO_DIR" sparse-checkout set milo-sat
+    sudo -u "$MILO_SAT_USER" git -C "$MILO_SAT_REPO_DIR" checkout
 
-    # Download application files
-    sudo -u "$MILO_SAT_USER" wget -O "$MILO_SAT_APP_DIR/main.py" "$MILO_SAT_REPO_BASE/app/main.py"
-    sudo -u "$MILO_SAT_USER" wget -O "$MILO_SAT_APP_DIR/requirements.txt" "$MILO_SAT_REPO_BASE/app/requirements.txt"
-
-    # Download service files
-    sudo -u "$MILO_SAT_USER" wget -O "$MILO_SAT_HOME/system/milo-sat.service" "$MILO_SAT_REPO_BASE/system/milo-sat.service"
-    sudo -u "$MILO_SAT_USER" wget -O "$MILO_SAT_HOME/system/milo-sat-snapclient.service" "$MILO_SAT_REPO_BASE/system/milo-sat-snapclient.service"
-
-    log_success "Fichiers Milo Sat téléchargés"
+    log_success "Repository cloné (sparse checkout: milo-sat/)"
 }
 
 install_milo_sat_application() {
     log_info "Configuration de l'environnement Python pour Milo Sat..."
 
-    sudo -u "$MILO_SAT_USER" python3 -m venv "$MILO_SAT_APP_DIR/venv"
-    sudo -u "$MILO_SAT_USER" bash -c "source $MILO_SAT_APP_DIR/venv/bin/activate && pip install --upgrade pip"
-    sudo -u "$MILO_SAT_USER" bash -c "source $MILO_SAT_APP_DIR/venv/bin/activate && pip install -r $MILO_SAT_APP_DIR/requirements.txt"
+    sudo -u "$MILO_SAT_USER" python3 -m venv "$MILO_SAT_VENV_DIR"
+    sudo -u "$MILO_SAT_USER" bash -c "source $MILO_SAT_VENV_DIR/bin/activate && pip install --upgrade pip"
+    sudo -u "$MILO_SAT_USER" bash -c "source $MILO_SAT_VENV_DIR/bin/activate && pip install -r $MILO_SAT_APP_DIR/requirements.txt"
 
     log_success "Application Milo Sat installée"
 }
@@ -304,17 +302,12 @@ EOF
 create_systemd_services() {
     log_info "Installation des services systemd..."
 
-    # Determine system directory location
-    local system_dir="$MILO_SAT_HOME/system"
+    # Copy static service files from repo
+    sudo cp "$MILO_SAT_SYSTEM_DIR/milo-sat.service" /etc/systemd/system/
+    log_success "Installed milo-sat.service"
 
-    # Copy static service files (same pattern as main Milo)
-    for service_file in "$system_dir"/*.service; do
-        if [[ -f "$service_file" ]]; then
-            local service_name=$(basename "$service_file")
-            sudo cp "$service_file" /etc/systemd/system/
-            log_success "Installed $service_name"
-        fi
-    done
+    sudo cp "$MILO_SAT_SYSTEM_DIR/milo-sat-snapclient.service" /etc/systemd/system/
+    log_success "Installed milo-sat-snapclient.service"
 
     # Create environment file with dynamic value
     sudo tee "$MILO_SAT_DATA_DIR/env" > /dev/null << EOF
@@ -529,8 +522,8 @@ uninstall_milo_sat() {
     
     # 7. Remove application directories
     log_info "Suppression des fichiers de l'application..."
-    sudo rm -rf "$MILO_SAT_APP_DIR"
-    sudo rm -rf "$MILO_SAT_HOME/system"
+    sudo rm -rf "$MILO_SAT_REPO_DIR"
+    sudo rm -rf "$MILO_SAT_VENV_DIR"
     sudo rm -rf "$MILO_SAT_DATA_DIR"
     
     # 8. Remove milo-sat user
@@ -610,7 +603,7 @@ main() {
     
     create_milo_sat_user
     install_snapclient
-    download_milo_sat_files
+    clone_milo_sat_repo
     install_milo_sat_application
     
     configure_alsa

@@ -6,8 +6,8 @@ After=network.target
 Type=simple
 User=milo-sat
 Group=audio
-WorkingDirectory=/home/milo-sat/milo-sat
-ExecStart=/home/milo-sat/milo-sat/venv/bin/python3 main.py
+WorkingDirectory=/home/milo-sat/repo/milo-sat/app
+ExecStart=/home/milo-sat/venv/bin/python3 main.py
 
 Restart=always
 RestartSec=5
