@@ -230,42 +230,26 @@ class SnapclientManager:
             return {"success": False, "error": str(e)}
 
     async def _install_deb_with_apt(self, deb_path: str) -> Dict[str, Any]:
-        """Installs a .deb package with apt install (automatically resolves dependencies)"""
+        """Installs a .deb package using the secure wrapper script"""
         try:
-            env = {
-                "DEBIAN_FRONTEND": "noninteractive",
-                "DEBCONF_NONINTERACTIVE_SEEN": "true",
-                "APT_LISTCHANGES_FRONTEND": "none"
-            }
+            self.logger.info(f"Installing {Path(deb_path).name} via secure wrapper...")
 
-            # Step 1: Update package list
-            self.logger.info("Updating APT package list...")
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "-E", "apt", "update",
+                "sudo", "/usr/local/bin/milo-sat-install-snapclient", deb_path,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **env}
-            )
-            await proc.communicate()
-
-            # Step 2: Install the .deb with apt install (automatically resolves dependencies)
-            self.logger.info(f"Installing {Path(deb_path).name} with automatic dependency resolution...")
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "-E", "apt", "install", "-y", deb_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **env}
+                stderr=asyncio.subprocess.PIPE
             )
 
             stdout, stderr = await proc.communicate()
 
             if proc.returncode == 0:
-                self.logger.info("Package installed successfully with all dependencies resolved")
+                self.logger.info("Package installed successfully")
                 return {"success": True}
             else:
+                error_msg = stderr.decode().strip() or stdout.decode().strip()
                 return {
                     "success": False,
-                    "error": f"APT install failed: {stderr.decode()}"
+                    "error": f"Installation failed: {error_msg}"
                 }
 
         except Exception as e:

@@ -360,17 +360,69 @@ enable_services() {
     log_success "Services activés"
 }
 
+install_wrapper_script() {
+    log_info "Installation du script wrapper sécurisé..."
+
+    sudo tee /usr/local/bin/milo-sat-install-snapclient > /dev/null << 'WRAPPER_EOF'
+#!/bin/bash
+# Milo Sat - Secure Snapclient Installation Wrapper
+# Only allows installing validated snapclient .deb packages
+set -euo pipefail
+
+error_exit() { echo "ERROR: $1" >&2; exit 1; }
+
+[ $# -ne 1 ] && error_exit "Usage: $0 <path-to-snapclient-deb>"
+
+DEB_PATH="$1"
+
+# Validate file exists
+[ ! -f "$DEB_PATH" ] && error_exit "File does not exist: $DEB_PATH"
+
+# Validate absolute path
+[[ "$DEB_PATH" != /* ]] && error_exit "Path must be absolute"
+
+# Validate in temp directory only
+case "$DEB_PATH" in
+    /tmp/*|/var/tmp/*) ;;
+    *) error_exit "DEB file must be in /tmp or /var/tmp" ;;
+esac
+
+# Validate .deb extension
+[[ "$DEB_PATH" != *.deb ]] && error_exit "File must have .deb extension"
+
+# Validate filename pattern (snapclient releases)
+FILENAME=$(basename "$DEB_PATH")
+if ! [[ "$FILENAME" =~ ^snapclient_[0-9]+\.[0-9]+\.[0-9]+-[0-9]+_arm64_(bookworm|trixie|bullseye|buster)\.deb$ ]]; then
+    error_exit "Filename does not match snapclient pattern: $FILENAME"
+fi
+
+# Validate package name inside .deb
+PACKAGE_NAME=$(dpkg-deb --show --showformat='${Package}' "$DEB_PATH" 2>/dev/null) || \
+    error_exit "Failed to read package info"
+[ "$PACKAGE_NAME" != "snapclient" ] && error_exit "Package is not snapclient: $PACKAGE_NAME"
+
+# Update package lists and install
+DEBIAN_FRONTEND=noninteractive apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$DEB_PATH"
+WRAPPER_EOF
+
+    sudo chmod 755 /usr/local/bin/milo-sat-install-snapclient
+    sudo chown root:root /usr/local/bin/milo-sat-install-snapclient
+
+    log_success "Script wrapper installé"
+}
+
 configure_sudoers() {
     log_info "Configuration des permissions sudo pour milo-sat..."
-    
+
     sudo tee /etc/sudoers.d/milo-sat > /dev/null << 'EOF'
 # Milo Sat - Permissions for automatic updates
 milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop milo-sat-snapclient.service
 milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl start milo-sat-snapclient.service
 milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active milo-sat-snapclient.service
-milo-sat ALL=(root) NOPASSWD:SETENV: /usr/bin/apt install *
+milo-sat ALL=(root) NOPASSWD: /usr/local/bin/milo-sat-install-snapclient
 EOF
-    
+
     sudo chmod 0440 /etc/sudoers.d/milo-sat
     log_success "Permissions sudo configurées"
 }
@@ -466,10 +518,11 @@ uninstall_milo_sat() {
     sudo rm -f /etc/systemd/system/milo-sat-snapclient.service
     sudo systemctl daemon-reload
     
-    # 3. Remove sudoers rules
+    # 3. Remove sudoers rules and wrapper script
     log_info "Suppression des règles sudoers..."
     sudo rm -f /etc/sudoers.d/milo-sat
-    
+    sudo rm -f /usr/local/bin/milo-sat-install-snapclient
+
     # 4. Uninstall Snapclient
     log_info "Désinstallation de Snapclient..."
     sudo apt remove -y snapclient 2>/dev/null || true
@@ -586,8 +639,9 @@ main() {
     configure_alsa
     create_systemd_services
     enable_services
+    install_wrapper_script
     configure_sudoers
-    
+
     finalize_installation
 }
 
