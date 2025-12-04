@@ -195,10 +195,26 @@ class WebSocketSingleton {
   }
 
   handleMessage(message) {
+    // Validate message structure
+    if (!message || typeof message !== 'object') {
+      console.warn('WebSocket: Invalid message format (not an object)');
+      return;
+    }
+
+    if (!message.category || typeof message.category !== 'string') {
+      console.warn('WebSocket: Missing or invalid message.category');
+      return;
+    }
+
+    if (!message.type || typeof message.type !== 'string') {
+      console.warn('WebSocket: Missing or invalid message.type');
+      return;
+    }
+
     // Detect pings
     if (message.category === 'system' && message.type === 'ping') {
       this.lastPingTime = Date.now();
-      return; // Do not propagate pings to handlers
+      return;
     }
 
     // Cache full state from both initial_state and state_changed events

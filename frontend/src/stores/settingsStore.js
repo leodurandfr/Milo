@@ -263,7 +263,8 @@ export const useSettingsStore = defineStore('settings', () => {
       podcastCredentialsStatus.value = response.data.status ?? 'error';
       podcastApiUsage.value = response.data.requests_used ?? null;
       podcastCredentialsValidatedAt.value = response.data.credentials_validated_at ?? null;
-    } catch {
+    } catch (error) {
+      console.error('Error refreshing podcast credentials status:', error);
       podcastCredentialsStatus.value = 'error';
       podcastApiUsage.value = null;
       podcastCredentialsValidatedAt.value = null;

@@ -19,11 +19,11 @@
     </div>
 
     <div v-if="showActions" class="card-actions" @click.stop>
-      <Button v-if="!isSubscribed" variant="brand" size="small" @click="$emit('subscribe', podcast.uuid)">
+      <Button v-if="!isSubscribed" variant="brand" size="small" @click="emit('subscribe', podcast.uuid)">
         {{ t('podcasts.subscribe') }}
       </Button>
       <Button v-else :variant="contrast ? 'on-dark' : 'background-strong'" size="small"
-        @click="$emit('unsubscribe', podcast.uuid)">
+        @click="emit('unsubscribe', podcast.uuid)">
         {{ t('podcasts.unsubscribe') }}
       </Button>
     </div>
@@ -55,11 +55,11 @@
       </div>
 
       <div v-if="showActions" class="row-actions" @click.stop>
-        <Button v-if="!isSubscribed" variant="brand" @click="$emit('subscribe', podcast.uuid)">
+        <Button v-if="!isSubscribed" variant="brand" @click="emit('subscribe', podcast.uuid)">
           {{ t('podcasts.subscribe') }}
         </Button>
         <Button v-else :variant="contrast ? 'on-dark' : 'background-strong'"
-          @click="$emit('unsubscribe', podcast.uuid)">
+          @click="emit('unsubscribe', podcast.uuid)">
           {{ t('podcasts.unsubscribe') }}
         </Button>
       </div>
@@ -108,7 +108,7 @@ const props = defineProps({
   }
 })
 
-const $emit = defineEmits(['select', 'subscribe', 'unsubscribe'])
+const emit = defineEmits(['select', 'subscribe', 'unsubscribe'])
 
 const imageError = ref(false)
 const imageLoaded = ref(false)
@@ -139,7 +139,7 @@ const tagText = computed(() => {
 
 function handleCardClick() {
   if (props.clickable) {
-    $emit('select', props.podcast)
+    emit('select', props.podcast)
   }
 }
 
