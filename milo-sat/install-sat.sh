@@ -270,12 +270,11 @@ download_milo_sat_files() {
 
 install_milo_sat_application() {
     log_info "Configuration de l'environnement Python pour Milo Sat..."
-    
-    cd "$MILO_SAT_APP_DIR"
-    sudo -u "$MILO_SAT_USER" python3 -m venv venv
-    sudo -u "$MILO_SAT_USER" bash -c "source venv/bin/activate && pip install --upgrade pip"
-    sudo -u "$MILO_SAT_USER" bash -c "source venv/bin/activate && pip install -r requirements.txt"
-    
+
+    sudo -u "$MILO_SAT_USER" python3 -m venv "$MILO_SAT_APP_DIR/venv"
+    sudo -u "$MILO_SAT_USER" bash -c "source $MILO_SAT_APP_DIR/venv/bin/activate && pip install --upgrade pip"
+    sudo -u "$MILO_SAT_USER" bash -c "source $MILO_SAT_APP_DIR/venv/bin/activate && pip install -r $MILO_SAT_APP_DIR/requirements.txt"
+
     log_success "Application Milo Sat installée"
 }
 
