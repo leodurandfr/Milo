@@ -85,32 +85,6 @@ class PodcastDataService:
         data.setdefault('subscriptions', defaults['subscriptions'])
         data.setdefault('playback_progress', defaults['playback_progress'])
 
-        # Migrate old subscriptions format (list of strings) to new format (list of dicts)
-        if 'subscriptions' in data and isinstance(data['subscriptions'], list):
-            migrated_subscriptions = []
-            found_old_format = False
-
-            for sub in data['subscriptions']:
-                if isinstance(sub, str):
-                    # Old format: just UUID string - convert to new format with minimal data
-                    found_old_format = True
-                    migrated_subscriptions.append({
-                        'uuid': sub,
-                        'name': 'Unknown Podcast',  # Will be updated when user views it
-                        'imageUrl': '',
-                        'childrenHash': '',
-                        'addedAt': int(time.time()),
-                        'lastChecked': 0
-                    })
-                elif isinstance(sub, dict):
-                    # New format: already a dict
-                    migrated_subscriptions.append(sub)
-
-            if found_old_format:
-                needs_migration = True
-                self.logger.info(f"Migrated {len([s for s in data['subscriptions'] if isinstance(s, str)])} subscriptions to new format")
-                data['subscriptions'] = migrated_subscriptions
-
         # Migrate cache structure if needed
         if 'cache' not in data:
             data['cache'] = defaults['cache']
@@ -131,11 +105,6 @@ class PodcastDataService:
                 if key not in data['settings']:
                     data['settings'][key] = value
                     needs_migration = True
-
-        # Remove old favorites field if exists (no longer used)
-        if 'favorites' in data:
-            data.pop('favorites', None)
-            needs_migration = True
 
         return data, needs_migration
 
@@ -227,16 +196,9 @@ class PodcastDataService:
         return data.get('subscriptions', [])
 
     async def get_subscription_uuids(self) -> List[str]:
-        """Get just the UUIDs of subscribed podcasts"""
+        """Get just the UUIDs of subscribed podcasts."""
         subscriptions = await self.get_subscriptions()
-        # Handle both old format (list of strings) and new format (list of dicts)
-        result = []
-        for s in subscriptions:
-            if isinstance(s, str):
-                result.append(s)  # Old format: direct UUID string
-            elif isinstance(s, dict) and s.get('uuid'):
-                result.append(s['uuid'])  # New format: dict with uuid key
-        return result
+        return [s['uuid'] for s in subscriptions if s.get('uuid')]
 
     async def is_subscribed(self, podcast_uuid: str) -> bool:
         """Check if podcast is subscribed"""

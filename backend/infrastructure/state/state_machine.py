@@ -40,16 +40,6 @@ class UnifiedAudioStateMachine:
         # Cache for to_dict()
         self._state_cache: Optional[Dict[str, Any]] = None
 
-    
-    def _sync_routing_state(self) -> None:
-        """
-        Sync initial routing state.
-
-        NOTE: This method is no longer necessary as routing_service uses
-        system_state directly. Kept for compatibility but does nothing.
-        """
-        pass
-
     def register_plugin(self, source: AudioSource, plugin: AudioSourcePlugin) -> None:
         """Register a plugin for a specific source."""
         if source in self.plugins:
@@ -75,9 +65,7 @@ class UnifiedAudioStateMachine:
         return PluginState.INACTIVE
 
     async def get_current_state(self) -> Dict[str, Any]:
-        """Return current system state with automatic synchronization."""
-        if self.routing_service:
-            self._sync_routing_state()
+        """Return current system state."""
         return self.system_state.to_dict()
 
     async def transition_to_source(self, target_source: AudioSource) -> bool:
