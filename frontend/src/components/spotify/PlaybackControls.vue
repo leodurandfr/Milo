@@ -1,12 +1,12 @@
 <template>
   <div class="controls">
-    <div @click="onPrevious" class="control-button previous">
+    <div @click="onPrevious" class="control-button previous interactive-press-strong">
       <SvgIcon name="previous" responsive class="icon-secondary" />
     </div>
-    <div @click="onPlayPause" class="control-button play-pause">
+    <div @click="onPlayPause" class="control-button play-pause interactive-press-strong">
       <SvgIcon :name="isPlaying ? 'pause' : 'play'" responsive class="icon-primary" />
     </div>
-    <div @click="onNext" class="control-button next">
+    <div @click="onNext" class="control-button next interactive-press-strong">
       <SvgIcon name="next" responsive class="icon-secondary" />
     </div>
   </div>
@@ -57,11 +57,6 @@ const onNext = () => emit('next');
   height: 90px;
 }
 
-.control-button:active {
-  transform: scale(0.8);
-  opacity: 0.5;
-  transition: transform 0.1s ease, opacity 0.1s ease;
-}
 
 .icon-primary {
   color: var(--color-text);

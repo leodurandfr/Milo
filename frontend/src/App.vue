@@ -3,11 +3,10 @@
   <div class="app-container">
     <router-view />
     <VolumeBar />
-    <BottomNavigation
+    <Dock
       @open-multiroom="isMultiroomOpen = true"
       @open-equalizer="isEqualizerOpen = true"
       @open-settings="isSettingsOpen = true"
-
     />
 
     <Modal :is-open="isMultiroomOpen" @close="isMultiroomOpen = false">
@@ -31,7 +30,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, provide, defineAsyncComponent } from 'vue';
 import VolumeBar from '@/components/ui/VolumeBar.vue';
-import BottomNavigation from '@/components/navigation/BottomNavigation.vue';
+import Dock from '@/components/ui/Dock.vue';
 import Modal from '@/components/ui/Modal.vue';
 
 // Lazy-loaded modals

@@ -289,6 +289,28 @@
     }
 }
 
+/* === INTERACTIVE PRESS EFFECTS === */
+
+/* STRONG: Large interactive elements (dock items, playback controls) */
+.interactive-press-strong:active,
+.interactive-press-strong.pressed {
+    transform: scale(0.92) !important;
+    opacity: 0.7 !important;
+}
+
+/* SUBTLE: Small/medium elements (buttons, list items, icons) */
+.interactive-press:active,
+.interactive-press.pressed {
+    transform: scale(0.97) !important;
+    opacity: 0.85 !important;
+}
+
+/* Smooth return transition when releasing */
+.interactive-press,
+.interactive-press-strong {
+    transition: transform 150ms ease-out, opacity 150ms ease-out;
+}
+
 /* === VUE TRANSITIONS === */
 
 /* Fade + slide (pour MessageContent, grilles, etc.) */
