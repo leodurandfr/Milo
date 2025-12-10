@@ -441,6 +441,7 @@ server:
   address: "0.0.0.0"
   port: 3678
   allow_origin: "*"
+  image_size: 'xlarge'
 EOF
     
     sudo chown -R "$MILO_USER:audio" "$MILO_DATA_DIR/go-librespot"
