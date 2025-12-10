@@ -721,6 +721,15 @@ pcm.milo_radio {
     ]
 }
 
+pcm.milo_podcast {
+    @func concat
+    strings [
+        "pcm.milo_podcast_"
+        { @func getenv vars [ MILO_MODE ] default "direct" }
+        { @func getenv vars [ MILO_EQUALIZER ] default "" }
+    ]
+}
+
 # === Multiroom Mode (via snapcast) ===
 
 pcm.milo_spotify_multiroom {
@@ -763,6 +772,16 @@ pcm.milo_radio_multiroom {
     }
 }
 
+pcm.milo_podcast_multiroom {
+    type plug
+    slave.pcm {
+        type hw
+        card 1
+        device 0
+        subdevice 4
+    }
+}
+
 # === Multiroom Mode with Equalizer ===
 
 pcm.milo_spotify_multiroom_eq {
@@ -781,6 +800,11 @@ pcm.milo_roc_multiroom_eq {
 }
 
 pcm.milo_radio_multiroom_eq {
+    type plug
+    slave.pcm "equal_multiroom"
+}
+
+pcm.milo_podcast_multiroom_eq {
     type plug
     slave.pcm "equal_multiroom"
 }
@@ -823,6 +847,15 @@ pcm.milo_radio_direct {
     }
 }
 
+pcm.milo_podcast_direct {
+    type plug
+    slave.pcm {
+        type hw
+        card sndrpihifiberry
+        device 0
+    }
+}
+
 # === Direct Mode with Equalizer ===
 
 pcm.milo_spotify_direct_eq {
@@ -841,6 +874,11 @@ pcm.milo_roc_direct_eq {
 }
 
 pcm.milo_radio_direct_eq {
+    type plug
+    slave.pcm "equal"
+}
+
+pcm.milo_podcast_direct_eq {
     type plug
     slave.pcm "equal"
 }
@@ -885,12 +923,13 @@ codec = opus
 chunk_ms = 10
 sampleformat = 48000:16:2
 
-source = meta:///Bluetooth/ROC/Spotify/Radio?name=Multiroom
+source = meta:///Bluetooth/ROC/Spotify/Radio/Podcast?name=Multiroom
 
 source = alsa:///?name=Bluetooth&device=hw:1,1,0
 source = alsa:///?name=ROC&device=hw:1,1,1
 source = alsa:///?name=Spotify&device=hw:1,1,2
 source = alsa:///?name=Radio&device=hw:1,1,3
+source = alsa:///?name=Podcast&device=hw:1,1,4
 
 [streaming_client]
 initial_volume = 16
