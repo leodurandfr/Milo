@@ -1,4 +1,4 @@
-<!-- frontend/src/components/navigation/BottomNavigation.vue -->
+<!-- frontend/src/components/ui/Dock.vue -->
 <template>
   <!-- Invisible drag zone -->
   <div ref="dragZone" class="drag-zone" :class="{ dragging: isDragging }" @click.stop="onDragZoneClick"></div>
@@ -14,8 +14,8 @@
       class="additional-apps-container mobile-only" :class="{ visible: showAdditionalApps }">
 
       <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
-        @click="() => handleAdditionalAppClick(app.id)" @touchstart.passive="addPressEffect" @mousedown="addPressEffect"
-        class="additional-app-content button-interactive-subtle">
+        @click="() => handleAdditionalAppClick(app.id)"
+        class="additional-app-content button-interactive-subtle interactive-press">
         <AppIcon :name="app.icon" :size="32" />
         <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
       </button>
@@ -26,7 +26,8 @@
       <div class="volume-controls mobile-only">
         <button v-for="{ icon, handler, delta } in volumeControlsWithSteps" :key="icon"
           @pointerdown="(e) => onVolumeHoldStart(delta, e)" @pointerup="onVolumeHoldEnd"
-          @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd" class="volume-btn button-interactive-subtle">
+          @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd"
+          class="volume-btn button-interactive-subtle interactive-press-strong">
           <SvgIcon :name="icon" :size="32" />
         </button>
       </div>
@@ -39,11 +40,9 @@
           :key="`mobile-${id}`"
           :ref="el => { if (el) mobileDockItems[index] = el }"
           @click="() => handleAppClick(id, index)"
-          @touchstart.passive="addPressEffect"
-          @mousedown="addPressEffect"
           :disabled="unifiedStore.systemState.transitioning"
           :style="{ transitionDelay: `${0.1 + index * 0.05}s` }"
-          class="dock-item button-interactive-subtle mobile-only">
+          class="dock-item button-interactive-subtle interactive-press-strong mobile-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
@@ -53,11 +52,9 @@
           :key="`desktop-audio-${id}`"
           :ref="el => { if (el) desktopDockItems[index] = el }"
           @click="() => handleAppClick(id, index)"
-          @touchstart.passive="addPressEffect"
-          @mousedown="addPressEffect"
           :disabled="unifiedStore.systemState.transitioning"
           :style="{ transitionDelay: `${0.1 + index * 0.05}s` }"
-          class="dock-item button-interactive-subtle desktop-only">
+          class="dock-item button-interactive-subtle interactive-press-strong desktop-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
@@ -72,10 +69,8 @@
         <button
           v-if="additionalDockApps.length > 0"
           @click="handleToggleClick"
-          @touchstart.passive="addPressEffect"
-          @mousedown="addPressEffect"
           :style="{ transitionDelay: `${0.1 + dockApps.length * 0.05}s` }"
-          class="dock-item toggle-btn mobile-only button-interactive">
+          class="dock-item toggle-btn mobile-only button-interactive interactive-press-strong">
           <SvgIcon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
@@ -84,10 +79,8 @@
           v-for="({ id, icon, handler }, index) in enabledFeatures"
           :key="`desktop-feature-${id}`"
           @click="handler"
-          @touchstart.passive="addPressEffect"
-          @mousedown="addPressEffect"
           :style="{ transitionDelay: `${0.1 + (enabledAudioPlugins.length + 1 + index) * 0.05}s` }"
-          class="dock-item desktop-only button-interactive-subtle">
+          class="dock-item desktop-only button-interactive-subtle interactive-press-strong">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
       </div>
@@ -263,30 +256,25 @@ const onVolumeHoldStart = (delta, event) => {
   gestureStartPosition.value = { x: getEventX(event), y: getEventY(event) };
   gestureHasMoved.value = false;
   currentVolumeDelta.value = delta;
-  volumeActionTaken.value = false;
 
-  addPressEffect(event);
+  // Execute volume action IMMEDIATELY
+  unifiedStore.adjustVolume(delta);
+  volumeActionTaken.value = true;
 
+  // Start repeat timer after 400ms hold
   volumeStartTimer.value = setTimeout(() => {
-    if (!gestureHasMoved.value && !volumeActionTaken.value && volumePointerType.value === event.pointerType) {
-      volumeActionTaken.value = true;
-      unifiedStore.adjustVolume(delta);
+    if (!gestureHasMoved.value && volumePointerType.value === event.pointerType) {
       isVolumeHolding.value = true;
 
-      volumeRepeatTimer.value = setTimeout(() => {
+      volumeRepeatTimer.value = setInterval(() => {
         if (isVolumeHolding.value) {
-          const repeatInterval = setInterval(() => {
-            if (isVolumeHolding.value) {
-              unifiedStore.adjustVolume(currentVolumeDelta.value);
-            } else {
-              clearInterval(repeatInterval);
-            }
-          }, 50);
-          volumeRepeatTimer.value = repeatInterval;
+          unifiedStore.adjustVolume(currentVolumeDelta.value);
+        } else {
+          clearInterval(volumeRepeatTimer.value);
         }
-      }, 300);
+      }, 50);
     }
-  }, 200);
+  }, 400);
 
   resetHideTimer();
 };
@@ -296,11 +284,7 @@ const onVolumeHoldEnd = (event) => {
     return;
   }
 
-  if (!volumeActionTaken.value && !gestureHasMoved.value && currentVolumeDelta.value !== 0) {
-    volumeActionTaken.value = true;
-    unifiedStore.adjustVolume(currentVolumeDelta.value);
-  }
-
+  // Action already executed on pointerdown, just cleanup
   isVolumeHolding.value = false;
   volumePointerType.value = null;
 
@@ -625,14 +609,6 @@ const removeAdditionalDragEvents = () => {
     el.removeEventListener('mousedown', onAdditionalDragStart);
     el.removeEventListener('touchstart', onAdditionalDragStart);
   }
-};
-
-// === VISUAL EFFECTS ===
-const addPressEffect = (e) => {
-  const button = e.target.closest('button');
-  if (!button || button.disabled) return;
-  button.classList.add('is-pressed');
-  setTimeout(() => button.classList.remove('is-pressed'), 150);
 };
 
 // === LOAD CONFIG ===
@@ -1092,23 +1068,5 @@ onUnmounted(() => {
   .dock-indicator {
     display: none;
   }
-}
-
-.volume-btn.is-pressed,
-.dock-item.is-pressed {
-  transform: scale(0.92) !important;
-  opacity: 0.8 !important;
-  transition-delay: 0s !important;
-}
-
-.additional-app-content.is-pressed {
-  transform: scale(0.97) !important;
-  opacity: 0.8 !important;
-  transition-delay: 0s !important;
-}
-
-button:disabled.is-pressed {
-  transform: none !important;
-  opacity: 0.5 !important;
 }
 </style>

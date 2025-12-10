@@ -380,6 +380,11 @@ onUnmounted(() => {
   transform: translateY(-24px);
 }
 
+.close-btn-position:active {
+  transform: translateX(-50%) translateY(0) scale(0.92) !important;
+  opacity: 0.7 !important;
+}
+
 .modal-content {
   overflow-y: auto;
   padding: var(--space-04);
