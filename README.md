@@ -5,24 +5,26 @@
 
 # Milō (🚧 WIP 🚧)
 
-Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Bluetooth, and network streaming. Responsive touch interface with real-time synchronization.
+Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Bluetooth, Internet Radio, Podcasts, and Mac streaming. Responsive touch interface with real-time synchronization.
 
 ## ✨ Features
 
 - **Multiple audio sources**
-  - 🎵 Spotify Connect (playback control, metadata)
-  - 📱 Bluetooth (quick connect/disconnect)
-  - 💻 Mac streaming (system audio over network)
-  - 📻 Internet Radio (50,000+ stations worldwide)
+  - 🎵 Spotify Connect — See what's playing and control playback
+  - 📱 Bluetooth — Instant pairing, play from any device
+  - 💻 Mac — Your Mac's audio, wirelessly
+  - 📻 Radio — Explore 50,000+ stations worldwide
+  - 🎙️ Podcasts — Search, subscribe and resume
 - **Synchronized multiroom** (snapcast)
-- **Settings** to manage Milō entirely
+- **Settings** — Language, volume, screen, routing, and more
 - **10-band equalizer** with presets
 - **Unified volume control** (touch + rotary encoder)
-- **Responsive interface** (8 supported languages)
+- **Responsive interface** (EN, FR, DE, ES, PT, IT, ZH, HI)
+- **Automatic updates** for Milō and dependencies
 
 ## 🎛️ Companion apps
 
-- [**Milō Mac**](https://github.com/leodurandfr/Milo-Mac) - Add "Milō" in your mac audio output and let you control Milō from the Menu Bar app.
+- [**Milō Mac**](https://github.com/leodurandfr/Milo-Mac) - Add "Milō" to your Mac audio outputs and control playback from the Menu Bar.
 - [**Milō iOS**](https://github.com/leodurandfr/Milo-iOS) - iOS app (fullscreen web interface)
 - [**Milō Android**](https://github.com/leodurandfr/Milo-Android) - Android app (fullscreen web interface)
 
@@ -72,6 +74,7 @@ The script will guide you through:
 - Spotify Connect: Select **"Milō"** in the Spotify app
 - Bluetooth: Connect to **"Milō · Bluetooth"**
 - Mac audio: After installing [**Milō Mac**](https://github.com/leodurandfr/Milo-Mac), select **"Milo"** in your Mac audio output
+- Podcasts: Browse and subscribe in **Settings → Podcasts**
 
 **Uninstall:**
 ```bash
@@ -84,7 +87,7 @@ Install Milō Sat on additional Raspberry Pis to create a synchronized multiroom
 
 **1. Prepare the SD card**
 
-Download and open [Raspberry Pi Imager](https://www.raspberrypi.com/software/):
+On [Raspberry Pi Imager](https://www.raspberrypi.com/software/):
 - Select your Raspberry Pi model (Raspberry Pi 4 or 5)
 - Choose **"Raspberry Pi OS (64-bit) Lite"** (based on Debian Trixie)
 - Select your microSD card
