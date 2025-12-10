@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/InputText.vue -->
 <template>
   <div class="input-wrapper">
-    <div class="input-container">
+    <div class="input-container" :class="{ 'keyboard-active': isKeyboardActiveForThis }" @click="handleContainerClick">
       <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
         :maxlength="maxlength" class="heading-3" @input="handleInput" @focus="handleFocus"
         @blur="handleBlur" />
@@ -11,7 +11,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onUnmounted } from 'vue';
 import { useVirtualKeyboard } from '@/composables/useVirtualKeyboard';
 import { useHardwareConfig } from '@/composables/useHardwareConfig';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
@@ -52,6 +52,9 @@ const emit = defineEmits(['update:modelValue', 'focus', 'blur']);
 const inputRef = ref(null);
 const keyboard = useVirtualKeyboard();
 const { screenResolution } = useHardwareConfig();
+
+// Track if the virtual keyboard is active for THIS specific input
+const isKeyboardActiveForThis = ref(false);
 
 // Detect if the resolution matches (to show the virtual keyboard)
 const shouldShowKeyboard = computed(() => {
@@ -94,22 +97,36 @@ function handleInput(event) {
   emit('update:modelValue', event.target.value);
 }
 
-function handleFocus(event) {
-  console.log('[InputText] Focus detected, shouldShowKeyboard:', shouldShowKeyboard.value);
+function handleContainerClick() {
+  // If virtual keyboard is already visible but for another field, switch to this field
+  if (shouldShowKeyboard.value && keyboard.isVisible.value && !isKeyboardActiveForThis.value) {
+    openKeyboard();
+  }
+}
 
+function openKeyboard() {
+  isKeyboardActiveForThis.value = true;
+  keyboard.open({
+    value: props.modelValue,
+    placeholder: props.placeholder,
+    onChange: (newValue) => {
+      emit('update:modelValue', newValue);
+    },
+    onSubmit: (newValue) => {
+      emit('update:modelValue', newValue);
+      isKeyboardActiveForThis.value = false;
+    },
+    onClose: () => {
+      isKeyboardActiveForThis.value = false;
+    }
+  });
+}
+
+function handleFocus(event) {
   if (shouldShowKeyboard.value) {
     // Blur the input to prevent native keyboard
     event.target.blur();
-
-    console.log('[InputText] Opening virtual keyboard');
-    keyboard.open({
-      value: props.modelValue,
-      placeholder: props.placeholder,
-      onSubmit: (newValue) => {
-        console.log('[InputText] Keyboard submitted value:', newValue);
-        emit('update:modelValue', newValue);
-      }
-    });
+    openKeyboard();
   }
 
   emit('focus', event);
@@ -118,6 +135,13 @@ function handleFocus(event) {
 function handleBlur(event) {
   emit('blur', event);
 }
+
+// Cleanup on unmount - close keyboard if it was opened by this input
+onUnmounted(() => {
+  if (isKeyboardActiveForThis.value) {
+    keyboard.close();
+  }
+});
 
 defineExpose({
   inputRef
@@ -151,7 +175,8 @@ defineExpose({
   cursor: not-allowed;
 }
 
-.input-container:focus-within {
+.input-container:focus-within,
+.input-container.keyboard-active {
   -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
   -moz-box-shadow: inset 0px 0px 0px 2px var(--color-brand);
   box-shadow: inset 0px 0px 0px 2px var(--color-brand);
