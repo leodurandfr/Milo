@@ -316,9 +316,13 @@ class ProgramUpdateService(ProgramVersionService):
             return {"success": False, "error": str(e)}
 
     async def _update_go_librespot(self, status: Dict[str, Any], progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Updates go-librespot"""
+        """Updates go-librespot with proper service state preservation"""
         config = self.update_config["go-librespot"]
         latest_version = status["latest"]["version"]
+
+        # Track if service was active before update
+        service_was_active = await self._is_service_active(config["service_name"])
+        self.update_logger.info(f"Service {config['service_name']} was {'active' if service_was_active else 'inactive'} before update")
 
         try:
             if progress_callback:
@@ -337,13 +341,14 @@ class ProgramUpdateService(ProgramVersionService):
             if not download_result["success"]:
                 return download_result
 
-            if progress_callback:
-                await progress_callback("updates.progress.stoppingService", 60)
+            # 3. Stop service only if it was active
+            if service_was_active:
+                if progress_callback:
+                    await progress_callback("updates.progress.stoppingService", 60)
 
-            # 3. Stop the service
-            stop_result = await self._stop_service(config["service_name"])
-            if not stop_result:
-                return {"success": False, "error": "Failed to stop service"}
+                stop_result = await self._stop_service(config["service_name"])
+                if not stop_result:
+                    return {"success": False, "error": "Failed to stop service"}
 
             if progress_callback:
                 await progress_callback("updates.progress.installingVersion", 70)
@@ -352,36 +357,41 @@ class ProgramUpdateService(ProgramVersionService):
             install_result = await self._install_go_librespot_binary(download_result["binary_path"])
             if not install_result["success"]:
                 # Rollback
-                await self._rollback_go_librespot(config)
+                await self._rollback_go_librespot(config, service_was_active)
                 return install_result
 
-            if progress_callback:
-                await progress_callback("updates.progress.startingService", 90)
+            # 5. Restart service only if it was previously active
+            if service_was_active:
+                if progress_callback:
+                    await progress_callback("updates.progress.startingService", 90)
 
-            # 5. Restart the service
-            start_result = await self._start_service(config["service_name"])
-            if not start_result:
-                # Rollback
-                await self._rollback_go_librespot(config)
-                return {"success": False, "error": "Failed to start service after update"}
+                start_result = await self._start_service(config["service_name"])
+                if not start_result:
+                    # Rollback
+                    await self._rollback_go_librespot(config, service_was_active)
+                    return {"success": False, "error": "Failed to start service after update"}
 
-            if progress_callback:
-                await progress_callback("updates.progress.verifyingUpdate", 95)
+                if progress_callback:
+                    await progress_callback("updates.progress.verifyingUpdate", 95)
 
-            # 6. Verify that the update worked
-            verify_result = await self._verify_go_librespot_update(latest_version)
-            if not verify_result["success"]:
-                # Rollback
-                await self._rollback_go_librespot(config)
-                return verify_result
+                # 6. Verify that the update worked (only if service is running)
+                verify_result = await self._verify_go_librespot_update(latest_version)
+                if not verify_result["success"]:
+                    # Rollback
+                    await self._rollback_go_librespot(config, service_was_active)
+                    return verify_result
 
             if progress_callback:
                 await progress_callback("updates.progress.completed", 100)
 
-            # 7. Save version to file (new binaries don't embed version)
-            version_file = Path("/var/lib/milo/go-librespot-version")
-            async with aiofiles.open(version_file, 'w') as f:
-                await f.write(latest_version)
+            # 7. Clean up legacy version file if it exists (version now embedded in binary)
+            legacy_version_file = Path("/var/lib/milo/go-librespot-version")
+            if legacy_version_file.exists():
+                try:
+                    legacy_version_file.unlink()
+                    self.update_logger.info("Removed legacy go-librespot-version file")
+                except Exception as e:
+                    self.update_logger.warning(f"Could not remove legacy version file: {e}")
 
             # 8. Clean up temporary files
             await self._cleanup_temp_files(download_result.get("temp_dir"))
@@ -390,12 +400,13 @@ class ProgramUpdateService(ProgramVersionService):
                 "success": True,
                 "message": f"go-librespot updated to {latest_version}",
                 "old_version": status["installed"]["versions"].get("main"),
-                "new_version": latest_version
+                "new_version": latest_version,
+                "service_restarted": service_was_active
             }
 
         except Exception as e:
             # Rollback in case of error
-            await self._rollback_go_librespot(config)
+            await self._rollback_go_librespot(config, service_was_active)
             self.update_logger.error(f"go-librespot update failed: {e}")
             return {"success": False, "error": str(e)}
 
@@ -773,6 +784,20 @@ class ProgramUpdateService(ProgramVersionService):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    async def _is_service_active(self, service_name: str) -> bool:
+        """Checks if a systemd service is currently active"""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "is-active", service_name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            stdout, _ = await proc.communicate()
+            return stdout.decode().strip() == "active"
+        except Exception as e:
+            self.update_logger.error(f"Failed to check service status for {service_name}: {e}")
+            return False
+
     async def _stop_service(self, service_name: str) -> bool:
         """Stops a systemd service"""
         try:
@@ -874,8 +899,8 @@ class ProgramUpdateService(ProgramVersionService):
         except Exception as e:
             return {"success": False, "error": f"Verification failed: {e}"}
 
-    async def _rollback_go_librespot(self, config: Dict[str, Any]) -> bool:
-        """Rollback go-librespot to the backed up version"""
+    async def _rollback_go_librespot(self, config: Dict[str, Any], service_was_active: bool = True) -> bool:
+        """Rollback go-librespot to the backed up version, respecting previous service state"""
         try:
             backup_dir = Path(config["backup_path"])
             binary_backup = backup_dir / "go-librespot.backup"
@@ -884,7 +909,7 @@ class ProgramUpdateService(ProgramVersionService):
                 self.update_logger.error("No backup found for rollback")
                 return False
 
-            # Stop the service
+            # Stop the service if it's currently running
             await self._stop_service(config["service_name"])
 
             # Restore the binary
@@ -895,10 +920,15 @@ class ProgramUpdateService(ProgramVersionService):
             )
             await proc.communicate()
 
-            # Restart the service
-            await self._start_service(config["service_name"])
+            # Force filesystem sync
+            proc = await asyncio.create_subprocess_exec("sync")
+            await proc.wait()
 
-            self.update_logger.info("go-librespot rollback completed")
+            # Only restart service if it was originally active
+            if service_was_active:
+                await self._start_service(config["service_name"])
+
+            self.update_logger.info(f"go-librespot rollback completed (service {'restarted' if service_was_active else 'left stopped'})")
             return True
 
         except Exception as e:
