@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Milo
+Description=Milo multiroom audio system boot theme
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/milo
+ScriptFile=/usr/share/plymouth/themes/milo/milo.script

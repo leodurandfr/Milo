@@ -1182,80 +1182,18 @@ configure_plymouth_splash() {
     # Create Milo theme directory
     sudo mkdir -p /usr/share/plymouth/themes/milo
 
-    # Generate milo.plymouth
-    log_info "Creating Plymouth configuration file..."
-    sudo tee /usr/share/plymouth/themes/milo/milo.plymouth > /dev/null << 'EOF'
-[Plymouth Theme]
-Name=Milo
-Description=Milo Audio System Splash Screen
-ModuleName=script
-
-[script]
-ImageDir=/usr/share/plymouth/themes/milo
-ScriptFile=/usr/share/plymouth/themes/milo/milo.script
-EOF
-
-    # Generate milo.script
-    log_info "Creating Plymouth script..."
-    sudo tee /usr/share/plymouth/themes/milo/milo.script > /dev/null << 'EOF'
-screen_width = Window.GetWidth();
-screen_height = Window.GetHeight();
-
-theme_image = Image("splash.png");
-image_width = theme_image.GetWidth();
-image_height = theme_image.GetHeight();
-
-scale_x = image_width / screen_width;
-scale_y = image_height / screen_height;
-
-flag = 1;
-
-if (scale_x > 1 || scale_y > 1)
-{
-	if (scale_x > scale_y)
-	{
-		resized_image = theme_image.Scale (screen_width, image_height / scale_x);
-		image_x = 0;
-		image_y = (screen_height - ((image_height  * screen_width) / image_width)) / 2;
-	}
-	else
-	{
-		resized_image = theme_image.Scale (image_width / scale_y, screen_height);
-		image_x = (screen_width - ((image_width  * screen_height) / image_height)) / 2;
-		image_y = 0;
-	}
-}
-else
-{
-	resized_image = theme_image.Scale (image_width, image_height);
-	image_x = (screen_width - image_width) / 2;
-	image_y = (screen_height - image_height) / 2;
-}
-
-if (Plymouth.GetMode() != "shutdown")
-{
-	sprite = Sprite (resized_image);
-	sprite.SetPosition (image_x, image_y, -100);
-}
-
-message_sprite = Sprite();
-message_sprite.SetPosition(screen_width * 0.1, screen_height * 0.9, 10000);
-
-fun message_callback (text) {
-	my_image = Image.Text(text, 1, 1, 1);
-	message_sprite.SetImage(my_image);
-	sprite.SetImage (resized_image);
-}
-
-Plymouth.SetUpdateStatusFunction(message_callback);
-EOF
-
-    # Copy splash image from assets/
-    if [[ -f "$MILO_APP_DIR/assets/splash.png" ]]; then
-        log_info "Copying splash.png image..."
-        sudo cp "$MILO_APP_DIR/assets/splash.png" /usr/share/plymouth/themes/milo/splash.png
+    # Copy all Plymouth theme files from assets/plymouth-theme/
+    log_info "Installing Plymouth theme files..."
+    if [[ -d "$MILO_APP_DIR/assets/plymouth-theme" ]]; then
+        for theme_file in "$MILO_APP_DIR/assets/plymouth-theme"/*; do
+            if [[ -f "$theme_file" ]]; then
+                local filename=$(basename "$theme_file")
+                sudo cp "$theme_file" /usr/share/plymouth/themes/milo/
+                log_success "Installed Plymouth: $filename"
+            fi
+        done
     else
-        log_error "splash.png image not found in $MILO_APP_DIR/assets/"
+        log_error "Plymouth theme directory not found: $MILO_APP_DIR/assets/plymouth-theme/"
         return 1
     fi
 

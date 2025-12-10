@@ -4,14 +4,45 @@
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  
-  
+
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="google" content="notranslate" />
   <title>Milo</title>
+
+  <!-- Boot screen styles - hidden by default, shown after delay if WebSocket not connected -->
+  <style>
+    #boot-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f7f7f7;
+      z-index: 99999;
+      opacity: 0;
+      transition: opacity 0.3s ease-out;
+    }
+    #boot-screen.visible {
+      opacity: 1;
+    }
+    #boot-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .boot-logo {
+      width: 86px;
+      height: 48px;
+    }
+  </style>
 </head>
 
 <body>
+  <!-- Boot screen with logo - visible until WebSocket connects -->
+  <div id="boot-screen">
+    <img src="/assets/logo.png" alt="Milo" class="boot-logo">
+  </div>
+
   <div id="app"></div>
   <script type="module" src="/src/main.js"></script>
 </body>
