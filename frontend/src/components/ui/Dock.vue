@@ -23,7 +23,7 @@
 
     <div ref="dock" class="dock">
       <!-- Volume Controls - Mobile only -->
-      <div class="volume-controls mobile-only">
+      <div class="volume-controls mobile-only" :style="{ transitionDelay: getDockItemDelay(0) }">
         <button v-for="{ icon, handler, delta } in volumeControlsWithSteps" :key="icon"
           @pointerdown="(e) => onVolumeHoldStart(delta, e)" @pointerup="onVolumeHoldEnd"
           @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd"
@@ -41,7 +41,7 @@
           :ref="el => { if (el) mobileDockItems[index] = el }"
           @click="() => handleAppClick(id, index)"
           :disabled="unifiedStore.systemState.transitioning"
-          :style="{ transitionDelay: `${0.1 + index * 0.05}s` }"
+          :style="{ transitionDelay: getDockItemDelay(index) }"
           class="dock-item button-interactive-subtle interactive-press-strong mobile-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
@@ -53,7 +53,7 @@
           :ref="el => { if (el) desktopDockItems[index] = el }"
           @click="() => handleAppClick(id, index)"
           :disabled="unifiedStore.systemState.transitioning"
-          :style="{ transitionDelay: `${0.1 + index * 0.05}s` }"
+          :style="{ transitionDelay: getDockItemDelay(index) }"
           class="dock-item button-interactive-subtle interactive-press-strong desktop-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
@@ -61,7 +61,7 @@
         <!-- Separator - Desktop only, always shown if we have features -->
         <div
           v-if="enabledFeatures.length > 0"
-          :style="{ transitionDelay: `${0.1 + enabledAudioPlugins.length * 0.05}s` }"
+          :style="{ transitionDelay: getDockItemDelay(enabledAudioPlugins.length) }"
           class="dock-separator desktop-only">
         </div>
 
@@ -69,7 +69,7 @@
         <button
           v-if="additionalDockApps.length > 0"
           @click="handleToggleClick"
-          :style="{ transitionDelay: `${0.1 + dockApps.length * 0.05}s` }"
+          :style="{ transitionDelay: getDockItemDelay(dockApps.length) }"
           class="dock-item toggle-btn mobile-only button-interactive interactive-press-strong">
           <SvgIcon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
@@ -79,7 +79,7 @@
           v-for="({ id, icon, handler }, index) in enabledFeatures"
           :key="`desktop-feature-${id}`"
           @click="handler"
-          :style="{ transitionDelay: `${0.1 + (enabledAudioPlugins.length + 1 + index) * 0.05}s` }"
+          :style="{ transitionDelay: getDockItemDelay(enabledAudioPlugins.length + 1 + index) }"
           class="dock-item desktop-only button-interactive-subtle interactive-press-strong">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
@@ -106,6 +106,10 @@ const { on } = useWebSocket();
 
 // === STATIC CONFIGURATION ===
 const ALL_AUDIO_SOURCES = ['spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
+
+// === ANIMATION TIMING ===
+const DOCK_ANIM_INITIAL_DELAY = 0.16;  // Initial delay in seconds
+const DOCK_ANIM_STAGGER = 0.016;       // Stagger between items in seconds
 
 
 // Actions with reactive titles
@@ -226,6 +230,8 @@ const getEventX = (e) => e.type.includes('touch') || e.pointerType === 'touch'
   ? (e.touches?.[0]?.clientX || e.changedTouches?.[0]?.clientX || e.clientX) : e.clientX;
 
 const isDesktop = () => window.matchMedia('not (max-aspect-ratio: 4/3)').matches;
+
+const getDockItemDelay = (index) => `${DOCK_ANIM_INITIAL_DELAY + index * DOCK_ANIM_STAGGER}s`;
 
 const clearAllTimers = () => {
   [hideTimeout, additionalHideTimeout, clickTimeout, volumeStartTimer.value, volumeRepeatTimer.value, dragGraceTimeout]
@@ -947,9 +953,6 @@ onUnmounted(() => {
   transform: translateY(0) scale(1);
 }
 
-.dock-container.visible .volume-controls {
-  transition-delay: 0.1s;
-}
 
 .dock-container.visible.fully-visible .dock-item,
 .dock-container.visible.fully-visible .dock-separator,
