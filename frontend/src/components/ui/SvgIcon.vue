@@ -11,8 +11,17 @@
   />
 </template>
 
+<script>
+// Global counter to generate unique IDs for each instance
+let instanceCounter = 0;
+</script>
+
 <script setup>
 import { computed } from 'vue'
+
+// Generate a unique ID for this component instance
+const instanceId = ++instanceCounter;
+
 import playIcon from '@/assets/icons/play.svg?raw'
 import pauseIcon from '@/assets/icons/pause.svg?raw'
 import nextIcon from '@/assets/icons/next.svg?raw'
@@ -94,6 +103,31 @@ const isResponsiveSize = computed(() => {
   return typeof props.size === 'string'
 })
 
+// Make SVG IDs unique to avoid url(#id) conflicts between multiple instances
+const prepareSvg = (svgString, prefix) => {
+  let result = svgString;
+
+  // Find all IDs in the SVG
+  const idPattern = /id="([^"]+)"/g;
+  const ids = new Set();
+  let match;
+
+  while ((match = idPattern.exec(result)) !== null) {
+    ids.add(match[1]);
+  }
+
+  // Replace each ID and its url() references with unique versions
+  ids.forEach(id => {
+    const newId = `${prefix}-${id}`;
+    result = result.replace(new RegExp(`id="${id}"`, 'g'), `id="${newId}"`);
+    result = result.replace(new RegExp(`url\\(#${id}\\)`, 'g'), `url(#${newId})`);
+    result = result.replace(new RegExp(`clip-path="url\\(#${id}\\)"`, 'g'), `clip-path="url(#${newId})"`);
+    result = result.replace(new RegExp(`filter="url\\(#${id}\\)"`, 'g'), `filter="url(#${newId})"`);
+  });
+
+  return result;
+};
+
 const svgContent = computed(() => {
   const icon = icons[props.name]
   if (!icon) {
@@ -104,6 +138,9 @@ const svgContent = computed(() => {
   let cleanedIcon = icon
     .replace(/fill="#[^"]*"/g, 'fill="currentColor"')
     .replace(/fill='#[^']*'/g, 'fill="currentColor"')
+
+  // Make IDs unique to avoid url(#id) conflicts during opacity transitions
+  cleanedIcon = prepareSvg(cleanedIcon, `${props.name}-${instanceId}`);
 
   if (props.responsive || isResponsiveSize.value) {
     // For responsive sizing, let CSS handle dimensions

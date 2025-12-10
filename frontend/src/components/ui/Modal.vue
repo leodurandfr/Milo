@@ -2,8 +2,10 @@
 <template>
   <div v-if="isVisible" ref="modalOverlay" class="modal-overlay" @click.self="handleOverlayClick">
     <div ref="modalContainer" class="modal-container" :style="{ height: containerHeight }">
-      <IconButton ref="closeButton" class="close-btn-position" icon="close" variant="rounded" size="large"
-        aria-label="Fermer" @click="close" />
+      <div ref="closeButtonWrapper" class="close-btn-wrapper">
+        <IconButton ref="closeButton" icon="close" variant="rounded" size="large"
+          aria-label="Fermer" @click="close" />
+      </div>
 
       <!-- Content with animated height -->
       <div ref="modalContent" class="modal-content">
@@ -38,6 +40,7 @@ const modalContent = ref(null);
 const modalContainer = ref(null);
 const modalOverlay = ref(null);
 const closeButton = ref(null);
+const closeButtonWrapper = ref(null);
 const contentInner = ref(null);
 
 // Animated height composable - observe contentInner, add modal-content padding
@@ -145,7 +148,7 @@ async function openModal() {
 
   await nextTick();
 
-  if (!modalContainer.value || !modalOverlay.value || !closeButton.value) return;
+  if (!modalContainer.value || !modalOverlay.value || !closeButtonWrapper.value) return;
 
   // Initial overlay state (invisible)
   modalOverlay.value.style.transition = 'none';
@@ -156,10 +159,9 @@ async function openModal() {
   modalContainer.value.style.opacity = '0';
   modalContainer.value.style.transform = 'translateY(80px) scale(0.85)';
 
-  // Initial close button state (invisible and higher position)
-  closeButton.value.$el.style.transition = 'none';
-  closeButton.value.$el.style.opacity = '0';
-  closeButton.value.$el.style.transform = 'translateX(-50%) translateY(-24px)';
+  // Initial close button wrapper state (invisible and higher position)
+  closeButtonWrapper.value.style.transition = 'none';
+  closeButtonWrapper.value.classList.remove('visible');
 
   // Force reflow
   modalContainer.value.offsetHeight;
@@ -181,12 +183,11 @@ async function openModal() {
   }, ANIMATION_TIMINGS.containerDelay);
   animationTimeouts.push(containerTimeout);
 
-  // Delayed close button animation (uses --transition-spring)
+  // Delayed close button wrapper animation (uses --transition-spring)
   const closeButtonTimeout = setTimeout(() => {
-    if (!closeButton.value || !closeButton.value.$el) return;
-    closeButton.value.$el.style.transition = `transform var(--transition-spring), opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms ease-out`;
-    closeButton.value.$el.style.opacity = '1';
-    closeButton.value.$el.style.transform = 'translateX(-50%) translateY(0)';
+    if (!closeButtonWrapper.value) return;
+    closeButtonWrapper.value.style.transition = `transform var(--transition-spring), opacity ${ANIMATION_TIMINGS.closeButtonDuration}ms ease-out`;
+    closeButtonWrapper.value.classList.add('visible');
   }, ANIMATION_TIMINGS.closeButtonDelay);
   animationTimeouts.push(closeButtonTimeout);
 
@@ -213,7 +214,7 @@ async function closeModal() {
 
   isAnimating.value = true;
 
-  if (!modalContainer.value || !modalOverlay.value || !closeButton.value) return;
+  if (!modalContainer.value || !modalOverlay.value || !closeButtonWrapper.value) return;
 
   // Exit animation with ease-out for closing
   const overlayCloseTimeout = setTimeout(() => {
@@ -232,10 +233,9 @@ async function closeModal() {
   animationTimeouts.push(containerCloseTimeout);
 
   const closeButtonCloseTimeout = setTimeout(() => {
-    if (!closeButton.value || !closeButton.value.$el) return;
-    closeButton.value.$el.style.transition = `opacity ${ANIMATION_TIMINGS.closeButtonDurationOut}ms ease-out`;
-    closeButton.value.$el.style.opacity = '0';
-    closeButton.value.$el.style.transform = 'translateX(-50%)';
+    if (!closeButtonWrapper.value) return;
+    closeButtonWrapper.value.style.transition = `opacity ${ANIMATION_TIMINGS.closeButtonDurationOut}ms ease-out`;
+    closeButtonWrapper.value.classList.remove('visible');
   }, ANIMATION_TIMINGS.closeButtonDelayOut);
   animationTimeouts.push(closeButtonCloseTimeout);
 
@@ -372,17 +372,17 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-.close-btn-position {
+.close-btn-wrapper {
   position: absolute;
   top: 0;
-  right: calc(-1 * var(--space-04) - var(--space-09));
-  opacity: 0;
+  right: calc(-1 * var(--space-04) - 60px);
   transform: translateY(-24px);
+  visibility: hidden;
 }
 
-.close-btn-position:active {
-  transform: translateX(-50%) translateY(0) scale(0.92) !important;
-  opacity: 0.7 !important;
+.close-btn-wrapper.visible {
+  transform: translateY(0);
+  visibility: visible;
 }
 
 .modal-content {
@@ -406,11 +406,15 @@ onUnmounted(() => {
     display: none;
   }
 
-  .close-btn-position {
-    position: absolute;
-    top: calc(-1 * var(--space-05) - var(--space-08));
+  .close-btn-wrapper {
+    top: calc(-1 * var(--space-03) - 52px);
     left: 50%;
+    right: auto;
     transform: translateX(-50%) translateY(-24px);
+  }
+
+  .close-btn-wrapper.visible {
+    transform: translateX(-50%) translateY(0);
   }
 
   .modal-overlay {
