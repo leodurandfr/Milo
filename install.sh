@@ -1218,6 +1218,22 @@ configure_plymouth_splash() {
     sudo sed -i 's/console=tty1/console=tty3 loglevel=3/' /boot/firmware/cmdline.txt 2>/dev/null || \
     sudo sed -i 's/console=tty1/console=tty3 loglevel=3/' /boot/cmdline.txt 2>/dev/null || true
 
+    # Hide Raspberry Pi logo and cursor during boot
+    if ! grep -q "logo.nologo" /boot/firmware/cmdline.txt 2>/dev/null && \
+       ! grep -q "logo.nologo" /boot/cmdline.txt 2>/dev/null; then
+        sudo sed -i 's/console=tty3 loglevel=3/console=tty3 loglevel=3 logo.nologo vt.global_cursor_default=0/' /boot/firmware/cmdline.txt 2>/dev/null || \
+        sudo sed -i 's/console=tty3 loglevel=3/console=tty3 loglevel=3 logo.nologo vt.global_cursor_default=0/' /boot/cmdline.txt 2>/dev/null
+    fi
+
+    # Disable firmware rainbow splash in config.txt
+    local config_file="/boot/firmware/config.txt"
+    if [[ ! -f "$config_file" ]]; then
+        config_file="/boot/config.txt"
+    fi
+    if [[ -f "$config_file" ]] && ! grep -q "disable_splash=1" "$config_file"; then
+        sudo sed -i '/^\[all\]$/a\\n# Milo - Silent boot\ndisable_splash=1' "$config_file"
+    fi
+
     # Clear /etc/issue to hide getty messages
     sudo cp /etc/issue /etc/issue.backup 2>/dev/null || true
     echo "" | sudo tee /etc/issue > /dev/null
