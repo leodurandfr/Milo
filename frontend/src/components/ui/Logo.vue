@@ -1,6 +1,6 @@
-<!-- Logo.vue - Composant simplifié avec 3 états -->
+<!-- Logo.vue - 2 positions (center/top) + visibilité -->
 <template>
-  <div class="logo-container" :class="`logo-${state}`">
+  <div class="logo-container" :class="[`logo-${position}`, { 'logo-hidden': !visible }]">
     <svg
       xmlns="http://www.w3.org/2000/svg"
       class="logo-svg"
@@ -19,10 +19,14 @@
 
 <script setup>
 defineProps({
-  state: {
+  position: {
     type: String,
     default: 'center',
-    validator: (value) => ['center', 'top', 'hidden'].includes(value)
+    validator: (value) => ['center', 'top'].includes(value)
+  },
+  visible: {
+    type: Boolean,
+    default: true
   }
 });
 </script>
@@ -39,53 +43,33 @@ defineProps({
 .logo-svg {
   display: block;
   height: 32px;
+  transition: height var(--transition-spring);
 }
 
-/* === État CENTER - Logo grand, centré === */
+/* === Position CENTER === */
 .logo-center {
   top: 50%;
   transform: translate(-50%, -50%);
-  opacity: 1;
 }
 
 .logo-center .logo-svg {
   height: 48px;
-  width: auto;
 }
 
-/* === État TOP - Logo petit, en haut === */
+/* === Position TOP === */
 .logo-top {
   top: var(--space-06);
   transform: translateX(-50%);
-  opacity: 1;
 }
 
-.logo-top .logo-svg {
-  width: auto;
-}
-
-/* === État HIDDEN - Disparition vers le haut === */
+/* === Hidden (s'ajoute à la position) === */
 .logo-hidden {
-  top: var(--space-06);
   opacity: 0;
-  transform: translateX(-50%) translateY(calc( -1 * var(--space-05)));
-}
-
-.logo-hidden .logo-svg {
-  width: auto;
-}
-
-/* === RESPONSIVE - MOBILE === */
-@media (max-aspect-ratio: 4/3) {
-
-  /* .logo-hidden {
-    transform: translateX(-50%) translateY(calc( -1 * var(--space-04)));
-  } */
+  margin-top: -24px;
 }
 
 /* === iOS === */
-.ios-app .logo-top,
-.ios-app .logo-hidden {
+.ios-app .logo-top {
   top: var(--space-09);
 }
 </style>
