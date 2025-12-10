@@ -18,7 +18,7 @@
     </div>
 
     <!-- Logo -->
-    <Logo :state="logoState" />
+    <Logo :position="logoPosition" :visible="logoVisible" />
 
     <!-- Settings modal -->
     <Modal :is-open="isSettingsOpen" @close="closeSettings" height-mode="auto">
@@ -132,34 +132,46 @@ watch(shouldMonitorInactivity, (shouldMonitor) => {
 }, { immediate: true });
 
 // === LOGO STATE ===
-const logoState = computed(() => {
+const lastVisiblePosition = ref('center');
+
+const logoVisible = computed(() => {
   const { active_source, plugin_state, metadata, transitioning } = unifiedStore.systemState;
 
-  // During transition → always at top
+  // Visible during transition
   if (transitioning) {
+    return true;
+  }
+
+  // Hidden: Spotify connected with track info
+  if (active_source === 'spotify' && plugin_state === 'connected' && metadata?.title) {
+    return false;
+  }
+
+  // Hidden: Radio or Podcast
+  if (active_source === 'radio' || active_source === 'podcast') {
+    return false;
+  }
+
+  return true;
+});
+
+const logoPosition = computed(() => {
+  const { active_source, transitioning } = unifiedStore.systemState;
+
+  // During transition, always top
+  if (transitioning) {
+    lastVisiblePosition.value = 'top';
     return 'top';
   }
 
-  // Spotify connected with track info → hidden
-  if (active_source === 'spotify' &&
-      plugin_state === 'connected' &&
-      metadata?.title &&
-      metadata?.artist) {
-    return 'hidden';
+  const newPosition = active_source === 'none' ? 'center' : 'top';
+
+  // Only update position when visible
+  if (logoVisible.value) {
+    lastVisiblePosition.value = newPosition;
   }
 
-  // Radio or Podcast → hidden
-  if (active_source === 'radio' || active_source === 'podcast') {
-    return 'hidden';
-  }
-
-  // No active plugin → centered
-  if (active_source === 'none') {
-    return 'center';
-  }
-
-  // All other cases (bluetooth, mac, spotify waiting) → at top
-  return 'top';
+  return lastVisiblePosition.value;
 });
 
 // === ACTION HANDLERS ===
