@@ -97,13 +97,8 @@ main() {
 
     log_success "All services are ready!"
 
-    # Keep Plymouth splash visible for a few more seconds
-    # This prevents seeing the empty Cage screen before Chromium loads
-    SPLASH_DELAY=10  # seconds
-    log_info "Keeping splash screen visible for ${SPLASH_DELAY}s..."
-    sleep $SPLASH_DELAY
-
-    # Quit Plymouth
+    # Quit Plymouth immediately - frontend has its own boot screen
+    # No delay needed since the frontend loader handles the transition
     quit_plymouth
 
     log_success "Readiness check complete. System is ready for kiosk mode."

@@ -1,0 +1,84 @@
+# Milo Plymouth Theme Script
+# Boot: logo + progress bar / Shutdown: logo only
+
+# Background color (#000000)
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
+
+# Load images
+logo_image = Image("logo.png");
+progress_bar_image = Image("progress-bar.png");
+progress_fill_image = Image("progress-fill.png");
+
+# Calculate center positions
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+logo_width = logo_image.GetWidth();
+logo_height = logo_image.GetHeight();
+
+bar_width = progress_bar_image.GetWidth();
+bar_height = progress_bar_image.GetHeight();
+
+# Check mode (boot vs shutdown/suspend/resume)
+mode = Plymouth.GetMode();
+
+# Create logo sprite (always shown)
+logo_sprite = Sprite(logo_image);
+logo_sprite.SetZ(1);
+
+if (mode == "boot") {
+    # Boot mode: logo slightly above center with progress bar below
+
+    # Logo position (centered, slightly above middle)
+    logo_x = (screen_width - logo_width) / 2;
+    logo_y = (screen_height - logo_height) / 2 - 24;
+
+    logo_sprite.SetX(logo_x);
+    logo_sprite.SetY(logo_y);
+
+    # Progress bar position (centered, 48px below logo)
+    bar_x = (screen_width - bar_width) / 2;
+    bar_y = logo_y + logo_height + 48;
+
+    # Create and position progress bar background sprite
+    bar_sprite = Sprite(progress_bar_image);
+    bar_sprite.SetX(bar_x);
+    bar_sprite.SetY(bar_y);
+    bar_sprite.SetZ(1);
+
+    # Create progress fill sprite (will be scaled based on progress)
+    fill_sprite = Sprite();
+    fill_sprite.SetX(bar_x);
+    fill_sprite.SetY(bar_y);
+    fill_sprite.SetZ(2);
+
+    # Progress callback - called by Plymouth with boot progress (0.0 to 1.0)
+    fun boot_progress_callback(time, progress) {
+        if (progress >= 0 && progress <= 1) {
+            # Scale the fill image width based on progress
+            fill_width = progress_fill_image.GetWidth() * progress;
+            if (fill_width > 0) {
+                scaled_fill = progress_fill_image.Scale(fill_width, progress_fill_image.GetHeight());
+                fill_sprite.SetImage(scaled_fill);
+            }
+        }
+    }
+
+    Plymouth.SetBootProgressFunction(boot_progress_callback);
+} else {
+    # Shutdown/suspend/resume: logo centered, no progress bar
+
+    logo_x = (screen_width - logo_width) / 2;
+    logo_y = (screen_height - logo_height) / 2;
+
+    logo_sprite.SetX(logo_x);
+    logo_sprite.SetY(logo_y);
+}
+
+# Quit callback - fade out
+fun quit_callback() {
+    logo_sprite.SetOpacity(0);
+}
+
+Plymouth.SetQuitFunction(quit_callback);

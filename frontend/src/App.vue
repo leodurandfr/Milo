@@ -28,7 +28,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, provide, defineAsyncComponent } from 'vue';
+import { ref, watch, onMounted, onUnmounted, provide, defineAsyncComponent } from 'vue';
 import VolumeBar from '@/components/ui/VolumeBar.vue';
 import Dock from '@/components/ui/Dock.vue';
 import Modal from '@/components/ui/Modal.vue';
@@ -64,6 +64,29 @@ const { loadHardwareInfo } = useHardwareConfig();
 // Enable screen activity detection (touch, mouse, keyboard)
 useScreenActivity();
 
+// Track if initial state received from WebSocket (hides boot screen)
+const isReady = ref(false);
+
+// Show boot screen after delay if WebSocket not connected yet (avoids flash on normal refresh)
+setTimeout(() => {
+  if (!isReady.value) {
+    const bootScreen = document.getElementById('boot-screen');
+    if (bootScreen) bootScreen.classList.add('visible');
+  }
+}, 400);
+
+// Hide boot screen when WebSocket receives initial state
+watch(isReady, (ready) => {
+  if (ready) {
+    const bootScreen = document.getElementById('boot-screen');
+    if (bootScreen) {
+      bootScreen.classList.remove('visible');
+      bootScreen.classList.add('hidden');
+      setTimeout(() => bootScreen.remove(), 300);
+    }
+  }
+});
+
 const isMultiroomOpen = ref(false);
 const isEqualizerOpen = ref(false);
 const isSettingsOpen = ref(false);
@@ -97,7 +120,10 @@ onMounted(async () => {
   // Register WebSocket event listeners FIRST (before any async operations)
   // This prevents race condition where initial_state arrives before listeners are ready
   cleanupFunctions.push(
-    on('system', 'initial_state', (event) => unifiedStore.updateState(event)),
+    on('system', 'initial_state', (event) => {
+      unifiedStore.updateState(event);
+      isReady.value = true;
+    }),
     on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),
     on('system', 'state_changed', (event) => unifiedStore.updateState(event)),
     on('system', 'transition_start', (event) => unifiedStore.updateState(event)),
