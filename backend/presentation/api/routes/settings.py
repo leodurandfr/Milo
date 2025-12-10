@@ -91,7 +91,8 @@ def create_settings_router(
             'spotify': ['milo-spotify.service'],
             'mac': ['milo-mac.service'],
             'bluetooth': ['milo-bluealsa-aplay.service', 'milo-bluealsa.service'],
-            'radio': ['milo-radio.service']
+            'radio': ['milo-radio.service'],
+            'podcast': ['milo-podcast.service']
         }
         return services_map.get(source, [])
     
@@ -296,7 +297,7 @@ def create_settings_router(
                     logger.info(f"Processing disable for app: {app}")
                     
                     # === AUDIO SOURCES ===
-                    if app in ['librespot', 'bluetooth', 'roc', 'radio', 'podcast']:
+                    if app in ['spotify', 'bluetooth', 'mac', 'radio', 'podcast']:
                         current_source = state_machine.system_state.active_source.value
                         
                         if app == current_source:
@@ -376,7 +377,7 @@ def create_settings_router(
                     logger.info(f"Processing enable for app: {app}")
                     
                     # === AUDIO SOURCES: DO NOTHING ===
-                    if app in ['librespot', 'bluetooth', 'roc', 'radio', 'podcast']:
+                    if app in ['spotify', 'bluetooth', 'mac', 'radio', 'podcast']:
                         operations_log.append(f"App {app} enabled (no service start needed)")
                         logger.info(f"App {app} enabled in dock (services will start on source change)")
                     

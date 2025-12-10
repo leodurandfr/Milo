@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/ListItemButton.vue -->
 <template>
-  <button type="button" :class="['list-item-button', `list-item-button--${variant}`, 'interactive-press']" :disabled="disabled" @click="handleClick">
+  <button type="button" :class="['list-item-button', `list-item-button--${variant}`, { 'interactive-press': action !== 'toggle' }]" :disabled="disabled" @click="handleClick">
     <!-- Icon on the left -->
     <div v-if="$slots.icon" class="list-item-button__icon">
       <slot name="icon"></slot>
@@ -50,11 +50,6 @@ const emit = defineEmits(['click', 'update:modelValue']);
 
 function handleClick(event) {
   if (props.disabled) return;
-
-  // For toggle action, toggle the value
-  if (props.action === 'toggle') {
-    emit('update:modelValue', !props.modelValue);
-  }
   emit('click', event);
 }
 </script>
@@ -69,6 +64,15 @@ function handleClick(event) {
   transition: all var(--transition-fast);
   width: 100%;
   text-align: left;
+}
+
+/* Cursor: pointer only for clickable buttons (not toggle) */
+.list-item-button:has(.caret-icon) {
+  cursor: pointer;
+}
+
+/* Default variant is always clickable */
+.list-item-button--default {
   cursor: pointer;
 }
 
