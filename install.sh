@@ -1178,6 +1178,88 @@ install_milo_cursor_theme() {
     log_info "To restore original cursors: sudo rm -rf /usr/share/icons/Adwaita/cursors && sudo mv /usr/share/icons/Adwaita/cursors.backup /usr/share/icons/Adwaita/cursors"
 }
 
+configure_boot_display() {
+    log_info "Configuring boot display for $SCREEN_TYPE..."
+
+    # Map SCREEN_TYPE to configuration file
+    local screen_config=""
+    case "$SCREEN_TYPE" in
+        waveshare_7_usb) screen_config="screen-waveshare-7-usb.sh" ;;
+        waveshare_8_dsi) screen_config="screen-waveshare-8-dsi.sh" ;;
+        none) screen_config="boot-common.sh" ;;
+        *) log_warning "Unknown screen type: $SCREEN_TYPE, using common config"; screen_config="boot-common.sh" ;;
+    esac
+
+    # Load screen-specific configuration
+    source "$MILO_APP_DIR/assets/install/$screen_config"
+
+    # Configure cmdline.txt
+    configure_cmdline "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN"
+
+    # Configure config.txt
+    configure_config "$CONFIG_PARAMS_COMMON" "$CONFIG_PARAMS_SCREEN"
+
+    log_success "Boot display configured for $SCREEN_TYPE"
+}
+
+configure_cmdline() {
+    local boot_params="$1"
+    local cmdline_file="/boot/firmware/cmdline.txt"
+    [[ ! -f "$cmdline_file" ]] && cmdline_file="/boot/cmdline.txt"
+
+    if [[ ! -f "$cmdline_file" ]]; then
+        log_error "cmdline.txt not found"
+        return 1
+    fi
+
+    sudo cp "$cmdline_file" "${cmdline_file}.milo-backup" 2>/dev/null || true
+
+    # Clean current cmdline (remove parameters we will set)
+    local current_cmdline=$(cat "$cmdline_file")
+    current_cmdline=$(echo "$current_cmdline" | sed -E '
+        s/console=serial[0-9],[0-9]+//g
+        s/console=tty[0-9]//g
+        s/loglevel=[0-9]+//g
+        s/\bquiet\b//g
+        s/\bsplash\b//g
+        s/plymouth\.[^ ]*//g
+        s/logo\.[^ ]*//g
+        s/vt\.[^ ]*//g
+        s/fbcon=[^ ]*//g
+        s/video=[^ ]*//g
+        s/  +/ /g
+    ' | xargs)
+
+    echo "${current_cmdline} ${boot_params}" | tr -s ' ' | sudo tee "$cmdline_file" > /dev/null
+    log_success "cmdline.txt configured"
+}
+
+configure_config() {
+    local common_params="$1"
+    local screen_params="$2"
+
+    local config_file="/boot/firmware/config.txt"
+    [[ ! -f "$config_file" ]] && config_file="/boot/config.txt"
+    [[ ! -f "$config_file" ]] && return 0
+
+    # Add common params (disable_splash=1)
+    if ! grep -q "disable_splash=1" "$config_file"; then
+        sudo sed -i '/^\[all\]$/a\\n# Milo - Silent boot\ndisable_splash=1' "$config_file"
+    fi
+
+    # Add screen-specific params
+    if [[ -n "$screen_params" ]]; then
+        echo "$screen_params" | while read -r param; do
+            [[ -z "$param" ]] && continue
+            if ! grep -q "$param" "$config_file"; then
+                sudo sed -i "/disable_splash=1/a\\$param" "$config_file"
+            fi
+        done
+    fi
+
+    log_success "config.txt configured"
+}
+
 configure_plymouth_splash() {
     log_info "Configuring boot splash screen with Milo theme..."
 
@@ -1208,36 +1290,8 @@ configure_plymouth_splash() {
     # Update initramfs to apply theme
     sudo update-initramfs -u
 
-    # Remove serial console messages
-    sudo sed -i 's/console=serial0,115200//' /boot/firmware/cmdline.txt 2>/dev/null || \
-    sudo sed -i 's/console=serial0,115200//' /boot/cmdline.txt 2>/dev/null || true
-
-    # Add kernel parameters for silent boot with splash
-    if ! grep -q "plymouth.ignore-serial-consoles" /boot/firmware/cmdline.txt 2>/dev/null && \
-       ! grep -q "plymouth.ignore-serial-consoles" /boot/cmdline.txt 2>/dev/null; then
-        sudo sed -i '$ s/$/ quiet splash plymouth.ignore-serial-consoles/' /boot/firmware/cmdline.txt 2>/dev/null || \
-        sudo sed -i '$ s/$/ quiet splash plymouth.ignore-serial-consoles/' /boot/cmdline.txt 2>/dev/null
-    fi
-
-    # Redirect kernel console to tty3 and reduce verbosity
-    sudo sed -i 's/console=tty1/console=tty3 loglevel=3/' /boot/firmware/cmdline.txt 2>/dev/null || \
-    sudo sed -i 's/console=tty1/console=tty3 loglevel=3/' /boot/cmdline.txt 2>/dev/null || true
-
-    # Hide Raspberry Pi logo, cursor, and delay fbcon during boot
-    if ! grep -q "logo.nologo" /boot/firmware/cmdline.txt 2>/dev/null && \
-       ! grep -q "logo.nologo" /boot/cmdline.txt 2>/dev/null; then
-        sudo sed -i 's/console=tty3 loglevel=3/console=tty3 loglevel=3 logo.nologo vt.global_cursor_default=0 fbcon=map:2/' /boot/firmware/cmdline.txt 2>/dev/null || \
-        sudo sed -i 's/console=tty3 loglevel=3/console=tty3 loglevel=3 logo.nologo vt.global_cursor_default=0 fbcon=map:2/' /boot/cmdline.txt 2>/dev/null
-    fi
-
-    # Disable firmware rainbow splash in config.txt
-    local config_file="/boot/firmware/config.txt"
-    if [[ ! -f "$config_file" ]]; then
-        config_file="/boot/config.txt"
-    fi
-    if [[ -f "$config_file" ]] && ! grep -q "disable_splash=1" "$config_file"; then
-        sudo sed -i '/^\[all\]$/a\\n# Milo - Silent boot\ndisable_splash=1' "$config_file"
-    fi
+    # Configure boot display (cmdline.txt + config.txt) based on screen type
+    configure_boot_display
 
     # Clear /etc/issue to hide getty messages
     sudo cp /etc/issue /etc/issue.backup 2>/dev/null || true
