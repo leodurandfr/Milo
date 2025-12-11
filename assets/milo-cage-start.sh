@@ -37,4 +37,4 @@ exec cage -- /usr/bin/chromium \
   --force-device-scale-factor=1 \
   --disable-pinch \
   --disable-features=VizDisplayCompositor \
-  --app=http://milo.local
+  --app=http://localhost

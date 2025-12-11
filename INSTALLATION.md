@@ -558,7 +558,7 @@ ExecStart=/usr/bin/chromium-browser \
   --force-device-scale-factor=1 \
   --disable-pinch \
   --disable-features=VizDisplayCompositor \
-  --app=http://milo.local
+  --app=http://localhost
 
 
 Restart=always
