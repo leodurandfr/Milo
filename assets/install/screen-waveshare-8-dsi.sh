@@ -2,7 +2,7 @@
 # Configuration boot pour Waveshare 8" DSI
 # Utilisé par install.sh pour configurer cmdline.txt et config.txt
 
-source "$(dirname "$0")/boot-common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/boot-common.sh"
 
 # Paramètres cmdline.txt spécifiques DSI (aucun)
 BOOT_PARAMS_SCREEN=""
