@@ -1,16 +1,16 @@
 #!/bin/bash
-# Milo Sat - Installation Script v1.2 (with uninstall + default volume)
+# Milo Client - Installation Script v1.2 (with uninstall + default volume)
 
 set -e
 
-MILO_SAT_USER="milo-sat"
-MILO_SAT_HOME="/home/$MILO_SAT_USER"
-MILO_SAT_REPO_DIR="$MILO_SAT_HOME/repo"
-MILO_SAT_APP_DIR="$MILO_SAT_REPO_DIR/milo-sat/app"
-MILO_SAT_SYSTEM_DIR="$MILO_SAT_REPO_DIR/milo-sat/system"
-MILO_SAT_VENV_DIR="$MILO_SAT_HOME/venv"
-MILO_SAT_DATA_DIR="/var/lib/milo-sat"
-MILO_SAT_REPO_URL="https://github.com/leodurandfr/Milo.git"
+MILO_CLIENT_USER="milo-client"
+MILO_CLIENT_HOME="/home/$MILO_CLIENT_USER"
+MILO_CLIENT_REPO_DIR="$MILO_CLIENT_HOME/repo"
+MILO_CLIENT_APP_DIR="$MILO_CLIENT_REPO_DIR/milo-client/app"
+MILO_CLIENT_SYSTEM_DIR="$MILO_CLIENT_REPO_DIR/milo-client/system"
+MILO_CLIENT_VENV_DIR="$MILO_CLIENT_HOME/venv"
+MILO_CLIENT_DATA_DIR="/var/lib/milo-client"
+MILO_CLIENT_REPO_URL="https://github.com/leodurandfr/Milo.git"
 REBOOT_REQUIRED=false
 
 # Variables to store user choices
@@ -44,13 +44,13 @@ log_error() {
 
 show_banner() {
     echo -e "${BLUE}"
-    echo "  __  __ _ _        ____        _   "
-    echo " |  \/  (_) | ___  / ___|  __ _| |_ "
-    echo " | |\/| | | |/ _ \ \___ \ / _\` | __|"
-    echo " | |  | | | | (_) | ___) | (_| | |_ "
-    echo " |_|  |_|_|_|\___/ |____/ \__,_|\__|"
+    echo "  __  __ _ _         ____ _ _            _   "
+    echo " |  \/  (_) | ___   / ___| (_) ___ _ __ | |_ "
+    echo " | |\/| | | |/ _ \ | |   | | |/ _ \ '_ \| __|"
+    echo " | |  | | | | (_) || |___| | |  __/ | | | |_ "
+    echo " |_|  |_|_|_|\___/  \____|_|_|\___|_| |_|\__|"
     echo ""
-    echo "Satellite Installation Script v1.2"
+    echo "Client Installation Script v1.2"
     echo -e "${NC}"
 }
 
@@ -97,18 +97,18 @@ discover_milo_principal() {
 
 collect_user_choices() {
     echo ""
-    log_info "Milo satellite configuration - Answer the following questions:"
+    log_info "Milo Client configuration - Answer the following questions:"
     echo ""
 
     # 1. Hostname choice
-    echo "Choose a number for this satellite (01-99):"
+    echo "Choose a number for this client (01-99):"
     while true; do
-        read -p "Satellite number [01]: " USER_HOSTNAME_CHOICE
+        read -p "Client number [01]: " USER_HOSTNAME_CHOICE
         USER_HOSTNAME_CHOICE=${USER_HOSTNAME_CHOICE:-01}
 
         if [[ $USER_HOSTNAME_CHOICE =~ ^[0-9]{1,2}$ ]]; then
             USER_HOSTNAME_CHOICE=$(printf "%02d" $USER_HOSTNAME_CHOICE)
-            log_success "Hostname: milo-sat-$USER_HOSTNAME_CHOICE"
+            log_success "Hostname: milo-client-$USER_HOSTNAME_CHOICE"
             break
         else
             echo "Please enter a number between 01 and 99."
@@ -149,7 +149,7 @@ collect_user_choices() {
 }
 
 setup_hostname() {
-    local new_hostname="milo-sat-$USER_HOSTNAME_CHOICE"
+    local new_hostname="milo-client-$USER_HOSTNAME_CHOICE"
     local current_hostname=$(hostname)
 
     if [ "$current_hostname" != "$new_hostname" ]; then
@@ -191,7 +191,7 @@ configure_audio_hardware() {
 
     if ! grep -q "$HIFIBERRY_OVERLAY" "$config_file"; then
         echo "" | sudo tee -a "$config_file"
-        echo "# Milo Sat - HiFiBerry Audio" | sudo tee -a "$config_file"
+        echo "# Milo Client - HiFiBerry Audio" | sudo tee -a "$config_file"
         echo "dtoverlay=$HIFIBERRY_OVERLAY" | sudo tee -a "$config_file"
     fi
 
@@ -227,17 +227,17 @@ install_dependencies() {
     log_success "Dependencies installed"
 }
 
-create_milo_sat_user() {
-    if id "$MILO_SAT_USER" &>/dev/null; then
-        log_info "User '$MILO_SAT_USER' already exists"
+create_milo_client_user() {
+    if id "$MILO_CLIENT_USER" &>/dev/null; then
+        log_info "User '$MILO_CLIENT_USER' already exists"
     else
-        log_info "Creating user '$MILO_SAT_USER'..."
-        sudo useradd -m -s /bin/bash -G audio,sudo "$MILO_SAT_USER"
-        log_success "User '$MILO_SAT_USER' created"
+        log_info "Creating user '$MILO_CLIENT_USER'..."
+        sudo useradd -m -s /bin/bash -G audio,sudo "$MILO_CLIENT_USER"
+        log_success "User '$MILO_CLIENT_USER' created"
     fi
 
-    sudo mkdir -p "$MILO_SAT_DATA_DIR"
-    sudo chown -R "$MILO_SAT_USER:audio" "$MILO_SAT_DATA_DIR"
+    sudo mkdir -p "$MILO_CLIENT_DATA_DIR"
+    sudo chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR"
 }
 
 install_snapclient() {
@@ -254,33 +254,33 @@ install_snapclient() {
     log_success "Snapclient installed"
 }
 
-clone_milo_sat_repo() {
+clone_milo_client_repo() {
     log_info "Cloning Milo repository (sparse checkout)..."
 
-    # Clone with sparse checkout (only milo-sat directory)
-    sudo -u "$MILO_SAT_USER" git clone --no-checkout --depth 1 "$MILO_SAT_REPO_URL" "$MILO_SAT_REPO_DIR"
-    sudo -u "$MILO_SAT_USER" git -C "$MILO_SAT_REPO_DIR" sparse-checkout init --cone
-    sudo -u "$MILO_SAT_USER" git -C "$MILO_SAT_REPO_DIR" sparse-checkout set milo-sat
-    sudo -u "$MILO_SAT_USER" git -C "$MILO_SAT_REPO_DIR" checkout
+    # Clone with sparse checkout (only milo-client directory)
+    sudo -u "$MILO_CLIENT_USER" git clone --no-checkout --depth 1 "$MILO_CLIENT_REPO_URL" "$MILO_CLIENT_REPO_DIR"
+    sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout init --cone
+    sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout set milo-client
+    sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" checkout
 
-    log_success "Repository cloned (sparse checkout: milo-sat/)"
+    log_success "Repository cloned (sparse checkout: milo-client/)"
 }
 
-install_milo_sat_application() {
-    log_info "Configuring Python environment for Milo Sat..."
+install_milo_client_application() {
+    log_info "Configuring Python environment for Milo Client..."
 
-    sudo -u "$MILO_SAT_USER" python3 -m venv "$MILO_SAT_VENV_DIR"
-    sudo -u "$MILO_SAT_USER" bash -c "source $MILO_SAT_VENV_DIR/bin/activate && pip install --upgrade pip"
-    sudo -u "$MILO_SAT_USER" bash -c "source $MILO_SAT_VENV_DIR/bin/activate && pip install -r $MILO_SAT_APP_DIR/requirements.txt"
+    sudo -u "$MILO_CLIENT_USER" python3 -m venv "$MILO_CLIENT_VENV_DIR"
+    sudo -u "$MILO_CLIENT_USER" bash -c "source $MILO_CLIENT_VENV_DIR/bin/activate && pip install --upgrade pip"
+    sudo -u "$MILO_CLIENT_USER" bash -c "source $MILO_CLIENT_VENV_DIR/bin/activate && pip install -r $MILO_CLIENT_APP_DIR/requirements.txt"
 
-    log_success "Milo Sat application installed"
+    log_success "Milo Client application installed"
 }
 
 configure_alsa() {
     log_info "Configuring ALSA..."
 
     sudo tee /etc/asound.conf > /dev/null << 'EOF'
-# ALSA configuration for Milo Sat
+# ALSA configuration for Milo Client
 pcm.!default {
     type plug
     slave.pcm {
@@ -303,14 +303,14 @@ create_systemd_services() {
     log_info "Installing systemd services..."
 
     # Copy static service files from repo
-    sudo cp "$MILO_SAT_SYSTEM_DIR/milo-sat.service" /etc/systemd/system/
-    log_success "Installed milo-sat.service"
+    sudo cp "$MILO_CLIENT_SYSTEM_DIR/milo-client.service" /etc/systemd/system/
+    log_success "Installed milo-client.service"
 
-    sudo cp "$MILO_SAT_SYSTEM_DIR/milo-sat-snapclient.service" /etc/systemd/system/
-    log_success "Installed milo-sat-snapclient.service"
+    sudo cp "$MILO_CLIENT_SYSTEM_DIR/milo-client-snapclient.service" /etc/systemd/system/
+    log_success "Installed milo-client-snapclient.service"
 
     # Create environment file with dynamic value
-    sudo tee "$MILO_SAT_DATA_DIR/env" > /dev/null << EOF
+    sudo tee "$MILO_CLIENT_DATA_DIR/env" > /dev/null << EOF
 MILO_PRINCIPAL_IP=$MILO_PRINCIPAL_IP
 EOF
 
@@ -323,8 +323,8 @@ enable_services() {
     log_info "Enabling services..."
 
     sudo systemctl daemon-reload
-    sudo systemctl enable milo-sat.service
-    sudo systemctl enable milo-sat-snapclient.service
+    sudo systemctl enable milo-client.service
+    sudo systemctl enable milo-client-snapclient.service
 
     log_success "Services enabled"
 }
@@ -332,9 +332,9 @@ enable_services() {
 install_wrapper_script() {
     log_info "Installing secure wrapper script..."
 
-    sudo tee /usr/local/bin/milo-sat-install-snapclient > /dev/null << 'WRAPPER_EOF'
+    sudo tee /usr/local/bin/milo-client-install-snapclient > /dev/null << 'WRAPPER_EOF'
 #!/bin/bash
-# Milo Sat - Secure Snapclient Installation Wrapper
+# Milo Client - Secure Snapclient Installation Wrapper
 # Only allows installing validated snapclient .deb packages
 set -euo pipefail
 
@@ -375,24 +375,24 @@ DEBIAN_FRONTEND=noninteractive apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$DEB_PATH"
 WRAPPER_EOF
 
-    sudo chmod 755 /usr/local/bin/milo-sat-install-snapclient
-    sudo chown root:root /usr/local/bin/milo-sat-install-snapclient
+    sudo chmod 755 /usr/local/bin/milo-client-install-snapclient
+    sudo chown root:root /usr/local/bin/milo-client-install-snapclient
 
     log_success "Wrapper script installed"
 }
 
 configure_sudoers() {
-    log_info "Configuring sudo permissions for milo-sat..."
+    log_info "Configuring sudo permissions for milo-client..."
 
-    sudo tee /etc/sudoers.d/milo-sat > /dev/null << 'EOF'
-# Milo Sat - Permissions for automatic updates
-milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop milo-sat-snapclient.service
-milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl start milo-sat-snapclient.service
-milo-sat ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active milo-sat-snapclient.service
-milo-sat ALL=(root) NOPASSWD: /usr/local/bin/milo-sat-install-snapclient
+    sudo tee /etc/sudoers.d/milo-client > /dev/null << 'EOF'
+# Milo Client - Permissions for automatic updates
+milo-client ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop milo-client-snapclient.service
+milo-client ALL=(ALL) NOPASSWD: /usr/bin/systemctl start milo-client-snapclient.service
+milo-client ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active milo-client-snapclient.service
+milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-install-snapclient
 EOF
 
-    sudo chmod 0440 /etc/sudoers.d/milo-sat
+    sudo chmod 0440 /etc/sudoers.d/milo-client
     log_success "Sudo permissions configured"
 }
 
@@ -401,21 +401,21 @@ finalize_installation() {
     log_info "Finalizing installation..."
 
     echo ""
-    echo -e "${GREEN}=================================${NC}"
-    echo -e "${GREEN}  Milo Sat installation complete!${NC}"
-    echo -e "${GREEN}=================================${NC}"
+    echo -e "${GREEN}=====================================${NC}"
+    echo -e "${GREEN}  Milo Client installation complete!${NC}"
+    echo -e "${GREEN}=====================================${NC}"
     echo ""
     echo -e "${BLUE}Configuration:${NC}"
-    echo "  - Hostname: milo-sat-$USER_HOSTNAME_CHOICE"
-    echo "  - User: $MILO_SAT_USER"
-    echo "  - Application: $MILO_SAT_APP_DIR"
+    echo "  - Hostname: milo-client-$USER_HOSTNAME_CHOICE"
+    echo "  - User: $MILO_CLIENT_USER"
+    echo "  - Application: $MILO_CLIENT_APP_DIR"
     echo "  - Audio card: $HIFIBERRY_OVERLAY"
     echo "  - Main Milo: $MILO_PRINCIPAL_IP"
     echo "  - Default volume: 16%"
     echo ""
     echo -e "${BLUE}Services:${NC}"
-    echo "  - milo-sat.service (API on port 8001)"
-    echo "  - milo-sat-snapclient.service"
+    echo "  - milo-client.service (API on port 8001)"
+    echo "  - milo-client-snapclient.service"
     echo ""
 
     if [[ "$REBOOT_REQUIRED" == "true" ]]; then
@@ -441,26 +441,26 @@ finalize_installation() {
         done
     else
         log_info "Starting services..."
-        sudo systemctl start milo-sat.service
-        sudo systemctl start milo-sat-snapclient.service
+        sudo systemctl start milo-client.service
+        sudo systemctl start milo-client-snapclient.service
 
         echo ""
-        echo -e "${GREEN}Milo Sat is ready! It should appear automatically in main Milo.${NC}"
+        echo -e "${GREEN}Milo Client is ready! It should appear automatically in main Milo.${NC}"
     fi
 }
 
 # === UNINSTALL FUNCTION ===
 
-uninstall_milo_sat() {
+uninstall_milo_client() {
     echo -e "${YELLOW}"
     echo "========================================"
-    echo "       MILO SAT UNINSTALLATION          "
+    echo "      MILO CLIENT UNINSTALLATION        "
     echo "========================================"
     echo -e "${NC}"
     echo ""
     echo -e "${RED}This operation will remove:${NC}"
-    echo "  - milo-sat and milo-sat-snapclient services"
-    echo "  - The milo-sat user and its data"
+    echo "  - milo-client and milo-client-snapclient services"
+    echo "  - The milo-client user and its data"
     echo "  - HiFiBerry audio configuration"
     echo "  - Snapclient"
     echo ""
@@ -476,21 +476,21 @@ uninstall_milo_sat() {
 
     # 1. Stop and disable services
     log_info "Stopping services..."
-    sudo systemctl stop milo-sat.service 2>/dev/null || true
-    sudo systemctl stop milo-sat-snapclient.service 2>/dev/null || true
-    sudo systemctl disable milo-sat.service 2>/dev/null || true
-    sudo systemctl disable milo-sat-snapclient.service 2>/dev/null || true
+    sudo systemctl stop milo-client.service 2>/dev/null || true
+    sudo systemctl stop milo-client-snapclient.service 2>/dev/null || true
+    sudo systemctl disable milo-client.service 2>/dev/null || true
+    sudo systemctl disable milo-client-snapclient.service 2>/dev/null || true
 
     # 2. Remove service files
     log_info "Removing systemd services..."
-    sudo rm -f /etc/systemd/system/milo-sat.service
-    sudo rm -f /etc/systemd/system/milo-sat-snapclient.service
+    sudo rm -f /etc/systemd/system/milo-client.service
+    sudo rm -f /etc/systemd/system/milo-client-snapclient.service
     sudo systemctl daemon-reload
 
     # 3. Remove sudoers rules and wrapper script
     log_info "Removing sudoers rules..."
-    sudo rm -f /etc/sudoers.d/milo-sat
-    sudo rm -f /usr/local/bin/milo-sat-install-snapclient
+    sudo rm -f /etc/sudoers.d/milo-client
+    sudo rm -f /usr/local/bin/milo-client-install-snapclient
 
     # 4. Uninstall Snapclient
     log_info "Uninstalling Snapclient..."
@@ -509,7 +509,7 @@ uninstall_milo_sat() {
     fi
 
     if [[ -f "$config_file" ]]; then
-        sudo sed -i '/# Milo Sat - HiFiBerry Audio/d' "$config_file"
+        sudo sed -i '/# Milo Client - HiFiBerry Audio/d' "$config_file"
         sudo sed -i '/dtoverlay=hifiberry-/d' "$config_file"
 
         # Re-enable built-in audio
@@ -522,19 +522,19 @@ uninstall_milo_sat() {
 
     # 7. Remove application directories
     log_info "Removing application files..."
-    sudo rm -rf "$MILO_SAT_REPO_DIR"
-    sudo rm -rf "$MILO_SAT_VENV_DIR"
-    sudo rm -rf "$MILO_SAT_DATA_DIR"
+    sudo rm -rf "$MILO_CLIENT_REPO_DIR"
+    sudo rm -rf "$MILO_CLIENT_VENV_DIR"
+    sudo rm -rf "$MILO_CLIENT_DATA_DIR"
 
-    # 8. Remove milo-sat user
-    log_info "Removing milo-sat user..."
-    if id "$MILO_SAT_USER" &>/dev/null; then
-        sudo userdel -r "$MILO_SAT_USER" 2>/dev/null || true
+    # 8. Remove milo-client user
+    log_info "Removing milo-client user..."
+    if id "$MILO_CLIENT_USER" &>/dev/null; then
+        sudo userdel -r "$MILO_CLIENT_USER" 2>/dev/null || true
     fi
 
     # 9. Restore default hostname (optional)
     local current_hostname=$(hostname)
-    if [[ "$current_hostname" == milo-sat-* ]]; then
+    if [[ "$current_hostname" == milo-client-* ]]; then
         log_info "Restoring default hostname..."
         echo "raspberrypi" | sudo tee /etc/hostname > /dev/null
         sudo sed -i "s/127.0.1.1.*/127.0.1.1\traspberrypi/" /etc/hosts
@@ -570,7 +570,7 @@ uninstall_milo_sat() {
             esac
         done
     else
-        log_success "System cleaned. Milo Sat has been completely removed."
+        log_success "System cleaned. Milo Client has been completely removed."
     fi
 }
 
@@ -581,7 +581,7 @@ main() {
     if [[ "$1" == "--uninstall" ]]; then
         show_banner
         check_root
-        uninstall_milo_sat
+        uninstall_milo_client
         exit 0
     fi
 
@@ -591,7 +591,7 @@ main() {
     check_root
     check_system
 
-    log_info "Starting Milo Sat installation"
+    log_info "Starting Milo Client installation"
     echo ""
 
     discover_milo_principal
@@ -601,10 +601,10 @@ main() {
     setup_hostname
     configure_audio_hardware
 
-    create_milo_sat_user
+    create_milo_client_user
     install_snapclient
-    clone_milo_sat_repo
-    install_milo_sat_application
+    clone_milo_client_repo
+    install_milo_client_application
 
     configure_alsa
     create_systemd_services
