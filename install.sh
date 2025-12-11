@@ -1022,7 +1022,12 @@ configure_avahi() {
 EOF
 
     sudo systemctl restart avahi-daemon
-    
+
+    # Install NetworkManager dispatcher to prefer eth0 over wlan0 for mDNS
+    log_info "Installing Avahi interface dispatcher..."
+    sudo cp "$SCRIPT_DIR/assets/99-avahi-interface" /etc/NetworkManager/dispatcher.d/
+    sudo chmod 755 /etc/NetworkManager/dispatcher.d/99-avahi-interface
+
     log_success "Avahi configured (access via milo.local)"
 }
 
@@ -1218,11 +1223,11 @@ configure_plymouth_splash() {
     sudo sed -i 's/console=tty1/console=tty3 loglevel=3/' /boot/firmware/cmdline.txt 2>/dev/null || \
     sudo sed -i 's/console=tty1/console=tty3 loglevel=3/' /boot/cmdline.txt 2>/dev/null || true
 
-    # Hide Raspberry Pi logo and cursor during boot
+    # Hide Raspberry Pi logo, cursor, and delay fbcon during boot
     if ! grep -q "logo.nologo" /boot/firmware/cmdline.txt 2>/dev/null && \
        ! grep -q "logo.nologo" /boot/cmdline.txt 2>/dev/null; then
-        sudo sed -i 's/console=tty3 loglevel=3/console=tty3 loglevel=3 logo.nologo vt.global_cursor_default=0/' /boot/firmware/cmdline.txt 2>/dev/null || \
-        sudo sed -i 's/console=tty3 loglevel=3/console=tty3 loglevel=3 logo.nologo vt.global_cursor_default=0/' /boot/cmdline.txt 2>/dev/null
+        sudo sed -i 's/console=tty3 loglevel=3/console=tty3 loglevel=3 logo.nologo vt.global_cursor_default=0 fbcon=map:2/' /boot/firmware/cmdline.txt 2>/dev/null || \
+        sudo sed -i 's/console=tty3 loglevel=3/console=tty3 loglevel=3 logo.nologo vt.global_cursor_default=0 fbcon=map:2/' /boot/cmdline.txt 2>/dev/null
     fi
 
     # Disable firmware rainbow splash in config.txt

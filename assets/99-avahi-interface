@@ -1,0 +1,54 @@
+#!/bin/bash
+# NetworkManager dispatcher script for Avahi interface management
+# Dynamically configures Avahi to prefer eth0 over wlan0
+# - When eth0 is up: use only eth0
+# - When eth0 is down: use wlan0 (if available)
+
+AVAHI_CONF="/etc/avahi/avahi-daemon.conf"
+
+update_avahi_interface() {
+    local interface="$1"
+
+    # Update allow-interfaces in avahi config
+    if grep -q "^allow-interfaces=" "$AVAHI_CONF"; then
+        sed -i "s/^allow-interfaces=.*/allow-interfaces=$interface/" "$AVAHI_CONF"
+    else
+        sed -i "/^\[server\]/a allow-interfaces=$interface" "$AVAHI_CONF"
+    fi
+
+    # Restart avahi to apply changes
+    systemctl restart avahi-daemon.service
+}
+
+# Check if eth0 has an IP address (is connected)
+eth0_connected() {
+    ip addr show eth0 2>/dev/null | grep -q "inet "
+}
+
+# Only act on eth0 or wlan0 events
+case "$1" in
+    eth0)
+        case "$2" in
+            up)
+                update_avahi_interface "eth0"
+                ;;
+            down)
+                if ip addr show wlan0 2>/dev/null | grep -q "inet "; then
+                    update_avahi_interface "wlan0"
+                fi
+                ;;
+        esac
+        ;;
+    wlan0)
+        case "$2" in
+            up)
+                # Only use wlan0 if eth0 is not connected
+                if ! eth0_connected; then
+                    update_avahi_interface "wlan0"
+                fi
+                ;;
+        esac
+        ;;
+esac
+
+exit 0
