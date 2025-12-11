@@ -14,7 +14,7 @@ MILO_HOME="/home/$MILO_USER"
 MILO_APP_DIR="$MILO_HOME/milo"
 MILO_DATA_DIR="/var/lib/milo"
 MILO_REPO="https://github.com/leodurandfr/Milo.git"
-MILO_BRANCH="claude/podcast-integration-taddy-01HQjcGSYCNJGP5wnhYz3GG7"
+MILO_BRANCH="main"
 REQUIRED_HOSTNAME="milo"
 REBOOT_REQUIRED=false
 

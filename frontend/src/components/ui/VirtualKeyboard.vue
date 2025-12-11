@@ -4,112 +4,78 @@
   <div>
     <Transition name="keyboard">
       <div v-if="isKeyboardVisible && shouldShowKeyboard" ref="keyboardRef" class="virtual-keyboard">
-          <!-- Header: Input display + Cancel + Close buttons -->
-          <div class="keyboard-header">
-            <div class="keyboard-input-display">
-              <input
-                ref="displayInput"
-                type="text"
-                v-model="keyboardValue"
-                :placeholder="keyboardPlaceholder"
-                class="keyboard-display-input heading-3"
-                readonly
-              />
-            </div>
-            <button
-              class="keyboard-cancel-btn"
-              :class="{ 'disabled': !hasChanges }"
-              :disabled="!hasChanges"
-              @click="handleCancel"
-            >
-              <SvgIcon name="reset" :size="24" />
+        <!-- Header: Input display + Cancel + Close buttons -->
+        <div class="keyboard-header">
+          <div class="keyboard-input-display">
+            <input ref="displayInput" type="text" v-model="keyboardValue" :placeholder="keyboardPlaceholder"
+              class="keyboard-display-input heading-3" readonly />
+          </div>
+          <button class="keyboard-cancel-btn" :class="{ 'disabled': !hasChanges }" :disabled="!hasChanges"
+            @click="handleCancel">
+            <SvgIcon name="reset" :size="24" />
+          </button>
+          <button class="keyboard-close-btn" @click="handleClose">
+            <SvgIcon name="close" :size="24" />
+          </button>
+        </div>
+
+        <div class="keyboard-keys">
+          <!-- Row 1: [tab] + 10 keys + [backspace] -->
+          <div class="keyboard-row">
+            <button class="keyboard-key key-tab text-mono" @click="addChar('\t')">
+              ⇥
             </button>
-            <button class="keyboard-close-btn" @click="handleClose">
-              <SvgIcon name="close" :size="24" />
+            <button v-for="key in currentRow1" :key="'r1-' + key" class="keyboard-key text-mono" @click="addChar(key)">
+              {{ key }}
+            </button>
+            <button class="keyboard-key key-backspace text-mono" @click="backspace">
+              ⌫
             </button>
           </div>
 
-          <div class="keyboard-keys">
-            <!-- Row 1: [tab] + 10 keys + [backspace] -->
-            <div class="keyboard-row">
-              <button class="keyboard-key key-tab text-mono" @click="addChar('\t')">
-                ⇥
-              </button>
-              <button
-                v-for="key in currentRow1"
-                :key="'r1-' + key"
-                class="keyboard-key text-mono"
-                @click="addChar(key)"
-              >
-                {{ key }}
-              </button>
-              <button class="keyboard-key key-backspace text-mono" @click="backspace">
-                ⌫
-              </button>
-            </div>
+          <!-- Row 2: [caps] + 9-10 keys + [enter] -->
+          <div class="keyboard-row">
+            <button class="keyboard-key key-caps text-mono" :class="{ 'caps-active': isCapsLock }"
+              @click="toggleCapsLock">
+              ⇪
+              <span v-if="isCapsLock" class="caps-indicator"></span>
+            </button>
+            <button v-for="key in currentRow2" :key="'r2-' + key" class="keyboard-key text-mono" @click="addChar(key)">
+              {{ key }}
+            </button>
+            <button class="keyboard-key key-enter text-mono" @click="addChar('\n')">
+              ↵
+            </button>
+          </div>
 
-            <!-- Row 2: [caps] + 9-10 keys + [enter] -->
-            <div class="keyboard-row">
-              <button
-                class="keyboard-key key-caps text-mono"
-                :class="{ 'caps-active': isCapsLock }"
-                @click="toggleCapsLock"
-              >
-                ⇪
-                <span v-if="isCapsLock" class="caps-indicator"></span>
-              </button>
-              <button
-                v-for="key in currentRow2"
-                :key="'r2-' + key"
-                class="keyboard-key text-mono"
-                @click="addChar(key)"
-              >
-                {{ key }}
-              </button>
-              <button class="keyboard-key key-enter text-mono" @click="addChar('\n')">
-                ↵
-              </button>
-            </div>
+          <!-- Row 3: [shift] + 9 keys + [shift] -->
+          <div class="keyboard-row">
+            <button class="keyboard-key key-shift text-mono" :class="{ 'shift-active': isShiftHeld }"
+              @click="toggleShift">
+              ⇧
+            </button>
+            <button v-for="key in currentRow3" :key="'r3-' + key" class="keyboard-key text-mono" @click="addChar(key)">
+              {{ key }}
+            </button>
+            <button class="keyboard-key key-shift text-mono" :class="{ 'shift-active': isShiftHeld }"
+              @click="toggleShift">
+              ⇧
+            </button>
+          </div>
 
-            <!-- Row 3: [shift] + 9 keys + [shift] -->
-            <div class="keyboard-row">
-              <button
-                class="keyboard-key key-shift text-mono"
-                :class="{ 'shift-active': isShiftHeld }"
-                @click="toggleShift"
-              >
-                ⇧
-              </button>
-              <button
-                v-for="key in currentRow3"
-                :key="'r3-' + key"
-                class="keyboard-key text-mono"
-                @click="addChar(key)"
-              >
-                {{ key }}
-              </button>
-              <button
-                class="keyboard-key key-shift text-mono"
-                :class="{ 'shift-active': isShiftHeld }"
-                @click="toggleShift"
-              >
-                ⇧
-              </button>
-            </div>
-
-            <!-- Row 4: [mode-toggle] + [space] + [submit] -->
-            <div class="keyboard-row">
-              <button class="keyboard-key key-mode text-mono" @click="toggleMode">
-                {{ modeToggleLabel }}
-              </button>
-              <button class="keyboard-key key-space" @click="addChar(' ')">
-              </button>
-              <button class="keyboard-key key-submit text-mono" @click="handleSubmit">
-                ✓
-              </button>
-            </div>
+          <!-- Row 4: [mode-toggle] + [space] + [submit] -->
+          <div class="keyboard-row">
+            <button class="keyboard-key key-mode text-mono" @click="toggleMode">
+              {{ modeToggleLabel }}
+            </button>
+            <button class="keyboard-key key-space" @click="addChar(' ')">
+            </button>
+            <button class="keyboard-key key-submit text-mono" @click="handleSubmit">
+              ✓
+            </button>
           </div>
         </div>
+      </div>
     </Transition>
   </div>
 </template>
@@ -367,8 +333,8 @@ onUnmounted(() => {
   width: 100%;
   max-width: 1024px;
   background: var(--color-background-neutral);
-  border-radius: var(--radius-05);
-  padding: var(--space-04);
+  border-radius: var(--radius-05) var(--radius-05) 0 0;
+  padding: var(--space-06);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 

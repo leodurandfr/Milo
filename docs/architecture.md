@@ -420,4 +420,3 @@ Allowed origins only:
 ## Additional resources
 
 - [Developer Guide](development.md)
-- [GitHub Token Setup](github-token.md)

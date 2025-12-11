@@ -1,4 +1,4 @@
-# Milo Sat - Python Dependencies
+# Milo Client - Python Dependencies
 # Version: 1.3 - Hybrid approach (GitHub .deb + APT dependency resolution)
 
 # Web framework

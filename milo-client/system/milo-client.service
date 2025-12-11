@@ -1,0 +1,22 @@
+[Unit]
+Description=Milo Client API Service
+After=network.target
+
+[Service]
+Type=simple
+User=milo-client
+Group=audio
+WorkingDirectory=/home/milo-client/repo/milo-client/app
+ExecStart=/home/milo-client/venv/bin/python3 main.py
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+
+EnvironmentFile=/var/lib/milo-client/env
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

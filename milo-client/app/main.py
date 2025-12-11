@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Milo Sat - API Service for Satellite Snapclient Management
+Milo Client - API Service for Client Snapclient Management
 Version: 1.1 - Hybrid approach (GitHub .deb + APT dependency resolution)
 """
 
@@ -36,8 +36,8 @@ logger = logging.getLogger(__name__)
 
 # FastAPI app
 app = FastAPI(
-    title="Milo Sat API",
-    description="API for Milo satellite management",
+    title="Milo Client API",
+    description="API for Milo client management",
     version="1.0.0"
 )
 
@@ -120,7 +120,7 @@ class SnapclientManager:
         """Checks if the snapclient service is running"""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "systemctl", "is-active", "milo-sat-snapclient.service",
+                "systemctl", "is-active", "milo-client-snapclient.service",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -235,7 +235,7 @@ class SnapclientManager:
             self.logger.info(f"Installing {Path(deb_path).name} via secure wrapper...")
 
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "/usr/local/bin/milo-sat-install-snapclient", deb_path,
+                "sudo", "/usr/local/bin/milo-client-install-snapclient", deb_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -259,7 +259,7 @@ class SnapclientManager:
         """Stops the snapclient service"""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "stop", "milo-sat-snapclient.service",
+                "sudo", "systemctl", "stop", "milo-client-snapclient.service",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -275,7 +275,7 @@ class SnapclientManager:
         """Starts the snapclient service"""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "start", "milo-sat-snapclient.service",
+                "sudo", "systemctl", "start", "milo-client-snapclient.service",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -325,7 +325,7 @@ async def health_check():
 
 @app.get("/status")
 async def get_status():
-    """Gets the complete satellite status"""
+    """Gets the complete client status"""
     try:
         hostname = get_hostname()
         uptime = get_system_uptime()
@@ -424,7 +424,7 @@ async def get_update_status():
 
 # Main entry point
 if __name__ == "__main__":
-    logger.info(f"Starting Milo Sat API on port {API_PORT}")
+    logger.info(f"Starting Milo Client API on port {API_PORT}")
     logger.info(f"Hostname: {get_hostname()}")
     
     uvicorn.run(

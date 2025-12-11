@@ -674,10 +674,39 @@ await settings_service.set_setting('volume.alsa_max', 80)
 settings['volume']['alsa_max'] = 80
 ```
 
+## GitHub Token (Optional)
+
+Milō checks GitHub API for dependency updates. Without a token: 60 req/hour. With token: 5000 req/hour.
+
+### Setup
+
+1. Create token at https://github.com/settings/tokens → **"Generate new token (classic)"**
+2. Scope: `public_repo` only (read-only, minimal permissions)
+3. Add to systemd service:
+
+```bash
+sudo nano /etc/systemd/system/milo-backend.service
+```
+
+Add this line in the `[Service]` section:
+```ini
+Environment="GITHUB_TOKEN=ghp_YourTokenHere"
+```
+
+4. Reload and restart:
+```bash
+sudo systemctl daemon-reload && sudo systemctl restart milo-backend
+```
+
+5. Verify:
+```bash
+sudo journalctl -u milo-backend -n 50 | grep "GitHub token"
+# Expected: "GitHub token detected - using authenticated API (5000 req/hour)"
+```
+
 ## Resources
 
 - [Detailed Architecture](architecture.md)
-- [GitHub Token Setup](github-token.md)
 - [FastAPI Docs](https://fastapi.tiangolo.com/)
 - [Vue 3 Docs](https://vuejs.org/)
 - [Pinia Docs](https://pinia.vuejs.org/)

@@ -1,132 +1,101 @@
-
 <picture>
-<img style="pointer-events:none" src="https://leodurand.com/_autres/cover-milo-github@2x.png" />
+  <img style="pointer-events:none" src="https://leodurand.com/_autres/cover-milo-github@2x.png" />
 </picture>
 
-# Milō (🚧 WIP 🚧)
+# Milō
 
-Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Bluetooth, Internet Radio, Podcasts, and Mac streaming. Responsive touch interface with real-time synchronization.
+> Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Bluetooth, Internet Radio, Podcasts, and Mac streaming.
 
-## ✨ Features
+<!-- TODO: Add screenshot or GIF of the interface -->
+<!-- ![Milō Interface](docs/assets/screenshot.png) -->
 
-- **Multiple audio sources**
-  - 🎵 Spotify Connect — See what's playing and control playback
-  - 📱 Bluetooth — Instant pairing, play from any device
-  - 💻 Mac — Your Mac's audio, wirelessly
-  - 📻 Radio — Explore 50,000+ stations worldwide
-  - 🎙️ Podcasts — Search, subscribe and resume
-- **Synchronized multiroom** (snapcast)
-- **Settings** — Language, volume, screen, routing, and more
-- **10-band equalizer** with presets
-- **Unified volume control** (touch + rotary encoder)
-- **Responsive interface** (EN, FR, DE, ES, PT, IT, ZH, HI)
-- **Automatic updates** for Milō and dependencies
+## Audio Sources
 
-## 🎛️ Companion apps
+| Source | Description |
+|--------|-------------|
+| 🎵 **Spotify Connect** | See what's playing and control playback |
+| 📱 **Bluetooth** | Pair any device and stream audio |
+| 📻 **Radio** | Browse 50,000+ stations, save favorites |
+| 🎙️ **Podcasts** | Search, subscribe, resume episodes |
+| 💻 **Mac** | Stream your Mac's system audio (requires [Milō Mac](https://github.com/leodurandfr/Milo-Mac)) |
 
-- [**Milō Mac**](https://github.com/leodurandfr/Milo-Mac) - Add "Milō" to your Mac audio outputs and control playback from the Menu Bar.
-- [**Milō iOS**](https://github.com/leodurandfr/Milo-iOS) - iOS app (fullscreen web interface)
-- [**Milō Android**](https://github.com/leodurandfr/Milo-Android) - Android app (fullscreen web interface)
+## Features
 
-## 🔧 Hardware requirements
+| Feature | Description |
+|---------|-------------|
+| 🔊 **Multiroom** | Synchronized playback across multiple speakers |
+| 🎛️ **10-band Equalizer** | Adjust audio frequencies for all speakers |
+| 🌍 **8 Languages** | EN, FR, DE, ES, PT, IT, ZH, HI |
 
-- **Raspberry Pi 4 or 5** (64-bit)
-- **Audio card** (HiFiBerry recommended: Amp2, Amp4, Amp4 Pro, Amp100, Beocreate)
-- **Touch screen** (optional: Waveshare 7" USB or 8" DSI)
-- **Rotary encoder** (optional: volume control)
+## Hardware
 
-## 🚀 Quick installation
+| Component | Requirement |
+|-----------|-------------|
+| **Board** | Raspberry Pi 4 or 5 (64-bit) |
+| **Audio** | HiFiBerry HAT (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate) |
+| **Display** | Waveshare 7" USB or 8" DSI *(optional)* |
+| **Volume** | Rotary encoder *(optional)* |
 
-### Milō (main installation)
+## Installation
 
-**1. Prepare the SD card**
+### Prerequisites
 
-Download and open [Raspberry Pi Imager](https://www.raspberrypi.com/software/):
-- Select your Raspberry Pi model (Raspberry Pi 4 or 5)
-- Choose **"Raspberry Pi OS (64-bit) Lite"** (based on Debian Trixie)
-- Select your microSD card
-- Click **"Next"** → **"Edit Settings"**
-- Configure:
-  - Hostname: `milo`
-  - Username: `milo`
-  - Password: choose your password
-  - WiFi: configure if not using Ethernet
-- Click **"Save"** → **"Yes"**
+1. Download [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+2. Flash **Raspberry Pi OS (64-bit) Lite** (Debian Trixie)
+3. In "Edit Settings", configure:
+   - Hostname: `milo` (or `milo-client-01` for multiroom clients)
+   - Username: `milo` (or `milo-client-01`)
+   - Password: your choice
+   - WiFi if needed
 
-Once flashing is complete, insert the microSD card into your Raspberry Pi and power it on. Wait a few minutes for the first boot to complete.
+### Main Installation (Milō)
 
-**2. Run the installation script**
-
-Connect via SSH and run:
 ```bash
 wget https://raw.githubusercontent.com/leodurandfr/Milo/main/install.sh
 chmod +x install.sh
 ./install.sh
 ```
 
-The script will guide you through:
-- Selecting your HiFiBerry audio card
-- Configuring your touch screen (optional)
-- Installing all dependencies automatically
+The script guides you through audio card and screen selection. Once complete:
 
-**Access after installation:**
-- Web interface: **http://milo.local**
-- Spotify Connect: Select **"Milō"** in the Spotify app
-- Bluetooth: Connect to **"Milō · Bluetooth"**
-- Mac audio: After installing [**Milō Mac**](https://github.com/leodurandfr/Milo-Mac), select **"Milo"** in your Mac audio output
-- Podcasts: Browse and subscribe in **Settings → Podcasts**
+- **Web interface** → http://milo.local
+- **Spotify** → Select "Milō" in Spotify app
+- **Bluetooth** → Connect to "Milō · Bluetooth"
+- **Mac** → Install [Milō Mac](https://github.com/leodurandfr/Milo-Mac), then select "Milō" in audio outputs
 
-**Uninstall:**
+### Client Installation (Milō Client)
+
+For multiroom, install on additional Raspberry Pis to add synchronized speakers:
+
 ```bash
-./install.sh --uninstall
+wget https://raw.githubusercontent.com/leodurandfr/Milo/main/milo-client/install-client.sh
+chmod +x install-client.sh
+./install-client.sh
 ```
 
-### Milō Sat (multiroom satellites)
+> **Naming convention:** Use `milo-client-01`, `milo-client-02`, etc. for hostname and username.
 
-Install Milō Sat on additional Raspberry Pis to create a synchronized multiroom system.
+### Uninstall
 
-**1. Prepare the SD card**
-
-On [Raspberry Pi Imager](https://www.raspberrypi.com/software/):
-- Select your Raspberry Pi model (Raspberry Pi 4 or 5)
-- Choose **"Raspberry Pi OS (64-bit) Lite"** (based on Debian Trixie)
-- Select your microSD card
-- Click **"Next"** → **"Edit Settings"**
-- Configure:
-  - Hostname: `milo-sat-01` (use `milo-sat-02`, `milo-sat-03`, etc. for additional satellites)
-  - Username: `milo-sat-01` (match the hostname)
-  - Password: choose your password
-  - WiFi: configure if not using Ethernet
-- Click **"Save"** → **"Yes"**
-
-Once flashing is complete, insert the microSD card into your Raspberry Pi and power it on. Wait a few minutes for the first boot to complete.
-
-**2. Run the installation script**
-
-Connect via SSH and run:
 ```bash
-wget https://raw.githubusercontent.com/leodurandfr/Milo/main/milo-sat/install-sat.sh
-chmod +x install-sat.sh
-./install-sat.sh
+./install.sh --uninstall         # Main
+./install-client.sh --uninstall  # Client
 ```
 
-The script will guide you through:
-- Selecting your HiFiBerry audio card
-- Configuring Snapcast client settings
-- Installing all dependencies automatically
+## Companion Apps
 
-**Uninstall:**
-```bash
-./install-sat.sh --uninstall
-```
+Control Milō from your other devices:
 
-## 📚 Documentation
+| Platform | Description | Link |
+|----------|-------------|------|
+| **macOS** | Menu Bar app + audio output | [Milō Mac](https://github.com/leodurandfr/Milo-Mac) |
+| **iOS** | Fullscreen web interface | [Milō iOS](https://github.com/leodurandfr/Milo-iOS) |
+| **Android** | Fullscreen web interface | [Milō Android](https://github.com/leodurandfr/Milo-Android) |
 
-- **[🏗️ Architecture & Technologies](docs/architecture.md)** - How Milō works
-- **[💻 Developer Guide](docs/development.md)** - Contribute to the project
-- **[🔑 GitHub Token Setup](docs/github-token.md)** - Configure automatic updates (recommended)
+## Documentation
 
-## 📝 License
+- [🏗️ Architecture](docs/architecture.md) — How Milō works
+- [💻 Developer Guide](docs/development.md) — Contribute to the project
 
-
+## License
 
