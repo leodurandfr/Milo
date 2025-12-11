@@ -47,9 +47,9 @@ class SatelliteProgramUpdateService:
             satellites = []
 
             for client in clients:
-                # Filtrer uniquement les clients avec hostname milo-sat-*
+                # Filter only clients with hostname milo-client-*
                 hostname = client.get("host", "")
-                if not hostname.startswith("milo-sat-"):
+                if not hostname.startswith("milo-client-"):
                     continue
 
                 ip = client.get("ip", "")

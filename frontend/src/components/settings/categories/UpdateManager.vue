@@ -494,8 +494,8 @@ onMounted(async () => {
   //   message: 'Installing snapserver...'
   // };
 
-  // DEBUG: force updating state for milo-sat
-  // satelliteUpdateStates.value['milo-sat-01'] = {
+  // DEBUG: force updating state for milo-client
+  // satelliteUpdateStates.value['milo-client-01'] = {
   //   updating: true,
   //   progress: 65,
   //   message: 'Update in progress...'
