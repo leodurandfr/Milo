@@ -610,7 +610,7 @@ install_readiness_script() {
     log_info "Installing readiness script..."
 
     # Copy readiness script to /usr/local/bin/
-    sudo cp "$MILO_APP_DIR/assets/milo-wait-ready.sh" /usr/local/bin/milo-wait-ready.sh
+    sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-wait-ready.sh" /usr/local/bin/milo-wait-ready.sh
     sudo chmod +x /usr/local/bin/milo-wait-ready.sh
 
     log_success "Readiness script installed in /usr/local/bin/"
@@ -1025,11 +1025,11 @@ EOF
 
     # Install NetworkManager dispatchers for network priority and mDNS
     log_info "Installing WiFi/Ethernet priority dispatcher..."
-    sudo cp "$MILO_APP_DIR/assets/98-wifi-eth0-priority" /etc/NetworkManager/dispatcher.d/
+    sudo cp "$MILO_APP_DIR/rootfs/etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority" /etc/NetworkManager/dispatcher.d/
     sudo chmod 755 /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority
 
     log_info "Installing Avahi interface dispatcher..."
-    sudo cp "$MILO_APP_DIR/assets/99-avahi-interface" /etc/NetworkManager/dispatcher.d/
+    sudo cp "$MILO_APP_DIR/rootfs/etc/NetworkManager/dispatcher.d/99-avahi-interface" /etc/NetworkManager/dispatcher.d/
     sudo chmod 755 /etc/NetworkManager/dispatcher.d/99-avahi-interface
 
     log_success "Avahi configured (access via milo.local)"
@@ -1124,26 +1124,26 @@ configure_cage_kiosk() {
     # Create .config directory if needed
     sudo -u "$MILO_USER" mkdir -p "$MILO_HOME/.config"
 
-    # Copy Cage launch script from assets/
-    if [[ ! -f "$MILO_APP_DIR/assets/milo-cage-start.sh" ]]; then
-        log_error "File milo-cage-start.sh not found in $MILO_APP_DIR/assets/"
+    # Copy Cage launch script from rootfs/
+    if [[ ! -f "$MILO_APP_DIR/rootfs/home/milo/.config/milo-cage-start.sh" ]]; then
+        log_error "File milo-cage-start.sh not found in $MILO_APP_DIR/rootfs/home/milo/.config/"
         return 1
     fi
 
-    sudo cp "$MILO_APP_DIR/assets/milo-cage-start.sh" "$MILO_HOME/.config/milo-cage-start.sh"
+    sudo cp "$MILO_APP_DIR/rootfs/home/milo/.config/milo-cage-start.sh" "$MILO_HOME/.config/milo-cage-start.sh"
     sudo chmod +x "$MILO_HOME/.config/milo-cage-start.sh"
     sudo chown "$MILO_USER:$MILO_USER" "$MILO_HOME/.config/milo-cage-start.sh"
 
-    # Copy .bash_profile from assets/
-    if [[ ! -f "$MILO_APP_DIR/assets/bash_profile.template" ]]; then
-        log_error "File bash_profile.template not found in $MILO_APP_DIR/assets/"
+    # Copy .bash_profile from rootfs/
+    if [[ ! -f "$MILO_APP_DIR/rootfs/home/milo/.bash_profile" ]]; then
+        log_error "File .bash_profile not found in $MILO_APP_DIR/rootfs/home/milo/"
         return 1
     fi
 
-    sudo cp "$MILO_APP_DIR/assets/bash_profile.template" "$MILO_HOME/.bash_profile"
+    sudo cp "$MILO_APP_DIR/rootfs/home/milo/.bash_profile" "$MILO_HOME/.bash_profile"
     sudo chown "$MILO_USER:$MILO_USER" "$MILO_HOME/.bash_profile"
 
-    log_success "Kiosk mode configured with Cage (scripts copied from assets/)"
+    log_success "Kiosk mode configured with Cage (scripts copied from rootfs/)"
 }
 
 install_milo_cursor_theme() {
@@ -1195,7 +1195,7 @@ configure_boot_display() {
     esac
 
     # Load screen-specific configuration
-    source "$MILO_APP_DIR/assets/install/$screen_config"
+    source "$MILO_APP_DIR/install/$screen_config"
 
     # Configure cmdline.txt
     configure_cmdline "$BOOT_PARAMS_COMMON $BOOT_PARAMS_SCREEN"
@@ -1273,10 +1273,10 @@ configure_plymouth_splash() {
     # Create Milo theme directory
     sudo mkdir -p /usr/share/plymouth/themes/milo
 
-    # Copy all Plymouth theme files from assets/plymouth-theme/
+    # Copy all Plymouth theme files from rootfs/
     log_info "Installing Plymouth theme files..."
-    if [[ -d "$MILO_APP_DIR/assets/plymouth-theme" ]]; then
-        for theme_file in "$MILO_APP_DIR/assets/plymouth-theme"/*; do
+    if [[ -d "$MILO_APP_DIR/rootfs/usr/share/plymouth/themes/milo" ]]; then
+        for theme_file in "$MILO_APP_DIR/rootfs/usr/share/plymouth/themes/milo"/*; do
             if [[ -f "$theme_file" ]]; then
                 local filename=$(basename "$theme_file")
                 sudo cp "$theme_file" /usr/share/plymouth/themes/milo/
@@ -1284,7 +1284,7 @@ configure_plymouth_splash() {
             fi
         done
     else
-        log_error "Plymouth theme directory not found: $MILO_APP_DIR/assets/plymouth-theme/"
+        log_error "Plymouth theme directory not found: $MILO_APP_DIR/rootfs/usr/share/plymouth/themes/milo/"
         return 1
     fi
 
