@@ -353,7 +353,6 @@ async function handleSubmit() {
       if (data.success) {
         console.log('✅ Station modifiée avec succès:', data.station);
         emit('success', data.station);
-        emit('back');
       } else {
         errorMessage.value = data.error || t('radio.manageStation.editFailed');
       }
@@ -374,7 +373,6 @@ async function handleSubmit() {
       if (result.success) {
         console.log('✅ Station ajoutée avec succès:', result.station);
         emit('success', result.station);
-        emit('back');
       } else {
         errorMessage.value = result.error || t('radio.manageStation.addFailed');
       }
