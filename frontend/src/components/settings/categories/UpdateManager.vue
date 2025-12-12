@@ -767,9 +767,8 @@ onMounted(async () => {
     grid-template-columns: auto 1fr;
     grid-template-areas:
       "icon name"
-      "icon version"
-      "button button";
-    gap: var(--space-01) var(--space-03);
+      "icon version";
+    gap: var(--space-01) var(--space-02);
   }
 
   .skeleton-icon {
