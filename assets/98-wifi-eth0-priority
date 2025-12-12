@@ -1,0 +1,22 @@
+#!/bin/bash
+# NetworkManager dispatcher script for WiFi/Ethernet priority
+# Automatically disconnects WiFi when Ethernet is connected
+# Allows WiFi to auto-connect when Ethernet is disconnected (failover)
+
+INTERFACE=$1
+ACTION=$2
+
+case "$INTERFACE" in
+    eth0)
+        case "$ACTION" in
+            up)
+                # Ethernet is up with IP, disconnect WiFi to avoid mDNS conflicts
+                if nmcli device status | grep -q "^wlan0.*connected"; then
+                    nmcli device disconnect wlan0
+                fi
+                ;;
+        esac
+        ;;
+esac
+
+exit 0
