@@ -526,10 +526,10 @@ install_bluez_alsa() {
 
 install_snapcast() {
     log_info "Installing Snapcast..."
-    
+
     # Detect Debian version (bookworm, trixie, bullseye, etc.)
     DEBIAN_VERSION=$(lsb_release -sc 2>/dev/null || grep VERSION_CODENAME /etc/os-release | cut -d= -f2)
-    
+
     if [[ -z "$DEBIAN_VERSION" ]]; then
         log_warning "Unable to detect Debian version, using bookworm as default"
         DEBIAN_VERSION="bookworm"
@@ -537,55 +537,76 @@ install_snapcast() {
         log_info "Detected Debian version: $DEBIAN_VERSION"
     fi
 
-    # Method 1: Try to install from Debian repositories (more reliable)
-    log_info "Attempting installation from Debian repositories..."
-    if sudo apt install -y snapserver snapclient 2>/dev/null; then
-        log_success "Snapcast installed from Debian repositories"
-        snapserver --version
-        snapclient --version
-    else
-        log_warning "Installation from repositories failed, downloading packages from GitHub..."
-        
-        # Method 2: Download .deb packages from GitHub
-        local temp_dir=$(mktemp -d)
-        cd "$temp_dir"
-        
-        # Download with detected Debian version
-        log_info "Downloading Snapcast for $DEBIAN_VERSION..."
-        if ! wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapserver_0.34.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
-            log_warning "Package for $DEBIAN_VERSION not available, trying with bookworm..."
-            DEBIAN_VERSION="bookworm"
-            wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapserver_0.34.0-1_arm64_bookworm.deb"
-        fi
-        
-        wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb"
-        
+    # Track installation success
+    local github_install_success=false
+
+    # Method 1: Try GitHub .deb packages first (to get latest version)
+    log_info "Attempting installation from GitHub (latest version)..."
+
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+
+    # Download with detected Debian version
+    log_info "Downloading Snapcast v0.34.0 for $DEBIAN_VERSION..."
+    if wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapserver_0.34.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null && \
+       wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
+
         # Install common dependencies before .deb files
         log_info "Installing dependencies..."
         sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
-        
-        # Install .deb files with dependency management
+
+        # Install .deb files
         if sudo apt install -y ./snapserver_0.34.0-1_arm64_${DEBIAN_VERSION}.deb ./snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb; then
             log_success "Snapcast installed from GitHub packages"
+            github_install_success=true
         else
-            log_error "Failed to install .deb packages"
-            log_warning "Attempting to resolve dependencies..."
+            log_warning "Failed to install .deb packages, trying with dependency fix..."
             sudo apt --fix-broken install -y || true
-            
-            # Last attempt
+
             if sudo dpkg -i snapserver_0.34.0-1_arm64_${DEBIAN_VERSION}.deb snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb 2>/dev/null; then
                 sudo apt --fix-broken install -y
-                log_success "Snapcast installed after fixing dependencies"
-            else
-                log_error "Unable to install Snapcast from packages"
-                cd ~
-                rm -rf "$temp_dir"
-                return 1
+                log_success "Snapcast installed from GitHub after fixing dependencies"
+                github_install_success=true
             fi
         fi
-        
-        cd ~
-        rm -rf "$temp_dir"
+    else
+        # Try bookworm fallback for download
+        log_warning "Package for $DEBIAN_VERSION not available, trying with bookworm..."
+        DEBIAN_VERSION="bookworm"
+
+        if wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapserver_0.34.0-1_arm64_bookworm.deb" 2>/dev/null && \
+           wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapclient_0.34.0-1_arm64_bookworm.deb" 2>/dev/null; then
+
+            log_info "Installing dependencies..."
+            sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
+
+            if sudo apt install -y ./snapserver_0.34.0-1_arm64_bookworm.deb ./snapclient_0.34.0-1_arm64_bookworm.deb; then
+                log_success "Snapcast installed from GitHub packages (bookworm fallback)"
+                github_install_success=true
+            else
+                sudo apt --fix-broken install -y || true
+                if sudo dpkg -i snapserver_0.34.0-1_arm64_bookworm.deb snapclient_0.34.0-1_arm64_bookworm.deb 2>/dev/null; then
+                    sudo apt --fix-broken install -y
+                    log_success "Snapcast installed from GitHub after fixing dependencies"
+                    github_install_success=true
+                fi
+            fi
+        fi
+    fi
+
+    # Cleanup temp directory
+    cd ~
+    rm -rf "$temp_dir"
+
+    # Method 2: Fall back to apt if GitHub method failed
+    if [[ "$github_install_success" != "true" ]]; then
+        log_warning "GitHub installation failed, falling back to Debian repositories..."
+        if sudo apt install -y snapserver snapclient; then
+            log_success "Snapcast installed from Debian repositories"
+        else
+            log_error "Unable to install Snapcast from any source"
+            return 1
+        fi
     fi
 
     snapserver --version
