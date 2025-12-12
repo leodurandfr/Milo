@@ -1,8 +1,8 @@
 <!-- frontend/src/components/ui/MessageContent.vue -->
 <template>
-  <div class="message-content">
+  <div class="message-content" :class="{ 'is-delayed': loading && !showLoading }">
     <!-- Loading spinner OU icône (mutuellement exclusifs) -->
-    <LoadingSpinner v-if="loading" :size="64" />
+    <LoadingSpinner v-if="showLoading" :size="64" />
     <SvgIcon v-else-if="icon" :name="icon" :size="64" color="var(--color-background-medium-16)" />
 
     <!-- Contenu toujours visible (même en loading) -->
@@ -15,14 +15,19 @@
 </template>
 
 <script setup>
+import { ref, watch, onUnmounted } from 'vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SvgIcon from '@/components/ui/SvgIcon.vue'
 import Button from '@/components/ui/Button.vue'
 
-defineProps({
+const props = defineProps({
   loading: {
     type: Boolean,
     default: false
+  },
+  loadingDelay: {
+    type: Number,
+    default: 200
   },
   icon: {
     type: String,
@@ -49,6 +54,33 @@ defineProps({
     default: null
   }
 })
+
+// Delayed loading state to avoid flash of spinner
+const showLoading = ref(false)
+let loadingTimeout = null
+
+watch(() => props.loading, (isLoading) => {
+  if (loadingTimeout) {
+    clearTimeout(loadingTimeout)
+    loadingTimeout = null
+  }
+
+  if (isLoading) {
+    if (props.loadingDelay > 0) {
+      loadingTimeout = setTimeout(() => {
+        showLoading.value = true
+      }, props.loadingDelay)
+    } else {
+      showLoading.value = true
+    }
+  } else {
+    showLoading.value = false
+  }
+}, { immediate: true })
+
+onUnmounted(() => {
+  if (loadingTimeout) clearTimeout(loadingTimeout)
+})
 </script>
 
 <style scoped>
@@ -73,6 +105,10 @@ defineProps({
 
 .message-content :deep(.loading-spinner) {
   color: var(--color-text-secondary);
+}
+
+.message-content.is-delayed {
+  visibility: hidden;
 }
 
 @media (max-aspect-ratio: 4/3) {

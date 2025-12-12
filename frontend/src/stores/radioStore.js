@@ -17,6 +17,7 @@ export const useRadioStore = defineStore('radio', () => {
   // UI state
   const loading = ref(false);
   const hasError = ref(false);
+  const favoritesInitialized = ref(false);
 
   // Active filters
   const searchQuery = ref('');
@@ -181,6 +182,7 @@ export const useRadioStore = defineStore('radio', () => {
         favoriteStationIds.value = new Set(response.data.stations.map(s => s.id));
 
         console.log(`✅ Loaded ${response.data.stations.length} favorites`);
+        favoritesInitialized.value = true;
         return true;
       } catch (error) {
         console.error('❌ Error loading favorites:', error);
@@ -637,6 +639,7 @@ export const useRadioStore = defineStore('radio', () => {
     currentStation,
     loading,
     hasError,
+    favoritesInitialized,
     searchQuery,
     countryFilter,
     genreFilter,
