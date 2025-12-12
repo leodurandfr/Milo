@@ -23,7 +23,7 @@
 
       <!-- Contenu avec animation (wrapper pour isoler position: absolute) -->
       <div class="transition-wrapper">
-        <Transition name="fade-slide" mode="out-in" @before-leave="onBeforeLeave" @after-leave="onAfterLeave" @enter="onEnter">
+        <Transition name="fade-slide" mode="out-in" appear @before-leave="onBeforeLeave" @after-leave="onAfterLeave" @enter="onEnter">
           <div :key="contentKey" class="content-inner">
             <slot name="content" :is-mobile="isMobile" />
           </div>
