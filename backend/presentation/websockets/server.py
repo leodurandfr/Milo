@@ -54,6 +54,8 @@ class WebSocketServer:
             client_msg = json.loads(message)
 
             if client_msg.get("type") == "ready":
+                # Refresh active plugin metadata for fresh position data
+                await self.state_machine.refresh_active_metadata()
                 # Client is ready - send initial state
                 current_state = await self.state_machine.get_current_state()
                 initial_event = {

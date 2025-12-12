@@ -5,19 +5,20 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 export function usePlaybackProgress() {
   const unifiedStore = useUnifiedAudioStore();
 
-  const localPosition = ref(0);
+  const localPosition = ref(null);
   let intervalId = null;
   let isApiSyncing = false;
 
   // Computed properties
   const duration = computed(() => unifiedStore.systemState.metadata?.duration || 0);
-  const currentPosition = computed(() => localPosition.value);
+  const currentPosition = computed(() => localPosition.value ?? 0);
+  const isPositionInitialized = computed(() => localPosition.value !== null);
   const progressPercentage = computed(() => {
     if (!duration.value || duration.value === 0) return 0;
     return (currentPosition.value / duration.value) * 100;
   });
 
-  // Direct synchronization with store metadata
+  // Synchronization with store metadata
   watch(() => unifiedStore.systemState.metadata?.position, (newPosition) => {
     if (newPosition !== undefined && !isApiSyncing) {
       localPosition.value = newPosition;
@@ -35,7 +36,7 @@ export function usePlaybackProgress() {
   function startProgressTimer() {
     if (!intervalId) {
       intervalId = setInterval(() => {
-        if (unifiedStore.systemState.metadata?.is_playing && localPosition.value < duration.value) {
+        if (localPosition.value !== null && unifiedStore.systemState.metadata?.is_playing && localPosition.value < duration.value) {
           localPosition.value += 100;
         }
       }, 100);
@@ -69,6 +70,7 @@ export function usePlaybackProgress() {
     currentPosition,
     duration,
     progressPercentage,
-    seekTo
+    seekTo,
+    isPositionInitialized
   };
 }

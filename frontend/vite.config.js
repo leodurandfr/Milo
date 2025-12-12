@@ -55,6 +55,15 @@ export default defineConfig(({ mode }) => ({
             console.log('Erreur de proxy WS:', err);
           });
         },
+      },
+      '/spotify': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('Erreur de proxy spotify:', err);
+          });
+        },
       }
     }
   }

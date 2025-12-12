@@ -1,5 +1,5 @@
 <template>
-  <div class="progress-bar" v-if="duration > 0">
+  <div class="progress-bar" v-if="duration > 0 && isReady">
     <span class="text-mono time">{{ formatTime(currentPosition) }}</span>
     <div ref="progressContainer" class="progress-container" @click="onProgressClick">
       <div class="progress" :style="progressStyle"></div>
@@ -23,6 +23,10 @@ const props = defineProps({
   progressPercentage: {
     type: Number,
     default: 0
+  },
+  isReady: {
+    type: Boolean,
+    default: true
   }
 });
 
