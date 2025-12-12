@@ -38,6 +38,16 @@
         class="skeleton-overlay"
       />
     </transition>
+
+    <!-- Playing indicator -->
+    <IconButton
+      v-if="isPlaying"
+      icon="play"
+      variant="on-grey"
+      size="small"
+      class="playing-indicator"
+      @click.stop
+    />
   </div>
 
   <!-- "card" variant: Horizontal layout for lists -->
@@ -87,6 +97,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { getTranslatedCountryName } from '@/constants/countries';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import IconButton from '@/components/ui/IconButton.vue';
 import SkeletonStationCard from './SkeletonStationCard.vue';
 import placeholderImg from '@/assets/radio/station-placeholder.jpg';
 
@@ -224,8 +235,15 @@ onMounted(() => {
 
 
 .station-image.playing {
-  outline: 3px solid hsla(0, 0%, 0%, 0.08);
-  outline-offset: -3px;
+  box-shadow: 0 0 0 2px var(--color-brand);
+}
+
+.playing-indicator {
+  position: absolute;
+  top: var(--space-01);
+  left: var(--space-01);
+  z-index: 3;
+  pointer-events: none;
 }
 
 .station-image .station-img {
@@ -261,7 +279,6 @@ onMounted(() => {
   inset: 0;
   background: var(--color-background-contrast-32);
   backdrop-filter: blur(4px);
-  border-radius: var(--radius-03);
   display: flex;
   align-items: center;
   justify-content: center;
