@@ -30,7 +30,7 @@
         <div class="controls-section">
           <div class="progress-wrapper stagger-4">
             <ProgressBar :currentPosition="currentPosition" :duration="duration"
-              :progressPercentage="progressPercentage" @seek="seekTo" />
+              :progressPercentage="progressPercentage" :isReady="isPositionInitialized" @seek="seekTo" />
           </div>
           <div class="controls-wrapper stagger-5">
             <PlaybackControls :isPlaying="isPlaying" @play-pause="togglePlayPause"
@@ -47,18 +47,17 @@
 </template>
 
 <script setup>
-import { computed, watch, onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSpotifyControl } from './useSpotifyControl';
 import { usePlaybackProgress } from './usePlaybackProgress';
-import axios from 'axios';
 
 import PlaybackControls from './PlaybackControls.vue';
 import ProgressBar from './ProgressBar.vue';
 
 const unifiedStore = useUnifiedAudioStore();
 const { togglePlayPause, previousTrack, nextTrack } = useSpotifyControl();
-const { currentPosition, duration, progressPercentage, seekTo } = usePlaybackProgress();
+const { currentPosition, duration, progressPercentage, seekTo, isPositionInitialized } = usePlaybackProgress();
 
 // === METADATA PERSISTENCE ===
 const lastValidMetadata = ref({
@@ -87,39 +86,9 @@ const persistentMetadata = computed(() => {
 // Real-time playback state (not persisted)
 const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);
 
-// === WATCHERS ===
-watch(() => unifiedStore.systemState.metadata, (newMetadata) => {
-  if (newMetadata?.position !== undefined) {
-    // Synchronization is handled in usePlaybackProgress
-  }
-}, { immediate: true });
-
 // === LIFECYCLE ===
-onMounted(async () => {
+onMounted(() => {
   console.log('SpotifyView mounted - natural stagger');
-
-  try {
-    const response = await axios.get('/spotify/status');
-    if (response.data.status === 'ok') {
-      const metadata = response.data.metadata || {};
-
-      unifiedStore.updateState({
-        data: {
-          full_state: {
-            active_source: 'spotify',
-            plugin_state: response.data.plugin_state,
-            transitioning: false,
-            metadata: metadata,
-            error: null
-          }
-        }
-      });
-
-      console.log("Position initiale chargee:", metadata.position);
-    }
-  } catch (error) {
-    console.error('Error fetching spotify status:', error);
-  }
 });
 </script>
 

@@ -68,6 +68,31 @@ class UnifiedAudioStateMachine:
         """Return current system state."""
         return self.system_state.to_dict()
 
+    async def refresh_active_metadata(self) -> bool:
+        """Refresh metadata from the active plugin (e.g., for fresh position data)."""
+        active_source = self.system_state.active_source
+        if active_source == AudioSource.NONE:
+            return False
+
+        plugin = self.plugins.get(active_source)
+        if not plugin:
+            return False
+
+        try:
+            # Call plugin's refresh method if it exists
+            if hasattr(plugin, '_refresh_metadata'):
+                success = await plugin._refresh_metadata()
+                if success and hasattr(plugin, '_metadata'):
+                    # Update state machine's cached metadata
+                    async with self._state_lock:
+                        self.system_state.metadata = plugin._metadata.copy()
+                        self._state_cache = None  # Invalidate cache
+                    return True
+            return False
+        except Exception as e:
+            self.logger.warning(f"Failed to refresh metadata for {active_source.value}: {e}")
+            return False
+
     async def transition_to_source(self, target_source: AudioSource) -> bool:
         """Perform transition to new source with timeout."""
         async with self._transition_lock:
