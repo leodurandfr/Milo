@@ -26,7 +26,8 @@ class ImageManager:
     # Limits
     MAX_FILE_SIZE_MB = 5
     MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-    MAX_DIMENSIONS = (1500, 1500)  # Max resolution increased to 1500x1500
+    MAX_DIMENSIONS = (1024, 1024)  # Max resolution for saved images
+    WEBP_QUALITY = 80  # WebP compression quality
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -84,11 +85,8 @@ class ImageManager:
                 if image.format not in self.ALLOWED_FORMATS:
                     return False, None, f"Unsupported image format: {image.format}"
 
-                # Verify dimensions
+                # Verify minimum dimensions
                 width, height = image.size
-                if width > self.MAX_DIMENSIONS[0] or height > self.MAX_DIMENSIONS[1]:
-                    return False, None, f"Image too large ({width}x{height}). Maximum: {self.MAX_DIMENSIONS[0]}x{self.MAX_DIMENSIONS[1]}px"
-
                 if width < 50 or height < 50:
                     return False, None, f"Image too small ({width}x{height}). Minimum: 50x50px"
 
@@ -96,16 +94,41 @@ class ImageManager:
                 self.logger.warning(f"Image validation failed: {e}")
                 return False, None, "Invalid or corrupted file"
 
-            # 4. Generate unique file name
+            # 4. Process image: resize if needed and convert to WebP
+            try:
+                # Resize if larger than max dimensions (preserves aspect ratio)
+                if width > self.MAX_DIMENSIONS[0] or height > self.MAX_DIMENSIONS[1]:
+                    image.thumbnail(self.MAX_DIMENSIONS, Image.Resampling.LANCZOS)
+                    self.logger.debug(f"Image resized from {width}x{height} to {image.size[0]}x{image.size[1]}")
+
+                # Convert to WebP, preserving transparency if present
+                output_buffer = io.BytesIO()
+                if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+                    # Preserve transparency
+                    image = image.convert('RGBA')
+                    image.save(output_buffer, format='WEBP', quality=self.WEBP_QUALITY, lossless=False)
+                else:
+                    # No transparency, convert to RGB
+                    image = image.convert('RGB')
+                    image.save(output_buffer, format='WEBP', quality=self.WEBP_QUALITY)
+
+                webp_content = output_buffer.getvalue()
+                final_width, final_height = image.size
+
+            except Exception as e:
+                self.logger.error(f"Image processing failed: {e}")
+                return False, None, "Error processing image"
+
+            # 5. Generate unique file name (always .webp)
             unique_id = uuid.uuid4().hex[:12]
-            saved_filename = f"{unique_id}{original_ext}"
+            saved_filename = f"{unique_id}.webp"
             file_path = self.IMAGES_DIR / saved_filename
 
-            # 5. Save the file
+            # 6. Save the WebP file
             async with aiofiles.open(file_path, 'wb') as f:
-                await f.write(file_content)
+                await f.write(webp_content)
 
-            self.logger.info(f"Image saved: {saved_filename} ({width}x{height}, {file_size / 1024:.1f}KB)")
+            self.logger.info(f"Image saved: {saved_filename} ({final_width}x{final_height}, {len(webp_content) / 1024:.1f}KB)")
             return True, saved_filename, None
 
         except Exception as e:
