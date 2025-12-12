@@ -1,6 +1,6 @@
 <template>
   <!-- "image" variant: Image only for favorites grid -->
-  <div v-if="variant === 'image'" class="station-image-wrapper" @click="$emit('click')">
+  <div v-if="variant === 'image'" class="station-image-wrapper interactive-press" @click="$emit('click')">
     <!-- Real content (always present so image can load) -->
     <div
       :class="['station-image', {
@@ -39,7 +39,7 @@
   </div>
 
   <!-- "card" variant: Horizontal layout for lists -->
-  <div v-else-if="variant === 'card'" :class="['station-card', {
+  <div v-else-if="variant === 'card'" :class="['station-card', 'interactive-press', {
     playing: isPlaying,
     loading: isLoading
   }]" @click="$emit('click')">
