@@ -24,9 +24,11 @@
       />
 
       <!-- Loading overlay (buffering) -->
-      <div v-if="isLoading" class="loading-overlay">
-        <LoadingSpinner :size="48" />
-      </div>
+      <transition name="loading-fade">
+        <div v-if="isLoading" class="loading-overlay">
+          <LoadingSpinner :size="48" />
+        </div>
+      </transition>
     </div>
 
     <!-- Skeleton overlay (on top, fades out when loaded) -->
@@ -60,9 +62,11 @@
       />
 
       <!-- Loading overlay -->
-      <div v-if="isLoading" class="loading-overlay">
-        <LoadingSpinner :size="32" />
-      </div>
+      <transition name="loading-fade">
+        <div v-if="isLoading" class="loading-overlay">
+          <LoadingSpinner :size="32" />
+        </div>
+      </transition>
     </div>
 
     <div class="station-details">
@@ -257,13 +261,23 @@ onMounted(() => {
   inset: 0;
   background: var(--color-background-contrast-32);
   backdrop-filter: blur(4px);
-    border-radius: var(--radius-03);
-
+  border-radius: var(--radius-03);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 10;
   color: var(--color-text-contrast);
+}
+
+/* Loading overlay fade transition */
+.loading-fade-enter-active,
+.loading-fade-leave-active {
+  transition: opacity var(--transition-fast);
+}
+
+.loading-fade-enter-from,
+.loading-fade-leave-to {
+  opacity: 0;
 }
 
 /* === "CARD" VARIANT: Horizontal layout === */
