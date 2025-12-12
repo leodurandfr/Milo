@@ -1,8 +1,11 @@
 <template>
   <div class="favorites-view">
     <Transition name="fade-slide" mode="out-in">
-      <!-- Empty state -->
-      <MessageContent v-if="!isLoading && favoriteStations.length === 0" key="empty" icon="radio" :title="t('audioSources.radioSource.noFavorites')" />
+      <!-- Loading state: shown when loading OR favorites not yet initialized -->
+      <MessageContent v-if="isLoading || !radioStore.favoritesInitialized" key="loading" loading :title="t('audioSources.radioSource.loadingStations')" />
+
+      <!-- Empty state: only after initialization confirms no favorites -->
+      <MessageContent v-else-if="favoriteStations.length === 0" key="empty" icon="radio" :title="t('audioSources.radioSource.noFavorites')" />
 
       <!-- Favorites grid -->
       <div v-else key="favorites" class="favorites-grid">
