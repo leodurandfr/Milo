@@ -1,5 +1,5 @@
 <template>
-  <div class="episode-card interactive-press" :class="{ clickable, contrast }" @click="handleCardClick">
+  <div v-press class="episode-card" :class="{ clickable, contrast }" @click="handleCardClick">
     <div class="card-image">
       <img
         ref="imgRef"

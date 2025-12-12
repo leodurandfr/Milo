@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/ListItemButton.vue -->
 <template>
-  <button type="button" :class="['list-item-button', `list-item-button--${variant}`, { 'interactive-press': action !== 'toggle' }]" :disabled="disabled" @click="handleClick">
+  <button type="button" v-press="action !== 'toggle'" :class="['list-item-button', `list-item-button--${variant}`]" :disabled="disabled" @click="handleClick">
     <!-- Icon on the left -->
     <div v-if="$slots.icon" class="list-item-button__icon">
       <slot name="icon"></slot>
