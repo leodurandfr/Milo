@@ -64,6 +64,32 @@ sudo systemctl status milo-radio
 sudo systemctl status milo-podcast
 ```
 
+## Project Structure
+
+```
+milo/
+├── backend/              # FastAPI backend (Python)
+├── frontend/             # Vue 3 frontend
+├── system/               # Systemd service files (.service)
+├── install.sh            # Main installation script
+├── install/              # Installation helper scripts (run only during install)
+│   ├── boot-common.sh
+│   ├── screen-waveshare-7-usb.sh
+│   └── screen-waveshare-8-dsi.sh
+├── rootfs/               # Files deployed to system (mirrors target filesystem)
+│   ├── etc/NetworkManager/dispatcher.d/   # Network event scripts
+│   ├── usr/local/bin/                     # System scripts (milo-wait-ready.sh)
+│   ├── usr/share/plymouth/themes/milo/    # Boot animation theme
+│   └── home/milo/                         # User config (.bash_profile, .config/)
+├── milo-client/          # Satellite client for multiroom
+└── docs/                 # Documentation
+```
+
+**Directory conventions:**
+- `install/` - Scripts executed only during `install.sh` (screen/boot configuration)
+- `rootfs/` - Files copied to the system at install time, run at boot/runtime
+- `system/` - Systemd unit files
+
 ## Architecture Overview
 
 ### Backend: Layered Domain-Driven Design
