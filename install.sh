@@ -1023,7 +1023,11 @@ EOF
 
     sudo systemctl restart avahi-daemon
 
-    # Install NetworkManager dispatcher to prefer eth0 over wlan0 for mDNS
+    # Install NetworkManager dispatchers for network priority and mDNS
+    log_info "Installing WiFi/Ethernet priority dispatcher..."
+    sudo cp "$MILO_APP_DIR/assets/98-wifi-eth0-priority" /etc/NetworkManager/dispatcher.d/
+    sudo chmod 755 /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority
+
     log_info "Installing Avahi interface dispatcher..."
     sudo cp "$MILO_APP_DIR/assets/99-avahi-interface" /etc/NetworkManager/dispatcher.d/
     sudo chmod 755 /etc/NetworkManager/dispatcher.d/99-avahi-interface
