@@ -2,7 +2,7 @@
 <template>
   <div class="audio-source-view">
     <!-- SIMPLIFIED transition without absolute positioning -->
-    <Transition name="audio-content" mode="out-in">
+    <Transition name="audio-content" mode="out-in" appear>
 
       <!-- SpotifyView -->
       <div v-if="shouldShowSpotify" :key="contentKey" class="spotify-container">

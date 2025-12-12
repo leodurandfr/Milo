@@ -1,13 +1,16 @@
 <!-- App.vue - Version with i18n WebSocket -->
 <template>
   <div class="app-container">
-    <router-view />
-    <VolumeBar />
-    <Dock
-      @open-multiroom="isMultiroomOpen = true"
-      @open-equalizer="isEqualizerOpen = true"
-      @open-settings="isSettingsOpen = true"
-    />
+    <!-- App content only renders after boot completes -->
+    <template v-if="isBootComplete">
+      <router-view />
+      <VolumeBar />
+      <Dock
+        @open-multiroom="isMultiroomOpen = true"
+        @open-equalizer="isEqualizerOpen = true"
+        @open-settings="isSettingsOpen = true"
+      />
+    </template>
 
     <Modal :is-open="isMultiroomOpen" @close="isMultiroomOpen = false">
       <MultiroomModal />
@@ -66,23 +69,24 @@ useScreenActivity();
 
 // Track if initial state received from WebSocket (hides boot screen)
 const isReady = ref(false);
+const isBootComplete = ref(false);
 
-// Show boot screen after delay if WebSocket not connected yet (avoids flash on normal refresh)
-setTimeout(() => {
-  if (!isReady.value) {
-    const bootScreen = document.getElementById('boot-screen');
-    if (bootScreen) bootScreen.classList.add('visible');
-  }
-}, 400);
-
-// Hide boot screen when WebSocket receives initial state
+// Fade out boot screen after WebSocket connects + delay
 watch(isReady, (ready) => {
   if (ready) {
     const bootScreen = document.getElementById('boot-screen');
     if (bootScreen) {
-      bootScreen.classList.remove('visible');
-      bootScreen.classList.add('hidden');
-      setTimeout(() => bootScreen.remove(), 300);
+      // Start logo animation 0.1s before boot-screen ends
+      setTimeout(() => {
+        bootScreen.classList.add('logo-exit');
+      }, 1400);
+
+      // Fade out boot-screen and mount app
+      setTimeout(() => {
+        bootScreen.classList.add('fade-out');
+        isBootComplete.value = true;
+        setTimeout(() => bootScreen.remove(), 400);
+      }, 1500);
     }
   }
 });
