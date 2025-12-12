@@ -101,10 +101,10 @@ function clearInactivityTimer() {
 function resetInactivityTimer() {
   clearInactivityTimer();
 
-  // Start a new 60-second timer
+  // Start a new 120-second timer
   inactivityTimer = setTimeout(() => {
     close();
-  }, 30000); // 300 seconds before auto-close 
+  }, 120000); // 1200 seconds before auto-close 
 }
 
 const ANIMATION_TIMINGS = {
