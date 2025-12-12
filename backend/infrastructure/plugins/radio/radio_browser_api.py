@@ -115,7 +115,7 @@ class RadioBrowserAPI:
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Deduplicate and sort par score
+                # Deduplicate (preserves original order)
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}'")
@@ -173,7 +173,7 @@ class RadioBrowserAPI:
     async def _fetch_top_stations(self, limit: int = 500) -> List[Dict[str, Any]]:
         """
         Gets most popular stations via the API
-        (based on votes)
+        (based on click count)
 
         Args:
             limit: Number of stations to fetch (default: 500)
@@ -184,8 +184,8 @@ class RadioBrowserAPI:
         await self._ensure_session()
 
         try:
-            # Use the topvote endpoint for the most voted stations
-            url = f"{self.BASE_URL}/stations/topvote/{limit}"
+            # Use the topclick endpoint for the most clicked stations
+            url = f"{self.BASE_URL}/stations/topclick/{limit}"
 
             async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status != 200:
@@ -400,6 +400,52 @@ class RadioBrowserAPI:
             self._favicon_quality_cache[favicon_url] = (-1, 0, datetime.now())
             return (-1, 0)
 
+    async def find_alternative_urls(self, station_name: str, exclude_url: str = "") -> List[Dict[str, Any]]:
+        """
+        Finds alternative URLs for a station by searching by name.
+
+        Searches for stations with the same name (case-insensitive) and returns
+        all matching stations sorted by quality (score, then bitrate).
+
+        Args:
+            station_name: Station name to search for
+            exclude_url: URL to exclude from results (the failing primary URL)
+
+        Returns:
+            List of stations with alternative URLs, sorted by quality
+        """
+        if not station_name:
+            return []
+
+        try:
+            # Search by exact name (reuses existing functionality)
+            search_results = await self._fetch_stations_by_query(station_name)
+
+            # Filter to exact name matches only (case-insensitive)
+            alternatives = [
+                s for s in search_results
+                if s.get('name', '').lower().strip() == station_name.lower().strip()
+                and s.get('url') != exclude_url
+                and s.get('url')  # Must have a URL
+            ]
+
+            # Sort by quality: score (votes + clicks) descending, then bitrate descending
+            alternatives.sort(
+                key=lambda s: (s.get('score', 0), s.get('bitrate', 0)),
+                reverse=True
+            )
+
+            self.logger.debug(
+                f"Found {len(alternatives)} alternative URLs for '{station_name}' "
+                f"(excluded: {exclude_url[:50] if exclude_url else 'none'})"
+            )
+
+            return alternatives
+
+        except Exception as e:
+            self.logger.error(f"Error finding alternative URLs for '{station_name}': {e}")
+            return []
+
     def _normalize_station(self, station: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalizes a station from API format to Milo format
@@ -473,7 +519,7 @@ class RadioBrowserAPI:
             stations: List of normalized stations
 
         Returns:
-            List of deduplicated stations sorted by score
+            List of deduplicated stations (preserves original order)
         """
         if not stations:
             return []
@@ -531,16 +577,9 @@ class RadioBrowserAPI:
                         f"favicon_quality={best_favicon_quality})"
                     )
 
-        # Sort by popularity (votes + clicks)
-        sorted_stations = sorted(
-            deduplicated,
-            key=lambda s: s.get('score', 0),
-            reverse=True
-        )
+        self.logger.debug(f"Deduplication: {len(stations)} → {len(deduplicated)} stations")
 
-        self.logger.debug(f"Deduplication: {len(stations)} → {len(sorted_stations)} stations")
-
-        return sorted_stations
+        return deduplicated
 
     def _build_search_params(
         self,
@@ -626,7 +665,7 @@ class RadioBrowserAPI:
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Deduplicate and sort
+                # Deduplicate (preserves original order)
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 # Debug: Log favicons after deduplication
@@ -736,11 +775,9 @@ class RadioBrowserAPI:
                 if matches:
                     filtered_custom.append(station)
 
-            # Merge and sort by score (custom stations have score=0, so they appear last)
-            all_stations = all_stations + filtered_custom
-            all_stations = sorted(all_stations, key=lambda s: s.get('score', 0), reverse=True)
-
+            # Append custom stations at end
             if filtered_custom:
+                all_stations = all_stations + filtered_custom
                 self.logger.info(f"✅ Added {len(filtered_custom)} manually-added custom station(s)")
 
         # Total before limit
@@ -908,7 +945,7 @@ class RadioBrowserAPI:
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Deduplicate and sort par score
+                # Deduplicate (preserves original order)
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for {country_name}")
@@ -953,7 +990,7 @@ class RadioBrowserAPI:
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Deduplicate and sort by score
+                # Deduplicate (preserves original order)
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for genre {genre}")
@@ -999,7 +1036,7 @@ class RadioBrowserAPI:
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Deduplicate and sort by score
+                # Deduplicate (preserves original order)
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for {country_name} + {genre}")
@@ -1045,7 +1082,7 @@ class RadioBrowserAPI:
                         normalized = self._normalize_station(station)
                         valid_stations.append(normalized)
 
-                # Deduplicate and sort by score
+                # Deduplicate (preserves original order)
                 deduplicated_stations = await self._deduplicate_stations(valid_stations)
 
                 self.logger.info(f"Deduplicated {len(stations)} → {len(deduplicated_stations)} stations for query '{query}' + genre {genre}")

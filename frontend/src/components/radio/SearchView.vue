@@ -165,14 +165,9 @@ const genreFilter = computed({
   set: (value) => { radioStore.genreFilter = value }
 })
 
-// Search results sorted by popularity
+// Search results (already sorted by clickcount from backend)
 const searchResults = computed(() => {
-  const stations = radioStore.displayedStations || []
-  return [...stations].sort((a, b) => {
-    const clicksA = a.votes || 0
-    const clicksB = b.votes || 0
-    return clicksB - clicksA // Higher clicks first
-  })
+  return radioStore.displayedStations || []
 })
 </script>
 

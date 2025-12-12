@@ -344,22 +344,25 @@ class RadioPlugin(UnifiedAudioPlugin):
             return self.format_response(False, error=str(e))
 
     async def _handle_play_station(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Plays a radio station"""
+        """Plays a radio station with fallback to alternative URLs"""
         station_id = data.get('station_id')
         if not station_id:
-            self.logger.error("❌ play_station command without station_id")
+            self.logger.error("play_station command without station_id")
             return self.format_response(False, error="station_id required")
 
         try:
             # Get station
             station = await self.radio_api.get_station_by_id(station_id)
             if not station:
-                self.logger.error(f"❌ Station not found: {station_id}")
+                self.logger.error(f"Station not found: {station_id}")
                 return self.format_response(False, error=f"Station {station_id} not found")
 
-            self.logger.info(f"📻 Playing station: {station['name']} (URL: {station['url']})")
+            station_name = station.get('name', 'Unknown')
+            primary_url = station.get('url')
 
-            # Increment Radio Browser counter
+            self.logger.info(f"Playing station: {station_name} (URL: {primary_url})")
+
+            # Increment Radio Browser counter (fire and forget)
             asyncio.create_task(self.radio_api.increment_station_clicks(station_id))
 
             # Update state: buffering in progress
@@ -371,26 +374,33 @@ class RadioPlugin(UnifiedAudioPlugin):
             # Immediately notify buffering state
             await self.notify_state_change(PluginState.CONNECTED, self._metadata)
 
-            # Load stream in mpv
-            success = await self.mpv.load_stream(station['url'])
+            # Try to play with fallback mechanism
+            working_url = await self._try_play_with_fallback(station)
 
-            if not success:
-                # Mark as broken and reset buffering
+            if not working_url:
+                # All URLs failed - mark as broken
                 self._is_buffering = False
                 self.current_station = None
                 await self.station_manager.mark_as_broken(station_id)
-                self.logger.error(f"❌ Unable to load stream: {station['name']} ({station['url']})")
+                self.logger.error(f"Unable to load stream: {station_name} (all URLs failed)")
                 return self.format_response(
                     False,
-                    error=f"Unable to load stream {station['name']}"
+                    error=f"Unable to load stream {station_name}"
                 )
+
+            # Update station URL if we used an alternative
+            if working_url != primary_url:
+                self.logger.info(f"Using alternative URL for {station_name}")
+                station['url'] = working_url
+                self.current_station = station
+                await self._update_metadata()
 
             # Buffering will continue until _monitor_playback detects is_playing=true
             # We don't set _is_playing = True here, we let _monitor_playback do it
 
             return self.format_response(
                 True,
-                message=f"Loading {station['name']}",
+                message=f"Loading {station_name}",
                 station=station
             )
 
@@ -398,6 +408,69 @@ class RadioPlugin(UnifiedAudioPlugin):
             self.logger.error(f"Station playback error: {e}")
             self._is_buffering = False
             return self.format_response(False, error=str(e))
+
+    async def _try_play_with_fallback(self, station: Dict[str, Any], max_alternatives: int = 3) -> Optional[str]:
+        """
+        Tries to play a station, with fallback to alternative URLs if primary fails.
+
+        Args:
+            station: Station dict with 'name' and 'url'
+            max_alternatives: Maximum number of alternative URLs to try (default: 3)
+
+        Returns:
+            Working URL if successful, None if all URLs failed
+        """
+        station_name = station.get('name', 'Unknown')
+        primary_url = station.get('url')
+
+        # Step 1: Try primary URL
+        self.logger.debug(f"Trying primary URL for {station_name}")
+        if await self._try_single_url(primary_url):
+            return primary_url
+
+        self.logger.warning(f"Primary URL failed for {station_name}, searching alternatives...")
+
+        # Step 2: Find and try alternative URLs
+        alternatives = await self.radio_api.find_alternative_urls(station_name, exclude_url=primary_url)
+
+        if not alternatives:
+            self.logger.warning(f"No alternative URLs found for {station_name}")
+            return None
+
+        # Try alternatives (limited to max_alternatives to avoid long delays)
+        for i, alt_station in enumerate(alternatives[:max_alternatives]):
+            alt_url = alt_station.get('url')
+            if not alt_url:
+                continue
+
+            self.logger.debug(f"Trying alternative {i+1}/{min(len(alternatives), max_alternatives)}: {alt_url[:80]}")
+
+            if await self._try_single_url(alt_url):
+                self.logger.info(f"Alternative URL {i+1} works for {station_name}")
+                return alt_url
+
+        self.logger.error(f"All {min(len(alternatives), max_alternatives) + 1} URLs failed for {station_name}")
+        return None
+
+    async def _try_single_url(self, url: str) -> bool:
+        """
+        Tries to play a single URL in mpv.
+
+        Args:
+            url: Stream URL to try
+
+        Returns:
+            True if mpv accepted the stream
+        """
+        # Let mpv handle stream validation directly
+        # mpv is better at detecting dead streams than HTTP HEAD/GET requests
+        success = await self.mpv.load_stream(url)
+
+        if not success:
+            self.logger.debug(f"mpv load_stream failed for: {url[:80]}")
+            return False
+
+        return True
 
     async def _handle_stop_playback(self) -> Dict[str, Any]:
         """Stops playback"""
