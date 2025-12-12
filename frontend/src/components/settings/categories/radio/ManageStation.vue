@@ -70,7 +70,7 @@
         <div v-if="canRestore || canDelete" class="left-actions">
           <Button v-if="canRestore" variant="important" size="medium"
             @click="handleRestoreClick" :disabled="isSubmitting">
-            {{ isConfirmingRestore ? $t('radio.manageStation.confirmRestore') : $t('common.restore') }}
+            {{ isConfirmingRestore ? $t('common.confirm') : $t('common.restore') }}
           </Button>
           <Button v-if="canDelete" variant="important" size="medium"
             @click="handleDeleteClick" :disabled="isSubmitting">
