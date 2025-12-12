@@ -418,7 +418,7 @@ install_go_librespot() {
     local temp_dir=$(mktemp -d)
     cd "$temp_dir"
     
-    wget https://github.com/devgianlu/go-librespot/releases/download/v0.4.0/go-librespot_linux_arm64.tar.gz
+    wget https://github.com/devgianlu/go-librespot/releases/download/v0.6.1/go-librespot_linux_arm64.tar.gz
     tar -xvzf go-librespot_linux_arm64.tar.gz
     sudo cp go-librespot /usr/local/bin/
     sudo chmod +x /usr/local/bin/go-librespot
@@ -552,20 +552,20 @@ install_snapcast() {
         
         # Download with detected Debian version
         log_info "Downloading Snapcast for $DEBIAN_VERSION..."
-        if ! wget "https://github.com/badaix/snapcast/releases/download/v0.31.0/snapserver_0.31.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
+        if ! wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapserver_0.34.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
             log_warning "Package for $DEBIAN_VERSION not available, trying with bookworm..."
             DEBIAN_VERSION="bookworm"
-            wget "https://github.com/badaix/snapcast/releases/download/v0.31.0/snapserver_0.31.0-1_arm64_bookworm.deb"
+            wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapserver_0.34.0-1_arm64_bookworm.deb"
         fi
         
-        wget "https://github.com/badaix/snapcast/releases/download/v0.31.0/snapclient_0.31.0-1_arm64_${DEBIAN_VERSION}.deb"
+        wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb"
         
         # Install common dependencies before .deb files
         log_info "Installing dependencies..."
         sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
         
         # Install .deb files with dependency management
-        if sudo apt install -y ./snapserver_0.31.0-1_arm64_${DEBIAN_VERSION}.deb ./snapclient_0.31.0-1_arm64_${DEBIAN_VERSION}.deb; then
+        if sudo apt install -y ./snapserver_0.34.0-1_arm64_${DEBIAN_VERSION}.deb ./snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb; then
             log_success "Snapcast installed from GitHub packages"
         else
             log_error "Failed to install .deb packages"
@@ -573,7 +573,7 @@ install_snapcast() {
             sudo apt --fix-broken install -y || true
             
             # Last attempt
-            if sudo dpkg -i snapserver_0.31.0-1_arm64_${DEBIAN_VERSION}.deb snapclient_0.31.0-1_arm64_${DEBIAN_VERSION}.deb 2>/dev/null; then
+            if sudo dpkg -i snapserver_0.34.0-1_arm64_${DEBIAN_VERSION}.deb snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb 2>/dev/null; then
                 sudo apt --fix-broken install -y
                 log_success "Snapcast installed after fixing dependencies"
             else

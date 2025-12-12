@@ -243,15 +243,57 @@ create_milo_client_user() {
 install_snapclient() {
     log_info "Installing Snapclient..."
 
-    # Install snapclient from Debian repositories
-    # This automatically resolves dependencies according to the Debian version
-    export DEBIAN_FRONTEND=noninteractive
-    sudo apt install -y snapclient
+    # Detect Debian version
+    DEBIAN_VERSION=$(lsb_release -sc 2>/dev/null || grep VERSION_CODENAME /etc/os-release | cut -d= -f2)
+
+    if [[ -z "$DEBIAN_VERSION" ]]; then
+        log_warning "Unable to detect Debian version, using bookworm as default"
+        DEBIAN_VERSION="bookworm"
+    else
+        log_info "Detected Debian version: $DEBIAN_VERSION"
+    fi
+
+    # Method 1: Try apt
+    log_info "Attempting installation from Debian repositories..."
+    if sudo apt install -y snapclient 2>/dev/null; then
+        log_success "Snapclient installed from Debian repositories"
+        snapclient --version
+    else
+        log_warning "Installation from repositories failed, downloading from GitHub..."
+
+        # Method 2: Download from GitHub
+        local temp_dir=$(mktemp -d)
+        cd "$temp_dir"
+
+        log_info "Downloading Snapclient for $DEBIAN_VERSION..."
+        if ! wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null; then
+            log_warning "Package for $DEBIAN_VERSION not available, trying with bookworm..."
+            DEBIAN_VERSION="bookworm"
+            wget "https://github.com/snapcast/snapcast/releases/download/v0.34.0/snapclient_0.34.0-1_arm64_bookworm.deb"
+        fi
+
+        log_info "Installing dependencies..."
+        sudo apt install -y libavahi-client3 libavahi-common3 libflac12t64 || sudo apt install -y libflac12 || true
+
+        if sudo apt install -y "./snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb"; then
+            log_success "Snapclient installed from GitHub packages"
+        else
+            log_error "Failed to install .deb package"
+            sudo apt --fix-broken install -y || true
+            sudo dpkg -i "snapclient_0.34.0-1_arm64_${DEBIAN_VERSION}.deb" 2>/dev/null
+            sudo apt --fix-broken install -y
+        fi
+
+        cd ~
+        rm -rf "$temp_dir"
+    fi
+
+    snapclient --version
 
     sudo systemctl stop snapclient.service || true
     sudo systemctl disable snapclient.service || true
 
-    log_success "Snapclient installed"
+    log_success "Snapclient installed and configured"
 }
 
 clone_milo_client_repo() {
