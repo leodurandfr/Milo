@@ -1,7 +1,8 @@
 <!-- frontend/src/components/ui/IconButton.vue -->
 <template>
   <button
-    class="icon-button interactive-press-strong"
+    v-press.strong
+    class="icon-button"
     :class="[
       `icon-button--${variant}`,
       `icon-button--${size}`,

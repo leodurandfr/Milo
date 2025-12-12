@@ -1,12 +1,12 @@
 <template>
   <div class="controls">
-    <div @click="onPrevious" class="control-button previous interactive-press-strong">
+    <div v-press.strong @click="onPrevious" class="control-button previous">
       <SvgIcon name="previous" responsive class="icon-secondary" />
     </div>
-    <div @click="onPlayPause" class="control-button play-pause interactive-press-strong">
+    <div v-press.strong @click="onPlayPause" class="control-button play-pause">
       <SvgIcon :name="isPlaying ? 'pause' : 'play'" responsive class="icon-primary" />
     </div>
-    <div @click="onNext" class="control-button next interactive-press-strong">
+    <div v-press.strong @click="onNext" class="control-button next">
       <SvgIcon name="next" responsive class="icon-secondary" />
     </div>
   </div>
