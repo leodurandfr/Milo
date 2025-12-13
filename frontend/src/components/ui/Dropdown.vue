@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/Dropdown.vue -->
 <template>
   <div ref="dropdownRef" class="dropdown">
-    <button type="button" class="dropdown-trigger"
+    <button v-press.light type="button" class="dropdown-trigger"
       :class="[`dropdown-trigger--${variant}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
@@ -171,6 +171,9 @@ function handleResize() {
 function handleScroll(event) {
   if (!isOpen.value) return;
 
+  // Ignore scroll events from the dropdown menu itself (allows vertical scrolling inside)
+  if (menuRef.value?.contains(event.target)) return;
+
   // Detect if scroll is horizontal or vertical
   const target = event.target === document ? window : event.target;
   const currentScrollX = target.scrollLeft || window.scrollX || 0;
@@ -188,7 +191,7 @@ function handleScroll(event) {
     return;
   }
 
-  // Si scroll vertical seulement, recalculer la position
+  // If vertical scroll only, recalculate position
   if (deltaY > 0) {
     calculateDropdownDirection();
   }
@@ -226,15 +229,11 @@ onBeforeUnmount(() => {
   cursor: pointer;
   outline: none;
   gap: var(--space-01);
-  transition: box-shadow var(--transition-fast), opacity var(--transition-fast);
-
-  -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-border);
-  -moz-box-shadow: inset 0px 0px 0px 2px var(--color-border);
-  box-shadow: inset 0px 0px 0px 2px var(--color-border);
+  transition: box-shadow var(--transition-fast), var(--transition-press);
 }
 
-.dropdown-trigger:focus {
-  border-color: var(--color-brand);
+.dropdown-trigger.is-open {
+  -webkit-box-shadow: inset 0 0 0 2px var(--color-brand);
   box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
