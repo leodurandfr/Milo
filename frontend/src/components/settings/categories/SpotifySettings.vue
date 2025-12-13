@@ -106,7 +106,8 @@ onMounted(() => {
 }
 
 .timeout-buttons :deep(.btn) {
-  min-width: 80px;
+  flex: 1;
+  white-space: nowrap;
 }
 
 /* Responsive */

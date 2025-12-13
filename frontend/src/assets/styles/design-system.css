@@ -297,7 +297,7 @@
 /* LIGHT: Small elements (cards, list items, inputs, buttons) */
 .interactive-press-light:active,
 .interactive-press-light.pressed {
-    transform: scale(0.98) !important;
+    transform: scale(0.96) !important;
     opacity: 0.6 !important;
 }
 
