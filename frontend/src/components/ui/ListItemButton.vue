@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/ListItemButton.vue -->
 <template>
-  <button type="button" v-press="action !== 'toggle'" :class="['list-item-button', `list-item-button--${variant}`]" :disabled="disabled" @click="handleClick">
+  <button type="button" v-press.light="action !== 'toggle'" :class="['list-item-button', `list-item-button--${variant}`]" :disabled="disabled" @click="handleClick">
     <!-- Icon on the left -->
     <div v-if="$slots.icon" class="list-item-button__icon">
       <slot name="icon"></slot>
@@ -61,7 +61,7 @@ function handleClick(event) {
   gap: var(--space-03);
   padding: var(--space-03);
   border-radius: var(--radius-05);
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast), box-shadow var(--transition-fast), var(--transition-press);
   width: 100%;
   text-align: left;
 }

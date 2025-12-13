@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/IconButton.vue -->
 <template>
   <button
-    v-press.strong
+    v-press
     class="icon-button"
     :class="[
       `icon-button--${variant}`,
@@ -90,7 +90,7 @@ function handleClick(event) {
   justify-content: center;
   border: none;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast), var(--transition-press);
   position: relative;
 }
 

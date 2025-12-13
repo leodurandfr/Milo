@@ -49,7 +49,7 @@ const onNext = () => emit('next');
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  transition: background-color 0.2s, transform var(--transition-spring), opacity 0.2s;
+  transition: background-color 0.2s, var(--transition-press);
 }
 
 .control-button.play-pause {
