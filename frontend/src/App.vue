@@ -126,6 +126,13 @@ onMounted(async () => {
   cleanupFunctions.push(
     on('system', 'initial_state', (event) => {
       unifiedStore.updateState(event);
+
+      // Populate podcastStore if active source is podcast
+      const fullState = event.data?.full_state;
+      if (fullState?.active_source === 'podcast' && fullState?.metadata) {
+        podcastStore.handleStateUpdate(fullState.metadata);
+      }
+
       isReady.value = true;
     }),
     on('volume', 'volume_changed', (event) => unifiedStore.handleVolumeEvent(event)),

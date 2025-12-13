@@ -119,9 +119,11 @@ function openKeyboard() {
     },
     onSubmit: (newValue) => {
       emit('update:modelValue', newValue);
+      emit('blur');
       isKeyboardActiveForThis.value = false;
     },
     onClose: () => {
+      emit('blur');
       isKeyboardActiveForThis.value = false;
     }
   });
