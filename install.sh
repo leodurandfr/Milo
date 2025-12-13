@@ -676,20 +676,47 @@ configure_alsa_loopback() {
     log_success "ALSA loopback configured"
 }
 
-install_alsa_equal() {
-    log_info "Installing alsaequal..."
-    
-    sudo apt install -y libasound2-plugin-equal caps
-    
-    log_success "alsaequal installed"
+install_camilladsp() {
+    log_info "Installing CamillaDSP..."
+
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+
+    # Download CamillaDSP binary for ARM64
+    log_info "Downloading CamillaDSP v3.0.1..."
+    wget -q https://github.com/HEnquist/camilladsp/releases/download/v3.0.1/camilladsp-linux-aarch64.tar.gz
+    tar -xzf camilladsp-linux-aarch64.tar.gz
+
+    # Install binary
+    sudo cp camilladsp /usr/local/bin/
+    sudo chmod +x /usr/local/bin/camilladsp
+
+    # Create configuration directory
+    sudo mkdir -p "$MILO_DATA_DIR/camilladsp"
+    sudo mkdir -p "$MILO_DATA_DIR/camilladsp/configs"
+    sudo mkdir -p "$MILO_DATA_DIR/camilladsp/coeffs"
+
+    # Copy default CamillaDSP configuration from rootfs
+    log_info "Installing CamillaDSP configuration..."
+    sudo cp "$MILO_APP_DIR/rootfs/var/lib/milo/camilladsp/config.yml" "$MILO_DATA_DIR/camilladsp/config.yml"
+
+    sudo chown -R "$MILO_USER:$MILO_USER" "$MILO_DATA_DIR/camilladsp"
+
+    # Verify installation
+    /usr/local/bin/camilladsp --version
+
+    cd ~
+    rm -rf "$temp_dir"
+
+    log_success "CamillaDSP installed"
 }
 
 configure_alsa_complete() {
-    log_info "Configuring complete ALSA setup..."
+    log_info "Configuring complete ALSA setup with CamillaDSP..."
 
     sudo tee /etc/asound.conf > /dev/null << 'EOF'
-# ALSA Configuration for Milo with Radio support
-# To copy to /etc/asound.conf: sudo cp asound.conf.radio /etc/asound.conf
+# ALSA Configuration for Milo with CamillaDSP
+# DSP processing is handled by CamillaDSP daemon via loopback device
 
 pcm.!default {
     type plug
@@ -700,7 +727,7 @@ pcm.!default {
     }
 }
 
- ctl.!default {
+ctl.!default {
     type hw
     card sndrpihifiberry
 }
@@ -758,7 +785,7 @@ pcm.milo_spotify_multiroom {
     type plug
     slave.pcm {
         type hw
-        card 1
+        card Loopback
         device 0
         subdevice 2
     }
@@ -768,7 +795,7 @@ pcm.milo_bluetooth_multiroom {
     type plug
     slave.pcm {
         type hw
-        card 1
+        card Loopback
         device 0
         subdevice 0
     }
@@ -778,7 +805,7 @@ pcm.milo_roc_multiroom {
     type plug
     slave.pcm {
         type hw
-        card 1
+        card Loopback
         device 0
         subdevice 1
     }
@@ -788,7 +815,7 @@ pcm.milo_radio_multiroom {
     type plug
     slave.pcm {
         type hw
-        card 1
+        card Loopback
         device 0
         subdevice 3
     }
@@ -798,37 +825,64 @@ pcm.milo_podcast_multiroom {
     type plug
     slave.pcm {
         type hw
-        card 1
+        card Loopback
         device 0
         subdevice 4
     }
 }
 
-# === Multiroom Mode with Equalizer ===
+# === Multiroom Mode with DSP ===
+# In multiroom mode, DSP is applied on satellites, not on main device
+# These route directly to snapcast (same as without DSP)
 
 pcm.milo_spotify_multiroom_eq {
     type plug
-    slave.pcm "equal_multiroom"
+    slave.pcm {
+        type hw
+        card Loopback
+        device 0
+        subdevice 2
+    }
 }
 
 pcm.milo_bluetooth_multiroom_eq {
     type plug
-    slave.pcm "equal_multiroom"
+    slave.pcm {
+        type hw
+        card Loopback
+        device 0
+        subdevice 0
+    }
 }
 
 pcm.milo_roc_multiroom_eq {
     type plug
-    slave.pcm "equal_multiroom"
+    slave.pcm {
+        type hw
+        card Loopback
+        device 0
+        subdevice 1
+    }
 }
 
 pcm.milo_radio_multiroom_eq {
     type plug
-    slave.pcm "equal_multiroom"
+    slave.pcm {
+        type hw
+        card Loopback
+        device 0
+        subdevice 3
+    }
 }
 
 pcm.milo_podcast_multiroom_eq {
     type plug
-    slave.pcm "equal_multiroom"
+    slave.pcm {
+        type hw
+        card Loopback
+        device 0
+        subdevice 4
+    }
 }
 
 # === Direct Mode (to hardware) ===
@@ -878,47 +932,45 @@ pcm.milo_podcast_direct {
     }
 }
 
-# === Direct Mode with Equalizer ===
+# === Direct Mode with DSP (via CamillaDSP loopback) ===
+# Audio is sent to loopback subdevice 5, CamillaDSP captures and processes
 
 pcm.milo_spotify_direct_eq {
     type plug
-    slave.pcm "equal"
+    slave.pcm "camilladsp_input"
 }
 
 pcm.milo_bluetooth_direct_eq {
     type plug
-    slave.pcm "equal"
+    slave.pcm "camilladsp_input"
 }
 
 pcm.milo_roc_direct_eq {
     type plug
-    slave.pcm "equal"
+    slave.pcm "camilladsp_input"
 }
 
 pcm.milo_radio_direct_eq {
     type plug
-    slave.pcm "equal"
+    slave.pcm "camilladsp_input"
 }
 
 pcm.milo_podcast_direct_eq {
     type plug
-    slave.pcm "equal"
+    slave.pcm "camilladsp_input"
 }
 
-# === Equalizer devices ===
+# === CamillaDSP loopback device ===
+# Sources write here, CamillaDSP daemon captures from hw:Loopback,1,5
 
-pcm.equal {
-    type equal
-    slave.pcm "plughw:sndrpihifiberry"
-}
-
-pcm.equal_multiroom {
-    type equal
-    slave.pcm "plughw:1,0"
-}
-
-ctl.equal {
-    type equal
+pcm.camilladsp_input {
+    type plug
+    slave.pcm {
+        type hw
+        card Loopback
+        device 0
+        subdevice 5
+    }
 }
 EOF
 
@@ -1519,6 +1571,7 @@ enable_services() {
    sudo systemctl enable milo-bluealsa.service
    sudo systemctl enable milo-bluealsa-aplay.service
    sudo systemctl enable milo-disable-wifi-power-management.service
+   sudo systemctl enable milo-camilladsp.service
    sudo systemctl enable avahi-daemon
    sudo systemctl enable nginx
 
@@ -1545,6 +1598,7 @@ start_services() {
    sudo systemctl start milo-bluealsa.service
    sudo systemctl start milo-bluealsa-aplay.service
    sudo systemctl start milo-disable-wifi-power-management.service
+   sudo systemctl start milo-camilladsp.service
    sudo systemctl start avahi-daemon
    sudo systemctl start nginx
 
@@ -1712,7 +1766,7 @@ main() {
    configure_journald
 
    configure_alsa_loopback
-   install_alsa_equal
+   install_camilladsp
    configure_alsa_complete
    configure_snapserver
    

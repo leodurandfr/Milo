@@ -1,5 +1,5 @@
 #!/bin/bash
-# Milo Client - Installation Script v1.2 (with uninstall + default volume)
+# Milo Client - Installation Script v1.3 (with CamillaDSP support)
 
 set -e
 
@@ -50,7 +50,7 @@ show_banner() {
     echo " | |  | | | | (_) || |___| | |  __/ | | | |_ "
     echo " |_|  |_|_|_|\___/  \____|_|_|\___|_| |_|\__|"
     echo ""
-    echo "Client Installation Script v1.2"
+    echo "Client Installation Script v1.3"
     echo -e "${NC}"
 }
 
@@ -240,6 +240,38 @@ create_milo_client_user() {
     sudo chown -R "$MILO_CLIENT_USER:audio" "$MILO_CLIENT_DATA_DIR"
 }
 
+install_camilladsp() {
+    log_info "Installing CamillaDSP..."
+
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+
+    # Download CamillaDSP binary for ARM64
+    log_info "Downloading CamillaDSP v3.0.1..."
+    wget -q https://github.com/HEnquist/camilladsp/releases/download/v3.0.1/camilladsp-linux-aarch64.tar.gz
+
+    tar -xzf camilladsp-linux-aarch64.tar.gz
+
+    sudo cp camilladsp /usr/local/bin/
+    sudo chmod +x /usr/local/bin/camilladsp
+
+    # Create CamillaDSP directories
+    sudo mkdir -p "$MILO_CLIENT_DATA_DIR/camilladsp"
+    sudo mkdir -p "$MILO_CLIENT_DATA_DIR/camilladsp/configs"
+    sudo mkdir -p "$MILO_CLIENT_DATA_DIR/camilladsp/coeffs"
+
+    # Copy default CamillaDSP configuration from repo
+    sudo cp "$MILO_CLIENT_REPO_DIR/milo-client/configs/camilladsp/config.yml" "$MILO_CLIENT_DATA_DIR/camilladsp/config.yml"
+
+    sudo chown -R "$MILO_CLIENT_USER:$MILO_CLIENT_USER" "$MILO_CLIENT_DATA_DIR/camilladsp"
+
+    # Cleanup
+    cd ~
+    rm -rf "$temp_dir"
+
+    log_success "CamillaDSP installed"
+}
+
 install_snapclient() {
     log_info "Installing Snapclient..."
 
@@ -349,12 +381,53 @@ install_milo_client_application() {
     log_success "Milo Client application installed"
 }
 
+configure_alsa_loopback() {
+    log_info "Configuring ALSA loopback module for CamillaDSP..."
+
+    # Ensure snd-aloop module loads at boot with subdevices for CamillaDSP
+    if ! grep -q "snd-aloop" /etc/modules 2>/dev/null; then
+        echo "snd-aloop" | sudo tee -a /etc/modules
+    fi
+
+    # Configure loopback module options
+    sudo tee /etc/modprobe.d/milo-client-loopback.conf > /dev/null << 'EOF'
+# Milo Client - ALSA Loopback for CamillaDSP
+# 1 card with 2 subdevices (one for DSP routing)
+options snd-aloop index=2 pcm_substreams=2 enable=1
+EOF
+
+    # Load module immediately if not loaded
+    if ! lsmod | grep -q "snd_aloop"; then
+        sudo modprobe snd-aloop pcm_substreams=2
+    fi
+
+    log_success "ALSA loopback configured"
+}
+
 configure_alsa() {
     log_info "Configuring ALSA..."
 
     sudo tee /etc/asound.conf > /dev/null << 'EOF'
-# ALSA configuration for Milo Client
+# ALSA configuration for Milo Client with CamillaDSP support
+# ============================================================
+# Audio routing with optional DSP processing:
+# - Direct: Snapclient -> HiFiBerry (no DSP)
+# - With DSP: Snapclient -> Loopback -> CamillaDSP -> HiFiBerry
+
+# === Default Output ===
+# Routes to HiFiBerry directly (no DSP)
 pcm.!default {
+    type plug
+    slave.pcm "hifiberry"
+}
+
+ctl.!default {
+    type hw
+    card sndrpihifiberry
+}
+
+# === HiFiBerry Direct Output ===
+pcm.hifiberry {
     type plug
     slave.pcm {
         type hw
@@ -363,9 +436,31 @@ pcm.!default {
     }
 }
 
-ctl.!default {
-    type hw
-    card sndrpihifiberry
+# === CamillaDSP Input (via Loopback) ===
+# Audio sent here is captured by CamillaDSP for processing
+pcm.camilladsp_input {
+    type plug
+    slave.pcm {
+        type hw
+        card Loopback
+        device 0
+        subdevice 0
+    }
+}
+
+# === DSP-Enabled Output ===
+# Use this for audio that should go through CamillaDSP
+pcm.with_dsp {
+    type plug
+    slave.pcm "camilladsp_input"
+}
+
+# === Snapclient Output Selector ===
+# The milo-client application sets MILO_CLIENT_DSP_ENABLED env var
+# to route snapclient output to DSP or direct based on main Milo settings
+pcm.milo_client_output {
+    type plug
+    slave.pcm "hifiberry"
 }
 EOF
 
@@ -382,9 +477,58 @@ create_systemd_services() {
     sudo cp "$MILO_CLIENT_SYSTEM_DIR/milo-client-snapclient.service" /etc/systemd/system/
     log_success "Installed milo-client-snapclient.service"
 
+    # Create CamillaDSP service for satellite DSP processing
+    sudo tee /etc/systemd/system/milo-client-camilladsp.service > /dev/null << 'EOF'
+[Unit]
+Description=Milo Client CamillaDSP Audio Processor
+Documentation=https://github.com/HEnquist/camilladsp
+After=sound.target
+Requires=sound.target
+
+[Service]
+Type=simple
+User=milo-client
+Group=milo-client
+
+# Working directory for config files
+WorkingDirectory=/var/lib/milo-client/camilladsp
+
+# Start CamillaDSP with WebSocket server enabled
+# -p 1234: WebSocket server port
+# -a 127.0.0.1: Listen only on localhost
+# -w: Wait for valid config before processing
+ExecStart=/usr/local/bin/camilladsp \
+    -p 1234 \
+    -a 127.0.0.1 \
+    -w \
+    /var/lib/milo-client/camilladsp/config.yml
+
+# Restart policy
+Restart=on-failure
+RestartSec=3s
+
+# Resource limits
+CPUQuota=80%
+MemoryMax=256M
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-client-camilladsp
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    log_success "Installed milo-client-camilladsp.service"
+
     # Create environment file with dynamic value
     sudo tee "$MILO_CLIENT_DATA_DIR/env" > /dev/null << EOF
 MILO_PRINCIPAL_IP=$MILO_PRINCIPAL_IP
+MILO_CLIENT_DSP_ENABLED=false
 EOF
 
     sudo systemctl daemon-reload
@@ -398,6 +542,7 @@ enable_services() {
     sudo systemctl daemon-reload
     sudo systemctl enable milo-client.service
     sudo systemctl enable milo-client-snapclient.service
+    sudo systemctl enable milo-client-camilladsp.service
 
     log_success "Services enabled"
 }
@@ -489,6 +634,7 @@ finalize_installation() {
     echo -e "${BLUE}Services:${NC}"
     echo "  - milo-client.service (API on port 8001)"
     echo "  - milo-client-snapclient.service"
+    echo "  - milo-client-camilladsp.service (DSP processor)"
     echo ""
 
     if [[ "$REBOOT_REQUIRED" == "true" ]]; then
@@ -516,6 +662,7 @@ finalize_installation() {
         log_info "Starting services..."
         sudo systemctl start milo-client.service
         sudo systemctl start milo-client-snapclient.service
+        sudo systemctl start milo-client-camilladsp.service
 
         echo ""
         echo -e "${GREEN}Milo Client is ready! It should appear automatically in main Milo.${NC}"
@@ -532,10 +679,10 @@ uninstall_milo_client() {
     echo -e "${NC}"
     echo ""
     echo -e "${RED}This operation will remove:${NC}"
-    echo "  - milo-client and milo-client-snapclient services"
+    echo "  - milo-client, milo-client-snapclient, and milo-client-camilladsp services"
     echo "  - The milo-client user and its data"
     echo "  - HiFiBerry audio configuration"
-    echo "  - Snapclient"
+    echo "  - Snapclient and CamillaDSP"
     echo ""
 
     read -p "Are you sure you want to continue? (yes/no): " confirm
@@ -551,13 +698,16 @@ uninstall_milo_client() {
     log_info "Stopping services..."
     sudo systemctl stop milo-client.service 2>/dev/null || true
     sudo systemctl stop milo-client-snapclient.service 2>/dev/null || true
+    sudo systemctl stop milo-client-camilladsp.service 2>/dev/null || true
     sudo systemctl disable milo-client.service 2>/dev/null || true
     sudo systemctl disable milo-client-snapclient.service 2>/dev/null || true
+    sudo systemctl disable milo-client-camilladsp.service 2>/dev/null || true
 
     # 2. Remove service files
     log_info "Removing systemd services..."
     sudo rm -f /etc/systemd/system/milo-client.service
     sudo rm -f /etc/systemd/system/milo-client-snapclient.service
+    sudo rm -f /etc/systemd/system/milo-client-camilladsp.service
     sudo systemctl daemon-reload
 
     # 3. Remove sudoers rules and wrapper script
@@ -570,11 +720,17 @@ uninstall_milo_client() {
     sudo apt remove -y snapclient 2>/dev/null || true
     sudo apt autoremove -y
 
-    # 5. Remove ALSA configuration
+    # 5. Remove CamillaDSP
+    log_info "Removing CamillaDSP..."
+    sudo rm -f /usr/local/bin/camilladsp
+    sudo rm -f /etc/modprobe.d/milo-client-loopback.conf
+    sudo sed -i '/snd-aloop/d' /etc/modules 2>/dev/null || true
+
+    # 6. Remove ALSA configuration
     log_info "Removing ALSA configuration..."
     sudo rm -f /etc/asound.conf
 
-    # 6. Restore config.txt (remove HiFiBerry)
+    # 7. Restore config.txt (remove HiFiBerry)
     log_info "Restoring audio configuration..."
     local config_file="/boot/firmware/config.txt"
     if [[ ! -f "$config_file" ]]; then
@@ -676,9 +832,11 @@ main() {
 
     create_milo_client_user
     install_snapclient
+    install_camilladsp
     clone_milo_client_repo
     install_milo_client_application
 
+    configure_alsa_loopback
     configure_alsa
     create_systemd_services
     enable_services

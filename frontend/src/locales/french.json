@@ -52,6 +52,80 @@
     "loading": "Chargement de l'égaliseur",
     "presets": "Pré-réglages"
   },
+  "dsp": {
+    "title": "DSP",
+    "disabled": "Le DSP est désactivé",
+    "connecting": "Connexion au DSP...",
+    "selectPreset": "Préréglage",
+    "selectTarget": "Appareil",
+    "presets": "Préréglages",
+    "savePreset": "Sauvegarder",
+    "loadPreset": "Charger",
+    "deletePreset": "Supprimer",
+    "presetName": "Nom du préréglage",
+    "filters": "Filtres",
+    "addFilter": "Ajouter un filtre",
+    "removeFilter": "Supprimer le filtre",
+    "resetFilters": "Réinitialiser",
+    "frequency": "Fréquence",
+    "gain": "Gain",
+    "qFactor": "Facteur Q",
+    "filterType": "Type",
+    "filterTypes": {
+      "peaking": "Cloche",
+      "lowshelf": "Graves",
+      "highshelf": "Aigus",
+      "lowpass": "Passe-bas",
+      "highpass": "Passe-haut",
+      "notch": "Coupe-bande",
+      "allpass": "Passe-tout"
+    },
+    "showAdvanced": "Options avancées",
+    "hideAdvanced": "Masquer options",
+    "compressor": {
+      "title": "Compresseur",
+      "threshold": "Seuil",
+      "ratio": "Ratio",
+      "attack": "Attaque",
+      "release": "Relâchement",
+      "makeup": "Gain de compensation"
+    },
+    "loudness": {
+      "title": "Loudness",
+      "lowBoost": "Boost graves",
+      "highBoost": "Boost aigus"
+    },
+    "delay": {
+      "title": "Délai de canal",
+      "left": "Canal gauche",
+      "right": "Canal droit"
+    },
+    "volume": {
+      "title": "Volume DSP",
+      "level": "Niveau",
+      "muted": "Muet"
+    },
+    "quickPresets": {
+      "flat": "Plat",
+      "bassBoost": "Basses+",
+      "vocal": "Voix",
+      "nightMode": "Nuit"
+    },
+    "meters": {
+      "title": "Niveaux audio",
+      "input": "ENT",
+      "output": "SOR"
+    },
+    "linkedClients": {
+      "title": "Lier les clients",
+      "description": "Les clients liés partagent les mêmes réglages DSP. Les modifications s'appliquent à tous.",
+      "linked": "Lié",
+      "offline": "Hors ligne",
+      "currentGroup": "Actuellement liés :",
+      "link": "Lier la sélection",
+      "unlink": "Délier"
+    }
+  },
   "status": {
     "loading": "Démarrage...",
     "loadingOf": "Démarrage de",

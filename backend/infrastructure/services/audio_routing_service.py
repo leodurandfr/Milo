@@ -22,13 +22,12 @@ class AudioRoutingService:
     ALLOWED_MODES = frozenset(["direct", "multiroom"])
     ALLOWED_EQUALIZER = frozenset(["", "_eq"])
 
-    def __init__(self, get_plugin_callback: Optional[Callable] = None, settings_service=None, equalizer_service=None):
+    def __init__(self, get_plugin_callback: Optional[Callable] = None, settings_service=None):
         self.logger = logging.getLogger(__name__)
         self.service_manager = SystemdServiceManager()
         # REMOVED: self.state = AudioRoutingState()  # No longer needed, using state_machine.system_state
         self.get_plugin = get_plugin_callback
         self.settings_service = settings_service
-        self.equalizer_service = equalizer_service
         self._initial_detection_done = False
 
         self.snapcast_websocket_service = None
@@ -275,47 +274,38 @@ class AudioRoutingService:
             self.logger.error(f"❌ Auto-configure multiroom failed: {e}")
 
     async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
-        """Enables/disables equalizer with save/restore of values"""
+        """Enables/disables DSP/equalizer routing"""
         async with self._routing_lock:  # Guarantee atomicity of routing operations
             current_state = await self._get_equalizer_enabled()
             if current_state == enabled:
-                self.logger.info(f"Equalizer already {'enabled' if enabled else 'disabled'}")
+                self.logger.info(f"DSP already {'enabled' if enabled else 'disabled'}")
                 return True
 
             try:
                 old_state = current_state
-                self.logger.info(f"Changing equalizer from {old_state} to {enabled}")
-
-                # === DEACTIVATION: Save then reset to 66 ===
-                if not enabled and self.equalizer_service:
-                    await self.equalizer_service.save_current_bands()
-                    await self.equalizer_service.reset_all_bands(66)
+                self.logger.info(f"Changing DSP from {old_state} to {enabled}")
 
                 await self._set_equalizer_state(enabled)
                 await self._update_systemd_environment()
 
-                # === ACTIVATION: Restore values BEFORE restarting plugin ===
-                if enabled and self.equalizer_service:
-                    await self.equalizer_service.restore_saved_bands()
-
                 if active_source and self.get_plugin:
                     plugin = self.get_plugin(active_source)
                     if plugin:
-                        self.logger.info(f"Restarting plugin {active_source.value} with equalizer {'enabled' if enabled else 'disabled'}")
+                        self.logger.info(f"Restarting plugin {active_source.value} with DSP {'enabled' if enabled else 'disabled'}")
                         await plugin.restart()
 
                 # Save state via SettingsService
                 if self.settings_service:
                     await self.settings_service.set_setting('routing.equalizer_enabled', enabled)
 
-                self.logger.info(f"Equalizer state changed and saved: {enabled}")
+                self.logger.info(f"DSP state changed and saved: {enabled}")
 
                 return True
 
             except Exception as e:
                 await self._set_equalizer_state(old_state)
                 await self._update_systemd_environment()
-                self.logger.error(f"Error changing equalizer state: {e}")
+                self.logger.error(f"Error changing DSP state: {e}")
                 return False
     
     async def _update_systemd_environment(self) -> None:

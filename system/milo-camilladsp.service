@@ -1,0 +1,51 @@
+[Unit]
+Description=Milo CamillaDSP Audio Processor
+Documentation=https://github.com/HEnquist/camilladsp
+After=sound.target
+Requires=sound.target
+
+[Service]
+Type=simple
+User=milo
+Group=milo
+
+# CamillaDSP configuration and data directory
+RuntimeDirectory=milo
+RuntimeDirectoryMode=0755
+
+# Working directory for config files
+WorkingDirectory=/var/lib/milo/camilladsp
+
+# Load Milo environment variables
+EnvironmentFile=/var/lib/milo/routing.env
+
+# Start CamillaDSP with WebSocket server enabled
+# -p 1234: WebSocket server port
+# -a 127.0.0.1: Listen only on localhost
+# -w: Wait for valid config before processing
+# -v: Verbose logging
+ExecStart=/usr/local/bin/camilladsp \
+    -p 1234 \
+    -a 127.0.0.1 \
+    -w \
+    /var/lib/milo/camilladsp/config.yml
+
+# Restart policy
+Restart=on-failure
+RestartSec=3s
+
+# Resource limits
+CPUQuota=80%
+MemoryMax=256M
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=milo-camilladsp
+
+[Install]
+WantedBy=multi-user.target

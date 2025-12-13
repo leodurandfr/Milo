@@ -229,6 +229,12 @@ class SettingsService:
             # Preserve radio section as-is (no strict validation)
             validated['radio'] = radio_input
 
+        # DSP (linked_groups, presets) - Preserve DSP section without strict validation
+        dsp_input = settings.get('dsp', {})
+        if dsp_input:
+            # Preserve DSP section as-is (no strict validation)
+            validated['dsp'] = dsp_input
+
         return validated
     
     def get_setting_sync(self, key_path: str) -> Any:

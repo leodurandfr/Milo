@@ -15,7 +15,7 @@ from backend.infrastructure.services.systemd_manager import SystemdServiceManage
 from backend.infrastructure.services.audio_routing_service import AudioRoutingService
 from backend.infrastructure.services.snapcast_service import SnapcastService
 from backend.infrastructure.services.snapcast_websocket_service import SnapcastWebSocketService
-from backend.infrastructure.services.equalizer_service import EqualizerService
+from backend.infrastructure.services.camilladsp_service import CamillaDSPService
 from backend.infrastructure.services.volume_service import VolumeService
 from backend.infrastructure.services.settings_service import SettingsService
 from backend.infrastructure.services.hardware_service import HardwareService
@@ -38,8 +38,10 @@ class Container(containers.DeclarativeContainer):
     snapcast_service = providers.Singleton(SnapcastService)
     settings_service = providers.Singleton(SettingsService)
     hardware_service = providers.Singleton(HardwareService)
-    equalizer_service = providers.Singleton(
-        EqualizerService,
+
+    # CamillaDSP service (DSP engine for EQ, compression, etc.)
+    camilladsp_service = providers.Singleton(
+        CamillaDSPService,
         settings_service=settings_service
     )
     
@@ -57,11 +59,10 @@ class Container(containers.DeclarativeContainer):
         websocket_handler=websocket_event_handler
     )
 
-    # Audio routing service with SettingsService and EqualizerService
+    # Audio routing service with SettingsService
     audio_routing_service = providers.Singleton(
         AudioRoutingService,
-        settings_service=settings_service,
-        equalizer_service=equalizer_service
+        settings_service=settings_service
     )
 
     # Snapcast WebSocket service
@@ -219,7 +220,7 @@ class Container(containers.DeclarativeContainer):
         CIRCULAR DEPENDENCIES:
 
         state_machine ←→ routing_service
-        - state_machine needs routing_service to sync multiroom/equalizer state
+        - state_machine needs routing_service to sync multiroom/DSP state
         - routing_service needs state_machine to broadcast events and access plugins
 
         routing_service ←→ snapcast_websocket_service
@@ -243,6 +244,7 @@ class Container(containers.DeclarativeContainer):
         rotary_controller = container.rotary_controller()
         screen_controller = container.screen_controller()
         snapcast_websocket_service = container.snapcast_websocket_service()
+        camilladsp_service = container.camilladsp_service()
 
         # ============================================================
         # STEP 2: Resolve circular dependencies (CRITICAL ORDER)
@@ -265,8 +267,12 @@ class Container(containers.DeclarativeContainer):
         routing_service.set_state_machine(state_machine)
 
         # 2.5 - state_machine ← routing_service (circular reference)
-        #       Allows state_machine to synchronize multiroom/equalizer state
+        #       Allows state_machine to synchronize multiroom/DSP state
         state_machine.routing_service = routing_service
+
+        # 2.6 - camilladsp_service → state_machine
+        #       Allows DSP service to broadcast events
+        camilladsp_service.set_state_machine(state_machine)
 
         # ============================================================
         # STEP 3: Register plugins (MUST be done BEFORE init_async)
@@ -299,7 +305,8 @@ class Container(containers.DeclarativeContainer):
                 ("volume_service", volume_service.initialize()),
                 ("rotary_controller", rotary_controller.initialize()),
                 ("screen_controller", screen_controller.initialize()),
-                ("snapcast_websocket_service", snapcast_websocket_service.initialize())
+                ("snapcast_websocket_service", snapcast_websocket_service.initialize()),
+                ("camilladsp_service", camilladsp_service.initialize())
             ]
 
             # Run all initializations in parallel with gather

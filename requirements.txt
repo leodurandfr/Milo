@@ -17,3 +17,5 @@ lgpio>=0.2.2.0
 slowapi>=0.1.9
 Pillow>=10.0.0
 python-multipart>=0.0.6
+camilladsp @ git+https://github.com/HEnquist/pycamilladsp.git
+pyyaml>=6.0.0

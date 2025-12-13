@@ -52,6 +52,80 @@
     "loading": "Loading equalizer",
     "presets": "Audio presets"
   },
+  "dsp": {
+    "title": "DSP",
+    "disabled": "DSP is disabled",
+    "connecting": "Connecting to DSP...",
+    "selectPreset": "Preset",
+    "selectTarget": "Device",
+    "presets": "Presets",
+    "savePreset": "Save preset",
+    "loadPreset": "Load preset",
+    "deletePreset": "Delete preset",
+    "presetName": "Preset name",
+    "filters": "Filters",
+    "addFilter": "Add filter",
+    "removeFilter": "Remove filter",
+    "resetFilters": "Reset all",
+    "frequency": "Frequency",
+    "gain": "Gain",
+    "qFactor": "Q Factor",
+    "filterType": "Type",
+    "filterTypes": {
+      "peaking": "Peaking",
+      "lowshelf": "Low Shelf",
+      "highshelf": "High Shelf",
+      "lowpass": "Low Pass",
+      "highpass": "High Pass",
+      "notch": "Notch",
+      "allpass": "All Pass"
+    },
+    "showAdvanced": "Show Advanced",
+    "hideAdvanced": "Hide Advanced",
+    "compressor": {
+      "title": "Compressor",
+      "threshold": "Threshold",
+      "ratio": "Ratio",
+      "attack": "Attack",
+      "release": "Release",
+      "makeup": "Makeup Gain"
+    },
+    "loudness": {
+      "title": "Loudness",
+      "lowBoost": "Bass Boost",
+      "highBoost": "Treble Boost"
+    },
+    "delay": {
+      "title": "Channel Delay",
+      "left": "Left Channel",
+      "right": "Right Channel"
+    },
+    "volume": {
+      "title": "DSP Volume",
+      "level": "Level",
+      "muted": "Muted"
+    },
+    "quickPresets": {
+      "flat": "Flat",
+      "bassBoost": "Bass+",
+      "vocal": "Vocal",
+      "nightMode": "Night"
+    },
+    "meters": {
+      "title": "Audio Levels",
+      "input": "IN",
+      "output": "OUT"
+    },
+    "linkedClients": {
+      "title": "Link Clients",
+      "description": "Linked clients share the same DSP settings. Changes to one will apply to all.",
+      "linked": "Linked",
+      "offline": "Offline",
+      "currentGroup": "Currently linked:",
+      "link": "Link Selected",
+      "unlink": "Unlink"
+    }
+  },
   "status": {
     "loading": "Starting...",
     "loadingOf": "Starting",
