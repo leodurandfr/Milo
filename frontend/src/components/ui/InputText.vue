@@ -98,9 +98,14 @@ function handleInput(event) {
 }
 
 function handleContainerClick() {
-  // If virtual keyboard is already visible but for another field, switch to this field
-  if (shouldShowKeyboard.value && keyboard.isVisible.value && !isKeyboardActiveForThis.value) {
+  if (props.disabled) return;
+
+  if (shouldShowKeyboard.value) {
+    // Open virtual keyboard (handles both new activation and switching from another field)
     openKeyboard();
+  } else {
+    // Focus the native input
+    inputRef.value?.focus();
   }
 }
 
