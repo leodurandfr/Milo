@@ -110,7 +110,10 @@
 
     --transition-spring: 1.2s
     linear(0, 0.0121, 0.0454, 0.0961, 0.1602, 0.2342, 0.3149, 0.3993, 0.4848, 0.5694, 0.6511, 0.7285, 0.8004, 0.866, 0.9247, 0.9761, 1.0203, 1.0572, 1.0871, 1.1105, 1.1276, 1.1391, 1.1456, 1.1477, 1.146, 1.1412, 1.1337, 1.1243, 1.1134, 1.1015, 1.089, 1.0764, 1.0639, 1.0518, 1.0404, 1.0297, 1.02, 1.0113, 1.0037, 0.9971, 0.9917, 0.9872, 0.9838, 0.9812, 0.9795, 0.9785, 0.9782, 0.9784, 0.9791, 0.9802, 0.9816, 0.9832, 0.985, 0.9868, 0.9887, 0.9905, 0.9923, 0.994, 0.9956, 0.997, 0.9983, 0.9994, 1.0004, 1.0012, 1.0019, 1.0024, 1.0028, 1.003, 1.0032, 1.0032, 1.0032, 1.0031, 1.0029, 1.0027, 1.0025, 1.0022, 1.002, 1.0017, 1.0014, 1.0011, 1.0009, 1.0007, 1.0004, 1.0003, 1.0001, 0.9999, 0.9998, 0.9997, 0.9996, 0.9996, 0.9996, 0.9995, 0.9995, 0.9995, 0.9995, 0.9996, 0.9996, 0.9996, 0.9997, 0.9997, 1);
-    
+
+    --transition-press: transform 400ms linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017, 1.077, 1.121, 1.149 24.3%, 1.159, 1.163, 1.161, 1.154 29.9%, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%, 0.991, 0.977 51%, 0.974 53.8%, 0.975 57.1%, 0.997 69.8%, 1.003 76.9%, 1),
+                        opacity 150ms ease-out;
+
     /* --transition-spring: 1.2s
     linear(0, 0.0119, 0.0449, 0.0949, 0.158, 0.2307, 0.3097, 0.3923, 0.476, 0.5586, 0.6385, 0.7141, 0.7844, 0.8486, 0.9062, 0.9569, 1.0006, 1.0373, 1.0674, 1.0912, 1.1091, 1.1216, 1.1294, 1.1329, 1.1328, 1.1296, 1.1239, 1.1162, 1.107, 1.0968, 1.086, 1.0749, 1.0638, 1.053, 1.0426, 1.0329, 1.024, 1.0159, 1.0087, 1.0025, 0.9971, 0.9927, 0.9892, 0.9865, 0.9845, 0.9832, 0.9824, 0.9822, 0.9825, 0.9831, 0.984, 0.9852, 0.9865, 0.9879, 0.9893, 0.9908, 0.9923, 0.9937, 0.995, 0.9963, 0.9974, 0.9984, 0.9993, 1.0001, 1.0007, 1.0012, 1.0017, 1.002, 1.0022, 1.0023, 1.0024, 1.0024, 1.0023, 1.0022, 1.002, 1.0019, 1.0017, 1.0015, 1.0013, 1.0011, 1.0009, 1.0007, 1.0006, 1.0004, 1.0003, 1.0001, 1, 0.9999, 0.9999, 0.9998, 0.9998, 0.9997, 0.9997, 0.9997, 0.9997, 0.9997, 0.9997, 0.9997, 0.9997, 0.9998, 1); */
 
@@ -291,24 +294,32 @@
 
 /* === INTERACTIVE PRESS EFFECTS === */
 
-/* STRONG: Large interactive elements (dock items, playback controls) */
-.interactive-press-strong:active,
-.interactive-press-strong.pressed {
-    transform: scale(0.92) !important;
-    opacity: 0.7 !important;
+/* LIGHT: Small elements (cards, list items, inputs, buttons) */
+.interactive-press-light:active,
+.interactive-press-light.pressed {
+    transform: scale(0.98) !important;
+    opacity: 0.6 !important;
 }
 
-/* SUBTLE: Small/medium elements (buttons, list items, icons) */
+/* DEFAULT: Standard buttons */
 .interactive-press:active,
 .interactive-press.pressed {
-    transform: scale(0.97) !important;
-    opacity: 0.85 !important;
+    transform: scale(0.92) !important;
+    opacity: 0.6 !important;
 }
 
-/* Smooth return transition when releasing */
+/* STRONG: Large interactive elements (dock items, playback controls, toggles) */
+.interactive-press-strong:active,
+.interactive-press-strong.pressed {
+    transform: scale(0.88) !important;
+    opacity: 0.6 !important;
+}
+
+/* Smooth return transition when releasing (spring easing) */
+.interactive-press-light,
 .interactive-press,
 .interactive-press-strong {
-    transition: transform 150ms ease-out, opacity 150ms ease-out;
+    transition: var(--transition-press);
 }
 
 /* === VUE TRANSITIONS === */

@@ -1,13 +1,16 @@
 // Directive v-press pour feedback visuel au clic (150ms minimum)
 // Usage:
-//   <button v-press>             → press subtil (scale 0.97)
-//   <button v-press.strong>      → press fort (scale 0.92)
+//   <button v-press.light>       → press léger (scale 0.97) - cards, inputs
+//   <button v-press>             → press standard (scale 0.92) - buttons
+//   <button v-press.strong>      → press fort (scale 0.88) - dock, playback, toggles
 //   <button v-press="condition"> → conditionnel (actif si truthy)
 
 function setupPress(el, binding) {
   const baseClass = binding.modifiers.strong
     ? 'interactive-press-strong'
-    : 'interactive-press'
+    : binding.modifiers.light
+      ? 'interactive-press-light'
+      : 'interactive-press'
 
   el.classList.add(baseClass)
   el._pressBaseClass = baseClass
@@ -27,7 +30,7 @@ function cleanupPress(el) {
     delete el._pressHandler
   }
   if (el._pressBaseClass) {
-    el.classList.remove(el._pressBaseClass)
+    el.classList.remove(el._pressBaseClass, 'pressed')
     delete el._pressBaseClass
   }
 }
@@ -46,6 +49,11 @@ export const vPress = {
       cleanupPress(el)
     } else if (!wasActive && shouldBeActive) {
       setupPress(el, binding)
+    } else if (wasActive && shouldBeActive && el._pressBaseClass) {
+      // Re-apply base class if Vue's :class binding removed it during re-render
+      if (!el.classList.contains(el._pressBaseClass)) {
+        el.classList.add(el._pressBaseClass)
+      }
     }
   },
 

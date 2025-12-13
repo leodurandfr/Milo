@@ -3,7 +3,7 @@
   <div class="toggle-container">
     <h2 v-if="title" class="heading-2">{{ title }}</h2>
 
-    <label :class="['toggle', `toggle--${variant}`, `toggle--${size}`]">
+    <label v-press.strong :class="['toggle', `toggle--${variant}`, `toggle--${size}`]">
       <input type="checkbox" :checked="modelValue" @change="handleToggle" :disabled="disabled">
       <span class="slider"></span>
     </label>
@@ -60,7 +60,7 @@ function handleToggle(event) {
 .toggle {
   position: relative;
   display: inline-block;
-  transition: opacity 300ms ease;
+  transition: opacity 300ms ease, var(--transition-press);
 }
 
 /* Default - Desktop */

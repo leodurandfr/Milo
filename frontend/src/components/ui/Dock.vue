@@ -15,7 +15,7 @@
 
       <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
         @click="() => handleAdditionalAppClick(app.id)"
-        v-press class="additional-app-content button-interactive-subtle">
+        v-press.light class="additional-app-content button-interactive-subtle">
         <AppIcon :name="app.icon" :size="32" />
         <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
       </button>

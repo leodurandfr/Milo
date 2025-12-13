@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/InputText.vue -->
 <template>
   <div class="input-wrapper">
-    <div class="input-container" :class="{ 'keyboard-active': isKeyboardActiveForThis }" @click="handleContainerClick">
+    <div v-press.light class="input-container" :class="{ 'keyboard-active': isKeyboardActiveForThis }" @click="handleContainerClick">
       <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
         :maxlength="maxlength" class="heading-3" @input="handleInput" @focus="handleFocus"
         @blur="handleBlur" />
@@ -167,7 +167,7 @@ defineExpose({
   -webkit-box-shadow: inset 0px 0px 0px 2px var(--color-border);
   -moz-box-shadow: inset 0px 0px 0px 2px var(--color-border);
   box-shadow: inset 0px 0px 0px 2px var(--color-border);
-  transition: box-shadow var(--transition-fast), opacity var(--transition-fast);
+  transition: box-shadow var(--transition-fast), var(--transition-press);
 }
 
 .input-container:has(input:disabled) {
