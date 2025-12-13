@@ -17,7 +17,7 @@
     </Modal>
 
     <Modal :is-open="isEqualizerOpen" @close="isEqualizerOpen = false">
-      <EqualizerModal />
+      <DspModal />
     </Modal>
 
     <Modal :is-open="isSettingsOpen" @close="closeSettings">
@@ -40,8 +40,8 @@ import Modal from '@/components/ui/Modal.vue';
 const MultiroomModal = defineAsyncComponent(() =>
   import('@/components/multiroom/MultiroomModal.vue')
 );
-const EqualizerModal = defineAsyncComponent(() =>
-  import('@/components/equalizer/EqualizerModal.vue')
+const DspModal = defineAsyncComponent(() =>
+  import('@/components/dsp/DspModal.vue')
 );
 const SettingsModal = defineAsyncComponent(() =>
   import('@/components/settings/SettingsModal.vue')
@@ -173,7 +173,7 @@ onMounted(async () => {
   // Preload modals in background for instant display when user opens them
   Promise.all([
     import('@/components/multiroom/MultiroomModal.vue'),
-    import('@/components/equalizer/EqualizerModal.vue'),
+    import('@/components/dsp/DspModal.vue'),
     import('@/components/settings/SettingsModal.vue'),
     import('@/components/ui/VirtualKeyboard.vue')
   ]);

@@ -82,13 +82,13 @@ const cssVars = computed(() => ({
 }));
 
 function handleInput(event) {
-  const value = parseInt(event.target.value);
+  const value = parseFloat(event.target.value);
   emit('input', value);
   emit('update:modelValue', value);
 }
 
 function handleChange(event) {
-  const value = parseInt(event.target.value);
+  const value = parseFloat(event.target.value);
   emit('change', value);
   emit('update:modelValue', value);
 }

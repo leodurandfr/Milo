@@ -49,6 +49,7 @@ import queueIcon from '@/assets/icons/queue.svg?raw'
 import checkIcon from '@/assets/icons/check.svg?raw'
 import rewind15Icon from '@/assets/icons/rewind-15.svg?raw'
 import forward30Icon from '@/assets/icons/forward-30.svg?raw'
+import linkIcon from '@/assets/icons/link.svg?raw'
 
 const icons = {
   play: playIcon,
@@ -77,7 +78,8 @@ const icons = {
   queue: queueIcon,
   check: checkIcon,
   rewind15: rewind15Icon,
-  forward30: forward30Icon
+  forward30: forward30Icon,
+  link: linkIcon
 }
 
 const props = defineProps({

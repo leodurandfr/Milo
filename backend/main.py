@@ -19,7 +19,7 @@ from backend.config.container import container
 from backend.presentation.api.routes import audio
 from backend.presentation.api.routes.routing import create_routing_router
 from backend.presentation.api.routes.snapcast import create_snapcast_router
-from backend.presentation.api.routes.equalizer import create_equalizer_router
+from backend.presentation.api.routes.dsp import create_dsp_router
 from backend.presentation.api.routes.volume import create_volume_router
 from backend.presentation.api.routes.spotify import setup_spotify_routes
 from backend.presentation.api.routes.mac import setup_mac_routes
@@ -44,7 +44,8 @@ state_machine = container.audio_state_machine()
 routing_service = container.audio_routing_service()
 snapcast_service = container.snapcast_service()
 snapcast_websocket_service = container.snapcast_websocket_service()
-equalizer_service = container.equalizer_service()
+dsp_service = container.camilladsp_service()
+settings_service = container.settings_service()
 volume_service = container.volume_service()
 rotary_controller = container.rotary_controller()
 screen_controller = container.screen_controller()
@@ -119,8 +120,8 @@ app.include_router(routing_router)
 snapcast_router = create_snapcast_router(routing_service, snapcast_service, state_machine)
 app.include_router(snapcast_router)
 
-equalizer_router = create_equalizer_router(equalizer_service, state_machine)
-app.include_router(equalizer_router)
+dsp_router = create_dsp_router(dsp_service, state_machine, settings_service)
+app.include_router(dsp_router)
 
 volume_router = create_volume_router(volume_service)
 app.include_router(volume_router)

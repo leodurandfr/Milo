@@ -1,0 +1,138 @@
+# CamillaDSP Configuration for Milo Client
+# 10-Band Parametric Equalizer
+# Frequencies: 32Hz, 64Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz
+
+devices:
+  samplerate: 48000
+  chunksize: 1024
+  silence_threshold: -80
+  silence_timeout: 5.0
+  capture:
+    type: Alsa
+    channels: 2
+    device: "hw:Loopback,1,0"
+    format: S16LE
+  playback:
+    type: Alsa
+    channels: 2
+    device: "hw:sndrpihifiberry,0"
+    format: S32LE
+
+mixers:
+  stereo:
+    channels:
+      in: 2
+      out: 2
+    mapping:
+      - dest: 0
+        sources:
+          - channel: 0
+            gain: 0
+            inverted: false
+      - dest: 1
+        sources:
+          - channel: 1
+            gain: 0
+            inverted: false
+
+filters:
+  eq_band_00:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 31
+      gain: 0.0
+      q: 1.41
+  eq_band_01:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 63
+      gain: 0.0
+      q: 1.41
+  eq_band_02:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 125
+      gain: 0.0
+      q: 1.41
+  eq_band_03:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 250
+      gain: 0.0
+      q: 1.41
+  eq_band_04:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 500
+      gain: 0.0
+      q: 1.41
+  eq_band_05:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 1000
+      gain: 0.0
+      q: 1.41
+  eq_band_06:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 2000
+      gain: 0.0
+      q: 1.41
+  eq_band_07:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 4000
+      gain: 0.0
+      q: 1.41
+  eq_band_08:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 8000
+      gain: 0.0
+      q: 1.41
+  eq_band_09:
+    type: Biquad
+    parameters:
+      type: Peaking
+      freq: 16000
+      gain: 0.0
+      q: 1.41
+
+pipeline:
+  - type: Mixer
+    name: stereo
+  - type: Filter
+    channels: [0]
+    names:
+      - eq_band_00
+      - eq_band_01
+      - eq_band_02
+      - eq_band_03
+      - eq_band_04
+      - eq_band_05
+      - eq_band_06
+      - eq_band_07
+      - eq_band_08
+      - eq_band_09
+  - type: Filter
+    channels: [1]
+    names:
+      - eq_band_00
+      - eq_band_01
+      - eq_band_02
+      - eq_band_03
+      - eq_band_04
+      - eq_band_05
+      - eq_band_06
+      - eq_band_07
+      - eq_band_08
+      - eq_band_09

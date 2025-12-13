@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Milo Client - API Service for Client Snapclient Management
-Version: 1.1 - Hybrid approach (GitHub .deb + APT dependency resolution)
+Milo Client - API Service for Client Snapclient Management and DSP Control
+Version: 1.2 - With CamillaDSP integration for per-client EQ
 """
 
 import asyncio
@@ -15,11 +15,19 @@ import os
 import platform
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 import uvicorn
+
+# Try to import CamillaDSP client
+try:
+    from camilladsp import CamillaClient
+    CAMILLADSP_AVAILABLE = True
+except ImportError:
+    CAMILLADSP_AVAILABLE = False
 
 # Basic configuration
 SNAPCLIENT_VERSION_REGEX = r"v(\d+\.\d+\.\d+)"
@@ -299,6 +307,371 @@ class SnapclientManager:
 # Global manager instance
 snapclient_manager = SnapclientManager()
 
+
+# === CamillaDSP Manager ===
+
+class FilterUpdate(BaseModel):
+    """Model for filter update request"""
+    gain: float
+    freq: Optional[float] = None
+    q: Optional[float] = None
+
+
+class DSPManager:
+    """Manager for CamillaDSP operations"""
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 1234):
+        self.logger = logging.getLogger(f"{__name__}.DSPManager")
+        self.host = host
+        self.port = port
+        self._client = None
+        self._connected = False
+
+        # Cached state
+        self._filters: List[Dict[str, Any]] = []
+        self._compressor = {
+            "enabled": False,
+            "threshold": -20.0,
+            "ratio": 4.0,
+            "attack": 10.0,
+            "release": 100.0,
+            "makeup_gain": 0.0
+        }
+        self._loudness = {
+            "enabled": False,
+            "reference_level": 80,
+            "high_boost": 5.0,
+            "low_boost": 8.0
+        }
+        self._delay = {"left": 0.0, "right": 0.0}
+
+    async def connect(self) -> bool:
+        """Connect to local CamillaDSP"""
+        if not CAMILLADSP_AVAILABLE:
+            self.logger.warning("CamillaDSP client library not available")
+            return False
+
+        try:
+            self._client = CamillaClient(self.host, self.port)
+            await asyncio.get_event_loop().run_in_executor(
+                None, self._client.connect
+            )
+            self._connected = True
+            self.logger.info(f"Connected to CamillaDSP at {self.host}:{self.port}")
+            return True
+        except Exception as e:
+            self.logger.warning(f"Failed to connect to CamillaDSP: {e}")
+            self._connected = False
+            return False
+
+    async def get_status(self) -> Dict[str, Any]:
+        """Get DSP status"""
+        if not self._connected:
+            await self.connect()
+
+        if not self._connected:
+            return {"available": False, "message": "CamillaDSP not connected"}
+
+        try:
+            state = await asyncio.get_event_loop().run_in_executor(
+                None, self._client.general.state
+            )
+            state_str = str(state).split('.')[-1].lower()
+
+            return {
+                "available": True,
+                "state": state_str,
+                "filters": await self.get_filters(),
+                "compressor": self._compressor,
+                "loudness": self._loudness,
+                "delay": self._delay
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting DSP status: {e}")
+            return {"available": False, "error": str(e)}
+
+    async def _get_config(self) -> Optional[Dict[str, Any]]:
+        """Get CamillaDSP config"""
+        config = await asyncio.get_event_loop().run_in_executor(
+            None, self._client.config.active
+        )
+        if config is None:
+            config_path = await asyncio.get_event_loop().run_in_executor(
+                None, self._client.config.file_path
+            )
+            if config_path:
+                config = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda p=config_path: self._client.config.read_and_parse_file(p)
+                )
+        return config
+
+    async def get_filters(self) -> List[Dict[str, Any]]:
+        """Get current EQ filter configuration"""
+        if not self._connected:
+            return self._filters
+
+        try:
+            config = await self._get_config()
+            if config and "filters" in config:
+                self._filters = []
+                for name, filter_data in config["filters"].items():
+                    if not name.startswith("eq_band_"):
+                        continue
+                    params = filter_data.get("parameters", {})
+                    self._filters.append({
+                        "id": name,
+                        "type": params.get("type", "Peaking"),
+                        "freq": params.get("freq", 1000),
+                        "gain": params.get("gain", 0),
+                        "q": params.get("q", 1.0),
+                        "enabled": True
+                    })
+                self._filters.sort(key=lambda f: f["id"])
+            return self._filters
+        except Exception as e:
+            self.logger.error(f"Error getting filters: {e}")
+            return self._filters
+
+    async def set_filter(self, filter_id: str, gain: float,
+                         freq: float = None, q: float = None) -> bool:
+        """Update a filter band"""
+        if not self._connected:
+            return False
+
+        try:
+            config = await self._get_config()
+            if not config:
+                return False
+
+            if "filters" not in config or filter_id not in config["filters"]:
+                return False
+
+            params = config["filters"][filter_id]["parameters"]
+            params["gain"] = gain
+            if freq is not None:
+                params["freq"] = freq
+            if q is not None:
+                params["q"] = q
+
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda c=config: self._client.config.set_active(c)
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting filter {filter_id}: {e}")
+            return False
+
+    async def set_compressor(self, enabled: bool = None, threshold: float = None,
+                             ratio: float = None, attack: float = None,
+                             release: float = None, makeup_gain: float = None) -> bool:
+        """Update compressor settings"""
+        if enabled is not None:
+            self._compressor["enabled"] = enabled
+        if threshold is not None:
+            self._compressor["threshold"] = threshold
+        if ratio is not None:
+            self._compressor["ratio"] = ratio
+        if attack is not None:
+            self._compressor["attack"] = attack
+        if release is not None:
+            self._compressor["release"] = release
+        if makeup_gain is not None:
+            self._compressor["makeup_gain"] = makeup_gain
+
+        if not self._connected:
+            return True
+
+        try:
+            config = await self._get_config()
+            if not config:
+                return False
+
+            if not config.get("processors"):
+                config["processors"] = {}
+
+            if self._compressor["enabled"]:
+                config["processors"]["compressor"] = {
+                    "type": "Compressor",
+                    "parameters": {
+                        "channels": 2,
+                        "threshold": self._compressor["threshold"],
+                        "factor": self._compressor["ratio"],
+                        "attack": self._compressor["attack"] / 1000.0,
+                        "release": self._compressor["release"] / 1000.0,
+                        "makeup_gain": self._compressor["makeup_gain"]
+                    }
+                }
+                self._add_processor_to_pipeline(config, "compressor")
+            else:
+                if "compressor" in config.get("processors", {}):
+                    del config["processors"]["compressor"]
+                self._remove_processor_from_pipeline(config, "compressor")
+
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda c=config: self._client.config.set_active(c)
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting compressor: {e}")
+            return False
+
+    async def set_loudness(self, enabled: bool = None, reference_level: int = None,
+                           high_boost: float = None, low_boost: float = None) -> bool:
+        """Update loudness settings"""
+        if enabled is not None:
+            self._loudness["enabled"] = enabled
+        if reference_level is not None:
+            self._loudness["reference_level"] = reference_level
+        if high_boost is not None:
+            self._loudness["high_boost"] = high_boost
+        if low_boost is not None:
+            self._loudness["low_boost"] = low_boost
+
+        if not self._connected:
+            return True
+
+        try:
+            config = await self._get_config()
+            if not config:
+                return False
+
+            if "filters" not in config:
+                config["filters"] = {}
+
+            if self._loudness["enabled"]:
+                config["filters"]["loudness_low"] = {
+                    "type": "Biquad",
+                    "parameters": {
+                        "type": "Lowshelf",
+                        "freq": 100,
+                        "gain": self._loudness["low_boost"],
+                        "slope": 6.0
+                    }
+                }
+                config["filters"]["loudness_high"] = {
+                    "type": "Biquad",
+                    "parameters": {
+                        "type": "Highshelf",
+                        "freq": 8000,
+                        "gain": self._loudness["high_boost"],
+                        "slope": 6.0
+                    }
+                }
+                self._add_filter_to_pipeline(config, "loudness_low")
+                self._add_filter_to_pipeline(config, "loudness_high")
+            else:
+                for name in ["loudness_low", "loudness_high"]:
+                    if name in config.get("filters", {}):
+                        del config["filters"][name]
+                    self._remove_filter_from_pipeline(config, name)
+
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda c=config: self._client.config.set_active(c)
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting loudness: {e}")
+            return False
+
+    async def set_delay(self, left: float = None, right: float = None) -> bool:
+        """Set channel delay in milliseconds"""
+        if left is not None:
+            self._delay["left"] = max(0, min(50, left))
+        if right is not None:
+            self._delay["right"] = max(0, min(50, right))
+
+        if not self._connected:
+            return True
+
+        try:
+            config = await self._get_config()
+            if not config:
+                return False
+
+            sample_rate = 48000
+
+            if "filters" not in config:
+                config["filters"] = {}
+
+            if self._delay["left"] > 0:
+                left_samples = int(self._delay["left"] * sample_rate / 1000)
+                config["filters"]["delay_left"] = {
+                    "type": "Delay",
+                    "parameters": {"delay": left_samples, "unit": "samples"}
+                }
+                self._add_filter_to_pipeline(config, "delay_left", channels=[0])
+            else:
+                if "delay_left" in config.get("filters", {}):
+                    del config["filters"]["delay_left"]
+                self._remove_filter_from_pipeline(config, "delay_left")
+
+            if self._delay["right"] > 0:
+                right_samples = int(self._delay["right"] * sample_rate / 1000)
+                config["filters"]["delay_right"] = {
+                    "type": "Delay",
+                    "parameters": {"delay": right_samples, "unit": "samples"}
+                }
+                self._add_filter_to_pipeline(config, "delay_right", channels=[1])
+            else:
+                if "delay_right" in config.get("filters", {}):
+                    del config["filters"]["delay_right"]
+                self._remove_filter_from_pipeline(config, "delay_right")
+
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda c=config: self._client.config.set_active(c)
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting delay: {e}")
+            return False
+
+    def _add_filter_to_pipeline(self, config: Dict, filter_name: str,
+                                channels: List[int] = None) -> None:
+        """Add a filter to the pipeline"""
+        if "pipeline" not in config:
+            config["pipeline"] = []
+
+        if channels is None:
+            channels = [0, 1]
+
+        for channel in channels:
+            for step in config["pipeline"]:
+                if step.get("type") == "Filter" and channel in step.get("channels", []):
+                    if filter_name not in step.get("names", []):
+                        step["names"].append(filter_name)
+                    return
+
+    def _remove_filter_from_pipeline(self, config: Dict, filter_name: str) -> None:
+        """Remove a filter from the pipeline"""
+        if "pipeline" not in config:
+            return
+        for step in config["pipeline"]:
+            if step.get("type") == "Filter" and "names" in step:
+                if filter_name in step["names"]:
+                    step["names"].remove(filter_name)
+
+    def _add_processor_to_pipeline(self, config: Dict, processor_name: str) -> None:
+        """Add a processor to the pipeline"""
+        if "pipeline" not in config:
+            config["pipeline"] = []
+        for step in config["pipeline"]:
+            if step.get("type") == "Processor" and step.get("name") == processor_name:
+                return
+        config["pipeline"].append({"type": "Processor", "name": processor_name})
+
+    def _remove_processor_from_pipeline(self, config: Dict, processor_name: str) -> None:
+        """Remove a processor from the pipeline"""
+        if "pipeline" not in config:
+            return
+        config["pipeline"] = [
+            step for step in config["pipeline"]
+            if not (step.get("type") == "Processor" and step.get("name") == processor_name)
+        ]
+
+
+# Global DSP manager instance
+dsp_manager = DSPManager()
+
 def get_system_uptime() -> int:
     """Gets the system uptime in seconds"""
     try:
@@ -421,6 +794,155 @@ async def get_update_status():
         "update_in_progress": UPDATE_IN_PROGRESS,
         "timestamp": int(time.time())
     }
+
+
+# === DSP API Routes ===
+
+@app.get("/dsp/status")
+async def get_dsp_status():
+    """Get DSP status and filter configuration"""
+    try:
+        status = await dsp_manager.get_status()
+        return status
+    except Exception as e:
+        logger.error(f"Error getting DSP status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/dsp/filters")
+async def get_dsp_filters():
+    """Get current EQ filter configuration"""
+    try:
+        filters = await dsp_manager.get_filters()
+        return {"filters": filters}
+    except Exception as e:
+        logger.error(f"Error getting filters: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/dsp/filter/{filter_id}")
+async def update_dsp_filter(filter_id: str, update: FilterUpdate):
+    """Update a single EQ filter band"""
+    try:
+        success = await dsp_manager.set_filter(
+            filter_id=filter_id,
+            gain=update.gain,
+            freq=update.freq,
+            q=update.q
+        )
+        if success:
+            return {"status": "success", "filter_id": filter_id}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update filter")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating filter: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/dsp/reset")
+async def reset_dsp_filters():
+    """Reset all EQ filters to flat (0 dB gain)"""
+    try:
+        filters = await dsp_manager.get_filters()
+        for f in filters:
+            await dsp_manager.set_filter(f["id"], gain=0.0)
+        return {"status": "success", "message": "All filters reset to flat"}
+    except Exception as e:
+        logger.error(f"Error resetting filters: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/dsp/compressor")
+async def get_compressor():
+    """Get compressor settings"""
+    return dsp_manager._compressor
+
+
+@app.put("/dsp/compressor")
+async def update_compressor(
+    enabled: bool = None,
+    threshold: float = None,
+    ratio: float = None,
+    attack: float = None,
+    release: float = None,
+    makeup_gain: float = None
+):
+    """Update compressor settings"""
+    try:
+        success = await dsp_manager.set_compressor(
+            enabled=enabled,
+            threshold=threshold,
+            ratio=ratio,
+            attack=attack,
+            release=release,
+            makeup_gain=makeup_gain
+        )
+        if success:
+            return {"status": "success", **dsp_manager._compressor}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update compressor")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating compressor: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/dsp/loudness")
+async def get_loudness():
+    """Get loudness compensation settings"""
+    return dsp_manager._loudness
+
+
+@app.put("/dsp/loudness")
+async def update_loudness(
+    enabled: bool = None,
+    reference_level: int = None,
+    high_boost: float = None,
+    low_boost: float = None
+):
+    """Update loudness compensation settings"""
+    try:
+        success = await dsp_manager.set_loudness(
+            enabled=enabled,
+            reference_level=reference_level,
+            high_boost=high_boost,
+            low_boost=low_boost
+        )
+        if success:
+            return {"status": "success", **dsp_manager._loudness}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update loudness")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating loudness: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/dsp/delay")
+async def get_delay():
+    """Get channel delay settings"""
+    return dsp_manager._delay
+
+
+@app.put("/dsp/delay")
+async def update_delay(left: float = None, right: float = None):
+    """Update channel delay settings"""
+    try:
+        success = await dsp_manager.set_delay(left=left, right=right)
+        if success:
+            return {"status": "success", **dsp_manager._delay}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update delay")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating delay: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # Main entry point
 if __name__ == "__main__":

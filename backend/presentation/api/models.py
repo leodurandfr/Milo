@@ -216,3 +216,96 @@ class ScreenTimeoutRequest(BaseModel):
 class ScreenBrightnessRequest(BaseModel):
     """Screen brightness request"""
     brightness_on: int = Field(..., ge=1, le=10)
+
+
+# =============================================================================
+# DSP (CamillaDSP)
+# =============================================================================
+
+DSP_FILTER_TYPES = Literal['Peaking', 'Lowshelf', 'Highshelf', 'Lowpass', 'Highpass', 'Notch', 'Allpass']
+
+
+class DspFilterRequest(BaseModel):
+    """DSP filter configuration request"""
+    freq: float = Field(..., ge=20, le=20000, description="Filter frequency in Hz")
+    gain: float = Field(..., ge=-15, le=15, description="Filter gain in dB")
+    q: float = Field(default=1.0, ge=0.1, le=10.0, description="Filter Q factor")
+    filter_type: DSP_FILTER_TYPES = Field(default="Peaking", description="Filter type")
+    enabled: bool = Field(default=True, description="Whether filter is active")
+
+
+class DspFilterUpdateRequest(BaseModel):
+    """DSP filter update request (partial update allowed)"""
+    freq: Optional[float] = Field(None, ge=20, le=20000)
+    gain: Optional[float] = Field(None, ge=-15, le=15)
+    q: Optional[float] = Field(None, ge=0.1, le=10.0)
+    filter_type: Optional[DSP_FILTER_TYPES] = None
+    enabled: Optional[bool] = None
+
+
+class DspPresetRequest(BaseModel):
+    """DSP preset save/load request"""
+    name: str = Field(..., min_length=1, max_length=50)
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        # Allow only alphanumeric, spaces, hyphens, underscores
+        cleaned = v.strip()
+        if not all(c.isalnum() or c in ' -_' for c in cleaned):
+            raise ValueError('Preset name can only contain alphanumeric characters, spaces, hyphens, and underscores')
+        return cleaned
+
+
+class DspVolumeRequest(BaseModel):
+    """DSP volume request"""
+    volume: float = Field(..., ge=-100, le=0, description="Volume in dB")
+
+
+class DspMuteRequest(BaseModel):
+    """DSP mute request"""
+    muted: bool
+
+
+class DspCompressorRequest(BaseModel):
+    """DSP compressor settings request"""
+    enabled: Optional[bool] = None
+    threshold: Optional[float] = Field(None, ge=-60, le=0, description="Threshold in dB")
+    ratio: Optional[float] = Field(None, ge=1, le=20, description="Compression ratio")
+    attack: Optional[float] = Field(None, ge=0.1, le=100, description="Attack time in ms")
+    release: Optional[float] = Field(None, ge=10, le=1000, description="Release time in ms")
+    makeup_gain: Optional[float] = Field(None, ge=0, le=30, description="Makeup gain in dB")
+
+
+class DspLoudnessRequest(BaseModel):
+    """DSP loudness compensation request"""
+    enabled: Optional[bool] = None
+    reference_level: Optional[int] = Field(None, ge=60, le=100, description="Reference SPL level")
+    high_boost: Optional[float] = Field(None, ge=0, le=15, description="High frequency boost in dB")
+    low_boost: Optional[float] = Field(None, ge=0, le=15, description="Low frequency boost in dB")
+
+
+class DspDelayRequest(BaseModel):
+    """DSP channel delay request"""
+    left: Optional[float] = Field(None, ge=0, le=50, description="Left channel delay in ms")
+    right: Optional[float] = Field(None, ge=0, le=50, description="Right channel delay in ms")
+
+
+class DspLinkedClientsRequest(BaseModel):
+    """DSP linked clients request - clients that share the same DSP settings"""
+    client_ids: List[str] = Field(..., min_length=2, description="List of client IDs to link together")
+
+    @field_validator('client_ids')
+    @classmethod
+    def validate_client_ids(cls, v: List[str]) -> List[str]:
+        # Remove duplicates while preserving order
+        seen = set()
+        result = []
+        for client_id in v:
+            cleaned = client_id.strip()
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                result.append(cleaned)
+        if len(result) < 2:
+            raise ValueError('At least 2 different clients must be linked')
+        return result

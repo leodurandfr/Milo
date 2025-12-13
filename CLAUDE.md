@@ -129,7 +129,7 @@ frontend/src/
 │   ├── podcasts/      # Podcast-specific UI (PodcastSource.vue, HomeView.vue, etc.)
 │   ├── radio/         # Radio-specific UI (RadioSource.vue)
 │   ├── spotify/       # Spotify-specific UI (SpotifySource.vue, PlaybackControls.vue)
-│   ├── equalizer/     # 10-band equalizer
+│   ├── dsp/           # CamillaDSP controls (parametric EQ, compressor, loudness)
 │   ├── multiroom/     # Multiroom controls (Snapcast management)
 │   ├── navigation/    # Navigation components
 │   ├── settings/      # System settings (SettingsModal.vue, SettingsCategory.vue) with nested categories/:
@@ -147,7 +147,7 @@ frontend/src/
 **Pinia Stores** (`frontend/src/stores/`):
 - `unifiedAudioStore.js` - Central audio state management
 - `settingsStore.js` - Settings management
-- `equalizerStore.js` - Equalizer state
+- `dspStore.js` - DSP/equalizer state (CamillaDSP)
 - `multiroomStore.js` - Multiroom/Snapcast state
 - `podcastStore.js` - Podcast data and playback
 - `radioStore.js` - Radio stations and playback
