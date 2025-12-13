@@ -219,11 +219,12 @@
     "unknownArtist": "Artista desconocido"
   },
   "time": {
-    "10seconds": "10 segundos",
-    "3minutes": "3 minutos",
-    "15minutes": "15 minutos",
-    "30minutes": "30 minutos",
-    "1hour": "1 hora",
+    "15sec": "15 seg",
+    "2min": "2 min",
+    "5min": "5 min",
+    "15min": "15 min",
+    "30min": "30 min",
+    "1h": "1 h",
     "never": "Nunca"
   },
   "common": {

@@ -7,7 +7,7 @@
         <div class="spotify-description text-mono">
           {{ t('spotifySettings.disconnectDelay') }}
         </div>
-        <div class="disconnect-buttons">
+        <div class="timeout-buttons">
           <Button v-for="delay in disconnectPresets" :key="delay.value"
             :variant="isDisconnectActive(delay.value) ? 'outline' : 'background-strong'" size="medium"
             @click="setSpotifyDisconnect(delay.value)">
@@ -38,11 +38,12 @@ const config = computed(() => ({
 }));
 
 const disconnectPresets = computed(() => [
-  { value: 10, label: t('time.10seconds') },
-  { value: 180, label: t('time.3minutes') },
-  { value: 900, label: t('time.15minutes') },
-  { value: 1800, label: t('time.30minutes') },
-  { value: 3600, label: t('time.1hour') },
+  { value: 15, label: t('time.15sec') },
+  { value: 120, label: t('time.2min') },
+  { value: 300, label: t('time.5min') },
+  { value: 900, label: t('time.15min') },
+  { value: 1800, label: t('time.30min') },
+  { value: 3600, label: t('time.1h') },
   { value: 0, label: t('time.never') }
 ]);
 
@@ -98,15 +99,14 @@ onMounted(() => {
   color: var(--color-text-secondary);
 }
 
-.disconnect-buttons {
+.timeout-buttons {
   display: flex;
   gap: var(--space-02);
   flex-wrap: wrap;
 }
 
-.disconnect-buttons .btn {
-  flex: 1;
-  min-width: 150px;
+.timeout-buttons :deep(.btn) {
+  min-width: 80px;
 }
 
 /* Responsive */
@@ -115,10 +115,14 @@ onMounted(() => {
     border-radius: var(--radius-05);
   }
 
-  .disconnect-buttons {
-    display: flex;
+  .timeout-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
     gap: var(--space-02);
-    flex-wrap: wrap;
+  }
+
+  .timeout-buttons :deep(.btn:last-child) {
+    grid-column: 1 / -1;
   }
 }
 </style>

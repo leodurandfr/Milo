@@ -219,11 +219,12 @@
     "unknownArtist": "未知艺术家"
   },
   "time": {
-    "10seconds": "10秒",
-    "3minutes": "3分钟",
-    "15minutes": "15分钟",
-    "30minutes": "30分钟",
-    "1hour": "1小时",
+    "15sec": "15秒",
+    "2min": "2分",
+    "5min": "5分",
+    "15min": "15分",
+    "30min": "30分",
+    "1h": "1小时",
     "never": "从不"
   },
   "common": {
