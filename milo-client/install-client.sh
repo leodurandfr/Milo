@@ -831,9 +831,9 @@ main() {
     configure_audio_hardware
 
     create_milo_client_user
+    clone_milo_client_repo
     install_snapclient
     install_camilladsp
-    clone_milo_client_repo
     install_milo_client_application
 
     configure_alsa_loopback
