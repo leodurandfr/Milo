@@ -105,9 +105,12 @@
       "level": "Level",
       "muted": "Muted"
     },
+    "preset": "Preset",
+    "defaultPresets": "Default",
+    "myPresets": "My Presets",
     "quickPresets": {
       "flat": "Flat",
-      "bassBoost": "Bass+",
+      "bassBoost": "Bass Boost",
       "vocal": "Vocal",
       "nightMode": "Night"
     },

@@ -105,6 +105,9 @@
       "level": "Niveau",
       "muted": "Muet"
     },
+    "preset": "Preset",
+    "defaultPresets": "Par défaut",
+    "myPresets": "Mes presets",
     "quickPresets": {
       "flat": "Plat",
       "bassBoost": "Basses+",

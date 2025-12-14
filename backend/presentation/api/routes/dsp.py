@@ -6,7 +6,10 @@ Supports multi-client DSP control for multiroom setups
 """
 from typing import Optional
 import aiohttp
+import asyncio
+import json
 import logging
+import os
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.presentation.api.models import (
@@ -22,6 +25,176 @@ from backend.presentation.api.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Client DSP settings persistence file
+CLIENT_DSP_FILE = "/var/lib/milo/client_dsp.json"
+_client_dsp_lock = asyncio.Lock()
+
+
+async def _load_client_dsp_settings() -> dict:
+    """Load client DSP settings from disk"""
+    try:
+        if os.path.exists(CLIENT_DSP_FILE):
+            with open(CLIENT_DSP_FILE, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading client DSP settings: {e}")
+    return {}
+
+
+async def _save_client_dsp_settings(settings: dict):
+    """Save client DSP settings to disk atomically"""
+    async with _client_dsp_lock:
+        try:
+            os.makedirs(os.path.dirname(CLIENT_DSP_FILE), exist_ok=True)
+            temp_file = CLIENT_DSP_FILE + ".tmp"
+            with open(temp_file, "w") as f:
+                json.dump(settings, f, indent=2)
+            os.replace(temp_file, CLIENT_DSP_FILE)
+        except Exception as e:
+            logger.error(f"Error saving client DSP settings: {e}")
+
+
+async def _get_client_settings(hostname: str) -> dict:
+    """Get saved DSP settings for a specific client"""
+    settings = await _load_client_dsp_settings()
+    return settings.get(hostname, {})
+
+
+async def _update_client_settings(hostname: str, category: str, data: dict):
+    """Update and persist DSP settings for a client"""
+    settings = await _load_client_dsp_settings()
+    if hostname not in settings:
+        settings[hostname] = {}
+    settings[hostname][category] = data
+    await _save_client_dsp_settings(settings)
+    logger.info(f"Saved {category} settings for client {hostname}")
+
+
+async def _sync_dsp_settings(source_client: str, target_clients: list):
+    """
+    Sync DSP settings from source client to target clients.
+    Gets compressor, loudness, delay, and filters from source and pushes to targets.
+    """
+    synced = []
+    errors = []
+
+    # Get settings from source client
+    try:
+        if source_client == 'local':
+            # Get from local Milo DSP
+            from backend.config.container import container
+            dsp_svc = container.camilladsp_service()
+            source_settings = {
+                'compressor': await dsp_svc.get_compressor(),
+                'loudness': await dsp_svc.get_loudness(),
+                'delay': await dsp_svc.get_delay(),
+                'filters': await dsp_svc.get_filters()
+            }
+        else:
+            # Get from remote client
+            source_settings = {}
+            try:
+                source_settings['compressor'] = await _proxy_client_request(source_client, "GET", "/dsp/compressor")
+            except Exception:
+                pass
+            try:
+                source_settings['loudness'] = await _proxy_client_request(source_client, "GET", "/dsp/loudness")
+            except Exception:
+                pass
+            try:
+                source_settings['delay'] = await _proxy_client_request(source_client, "GET", "/dsp/delay")
+            except Exception:
+                pass
+            try:
+                filters_resp = await _proxy_client_request(source_client, "GET", "/dsp/filters")
+                source_settings['filters'] = filters_resp.get('filters', [])
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error(f"Error getting settings from source {source_client}: {e}")
+        return {"synced": [], "errors": [f"Failed to get source settings: {e}"]}
+
+    # Push settings to each target client
+    for target in target_clients:
+        if target == source_client:
+            continue
+
+        target_synced = []
+
+        # Sync compressor
+        if 'compressor' in source_settings and source_settings['compressor']:
+            try:
+                if target == 'local':
+                    from backend.config.container import container
+                    dsp_svc = container.camilladsp_service()
+                    await dsp_svc.set_compressor(**source_settings['compressor'])
+                else:
+                    await _proxy_client_request(target, "PUT", "/dsp/compressor", source_settings['compressor'])
+                    await _update_client_settings(target, "compressor", source_settings['compressor'])
+                target_synced.append("compressor")
+            except Exception as e:
+                errors.append(f"{target}/compressor: {e}")
+
+        # Sync loudness
+        if 'loudness' in source_settings and source_settings['loudness']:
+            try:
+                if target == 'local':
+                    from backend.config.container import container
+                    dsp_svc = container.camilladsp_service()
+                    await dsp_svc.set_loudness(**source_settings['loudness'])
+                else:
+                    await _proxy_client_request(target, "PUT", "/dsp/loudness", source_settings['loudness'])
+                    await _update_client_settings(target, "loudness", source_settings['loudness'])
+                target_synced.append("loudness")
+            except Exception as e:
+                errors.append(f"{target}/loudness: {e}")
+
+        # Sync delay
+        if 'delay' in source_settings and source_settings['delay']:
+            try:
+                if target == 'local':
+                    from backend.config.container import container
+                    dsp_svc = container.camilladsp_service()
+                    await dsp_svc.set_delay(**source_settings['delay'])
+                else:
+                    await _proxy_client_request(target, "PUT", "/dsp/delay", source_settings['delay'])
+                    await _update_client_settings(target, "delay", source_settings['delay'])
+                target_synced.append("delay")
+            except Exception as e:
+                errors.append(f"{target}/delay: {e}")
+
+        # Sync filters
+        if 'filters' in source_settings and source_settings['filters']:
+            for flt in source_settings['filters']:
+                filter_id = flt.get('id')
+                if not filter_id:
+                    continue
+                filter_data = {
+                    'freq': flt.get('freq'),
+                    'gain': flt.get('gain'),
+                    'q': flt.get('q'),
+                    'filter_type': flt.get('type')
+                }
+                try:
+                    if target == 'local':
+                        from backend.config.container import container
+                        dsp_svc = container.camilladsp_service()
+                        await dsp_svc.set_filter(filter_id, **filter_data)
+                    else:
+                        await _proxy_client_request(target, "PUT", f"/dsp/filter/{filter_id}", filter_data)
+                    target_synced.append(f"filter:{filter_id}")
+                except Exception as e:
+                    errors.append(f"{target}/filter:{filter_id}: {e}")
+
+        if target_synced:
+            synced.append({"target": target, "settings": target_synced})
+
+    logger.info(f"Synced DSP settings from {source_client} to {len(synced)} targets")
+    if errors:
+        logger.warning(f"Sync errors: {errors}")
+
+    return {"synced": synced, "errors": errors if errors else None}
 
 
 def create_dsp_router(dsp_service, state_machine, settings_service=None):
@@ -424,8 +597,8 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
             # Get multiroom clients from snapcast
             try:
                 from backend.config.container import container
-                snapcast_service = container.snapcast_websocket_service()
-                clients = await snapcast_service.get_clients()
+                snapcast_svc = container.snapcast_service()
+                clients = await snapcast_svc.get_clients()
 
                 for client in clients:
                     # Skip the main Milo (localhost)
@@ -470,12 +643,16 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
 
     @router.post("/links")
     async def create_link_group(payload: DspLinkedClientsRequest):
-        """Create or update a linked client group"""
+        """Create or update a linked client group and sync settings from source"""
         try:
             if not settings_service:
                 raise HTTPException(status_code=500, detail="Settings service not available")
 
             linked_groups = await settings_service.get_setting("dsp.linked_groups") or []
+
+            # Determine source client (provided or first in list)
+            source_client = payload.source_client or payload.client_ids[0]
+            all_clients = payload.client_ids
 
             # Check if any of these clients are already in another group
             new_client_ids = set(payload.client_ids)
@@ -486,9 +663,19 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
                     # Merge with existing group
                     merged_ids = list(existing_ids | new_client_ids)
                     linked_groups[i]["client_ids"] = merged_ids
+                    all_clients = merged_ids
                     await settings_service.set_setting("dsp.linked_groups", linked_groups)
                     await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
-                    return {"status": "success", "message": "Merged with existing group", "linked_groups": linked_groups}
+
+                    # Sync settings from source to all clients in merged group
+                    sync_result = await _sync_dsp_settings(source_client, all_clients)
+
+                    return {
+                        "status": "success",
+                        "message": "Merged with existing group",
+                        "linked_groups": linked_groups,
+                        "sync": sync_result
+                    }
 
             # Create new group
             new_group = {
@@ -498,7 +685,15 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
             linked_groups.append(new_group)
             await settings_service.set_setting("dsp.linked_groups", linked_groups)
             await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
-            return {"status": "success", "linked_groups": linked_groups}
+
+            # Sync settings from source to all other clients
+            sync_result = await _sync_dsp_settings(source_client, all_clients)
+
+            return {
+                "status": "success",
+                "linked_groups": linked_groups,
+                "sync": sync_result
+            }
 
         except HTTPException:
             raise
@@ -572,14 +767,33 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
 
     @router.put("/client/{hostname}/filter/{filter_id}")
     async def update_client_dsp_filter(hostname: str, filter_id: str, request: Request):
-        """Proxy filter update to client"""
+        """Proxy filter update to client and persist settings"""
         body = await request.json()
-        return await _proxy_client_request(hostname, "PUT", f"/dsp/filter/{filter_id}", body)
+        result = await _proxy_client_request(hostname, "PUT", f"/dsp/filter/{filter_id}", body)
+        # Save filter settings to Milo after successful update
+        if result.get("status") == "success":
+            # Load existing filters and update the specific one
+            settings = await _load_client_dsp_settings()
+            if hostname not in settings:
+                settings[hostname] = {}
+            if "filters" not in settings[hostname]:
+                settings[hostname]["filters"] = {}
+            filter_data = {k: v for k, v in result.items() if k != "status"}
+            settings[hostname]["filters"][filter_id] = filter_data
+            await _save_client_dsp_settings(settings)
+        return result
 
     @router.post("/client/{hostname}/reset")
     async def reset_client_dsp_filters(hostname: str):
-        """Proxy filter reset to client"""
-        return await _proxy_client_request(hostname, "POST", "/dsp/reset")
+        """Proxy filter reset to client and clear saved filter settings"""
+        result = await _proxy_client_request(hostname, "POST", "/dsp/reset")
+        # Clear saved filters for this client
+        if result.get("status") == "success":
+            settings = await _load_client_dsp_settings()
+            if hostname in settings and "filters" in settings[hostname]:
+                settings[hostname]["filters"] = {}
+                await _save_client_dsp_settings(settings)
+        return result
 
     @router.get("/client/{hostname}/compressor")
     async def get_client_compressor(hostname: str):
@@ -588,9 +802,14 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
 
     @router.put("/client/{hostname}/compressor")
     async def update_client_compressor(hostname: str, request: Request):
-        """Proxy compressor update to client"""
+        """Proxy compressor update to client and persist settings"""
         body = await request.json()
-        return await _proxy_client_request(hostname, "PUT", "/dsp/compressor", body)
+        result = await _proxy_client_request(hostname, "PUT", "/dsp/compressor", body)
+        # Save settings to Milo after successful update
+        if result.get("status") == "success":
+            compressor_data = {k: v for k, v in result.items() if k != "status"}
+            await _update_client_settings(hostname, "compressor", compressor_data)
+        return result
 
     @router.get("/client/{hostname}/loudness")
     async def get_client_loudness(hostname: str):
@@ -599,9 +818,14 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
 
     @router.put("/client/{hostname}/loudness")
     async def update_client_loudness(hostname: str, request: Request):
-        """Proxy loudness update to client"""
+        """Proxy loudness update to client and persist settings"""
         body = await request.json()
-        return await _proxy_client_request(hostname, "PUT", "/dsp/loudness", body)
+        result = await _proxy_client_request(hostname, "PUT", "/dsp/loudness", body)
+        # Save settings to Milo after successful update
+        if result.get("status") == "success":
+            loudness_data = {k: v for k, v in result.items() if k != "status"}
+            await _update_client_settings(hostname, "loudness", loudness_data)
+        return result
 
     @router.get("/client/{hostname}/delay")
     async def get_client_delay(hostname: str):
@@ -610,9 +834,75 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
 
     @router.put("/client/{hostname}/delay")
     async def update_client_delay(hostname: str, request: Request):
-        """Proxy delay update to client"""
+        """Proxy delay update to client and persist settings"""
         body = await request.json()
-        return await _proxy_client_request(hostname, "PUT", "/dsp/delay", body)
+        result = await _proxy_client_request(hostname, "PUT", "/dsp/delay", body)
+        # Save settings to Milo after successful update
+        if result.get("status") == "success":
+            delay_data = {k: v for k, v in result.items() if k != "status"}
+            await _update_client_settings(hostname, "delay", delay_data)
+        return result
+
+    # === Client Settings Persistence ===
+
+    @router.get("/client/{hostname}/saved-settings")
+    async def get_client_saved_settings(hostname: str):
+        """Get Milo's saved DSP settings for a client"""
+        settings = await _get_client_settings(hostname)
+        return {"hostname": hostname, "settings": settings}
+
+    @router.post("/client/{hostname}/restore")
+    async def restore_client_settings(hostname: str):
+        """Restore saved DSP settings to a client"""
+        saved = await _get_client_settings(hostname)
+        if not saved:
+            return {"status": "success", "message": "No saved settings to restore", "restored": []}
+
+        restored = []
+        errors = []
+
+        # Restore compressor settings
+        if "compressor" in saved:
+            try:
+                await _proxy_client_request(hostname, "PUT", "/dsp/compressor", saved["compressor"])
+                restored.append("compressor")
+            except Exception as e:
+                errors.append(f"compressor: {e}")
+
+        # Restore loudness settings
+        if "loudness" in saved:
+            try:
+                await _proxy_client_request(hostname, "PUT", "/dsp/loudness", saved["loudness"])
+                restored.append("loudness")
+            except Exception as e:
+                errors.append(f"loudness: {e}")
+
+        # Restore delay settings
+        if "delay" in saved:
+            try:
+                await _proxy_client_request(hostname, "PUT", "/dsp/delay", saved["delay"])
+                restored.append("delay")
+            except Exception as e:
+                errors.append(f"delay: {e}")
+
+        # Restore filter settings
+        if "filters" in saved:
+            for filter_id, filter_data in saved["filters"].items():
+                try:
+                    await _proxy_client_request(hostname, "PUT", f"/dsp/filter/{filter_id}", filter_data)
+                    restored.append(f"filter:{filter_id}")
+                except Exception as e:
+                    errors.append(f"filter:{filter_id}: {e}")
+
+        logger.info(f"Restored settings for {hostname}: {restored}")
+        if errors:
+            logger.warning(f"Errors restoring settings for {hostname}: {errors}")
+
+        return {
+            "status": "success" if not errors else "partial",
+            "restored": restored,
+            "errors": errors if errors else None
+        }
 
     return router
 

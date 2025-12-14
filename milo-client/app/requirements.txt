@@ -16,5 +16,4 @@ aiofiles>=24.0.0
 # Type checking (optional but recommended)
 pydantic>=2.10.0
 
-# CamillaDSP client for DSP control
-camilladsp>=3.0.0
+# Note: camilladsp is installed separately from PyPI (not available on piwheels)

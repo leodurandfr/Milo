@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import uvicorn
+import yaml
 
 # Try to import CamillaDSP client
 try:
@@ -315,10 +316,38 @@ class FilterUpdate(BaseModel):
     gain: float
     freq: Optional[float] = None
     q: Optional[float] = None
+    filter_type: Optional[str] = None
+
+
+class CompressorUpdate(BaseModel):
+    """Model for compressor update request"""
+    enabled: Optional[bool] = None
+    threshold: Optional[float] = None
+    ratio: Optional[float] = None
+    attack: Optional[float] = None
+    release: Optional[float] = None
+    makeup_gain: Optional[float] = None
+
+
+class LoudnessUpdate(BaseModel):
+    """Model for loudness update request"""
+    enabled: Optional[bool] = None
+    reference_level: Optional[int] = None
+    high_boost: Optional[float] = None
+    low_boost: Optional[float] = None
+
+
+class DelayUpdate(BaseModel):
+    """Model for delay update request"""
+    left: Optional[float] = None
+    right: Optional[float] = None
 
 
 class DSPManager:
     """Manager for CamillaDSP operations"""
+
+    # Path to the CamillaDSP config file
+    CONFIG_FILE = "/var/lib/milo-client/camilladsp/config.yml"
 
     def __init__(self, host: str = "127.0.0.1", port: int = 1234):
         self.logger = logging.getLogger(f"{__name__}.DSPManager")
@@ -358,11 +387,74 @@ class DSPManager:
             )
             self._connected = True
             self.logger.info(f"Connected to CamillaDSP at {self.host}:{self.port}")
+
+            # Load current state from CamillaDSP config
+            await self._load_state_from_config()
+
             return True
         except Exception as e:
             self.logger.warning(f"Failed to connect to CamillaDSP: {e}")
             self._connected = False
             return False
+
+    async def _load_state_from_config(self):
+        """Load compressor/loudness/delay state from current CamillaDSP config"""
+        try:
+            config = await self._get_config()
+            if not config:
+                return
+
+            # Check for compressor in processors
+            if "processors" in config and "compressor" in config["processors"]:
+                proc = config["processors"]["compressor"]
+                params = proc.get("parameters", {})
+                self._compressor = {
+                    "enabled": True,
+                    "threshold": params.get("threshold", -20.0),
+                    "ratio": params.get("factor", 4.0),
+                    "attack": params.get("attack", 0.01) * 1000,  # Convert to ms
+                    "release": params.get("release", 0.1) * 1000,
+                    "makeup_gain": params.get("makeup_gain", 0.0)
+                }
+                self.logger.info("Loaded compressor state from config")
+            else:
+                self._compressor["enabled"] = False
+
+            # Check for loudness filters
+            if "filters" in config:
+                has_loudness_low = "loudness_low" in config["filters"]
+                has_loudness_high = "loudness_high" in config["filters"]
+
+                if has_loudness_low and has_loudness_high:
+                    self._loudness["enabled"] = True
+                    low_params = config["filters"]["loudness_low"].get("parameters", {})
+                    high_params = config["filters"]["loudness_high"].get("parameters", {})
+                    self._loudness["low_boost"] = low_params.get("gain", 8.0)
+                    self._loudness["high_boost"] = high_params.get("gain", 5.0)
+                    self.logger.info("Loaded loudness state from config")
+                else:
+                    self._loudness["enabled"] = False
+
+                # Check for delay filters
+                if "delay_left" in config["filters"]:
+                    delay_params = config["filters"]["delay_left"].get("parameters", {})
+                    delay_samples = delay_params.get("delay", 0)
+                    self._delay["left"] = delay_samples * 1000 / 48000  # Convert to ms
+                else:
+                    self._delay["left"] = 0.0
+
+                if "delay_right" in config["filters"]:
+                    delay_params = config["filters"]["delay_right"].get("parameters", {})
+                    delay_samples = delay_params.get("delay", 0)
+                    self._delay["right"] = delay_samples * 1000 / 48000
+                else:
+                    self._delay["right"] = 0.0
+
+                if self._delay["left"] > 0 or self._delay["right"] > 0:
+                    self.logger.info(f"Loaded delay state from config: L={self._delay['left']:.1f}ms R={self._delay['right']:.1f}ms")
+
+        except Exception as e:
+            self.logger.warning(f"Could not load state from config: {e}")
 
     async def get_status(self) -> Dict[str, Any]:
         """Get DSP status"""
@@ -404,6 +496,20 @@ class DSPManager:
                     None, lambda p=config_path: self._client.config.read_and_parse_file(p)
                 )
         return config
+
+    async def _save_config_to_file(self, config: Dict[str, Any]) -> bool:
+        """Save config to disk for persistence"""
+        try:
+            config_yaml = yaml.dump(config, default_flow_style=False, allow_unicode=True)
+
+            async with aiofiles.open(self.CONFIG_FILE, 'w') as f:
+                await f.write(config_yaml)
+
+            self.logger.info("Config saved to disk")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to save config to disk: {e}")
+            return False
 
     async def get_filters(self) -> List[Dict[str, Any]]:
         """Get current EQ filter configuration"""
@@ -456,6 +562,10 @@ class DSPManager:
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda c=config: self._client.config.set_active(c)
             )
+
+            # Save to disk for persistence
+            await self._save_config_to_file(config)
+
             return True
         except Exception as e:
             self.logger.error(f"Error setting filter {filter_id}: {e}")
@@ -510,6 +620,10 @@ class DSPManager:
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda c=config: self._client.config.set_active(c)
             )
+
+            # Save to disk for persistence
+            await self._save_config_to_file(config)
+
             return True
         except Exception as e:
             self.logger.error(f"Error setting compressor: {e}")
@@ -861,23 +975,16 @@ async def get_compressor():
 
 
 @app.put("/dsp/compressor")
-async def update_compressor(
-    enabled: bool = None,
-    threshold: float = None,
-    ratio: float = None,
-    attack: float = None,
-    release: float = None,
-    makeup_gain: float = None
-):
+async def update_compressor(update: CompressorUpdate):
     """Update compressor settings"""
     try:
         success = await dsp_manager.set_compressor(
-            enabled=enabled,
-            threshold=threshold,
-            ratio=ratio,
-            attack=attack,
-            release=release,
-            makeup_gain=makeup_gain
+            enabled=update.enabled,
+            threshold=update.threshold,
+            ratio=update.ratio,
+            attack=update.attack,
+            release=update.release,
+            makeup_gain=update.makeup_gain
         )
         if success:
             return {"status": "success", **dsp_manager._compressor}
@@ -897,19 +1004,14 @@ async def get_loudness():
 
 
 @app.put("/dsp/loudness")
-async def update_loudness(
-    enabled: bool = None,
-    reference_level: int = None,
-    high_boost: float = None,
-    low_boost: float = None
-):
+async def update_loudness(update: LoudnessUpdate):
     """Update loudness compensation settings"""
     try:
         success = await dsp_manager.set_loudness(
-            enabled=enabled,
-            reference_level=reference_level,
-            high_boost=high_boost,
-            low_boost=low_boost
+            enabled=update.enabled,
+            reference_level=update.reference_level,
+            high_boost=update.high_boost,
+            low_boost=update.low_boost
         )
         if success:
             return {"status": "success", **dsp_manager._loudness}
@@ -929,10 +1031,10 @@ async def get_delay():
 
 
 @app.put("/dsp/delay")
-async def update_delay(left: float = None, right: float = None):
+async def update_delay(update: DelayUpdate):
     """Update channel delay settings"""
     try:
-        success = await dsp_manager.set_delay(left=left, right=right)
+        success = await dsp_manager.set_delay(left=update.left, right=update.right)
         if success:
             return {"status": "success", **dsp_manager._delay}
         else:
