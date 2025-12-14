@@ -362,13 +362,29 @@ install_snapclient() {
 clone_milo_client_repo() {
     log_info "Cloning Milo repository (sparse checkout)..."
 
-    # Clone with sparse checkout (only milo-client directory)
-    sudo -u "$MILO_CLIENT_USER" git clone --no-checkout --depth 1 "$MILO_CLIENT_REPO_URL" "$MILO_CLIENT_REPO_DIR"
-    sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout init --cone
-    sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout set milo-client
-    sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" checkout
-
-    log_success "Repository cloned (sparse checkout: milo-client/)"
+    # If repo already exists, update it instead of cloning
+    if [[ -d "$MILO_CLIENT_REPO_DIR/.git" ]]; then
+        log_info "Repository already exists, updating..."
+        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" fetch --depth 1 origin main
+        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" reset --hard origin/main
+        log_success "Repository updated"
+    elif [[ -d "$MILO_CLIENT_REPO_DIR" ]]; then
+        # Directory exists but not a git repo - remove and clone fresh
+        log_warning "Removing incomplete repository directory..."
+        sudo rm -rf "$MILO_CLIENT_REPO_DIR"
+        sudo -u "$MILO_CLIENT_USER" git clone --no-checkout --depth 1 "$MILO_CLIENT_REPO_URL" "$MILO_CLIENT_REPO_DIR"
+        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout init --cone
+        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout set milo-client
+        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" checkout
+        log_success "Repository cloned (sparse checkout: milo-client/)"
+    else
+        # Fresh clone
+        sudo -u "$MILO_CLIENT_USER" git clone --no-checkout --depth 1 "$MILO_CLIENT_REPO_URL" "$MILO_CLIENT_REPO_DIR"
+        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout init --cone
+        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" sparse-checkout set milo-client
+        sudo -u "$MILO_CLIENT_USER" git -C "$MILO_CLIENT_REPO_DIR" checkout
+        log_success "Repository cloned (sparse checkout: milo-client/)"
+    fi
 }
 
 install_milo_client_application() {
@@ -376,7 +392,13 @@ install_milo_client_application() {
 
     sudo -u "$MILO_CLIENT_USER" python3 -m venv "$MILO_CLIENT_VENV_DIR"
     sudo -u "$MILO_CLIENT_USER" bash -c "source $MILO_CLIENT_VENV_DIR/bin/activate && pip install --upgrade pip"
+
+    # Install packages from piwheels (faster for ARM)
     sudo -u "$MILO_CLIENT_USER" bash -c "source $MILO_CLIENT_VENV_DIR/bin/activate && pip install -r $MILO_CLIENT_APP_DIR/requirements.txt"
+
+    # Install camilladsp separately from PyPI (not available on piwheels)
+    log_info "Installing camilladsp from PyPI..."
+    sudo -u "$MILO_CLIENT_USER" bash -c "source $MILO_CLIENT_VENV_DIR/bin/activate && pip install --index-url https://pypi.org/simple/ camilladsp"
 
     log_success "Milo Client application installed"
 }

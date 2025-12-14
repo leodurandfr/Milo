@@ -294,6 +294,7 @@ class DspDelayRequest(BaseModel):
 class DspLinkedClientsRequest(BaseModel):
     """DSP linked clients request - clients that share the same DSP settings"""
     client_ids: List[str] = Field(..., min_length=2, description="List of client IDs to link together")
+    source_client: Optional[str] = Field(None, description="Client whose settings will be pushed to others (defaults to first in list)")
 
     @field_validator('client_ids')
     @classmethod

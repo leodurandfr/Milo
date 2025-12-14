@@ -2,65 +2,16 @@
 <!-- Main DSP control panel with parametric EQ and presets -->
 <template>
   <div class="dsp-modal">
-    <!-- Header with toggle and actions -->
+    <!-- Header with toggle only -->
     <ModalHeader :title="$t('dsp.title', 'DSP')">
       <template #actions="{ iconVariant }">
-        <!-- Target selector (Milo or clients) -->
-        <Dropdown
-          v-if="isDspEnabled && targetOptions.length > 1"
-          v-model="selectedTargetId"
-          :options="targetOptions"
-          :placeholder="$t('dsp.selectTarget', 'Device')"
-          variant="minimal"
-          :disabled="dspStore.isLoading"
-          @change="handleTargetChange"
-        />
-
         <!-- Link clients button -->
         <IconButton
-          v-if="isDspEnabled && targetOptions.length > 1"
+          v-if="isDspEnabled && hasMultipleTargets"
           icon="link"
           :variant="isTargetLinked ? 'brand' : iconVariant"
           :disabled="dspStore.isLoading"
           @click="showLinkedClientsDialog = true"
-        />
-
-        <!-- Preset selector -->
-        <Dropdown
-          v-if="isDspEnabled"
-          v-model="selectedPreset"
-          :options="presetOptions"
-          :placeholder="$t('dsp.selectPreset', 'Preset')"
-          variant="minimal"
-          :disabled="dspStore.isLoading"
-          @change="handlePresetChange"
-        />
-
-        <!-- Save preset button -->
-        <IconButton
-          v-if="isDspEnabled && dspStore.isConnected"
-          icon="plus"
-          :variant="iconVariant"
-          :disabled="dspStore.isLoading || isSaving"
-          @click="openSaveDialog"
-        />
-
-        <!-- Delete preset button -->
-        <IconButton
-          v-if="isDspEnabled && selectedPreset"
-          icon="trash"
-          :variant="iconVariant"
-          :disabled="dspStore.isLoading || isDeleting"
-          @click="handleDeletePreset"
-        />
-
-        <!-- Reset button -->
-        <IconButton
-          v-if="isDspEnabled"
-          icon="reset"
-          :variant="iconVariant"
-          :disabled="dspStore.isResetting"
-          @click="handleResetAll"
         />
 
         <!-- DSP Enable/Disable toggle -->
@@ -91,60 +42,29 @@
             <span class="status-text">{{ $t('dsp.connecting', 'Connecting to DSP...') }}</span>
           </div>
 
-          <!-- Frequency Response Graph -->
-          <FrequencyResponseGraph
-            v-if="dspStore.isConnected && dspStore.filtersLoaded"
-            :filters="dspStore.filters"
-            :sample-rate="dspStore.sampleRate || 48000"
-            :is-mobile="isMobile"
-          />
+          <template v-if="dspStore.isConnected">
+            <!-- Zone Tabs + Preset selector (first section) -->
+            <ZoneTabs :disabled="dspStore.isUpdating" />
 
-          <!-- Parametric EQ -->
-          <ParametricEQ
-            v-if="dspStore.isConnected"
-            :filters="dspStore.filters"
-            :filters-loaded="dspStore.filtersLoaded"
-            :disabled="dspStore.isUpdating"
-            :is-mobile="isMobile"
-            @update:filter="handleFilterUpdate"
-            @change="handleFilterChange"
-          />
+            <!-- Parametric EQ -->
+            <ParametricEQ
+              :filters="dspStore.filters"
+              :filters-loaded="dspStore.filtersLoaded"
+              :disabled="dspStore.isUpdating"
+              :is-mobile="isMobile"
+              @update:filter="handleFilterUpdate"
+              @change="handleFilterChange"
+            />
 
-          <!-- Quick Presets -->
-          <QuickPresets
-            v-if="dspStore.isConnected"
-            ref="quickPresetsRef"
-            :disabled="dspStore.isUpdating"
-            :is-mobile="isMobile"
-            @apply="handleQuickPresetApply"
-          />
+            <!-- Advanced DSP (Compressor, Loudness, Delay, Volume) - always visible -->
+            <AdvancedDsp />
 
-          <!-- Advanced DSP (Compressor, Loudness, Delay) -->
-          <AdvancedDsp v-if="dspStore.isConnected && showAdvanced" />
-
-          <!-- Level Meters -->
-          <LevelMeters v-if="dspStore.isConnected" />
+            <!-- Level Meters -->
+            <LevelMeters />
+          </template>
         </div>
       </Transition>
     </div>
-
-    <!-- Toggle Advanced -->
-    <button
-      v-if="isDspEnabled && dspStore.isConnected"
-      class="toggle-advanced"
-      @click="showAdvanced = !showAdvanced"
-    >
-      {{ showAdvanced ? $t('dsp.hideAdvanced', 'Hide Advanced') : $t('dsp.showAdvanced', 'Show Advanced') }}
-    </button>
-
-    <!-- Save Preset Dialog -->
-    <PresetSaveDialog
-      :is-open="showSaveDialog"
-      :initial-name="selectedPreset"
-      :saving="isSaving"
-      @close="showSaveDialog = false"
-      @save="handleSavePreset"
-    />
 
     <!-- Linked Clients Dialog -->
     <LinkedClientsDialog
@@ -155,67 +75,39 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
-import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
-import Dropdown from '@/components/ui/Dropdown.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import ZoneTabs from './ZoneTabs.vue';
 import ParametricEQ from './ParametricEQ.vue';
 import AdvancedDsp from './AdvancedDsp.vue';
 import LevelMeters from './LevelMeters.vue';
-import PresetSaveDialog from './PresetSaveDialog.vue';
-import QuickPresets from './QuickPresets.vue';
-import FrequencyResponseGraph from './FrequencyResponseGraph.vue';
 import LinkedClientsDialog from './LinkedClientsDialog.vue';
 
 const dspStore = useDspStore();
-const unifiedStore = useUnifiedAudioStore();
 const { on } = useWebSocket();
 
 // Local state
 const isDspEnabled = ref(true); // TODO: Connect to routing state when DSP replaces equalizer
 const isToggling = ref(false);
-const selectedPreset = ref('');
-const selectedTargetId = ref('local');
 const isMobile = ref(false);
-const showAdvanced = ref(false);
-
-// Preset save/delete state
-const showSaveDialog = ref(false);
-const isSaving = ref(false);
-const isDeleting = ref(false);
 
 // Linked clients dialog state
 const showLinkedClientsDialog = ref(false);
 
-// Quick presets ref
-const quickPresetsRef = ref(null);
-
 let unsubscribeFunctions = [];
 
 // === COMPUTED ===
-const presetOptions = computed(() => {
-  return dspStore.presets.map(name => ({
-    value: name,
-    label: name
-  }));
-});
-
-const targetOptions = computed(() => {
-  return dspStore.availableTargets.map(target => ({
-    value: target.id,
-    label: target.name
-  }));
-});
+const hasMultipleTargets = computed(() => dspStore.availableTargets.length > 1);
 
 // Check if current target is linked to other clients
 const isTargetLinked = computed(() => {
-  return dspStore.isClientLinked(selectedTargetId.value);
+  return dspStore.isClientLinked(dspStore.selectedTarget);
 });
 
 // === MOBILE DETECTION ===
@@ -255,84 +147,6 @@ function handleFilterChange({ id, field, value }) {
   dspStore.finalizeFilterUpdate(id);
 }
 
-// === RESET ===
-async function handleResetAll() {
-  await dspStore.resetAllFilters();
-}
-
-// === PRESET HANDLING ===
-async function handlePresetChange(presetName) {
-  if (presetName) {
-    await dspStore.loadPreset(presetName);
-  }
-}
-
-function openSaveDialog() {
-  showSaveDialog.value = true;
-}
-
-async function handleSavePreset(name) {
-  isSaving.value = true;
-  try {
-    await dspStore.savePreset(name);
-    selectedPreset.value = name;
-    showSaveDialog.value = false;
-  } catch (error) {
-    console.error('Error saving preset:', error);
-  } finally {
-    isSaving.value = false;
-  }
-}
-
-async function handleDeletePreset() {
-  if (!selectedPreset.value) return;
-
-  // Simple confirmation
-  const confirmed = window.confirm(`Delete preset "${selectedPreset.value}"?`);
-  if (!confirmed) return;
-
-  isDeleting.value = true;
-  try {
-    await dspStore.deletePreset(selectedPreset.value);
-    selectedPreset.value = '';
-  } catch (error) {
-    console.error('Error deleting preset:', error);
-  } finally {
-    isDeleting.value = false;
-  }
-}
-
-// === QUICK PRESETS ===
-async function handleQuickPresetApply(gains) {
-  // Apply each filter gain value
-  for (let i = 0; i < dspStore.filters.length && i < gains.length; i++) {
-    const filter = dspStore.filters[i];
-    if (filter.gain !== gains[i]) {
-      dspStore.updateFilter(filter.id, 'gain', gains[i]);
-      await dspStore.finalizeFilterUpdate(filter.id);
-    }
-  }
-  // Clear saved preset selection since we're using a quick preset
-  selectedPreset.value = '';
-}
-
-// === TARGET HANDLING ===
-async function handleTargetChange(targetId) {
-  if (targetId) {
-    await dspStore.selectTarget(targetId);
-  }
-}
-
-// Watch for active preset changes
-watch(() => dspStore.activePreset, (newPreset) => {
-  selectedPreset.value = newPreset || '';
-});
-
-// Watch for selected target changes
-watch(() => dspStore.selectedTarget, (newTarget) => {
-  selectedTargetId.value = newTarget || 'local';
-});
-
 // === WEBSOCKET HANDLERS ===
 function handleDspFilterChanged(event) {
   dspStore.handleFilterChanged(event);
@@ -348,7 +162,6 @@ function handleDspStateChanged(event) {
 
 function handleDspPresetLoaded(event) {
   dspStore.handlePresetLoaded(event);
-  selectedPreset.value = event.data.name || '';
 }
 
 // === LIFECYCLE ===
@@ -361,12 +174,10 @@ onMounted(async () => {
 
   // Load available DSP targets (Milo + clients)
   await dspStore.loadTargets();
-  selectedTargetId.value = dspStore.selectedTarget || 'local';
 
   // Load DSP status if enabled
   if (isDspEnabled.value) {
     await dspStore.loadStatus();
-    selectedPreset.value = dspStore.activePreset || '';
   }
 
   // Subscribe to WebSocket events
@@ -439,25 +250,6 @@ onUnmounted(() => {
 .fade-slide-leave-to {
   opacity: 0;
   transform: translateY(-8px);
-}
-
-.toggle-advanced {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-02) var(--space-03);
-  border: none;
-  border-radius: var(--radius-04);
-  background: var(--color-background-neutral);
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.toggle-advanced:hover {
-  background: var(--color-border);
-  color: var(--color-text);
 }
 
 /* Mobile adjustments */

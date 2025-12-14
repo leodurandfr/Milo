@@ -152,7 +152,8 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function fetchPresets() {
     try {
-      const response = await axios.get(`${getApiBase()}/presets`);
+      // Presets are always stored locally on Milo, not on clients
+      const response = await axios.get('/api/dsp/presets');
       return response.data.presets || [];
     } catch (error) {
       console.error('Error fetching DSP presets:', error);
@@ -595,17 +596,47 @@ export const useDspStore = defineStore('dsp', () => {
     cleanup();
     selectedTarget.value = targetId;
 
+    // For remote clients, restore saved settings from Milo first
+    if (targetId && targetId !== 'local') {
+      await restoreClientSettings(targetId);
+    }
+
     // Load status for new target
     await loadStatus();
   }
 
+  async function restoreClientSettings(hostname) {
+    try {
+      const response = await axios.post(`/api/dsp/client/${hostname}/restore`);
+      if (response.data.restored && response.data.restored.length > 0) {
+        console.log(`Restored DSP settings for ${hostname}:`, response.data.restored);
+      }
+      return response.data;
+    } catch (error) {
+      console.error(`Error restoring settings for ${hostname}:`, error);
+      return null;
+    }
+  }
+
   // === LINKED CLIENTS MANAGEMENT ===
 
-  async function linkClients(clientIds) {
+  async function linkClients(clientIds, sourceClient = null) {
     try {
-      const response = await axios.post('/api/dsp/links', { client_ids: clientIds });
+      // Use the currently selected target as source if not specified
+      const source = sourceClient || selectedTarget.value;
+      const response = await axios.post('/api/dsp/links', {
+        client_ids: clientIds,
+        source_client: source
+      });
       if (response.data.linked_groups) {
         linkedGroups.value = response.data.linked_groups;
+        // Log sync results if available
+        if (response.data.sync?.synced?.length > 0) {
+          console.log('DSP settings synced:', response.data.sync.synced);
+        }
+        if (response.data.sync?.errors?.length > 0) {
+          console.warn('DSP sync errors:', response.data.sync.errors);
+        }
         return true;
       }
       return false;
@@ -768,6 +799,7 @@ export const useDspStore = defineStore('dsp', () => {
     // Target Management
     loadTargets,
     selectTarget,
+    restoreClientSettings,
 
     // Linked Clients Management
     linkClients,
