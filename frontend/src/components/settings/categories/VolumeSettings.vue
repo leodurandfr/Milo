@@ -11,8 +11,8 @@
             {{ t('volumeSettings.rotaryIncrement') }}
           </div>
           <div class="volume-steps-control">
-            <RangeSlider v-model="config.rotary_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
-              @input="debouncedUpdate('rotary-steps', 'rotary-steps', { rotary_volume_steps: $event })" />
+            <RangeSlider v-model="config.step_rotary_db" :min="1" :max="6" :step="1" value-unit=" dB"
+              @input="debouncedUpdate('rotary-steps', 'rotary-steps', { step_rotary_db: $event })" />
           </div>
         </div>
 
@@ -21,8 +21,8 @@
             {{ t('volumeSettings.mobileIncrement') }}
           </div>
           <div class="volume-steps-control">
-            <RangeSlider v-model="config.mobile_volume_steps" :min="1" :max="10" :step="1" value-unit="%"
-              @input="debouncedUpdate('volume-steps', 'volume-steps', { mobile_volume_steps: $event })" />
+            <RangeSlider v-model="config.step_mobile_db" :min="1" :max="6" :step="1" value-unit=" dB"
+              @input="debouncedUpdate('volume-steps', 'volume-steps', { step_mobile_db: $event })" />
           </div>
         </div>
       </div>
@@ -37,7 +37,7 @@
             {{ t('volumeSettings.minMax') }}
           </div>
           <div class="volume-limits-control">
-            <DoubleRangeSlider v-model="config.limits" :min="0" :max="100" :step="1" :gap="10" value-unit="%"
+            <DoubleRangeSlider v-model="config.limits" :min="-80" :max="0" :step="1" :gap="6" value-unit=" dB"
               @input="updateVolumeLimits" />
           </div>
         </div>
@@ -51,11 +51,11 @@
 
         <div class="startup-mode-buttons">
           <Button :variant="!config.restore_last_volume ? 'outline' : 'background-strong'" size="medium"
-            @click="updateSetting('volume-startup', { startup_volume: config.startup_volume, restore_last_volume: false })">
+            @click="updateSetting('volume-startup', { startup_volume_db: config.startup_volume_db, restore_last_volume: false })">
             {{ t('volumeSettings.fixedVolume') }}
           </Button>
           <Button :variant="config.restore_last_volume ? 'outline' : 'background-strong'" size="medium"
-            @click="updateSetting('volume-startup', { startup_volume: config.startup_volume, restore_last_volume: true })">
+            @click="updateSetting('volume-startup', { startup_volume_db: config.startup_volume_db, restore_last_volume: true })">
             {{ t('volumeSettings.restoreLast') }}
           </Button>
         </div>
@@ -65,8 +65,8 @@
             {{ t('volumeSettings.fixedStartup') }}
           </div>
           <div class="startup-volume-control">
-            <RangeSlider v-model="config.startup_volume" :min="0" :max="100" :step="1" value-unit="%"
-              @input="debouncedUpdate('volume-startup', 'volume-startup', { startup_volume: $event, restore_last_volume: false })" />
+            <RangeSlider v-model="config.startup_volume_db" :min="config.limits.min" :max="config.limits.max" :step="1" value-unit=" dB"
+              @input="debouncedUpdate('volume-startup', 'volume-startup', { startup_volume_db: $event, restore_last_volume: false })" />
           </div>
         </div>
       </div>
@@ -75,7 +75,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
@@ -89,29 +89,29 @@ const { on } = useWebSocket();
 const { updateSetting, debouncedUpdate, clearAllTimers } = useSettingsAPI();
 const settingsStore = useSettingsStore();
 
-// Local refs for instant responsiveness
+// Local refs for instant responsiveness (all values in dB)
 const config = ref({
-  mobile_volume_steps: 5,
-  rotary_volume_steps: 5,
-  limits: { min: 0, max: 65 },
+  step_mobile_db: 3.0,
+  step_rotary_db: 2.0,
+  limits: { min: -80.0, max: -21.0 },
   restore_last_volume: false,
-  startup_volume: 50
+  startup_volume_db: -30.0
 });
 
 // Sync local refs with the store on mount
 function syncFromStore() {
-  config.value.mobile_volume_steps = settingsStore.volumeSteps.mobile_volume_steps;
-  config.value.rotary_volume_steps = settingsStore.volumeSteps.rotary_volume_steps;
-  config.value.limits.min = settingsStore.volumeLimits.alsa_min;
-  config.value.limits.max = settingsStore.volumeLimits.alsa_max;
+  config.value.step_mobile_db = settingsStore.volumeSteps.step_mobile_db;
+  config.value.step_rotary_db = settingsStore.volumeSteps.step_rotary_db;
+  config.value.limits.min = settingsStore.volumeLimits.min_db;
+  config.value.limits.max = settingsStore.volumeLimits.max_db;
   config.value.restore_last_volume = settingsStore.volumeStartup.restore_last_volume;
-  config.value.startup_volume = settingsStore.volumeStartup.startup_volume;
+  config.value.startup_volume_db = settingsStore.volumeStartup.startup_volume_db;
 }
 
 function updateVolumeLimits(limits) {
   debouncedUpdate('volume-limits', 'volume-limits', {
-    alsa_min: limits.min,
-    alsa_max: limits.max
+    min_db: limits.min,
+    max_db: limits.max
   });
 }
 
@@ -119,38 +119,36 @@ function updateVolumeLimits(limits) {
 const wsListeners = {
   volume_limits_changed: (msg) => {
     if (msg.data?.limits) {
-      settingsStore.updateVolumeLimits({
-        alsa_min: msg.data.limits.alsa_min || 0,
-        alsa_max: msg.data.limits.alsa_max || 65
-      });
-      config.value.limits.min = msg.data.limits.alsa_min || 0;
-      config.value.limits.max = msg.data.limits.alsa_max || 65;
+      const minDb = msg.data.limits.min_db ?? -80.0;
+      const maxDb = msg.data.limits.max_db ?? -21.0;
+      settingsStore.updateVolumeLimits({ min_db: minDb, max_db: maxDb });
+      config.value.limits.min = minDb;
+      config.value.limits.max = maxDb;
     }
   },
   volume_startup_changed: (msg) => {
     if (msg.data?.config) {
+      const startupDb = msg.data.config.startup_volume_db;
       settingsStore.updateVolumeStartup({
         restore_last_volume: msg.data.config.restore_last_volume,
-        startup_volume: msg.data.config.startup_volume
+        startup_volume_db: startupDb
       });
       config.value.restore_last_volume = msg.data.config.restore_last_volume;
-      config.value.startup_volume = msg.data.config.startup_volume;
+      config.value.startup_volume_db = startupDb;
     }
   },
   volume_steps_changed: (msg) => {
-    if (msg.data?.config?.mobile_volume_steps !== undefined) {
-      settingsStore.updateVolumeSteps({
-        mobile_volume_steps: msg.data.config.mobile_volume_steps
-      });
-      config.value.mobile_volume_steps = msg.data.config.mobile_volume_steps;
+    if (msg.data?.config?.step_mobile_db !== undefined) {
+      const stepDb = msg.data.config.step_mobile_db;
+      settingsStore.updateVolumeSteps({ step_mobile_db: stepDb });
+      config.value.step_mobile_db = stepDb;
     }
   },
   rotary_steps_changed: (msg) => {
-    if (msg.data?.config?.rotary_volume_steps !== undefined) {
-      settingsStore.updateVolumeSteps({
-        rotary_volume_steps: msg.data.config.rotary_volume_steps
-      });
-      config.value.rotary_volume_steps = msg.data.config.rotary_volume_steps;
+    if (msg.data?.config?.step_rotary_db !== undefined) {
+      const stepDb = msg.data.config.step_rotary_db;
+      settingsStore.updateVolumeSteps({ step_rotary_db: stepDb });
+      config.value.step_rotary_db = stepDb;
     }
   }
 };

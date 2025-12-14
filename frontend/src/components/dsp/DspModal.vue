@@ -7,7 +7,7 @@
       <template #actions="{ iconVariant }">
         <!-- Link clients button -->
         <IconButton
-          v-if="isDspEnabled && hasMultipleTargets"
+          v-if="dspStore.isDspEnabled && hasMultipleTargets"
           icon="link"
           :variant="isTargetLinked ? 'brand' : iconVariant"
           :disabled="dspStore.isLoading"
@@ -16,8 +16,8 @@
 
         <!-- DSP Enable/Disable toggle -->
         <Toggle
-          v-model="isDspEnabled"
-          :disabled="isToggling"
+          :model-value="dspStore.isDspEnabled"
+          :disabled="dspStore.isTogglingEnabled"
           @change="handleDspToggle"
         />
       </template>
@@ -28,7 +28,7 @@
       <Transition name="fade-slide" mode="out-in">
         <!-- MESSAGE: DSP disabled -->
         <MessageContent
-          v-if="!isDspEnabled"
+          v-if="!dspStore.isDspEnabled"
           key="message"
           icon="equalizer"
           :title="$t('dsp.disabled', 'DSP is disabled')"
@@ -92,9 +92,7 @@ import LinkedClientsDialog from './LinkedClientsDialog.vue';
 const dspStore = useDspStore();
 const { on } = useWebSocket();
 
-// Local state
-const isDspEnabled = ref(true); // TODO: Connect to routing state when DSP replaces equalizer
-const isToggling = ref(false);
+// Local state (use store for isDspEnabled)
 const isMobile = ref(false);
 
 // Linked clients dialog state
@@ -118,24 +116,7 @@ function updateMobileStatus() {
 
 // === DSP TOGGLE ===
 async function handleDspToggle(enabled) {
-  const previousState = isDspEnabled.value;
-  isDspEnabled.value = enabled;
-  isToggling.value = true;
-
-  try {
-    // TODO: Implement DSP enable/disable via routing service
-    // For now, just load/cleanup the store
-    if (enabled) {
-      await dspStore.loadStatus();
-    } else {
-      dspStore.cleanup();
-    }
-  } catch (error) {
-    console.error('Error toggling DSP:', error);
-    isDspEnabled.value = previousState;
-  } finally {
-    isToggling.value = false;
-  }
+  await dspStore.toggleDspEnabled(enabled);
 }
 
 // === FILTER UPDATES ===
@@ -172,11 +153,14 @@ onMounted(async () => {
   // Initialize filters
   dspStore.initializeFilters();
 
+  // Load enabled state from settings
+  await dspStore.loadEnabledState();
+
   // Load available DSP targets (Milo + clients)
   await dspStore.loadTargets();
 
   // Load DSP status if enabled
-  if (isDspEnabled.value) {
+  if (dspStore.isDspEnabled) {
     await dspStore.loadStatus();
   }
 
@@ -191,7 +175,8 @@ onMounted(async () => {
     on('dsp', 'delay_changed', (e) => dspStore.handleDelayChanged(e)),
     on('dsp', 'volume_changed', (e) => dspStore.handleVolumeChanged(e)),
     on('dsp', 'mute_changed', (e) => dspStore.handleMuteChanged(e)),
-    on('dsp', 'links_changed', (e) => dspStore.handleLinksChanged(e))
+    on('dsp', 'links_changed', (e) => dspStore.handleLinksChanged(e)),
+    on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e))
   );
 });
 

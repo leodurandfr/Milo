@@ -17,7 +17,8 @@
           'muted': client.muted
         }"
       >
-        <span>{{ client.name }}</span>
+        <span class="name-text">{{ client.name }}</span>
+        <span v-if="zoneBadge" class="zone-badge">{{ zoneBadge }}</span>
       </div>
     </div>
 
@@ -39,12 +40,12 @@
       >
         <RangeSlider
           :model-value="displayVolume"
-          :min="0"
-          :max="100"
+          :min="sliderMin"
+          :max="sliderMax"
           :step="1"
           :disabled="client.muted || isLoading"
           show-value
-          value-unit="%"
+          value-unit=" dB"
           @input="handleVolumeInput"
           @change="handleVolumeChange"
         />
@@ -78,6 +79,9 @@
 import { ref, computed, onUnmounted } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
+import { useSettingsStore } from '@/stores/settingsStore';
+
+const settingsStore = useSettingsStore();
 
 const props = defineProps({
   client: {
@@ -87,6 +91,11 @@ const props = defineProps({
   isLoading: {
     type: Boolean,
     default: false
+  },
+  // Badge to show when client is part of a zone
+  zoneBadge: {
+    type: String,
+    default: ''
   }
 });
 
@@ -96,12 +105,19 @@ const localDisplayVolume = ref(null);
 let throttleTimeout = null;
 let finalTimeout = null;
 
+// Slider configuration - always in dB, respecting volume limits
+const sliderMin = computed(() => settingsStore.volumeLimits.min_db);
+const sliderMax = computed(() => settingsStore.volumeLimits.max_db);
+
+// Volume is always in dB
 const displayVolume = computed(() => {
   if (localDisplayVolume.value !== null) {
     return localDisplayVolume.value;
   }
-  const volume = props.client.volume || 0;
-  return Math.max(0, Math.min(100, Math.round(volume)));
+
+  // Use dspVolume from client (populated by parent), clamp to limits
+  const volume = props.client.dspVolume ?? -30;
+  return Math.max(sliderMin.value, Math.min(sliderMax.value, Math.round(volume)));
 });
 
 function handleVolumeInput(newDisplayVolume) {
@@ -112,7 +128,7 @@ function handleVolumeInput(newDisplayVolume) {
 
   throttleTimeout = setTimeout(() => {
     sendVolumeUpdate(newDisplayVolume);
-  }, 25);
+  }, 50);
 
   finalTimeout = setTimeout(() => {
     sendVolumeUpdate(newDisplayVolume);
@@ -127,9 +143,9 @@ function handleVolumeChange(newDisplayVolume) {
   sendVolumeUpdate(newDisplayVolume);
 }
 
-function sendVolumeUpdate(displayVolume) {
+function sendVolumeUpdate(volumeDb) {
   if (!props.isLoading) {
-    emit('volume-change', props.client.id, displayVolume);
+    emit('volume-change', props.client.id, volumeDb);
   }
 }
 
@@ -209,6 +225,30 @@ onUnmounted(() => {
 
 .client-name.muted {
   color: var(--color-text-light);
+}
+
+.client-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+}
+
+.name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.zone-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--color-background-strong);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-full);
+  font-weight: 500;
 }
 
 /* === VOLUME WRAPPER === */

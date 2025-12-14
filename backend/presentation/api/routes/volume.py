@@ -1,8 +1,9 @@
 """
-API routes for volume management - Display volume (0-100%) with validation
+API routes for volume management - All values in dB (-80 to 0)
 """
 from fastapi import APIRouter, HTTPException
 from backend.presentation.api.models import VolumeSetRequest, VolumeAdjustRequest
+
 
 def create_volume_router(volume_service):
     """Creates volume router with dependency injection"""
@@ -10,7 +11,7 @@ def create_volume_router(volume_service):
 
     @router.get("/status")
     async def get_volume_status():
-        """Gets current volume status (display volume)"""
+        """Gets current volume status"""
         try:
             status = await volume_service.get_status()
             return {"status": "success", "data": status}
@@ -19,21 +20,22 @@ def create_volume_router(volume_service):
 
     @router.get("/")
     async def get_current_volume():
-        """Gets current display volume (0-100%)"""
+        """Gets current volume in dB"""
         try:
-            volume = await volume_service.get_display_volume()
-            return {"status": "success", "volume": volume}
+            volume_db = await volume_service.get_volume_db()
+            return {"status": "success", "volume_db": volume_db}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/set")
     async def set_volume(request: VolumeSetRequest):
-        """Sets display volume (0-100%) with validation"""
+        """Sets volume in dB (-80 to 0)"""
         try:
-            success = await volume_service.set_display_volume(request.volume, show_bar=request.show_bar)
+            success = await volume_service.set_volume_db(request.volume_db, show_bar=request.show_bar)
 
             if success:
-                return {"status": "success", "volume": request.volume}
+                volume_db = await volume_service.get_volume_db()
+                return {"status": "success", "volume_db": volume_db}
             else:
                 raise HTTPException(status_code=500, detail="Failed to set volume")
 
@@ -44,13 +46,13 @@ def create_volume_router(volume_service):
 
     @router.post("/adjust")
     async def adjust_volume(request: VolumeAdjustRequest):
-        """Adjusts display volume by delta with validation"""
+        """Adjusts volume by delta in dB"""
         try:
-            success = await volume_service.adjust_display_volume(request.delta, show_bar=request.show_bar)
+            success = await volume_service.adjust_volume_db(request.delta_db, show_bar=request.show_bar)
 
             if success:
-                current_volume = await volume_service.get_display_volume()
-                return {"status": "success", "volume": current_volume, "delta": request.delta}
+                volume_db = await volume_service.get_volume_db()
+                return {"status": "success", "volume_db": volume_db, "delta_db": request.delta_db}
             else:
                 raise HTTPException(status_code=500, detail="Failed to adjust volume")
 
@@ -61,12 +63,13 @@ def create_volume_router(volume_service):
 
     @router.post("/increase")
     async def increase_volume():
-        """Increases display volume by 5%"""
+        """Increases volume by configured step (default 3 dB)"""
         try:
-            success = await volume_service.adjust_display_volume(5)
+            step_db = volume_service.config.config.step_mobile_db
+            success = await volume_service.adjust_volume_db(step_db)
             if success:
-                current_volume = await volume_service.get_display_volume()
-                return {"status": "success", "volume": current_volume}
+                volume_db = await volume_service.get_volume_db()
+                return {"status": "success", "volume_db": volume_db, "delta_db": step_db}
             else:
                 raise HTTPException(status_code=500, detail="Failed to increase volume")
         except Exception as e:
@@ -74,12 +77,13 @@ def create_volume_router(volume_service):
 
     @router.post("/decrease")
     async def decrease_volume():
-        """Decreases display volume by 5%"""
+        """Decreases volume by configured step (default 3 dB)"""
         try:
-            success = await volume_service.adjust_display_volume(-5)
+            step_db = volume_service.config.config.step_mobile_db
+            success = await volume_service.adjust_volume_db(-step_db)
             if success:
-                current_volume = await volume_service.get_display_volume()
-                return {"status": "success", "volume": current_volume}
+                volume_db = await volume_service.get_volume_db()
+                return {"status": "success", "volume_db": volume_db, "delta_db": -step_db}
             else:
                 raise HTTPException(status_code=500, detail="Failed to decrease volume")
         except Exception as e:

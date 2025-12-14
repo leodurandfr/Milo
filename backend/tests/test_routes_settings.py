@@ -157,13 +157,13 @@ class TestSettingsRoutes:
         assert response.status_code == 422
 
     # ===================
-    # VOLUME LIMITS TESTS
+    # VOLUME LIMITS TESTS (dB-based)
     # ===================
 
     def test_get_volume_limits(self, client):
         """Test GET /volume-limits"""
         client._mock_settings.get_setting = AsyncMock(return_value={
-            "alsa_min": 0, "alsa_max": 65, "limits_enabled": True
+            "limit_min_db": -80.0, "limit_max_db": -21.0
         })
         response = client.get("/api/settings/volume-limits")
         assert response.status_code == 200
@@ -172,33 +172,33 @@ class TestSettingsRoutes:
     def test_set_volume_limits_valid(self, client):
         """Test POST /volume-limits with valid values"""
         response = client.post("/api/settings/volume-limits", json={
-            "alsa_min": 10,
-            "alsa_max": 80
+            "min_db": -50.0,
+            "max_db": -15.0
         })
         assert response.status_code == 200
         assert response.json()["status"] == "success"
 
     def test_set_volume_limits_invalid_range(self, client):
-        """Test POST /volume-limits with range < 10 - should return 422"""
+        """Test POST /volume-limits with range < 6 dB - should return 422"""
         response = client.post("/api/settings/volume-limits", json={
-            "alsa_min": 50,
-            "alsa_max": 55
+            "min_db": -25.0,
+            "max_db": -23.0
         })
         assert response.status_code == 422
 
     def test_set_volume_limits_min_greater_than_max(self, client):
         """Test POST /volume-limits with min > max - should return 422"""
         response = client.post("/api/settings/volume-limits", json={
-            "alsa_min": 80,
-            "alsa_max": 20
+            "min_db": -15.0,
+            "max_db": -50.0
         })
         assert response.status_code == 422
 
     def test_set_volume_limits_out_of_range(self, client):
         """Test POST /volume-limits with out of range values - should return 422"""
         response = client.post("/api/settings/volume-limits", json={
-            "alsa_min": -10,
-            "alsa_max": 150
+            "min_db": -90.0,
+            "max_db": 10.0
         })
         assert response.status_code == 422
 

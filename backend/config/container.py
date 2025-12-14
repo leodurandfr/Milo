@@ -74,12 +74,13 @@ class Container(containers.DeclarativeContainer):
         port=1780
     )
 
-    # Volume service with SettingsService injection
+    # Volume service with SettingsService and CamillaDSP injection
     volume_service = providers.Singleton(
         VolumeService,
         state_machine=audio_state_machine,
         snapcast_service=snapcast_service,
-        settings_service=settings_service
+        settings_service=settings_service,
+        camilladsp_service=camilladsp_service
     )
 
     # Hardware controllers with SettingsService
@@ -273,6 +274,10 @@ class Container(containers.DeclarativeContainer):
         # 2.6 - camilladsp_service → state_machine
         #       Allows DSP service to broadcast events
         camilladsp_service.set_state_machine(state_machine)
+
+        # 2.7 - routing_service → camilladsp_service
+        #       Allows routing_service to connect/disconnect CamillaDSP when DSP is enabled/disabled
+        routing_service.set_camilladsp_service(camilladsp_service)
 
         # ============================================================
         # STEP 3: Register plugins (MUST be done BEFORE init_async)

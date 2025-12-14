@@ -3,7 +3,7 @@
   <div class="volume-bar" :class="{ visible: unifiedStore.showVolumeBar }">
     <div class="volume-slider">
       <div class="volume-fill" :style="volumeFillStyle"></div>
-      <div class="text-mono">{{ unifiedStore.volumeState.currentVolume }} %</div>
+      <div class="text-mono">{{ volumeDisplay }}</div>
     </div>
   </div>
 </template>
@@ -11,16 +11,32 @@
 <script setup>
 import { computed } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 const unifiedStore = useUnifiedAudioStore();
+const settingsStore = useSettingsStore();
 
-const volumeFillStyle = computed(() => {
-  const volume = unifiedStore.volumeState.currentVolume;
-  return {
-    width: '100%',
-    transform: `translateX(${volume - 100}%)`
-  };
+// Volume in dB
+const volumeDb = computed(() => unifiedStore.volumeState.volume_db);
+
+// Volume limits from settings
+const limitMin = computed(() => settingsStore.volumeLimits.min_db);
+const limitMax = computed(() => settingsStore.volumeLimits.max_db);
+
+// Display volume in dB
+const volumeDisplay = computed(() => `${Math.round(volumeDb.value)} dB`);
+
+// Fill percentage interpolated on volume limits (limit_min = 0%, limit_max = 100%)
+const fillPercent = computed(() => {
+  const range = limitMax.value - limitMin.value;
+  if (range <= 0) return 0;
+  return ((volumeDb.value - limitMin.value) / range) * 100;
 });
+
+const volumeFillStyle = computed(() => ({
+  width: '100%',
+  transform: `translateX(${fillPercent.value - 100}%)`
+}));
 </script>
 
 <style scoped>

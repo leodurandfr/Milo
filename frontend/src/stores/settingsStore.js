@@ -11,21 +11,20 @@ export const useSettingsStore = defineStore('settings', () => {
   // === LANGUAGE ===
   const language = ref('english');
 
-  // === VOLUME ===
+  // === VOLUME (all values in dB) ===
   const volumeLimits = ref({
-    alsa_min: 0,
-    alsa_max: 65,
-    limits_enabled: true
+    min_db: -80.0,
+    max_db: -21.0
   });
 
   const volumeStartup = ref({
-    startup_volume: 37,
+    startup_volume_db: -30.0,
     restore_last_volume: false
   });
 
   const volumeSteps = ref({
-    mobile_volume_steps: 5,
-    rotary_volume_steps: 2
+    step_mobile_db: 3.0,
+    step_rotary_db: 2.0
   });
 
   // === DOCK APPS ===
@@ -90,10 +89,10 @@ export const useSettingsStore = defineStore('settings', () => {
         screenBrightnessResponse
       ] = await Promise.all([
         axios.get('/api/settings/language').catch(() => ({ data: { language: 'english' } })),
-        axios.get('/api/settings/volume-limits').catch(() => ({ data: { limits: { alsa_min: 0, alsa_max: 65, limits_enabled: true } } })),
-        axios.get('/api/settings/volume-startup').catch(() => ({ data: { config: { startup_volume: 37, restore_last_volume: false } } })),
-        axios.get('/api/settings/volume-steps').catch(() => ({ data: { config: { mobile_volume_steps: 5 } } })),
-        axios.get('/api/settings/rotary-steps').catch(() => ({ data: { config: { rotary_volume_steps: 2 } } })),
+        axios.get('/api/settings/volume-limits').catch(() => ({ data: { limits: { min_db: -80.0, max_db: -21.0 } } })),
+        axios.get('/api/settings/volume-startup').catch(() => ({ data: { config: { startup_volume_db: -30.0, restore_last_volume: false } } })),
+        axios.get('/api/settings/volume-steps').catch(() => ({ data: { config: { step_mobile_db: 3.0 } } })),
+        axios.get('/api/settings/rotary-steps').catch(() => ({ data: { config: { step_rotary_db: 2.0 } } })),
         axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'multiroom', 'equalizer', 'settings'] } } })),
         axios.get('/api/settings/spotify-disconnect').catch(() => ({ data: { config: { auto_disconnect_delay: 10.0 } } })),
         axios.get('/api/settings/podcast-credentials').catch(() => ({ data: { config: { taddy_user_id: '', taddy_api_key: '' } } })),
@@ -107,31 +106,30 @@ export const useSettingsStore = defineStore('settings', () => {
         language.value = langResponse.data.language;
       }
 
-      // Volume limits
+      // Volume limits (in dB)
       if (volumeLimitsResponse.data.limits) {
         volumeLimits.value = {
-          alsa_min: volumeLimitsResponse.data.limits.alsa_min ?? 0,
-          alsa_max: volumeLimitsResponse.data.limits.alsa_max ?? 65,
-          limits_enabled: volumeLimitsResponse.data.limits.limits_enabled ?? true
+          min_db: volumeLimitsResponse.data.limits.min_db ?? -80.0,
+          max_db: volumeLimitsResponse.data.limits.max_db ?? -21.0
         };
       }
 
-      // Volume startup
+      // Volume startup (in dB)
       if (volumeStartupResponse.data.config) {
         volumeStartup.value = {
-          startup_volume: volumeStartupResponse.data.config.startup_volume ?? 37,
+          startup_volume_db: volumeStartupResponse.data.config.startup_volume_db ?? -30.0,
           restore_last_volume: volumeStartupResponse.data.config.restore_last_volume ?? false
         };
       }
 
-      // Volume steps (mobile)
+      // Volume steps (in dB)
       if (volumeStepsResponse.data.config) {
-        volumeSteps.value.mobile_volume_steps = volumeStepsResponse.data.config.mobile_volume_steps ?? 5;
+        volumeSteps.value.step_mobile_db = volumeStepsResponse.data.config.step_mobile_db ?? 3.0;
       }
 
-      // Rotary steps
+      // Rotary steps (in dB)
       if (rotaryStepsResponse.data.config) {
-        volumeSteps.value.rotary_volume_steps = volumeStepsResponse.data.config.rotary_volume_steps ?? 2;
+        volumeSteps.value.step_rotary_db = rotaryStepsResponse.data.config.step_rotary_db ?? 2.0;
       }
 
       // Dock apps
@@ -204,21 +202,21 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
-   * Update volume limits
+   * Update volume limits (in dB)
    */
   function updateVolumeLimits(limits) {
     volumeLimits.value = { ...volumeLimits.value, ...limits };
   }
 
   /**
-   * Update startup volume
+   * Update startup volume (in dB)
    */
   function updateVolumeStartup(config) {
     volumeStartup.value = { ...volumeStartup.value, ...config };
   }
 
   /**
-   * Update volume steps (mobile and/or rotary)
+   * Update volume steps (in dB)
    */
   function updateVolumeSteps(steps) {
     volumeSteps.value = { ...volumeSteps.value, ...steps };

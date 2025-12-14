@@ -121,7 +121,7 @@ const ALL_ADDITIONAL_ACTIONS = computed(() => [
 
 // === DYNAMIC CONFIGURATION ===
 const enabledApps = ref(["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "equalizer", "settings"]);
-const mobileVolumeSteps = ref(5);
+const mobileVolumeStepsDb = ref(3.0);  // Volume step in dB
 
 // Computed to separate audio plugins and features
 const enabledAudioPlugins = computed(() => {
@@ -154,8 +154,8 @@ const additionalDockApps = computed(() => {
 const unifiedStore = useUnifiedAudioStore();
 
 const volumeControlsWithSteps = computed(() => [
-  { icon: 'minus', handler: () => unifiedStore.adjustVolume(-mobileVolumeSteps.value), delta: -mobileVolumeSteps.value },
-  { icon: 'plus', handler: () => unifiedStore.adjustVolume(mobileVolumeSteps.value), delta: mobileVolumeSteps.value }
+  { icon: 'minus', handler: () => unifiedStore.adjustVolume(-mobileVolumeStepsDb.value), delta: -mobileVolumeStepsDb.value },
+  { icon: 'plus', handler: () => unifiedStore.adjustVolume(mobileVolumeStepsDb.value), delta: mobileVolumeStepsDb.value }
 ]);
 
 // === EMISSIONS ===
@@ -635,7 +635,7 @@ const loadVolumeStepsConfig = async () => {
     const response = await fetch('/api/settings/volume-steps');
     const data = await response.json();
     if (data.status === 'success') {
-      mobileVolumeSteps.value = data.config.mobile_volume_steps || 5;
+      mobileVolumeStepsDb.value = data.config.step_mobile_db || 3.0;
     }
   } catch (error) {
     console.error('Error loading volume steps config:', error);
@@ -708,14 +708,14 @@ onMounted(async () => {
   });
 
   on('settings', 'volume_steps_changed', (message) => {
-    if (message.data?.config?.mobile_volume_steps) {
-      mobileVolumeSteps.value = message.data.config.mobile_volume_steps;
+    if (message.data?.config?.step_mobile_db) {
+      mobileVolumeStepsDb.value = message.data.config.step_mobile_db;
     }
   });
 
   on('volume', 'volume_changed', (message) => {
-    if (message.data?.mobile_steps && message.data.mobile_steps !== mobileVolumeSteps.value) {
-      mobileVolumeSteps.value = message.data.mobile_steps;
+    if (message.data?.step_mobile_db && message.data.step_mobile_db !== mobileVolumeStepsDb.value) {
+      mobileVolumeStepsDb.value = message.data.step_mobile_db;
     }
   });
 

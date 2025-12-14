@@ -332,9 +332,9 @@ class SnapcastWebSocketService:
             # Initialize new clients
             for client in new_clients:
                 client_id = client.get("id")
-                client_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
-                
-                self.logger.info(f"  - Initializing new client {client_id} (current ALSA: {client_volume}%)")
+                client_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
+
+                self.logger.info(f"  - Initializing new client {client_id} (Snapcast volume: {client_volume}%)")
                 await self._notify_volume_service_client_connected(client_id, client)
             
         except Exception as e:
@@ -349,37 +349,29 @@ class SnapcastWebSocketService:
     # === STREAMLINED HANDLERS - WITHOUT VOLUME MANAGEMENT ===
 
     async def _handle_client_connect(self, params: Dict[str, Any]) -> None:
-        """Client connected - Version with converted volume (no fallback)"""
+        """Client connected - Snapcast volume is always 100% passthrough, real volume via CamillaDSP"""
         client = params.get("client", {})
         client_id = client.get("id")
         client_name = client.get("config", {}).get("name", "Unknown")
         client_host = client.get("host", {}).get("name", "Unknown")
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
-        alsa_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
+        snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
 
-        # ALSA → Display conversion (REQUIRED)
-        volume_service = getattr(self.state_machine, 'volume_service', None)
-        if not volume_service:
-            self.logger.error("❌ VolumeService not available - cannot convert volume")
-            return  # Don't send event with incorrect volume
-        
-        display_volume = volume_service.converter.alsa_to_display(alsa_volume)
-        
         self.logger.info(f"🔵 NEW CLIENT CONNECTED:")
         self.logger.info(f"  - ID: {client_id}")
         self.logger.info(f"  - Name: {client_name}")
         self.logger.info(f"  - Host: {client_host}")
         self.logger.info(f"  - IP: {client_ip}")
-        self.logger.info(f"  - ALSA volume: {alsa_volume}% → Display: {display_volume}%")
-        
+        self.logger.info(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
+
         await self._notify_volume_service_client_connected(client_id, client)
-        
+
         await self._broadcast_snapcast_event("client_connected", {
             "client_id": client_id,
             "client_name": client_name,
             "client_host": client_host,
             "client_ip": client_ip,
-            "volume": display_volume,
+            "volume": snapcast_volume,
             "muted": client.get("config", {}).get("volume", {}).get("muted", False)
         })
     
@@ -402,94 +394,67 @@ class SnapcastWebSocketService:
     # === NEW: DELEGATION TO VOLUME SERVICE + BROADCAST MUTE ===
 
     async def _delegate_volume_event_to_volume_service(self, method: str, params: Dict[str, Any]) -> None:
-        """Delegates volume events to VolumeService AND broadcasts for UI"""
+        """Broadcasts Snapcast volume/mute events (volume always 100% passthrough, real volume via CamillaDSP)"""
         try:
-            volume_service = getattr(self.state_machine, 'volume_service', None)
-            if not volume_service:
-                self.logger.warning("VolumeService not available for delegation")
-                return
-
             client_id = params.get("id")
             if not client_id:
                 return
 
             volume_data = params.get("volume", {})
-            alsa_volume = volume_data.get("percent", 0)
+            snapcast_volume = volume_data.get("percent", 100)
             muted = volume_data.get("muted", False)
 
-            # Delegate synchronization to VolumeService
-            await volume_service.sync_client_volume_from_external(client_id, alsa_volume)
-
-            # Broadcast correct event type based on notification
-            display_volume = volume_service.converter.alsa_to_display(alsa_volume)
+            # Broadcast event for UI (Snapcast volume is informational only)
             if method == "Client.OnVolumeChanged":
                 await self._broadcast_snapcast_event("client_volume_changed", {
                     "client_id": client_id,
-                    "volume": display_volume,
+                    "volume": snapcast_volume,
                     "muted": muted
                 })
             elif method == "Client.OnMute":
                 await self._broadcast_snapcast_event("client_mute_changed", {
                     "client_id": client_id,
-                    "volume": display_volume,
+                    "volume": snapcast_volume,
                     "muted": muted
                 })
 
-            self.logger.debug(f"Delegated {method} to VolumeService for client {client_id} (volume={display_volume}, muted={muted})")
+            self.logger.debug(f"Broadcast {method} for client {client_id} (snapcast_volume={snapcast_volume}, muted={muted})")
 
         except Exception as e:
-            self.logger.error(f"Error delegating to VolumeService: {e}")
+            self.logger.error(f"Error broadcasting Snapcast event: {e}")
     
     async def _notify_volume_service_client_connected(self, client_id: str, client: Dict[str, Any]) -> None:
-        """Notifies VolumeService of a new client + switches to Multiroom"""
+        """Switches new client to Multiroom group (volume controlled via CamillaDSP)"""
         try:
             self.logger.info(f"🔵 _notify_volume_service_client_connected for {client_id}")
-            
-            volume_service = getattr(self.state_machine, 'volume_service', None)
-            snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
-            
-            if not volume_service:
-                self.logger.warning("⚠️ VolumeService not available")
-                return
-            
-            # Extract client's ALSA volume
-            alsa_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
-            self.logger.info(f"  - Client ALSA volume: {alsa_volume}")
 
-            # NEW: Switch group to Multiroom BEFORE initializing volume
+            snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
+
+            # Switch group to Multiroom - Snapcast volume is always 100% passthrough
             if snapcast_service:
                 self.logger.info(f"  - Setting client group to Multiroom...")
                 await snapcast_service.set_client_group_to_multiroom(client_id)
+                # Ensure Snapcast volume is 100% passthrough
+                await snapcast_service.set_volume(client_id, 100)
+                self.logger.info(f"  - Snapcast volume set to 100% (passthrough)")
 
-            # Initialize volume
-            result = await volume_service.initialize_new_client_volume(client_id, alsa_volume)
-            self.logger.info(f"  - initialize_new_client_volume result: {result}")
-            
         except Exception as e:
             self.logger.error(f"❌ Error initializing new client: {e}", exc_info=True)
 
     async def _sync_existing_client_volume(self, client_id: str, client: Dict[str, Any]) -> None:
-        """Synchronizes existing client volume from Snapcast"""
+        """Ensures existing client is in Multiroom group with 100% volume passthrough"""
         try:
             self.logger.info(f"🔄 _sync_existing_client_volume for {client_id}")
 
-            volume_service = getattr(self.state_machine, 'volume_service', None)
             snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
 
-            if not volume_service:
-                self.logger.warning("⚠️ VolumeService not available")
-                return
-
-            snapcast_alsa_volume = client.get("config", {}).get("volume", {}).get("percent", 0)
-            self.logger.info(f"  - Client ALSA volume from Snapcast: {snapcast_alsa_volume}")
-
-            # Sync existing volume without modifying it
-            await volume_service.sync_existing_client_from_snapcast(client_id, snapcast_alsa_volume)
-
-            # Switch group to Multiroom (necessary even for existing clients)
+            # Switch group to Multiroom and ensure 100% volume
             if snapcast_service:
                 self.logger.info(f"  - Setting client group to Multiroom...")
                 await snapcast_service.set_client_group_to_multiroom(client_id)
+                # Ensure Snapcast volume is 100% passthrough
+                await snapcast_service.set_volume(client_id, 100)
+                self.logger.info(f"  - Snapcast volume set to 100% (passthrough)")
 
         except Exception as e:
             self.logger.error(f"❌ Error syncing existing client {client_id}: {e}", exc_info=True)

@@ -343,6 +343,16 @@ class DelayUpdate(BaseModel):
     right: Optional[float] = None
 
 
+class VolumeUpdate(BaseModel):
+    """Model for volume update request"""
+    volume: float
+
+
+class MuteUpdate(BaseModel):
+    """Model for mute update request"""
+    muted: bool
+
+
 class DSPManager:
     """Manager for CamillaDSP operations"""
 
@@ -373,6 +383,7 @@ class DSPManager:
             "low_boost": 8.0
         }
         self._delay = {"left": 0.0, "right": 0.0}
+        self._volume = {"main": 0.0, "mute": False}
 
     async def connect(self) -> bool:
         """Connect to local CamillaDSP"""
@@ -739,6 +750,54 @@ class DSPManager:
             self.logger.error(f"Error setting delay: {e}")
             return False
 
+    async def get_volume(self) -> Dict[str, Any]:
+        """Get current DSP volume settings"""
+        if self._connected and self._client:
+            try:
+                volume = await asyncio.get_event_loop().run_in_executor(
+                    None, self._client.volume.main
+                )
+                mute = await asyncio.get_event_loop().run_in_executor(
+                    None, self._client.volume.main_mute
+                )
+                self._volume["main"] = volume
+                self._volume["mute"] = mute
+            except Exception as e:
+                self.logger.warning(f"Error getting volume from CamillaDSP: {e}")
+        return self._volume
+
+    async def set_volume(self, volume: float) -> bool:
+        """Set DSP volume in dB"""
+        self._volume["main"] = max(-60, min(0, volume))
+
+        if not self._connected:
+            return True
+
+        try:
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda v=self._volume["main"]: self._client.volume.set_main_volume(v)
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting volume: {e}")
+            return False
+
+    async def set_mute(self, muted: bool) -> bool:
+        """Set DSP mute state"""
+        self._volume["mute"] = muted
+
+        if not self._connected:
+            return True
+
+        try:
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda m=muted: self._client.volume.set_main_mute(m)
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting mute: {e}")
+            return False
+
     def _add_filter_to_pipeline(self, config: Dict, filter_name: str,
                                 channels: List[int] = None) -> None:
         """Add a filter to the pipeline"""
@@ -1043,6 +1102,44 @@ async def update_delay(update: DelayUpdate):
         raise
     except Exception as e:
         logger.error(f"Error updating delay: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/dsp/volume")
+async def get_volume():
+    """Get DSP volume settings"""
+    return await dsp_manager.get_volume()
+
+
+@app.put("/dsp/volume")
+async def update_volume(update: VolumeUpdate):
+    """Update DSP volume"""
+    try:
+        success = await dsp_manager.set_volume(update.volume)
+        if success:
+            return {"status": "success", **dsp_manager._volume}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update volume")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating volume: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/dsp/mute")
+async def update_mute(update: MuteUpdate):
+    """Update DSP mute state"""
+    try:
+        success = await dsp_manager.set_mute(update.muted)
+        if success:
+            return {"status": "success", "muted": dsp_manager._volume["mute"]}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update mute")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating mute: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

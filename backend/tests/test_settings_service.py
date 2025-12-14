@@ -58,8 +58,8 @@ class TestSettingsService:
         assert os.path.exists(service.settings_file)
         # Check main keys (validation may modify some keys)
         assert settings['language'] == 'english'
-        assert settings['volume']['alsa_min'] == service.defaults['volume']['alsa_min']
-        assert settings['volume']['alsa_max'] == service.defaults['volume']['alsa_max']
+        assert settings['volume']['limit_min_db'] == service.defaults['volume']['limit_min_db']
+        assert settings['volume']['limit_max_db'] == service.defaults['volume']['limit_max_db']
         assert settings['routing'] == service.defaults['routing']
         assert service._cache is not None
 
@@ -69,7 +69,7 @@ class TestSettingsService:
         # Write settings to file
         test_settings = {
             'language': 'english',
-            'volume': {'alsa_min': 10, 'alsa_max': 80},
+            'volume': {'limit_min_db': -50.0, 'limit_max_db': -15.0},
             'screen': {'timeout_seconds': 15, 'brightness_on': 7},
             'spotify': {'auto_disconnect_delay': 20.0},
             'routing': {'multiroom_enabled': True, 'equalizer_enabled': False},
@@ -82,8 +82,8 @@ class TestSettingsService:
         settings = await service.load_settings()
 
         assert settings['language'] == 'english'
-        assert settings['volume']['alsa_min'] == 10
-        assert settings['volume']['alsa_max'] == 80
+        assert settings['volume']['limit_min_db'] == -50.0
+        assert settings['volume']['limit_max_db'] == -15.0
 
     @pytest.mark.asyncio
     async def test_save_settings_success(self, service):
@@ -112,26 +112,26 @@ class TestSettingsService:
         assert result['language'] == 'english'
 
     def test_validate_and_merge_volume(self, service):
-        """Volume validation test"""
+        """Volume validation test (dB-based)"""
         # Normal values
         result = service._validate_and_merge({
-            'volume': {'alsa_min': 20, 'alsa_max': 70}
+            'volume': {'limit_min_db': -50.0, 'limit_max_db': -15.0}
         })
-        assert result['volume']['alsa_min'] == 20
-        assert result['volume']['alsa_max'] == 70
+        assert result['volume']['limit_min_db'] == -50.0
+        assert result['volume']['limit_max_db'] == -15.0
 
-        # Minimum gap of 10
+        # Minimum gap of 6 dB
         result = service._validate_and_merge({
-            'volume': {'alsa_min': 50, 'alsa_max': 55}
+            'volume': {'limit_min_db': -25.0, 'limit_max_db': -23.0}
         })
-        assert result['volume']['alsa_max'] - result['volume']['alsa_min'] >= 10
+        assert result['volume']['limit_max_db'] - result['volume']['limit_min_db'] >= 6.0
 
-        # Out of bounds values
+        # Out of bounds values (dB range is -80 to 0)
         result = service._validate_and_merge({
-            'volume': {'alsa_min': -10, 'alsa_max': 150}
+            'volume': {'limit_min_db': -90.0, 'limit_max_db': 10.0}
         })
-        assert result['volume']['alsa_min'] >= 0
-        assert result['volume']['alsa_max'] <= 100
+        assert result['volume']['limit_min_db'] >= -80.0
+        assert result['volume']['limit_max_db'] <= 0.0
 
     def test_validate_and_merge_screen_timeout_zero(self, service):
         """Screen timeout validation test with 0 = disabled"""
@@ -226,12 +226,12 @@ class TestSettingsService:
     async def test_get_setting_nested(self, service):
         """Nested setting retrieval test"""
         service._cache = {
-            'volume': {'alsa_min': 10, 'alsa_max': 65}
+            'volume': {'limit_min_db': -50.0, 'limit_max_db': -21.0}
         }
 
-        value = await service.get_setting('volume.alsa_min')
+        value = await service.get_setting('volume.limit_min_db')
 
-        assert value == 10
+        assert value == -50.0
 
     @pytest.mark.asyncio
     async def test_get_setting_not_found(self, service):
@@ -280,13 +280,13 @@ class TestSettingsService:
         """Nested setting modification test"""
         service._cache = service.defaults.copy()
 
-        result = await service.set_setting('volume.alsa_min', 20)
+        result = await service.set_setting('volume.limit_min_db', -45.0)
 
         assert result is True
 
         # Check that value has been saved
-        saved_value = await service.get_setting('volume.alsa_min')
-        assert saved_value == 20
+        saved_value = await service.get_setting('volume.limit_min_db')
+        assert saved_value == -45.0
 
     @pytest.mark.asyncio
     async def test_set_setting_create_nested_path_in_existing_section(self, service):
@@ -307,26 +307,26 @@ class TestSettingsService:
         assert result is True
 
     def test_get_volume_config(self, service):
-        """Complete volume config retrieval test"""
+        """Complete volume config retrieval test (dB-based)"""
         service._cache = {
             'volume': {
-                'alsa_min': 10,
-                'alsa_max': 70,
-                'startup_volume': 40,
+                'limit_min_db': -50.0,
+                'limit_max_db': -15.0,
+                'startup_volume_db': -25.0,
                 'restore_last_volume': True,
-                'mobile_volume_steps': 3,
-                'rotary_volume_steps': 1
+                'step_mobile_db': 4.0,
+                'step_rotary_db': 3.0
             }
         }
 
         config = service.get_volume_config()
 
-        assert config['alsa_min'] == 10
-        assert config['alsa_max'] == 70
-        assert config['startup_volume'] == 40
+        assert config['limit_min_db'] == -50.0
+        assert config['limit_max_db'] == -15.0
+        assert config['startup_volume_db'] == -25.0
         assert config['restore_last_volume'] is True
-        assert config['mobile_volume_steps'] == 3
-        assert config['rotary_volume_steps'] == 1
+        assert config['step_mobile_db'] == 4.0
+        assert config['step_rotary_db'] == 3.0
 
     @pytest.mark.asyncio
     async def test_migration_display_to_screen(self, service, temp_settings_file):
@@ -363,8 +363,8 @@ class TestSettingsService:
         # Should fallback to defaults (after validation, some keys may be absent)
         # Check main keys instead of strict equality
         assert settings['language'] == 'english'
-        assert settings['volume']['alsa_min'] == service.defaults['volume']['alsa_min']
-        assert settings['volume']['alsa_max'] == service.defaults['volume']['alsa_max']
+        assert settings['volume']['limit_min_db'] == service.defaults['volume']['limit_min_db']
+        assert settings['volume']['limit_max_db'] == service.defaults['volume']['limit_max_db']
         assert settings['routing'] == service.defaults['routing']
         assert service._cache is not None
 

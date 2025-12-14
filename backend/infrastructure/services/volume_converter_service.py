@@ -1,129 +1,76 @@
 # backend/infrastructure/services/volume_converter_service.py
 """
-Volume conversion service for ALSA <-> Display volume transformations.
-Handles the mathematical conversion between raw ALSA percentages and user-facing display volumes.
+Volume conversion service for dB volume management.
+All volume values are in decibels (-80 to 0 dB).
+ALSA is always set to 100% passthrough - no conversion needed.
 """
 
 
 class VolumeConverterService:
-    """Service for converting between ALSA and display volume scales."""
+    """Service for dB volume operations."""
 
-    def __init__(self, alsa_min: int = 0, alsa_max: int = 65):
+    def __init__(self, limit_min_db: float = -80.0, limit_max_db: float = -21.0):
         """
-        Initialize converter with ALSA limits.
+        Initialize converter with dB limits.
 
         Args:
-            alsa_min: Minimum ALSA volume (default 0)
-            alsa_max: Maximum ALSA volume (default 65)
+            limit_min_db: Minimum volume in dB (default -80.0)
+            limit_max_db: Maximum volume in dB (default -21.0)
         """
-        self._alsa_min = alsa_min
-        self._alsa_max = alsa_max
+        self._limit_min_db = limit_min_db
+        self._limit_max_db = limit_max_db
 
-    def update_limits(self, alsa_min: int, alsa_max: int) -> None:
-        """Update ALSA limits (called when config changes)."""
-        self._alsa_min = alsa_min
-        self._alsa_max = alsa_max
+    def update_limits(self, min_db: float, max_db: float) -> None:
+        """Update volume limits (called when config changes)."""
+        self._limit_min_db = min_db
+        self._limit_max_db = max_db
 
     @property
-    def alsa_min(self) -> int:
-        """Get current ALSA minimum."""
-        return self._alsa_min
+    def limit_min_db(self) -> float:
+        """Get current minimum volume in dB."""
+        return self._limit_min_db
 
     @property
-    def alsa_max(self) -> int:
-        """Get current ALSA maximum."""
-        return self._alsa_max
+    def limit_max_db(self) -> float:
+        """Get current maximum volume in dB."""
+        return self._limit_max_db
 
-    @property
-    def alsa_range(self) -> int:
-        """Get ALSA volume range."""
-        return self._alsa_max - self._alsa_min
-
-    def alsa_to_display(self, alsa_volume: int) -> int:
+    def clamp_db(self, volume_db: float) -> float:
         """
-        Convert ALSA raw volume to display percentage (0-100%).
+        Clamp volume to configured dB limits.
 
         Args:
-            alsa_volume: Raw ALSA volume value
+            volume_db: Volume in dB to clamp
 
         Returns:
-            Display volume as integer (0-100)
+            Clamped volume in dB
         """
-        normalized = alsa_volume - self._alsa_min
-        return round((normalized / self.alsa_range) * 100)
+        return max(self._limit_min_db, min(self._limit_max_db, volume_db))
 
-    def display_to_alsa(self, display_volume: int) -> int:
+    def db_to_percent(self, db: float) -> int:
         """
-        Convert display percentage to ALSA raw volume.
+        Convert dB to percentage (for UI progress bar only).
+        Maps -80 dB to 0% and 0 dB to 100%.
 
         Args:
-            display_volume: Display volume (0-100)
+            db: Volume in dB (-80 to 0)
 
         Returns:
-            ALSA raw volume value
+            Percentage (0-100)
         """
-        return round((display_volume / 100) * self.alsa_range) + self._alsa_min
+        clamped = max(-80.0, min(0.0, db))
+        return round(((clamped + 80.0) / 80.0) * 100.0)
 
-    def display_to_alsa_precise(self, display_volume: float) -> int:
+    def percent_to_db(self, percent: float) -> float:
         """
-        Convert precise display volume (float) to ALSA raw volume.
+        Convert percentage to dB.
+        Maps 0% to -80 dB and 100% to 0 dB.
 
         Args:
-            display_volume: Precise display volume as float
+            percent: Percentage (0-100)
 
         Returns:
-            ALSA raw volume value
+            Volume in dB (-80 to 0)
         """
-        return round((display_volume / 100.0) * self.alsa_range) + self._alsa_min
-
-    def display_to_alsa_with_old_limits(self, display_volume: int, old_min: int, old_max: int) -> int:
-        """
-        Convert display volume using old ALSA limits (for limit change migration).
-
-        Args:
-            display_volume: Display volume (0-100)
-            old_min: Previous ALSA minimum
-            old_max: Previous ALSA maximum
-
-        Returns:
-            ALSA raw volume using old limits
-        """
-        old_range = old_max - old_min
-        return round((display_volume / 100) * old_range) + old_min
-
-    def clamp_display(self, display_volume: float) -> float:
-        """
-        Clamp display volume to valid range (0-100%).
-
-        Args:
-            display_volume: Volume to clamp
-
-        Returns:
-            Clamped volume (0.0-100.0)
-        """
-        return max(0.0, min(100.0, display_volume))
-
-    def clamp_alsa(self, alsa_volume: int) -> int:
-        """
-        Clamp ALSA volume to configured min/max range.
-
-        Args:
-            alsa_volume: ALSA volume to clamp
-
-        Returns:
-            Clamped ALSA volume
-        """
-        return max(self._alsa_min, min(self._alsa_max, alsa_volume))
-
-    @staticmethod
-    def round_half_up(value: float) -> int:
-        """
-        Standard mathematical rounding (half-up).
-
-        Args:
-            value: Float value to round
-
-        Returns:
-            Rounded integer
-        """
-        return int(value + 0.5)
+        clamped = max(0.0, min(100.0, percent))
+        return -80.0 + (clamped / 100.0) * 80.0
