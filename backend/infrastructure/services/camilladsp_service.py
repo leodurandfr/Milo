@@ -102,6 +102,14 @@ class CamillaDSPService:
         """Whether we have an active connection to CamillaDSP"""
         return self._connected and self._client is not None
 
+    def is_volume_control_available(self) -> bool:
+        """
+        Check if DSP can be used for volume control.
+        Returns True when connected and ready (inactive, running, or paused).
+        Volume can be set even when no audio is playing (inactive state).
+        """
+        return self._connected and self._state in (DspState.INACTIVE, DspState.RUNNING, DspState.PAUSED)
+
     async def initialize(self) -> bool:
         """Initialize the CamillaDSP service"""
         try:
@@ -150,8 +158,8 @@ class CamillaDSPService:
 
                 self.logger.info(f"Connected to CamillaDSP at {self.host}:{self.port}, state: {self._state}")
 
-                # Broadcast connection event
-                await self._broadcast_event("connected", {"state": self._state.value})
+                # Broadcast state change event (frontend listens for 'state_changed')
+                await self._broadcast_event("state_changed", {"state": self._state.value})
 
                 return True
 
@@ -177,7 +185,8 @@ class CamillaDSPService:
             self._connected = False
             self._state = DspState.DISCONNECTED
 
-            await self._broadcast_event("disconnected", {})
+            # Broadcast state change event (frontend listens for 'state_changed')
+            await self._broadcast_event("state_changed", {"state": self._state.value})
 
     async def _get_daemon_state(self) -> DspState:
         """Get current daemon state"""
@@ -976,6 +985,100 @@ class CamillaDSPService:
 
         except Exception as e:
             self.logger.error(f"Error deleting preset: {e}")
+            return False
+
+    # === Effects Bypass/Restore (for DSP toggle) ===
+
+    async def bypass_effects(self) -> bool:
+        """
+        Bypass all DSP effects while keeping volume control active.
+
+        This is called when user disables "DSP" toggle. CamillaDSP keeps running
+        but all audio processing (EQ, compressor, loudness) is bypassed.
+        """
+        if not self._connected:
+            self.logger.warning("Cannot bypass effects: not connected")
+            return False
+
+        try:
+            self.logger.info("Bypassing all DSP effects...")
+
+            # 1. Reset all EQ filters to 0 dB gain
+            for f in self._filters:
+                await self.set_filter(
+                    filter_id=f["id"],
+                    freq=f["freq"],
+                    gain=0,  # Bypass = 0 dB gain
+                    q=f.get("q", 1.0),
+                    filter_type=f.get("type", "Peaking")
+                )
+
+            # 2. Disable compressor (keep settings for restore)
+            await self.set_compressor(enabled=False)
+
+            # 3. Disable loudness (keep settings for restore)
+            await self.set_loudness(enabled=False)
+
+            # 4. Reset delay to 0
+            await self.set_delay(left=0, right=0)
+
+            self.logger.info("DSP effects bypassed (volume unchanged)")
+            await self._broadcast_event("effects_bypassed", {"bypassed": True})
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error bypassing effects: {e}")
+            return False
+
+    async def restore_effects(self) -> bool:
+        """
+        Restore all DSP effects from saved settings.
+
+        This is called when user enables "DSP" toggle. Restores EQ filters,
+        compressor, and loudness from saved settings.
+        """
+        if not self._connected:
+            self.logger.warning("Cannot restore effects: not connected")
+            return False
+
+        try:
+            self.logger.info("Restoring DSP effects from settings...")
+
+            # 1. Restore EQ filters from settings
+            if self.settings_service:
+                saved_filters = await self.settings_service.get_setting("dsp.filters")
+                if saved_filters:
+                    for f in saved_filters:
+                        await self.set_filter(
+                            filter_id=f["id"],
+                            freq=f["freq"],
+                            gain=f.get("gain", 0),
+                            q=f.get("q", 1.0),
+                            filter_type=f.get("type", "Peaking")
+                        )
+                    self._filters = saved_filters
+
+                # 2. Restore compressor settings
+                saved_compressor = await self.settings_service.get_setting("dsp.compressor")
+                if saved_compressor:
+                    await self.set_compressor(**saved_compressor)
+
+                # 3. Restore loudness settings
+                saved_loudness = await self.settings_service.get_setting("dsp.loudness")
+                if saved_loudness:
+                    await self.set_loudness(**saved_loudness)
+
+                # 4. Restore delay settings
+                saved_delay = await self.settings_service.get_setting("dsp.delay")
+                if saved_delay:
+                    await self.set_delay(**saved_delay)
+
+            self.logger.info("DSP effects restored from settings")
+            await self._broadcast_event("effects_restored", {"bypassed": False})
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error restoring effects: {e}")
             return False
 
     # === Configuration Persistence ===

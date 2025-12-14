@@ -2,6 +2,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
+import { useSettingsStore } from './settingsStore';
+import { useDspStore } from './dspStore';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === SINGLE SYSTEM STATE ===
@@ -16,9 +18,10 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     equalizer_enabled: false
   });
 
-  // === VOLUME STATE ===
+  // === VOLUME STATE (in dB) ===
   const volumeState = ref({
-    currentVolume: 0
+    volume_db: -30.0,          // Current volume in dB (-60 to 0)
+    step_mobile_db: 3.0        // Volume step for mobile buttons
   });
 
   // Volume bar visibility state (replaces component coupling)
@@ -85,16 +88,16 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  // === VOLUME ACTIONS ===
-  async function setVolume(volume, showBar = true) {
+  // === VOLUME ACTIONS (all in dB) ===
+  async function setVolume(volume_db, showBar = true) {
     try {
       const response = await axios.post('/api/volume/set', {
-        volume,
+        volume_db,
         show_bar: showBar
       });
 
       if (response.data.status === 'success') {
-        volumeState.value.currentVolume = response.data.volume;
+        volumeState.value.volume_db = response.data.volume_db;
         return true;
       }
       return false;
@@ -105,9 +108,9 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  async function adjustVolume(delta, showBar = true) {
+  async function adjustVolume(delta_db, showBar = true) {
     try {
-      const response = await axios.post('/api/volume/adjust', { delta, show_bar: showBar });
+      const response = await axios.post('/api/volume/adjust', { delta_db, show_bar: showBar });
       return response.data.status === 'success';
     } catch (error) {
       console.error('Error adjusting volume:', error);
@@ -116,11 +119,13 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   async function increaseVolume() {
-    return await adjustVolume(5);
+    const step = volumeState.value.step_mobile_db || 3.0;
+    return await adjustVolume(step);
   }
 
   async function decreaseVolume() {
-    return await adjustVolume(-5);
+    const step = volumeState.value.step_mobile_db || 3.0;
+    return await adjustVolume(-step);
   }
 
   // === WEBSOCKET STATE UPDATES ===
@@ -224,15 +229,34 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   function handleVolumeEvent(event) {
-    if (event.data && typeof event.data.volume === 'number') {
-      volumeState.value.currentVolume = event.data.volume;
+    if (event.data && typeof event.data.volume_db === 'number') {
+      volumeState.value.volume_db = event.data.volume_db;
 
-      // Show volume bar and auto-hide after 3 seconds
-      if (volumeBarHideTimer) clearTimeout(volumeBarHideTimer);
-      showVolumeBar.value = true;
-      volumeBarHideTimer = setTimeout(() => {
-        showVolumeBar.value = false;
-      }, 3000);
+      // Update step if provided
+      if (typeof event.data.step_mobile_db === 'number') {
+        volumeState.value.step_mobile_db = event.data.step_mobile_db;
+      }
+
+      // Sync multiroom client volumes if provided
+      if (event.data.client_volumes && systemState.value.multiroom_enabled) {
+        try {
+          const dspStore = useDspStore();
+          for (const [hostname, volumeDb] of Object.entries(event.data.client_volumes)) {
+            dspStore.setClientDspVolume(hostname, volumeDb);
+          }
+        } catch (e) {
+          // DSP store may not be initialized yet
+        }
+      }
+
+      // Show volume bar and auto-hide after 3 seconds (only if show_bar is true or not specified)
+      if (event.data.show_bar !== false) {
+        if (volumeBarHideTimer) clearTimeout(volumeBarHideTimer);
+        showVolumeBar.value = true;
+        volumeBarHideTimer = setTimeout(() => {
+          showVolumeBar.value = false;
+        }, 3000);
+      }
     }
   }
 

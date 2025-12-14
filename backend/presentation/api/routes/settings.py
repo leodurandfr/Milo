@@ -10,7 +10,6 @@ from backend.infrastructure.plugins.podcast.taddy_api import TaddyAPI
 from backend.presentation.api.models import (
     LanguageRequest,
     VolumeLimitsRequest,
-    VolumeLimitsToggleRequest,
     VolumeStartupRequest,
     VolumeStepsRequest,
     RotaryStepsRequest,
@@ -111,25 +110,24 @@ def create_settings_router(
             event_data={"language": payload.language}
         )
     
-    # Volume limits
+    # Volume limits (in dB)
     @router.get("/volume-limits")
     async def get_volume_limits():
         vol = await settings.get_setting('volume') or {}
         return {
             "status": "success",
             "limits": {
-                "alsa_min": vol.get("alsa_min", 0),
-                "alsa_max": vol.get("alsa_max", 65),
-                "limits_enabled": vol.get("limits_enabled", True)
+                "min_db": vol.get("limit_min_db", -80.0),
+                "max_db": vol.get("limit_max_db", -21.0)
             }
         }
-    
+
     @router.post("/volume-limits")
     async def set_volume_limits(payload: VolumeLimitsRequest):
         async def setter():
             return (
-                await settings.set_setting('volume.alsa_min', payload.alsa_min) and
-                await settings.set_setting('volume.alsa_max', payload.alsa_max)
+                await settings.set_setting('volume.limit_min_db', payload.min_db) and
+                await settings.set_setting('volume.limit_max_db', payload.max_db)
             )
 
         return await _handle_setting_update(
@@ -137,60 +135,27 @@ def create_settings_router(
             validator=lambda p: True,  # Validated by Pydantic
             setter=setter,
             event_type="volume_limits_changed",
-            event_data={"limits": {"alsa_min": payload.alsa_min, "alsa_max": payload.alsa_max}},
+            event_data={"limits": {"min_db": payload.min_db, "max_db": payload.max_db}},
             reload_callback=volume_service.reload_volume_limits
         )
     
-    @router.post("/volume-limits/toggle")
-    async def toggle_volume_limits(payload: VolumeLimitsToggleRequest):
-        enabled = payload.enabled
-
-        if enabled:
-            current_min = await settings.get_setting('volume.alsa_min') or 0
-            current_max = await settings.get_setting('volume.alsa_max') or 65
-        else:
-            current_min = 0
-            current_max = 100
-
-        async def setter():
-            return (
-                await settings.set_setting('volume.limits_enabled', enabled) and
-                await settings.set_setting('volume.alsa_min', current_min) and
-                await settings.set_setting('volume.alsa_max', current_max)
-            )
-
-        return await _handle_setting_update(
-            payload,
-            validator=lambda p: True,  # Validated by Pydantic
-            setter=setter,
-            event_type="volume_limits_toggled",
-            event_data={
-                "limits_enabled": enabled,
-                "limits": {
-                    "alsa_min": current_min,
-                    "alsa_max": current_max
-                }
-            },
-            reload_callback=volume_service.reload_volume_limits
-        )
-    
-    # Volume startup
+    # Volume startup (in dB)
     @router.get("/volume-startup")
     async def get_volume_startup():
         vol = await settings.get_setting('volume') or {}
         return {
             "status": "success",
             "config": {
-                "startup_volume": vol.get("startup_volume", 37),
+                "startup_volume_db": vol.get("startup_volume_db", -30.0),
                 "restore_last_volume": vol.get("restore_last_volume", False)
             }
         }
-    
+
     @router.post("/volume-startup")
     async def set_volume_startup(payload: VolumeStartupRequest):
         async def setter():
             return (
-                await settings.set_setting('volume.startup_volume', payload.startup_volume) and
+                await settings.set_setting('volume.startup_volume_db', payload.startup_volume_db) and
                 await settings.set_setting('volume.restore_last_volume', payload.restore_last_volume)
             )
 
@@ -199,47 +164,47 @@ def create_settings_router(
             validator=lambda p: True,  # Validated by Pydantic
             setter=setter,
             event_type="volume_startup_changed",
-            event_data={"config": {"startup_volume": payload.startup_volume, "restore_last_volume": payload.restore_last_volume}},
+            event_data={"config": {"startup_volume_db": payload.startup_volume_db, "restore_last_volume": payload.restore_last_volume}},
             reload_callback=volume_service.reload_startup_config
         )
-    
-    # Volume steps (mobile)
+
+    # Volume steps (mobile, in dB)
     @router.get("/volume-steps")
     async def get_volume_steps():
         vol = await settings.get_setting('volume') or {}
         return {
             "status": "success",
-            "config": {"mobile_volume_steps": vol.get("mobile_volume_steps", 5)}
+            "config": {"step_mobile_db": vol.get("step_mobile_db", 3.0)}
         }
-    
+
     @router.post("/volume-steps")
     async def set_volume_steps(payload: VolumeStepsRequest):
         return await _handle_setting_update(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
-            setter=lambda: settings.set_setting('volume.mobile_volume_steps', payload.mobile_volume_steps),
+            setter=lambda: settings.set_setting('volume.step_mobile_db', payload.step_mobile_db),
             event_type="volume_steps_changed",
-            event_data={"config": {"mobile_volume_steps": payload.mobile_volume_steps}},
+            event_data={"config": {"step_mobile_db": payload.step_mobile_db}},
             reload_callback=volume_service.reload_volume_steps_config
         )
-    
-    # Rotary steps
+
+    # Rotary steps (in dB)
     @router.get("/rotary-steps")
     async def get_rotary_steps():
         vol = await settings.get_setting('volume') or {}
         return {
             "status": "success",
-            "config": {"rotary_volume_steps": vol.get("rotary_volume_steps", 2)}
+            "config": {"step_rotary_db": vol.get("step_rotary_db", 2.0)}
         }
-    
+
     @router.post("/rotary-steps")
     async def set_rotary_steps(payload: RotaryStepsRequest):
         return await _handle_setting_update(
             payload,
             validator=lambda p: True,  # Validated by Pydantic
-            setter=lambda: settings.set_setting('volume.rotary_volume_steps', payload.rotary_volume_steps),
+            setter=lambda: settings.set_setting('volume.step_rotary_db', payload.step_rotary_db),
             event_type="rotary_steps_changed",
-            event_data={"config": {"rotary_volume_steps": payload.rotary_volume_steps}},
+            event_data={"config": {"step_rotary_db": payload.step_rotary_db}},
             reload_callback=volume_service.reload_rotary_steps_config
         )
     

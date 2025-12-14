@@ -1,7 +1,7 @@
 # backend/infrastructure/services/volume_storage_service.py
 """
 Volume storage service for persisting and restoring volume state.
-Handles saving/loading the last volume to/from persistent storage.
+All values are in decibels (dB).
 """
 import asyncio
 import json
@@ -37,12 +37,12 @@ class VolumeStorageService:
         except Exception as e:
             self.logger.error(f"Failed to create data directory: {e}")
 
-    def save(self, display_volume: int, enabled: bool = True) -> None:
+    def save(self, volume_db: float, enabled: bool = True) -> None:
         """
         Save volume in background (non-blocking).
 
         Args:
-            display_volume: Volume to save (0-100)
+            volume_db: Volume to save in dB (-80 to 0)
             enabled: Whether volume restore is enabled
         """
         if not enabled:
@@ -51,7 +51,7 @@ class VolumeStorageService:
         async def save_async():
             try:
                 data = {
-                    "last_volume": display_volume,
+                    "volume_db": volume_db,
                     "timestamp": time.time()
                 }
                 temp_file = self.file_path.with_suffix('.tmp')
@@ -68,12 +68,12 @@ class VolumeStorageService:
         # Keep reference to prevent task from being garbage collected
         self._save_task = asyncio.create_task(save_async())
 
-    def load(self) -> Optional[int]:
+    def load(self) -> Optional[float]:
         """
         Load last saved volume from persistent storage.
 
         Returns:
-            Last volume (0-100) or None if not available/expired
+            Last volume in dB or None if not available/expired
         """
         try:
             if not self.file_path.exists():
@@ -82,36 +82,46 @@ class VolumeStorageService:
             with open(self.file_path, 'r') as f:
                 data = json.load(f)
 
-            last_volume = data.get('last_volume')
+            # Support both new (volume_db) and old (last_volume) format for migration
+            if 'volume_db' in data:
+                volume_db = data['volume_db']
+            elif 'last_volume' in data:
+                # Migrate from old percentage format
+                old_percent = data['last_volume']
+                volume_db = -80.0 + (old_percent / 100.0) * 80.0
+                self.logger.info(f"Migrated volume from {old_percent}% to {volume_db:.1f} dB")
+            else:
+                return None
+
             timestamp = data.get('timestamp', 0)
             age_days = (time.time() - timestamp) / (24 * 3600)
 
             # Validate: not too old and within valid range
-            if age_days > self.MAX_AGE_DAYS or not (0 <= last_volume <= 100):
+            if age_days > self.MAX_AGE_DAYS or not (-80.0 <= volume_db <= 0.0):
                 return None
 
-            self.logger.info(f"Restored last volume: {last_volume}%")
-            return last_volume
+            self.logger.info(f"Restored last volume: {volume_db:.1f} dB")
+            return volume_db
 
         except Exception:
             return None
 
-    def get_startup_volume(self, default_volume: int, restore_enabled: bool) -> int:
+    def get_startup_volume(self, default_volume_db: float, restore_enabled: bool) -> float:
         """
         Determine startup volume (restored or default).
 
         Args:
-            default_volume: Default startup volume
+            default_volume_db: Default startup volume in dB
             restore_enabled: Whether volume restore is enabled
 
         Returns:
-            Volume to use at startup
+            Volume to use at startup in dB
         """
         if restore_enabled:
             last_volume = self.load()
             if last_volume is not None:
                 return last_volume
-        return default_volume
+        return default_volume_db
 
     async def cleanup(self) -> None:
         """Wait for pending save task to complete."""

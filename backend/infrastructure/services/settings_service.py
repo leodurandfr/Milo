@@ -21,13 +21,12 @@ class SettingsService:
         self.defaults = {
             "language": "english",
             "volume": {
-                "limits_enabled": True,
-                "alsa_min": 0,
-                "alsa_max": 65,
+                "limit_min_db": -80.0,
+                "limit_max_db": -21.0,
                 "restore_last_volume": False,
-                "startup_volume": 24,
-                "mobile_volume_steps": 5,
-                "rotary_volume_steps": 2
+                "startup_volume_db": -30.0,
+                "step_mobile_db": 3.0,
+                "step_rotary_db": 2.0
             },
             "screen": {
                 "timeout_enabled": True,
@@ -142,24 +141,25 @@ class SettingsService:
         valid_languages = ['french', 'english', 'spanish', 'hindi', 'chinese', 'portuguese', 'italian', 'german']
         validated['language'] = settings.get('language') if settings.get('language') in valid_languages else 'english'
         
-        # Volume
+        # Volume (all values in dB, -80 to 0 range)
         vol_input = settings.get('volume', {})
         vol = {}
-        vol['limits_enabled'] = bool(vol_input.get('limits_enabled', True))
-        vol['alsa_min'] = max(0, min(100, int(vol_input.get('alsa_min', 0))))
-        vol['alsa_max'] = max(0, min(100, int(vol_input.get('alsa_max', 65))))
-        
-        # Guarantee minimum gap
-        if vol['alsa_max'] - vol['alsa_min'] < 10:
-            vol['alsa_max'] = vol['alsa_min'] + 10
-            if vol['alsa_max'] > 100:
-                vol['alsa_max'] = 100
-                vol['alsa_min'] = 90
-        
+
+        # Limits in dB (-80 to 0)
+        vol['limit_min_db'] = max(-80.0, min(0.0, float(vol_input.get('limit_min_db', -80.0))))
+        vol['limit_max_db'] = max(-80.0, min(0.0, float(vol_input.get('limit_max_db', -21.0))))
+
+        # Guarantee minimum gap of 6 dB
+        if vol['limit_max_db'] - vol['limit_min_db'] < 6.0:
+            vol['limit_max_db'] = vol['limit_min_db'] + 6.0
+            if vol['limit_max_db'] > 0.0:
+                vol['limit_max_db'] = 0.0
+                vol['limit_min_db'] = -6.0
+
         vol['restore_last_volume'] = bool(vol_input.get('restore_last_volume', False))
-        vol['startup_volume'] = max(vol['alsa_min'], min(vol['alsa_max'], int(vol_input.get('startup_volume', 37))))
-        vol['mobile_volume_steps'] = max(1, min(10, int(vol_input.get('mobile_volume_steps', 5))))
-        vol['rotary_volume_steps'] = max(1, min(10, int(vol_input.get('rotary_volume_steps', 2))))
+        vol['startup_volume_db'] = max(vol['limit_min_db'], min(vol['limit_max_db'], float(vol_input.get('startup_volume_db', -30.0))))
+        vol['step_mobile_db'] = max(1.0, min(6.0, float(vol_input.get('step_mobile_db', 3.0))))
+        vol['step_rotary_db'] = max(1.0, min(6.0, float(vol_input.get('step_rotary_db', 2.0))))
         validated['volume'] = vol
         
         # Screen - MODIFIED: Accept 0 for timeout_seconds (disabled)
@@ -307,22 +307,22 @@ class SettingsService:
         """Synchronous helper method (uses cache only)"""
         volume_settings = self._cache.get('volume', {}) if self._cache else {}
         return {
-            "alsa_min": volume_settings.get("alsa_min", 0),
-            "alsa_max": volume_settings.get("alsa_max", 65),
-            "startup_volume": volume_settings.get("startup_volume", 37),
+            "limit_min_db": volume_settings.get("limit_min_db", -80.0),
+            "limit_max_db": volume_settings.get("limit_max_db", -21.0),
+            "startup_volume_db": volume_settings.get("startup_volume_db", -30.0),
             "restore_last_volume": volume_settings.get("restore_last_volume", False),
-            "mobile_volume_steps": volume_settings.get("mobile_volume_steps", 5),
-            "rotary_volume_steps": volume_settings.get("rotary_volume_steps", 2)
+            "step_mobile_db": volume_settings.get("step_mobile_db", 3.0),
+            "step_rotary_db": volume_settings.get("step_rotary_db", 2.0)
         }
 
     async def get_volume_config_async(self) -> Dict[str, Any]:
         """Async helper method to get volume config"""
         volume_settings = await self.get_setting('volume') or {}
         return {
-            "alsa_min": volume_settings.get("alsa_min", 0),
-            "alsa_max": volume_settings.get("alsa_max", 65),
-            "startup_volume": volume_settings.get("startup_volume", 37),
+            "limit_min_db": volume_settings.get("limit_min_db", -80.0),
+            "limit_max_db": volume_settings.get("limit_max_db", -21.0),
+            "startup_volume_db": volume_settings.get("startup_volume_db", -30.0),
             "restore_last_volume": volume_settings.get("restore_last_volume", False),
-            "mobile_volume_steps": volume_settings.get("mobile_volume_steps", 5),
-            "rotary_volume_steps": volume_settings.get("rotary_volume_steps", 2)
+            "step_mobile_db": volume_settings.get("step_mobile_db", 3.0),
+            "step_rotary_db": volume_settings.get("step_rotary_db", 2.0)
         }

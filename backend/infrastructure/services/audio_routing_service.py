@@ -6,7 +6,7 @@ import os
 import logging
 import asyncio
 from typing import Dict, Any, Callable, Optional
-from backend.domain.audio_state import AudioSource
+from backend.domain.audio_state import AudioSource, PluginState
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
 
 class AudioRoutingService:
@@ -33,6 +33,7 @@ class AudioRoutingService:
         self.snapcast_websocket_service = None
         self.snapcast_service = None
         self.state_machine = None
+        self.camilladsp_service = None
 
         # Lock to guarantee atomicity of routing operations
         self._routing_lock = asyncio.Lock()
@@ -44,14 +45,18 @@ class AudioRoutingService:
     def set_snapcast_websocket_service(self, service) -> None:
         """Sets reference to SnapcastWebSocketService"""
         self.snapcast_websocket_service = service
-    
+
     def set_snapcast_service(self, service) -> None:
         """Sets reference to SnapcastService"""
         self.snapcast_service = service
-    
+
     def set_state_machine(self, state_machine) -> None:
         """Sets the reference to StateMachine"""
         self.state_machine = state_machine
+
+    def set_camilladsp_service(self, service) -> None:
+        """Sets reference to CamillaDSPService for connect/disconnect management"""
+        self.camilladsp_service = service
 
     def set_plugin_callback(self, callback: Callable) -> None:
         """Sets the callback to access plugins"""
@@ -127,7 +132,7 @@ class AudioRoutingService:
             # Load state from SettingsService
             if self.settings_service:
                 multiroom = await self.settings_service.get_setting('routing.multiroom_enabled')
-                equalizer = await self.settings_service.get_setting('routing.equalizer_enabled')
+                equalizer = await self.settings_service.get_setting('dsp.enabled')
                 # Explicit bool conversion for defensive programming
                 await self._set_multiroom_state(self._to_bool(multiroom))
                 await self._set_equalizer_state(self._to_bool(equalizer))
@@ -155,10 +160,39 @@ class AudioRoutingService:
                 mode = "multiroom" if self.multiroom_enabled else "direct"
                 self.logger.info(f"Snapcast services already in correct state for {mode} mode")
 
+            # CamillaDSP ALWAYS runs - volume is always controlled via DSP
+            # The dsp.enabled setting only controls whether effects are bypassed
+            camilladsp_running = await self.service_manager.is_active("milo-camilladsp.service")
+            if not camilladsp_running:
+                self.logger.info("Starting CamillaDSP service (always required for volume control)")
+                await self.service_manager.start("milo-camilladsp.service")
+                await asyncio.sleep(1.0)  # Give daemon time to start
+
+            # Connect to CamillaDSP daemon
+            if self.camilladsp_service and not self.camilladsp_service.connected:
+                connected = await self.camilladsp_service.connect()
+                if connected:
+                    self.logger.info("Backend connected to CamillaDSP daemon")
+
+                    # Apply effect state based on dsp.enabled setting
+                    current_equalizer = await self._get_equalizer_enabled()
+                    if current_equalizer:
+                        self.logger.info("DSP effects enabled, restoring from settings")
+                        await self.camilladsp_service.restore_effects()
+                    else:
+                        self.logger.info("DSP effects disabled, bypassing all effects")
+                        await self.camilladsp_service.bypass_effects()
+                else:
+                    self.logger.warning("Failed to connect to CamillaDSP daemon on startup")
+
             self._initial_detection_done = True
             current_multiroom = await self._get_multiroom_enabled()
             current_equalizer = await self._get_equalizer_enabled()
             self.logger.info(f"Routing initialized with persisted state: multiroom={current_multiroom}, equalizer={current_equalizer}")
+
+            # Schedule delayed DSP sync if multiroom is already enabled at startup
+            if current_multiroom:
+                asyncio.create_task(self._delayed_multiroom_sync())
 
         except Exception as e:
             self.logger.error(f"Error during initial state detection: {e}")
@@ -166,7 +200,28 @@ class AudioRoutingService:
             await self._set_equalizer_state(False)
             await self._update_systemd_environment()
             self._initial_detection_done = True
-    
+
+    async def _delayed_multiroom_sync(self):
+        """Sync client volumes from DSP after startup delay (ensures all services ready)."""
+        try:
+            # Wait for all services to be fully initialized
+            await asyncio.sleep(3.0)
+
+            # Check multiroom is still enabled
+            if not await self._get_multiroom_enabled():
+                return
+
+            # Sync volumes from DSP
+            volume_service = getattr(self.state_machine, 'volume_service', None) if self.state_machine else None
+            if volume_service:
+                self.logger.info("📊 Syncing client volumes from DSP (startup sync)...")
+                await volume_service.sync_all_clients_from_dsp()
+            else:
+                self.logger.warning("VolumeService not available for DSP sync")
+
+        except Exception as e:
+            self.logger.error(f"Error in delayed multiroom sync: {e}")
+
     async def set_multiroom_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """Enables/disables multiroom mode with early notification"""
         async with self._routing_lock:  # Guarantee atomicity of routing operations
@@ -239,6 +294,12 @@ class AudioRoutingService:
                     self.logger.info("📢 Broadcasting multiroom_ready event")
                     await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
 
+                    # Push local volume to all clients for uniform volume
+                    volume_service = getattr(self.state_machine, 'volume_service', None)
+                    if volume_service:
+                        self.logger.info("📊 Pushing local volume to all clients...")
+                        await volume_service.push_volume_to_all_clients()
+
                 # Save state via SettingsService
                 if self.settings_service:
                     await self.settings_service.set_setting('routing.multiroom_enabled', enabled)
@@ -274,38 +335,62 @@ class AudioRoutingService:
             self.logger.error(f"❌ Auto-configure multiroom failed: {e}")
 
     async def set_equalizer_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
-        """Enables/disables DSP/equalizer routing"""
+        """
+        Enables/disables DSP EFFECTS (not the service itself).
+
+        CamillaDSP service stays ALWAYS running. This toggle only controls:
+        - EQ filters (enabled/bypassed)
+        - Compressor (enabled/bypassed)
+        - Loudness (enabled/bypassed)
+
+        Volume control via CamillaDSP is ALWAYS active regardless of this setting.
+        """
         async with self._routing_lock:  # Guarantee atomicity of routing operations
             current_state = await self._get_equalizer_enabled()
             if current_state == enabled:
-                self.logger.info(f"DSP already {'enabled' if enabled else 'disabled'}")
+                self.logger.info(f"DSP effects already {'enabled' if enabled else 'bypassed'}")
                 return True
 
             try:
                 old_state = current_state
-                self.logger.info(f"Changing DSP from {old_state} to {enabled}")
+                self.logger.info(f"{'Enabling' if enabled else 'Bypassing'} DSP effects")
 
                 await self._set_equalizer_state(enabled)
-                await self._update_systemd_environment()
 
-                if active_source and self.get_plugin:
-                    plugin = self.get_plugin(active_source)
-                    if plugin:
-                        self.logger.info(f"Restarting plugin {active_source.value} with DSP {'enabled' if enabled else 'disabled'}")
-                        await plugin.restart()
+                # Toggle DSP effects (NOT the service!)
+                if self.camilladsp_service:
+                    if enabled:
+                        # Restore all DSP effects from settings
+                        success = await self.camilladsp_service.restore_effects()
+                        if success:
+                            self.logger.info("DSP effects restored from settings")
+                        else:
+                            self.logger.warning("Failed to restore DSP effects")
+                    else:
+                        # Bypass all DSP effects (but keep volume!)
+                        success = await self.camilladsp_service.bypass_effects()
+                        if success:
+                            self.logger.info("DSP effects bypassed (volume unchanged)")
+                        else:
+                            self.logger.warning("Failed to bypass DSP effects")
+
+                # Broadcast DSP state change event
+                if self.state_machine:
+                    await self.state_machine.broadcast_event("dsp", "enabled_changed", {
+                        "enabled": enabled,
+                        "effects_bypassed": not enabled
+                    })
 
                 # Save state via SettingsService
                 if self.settings_service:
-                    await self.settings_service.set_setting('routing.equalizer_enabled', enabled)
+                    await self.settings_service.set_setting('dsp.enabled', enabled)
 
-                self.logger.info(f"DSP state changed and saved: {enabled}")
-
+                self.logger.info(f"DSP effects {'enabled' if enabled else 'bypassed'}")
                 return True
 
             except Exception as e:
                 await self._set_equalizer_state(old_state)
-                await self._update_systemd_environment()
-                self.logger.error(f"Error changing DSP state: {e}")
+                self.logger.error(f"Error changing DSP effects state: {e}")
                 return False
     
     async def _update_systemd_environment(self) -> None:
@@ -328,6 +413,10 @@ class AudioRoutingService:
         environment_file = "/var/lib/milo/routing.env"
 
         try:
+            # CamillaDSP is ALWAYS active (for volume control)
+            # Snapclient always outputs to CamillaDSP loopback
+            snapclient_soundcard = "camilladsp"
+
             # Atomic write of environment file
             temp_file = environment_file + ".tmp"
 
@@ -338,7 +427,9 @@ class AudioRoutingService:
                 f.write(f"# Audio routing mode: \"direct\" or \"multiroom\"\n")
                 f.write(f"MILO_MODE={mode_value}\n\n")
                 f.write(f"# Equalizer: \"\" (disabled) or \"_eq\" (enabled)\n")
-                f.write(f"MILO_EQUALIZER={equalizer_value}\n")
+                f.write(f"MILO_EQUALIZER={equalizer_value}\n\n")
+                f.write(f"# Snapclient output soundcard\n")
+                f.write(f"MILO_SNAPCLIENT_SOUNDCARD={snapclient_soundcard}\n")
                 f.flush()
                 os.fsync(f.fileno())
 
@@ -362,39 +453,139 @@ class AudioRoutingService:
             raise RuntimeError(f"Failed to update environment file: {e}")
     
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
-        """Transition to multiroom mode"""
+        """Transition to multiroom mode
+
+        IMPORTANT: The plugin must be stopped BEFORE starting Snapserver.
+        If a plugin (e.g., Radio/mpv) is outputting to the ALSA loopback,
+        the format is locked and Snapserver cannot start.
+
+        Order:
+        1. Save current playback state (what was playing)
+        2. Stop the active plugin (releases ALSA loopback)
+        3. Start Snapserver (opens ALSA loopback capture)
+        4. Start Snapclient
+        5. Restart plugin with new routing
+        6. Resume playback if it was active
+        """
         try:
+            plugin = None
+            was_playing = False
+            playback_metadata = {}
+
+            if active_source and self.get_plugin:
+                plugin = self.get_plugin(active_source)
+
+            # Step 1: Save current playback state before stopping
+            if plugin and self.state_machine:
+                current_state = self.state_machine.system_state.plugin_state
+                current_metadata = self.state_machine.system_state.metadata.copy()
+                was_playing = current_state == PluginState.CONNECTED or current_metadata.get("is_playing", False)
+                if was_playing:
+                    playback_metadata = current_metadata
+                    self.logger.info(f"Saving playback state: {active_source.value} was playing")
+
+            # Step 2: Stop active plugin to release ALSA loopback
+            if plugin:
+                self.logger.info(f"Stopping plugin {active_source.value} before Snapserver start")
+                await plugin.stop()
+                await asyncio.sleep(0.3)  # Brief delay for ALSA to release
+
+            # Step 3-4: Start Snapcast services
             self.logger.info("Starting snapcast services")
             snapcast_success = await self._start_snapcast()
             if not snapcast_success:
-                return False
-            
-            if active_source and self.get_plugin:
-                plugin = self.get_plugin(active_source)
+                # Try to restart plugin even if Snapcast failed
                 if plugin:
-                    self.logger.info(f"Restarting plugin {active_source.value} for multiroom mode")
-                    await plugin.restart()
-            
+                    self.logger.info(f"Snapcast failed, restarting plugin {active_source.value}")
+                    await plugin.start()
+                return False
+
+            # Step 5: Restart plugin with new routing
+            if plugin:
+                self.logger.info(f"Restarting plugin {active_source.value} for multiroom mode")
+                await plugin.restart()
+
+            # Step 6: Resume playback if it was active
+            if was_playing and plugin and playback_metadata:
+                # Wait for plugin to be fully ready after restart
+                # The systemd restart takes time, then mpv needs to connect to IPC
+                await asyncio.sleep(2.0)
+                await self._resume_playback(active_source, plugin, playback_metadata)
+
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error in multiroom transition: {e}")
             return False
+
+    async def _resume_playback(self, source: AudioSource, plugin, metadata: Dict[str, Any]) -> None:
+        """Resume playback after routing change"""
+        try:
+            if source == AudioSource.RADIO:
+                station_id = metadata.get("station_id")
+                if station_id:
+                    self.logger.info(f"Resuming radio playback: {metadata.get('station_name', station_id)}")
+                    result = await plugin.handle_command("play_station", {"station_id": station_id})
+                    self.logger.info(f"Resume result: {result}")
+            elif source == AudioSource.PODCAST:
+                episode_id = metadata.get("episode_id")
+                if episode_id:
+                    self.logger.info(f"Resuming podcast playback: {metadata.get('episode_title', episode_id)}")
+                    result = await plugin.handle_command("play_episode", {"episode_id": episode_id})
+                    self.logger.info(f"Resume result: {result}")
+            # Spotify and Bluetooth manage their own playback state
+        except Exception as e:
+            self.logger.warning(f"Could not resume playback for {source.value}: {e}")
     
     async def _transition_to_direct(self, active_source: AudioSource = None) -> bool:
-        """Transition to direct mode"""
+        """Transition to direct mode
+
+        Order:
+        1. Save current playback state
+        2. Stop the active plugin
+        3. Stop Snapcast services
+        4. Restart plugin with new routing
+        5. Resume playback if it was active
+        """
         try:
-            self.logger.info("Stopping snapcast services")
-            await self._stop_snapcast()
-            
+            plugin = None
+            was_playing = False
+            playback_metadata = {}
+
             if active_source and self.get_plugin:
                 plugin = self.get_plugin(active_source)
-                if plugin:
-                    self.logger.info(f"Restarting plugin {active_source.value} for direct mode")
-                    await plugin.restart()
-            
+
+            # Step 1: Save current playback state before stopping
+            if plugin and self.state_machine:
+                current_state = self.state_machine.system_state.plugin_state
+                current_metadata = self.state_machine.system_state.metadata.copy()
+                was_playing = current_state == PluginState.CONNECTED or current_metadata.get("is_playing", False)
+                if was_playing:
+                    playback_metadata = current_metadata
+                    self.logger.info(f"Saving playback state: {active_source.value} was playing")
+
+            # Step 2: Stop active plugin
+            if plugin:
+                self.logger.info(f"Stopping plugin {active_source.value} before Snapcast shutdown")
+                await plugin.stop()
+
+            # Step 3: Stop Snapcast services
+            self.logger.info("Stopping snapcast services")
+            await self._stop_snapcast()
+
+            # Step 4: Restart plugin with new routing
+            if plugin:
+                self.logger.info(f"Restarting plugin {active_source.value} for direct mode")
+                await plugin.restart()
+
+            # Step 5: Resume playback if it was active
+            if was_playing and plugin and playback_metadata:
+                # Wait for plugin to be fully ready after restart
+                await asyncio.sleep(2.0)
+                await self._resume_playback(active_source, plugin, playback_metadata)
+
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error in direct transition: {e}")
             return False

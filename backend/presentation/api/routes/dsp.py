@@ -7,10 +7,20 @@ Supports multi-client DSP control for multiroom setups
 from typing import Optional
 import aiohttp
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 from fastapi import APIRouter, HTTPException, Request
+
+
+def _is_ip_address(hostname: str) -> bool:
+    """Check if hostname is an IP address (don't add .local suffix for IPs)."""
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        return False
 
 from backend.presentation.api.models import (
     DspFilterRequest,
@@ -89,7 +99,8 @@ async def _sync_dsp_settings(source_client: str, target_clients: list):
                 'compressor': await dsp_svc.get_compressor(),
                 'loudness': await dsp_svc.get_loudness(),
                 'delay': await dsp_svc.get_delay(),
-                'filters': await dsp_svc.get_filters()
+                'filters': await dsp_svc.get_filters(),
+                'volume': await dsp_svc.get_volume()
             }
         else:
             # Get from remote client
@@ -109,6 +120,10 @@ async def _sync_dsp_settings(source_client: str, target_clients: list):
             try:
                 filters_resp = await _proxy_client_request(source_client, "GET", "/dsp/filters")
                 source_settings['filters'] = filters_resp.get('filters', [])
+            except Exception:
+                pass
+            try:
+                source_settings['volume'] = await _proxy_client_request(source_client, "GET", "/dsp/volume")
             except Exception:
                 pass
     except Exception as e:
@@ -187,6 +202,35 @@ async def _sync_dsp_settings(source_client: str, target_clients: list):
                 except Exception as e:
                     errors.append(f"{target}/filter:{filter_id}: {e}")
 
+        # Sync volume/mute
+        if 'volume' in source_settings and source_settings['volume']:
+            vol = source_settings['volume']
+            # Sync volume level
+            if 'main' in vol:
+                try:
+                    if target == 'local':
+                        from backend.config.container import container
+                        dsp_svc = container.camilladsp_service()
+                        await dsp_svc.set_volume(vol['main'])
+                    else:
+                        await _proxy_client_request(target, "PUT", "/dsp/volume", {"volume": vol['main']})
+                        await _update_client_settings(target, "volume", {"main": vol['main']})
+                    target_synced.append("volume")
+                except Exception as e:
+                    errors.append(f"{target}/volume: {e}")
+            # Sync mute state
+            if 'mute' in vol:
+                try:
+                    if target == 'local':
+                        from backend.config.container import container
+                        dsp_svc = container.camilladsp_service()
+                        await dsp_svc.set_mute(vol['mute'])
+                    else:
+                        await _proxy_client_request(target, "PUT", "/dsp/mute", {"muted": vol['mute']})
+                    target_synced.append("mute")
+                except Exception as e:
+                    errors.append(f"{target}/mute: {e}")
+
         if target_synced:
             synced.append({"target": target, "settings": target_synced})
 
@@ -197,9 +241,58 @@ async def _sync_dsp_settings(source_client: str, target_clients: list):
     return {"synced": synced, "errors": errors if errors else None}
 
 
-def create_dsp_router(dsp_service, state_machine, settings_service=None):
+def create_dsp_router(dsp_service, state_machine, settings_service=None, routing_service=None):
     """Creates DSP router with injected dependencies"""
     router = APIRouter(prefix="/api/dsp", tags=["dsp"])
+
+    # === DSP Enable/Disable ===
+
+    @router.get("/enabled")
+    async def get_dsp_enabled():
+        """Get DSP enabled state from settings"""
+        try:
+            if settings_service:
+                enabled = await settings_service.get_setting("dsp.enabled")
+                # Default to True if not set
+                return {"enabled": enabled if enabled is not None else True}
+            return {"enabled": True}
+        except Exception as e:
+            logger.error(f"Error getting DSP enabled state: {e}")
+            return {"enabled": True}
+
+    @router.put("/enabled")
+    async def set_dsp_enabled(request: Request):
+        """Set DSP enabled state, start/stop CamillaDSP service, and persist to settings"""
+        try:
+            body = await request.json()
+            enabled = body.get("enabled", True)
+
+            # Get active source for potential restart
+            active_source = None
+            if state_machine:
+                async with state_machine._state_lock:
+                    active_source = state_machine.system_state.active_source
+
+            # Use routing_service to properly start/stop CamillaDSP service and reconnect
+            if routing_service:
+                success = await routing_service.set_equalizer_enabled(enabled, active_source)
+                if success:
+                    logger.info(f"DSP enabled state set to: {enabled}")
+                    return {"status": "success", "enabled": enabled}
+                else:
+                    return {"status": "error", "message": "Failed to change DSP state"}
+
+            # Fallback: just save setting if no routing_service (should not happen)
+            if settings_service:
+                await settings_service.set_setting("dsp.enabled", enabled)
+                logger.info(f"DSP enabled state set to: {enabled} (fallback, no routing_service)")
+                await state_machine.broadcast_event("dsp", "enabled_changed", {"enabled": enabled})
+                return {"status": "success", "enabled": enabled}
+
+            return {"status": "error", "message": "Settings service not available"}
+        except Exception as e:
+            logger.error(f"Error setting DSP enabled state: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
     # === Status & Connection ===
 
@@ -450,6 +543,12 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
 
             if success:
                 await state_machine.broadcast_event("dsp", "volume_changed", {"volume": payload.volume})
+
+                # Update multiroom volume cache for 'local' client
+                volume_service = getattr(state_machine, 'volume_service', None)
+                if volume_service:
+                    volume_service.update_client_volume_db('local', payload.volume)
+
                 return {"status": "success", "volume": payload.volume}
 
             return {"status": "error", "message": "Failed to set volume"}
@@ -843,6 +942,49 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
             await _update_client_settings(hostname, "delay", delay_data)
         return result
 
+    @router.get("/client/{hostname}/volume")
+    async def get_client_volume(hostname: str):
+        """Proxy volume GET to client"""
+        return await _proxy_client_request(hostname, "GET", "/dsp/volume")
+
+    @router.put("/client/{hostname}/volume")
+    async def update_client_volume(hostname: str, request: Request):
+        """Proxy volume update to client and persist settings"""
+        body = await request.json()
+        result = await _proxy_client_request(hostname, "PUT", "/dsp/volume", body)
+        # Save volume to Milo after successful update
+        if result.get("status") == "success":
+            volume_data = {k: v for k, v in result.items() if k != "status"}
+            await _update_client_settings(hostname, "volume", volume_data)
+
+            # Update multiroom volume cache for accurate average calculation
+            volume_db = body.get("volume")
+            if volume_db is not None and state_machine:
+                volume_service = getattr(state_machine, 'volume_service', None)
+                if volume_service:
+                    # Normalize hostname: 'milo' -> 'local'
+                    normalized = 'local' if hostname == 'milo' else hostname
+                    volume_service.update_client_volume_db(normalized, volume_db)
+
+        return result
+
+    @router.put("/client/{hostname}/mute")
+    async def update_client_mute(hostname: str, request: Request):
+        """Proxy mute update to client and persist settings"""
+        body = await request.json()
+        result = await _proxy_client_request(hostname, "PUT", "/dsp/mute", body)
+        # Save mute to Milo after successful update
+        if result.get("status") == "success":
+            # Store mute state in volume settings
+            settings = await _load_client_dsp_settings()
+            if hostname not in settings:
+                settings[hostname] = {}
+            if "volume" not in settings[hostname]:
+                settings[hostname]["volume"] = {}
+            settings[hostname]["volume"]["mute"] = result.get("muted", False)
+            await _save_client_dsp_settings(settings)
+        return result
+
     # === Client Settings Persistence ===
 
     @router.get("/client/{hostname}/saved-settings")
@@ -894,6 +1036,24 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
                 except Exception as e:
                     errors.append(f"filter:{filter_id}: {e}")
 
+        # Restore volume settings
+        if "volume" in saved:
+            vol_settings = saved["volume"]
+            # Restore volume level
+            if "main" in vol_settings:
+                try:
+                    await _proxy_client_request(hostname, "PUT", "/dsp/volume", {"volume": vol_settings["main"]})
+                    restored.append("volume")
+                except Exception as e:
+                    errors.append(f"volume: {e}")
+            # Restore mute state
+            if "mute" in vol_settings:
+                try:
+                    await _proxy_client_request(hostname, "PUT", "/dsp/mute", {"muted": vol_settings["mute"]})
+                    restored.append("mute")
+                except Exception as e:
+                    errors.append(f"mute: {e}")
+
         logger.info(f"Restored settings for {hostname}: {restored}")
         if errors:
             logger.warning(f"Errors restoring settings for {hostname}: {errors}")
@@ -912,8 +1072,10 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None):
 async def _check_client_dsp_available(hostname: str) -> bool:
     """Check if a client's DSP API is available"""
     try:
+        # Don't add .local suffix for IP addresses
+        host = hostname if _is_ip_address(hostname) else f"{hostname}.local"
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as session:
-            url = f"http://{hostname}.local:8001/health"
+            url = f"http://{host}:8001/health"
             async with session.get(url) as response:
                 return response.status == 200
     except Exception:
@@ -923,7 +1085,9 @@ async def _check_client_dsp_available(hostname: str) -> bool:
 async def _proxy_client_request(hostname: str, method: str, path: str, body: dict = None):
     """Proxy a request to a client's DSP API"""
     try:
-        url = f"http://{hostname}.local:8001{path}"
+        # Don't add .local suffix for IP addresses
+        host = hostname if _is_ip_address(hostname) else f"{hostname}.local"
+        url = f"http://{host}:8001{path}"
         timeout = aiohttp.ClientTimeout(total=10)
 
         async with aiohttp.ClientSession(timeout=timeout) as session:

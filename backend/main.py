@@ -120,7 +120,7 @@ app.include_router(routing_router)
 snapcast_router = create_snapcast_router(routing_service, snapcast_service, state_machine)
 app.include_router(snapcast_router)
 
-dsp_router = create_dsp_router(dsp_service, state_machine, settings_service)
+dsp_router = create_dsp_router(dsp_service, state_machine, settings_service, routing_service)
 app.include_router(dsp_router)
 
 volume_router = create_volume_router(volume_service)

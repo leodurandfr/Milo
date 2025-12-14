@@ -29,14 +29,14 @@ class AudioControlRequest(BaseModel):
 # =============================================================================
 
 class VolumeSetRequest(BaseModel):
-    """Volume set request"""
-    volume: int = Field(..., ge=0, le=100)
+    """Volume set request (in dB)"""
+    volume_db: float = Field(..., ge=-80, le=0, description="Volume in dB")
     show_bar: bool = Field(default=True)
 
 
 class VolumeAdjustRequest(BaseModel):
-    """Volume adjustment request"""
-    delta: int = Field(..., ge=-100, le=100)
+    """Volume adjustment request (in dB)"""
+    delta_db: float = Field(..., ge=-60, le=60, description="Volume delta in dB")
     show_bar: bool = Field(default=True)
 
 
@@ -100,40 +100,37 @@ class LanguageRequest(BaseModel):
 
 
 # =============================================================================
-# SETTINGS - VOLUME
+# SETTINGS - VOLUME (all values in dB)
 # =============================================================================
 
 class VolumeLimitsRequest(BaseModel):
-    """Volume limits request"""
-    alsa_min: int = Field(..., ge=0, le=100)
-    alsa_max: int = Field(..., ge=0, le=100)
+    """Volume limits request (in dB)"""
+    min_db: float = Field(..., ge=-80, le=0, description="Minimum volume in dB")
+    max_db: float = Field(..., ge=-80, le=0, description="Maximum volume in dB")
 
     @model_validator(mode='after')
     def validate_range(self):
-        if self.alsa_max - self.alsa_min < 10:
-            raise ValueError('Range between alsa_min and alsa_max must be at least 10')
+        if self.max_db - self.min_db < 6:
+            raise ValueError('Range between min_db and max_db must be at least 6 dB')
+        if self.max_db <= self.min_db:
+            raise ValueError('max_db must be greater than min_db')
         return self
 
 
-class VolumeLimitsToggleRequest(BaseModel):
-    """Volume limits toggle request"""
-    enabled: bool
-
-
 class VolumeStartupRequest(BaseModel):
-    """Volume startup configuration request"""
-    startup_volume: int = Field(..., ge=0, le=100)
+    """Volume startup configuration request (in dB)"""
+    startup_volume_db: float = Field(..., ge=-80, le=0, description="Startup volume in dB")
     restore_last_volume: bool
 
 
 class VolumeStepsRequest(BaseModel):
-    """Mobile volume steps request"""
-    mobile_volume_steps: int = Field(..., ge=1, le=10)
+    """Mobile volume steps request (in dB)"""
+    step_mobile_db: float = Field(..., ge=1, le=6, description="Mobile volume step in dB")
 
 
 class RotaryStepsRequest(BaseModel):
-    """Rotary encoder volume steps request"""
-    rotary_volume_steps: int = Field(..., ge=1, le=10)
+    """Rotary encoder volume steps request (in dB)"""
+    step_rotary_db: float = Field(..., ge=1, le=6, description="Rotary volume step in dB")
 
 
 # =============================================================================

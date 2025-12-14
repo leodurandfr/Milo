@@ -5,7 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard camilladsp --mixer software
+EnvironmentFile=/var/lib/milo/routing.env
+ExecStart=/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard ${MILO_SNAPCLIENT_SOUNDCARD} --mixer software
 User=milo
 Group=audio
 Restart=on-failure
