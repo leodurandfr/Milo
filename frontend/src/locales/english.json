@@ -53,11 +53,21 @@
     "presets": "Audio presets"
   },
   "dsp": {
-    "title": "DSP",
+    "title": "DSP Equalizer",
     "disabled": "DSP is disabled",
     "connecting": "Connecting to DSP...",
     "selectPreset": "Preset",
     "selectTarget": "Device",
+    "zones": {
+      "title": "Zones",
+      "configure": "Configure zones"
+    },
+    "equalizer": {
+      "title": "10 Bands Equalizer"
+    },
+    "advanced": {
+      "title": "Advanced Effects"
+    },
     "presets": "Presets",
     "savePreset": "Save preset",
     "loadPreset": "Load preset",
@@ -101,7 +111,7 @@
       "right": "Right Channel"
     },
     "volume": {
-      "title": "DSP Volume",
+      "title": "Volume",
       "level": "Level",
       "muted": "Muted"
     },

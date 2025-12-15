@@ -1,16 +1,23 @@
 <!-- frontend/src/components/dsp/AdvancedDsp.vue -->
 <!-- Advanced DSP controls: Compressor, Loudness, Delay -->
 <template>
-  <div class="advanced-dsp">
-    <!-- Section Tabs -->
-    <Tabs
-      v-model="activeTab"
-      :tabs="tabsConfig"
-      size="small"
-    />
+  <section class="settings-section">
+    <div class="section-group">
+      <!-- Section Title -->
+      <h2 class="heading-2">
+        {{ $t('dsp.advanced.title', 'Effets avancés') }}
+        <span v-if="zoneName" class="zone-suffix">· {{ zoneName }}</span>
+      </h2>
 
-    <!-- Tab Content -->
-    <div class="tab-content">
+      <!-- Section Tabs -->
+      <Tabs
+        v-model="activeTab"
+        :tabs="tabsConfig"
+        size="small"
+      />
+
+      <!-- Tab Content -->
+      <div class="tab-content">
       <!-- Compressor -->
       <div v-if="activeTab === 'compressor'" class="section compressor-section">
         <div class="section-header">
@@ -156,8 +163,9 @@
           </div>
         </div>
       </div>
+      </div>
     </div>
-  </div>
+  </section>
 </template>
 
 <script setup>
@@ -167,6 +175,13 @@ import { useI18n } from '@/services/i18n';
 import Tabs from '@/components/ui/Tabs.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
+
+const props = defineProps({
+  zoneName: {
+    type: String,
+    default: ''
+  }
+});
 
 const { t } = useI18n();
 const dspStore = useDspStore();
@@ -205,16 +220,30 @@ async function handleDelayChange(channel, value) {
 </script>
 
 <style scoped>
-.advanced-dsp {
+/* Settings section pattern */
+.settings-section {
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-06);
+  padding: var(--space-05-fixed) var(--space-05);
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
+  gap: var(--space-05-fixed);
+}
+
+.section-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+.zone-suffix {
+  color: var(--color-text-secondary);
+  font-weight: normal;
 }
 
 .tab-content {
-  padding: var(--space-03);
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-05);
+  display: flex;
+  flex-direction: column;
 }
 
 .section {
@@ -254,8 +283,8 @@ async function handleDelayChange(channel, value) {
 
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
-  .tab-content {
-    padding: var(--space-02);
+  .settings-section {
+    border-radius: var(--radius-05);
   }
 }
 </style>

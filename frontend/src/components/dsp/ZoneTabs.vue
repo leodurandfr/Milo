@@ -1,94 +1,109 @@
 <!-- frontend/src/components/dsp/ZoneTabs.vue -->
-<!-- Zone tabs + Volume DSP + Preset selector with Save/Reset buttons -->
+<!-- Zone tabs + Volume controls for zones/clients -->
 <template>
-  <div class="zone-section">
-    <!-- Zone tabs (only if multiple targets) -->
-    <Tabs
-      v-if="targets.length > 1"
-      v-model="selectedTargetLocal"
-      :tabs="zoneTabs"
-      size="small"
-      @change="handleTargetChange"
-    />
-
-    <!-- Volume DSP Section -->
-    <div class="volume-section">
-      <div class="volume-header">
-        <span class="volume-label text-mono">{{ $t('dsp.volume.title', 'Volume DSP') }}</span>
-        <button
-          v-press.light
-          class="mute-button"
-          :class="{ 'mute-button--active': dspStore.dspVolume.mute }"
-          @click="handleMuteToggle"
+  <section class="settings-section">
+    <div class="section-group">
+      <!-- Section Header: "Zones" + "Configurer les zones" button -->
+      <div class="section-header">
+        <h2 class="heading-2">{{ $t('dsp.zones.title', 'Zones') }}</h2>
+        <Button
+          v-if="hasMultipleTargets"
+          size="small"
+          variant="background-strong"
+          @click="emit('openLinkDialog')"
         >
-          <SvgIcon :name="dspStore.dspVolume.mute ? 'volumeOff' : 'volume'" :size="20" />
-        </button>
+          {{ $t('dsp.zones.configure', 'Configurer les zones') }}
+        </Button>
       </div>
-      <div class="volume-control">
-        <RangeSlider
-          :model-value="dspStore.dspVolume.main"
-          :min="settingsStore.volumeLimits.min_db"
-          :max="settingsStore.volumeLimits.max_db"
-          :step="1"
-          value-unit=" dB"
-          :disabled="dspStore.dspVolume.mute"
-          @update:model-value="handleVolumeInput"
-          @change="handleVolumeChange"
-        />
+
+      <!-- Zone/Client Tabs -->
+      <Tabs
+        v-if="zoneTabs.length > 0"
+        v-model="selectedTargetLocal"
+        :tabs="zoneTabs"
+        size="small"
+        @change="handleTargetChange"
+      />
+
+      <!-- Volume Controls -->
+      <div class="volume-controls">
+      <!-- Case A: Zone selected (multiple clients) -->
+      <template v-if="isZoneSelected && zoneClients.length > 1">
+        <span class="volume-subtitle text-mono">{{ $t('dsp.volume.title', 'Volume') }}</span>
+        <div class="clients-list">
+          <div
+            v-for="(client, index) in zoneClients"
+            :key="client.id"
+            class="client-volume-row"
+            :class="{ 'client-muted': getClientMute(client.id) }"
+          >
+            <span class="client-name heading-2" :class="{ 'muted': getClientMute(client.id) }">
+              {{ client.name }}
+            </span>
+            <div class="volume-control">
+              <RangeSlider
+                :model-value="getClientVolume(client.id)"
+                :min="settingsStore.volumeLimits.min_db"
+                :max="settingsStore.volumeLimits.max_db"
+                :step="1"
+                show-value
+                value-unit=" dB"
+                :disabled="getClientMute(client.id) || disabled"
+                @input="(v) => handleVolumeInput(client.id, v)"
+                @change="(v) => handleVolumeChange(client.id, v)"
+              />
+            </div>
+            <Toggle
+              :model-value="!getClientMute(client.id)"
+              type="background-strong"
+              @change="(enabled) => handleMuteToggle(client.id, !enabled)"
+            />
+            <!-- Separator line (except for last item) -->
+            <div v-if="index < zoneClients.length - 1" class="client-separator"></div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Case B: Single client selected (or zone with single client) -->
+      <template v-else>
+        <div class="single-client-row">
+          <span class="volume-label heading-2" :class="{ 'muted': currentTargetMute }">
+            {{ $t('dsp.volume.title', 'Volume') }}
+          </span>
+          <div class="volume-control">
+            <RangeSlider
+              :model-value="currentTargetVolume"
+              :min="settingsStore.volumeLimits.min_db"
+              :max="settingsStore.volumeLimits.max_db"
+              :step="1"
+              show-value
+              value-unit=" dB"
+              :disabled="currentTargetMute || disabled"
+              @input="(v) => handleVolumeInput(selectedTargetLocal, v)"
+              @change="(v) => handleVolumeChange(selectedTargetLocal, v)"
+            />
+          </div>
+          <Toggle
+            :model-value="!currentTargetMute"
+            type="background-strong"
+            @change="(enabled) => handleMuteToggle(selectedTargetLocal, !enabled)"
+          />
+        </div>
+      </template>
       </div>
     </div>
-
-    <!-- Preset row: dropdown + Save + Reset -->
-    <div class="preset-row">
-      <span class="preset-label text-mono">{{ $t('dsp.preset', 'Preset') }}</span>
-
-      <Dropdown
-        v-model="currentPreset"
-        :options="presetOptions"
-        :placeholder="$t('dsp.selectPreset', '-- Select --')"
-        :disabled="disabled"
-        @change="handlePresetChange"
-      />
-
-      <IconButton
-        icon="save"
-        size="medium"
-        :disabled="disabled || isSaving"
-        @click="openSaveDialog"
-      />
-
-      <IconButton
-        icon="reset"
-        size="medium"
-        :disabled="disabled || !currentPreset"
-        @click="resetToPreset"
-      />
-    </div>
-
-    <!-- Save Preset Dialog -->
-    <PresetSaveDialog
-      :is-open="showSaveDialog"
-      :initial-name="saveDialogInitialName"
-      :saving="isSaving"
-      @close="showSaveDialog = false"
-      @save="handleSavePreset"
-    />
-  </div>
+  </section>
 </template>
 
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useI18n } from '@/services/i18n';
+import Button from '@/components/ui/Button.vue';
 import Tabs from '@/components/ui/Tabs.vue';
-import Dropdown from '@/components/ui/Dropdown.vue';
-import IconButton from '@/components/ui/IconButton.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import SvgIcon from '@/components/ui/SvgIcon.vue';
-import PresetSaveDialog from './PresetSaveDialog.vue';
+import Toggle from '@/components/ui/Toggle.vue';
 
-const { t } = useI18n();
 const dspStore = useDspStore();
 const settingsStore = useSettingsStore();
 
@@ -99,292 +114,346 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['targetChange', 'presetApplied']);
+const emit = defineEmits(['targetChange', 'openLinkDialog']);
 
 // Local state
-const currentPreset = ref('');
-const showSaveDialog = ref(false);
-const isSaving = ref(false);
 const selectedTargetLocal = ref(dspStore.selectedTarget);
 
-// Default presets with gain values for 10 EQ bands
-// Bands: 31Hz, 63Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz
-const defaultPresets = computed(() => [
-  {
-    id: 'flat',
-    label: t('dsp.quickPresets.flat', 'Flat'),
-    gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  },
-  {
-    id: 'bass_boost',
-    label: t('dsp.quickPresets.bassBoost', 'Bass Boost'),
-    gains: [6, 5, 3, 1, 0, 0, 0, 0, 0, 0]
-  },
-  {
-    id: 'vocal',
-    label: t('dsp.quickPresets.vocal', 'Vocal'),
-    gains: [-2, -1, 0, 1, 2, 3, 2, 1, 0, 0]
-  },
-  {
-    id: 'night',
-    label: t('dsp.quickPresets.nightMode', 'Night'),
-    gains: [-4, -2, 0, 1, 1, 1, 0, -1, -2, -3]
-  }
-]);
+// Throttling for volume updates
+const volumeThrottleMap = new Map();
 
-// Computed
+// === COMPUTED ===
 const targets = computed(() => dspStore.availableTargets);
-const userPresets = computed(() => dspStore.presets);
+const hasMultipleTargets = computed(() => targets.value.length > 1);
 
-// Convert targets to Tabs format
-const zoneTabs = computed(() =>
-  targets.value.map(target => ({
-    label: target.name,
-    value: target.id,
-    badge: isLinked(target.id) ? 'link' : undefined,
-    disabled: !target.available
-  }))
-);
+// Convert targets to Tabs format (zones + individual clients)
+const zoneTabs = computed(() => {
+  const tabs = [];
 
-// Convert presets to Dropdown options format
-const presetOptions = computed(() => {
-  const options = [];
+  // Group linked clients into zones
+  const processedIds = new Set();
 
-  // Default presets group
-  defaultPresets.value.forEach(preset => {
-    options.push({
-      label: `${preset.label}`,
-      value: `default:${preset.id}`
-    });
-  });
+  for (const target of targets.value) {
+    if (processedIds.has(target.id)) continue;
 
-  // User presets group (if any)
-  if (userPresets.value.length > 0) {
-    userPresets.value.forEach(preset => {
-      options.push({
-        label: preset,
-        value: `user:${preset}`
+    const linkedIds = dspStore.getLinkedClientIds(target.id);
+
+    if (linkedIds.length > 1) {
+      // This is a zone - get names of linked clients
+      const linkedClients = linkedIds
+        .map(id => targets.value.find(t => t.id === id))
+        .filter(Boolean);
+
+      // Use first client's name as zone name or create a combined name
+      const zoneName = linkedClients.length > 0
+        ? linkedClients.map(c => c.name).join(' + ')
+        : target.name;
+
+      tabs.push({
+        label: zoneName,
+        value: `zone:${linkedIds.join(',')}`,
+        badge: 'link',
+        disabled: linkedClients.some(c => !c.available)
       });
-    });
+
+      // Mark all linked clients as processed
+      linkedIds.forEach(id => processedIds.add(id));
+    } else {
+      // Individual client
+      tabs.push({
+        label: target.name,
+        value: target.id,
+        disabled: !target.available
+      });
+      processedIds.add(target.id);
+    }
   }
 
-  return options;
+  return tabs;
 });
 
-const saveDialogInitialName = computed(() => {
-  if (currentPreset.value.startsWith('user:')) {
-    return currentPreset.value.slice(5);
-  }
-  return '';
+// Check if current selection is a zone (multiple linked clients)
+const isZoneSelected = computed(() => {
+  return selectedTargetLocal.value.startsWith('zone:');
 });
 
-// Check if a client is linked to others
-function isLinked(clientId) {
-  return dspStore.isClientLinked(clientId);
-}
-
-// Handle target/zone change
-async function handleTargetChange(targetId) {
-  if (targetId !== dspStore.selectedTarget) {
-    await dspStore.selectTarget(targetId);
-    // Clear preset selection when switching zones
-    currentPreset.value = '';
-    emit('targetChange', targetId);
+// Get clients in the selected zone
+const zoneClients = computed(() => {
+  if (!isZoneSelected.value) {
+    // Single client - return it
+    const target = targets.value.find(t => t.id === selectedTargetLocal.value);
+    return target ? [target] : [];
   }
+
+  // Parse zone client IDs
+  const clientIds = selectedTargetLocal.value.replace('zone:', '').split(',');
+  return clientIds
+    .map(id => targets.value.find(t => t.id === id))
+    .filter(Boolean);
+});
+
+// Current target volume/mute for single client mode
+const currentTargetVolume = computed(() => {
+  if (isZoneSelected.value && zoneClients.value.length > 0) {
+    return getClientVolume(zoneClients.value[0].id);
+  }
+  return dspStore.getClientDspVolume(selectedTargetLocal.value);
+});
+
+const currentTargetMute = computed(() => {
+  if (isZoneSelected.value && zoneClients.value.length > 0) {
+    return getClientMute(zoneClients.value[0].id);
+  }
+  return dspStore.getClientDspMute(selectedTargetLocal.value);
+});
+
+// Selected zone/client name for display in other sections
+const selectedZoneName = computed(() => {
+  const tab = zoneTabs.value.find(t => t.value === selectedTargetLocal.value);
+  return tab ? tab.label : '';
+});
+
+// === VOLUME HELPERS ===
+function getClientVolume(clientId) {
+  return dspStore.getClientDspVolume(clientId);
 }
 
-// Handle preset selection change
-async function handlePresetChange(value) {
-  if (!value) return;
+function getClientMute(clientId) {
+  return dspStore.getClientDspMute(clientId);
+}
 
-  if (value.startsWith('default:')) {
-    // Apply default preset
-    const presetId = value.slice(8);
-    const preset = defaultPresets.value.find(p => p.id === presetId);
-    if (preset) {
-      await applyDefaultPreset(preset);
+// === HANDLERS ===
+async function handleTargetChange(targetValue) {
+  selectedTargetLocal.value = targetValue;
+
+  // If it's a zone, select the first client as the active DSP target
+  if (targetValue.startsWith('zone:')) {
+    const clientIds = targetValue.replace('zone:', '').split(',');
+    if (clientIds.length > 0) {
+      await dspStore.selectTarget(clientIds[0]);
     }
-  } else if (value.startsWith('user:')) {
-    // Load user preset
-    const presetName = value.slice(5);
-    await dspStore.loadPreset(presetName);
+  } else {
+    await dspStore.selectTarget(targetValue);
   }
 
-  emit('presetApplied', value);
+  emit('targetChange', targetValue);
 }
 
-// Apply a default preset (quick preset)
-async function applyDefaultPreset(preset) {
-  for (let i = 0; i < dspStore.filters.length && i < preset.gains.length; i++) {
-    const filter = dspStore.filters[i];
-    if (filter.gain !== preset.gains[i]) {
-      dspStore.updateFilter(filter.id, 'gain', preset.gains[i]);
-      await dspStore.finalizeFilterUpdate(filter.id);
-    }
-  }
-}
+function handleVolumeInput(clientId, value) {
+  // Update local cache immediately for responsive UI
+  dspStore.setClientDspVolume(clientId, value);
 
-// Reset to current preset
-async function resetToPreset() {
-  if (!currentPreset.value) return;
+  // Throttle API calls
+  let throttleState = volumeThrottleMap.get(clientId) || {};
 
-  if (currentPreset.value.startsWith('default:')) {
-    const presetId = currentPreset.value.slice(8);
-    const preset = defaultPresets.value.find(p => p.id === presetId);
-    if (preset) {
-      await applyDefaultPreset(preset);
-    }
-  } else if (currentPreset.value.startsWith('user:')) {
-    const presetName = currentPreset.value.slice(5);
-    await dspStore.loadPreset(presetName);
-  }
-}
+  if (throttleState.throttleTimeout) clearTimeout(throttleState.throttleTimeout);
+  if (throttleState.finalTimeout) clearTimeout(throttleState.finalTimeout);
 
-// Open save dialog
-function openSaveDialog() {
-  showSaveDialog.value = true;
-}
-
-// Save preset
-async function handleSavePreset(name) {
-  isSaving.value = true;
-  try {
-    await dspStore.savePreset(name);
-    currentPreset.value = 'user:' + name;
-    showSaveDialog.value = false;
-  } catch (error) {
-    console.error('Error saving preset:', error);
-  } finally {
-    isSaving.value = false;
-  }
-}
-
-// === VOLUME CONTROLS ===
-let volumeThrottleTimer = null;
-
-function handleVolumeInput(value) {
-  dspStore.setClientDspVolume(dspStore.selectedTarget, value);
-
-  if (volumeThrottleTimer) clearTimeout(volumeThrottleTimer);
-  volumeThrottleTimer = setTimeout(() => {
-    dspStore.updateDspVolume(value);
+  throttleState.throttleTimeout = setTimeout(() => {
+    dspStore.updateClientDspVolume(clientId, value);
   }, 50);
+
+  throttleState.finalTimeout = setTimeout(() => {
+    dspStore.updateClientDspVolume(clientId, value);
+  }, 200);
+
+  volumeThrottleMap.set(clientId, throttleState);
 }
 
-function handleVolumeChange(value) {
-  if (volumeThrottleTimer) clearTimeout(volumeThrottleTimer);
-  dspStore.updateDspVolume(value);
-}
-
-async function handleMuteToggle() {
-  await dspStore.updateDspMute(!dspStore.dspVolume.mute);
-}
-
-// Watch for active preset changes from store
-// immediate: true ensures preset is restored when modal reopens
-watch(() => dspStore.activePreset, (newPreset) => {
-  if (newPreset && !currentPreset.value.startsWith('default:')) {
-    currentPreset.value = 'user:' + newPreset;
+function handleVolumeChange(clientId, value) {
+  // Clear throttle timers
+  const throttleState = volumeThrottleMap.get(clientId);
+  if (throttleState) {
+    if (throttleState.throttleTimeout) clearTimeout(throttleState.throttleTimeout);
+    if (throttleState.finalTimeout) clearTimeout(throttleState.finalTimeout);
+    volumeThrottleMap.delete(clientId);
   }
-}, { immediate: true });
+
+  // Final update
+  dspStore.updateClientDspVolume(clientId, value);
+}
+
+async function handleMuteToggle(clientId, muted) {
+  dspStore.setClientDspMute(clientId, muted);
+
+  // Update via API
+  if (clientId === 'local' || clientId === dspStore.selectedTarget) {
+    await dspStore.updateDspMute(muted);
+  } else {
+    // For remote clients, we need to call the specific endpoint
+    // This is handled through the DSP store's client API
+    try {
+      const axios = (await import('axios')).default;
+      await axios.put(`/api/dsp/client/${clientId}/mute`, { muted });
+    } catch (error) {
+      console.error(`Error updating mute for ${clientId}:`, error);
+    }
+  }
+}
 
 // Sync local target with store
 watch(() => dspStore.selectedTarget, (newTarget) => {
-  selectedTargetLocal.value = newTarget;
+  // Don't override if we have a zone selected
+  if (!selectedTargetLocal.value.startsWith('zone:')) {
+    selectedTargetLocal.value = newTarget;
+  }
 });
+
+// Auto-select first tab if current selection doesn't exist
+watch(zoneTabs, (tabs) => {
+  if (tabs.length > 0) {
+    const currentTabExists = tabs.some(t => t.value === selectedTargetLocal.value);
+    if (!currentTabExists) {
+      selectedTargetLocal.value = tabs[0].value;
+      handleTargetChange(tabs[0].value);
+    }
+  }
+}, { immediate: true });
+
+// Expose selectedZoneName for parent components
+defineExpose({ selectedZoneName });
 </script>
 
 <style scoped>
-.zone-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-}
-
-/* Volume section */
-.volume-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-  padding: var(--space-03);
+/* Settings section pattern from VolumeSettings.vue */
+.settings-section {
   background: var(--color-background-neutral);
-  border-radius: var(--radius-05);
+  border-radius: var(--radius-06);
+  padding: var(--space-05-fixed) var(--space-05);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05-fixed);
 }
 
-.volume-header {
+.section-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+/* Section Header */
+.section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-03);
+}
+
+/* Volume Controls */
+.volume-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.volume-subtitle {
+  color: var(--color-text-secondary);
+}
+
+/* Clients list (for zones) */
+.clients-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.client-volume-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 150px) 1fr auto;
+  align-items: center;
+  gap: var(--space-03);
+  padding: var(--space-03) 0;
+  position: relative;
+}
+
+.client-volume-row:first-child {
+  padding-top: 0;
+}
+
+.client-volume-row:last-child {
+  padding-bottom: 0;
+}
+
+.client-separator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.client-name {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--transition-fast);
+}
+
+.client-name.muted {
+  color: var(--color-text-light);
+}
+
+/* Single client row */
+.single-client-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 100px) 1fr auto;
+  align-items: center;
+  gap: var(--space-03);
 }
 
 .volume-label {
-  color: var(--color-text-secondary);
-}
-
-.mute-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: var(--radius-04);
-  background: var(--color-background-strong);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast), var(--transition-press);
-}
-
-.mute-button:hover {
-  background: var(--color-border);
   color: var(--color-text);
+  transition: color var(--transition-fast);
 }
 
-.mute-button--active {
-  background: var(--color-brand);
-  color: var(--color-text-contrast);
-}
-
-.mute-button--active:hover {
-  background: var(--color-brand);
-  color: var(--color-text-contrast);
+.volume-label.muted {
+  color: var(--color-text-light);
 }
 
 .volume-control {
-  display: flex;
-  align-items: center;
-}
-
-/* Preset row */
-.preset-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-02);
-  padding: var(--space-02) var(--space-03);
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-05);
-}
-
-.preset-label {
-  color: var(--color-text-secondary);
-  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
-  .volume-section {
-    padding: var(--space-02);
-    gap: var(--space-01);
+  .settings-section {
+    border-radius: var(--radius-05);
   }
 
-  .mute-button {
-    width: 32px;
-    height: 32px;
+  .client-volume-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-02);
+    padding: var(--space-02) 0;
   }
 
-  .preset-row {
-    padding: var(--space-01) var(--space-02);
-    gap: var(--space-01);
+  .client-name {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .volume-control {
+    order: 3;
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .single-client-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-02);
+  }
+
+  .single-client-row .volume-label {
+    flex: 1;
+  }
+
+  .single-client-row .volume-control {
+    order: 3;
+    width: 100%;
+    flex-basis: 100%;
   }
 }
 </style>
