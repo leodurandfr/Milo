@@ -3,17 +3,9 @@
 <template>
   <section class="settings-section">
     <div class="section-group">
-      <!-- Section Header: "Zones" + "Configurer les zones" button -->
+      <!-- Section Header: "Zones" -->
       <div class="section-header">
         <h2 class="heading-2">{{ zoneTabs.length === 1 ? zoneTabs[0].label : $t('dsp.zones.title', 'Zones') }}</h2>
-        <Button
-          v-if="hasMultipleTargets"
-          size="small"
-          variant="background-strong"
-          @click="handleOpenZoneSettings"
-        >
-          {{ $t('dsp.zones.configure', 'Configurer les zones') }}
-        </Button>
       </div>
 
       <!-- Zone/Client Tabs (hidden when single target) -->
@@ -99,7 +91,6 @@
 import { ref, computed, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import Button from '@/components/ui/Button.vue';
 import Tabs from '@/components/ui/Tabs.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -114,7 +105,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['targetChange', 'openLinkDialog']);
+const emit = defineEmits(['targetChange']);
 
 // Local state
 const selectedTargetLocal = ref(dspStore.selectedTarget);
@@ -227,11 +218,6 @@ function getClientMute(clientId) {
 }
 
 // === HANDLERS ===
-function handleOpenZoneSettings() {
-  // Navigate to zone list (settings page)
-  emit('openLinkDialog');
-}
-
 async function handleTargetChange(targetValue) {
   selectedTargetLocal.value = targetValue;
 

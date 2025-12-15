@@ -2,13 +2,9 @@
 <!-- Main DSP control panel with parametric EQ and presets -->
 <template>
   <div class="dsp-modal">
-    <!-- Header with navigation support -->
-    <ModalHeader
-      :title="headerTitle"
-      :show-back="canGoBack"
-      @back="back"
-    >
-      <template v-if="currentView === 'home'" #actions>
+    <!-- Header -->
+    <ModalHeader :title="$t('dsp.title', 'DSP Equalizer')">
+      <template #actions>
         <!-- DSP Effects Enable/Disable toggle -->
         <Toggle
           :model-value="dspStore.isDspEffectsEnabled"
@@ -18,12 +14,9 @@
       </template>
     </ModalHeader>
 
-    <!-- Main content with navigation -->
+    <!-- Main content -->
     <div class="content-wrapper">
       <Transition name="fade-slide" mode="out-in">
-        <!-- HOME VIEW -->
-        <div v-if="currentView === 'home'" key="home">
-          <Transition name="fade-slide" mode="out-in">
             <!-- MESSAGE: DSP Effects disabled -->
             <MessageContent
               v-if="!dspStore.isDspEffectsEnabled"
@@ -45,7 +38,6 @@
                 <ZoneTabs
                   ref="zoneTabsRef"
                   :disabled="dspStore.isUpdating"
-                  @open-link-dialog="handleOpenZoneSettings"
                 />
 
                 <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
@@ -82,28 +74,6 @@
                 <LevelMeters />
               </template>
             </div>
-          </Transition>
-        </div>
-
-        <!-- ZONE LIST VIEW -->
-        <ZoneList
-          v-else-if="currentView === 'zone-settings'"
-          key="zone-settings"
-          class="view-content"
-          @edit-zone="handleEditZone"
-          @create-zone="handleCreateZone"
-          @saved="handleZoneSaved"
-        />
-
-        <!-- ZONE EDIT VIEW -->
-        <ZoneEdit
-          v-else-if="currentView === 'zone-edit'"
-          key="zone-edit"
-          class="view-content"
-          :group-id="currentParams.groupId"
-          @back="back"
-          @saved="handleZoneSaved"
-        />
       </Transition>
     </div>
   </div>
@@ -113,7 +83,6 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
 import { useI18n } from '@/services/i18n';
-import { useNavigationStack } from '@/composables/useNavigationStack';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -124,53 +93,15 @@ import ZoneTabs from './ZoneTabs.vue';
 import ParametricEQ from './ParametricEQ.vue';
 import AdvancedDsp from './AdvancedDsp.vue';
 import LevelMeters from './LevelMeters.vue';
-import ZoneList from './ZoneList.vue';
-import ZoneEdit from './ZoneEdit.vue';
 
 const { t } = useI18n();
 const dspStore = useDspStore();
 const { on } = useWebSocket();
 
-// Navigation
-const { currentView, currentParams, canGoBack, push, back, reset } = useNavigationStack('home');
-
 // Local state
 const isMobile = ref(false);
 const currentPreset = ref('');
 const zoneTabsRef = ref(null);
-
-// Header title based on current view
-const headerTitle = computed(() => {
-  const titles = {
-    'home': t('dsp.title', 'DSP Equalizer'),
-    'zone-settings': t('dsp.zones.title', 'Zones'),
-    'zone-edit': currentParams.value.groupId
-      ? t('dsp.zones.editZone', 'Edit Zone')
-      : t('dsp.zones.createZone', 'Create Zone')
-  };
-  return titles[currentView.value] || t('dsp.title');
-});
-
-// Navigate to zone settings (list view)
-function handleOpenZoneSettings() {
-  push('zone-settings');
-}
-
-// Navigate to zone edit (create new zone)
-function handleCreateZone() {
-  push('zone-edit', { groupId: null });
-}
-
-// Navigate to zone edit (edit existing zone)
-function handleEditZone(groupId) {
-  push('zone-edit', { groupId });
-}
-
-// Handle zone saved
-function handleZoneSaved() {
-  // Refresh targets after zone changes
-  dspStore.loadTargets();
-}
 
 // Selected zone/client name from ZoneTabs component
 const selectedZoneName = computed(() => {

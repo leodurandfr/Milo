@@ -105,7 +105,35 @@
         <SpotifySettings v-else-if="currentView === 'spotify'" key="spotify" class="view-content" />
 
         <!-- Multiroom view -->
-        <MultiroomSettings v-else-if="currentView === 'multiroom'" key="multiroom" class="view-content" />
+        <MultiroomSettings
+          v-else-if="currentView === 'multiroom'"
+          key="multiroom"
+          class="view-content"
+          @edit-zone="handleEditZone"
+          @create-zone="handleCreateZone"
+          @edit-client="handleEditClient"
+        />
+
+        <!-- Multiroom zone edit view -->
+        <ZoneEdit
+          v-else-if="currentView === 'multiroom-zone-edit'"
+          key="multiroom-zone-edit"
+          class="view-content"
+          :group-id="zoneGroupId"
+          :enable-client-renaming="true"
+          @back="handleZoneSaved"
+          @saved="handleZoneSaved"
+        />
+
+        <!-- Multiroom client edit view -->
+        <ClientEdit
+          v-else-if="currentView === 'multiroom-client-edit'"
+          key="multiroom-client-edit"
+          class="view-content"
+          :client-id="clientIdToEdit"
+          @back="handleClientSaved"
+          @saved="handleClientSaved"
+        />
 
         <!-- Radio view -->
         <RadioSettings v-else-if="currentView === 'radio'" key="radio" ref="radioSettingsRef" class="view-content" @go-to-add-station="goToView('radio-add')" @edit-station="handleEditStation" />
@@ -159,6 +187,8 @@ import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue'
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
 import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
 import MultiroomSettings from '@/components/settings/categories/MultiroomSettings.vue';
+import ZoneEdit from '@/components/dsp/ZoneEdit.vue';
+import ClientEdit from '@/components/multiroom/ClientEdit.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';
@@ -189,9 +219,13 @@ const headerHidden = ref(false);
 const wasScrolled = ref(false);
 
 // Navigation with stack
-const { currentView, canGoBack, push, back, reset, goTo } = useNavigationStack('home');
+const { currentView, currentParams, canGoBack, push, back, reset, goTo } = useNavigationStack('home');
 const radioSettingsRef = ref(null);
 const stationToEdit = ref(null);
+
+// Zone/client being edited
+const zoneGroupId = ref(null);
+const clientIdToEdit = ref(null);
 
 // Dynamic header title based on current view
 const headerTitle = computed(() => {
@@ -203,6 +237,10 @@ const headerTitle = computed(() => {
     'screen': t('settings.screen'),
     'spotify': t('spotifySettings.title'),
     'multiroom': t('multiroom.title'),
+    'multiroom-zone-edit': zoneGroupId.value
+      ? t('dsp.zones.editZone', 'Edit Zone')
+      : t('dsp.zones.createZone', 'Create Zone'),
+    'multiroom-client-edit': t('multiroom.editSpeaker', 'Edit Speaker'),
     'radio': 'Radio',
     'radio-add': t('radio.manageStation.addStationTitle'),
     'radio-edit': t('radio.manageStation.editStationTitle'),
@@ -351,6 +389,32 @@ function handleRadioStationAdded(station) {
   if (radioSettingsRef.value) {
     radioSettingsRef.value.loadCustomStations();
   }
+  back();
+}
+
+// === MULTIROOM ZONE/CLIENT HANDLERS ===
+function handleEditZone(groupId) {
+  zoneGroupId.value = groupId;
+  push('multiroom-zone-edit');
+}
+
+function handleCreateZone() {
+  zoneGroupId.value = null;
+  push('multiroom-zone-edit');
+}
+
+function handleEditClient(clientId) {
+  clientIdToEdit.value = clientId;
+  push('multiroom-client-edit');
+}
+
+function handleZoneSaved() {
+  zoneGroupId.value = null;
+  back();
+}
+
+function handleClientSaved() {
+  clientIdToEdit.value = null;
   back();
 }
 
