@@ -108,15 +108,16 @@ class MacPlugin(UnifiedAudioPlugin):
                 is_active = await self.service_manager.is_active(self.service_name)
 
                 if is_active:
-                    # Start event monitoring (journalctl)
                     self._stopping = False
+
+                    # Check initial state SYNCHRONOUSLY (detects already-streaming audio)
+                    await self._check_initial_state()
+
+                    # Start continuous monitoring
                     self.monitor_task = asyncio.create_task(self._monitor_events())
 
-                    await self.notify_state_change(PluginState.READY, {
-                        "listening": True,
-                        "rtp_port": self.rtp_port,
-                        "audio_output": self.audio_output
-                    })
+                    # Broadcast correct initial state (READY or CONNECTED)
+                    await self._update_state()
                     return True
 
             return False
@@ -144,6 +145,23 @@ class MacPlugin(UnifiedAudioPlugin):
 
         self.logger.info(f"ROC stop completed: {success}")
         return success
+
+    async def start(self) -> bool:
+        """Starts ROC receiver with proper initial state detection"""
+        if not self._initialized and not await self.initialize():
+            await self.notify_state_change(PluginState.ERROR, {"error": "Initialization failed"})
+            return False
+
+        try:
+            success = await self._do_start()
+            if not success:
+                await self.notify_state_change(PluginState.ERROR, {"error": "Start failed"})
+            # Do NOT call notify_state_change(READY) - _do_start() handles correct state
+            return success
+        except Exception as e:
+            self.logger.error(f"Start error: {e}")
+            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
+            return False
 
     async def _detect_active_connections(self):
         """
@@ -201,8 +219,13 @@ class MacPlugin(UnifiedAudioPlugin):
         """Pure event monitoring with journalctl -f"""
         proc = None
         try:
-            # Read initial state
+            # Read initial state (may have already been done in _do_start)
             await self._check_initial_state()
+
+            # Ensure correct state is broadcast now that plugin is active
+            # This is needed because state updates during _do_start() are ignored
+            # by the state machine (plugin not yet active at that point)
+            await self._update_state()
 
             # Real-time monitoring
             proc = await asyncio.create_subprocess_exec(
@@ -240,8 +263,11 @@ class MacPlugin(UnifiedAudioPlugin):
     async def _check_initial_state(self):
         """Checks initial state by analyzing recent logs"""
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "journalctl", "-u", self.service_name, "-n", "100", "--no-pager",
+            # Use shell pipeline to filter out [trc] trace logs
+            # ROC with -vvv generates thousands of trace logs per second
+            # Without filtering, -n 100 captures only trace logs, missing [inf] session events
+            proc = await asyncio.create_subprocess_shell(
+                f"journalctl -u {self.service_name} -n 5000 --no-pager | grep -v '\\[trc\\]' | tail -100",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             stdout, _ = await proc.communicate()
@@ -373,15 +399,13 @@ class MacPlugin(UnifiedAudioPlugin):
     async def _update_state(self):
         """Updates state with connected clients list"""
         if self.connected_clients:
-            # List of client names
             client_names = list(self.connected_clients.values())
-
             await self.notify_state_change(PluginState.CONNECTED, {
                 "listening": True,
                 "rtp_port": self.rtp_port,
                 "audio_output": self.audio_output,
                 "connected": True,
-                "client_names": client_names,  # List of names
+                "client_names": client_names,
                 "client_count": len(client_names)
             })
         else:
