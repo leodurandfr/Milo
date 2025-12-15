@@ -871,6 +871,20 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
+  async function deleteZone(groupId) {
+    try {
+      const response = await axios.delete(`/api/dsp/links/group/${groupId}`);
+      if (response.data.linked_groups !== undefined) {
+        linkedGroups.value = response.data.linked_groups;
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error deleting zone:', error);
+      return false;
+    }
+  }
+
   async function updateZoneName(groupId, name) {
     try {
       const response = await axios.put(`/api/dsp/links/${groupId}/name`, { name });
@@ -1072,6 +1086,7 @@ export const useDspStore = defineStore('dsp', () => {
     linkClients,
     unlinkClient,
     clearAllLinks,
+    deleteZone,
     updateZoneName,
     isClientLinked,
     getLinkedClientIds,

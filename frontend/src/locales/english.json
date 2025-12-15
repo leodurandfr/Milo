@@ -44,7 +44,9 @@
     "noSpeakers": "No speakers connected",
     "restarting": "Restarting multiroom...",
     "error": "Error activating multiroom",
-    "timeout_error": "Activation timeout. Please try again."
+    "timeout_error": "Activation timeout. Please try again.",
+    "editSpeaker": "Edit Speaker",
+    "speakerName": "Speaker Name"
   },
   "equalizer": {
     "title": "Equalizer",
@@ -69,6 +71,7 @@
       "createZone": "Create Zone",
       "editZone": "Edit Zone",
       "updateZone": "Update Zone",
+      "deleteZone": "Delete Zone",
       "description": "Link clients to create zones with shared DSP settings. Changes to one zone member will apply to all.",
       "noZones": "No zones created yet. Create a zone to link multiple clients.",
       "inOtherZone": "In other zone"

@@ -29,7 +29,8 @@
             class="client-item"
             :class="{
               disabled: !target.available || isClientInOtherZone(target.id),
-              selected: selectedClients.includes(target.id)
+              selected: selectedClients.includes(target.id),
+              'with-rename': enableClientRenaming && selectedClients.includes(target.id)
             }"
           >
             <div class="radio-indicator" :class="{ checked: selectedClients.includes(target.id) }">
@@ -42,7 +43,28 @@
               @change="toggleClient(target.id)"
               class="hidden-checkbox"
             />
-            <span class="client-name">{{ target.name }}</span>
+
+            <!-- When renaming is enabled and client is selected: show hostname + input -->
+            <template v-if="enableClientRenaming && selectedClients.includes(target.id)">
+              <div class="client-rename-row">
+                <span class="client-hostname text-mono">{{ target.host || target.id }}</span>
+                <span class="client-arrow">→</span>
+                <InputText
+                  v-model="clientNames[target.id]"
+                  :placeholder="target.host || target.id"
+                  size="small"
+                  :maxlength="50"
+                  class="client-name-input"
+                  @click.stop
+                />
+              </div>
+            </template>
+
+            <!-- Default: show client name -->
+            <template v-else>
+              <span class="client-name">{{ target.name }}</span>
+            </template>
+
             <span v-if="isClientInOtherZone(target.id)" class="badge badge-disabled">
               {{ getOtherZoneName(target.id) }}
             </span>
@@ -54,12 +76,24 @@
       </div>
     </section>
 
+    <!-- Delete Zone (only when editing existing zone) -->
+    <Button
+      v-if="groupId"
+      variant="background-strong"
+      size="medium"
+      :disabled="saving || deleting"
+      :loading="deleting"
+      @click="handleDelete"
+    >
+      {{ $t('dsp.zones.deleteZone', 'Delete Zone') }}
+    </Button>
+
     <!-- Actions -->
     <div class="actions">
       <Button
         variant="background-strong"
         size="medium"
-        :disabled="saving"
+        :disabled="saving || deleting"
         @click="$emit('back')"
       >
         {{ $t('common.cancel', 'Cancel') }}
@@ -68,7 +102,7 @@
         variant="brand"
         size="medium"
         :loading="saving"
-        :disabled="selectedClients.length < 2"
+        :disabled="selectedClients.length < 2 || deleting"
         @click="handleSave"
       >
         {{ $t('common.save', 'Save') }}
@@ -80,6 +114,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 
@@ -88,15 +123,24 @@ const props = defineProps({
   groupId: {
     type: String,
     default: null
+  },
+  // Enable client renaming in zone edit (used when called from MultiroomSettings)
+  enableClientRenaming: {
+    type: Boolean,
+    default: false
   }
 });
 
 const emit = defineEmits(['back', 'saved']);
 
 const dspStore = useDspStore();
+const multiroomStore = useMultiroomStore();
 const saving = ref(false);
+const deleting = ref(false);
 const zoneName = ref('');
 const selectedClients = ref([]);
+// Client names for renaming (dsp_id -> display name)
+const clientNames = ref({});
 
 // Get available targets from store
 const availableTargets = computed(() => dspStore.availableTargets);
@@ -151,6 +195,12 @@ function toggleClient(clientId) {
   }
 }
 
+// Get the hostname for a client (for display)
+function getClientHostname(dspId) {
+  const target = availableTargets.value.find(t => t.id === dspId);
+  return target?.host || dspId;
+}
+
 // Initialize state when mounted
 onMounted(() => {
   if (currentGroup.value) {
@@ -162,6 +212,13 @@ onMounted(() => {
     selectedClients.value = [];
     zoneName.value = '';
   }
+
+  // Initialize client names from multiroomStore
+  if (props.enableClientRenaming) {
+    multiroomStore.clients.forEach(client => {
+      clientNames.value[client.dsp_id] = client.name || client.host;
+    });
+  }
 });
 
 async function handleSave() {
@@ -169,6 +226,20 @@ async function handleSave() {
 
   saving.value = true;
   try {
+    // Save client names first if renaming is enabled
+    if (props.enableClientRenaming) {
+      for (const dspId of selectedClients.value) {
+        const newName = clientNames.value[dspId]?.trim();
+        if (newName) {
+          // Find client by dsp_id
+          const client = multiroomStore.clients.find(c => c.dsp_id === dspId);
+          if (client && client.name !== newName) {
+            await multiroomStore.updateClientName(client.id, newName);
+          }
+        }
+      }
+    }
+
     // Link clients with zone name
     await dspStore.linkClients(selectedClients.value, null, zoneName.value || null);
     emit('saved');
@@ -177,6 +248,21 @@ async function handleSave() {
     console.error('Error saving zone:', error);
   } finally {
     saving.value = false;
+  }
+}
+
+async function handleDelete() {
+  if (!props.groupId) return;
+
+  deleting.value = true;
+  try {
+    await dspStore.deleteZone(props.groupId);
+    emit('saved');
+    emit('back');
+  } catch (error) {
+    console.error('Error deleting zone:', error);
+  } finally {
+    deleting.value = false;
   }
 }
 </script>
@@ -284,6 +370,35 @@ async function handleSave() {
   flex: 1;
   font-size: 14px;
   color: var(--color-text);
+}
+
+/* Client rename row (when enableClientRenaming is true) */
+.client-rename-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+  min-width: 0;
+}
+
+.client-hostname {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.client-arrow {
+  color: var(--color-text-light);
+  font-size: 12px;
+}
+
+.client-name-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.client-item.with-rename {
+  flex-wrap: wrap;
 }
 
 .badge {

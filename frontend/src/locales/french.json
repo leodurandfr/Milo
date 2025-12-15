@@ -44,7 +44,9 @@
     "noSpeakers": "Aucune enceinte connectée",
     "restarting": "Redémarrage du multiroom en cours...",
     "error": "Erreur lors de l'activation du multiroom",
-    "timeout_error": "Délai d'activation dépassé. Veuillez réessayer."
+    "timeout_error": "Délai d'activation dépassé. Veuillez réessayer.",
+    "editSpeaker": "Modifier l'enceinte",
+    "speakerName": "Nom de l'enceinte"
   },
   "equalizer": {
     "title": "Égaliseur",
@@ -69,6 +71,7 @@
       "createZone": "Créer une zone",
       "editZone": "Modifier la zone",
       "updateZone": "Mettre à jour",
+      "deleteZone": "Supprimer la zone",
       "description": "Liez les clients pour créer des zones avec des réglages DSP partagés. Les modifications s'appliqueront à tous les membres.",
       "noZones": "Aucune zone créée. Créez une zone pour lier plusieurs clients.",
       "inOtherZone": "Dans une autre zone"

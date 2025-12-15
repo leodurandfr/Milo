@@ -837,6 +837,29 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
             logger.error(f"Error clearing links: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    @router.delete("/links/group/{group_id}")
+    async def delete_link_group(group_id: str):
+        """Delete an entire linked client group (zone)"""
+        try:
+            if not settings_service:
+                raise HTTPException(status_code=500, detail="Settings service not available")
+
+            linked_groups = await settings_service.get_setting("dsp.linked_groups") or []
+            updated_groups = [g for g in linked_groups if g.get("id") != group_id]
+
+            if len(updated_groups) == len(linked_groups):
+                raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
+
+            await settings_service.set_setting("dsp.linked_groups", updated_groups)
+            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": updated_groups})
+            return {"status": "success", "linked_groups": updated_groups}
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error deleting link group: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     @router.put("/links/{group_id}/name")
     async def update_link_group_name(group_id: str, request: Request):
         """Update the name of a linked client group (zone)"""

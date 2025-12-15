@@ -12,7 +12,7 @@
         <!-- SETTINGS: Sections visible only if multiroom is enabled -->
         <Transition name="settings">
           <div v-if="isMultiroomActive" key="settings" class="settings-container">
-            <!-- Multiroom speakers -->
+            <!-- Speakers & Zones Section -->
             <section class="settings-section">
               <div class="multiroom-group">
                 <h2 class="heading-2">{{ t('multiroom.speakers') }}</h2>
@@ -25,15 +25,96 @@
                   <p class="text-mono">{{ t('multiroom.noSpeakers') }}</p>
                 </div>
 
-                <div v-else class="clients-list" :style="clientsGridStyle">
-                  <div v-for="(client, index) in sortedMultiroomClients" :key="client.id" class="client-config-item"
-                    :style="getClientGridStyle(index)">
-                    <div class="client-info-wrapper">
-                      <span class="client-hostname text-mono">{{ client.host }}</span>
-                      <InputText v-model="clientNames[client.id]" :placeholder="client.host"
-                        size="small" :maxlength="50" @blur="handleInputBlur(client.id)" />
+                <div v-else class="speakers-list">
+                  <!-- Zones -->
+                  <div
+                    v-for="zone in zones"
+                    :key="zone.id"
+                    class="zone-item"
+                  >
+                    <!-- Zone Header (Expandable) -->
+                    <div
+                      class="zone-header"
+                      @click="toggleZoneExpansion(zone.id)"
+                    >
+                      <span class="zone-expand-icon">{{ expandedZones.has(zone.id) ? '▼' : '▶' }}</span>
+                      <span class="zone-name heading-3">{{ zone.displayName }}</span>
+                      <span class="zone-count text-mono-small">{{ zone.clientCount }} {{ t('multiroom.speakers').toLowerCase() }}</span>
+                      <IconButton
+                        icon="caretRight"
+                        variant="background-strong"
+                        size="small"
+                        @click.stop="handleEditZone(zone.id)"
+                      />
                     </div>
+
+                    <!-- Zone Members (Expanded) with volume/mute controls -->
+                    <Transition name="expand">
+                      <div v-if="expandedZones.has(zone.id)" class="zone-members">
+                        <div
+                          v-for="client in zone.clients"
+                          :key="client.id"
+                          class="client-volume-row"
+                          :class="{ 'client-muted': client.muted }"
+                        >
+                          <span class="client-name heading-3" :class="{ 'muted': client.muted }">
+                            {{ client.name }}
+                          </span>
+                          <div class="volume-control">
+                            <RangeSlider
+                              :model-value="getClientVolume(client)"
+                              :min="volumeLimits.min_db"
+                              :max="volumeLimits.max_db"
+                              :step="1"
+                              show-value
+                              value-unit=" dB"
+                              :disabled="client.muted"
+                              @input="(v) => handleVolumeInput(client, v)"
+                              @change="(v) => handleVolumeChange(client, v)"
+                            />
+                          </div>
+                          <Toggle
+                            :model-value="!client.muted"
+                            type="background-strong"
+                            @change="(enabled) => handleMuteToggle(client, !enabled)"
+                          />
+                        </div>
+                      </div>
+                    </Transition>
                   </div>
+
+                  <!-- Separator (if both zones and ungrouped clients exist) -->
+                  <div v-if="zones.length > 0 && ungroupedClients.length > 0" class="separator"></div>
+
+                  <!-- Ungrouped Clients -->
+                  <div
+                    v-for="client in ungroupedClients"
+                    :key="client.id"
+                    class="ungrouped-client"
+                  >
+                    <div class="ungrouped-client-info">
+                      <span class="client-hostname text-mono-small">{{ client.host }}</span>
+                      <span class="client-arrow">→</span>
+                      <span class="client-name heading-4">{{ client.name }}</span>
+                    </div>
+                    <IconButton
+                      icon="caretRight"
+                      variant="background-strong"
+                      size="small"
+                      @click="handleEditClient(client.id)"
+                    />
+                  </div>
+
+                  <!-- Create Zone Button -->
+                  <Button
+                    v-if="sortedMultiroomClients.length >= 2"
+                    variant="brand"
+                    size="medium"
+                    class="create-zone-button"
+                    @click="handleCreateZone"
+                  >
+                    {{ t('dsp.zones.createZone', 'Create Zone') }}
+                  </Button>
                 </div>
               </div>
             </section>
@@ -108,15 +189,22 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
+import { useDspStore } from '@/stores/dspStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import InputText from '@/components/ui/InputText.vue';
+import IconButton from '@/components/ui/IconButton.vue';
+import Toggle from '@/components/ui/Toggle.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
+
+const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client']);
 
 const { t } = useI18n();
 const { on } = useWebSocket();
 const multiroomStore = useMultiroomStore();
 const unifiedStore = useUnifiedAudioStore();
+const dspStore = useDspStore();
+const settingsStore = useSettingsStore();
 
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -127,11 +215,148 @@ const containerHeight = ref('auto');
 let resizeObserver = null;
 let isFirstResize = true;
 
-// Client names (local state for input)
-const clientNames = ref({});
+// Zone expansion state
+const expandedZones = ref(new Set());
+
+// Volume limits from settings
+const volumeLimits = computed(() => settingsStore.volumeLimits);
+
+// Local volume cache for responsive UI during drag
+const localVolumeCache = ref({});
+
+// Throttling for volume updates
+const throttleTimeouts = new Map();
+const finalTimeouts = new Map();
 
 // Sorted clients with "milo" first
 const sortedMultiroomClients = computed(() => multiroomStore.sortedClients);
+
+// Get zones with client details (including volume and muted state)
+const zones = computed(() => {
+  return dspStore.linkedGroups.map((group, index) => {
+    const clients = (group.client_ids || [])
+      .map(dspId => {
+        const client = multiroomStore.clients.find(c => c.dsp_id === dspId);
+        return client ? {
+          id: client.id,
+          dsp_id: dspId,
+          host: client.host,
+          name: client.name || client.host,
+          muted: client.muted || false,
+          volume: dspStore.getClientDspVolume(dspId)
+        } : null;
+      })
+      .filter(Boolean);
+
+    return {
+      id: group.id,
+      displayName: group.name || `Zone ${index + 1}`,
+      clientCount: clients.length,
+      clients
+    };
+  });
+});
+
+// Get clients not in any zone
+const ungroupedClients = computed(() => {
+  const groupedIds = new Set();
+  dspStore.linkedGroups.forEach(group => {
+    (group.client_ids || []).forEach(id => groupedIds.add(id));
+  });
+
+  return multiroomStore.clients
+    .filter(client => !groupedIds.has(client.dsp_id))
+    .map(client => ({
+      id: client.id,
+      dsp_id: client.dsp_id,
+      host: client.host,
+      name: client.name || client.host
+    }));
+});
+
+// Toggle zone expansion
+function toggleZoneExpansion(zoneId) {
+  if (expandedZones.value.has(zoneId)) {
+    expandedZones.value.delete(zoneId);
+  } else {
+    expandedZones.value.add(zoneId);
+  }
+  // Force reactivity
+  expandedZones.value = new Set(expandedZones.value);
+}
+
+// === ZONE CLIENT VOLUME/MUTE HANDLERS ===
+
+// Get client volume (from local cache or dspStore)
+function getClientVolume(client) {
+  if (localVolumeCache.value[client.dsp_id] !== undefined) {
+    return localVolumeCache.value[client.dsp_id];
+  }
+  const volume = dspStore.getClientDspVolume(client.dsp_id);
+  return Math.max(volumeLimits.value.min_db, Math.min(volumeLimits.value.max_db, Math.round(volume)));
+}
+
+// Handle volume input (during slider drag)
+function handleVolumeInput(client, value) {
+  // Update local cache for responsive UI
+  localVolumeCache.value[client.dsp_id] = value;
+
+  // Clear existing timeouts
+  if (throttleTimeouts.has(client.id)) {
+    clearTimeout(throttleTimeouts.get(client.id));
+  }
+  if (finalTimeouts.has(client.id)) {
+    clearTimeout(finalTimeouts.get(client.id));
+  }
+
+  // Throttled update (50ms)
+  throttleTimeouts.set(client.id, setTimeout(async () => {
+    await dspStore.updateClientDspVolume(client.dsp_id, value);
+  }, 50));
+
+  // Final update (500ms)
+  finalTimeouts.set(client.id, setTimeout(async () => {
+    await dspStore.updateClientDspVolume(client.dsp_id, value);
+  }, 500));
+}
+
+// Handle volume change (on slider release)
+function handleVolumeChange(client, value) {
+  // Clear throttle timeouts
+  if (throttleTimeouts.has(client.id)) {
+    clearTimeout(throttleTimeouts.get(client.id));
+    throttleTimeouts.delete(client.id);
+  }
+  if (finalTimeouts.has(client.id)) {
+    clearTimeout(finalTimeouts.get(client.id));
+    finalTimeouts.delete(client.id);
+  }
+
+  // Clear local cache
+  delete localVolumeCache.value[client.dsp_id];
+
+  // Final update
+  dspStore.updateClientDspVolume(client.dsp_id, value);
+  dspStore.setClientDspVolume(client.dsp_id, value);
+}
+
+// Handle mute toggle
+async function handleMuteToggle(client, muted) {
+  await multiroomStore.toggleClientMute(client.id, muted);
+}
+
+// Navigation handlers - emit to parent (SettingsModal)
+function handleEditZone(groupId) {
+  emit('edit-zone', groupId);
+}
+
+function handleCreateZone() {
+  emit('create-zone');
+}
+
+function handleEditClient(clientId) {
+  emit('edit-client', clientId);
+}
 
 const audioPresets = computed(() => [
   {
@@ -151,68 +376,6 @@ const audioPresets = computed(() => [
   }
 ]);
 
-// Dynamic style for the grid
-const clientsGridStyle = computed(() => {
-  const count = sortedMultiroomClients.value.length;
-
-  if (count <= 1) {
-    return { display: 'flex', flexDirection: 'column' };
-  }
-
-  if (count <= 3) {
-    return {
-      display: 'flex',
-      gap: 'var(--space-02)'
-    };
-  }
-
-  if (count === 4) {
-    return {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(2, 1fr)',
-      gap: 'var(--space-02)'
-    };
-  }
-
-  // 5+ items: 3-column grid
-  return {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: 'var(--space-02)'
-  };
-});
-
-// Grid position for each item (short row on top)
-const getClientGridStyle = (index) => {
-  const count = sortedMultiroomClients.value.length;
-
-  // No specific positioning for 1–4 items
-  if (count <= 4) return {};
-
-  const remainder = count % 3;
-
-  // If divisible by 3, no reordering needed
-  if (remainder === 0) return {};
-
-  // First row: remainder items
-  if (index < remainder) {
-    return {
-      gridRow: 1,
-      gridColumn: index + 1
-    };
-  }
-
-  // Following rows: groups of 3
-  const adjustedIndex = index - remainder;
-  const row = Math.floor(adjustedIndex / 3) + 2;
-  const col = (adjustedIndex % 3) + 1;
-
-  return {
-    gridRow: row,
-    gridColumn: col
-  };
-};
-
 function isPresetActive(preset) {
   const current = multiroomStore.serverConfig;
   const presetConfig = preset.config;
@@ -227,21 +390,12 @@ async function loadMultiroomData() {
   // Load clients and server config from the store
   await Promise.all([
     multiroomStore.loadClients(),
-    multiroomStore.loadServerConfig()
+    multiroomStore.loadServerConfig(),
+    dspStore.loadTargets() // Load DSP targets for linkedGroups
   ]);
 
-  // Initialize local names
-  clientNames.value = {};
-  multiroomStore.clients.forEach(client => {
-    clientNames.value[client.id] = client.name || client.host;
-  });
-}
-
-async function updateClientName(clientId) {
-  const newName = clientNames.value[clientId]?.trim();
-  if (!newName) return;
-
-  await multiroomStore.updateClientName(clientId, newName);
+  // Load DSP volumes for all clients
+  await dspStore.loadAllClientDspVolumes(multiroomStore.clients);
 }
 
 // === MULTIROOM - SERVER CONFIG ===
@@ -256,13 +410,6 @@ function selectCodec(codecName) {
 
 async function applyServerConfig() {
   await multiroomStore.applyServerConfig();
-}
-
-// === INPUT HANDLERS ===
-
-function handleInputBlur(clientId) {
-  // Save changes when the user leaves the field
-  updateClientName(clientId);
 }
 
 // === RESIZE OBSERVER ===
@@ -295,16 +442,6 @@ function setupResizeObserver() {
   }
 }
 
-// WebSocket listener
-const handleClientNameChanged = (msg) => {
-  const { client_id, name } = msg.data;
-  if (clientNames.value[client_id] !== undefined) {
-    clientNames.value[client_id] = name;
-  }
-  // The store updates itself via its own handler
-  multiroomStore.handleClientNameChanged(msg);
-};
-
 // Watcher to load data when multiroom is enabled
 watch(isMultiroomActive, async (newValue, oldValue) => {
   if (newValue && !oldValue) {
@@ -323,13 +460,29 @@ onMounted(async () => {
   await nextTick();
   setupResizeObserver();
 
-  on('snapcast', 'client_name_changed', handleClientNameChanged);
+  // Subscribe to WebSocket events for linked groups changes
+  on('dsp', 'links_changed', (e) => dspStore.handleLinksChanged(e));
+
+  // Subscribe to volume changes from other UIs
+  on('volume', 'volume_changed', (event) => {
+    if (event.data?.client_volumes) {
+      for (const [hostname, volumeDb] of Object.entries(event.data.client_volumes)) {
+        dspStore.setClientDspVolume(hostname, volumeDb);
+      }
+    }
+  });
+
+  // Subscribe to DSP client volumes pushed (when multiroom activates)
+  on('dsp', 'client_volumes_pushed', (e) => dspStore.handleClientVolumesPushed(e));
 });
 
 onUnmounted(() => {
   if (resizeObserver) {
     resizeObserver.disconnect();
   }
+  // Clear all throttle timeouts
+  throttleTimeouts.forEach(timeout => clearTimeout(timeout));
+  finalTimeouts.forEach(timeout => clearTimeout(timeout));
 });
 </script>
 
@@ -386,28 +539,135 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
 }
 
-.clients-list {
-  /* Style is applied dynamically via clientsGridStyle */
-}
-
-.client-config-item {
-  background: var(--color-background-strong);
-  border-radius: var(--radius-04);
-  padding: var(--space-03);
-  width: 100%;
-}
-
-.client-info-wrapper {
+/* Speakers list */
+.speakers-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-02);
 }
 
-.client-hostname {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
+/* Zone item */
+.zone-item {
+  background: var(--color-background-strong);
+  border-radius: var(--radius-04);
+  overflow: hidden;
 }
 
+.zone-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+  padding: var(--space-03);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.zone-header:hover {
+  background: var(--color-background-medium);
+}
+
+.zone-expand-icon {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  width: 12px;
+  text-align: center;
+}
+
+.zone-name {
+  flex: 1;
+  color: var(--color-text);
+}
+
+.zone-count {
+  color: var(--color-text-secondary);
+}
+
+/* Zone members (expanded) */
+.zone-members {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-border);
+  padding: 0 var(--space-03);
+}
+
+/* Client volume row (pattern from ZoneTabs) */
+.client-volume-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 150px) 1fr auto;
+  align-items: center;
+  gap: var(--space-03);
+  padding: var(--space-03) 0;
+  position: relative;
+}
+
+.client-volume-row:not(:last-child) {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.client-volume-row .client-name {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--transition-fast);
+}
+
+.client-volume-row .client-name.muted {
+  color: var(--color-text-light);
+}
+
+.client-volume-row .volume-control {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Separator */
+.separator {
+  height: 1px;
+  background: var(--color-border);
+  margin: var(--space-02) 0;
+}
+
+/* Ungrouped client */
+.ungrouped-client {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+  padding: var(--space-03);
+  background: var(--color-background-strong);
+  border-radius: var(--radius-04);
+}
+
+.ungrouped-client-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+  min-width: 0;
+}
+
+.client-hostname {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.client-arrow {
+  color: var(--color-text-light);
+}
+
+.client-name {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Create zone button */
+.create-zone-button {
+  margin-top: var(--space-02);
+}
+
+/* Presets and codec buttons */
 .presets-buttons {
   display: flex;
   gap: var(--space-02);
@@ -441,6 +701,25 @@ onUnmounted(() => {
   bottom: 0;
   width: 100%;
   z-index: 10;
+}
+
+/* Expand transition */
+.expand-enter-active,
+.expand-leave-active {
+  transition: all var(--transition-normal);
+  overflow: hidden;
+}
+
+.expand-enter-from,
+.expand-leave-to {
+  opacity: 0;
+  max-height: 0;
+}
+
+.expand-enter-to,
+.expand-leave-from {
+  opacity: 1;
+  max-height: 500px;
 }
 
 /* Transitions for settings */
@@ -478,15 +757,23 @@ onUnmounted(() => {
     flex-direction: column;
   }
 
-  .clients-list {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: var(--space-02) !important;
+  /* Mobile: stack volume control below name */
+  .client-volume-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-02);
+    padding: var(--space-02) 0;
   }
 
-  .client-config-item {
-    grid-row: unset !important;
-    grid-column: unset !important;
+  .client-volume-row .client-name {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .client-volume-row .volume-control {
+    order: 3;
+    width: 100%;
+    flex-basis: 100%;
   }
 }
 </style>
