@@ -15,11 +15,15 @@
         <div class="stereo-meters">
           <LevelMeter
             :level="inputLeft"
+            :min="meterMin"
+            :max="meterMax"
             label="L"
             :show-peak="true"
           />
           <LevelMeter
             :level="inputRight"
+            :min="meterMin"
+            :max="meterMax"
             label="R"
             :show-peak="true"
           />
@@ -32,11 +36,15 @@
         <div class="stereo-meters">
           <LevelMeter
             :level="outputLeft"
+            :min="meterMin"
+            :max="meterMax"
             label="L"
             :show-peak="true"
           />
           <LevelMeter
             :level="outputRight"
+            :min="meterMin"
+            :max="meterMax"
             label="R"
             :show-peak="true"
           />
@@ -49,17 +57,23 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import LevelMeter from './LevelMeter.vue';
 import axios from 'axios';
 
 const dspStore = useDspStore();
+const settingsStore = useSettingsStore();
+
+// Dynamic min/max from settings
+const meterMin = computed(() => settingsStore.volumeLimits.min_db);
+const meterMax = computed(() => settingsStore.volumeLimits.max_db);
 
 let pollInterval = null;
 
 // Convert array levels to individual channels
 const inputLeft = computed(() => {
   const levels = dspStore.inputPeak;
-  return Array.isArray(levels) && levels.length > 0 ? levels[0] : -60;
+  return Array.isArray(levels) && levels.length > 0 ? levels[0] : meterMin.value;
 });
 
 const inputRight = computed(() => {
@@ -69,7 +83,7 @@ const inputRight = computed(() => {
 
 const outputLeft = computed(() => {
   const levels = dspStore.outputPeak;
-  return Array.isArray(levels) && levels.length > 0 ? levels[0] : -60;
+  return Array.isArray(levels) && levels.length > 0 ? levels[0] : meterMin.value;
 });
 
 const outputRight = computed(() => {
@@ -84,8 +98,8 @@ async function pollLevels() {
   try {
     const response = await axios.get('/api/dsp/levels');
     if (response.data.available) {
-      dspStore.inputPeak = response.data.input_peak || [-60, -60];
-      dspStore.outputPeak = response.data.output_peak || [-60, -60];
+      dspStore.inputPeak = response.data.input_peak || [meterMin.value, meterMin.value];
+      dspStore.outputPeak = response.data.output_peak || [meterMin.value, meterMin.value];
     }
   } catch (error) {
     // Silently fail - levels are optional

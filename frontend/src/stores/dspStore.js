@@ -44,8 +44,8 @@ export const useDspStore = defineStore('dsp', () => {
   const isTogglingEnabled = ref(false);
 
   // Audio levels (for meters)
-  const inputPeak = ref([0, 0]);
-  const outputPeak = ref([0, 0]);
+  const inputPeak = ref([-80, -80]);
+  const outputPeak = ref([-80, -80]);
 
   // Advanced DSP settings
   const compressor = ref({
@@ -926,8 +926,8 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   function handleLevels(event) {
-    inputPeak.value = event.data.input_peak || [0, 0];
-    outputPeak.value = event.data.output_peak || [0, 0];
+    inputPeak.value = event.data.input_peak || [-80, -80];
+    outputPeak.value = event.data.output_peak || [-80, -80];
   }
 
   function handleCompressorChanged(event) {
