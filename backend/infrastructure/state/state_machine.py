@@ -281,17 +281,17 @@ class UnifiedAudioStateMachine:
             "source": "routing"
         })
     
-    async def update_dsp_state(self, enabled: bool) -> None:
-        """Update DSP state with thread-safe protection."""
+    async def update_dsp_effects_state(self, enabled: bool) -> None:
+        """Update DSP effects state (equalizer, compressor, loudness) with thread-safe protection."""
         async with self._state_lock:
-            old_state = self.system_state.dsp_enabled
-            self.system_state.dsp_enabled = enabled
+            old_state = self.system_state.dsp_effects_enabled
+            self.system_state.dsp_effects_enabled = enabled
             self._state_cache = None
 
         await self._broadcast_event("system", "state_changed", {
             "old_state": old_state,
             "new_state": enabled,
-            "dsp_changed": True,
+            "dsp_effects_changed": True,
             "source": "dsp"
         })
     

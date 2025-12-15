@@ -55,12 +55,23 @@
   "dsp": {
     "title": "DSP Equalizer",
     "disabled": "DSP is disabled",
+    "effects_disabled": "DSP Effects are disabled",
     "connecting": "Connecting to DSP...",
     "selectPreset": "Preset",
     "selectTarget": "Device",
     "zones": {
       "title": "Zones",
-      "configure": "Configure zones"
+      "configure": "Configure zones",
+      "zoneName": "Zone Name",
+      "zoneNamePlaceholder": "e.g., Living Room",
+      "selectClients": "Select Clients",
+      "selectClientsDescription": "Select at least 2 clients to create a zone.",
+      "createZone": "Create Zone",
+      "editZone": "Edit Zone",
+      "updateZone": "Update Zone",
+      "description": "Link clients to create zones with shared DSP settings. Changes to one zone member will apply to all.",
+      "noZones": "No zones created yet. Create a zone to link multiple clients.",
+      "inOtherZone": "In other zone"
     },
     "equalizer": {
       "title": "10 Bands Equalizer"
@@ -325,7 +336,8 @@
     "saving": "Saving...",
     "confirm": "Confirm",
     "restore": "Restore",
-    "delete": "Delete"
+    "delete": "Delete",
+    "modify": "Modify"
   },
   "radio": {
     "edit_station_title": "Edit {name}",

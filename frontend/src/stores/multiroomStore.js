@@ -44,7 +44,24 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   function loadCache() {
     try {
       const cached = localStorage.getItem(CACHE_KEY);
-      return cached ? JSON.parse(cached) : null;
+      if (!cached) return null;
+
+      const clients = JSON.parse(cached);
+
+      // Migrate old cache without dsp_id
+      const needsMigration = clients.some(c => c.dsp_id === undefined);
+      if (needsMigration) {
+        clients.forEach(client => {
+          if (client.dsp_id === undefined) {
+            // Compute dsp_id: 'local' for main Milo, IP address for remote clients
+            client.dsp_id = client.host === 'milo' ? 'local' : (client.ip || client.host || '');
+          }
+        });
+        // Save migrated cache
+        localStorage.setItem(CACHE_KEY, JSON.stringify(clients));
+      }
+
+      return clients;
     } catch (error) {
       console.warn('Error loading multiroom cache (corrupted?):', error);
       return null;
@@ -286,13 +303,18 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     if (!client_id) return;
     if (clients.value.find(c => c.id === client_id)) return;
 
+    // Compute dsp_id: 'local' for main Milo, IP address for remote clients
+    // This matches the backend logic in snapcast_service.get_clients()
+    const dsp_id = client_host === 'milo' ? 'local' : (client_ip || client_host || '');
+
     const newClient = {
       id: client_id,
       name: client_name || client_host || 'Unknown',
       host: client_host || 'unknown',
       volume: volume || 0,
       muted: muted || false,
-      ip: client_ip || 'Unknown'
+      ip: client_ip || 'Unknown',
+      dsp_id: dsp_id
     };
 
     clients.value = sortClients([...clients.value, newClient]);

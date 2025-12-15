@@ -64,28 +64,6 @@ class TestVolumeService:
         assert service.converter.clamp_db(-21.0) == -21.0  # At max
         assert service.converter.clamp_db(0.0) == -21.0    # Above max (clamped to limit)
 
-    def test_db_to_percent(self, service):
-        """dB to percent conversion test (for progress bar)"""
-        # -80 dB = 0%
-        assert service.converter.db_to_percent(-80.0) == 0
-
-        # 0 dB = 100%
-        assert service.converter.db_to_percent(0.0) == 100
-
-        # -40 dB = 50%
-        assert service.converter.db_to_percent(-40.0) == 50
-
-    def test_percent_to_db(self, service):
-        """Percent to dB conversion test"""
-        # 0% = -80 dB
-        assert service.converter.percent_to_db(0) == -80.0
-
-        # 100% = 0 dB
-        assert service.converter.percent_to_db(100) == 0.0
-
-        # 50% = -40 dB
-        assert service.converter.percent_to_db(50) == -40.0
-
     @pytest.mark.asyncio
     async def test_load_volume_config(self, service):
         """Volume configuration loading test"""
@@ -217,14 +195,3 @@ class TestVolumeConverterService:
         # Above max
         assert converter.clamp_db(-10.0) == -21.0
 
-    def test_db_to_percent(self, converter):
-        """Test dB to percent conversion"""
-        assert converter.db_to_percent(-80.0) == 0
-        assert converter.db_to_percent(-40.0) == 50
-        assert converter.db_to_percent(0.0) == 100
-
-    def test_percent_to_db(self, converter):
-        """Test percent to dB conversion"""
-        assert converter.percent_to_db(0) == -80.0
-        assert converter.percent_to_db(50) == -40.0
-        assert converter.percent_to_db(100) == 0.0

@@ -6,6 +6,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
+import { useSettingsStore } from './settingsStore';
 
 // Default 10-band parametric EQ frequencies
 const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
@@ -37,8 +38,9 @@ export const useDspStore = defineStore('dsp', () => {
   const filtersLoaded = ref(false);
   const sampleRate = ref(48000);
 
-  // DSP enabled state (persisted in settings)
-  const isDspEnabled = ref(true);
+  // DSP effects enabled state (persisted in settings)
+  // Note: Volume always works via CamillaDSP, this controls EQ/compressor/loudness
+  const isDspEffectsEnabled = ref(true);
   const isTogglingEnabled = ref(false);
 
   // Audio levels (for meters)
@@ -79,12 +81,6 @@ export const useDspStore = defineStore('dsp', () => {
   const currentTargetMute = computed(() =>
     clientDspState.value[selectedTarget.value]?.mute ?? false
   );
-
-  // Legacy compatibility alias (dspVolume.main / dspVolume.mute)
-  const dspVolume = computed(() => ({
-    main: currentTargetVolume.value,
-    mute: currentTargetMute.value
-  }));
 
   // Multi-client DSP support
   // 'local' = main Milo, or client hostname like 'milo-client-01'
@@ -256,6 +252,38 @@ export const useDspStore = defineStore('dsp', () => {
     );
   }
 
+  // Get zone name for a client or zone ID
+  function getZoneName(clientIdOrZoneId) {
+    // If it's a zone: prefix, extract client IDs and find the group
+    if (typeof clientIdOrZoneId === 'string' && clientIdOrZoneId.startsWith('zone:')) {
+      const clientIds = clientIdOrZoneId.replace('zone:', '').split(',');
+      for (const group of linkedGroups.value) {
+        if (group.client_ids && clientIds.some(id => group.client_ids.includes(id))) {
+          return group.name || null;
+        }
+      }
+      return null;
+    }
+
+    // Find group containing this client
+    for (const group of linkedGroups.value) {
+      if (group.client_ids && group.client_ids.includes(clientIdOrZoneId)) {
+        return group.name || null;
+      }
+    }
+    return null;
+  }
+
+  // Get zone group for a client ID
+  function getZoneGroup(clientId) {
+    for (const group of linkedGroups.value) {
+      if (group.client_ids && group.client_ids.includes(clientId)) {
+        return group;
+      }
+    }
+    return null;
+  }
+
   // Get API base for a specific target (for propagation)
   function getApiBaseForTarget(targetId) {
     if (targetId && targetId !== 'local') {
@@ -279,16 +307,9 @@ export const useDspStore = defineStore('dsp', () => {
   async function fetchClientDspVolume(hostname) {
     try {
       const normalized = normalizeHostname(hostname);
-
-      if (normalized === 'local') {
-        // Local volume via /api/volume/
-        const response = await axios.get('/api/volume/');
-        return response.data.volume_db ?? null;
-      } else {
-        // Remote client volume via DSP client proxy
-        const response = await axios.get(`/api/dsp/client/${normalized}/volume`);
-        return response.data.main ?? response.data.volume ?? null;
-      }
+      // All clients (including local) use the unified DSP client endpoint
+      const response = await axios.get(`/api/dsp/client/${normalized}/volume`);
+      return response.data.main ?? response.data.volume ?? null;
     } catch (error) {
       console.error(`Error fetching DSP volume for ${hostname}:`, error);
       return null;
@@ -301,8 +322,8 @@ export const useDspStore = defineStore('dsp', () => {
    */
   async function loadAllClientDspVolumes(clients) {
     const promises = clients.map(async (client) => {
-      // Use IP for remote clients, 'local' for main Milo
-      const hostname = client.host === 'milo' ? 'local' : (client.ip || client.host || '');
+      // Use dsp_id as the canonical key (matches zone.client_ids)
+      const hostname = client.dsp_id || (client.host === 'milo' ? 'local' : (client.ip || client.host || ''));
       const volume = await fetchClientDspVolume(hostname);
       if (volume !== null) {
         setClientDspVolume(hostname, volume);
@@ -313,6 +334,8 @@ export const useDspStore = defineStore('dsp', () => {
 
   /**
    * Update DSP volume for a client via API
+   * Uses unified endpoint for all clients (local and remote).
+   * Each client's volume is independent - changing one doesn't affect others.
    * @param {string} hostname - Client hostname
    * @param {number} volumeDb - Volume in dB (-60 to 0)
    * @returns {Promise<boolean>} Success status
@@ -320,14 +343,9 @@ export const useDspStore = defineStore('dsp', () => {
   async function updateClientDspVolume(hostname, volumeDb) {
     try {
       const normalized = normalizeHostname(hostname);
-
-      if (normalized === 'local') {
-        // Local volume via /api/volume/set
-        await axios.post('/api/volume/set', { volume_db: volumeDb, show_bar: false });
-      } else {
-        // Remote client volume via DSP client proxy
-        await axios.put(`/api/dsp/client/${normalized}/volume`, { volume: volumeDb });
-      }
+      // Unified endpoint for all clients (local and remote)
+      // Backend handles 'local' specially via multiroom_handler.set_client_volume_db()
+      await axios.put(`/api/dsp/client/${normalized}/volume`, { volume: volumeDb });
       return true;
     } catch (error) {
       console.error(`Error updating DSP volume for ${hostname}:`, error);
@@ -396,8 +414,6 @@ export const useDspStore = defineStore('dsp', () => {
    * @param {number} deltaDb - Volume delta in dB
    */
   function applyGlobalDelta(deltaDb) {
-    // Import settingsStore to get limits
-    const { useSettingsStore } = require('./settingsStore');
     const settingsStore = useSettingsStore();
     const limits = settingsStore.volumeLimits;
 
@@ -734,22 +750,6 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
-  async function updateDspVolume(volume) {
-    try {
-      const response = await axios.put(`${getApiBase()}/volume`, { volume });
-      if (response.data.status === 'success') {
-        // Update unified cache for selected target
-        setClientDspVolume(selectedTarget.value, volume);
-        // Volume is NOT propagated to linked clients (allows per-client balance in zones)
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error updating DSP volume:', error);
-      return false;
-    }
-  }
-
   async function updateDspMute(muted) {
     try {
       const response = await axios.put(`${getApiBase()}/mute`, { muted });
@@ -775,6 +775,9 @@ export const useDspStore = defineStore('dsp', () => {
     ]);
     if (targets.length > 0) {
       availableTargets.value = targets;
+      // Load volumes for all targets
+      const clients = targets.map(t => ({ dsp_id: t.id, host: t.host }));
+      await loadAllClientDspVolumes(clients);
     }
     linkedGroups.value = groups;
   }
@@ -810,14 +813,18 @@ export const useDspStore = defineStore('dsp', () => {
 
   // === LINKED CLIENTS MANAGEMENT ===
 
-  async function linkClients(clientIds, sourceClient = null) {
+  async function linkClients(clientIds, sourceClient = null, zoneName = null) {
     try {
       // Use the currently selected target as source if not specified
       const source = sourceClient || selectedTarget.value;
-      const response = await axios.post('/api/dsp/links', {
+      const payload = {
         client_ids: clientIds,
         source_client: source
-      });
+      };
+      if (zoneName) {
+        payload.name = zoneName;
+      }
+      const response = await axios.post('/api/dsp/links', payload);
       if (response.data.linked_groups) {
         linkedGroups.value = response.data.linked_groups;
         // Log sync results if available
@@ -860,6 +867,20 @@ export const useDspStore = defineStore('dsp', () => {
       return false;
     } catch (error) {
       console.error('Error clearing links:', error);
+      return false;
+    }
+  }
+
+  async function updateZoneName(groupId, name) {
+    try {
+      const response = await axios.put(`/api/dsp/links/${groupId}/name`, { name });
+      if (response.data.linked_groups) {
+        linkedGroups.value = response.data.linked_groups;
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error updating zone name:', error);
       return false;
     }
   }
@@ -921,14 +942,6 @@ export const useDspStore = defineStore('dsp', () => {
     Object.assign(delay.value, event.data);
   }
 
-  function handleVolumeChanged(event) {
-    if (event.data.volume !== undefined) {
-      // Only update local - dsp:volume_changed comes from LOCAL CamillaDSP
-      // External clients are updated via volume:volume_changed with client_volumes
-      setClientDspVolume('local', event.data.volume);
-    }
-  }
-
   function handleMuteChanged(event) {
     if (event.data.muted !== undefined) {
       // Update unified cache for selected target
@@ -947,39 +960,39 @@ export const useDspStore = defineStore('dsp', () => {
     filtersLoaded.value = false;
   }
 
-  // === DSP ENABLE/DISABLE ===
+  // === DSP EFFECTS ENABLE/DISABLE ===
   async function loadEnabledState() {
-    isDspEnabled.value = await fetchEnabledState();
-    return isDspEnabled.value;
+    isDspEffectsEnabled.value = await fetchEnabledState();
+    return isDspEffectsEnabled.value;
   }
 
-  async function toggleDspEnabled(enabled) {
+  async function toggleDspEffectsEnabled(enabled) {
     if (isTogglingEnabled.value) return false;
 
-    const previousState = isDspEnabled.value;
+    const previousState = isDspEffectsEnabled.value;
     isTogglingEnabled.value = true;
-    isDspEnabled.value = enabled;
+    isDspEffectsEnabled.value = enabled;
 
     try {
       const success = await setEnabledState(enabled);
 
       if (success) {
         if (enabled) {
-          // DSP enabled: load status
+          // DSP effects enabled: load status
           await loadStatus();
         } else {
-          // DSP disabled: cleanup local state
+          // DSP effects disabled: cleanup local state
           cleanup();
         }
         return true;
       } else {
         // Revert on failure
-        isDspEnabled.value = previousState;
+        isDspEffectsEnabled.value = previousState;
         return false;
       }
     } catch (error) {
-      console.error('Error toggling DSP:', error);
-      isDspEnabled.value = previousState;
+      console.error('Error toggling DSP effects:', error);
+      isDspEffectsEnabled.value = previousState;
       return false;
     } finally {
       isTogglingEnabled.value = false;
@@ -988,7 +1001,7 @@ export const useDspStore = defineStore('dsp', () => {
 
   function handleEnabledChanged(event) {
     if (event.data && event.data.enabled !== undefined) {
-      isDspEnabled.value = event.data.enabled;
+      isDspEffectsEnabled.value = event.data.enabled;
     }
   }
 
@@ -1015,15 +1028,14 @@ export const useDspStore = defineStore('dsp', () => {
     inputPeak,
     outputPeak,
 
-    // DSP Enabled State
-    isDspEnabled,
+    // DSP Effects Enabled State
+    isDspEffectsEnabled,
     isTogglingEnabled,
 
     // Advanced DSP State
     compressor,
     loudness,
     delay,
-    dspVolume,
 
     // Multi-client support
     selectedTarget,
@@ -1047,9 +1059,9 @@ export const useDspStore = defineStore('dsp', () => {
     resetAllFilters,
     cleanup,
 
-    // DSP Enable/Disable
+    // DSP Effects Enable/Disable
     loadEnabledState,
-    toggleDspEnabled,
+    toggleDspEffectsEnabled,
 
     // Target Management
     loadTargets,
@@ -1060,8 +1072,11 @@ export const useDspStore = defineStore('dsp', () => {
     linkClients,
     unlinkClient,
     clearAllLinks,
+    updateZoneName,
     isClientLinked,
     getLinkedClientIds,
+    getZoneName,
+    getZoneGroup,
 
     // Preset Management
     savePreset,
@@ -1072,7 +1087,6 @@ export const useDspStore = defineStore('dsp', () => {
     updateCompressor,
     updateLoudness,
     updateDelay,
-    updateDspVolume,
     updateDspMute,
 
     // Unified client DSP state (for multiroom and DSP modal)
@@ -1097,7 +1111,6 @@ export const useDspStore = defineStore('dsp', () => {
     handleCompressorChanged,
     handleLoudnessChanged,
     handleDelayChanged,
-    handleVolumeChanged,
     handleMuteChanged,
     handleLinksChanged,
     handleEnabledChanged,

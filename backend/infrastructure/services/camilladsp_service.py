@@ -526,7 +526,8 @@ class CamillaDSPService:
             )
 
             self._volume["main"] = volume
-            await self._broadcast_event("volume_changed", {"volume": volume})
+            # Note: Volume broadcast is handled by VolumeService._schedule_broadcast()
+            # to avoid duplicate broadcasts and ensure unified volume:volume_changed events
 
             return True
 

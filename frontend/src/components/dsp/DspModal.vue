@@ -2,87 +2,110 @@
 <!-- Main DSP control panel with parametric EQ and presets -->
 <template>
   <div class="dsp-modal">
-    <!-- Header: "Égaliseur DSP" + Toggle ON/OFF -->
-    <ModalHeader :title="$t('dsp.title', 'Égaliseur DSP')">
-      <template #actions>
-        <!-- DSP Enable/Disable toggle -->
+    <!-- Header with navigation support -->
+    <ModalHeader
+      :title="headerTitle"
+      :show-back="canGoBack"
+      @back="back"
+    >
+      <template v-if="currentView === 'home'" #actions>
+        <!-- DSP Effects Enable/Disable toggle -->
         <Toggle
-          :model-value="dspStore.isDspEnabled"
+          :model-value="dspStore.isDspEffectsEnabled"
           :disabled="dspStore.isTogglingEnabled"
           @change="handleDspToggle"
         />
       </template>
     </ModalHeader>
 
-    <!-- Main content -->
+    <!-- Main content with navigation -->
     <div class="content-wrapper">
       <Transition name="fade-slide" mode="out-in">
-        <!-- MESSAGE: DSP disabled -->
-        <MessageContent
-          v-if="!dspStore.isDspEnabled"
-          key="message"
-          icon="equalizer"
-          :title="$t('dsp.disabled', 'DSP is disabled')"
-        />
-
-        <!-- DSP CONTROLS -->
-        <div v-else key="controls" class="dsp-controls">
-          <!-- Connection status indicator -->
-          <div v-if="!dspStore.isConnected" class="connection-status">
-            <LoadingSpinner v-if="dspStore.isLoading" size="small" />
-            <span class="status-text">{{ $t('dsp.connecting', 'Connecting to DSP...') }}</span>
-          </div>
-
-          <template v-if="dspStore.isConnected">
-            <!-- Section 1: Zones (tabs + volumes) -->
-            <ZoneTabs
-              ref="zoneTabsRef"
-              :disabled="dspStore.isUpdating"
-              @open-link-dialog="showLinkedClientsDialog = true"
+        <!-- HOME VIEW -->
+        <div v-if="currentView === 'home'" key="home">
+          <Transition name="fade-slide" mode="out-in">
+            <!-- MESSAGE: DSP Effects disabled -->
+            <MessageContent
+              v-if="!dspStore.isDspEffectsEnabled"
+              key="message"
+              icon="equalizer"
+              :title="$t('dsp.effects_disabled', 'DSP Effects are disabled')"
             />
 
-            <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
-            <section class="settings-section">
-              <div class="section-group">
-                <div class="section-header">
-                  <h2 class="heading-2">
-                    {{ $t('dsp.equalizer.title', '10 Bands Equalizer') }}
-                    <span v-if="selectedZoneName" class="zone-suffix">· {{ selectedZoneName }}</span>
-                  </h2>
-                  <Dropdown
-                    v-model="currentPreset"
-                    :options="presetOptions"
-                    :placeholder="$t('dsp.selectPreset', 'Preset')"
-                    :disabled="dspStore.isUpdating"
-                    @change="handlePresetChange"
-                  />
-                </div>
-                <ParametricEQ
-                  :filters="dspStore.filters"
-                  :filters-loaded="dspStore.filtersLoaded"
-                  :disabled="dspStore.isUpdating"
-                  :is-mobile="isMobile"
-                  @update:filter="handleFilterUpdate"
-                  @change="handleFilterChange"
-                />
+            <!-- DSP CONTROLS -->
+            <div v-else key="controls" class="dsp-controls">
+              <!-- Connection status indicator -->
+              <div v-if="!dspStore.isConnected" class="connection-status">
+                <LoadingSpinner v-if="dspStore.isLoading" size="small" />
+                <span class="status-text">{{ $t('dsp.connecting', 'Connecting to DSP...') }}</span>
               </div>
-            </section>
 
-            <!-- Section 3: Advanced DSP (Compressor, Loudness, Delay) -->
-            <AdvancedDsp :zone-name="selectedZoneName" />
+              <template v-if="dspStore.isConnected">
+                <!-- Section 1: Zones (tabs + volumes) -->
+                <ZoneTabs
+                  ref="zoneTabsRef"
+                  :disabled="dspStore.isUpdating"
+                  @open-link-dialog="handleOpenZoneSettings"
+                />
 
-            <!-- Level Meters -->
-            <LevelMeters />
-          </template>
+                <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
+                <section class="settings-section">
+                  <div class="section-group">
+                    <div class="section-header">
+                      <h2 class="heading-2">
+                        {{ $t('dsp.equalizer.title', '10 Bands Equalizer') }}
+                        <span v-if="selectedZoneName" class="zone-suffix">· {{ selectedZoneName }}</span>
+                      </h2>
+                      <Dropdown
+                        v-model="currentPreset"
+                        :options="presetOptions"
+                        :placeholder="$t('dsp.selectPreset', 'Preset')"
+                        :disabled="dspStore.isUpdating"
+                        @change="handlePresetChange"
+                      />
+                    </div>
+                    <ParametricEQ
+                      :filters="dspStore.filters"
+                      :filters-loaded="dspStore.filtersLoaded"
+                      :disabled="dspStore.isUpdating"
+                      :is-mobile="isMobile"
+                      @update:filter="handleFilterUpdate"
+                      @change="handleFilterChange"
+                    />
+                  </div>
+                </section>
+
+                <!-- Section 3: Advanced DSP (Compressor, Loudness, Delay) -->
+                <AdvancedDsp :zone-name="selectedZoneName" />
+
+                <!-- Level Meters -->
+                <LevelMeters />
+              </template>
+            </div>
+          </Transition>
         </div>
+
+        <!-- ZONE LIST VIEW -->
+        <ZoneList
+          v-else-if="currentView === 'zone-settings'"
+          key="zone-settings"
+          class="view-content"
+          @edit-zone="handleEditZone"
+          @create-zone="handleCreateZone"
+          @saved="handleZoneSaved"
+        />
+
+        <!-- ZONE EDIT VIEW -->
+        <ZoneEdit
+          v-else-if="currentView === 'zone-edit'"
+          key="zone-edit"
+          class="view-content"
+          :group-id="currentParams.groupId"
+          @back="back"
+          @saved="handleZoneSaved"
+        />
       </Transition>
     </div>
-
-    <!-- Linked Clients Dialog -->
-    <LinkedClientsDialog
-      :is-open="showLinkedClientsDialog"
-      @close="showLinkedClientsDialog = false"
-    />
   </div>
 </template>
 
@@ -90,6 +113,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
 import { useI18n } from '@/services/i18n';
+import { useNavigationStack } from '@/composables/useNavigationStack';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
 import Toggle from '@/components/ui/Toggle.vue';
@@ -100,17 +124,53 @@ import ZoneTabs from './ZoneTabs.vue';
 import ParametricEQ from './ParametricEQ.vue';
 import AdvancedDsp from './AdvancedDsp.vue';
 import LevelMeters from './LevelMeters.vue';
-import LinkedClientsDialog from './LinkedClientsDialog.vue';
+import ZoneList from './ZoneList.vue';
+import ZoneEdit from './ZoneEdit.vue';
 
 const { t } = useI18n();
 const dspStore = useDspStore();
 const { on } = useWebSocket();
 
+// Navigation
+const { currentView, currentParams, canGoBack, push, back, reset } = useNavigationStack('home');
+
 // Local state
 const isMobile = ref(false);
-const showLinkedClientsDialog = ref(false);
 const currentPreset = ref('');
 const zoneTabsRef = ref(null);
+
+// Header title based on current view
+const headerTitle = computed(() => {
+  const titles = {
+    'home': t('dsp.title', 'DSP Equalizer'),
+    'zone-settings': t('dsp.zones.title', 'Zones'),
+    'zone-edit': currentParams.value.groupId
+      ? t('dsp.zones.editZone', 'Edit Zone')
+      : t('dsp.zones.createZone', 'Create Zone')
+  };
+  return titles[currentView.value] || t('dsp.title');
+});
+
+// Navigate to zone settings (list view)
+function handleOpenZoneSettings() {
+  push('zone-settings');
+}
+
+// Navigate to zone edit (create new zone)
+function handleCreateZone() {
+  push('zone-edit', { groupId: null });
+}
+
+// Navigate to zone edit (edit existing zone)
+function handleEditZone(groupId) {
+  push('zone-edit', { groupId });
+}
+
+// Handle zone saved
+function handleZoneSaved() {
+  // Refresh targets after zone changes
+  dspStore.loadTargets();
+}
 
 // Selected zone/client name from ZoneTabs component
 const selectedZoneName = computed(() => {
@@ -179,7 +239,7 @@ function updateMobileStatus() {
 
 // === DSP TOGGLE ===
 async function handleDspToggle(enabled) {
-  await dspStore.toggleDspEnabled(enabled);
+  await dspStore.toggleDspEffectsEnabled(enabled);
 }
 
 // === FILTER UPDATES ===
@@ -257,12 +317,14 @@ onMounted(async () => {
   // Load available DSP targets (Milo + clients)
   await dspStore.loadTargets();
 
-  // Load DSP status if enabled
-  if (dspStore.isDspEnabled) {
+  // Load DSP status if effects are enabled
+  if (dspStore.isDspEffectsEnabled) {
     await dspStore.loadStatus();
   }
 
   // Subscribe to WebSocket events
+  // Note: Volume events (dsp:volume_changed) are handled centrally by App.vue
+  // via volume:volume_changed which syncs to dspStore.clientDspState
   unsubscribeFunctions.push(
     on('dsp', 'filter_changed', handleDspFilterChanged),
     on('dsp', 'filters_reset', handleDspFiltersReset),
@@ -271,7 +333,6 @@ onMounted(async () => {
     on('dsp', 'compressor_changed', (e) => dspStore.handleCompressorChanged(e)),
     on('dsp', 'loudness_changed', (e) => dspStore.handleLoudnessChanged(e)),
     on('dsp', 'delay_changed', (e) => dspStore.handleDelayChanged(e)),
-    on('dsp', 'volume_changed', (e) => dspStore.handleVolumeChanged(e)),
     on('dsp', 'mute_changed', (e) => dspStore.handleMuteChanged(e)),
     on('dsp', 'links_changed', (e) => dspStore.handleLinksChanged(e)),
     on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e))

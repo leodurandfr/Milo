@@ -82,15 +82,8 @@ class VolumeStorageService:
             with open(self.file_path, 'r') as f:
                 data = json.load(f)
 
-            # Support both new (volume_db) and old (last_volume) format for migration
-            if 'volume_db' in data:
-                volume_db = data['volume_db']
-            elif 'last_volume' in data:
-                # Migrate from old percentage format
-                old_percent = data['last_volume']
-                volume_db = -80.0 + (old_percent / 100.0) * 80.0
-                self.logger.info(f"Migrated volume from {old_percent}% to {volume_db:.1f} dB")
-            else:
+            volume_db = data.get('volume_db')
+            if volume_db is None:
                 return None
 
             timestamp = data.get('timestamp', 0)

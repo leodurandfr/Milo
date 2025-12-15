@@ -13,7 +13,6 @@ from backend.infrastructure.services.settings_service import SettingsService
 from backend.infrastructure.services.volume_converter_service import VolumeConverterService
 from backend.infrastructure.services.volume_config_service import VolumeConfigService
 from backend.infrastructure.services.volume_storage_service import VolumeStorageService
-from backend.infrastructure.services.direct_volume_handler import DirectVolumeHandler
 from backend.infrastructure.services.multiroom_volume_handler import MultiroomVolumeHandler
 
 
@@ -42,9 +41,6 @@ class VolumeService:
         self._config_service = VolumeConfigService(self.settings_service)
         self._converter = VolumeConverterService()
         self._storage = VolumeStorageService()
-
-        # Direct handler - only for ALSA passthrough
-        self._direct_handler = DirectVolumeHandler()
 
         # Multiroom handler - handles DSP volume for all clients
         self._multiroom_handler = MultiroomVolumeHandler(
@@ -81,8 +77,22 @@ class VolumeService:
         return self._storage
 
     # ============================================================================
-    # MODE DETECTION
+    # MODE DETECTION & ALSA SETUP
     # ============================================================================
+
+    async def _set_alsa_passthrough(self) -> bool:
+        """Set ALSA Digital mixer to 100% passthrough (volume is via CamillaDSP)."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "amixer", "-M", "set", "Digital", "100%",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            await proc.communicate()
+            return proc.returncode == 0
+        except Exception as e:
+            self.logger.error(f"Error setting ALSA passthrough: {e}")
+            return False
 
     def _is_multiroom_enabled(self) -> bool:
         """Check if multiroom mode is currently enabled."""
@@ -273,8 +283,8 @@ class VolumeService:
         try:
             await self._load_volume_config()
 
-            # Set ALSA to 100% passthrough - permanent
-            await self._direct_handler.set_alsa_passthrough()
+            # Set ALSA to 100% passthrough - permanent (volume is via CamillaDSP)
+            await self._set_alsa_passthrough()
             self.logger.info("ALSA set to 100% passthrough mode")
 
             # Determine startup volume from settings/storage
@@ -304,7 +314,15 @@ class VolumeService:
     # ============================================================================
 
     async def get_volume_db(self) -> float:
-        """Get current volume in dB."""
+        """Get current volume in dB from CamillaDSP (source of truth)."""
+        if self._dsp_service and self._dsp_service.is_volume_control_available():
+            try:
+                dsp_state = await self._dsp_service.get_volume()
+                if dsp_state and "main" in dsp_state:
+                    # Sync cache with actual DSP value
+                    self._current_volume_db = dsp_state["main"]
+            except Exception as e:
+                self.logger.warning(f"Could not query DSP for volume: {e}")
         return self._current_volume_db
 
     async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
@@ -473,9 +491,12 @@ class VolumeService:
                 "step_mobile_db": self.config.config.step_mobile_db
             }
 
-            # Include client volumes for real-time slider updates
+            # Always include client_volumes (for DspModal/ZoneTabs updates)
+            # In non-multiroom mode, only 'local' is included
             if multiroom:
                 event_data["client_volumes"] = dict(self._multiroom_handler._client_volume_db)
+            else:
+                event_data["client_volumes"] = {"local": self._current_volume_db}
 
             await self.state_machine.broadcast_event("volume", "volume_changed", event_data)
         except Exception as e:

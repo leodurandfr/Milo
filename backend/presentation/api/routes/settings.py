@@ -328,14 +328,14 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        operations_log.append("Disabling DSP routing")
-                        logger.info(f"Disabling DSP for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_dsp_enabled(False, active_source)
+                        operations_log.append("Disabling DSP effects")
+                        logger.info(f"Disabling DSP effects for active source: {active_source.value if active_source else 'none'}")
+                        await routing_service.set_dsp_effects_enabled(False, active_source)
 
                         # Notify the frontend via WebSocket
-                        operations_log.append("Broadcasting DSP state update")
-                        logger.info("Broadcasting DSP state update to frontend")
-                        await state_machine.update_dsp_state(False)
+                        operations_log.append("Broadcasting DSP effects state update")
+                        logger.info("Broadcasting DSP effects state update to frontend")
+                        await state_machine.update_dsp_effects_state(False)
                 
                 # === HANDLE ENABLES ===
                 for app in enabled_apps_new:
@@ -392,14 +392,14 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        operations_log.append("Enabling DSP routing")
-                        logger.info(f"Enabling DSP for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_dsp_enabled(True, active_source)
+                        operations_log.append("Enabling DSP effects")
+                        logger.info(f"Enabling DSP effects for active source: {active_source.value if active_source else 'none'}")
+                        await routing_service.set_dsp_effects_enabled(True, active_source)
 
                         # Notify the frontend via WebSocket
-                        operations_log.append("Broadcasting DSP state update")
-                        logger.info("Broadcasting DSP state update to frontend")
-                        await state_machine.update_dsp_state(True)
+                        operations_log.append("Broadcasting DSP effects state update")
+                        logger.info("Broadcasting DSP effects state update to frontend")
+                        await state_machine.update_dsp_effects_state(True)
                 
                 # All operations succeeded → save settings
                 operations_log.append("Saving new settings")

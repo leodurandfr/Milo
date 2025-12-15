@@ -30,6 +30,7 @@ import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useDspStore } from '@/stores/dspStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import useWebSocket from '@/services/websocket';
 import MultiroomClientItem from './MultiroomClientItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -38,6 +39,7 @@ const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
 const multiroomStore = useMultiroomStore();
 const dspStore = useDspStore();
+const settingsStore = useSettingsStore();
 const { on } = useWebSocket();
 
 // Single transition state instead of 3 separate flags
@@ -55,7 +57,7 @@ let unsubscribeFunctions = [];
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
 // DSP effects enabled (EQ, compressor, loudness) - volume always uses DSP
-const isDspEffectsEnabled = computed(() => dspStore.isDspEnabled);
+const isDspEffectsEnabled = computed(() => dspStore.isDspEffectsEnabled);
 
 // Get linked groups from DSP store - only used when DSP effects are enabled
 const linkedGroups = computed(() => {
@@ -81,6 +83,38 @@ function isZonePrimary(client) {
   const zone = getZoneForClient(client);
   if (!zone) return true; // Not in a zone, show it
   return zone.client_ids[0] === client.dsp_id;
+}
+
+// Calculate arithmetic average volume for a zone (in dB)
+function getZoneAverageVolume(zone) {
+  if (!zone?.client_ids?.length) return -30;
+  const volumes = zone.client_ids.map(dspId => dspStore.getClientDspVolume(dspId));
+  return volumes.reduce((sum, v) => sum + v, 0) / volumes.length;
+}
+
+// Track starting state when zone slider drag begins
+// Structure: { zoneId: { startAvg, clientStarts: { dspId: volume } } }
+const zoneSliderState = ref({});
+
+// Get or initialize zone slider state (called on first slider input)
+function getZoneSliderState(zone) {
+  const zoneId = zone.id || zone.client_ids.join('-');
+  if (!zoneSliderState.value[zoneId]) {
+    // First input - capture ALL starting volumes
+    const clientStarts = {};
+    zone.client_ids.forEach(dspId => {
+      clientStarts[dspId] = dspStore.getClientDspVolume(dspId);
+    });
+    const startAvg = Object.values(clientStarts).reduce((s, v) => s + v, 0) / zone.client_ids.length;
+    zoneSliderState.value[zoneId] = { startAvg, clientStarts };
+  }
+  return zoneSliderState.value[zoneId];
+}
+
+// Clear zone slider state after drag ends
+function clearZoneSliderState(zone) {
+  const zoneId = zone.id || zone.client_ids.join('-');
+  delete zoneSliderState.value[zoneId];
 }
 
 // Get zone badge for display (shows client names or count)
@@ -156,8 +190,9 @@ const displayClients = computed(() => {
         const zone = getZoneForClient(client);
 
         if (zone) {
-          // This is a zone primary - show as "Zone X" with client names
+          // This is a zone primary - use custom name or fallback to "Zone X"
           const zoneIndex = linkedGroups.value.indexOf(zone) + 1;
+          const zoneName = zone.name || `Zone ${zoneIndex}`;
           const clientNames = zone.client_ids
             .map(dspId => {
               // Find client by dsp_id
@@ -165,11 +200,16 @@ const displayClients = computed(() => {
               return c ? c.name : dspId;
             })
             .join(', ');
+          // Use arithmetic average of all clients in zone
+          // Returns null if volumes not yet loaded
+          const zoneVolume = getZoneAverageVolume(zone);
           return {
             ...client,
-            name: `Zone ${zoneIndex}`,
+            name: zoneName,
             zoneClients: clientNames,
-            dspVolume: dspVol
+            dspVolume: zoneVolume,
+            volumeLoading: zoneVolume === null,  // Flag to show loading state
+            zoneClientIds: zone.client_ids  // Needed for delta calculation
           };
         }
         return { ...client, dspVolume: dspVol };
@@ -193,15 +233,24 @@ async function handleVolumeChange(clientId, volumeDb) {
   const zone = getZoneForClient(client);
 
   if (zone && zone.client_ids.length > 1) {
-    // Update all clients in the zone
+    // Zone volume change: apply DELTA to preserve relative offsets
+    // Get starting state (captures volumes at start of slider drag)
+    const state = getZoneSliderState(zone);
+    const delta = volumeDb - state.startAvg;
+
+    // Apply delta to each client from their START volume
     const updatePromises = zone.client_ids.map(async (dspId) => {
-      const success = await dspStore.updateClientDspVolume(dspId, volumeDb);
+      const startVol = state.clientStarts[dspId];
+      const newVol = Math.max(settingsStore.volumeLimits.min_db, Math.min(settingsStore.volumeLimits.max_db, startVol + delta));
+      const success = await dspStore.updateClientDspVolume(dspId, newVol);
       if (success) {
-        // Update local cache for immediate UI feedback
-        dspStore.setClientDspVolume(dspId, volumeDb);
+        dspStore.setClientDspVolume(dspId, newVol);
       }
     });
     await Promise.all(updatePromises);
+
+    // Clear state after change completes (slider drag ended)
+    clearZoneSliderState(zone);
   } else {
     // Single client, update directly
     const success = await dspStore.updateClientDspVolume(client.dsp_id, volumeDb);
@@ -318,8 +367,8 @@ onMounted(async () => {
   // Load DSP enabled state (for volume mode detection)
   await dspStore.loadEnabledState();
 
-  // Load linked groups and DSP volumes if DSP is enabled
-  if (dspStore.isDspEnabled) {
+  // Load linked groups and DSP volumes if DSP effects are enabled
+  if (dspStore.isDspEffectsEnabled) {
     await dspStore.loadTargets();
     // Fetch actual DSP volumes from all clients
     await dspStore.loadAllClientDspVolumes(multiroomStore.clients);
@@ -340,7 +389,15 @@ onMounted(async () => {
     on('dsp', 'links_changed', (e) => dspStore.handleLinksChanged(e)),
     on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e)),
     // DSP client volumes pushed (when multiroom activates)
-    on('dsp', 'client_volumes_pushed', (e) => dspStore.handleClientVolumesPushed(e))
+    on('dsp', 'client_volumes_pushed', (e) => dspStore.handleClientVolumesPushed(e)),
+    // Volume changes from other UIs (DspModal/ZoneTabs)
+    on('volume', 'volume_changed', (event) => {
+      if (event.data?.client_volumes) {
+        for (const [hostname, volumeDb] of Object.entries(event.data.client_volumes)) {
+          dspStore.setClientDspVolume(hostname, volumeDb);
+        }
+      }
+    })
   );
 });
 
