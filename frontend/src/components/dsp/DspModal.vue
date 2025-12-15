@@ -2,18 +2,9 @@
 <!-- Main DSP control panel with parametric EQ and presets -->
 <template>
   <div class="dsp-modal">
-    <!-- Header with toggle only -->
-    <ModalHeader :title="$t('dsp.title', 'DSP')">
-      <template #actions="{ iconVariant }">
-        <!-- Link clients button -->
-        <IconButton
-          v-if="dspStore.isDspEnabled && hasMultipleTargets"
-          icon="link"
-          :variant="isTargetLinked ? 'brand' : iconVariant"
-          :disabled="dspStore.isLoading"
-          @click="showLinkedClientsDialog = true"
-        />
-
+    <!-- Header: "Égaliseur DSP" + Toggle ON/OFF -->
+    <ModalHeader :title="$t('dsp.title', 'Égaliseur DSP')">
+      <template #actions>
         <!-- DSP Enable/Disable toggle -->
         <Toggle
           :model-value="dspStore.isDspEnabled"
@@ -43,21 +34,42 @@
           </div>
 
           <template v-if="dspStore.isConnected">
-            <!-- Zone Tabs + Preset selector (first section) -->
-            <ZoneTabs :disabled="dspStore.isUpdating" />
-
-            <!-- Parametric EQ -->
-            <ParametricEQ
-              :filters="dspStore.filters"
-              :filters-loaded="dspStore.filtersLoaded"
+            <!-- Section 1: Zones (tabs + volumes) -->
+            <ZoneTabs
+              ref="zoneTabsRef"
               :disabled="dspStore.isUpdating"
-              :is-mobile="isMobile"
-              @update:filter="handleFilterUpdate"
-              @change="handleFilterChange"
+              @open-link-dialog="showLinkedClientsDialog = true"
             />
 
-            <!-- Advanced DSP (Compressor, Loudness, Delay, Volume) - always visible -->
-            <AdvancedDsp />
+            <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
+            <section class="settings-section">
+              <div class="section-group">
+                <div class="section-header">
+                  <h2 class="heading-2">
+                    {{ $t('dsp.equalizer.title', '10 Bands Equalizer') }}
+                    <span v-if="selectedZoneName" class="zone-suffix">· {{ selectedZoneName }}</span>
+                  </h2>
+                  <Dropdown
+                    v-model="currentPreset"
+                    :options="presetOptions"
+                    :placeholder="$t('dsp.selectPreset', 'Preset')"
+                    :disabled="dspStore.isUpdating"
+                    @change="handlePresetChange"
+                  />
+                </div>
+                <ParametricEQ
+                  :filters="dspStore.filters"
+                  :filters-loaded="dspStore.filtersLoaded"
+                  :disabled="dspStore.isUpdating"
+                  :is-mobile="isMobile"
+                  @update:filter="handleFilterUpdate"
+                  @change="handleFilterChange"
+                />
+              </div>
+            </section>
+
+            <!-- Section 3: Advanced DSP (Compressor, Loudness, Delay) -->
+            <AdvancedDsp :zone-name="selectedZoneName" />
 
             <!-- Level Meters -->
             <LevelMeters />
@@ -75,12 +87,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
+import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import ModalHeader from '@/components/ui/ModalHeader.vue';
-import IconButton from '@/components/ui/IconButton.vue';
 import Toggle from '@/components/ui/Toggle.vue';
+import Dropdown from '@/components/ui/Dropdown.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import ZoneTabs from './ZoneTabs.vue';
@@ -89,23 +102,73 @@ import AdvancedDsp from './AdvancedDsp.vue';
 import LevelMeters from './LevelMeters.vue';
 import LinkedClientsDialog from './LinkedClientsDialog.vue';
 
+const { t } = useI18n();
 const dspStore = useDspStore();
 const { on } = useWebSocket();
 
-// Local state (use store for isDspEnabled)
+// Local state
 const isMobile = ref(false);
-
-// Linked clients dialog state
 const showLinkedClientsDialog = ref(false);
+const currentPreset = ref('');
+const zoneTabsRef = ref(null);
+
+// Selected zone/client name from ZoneTabs component
+const selectedZoneName = computed(() => {
+  return zoneTabsRef.value?.selectedZoneName ?? '';
+});
 
 let unsubscribeFunctions = [];
 
-// === COMPUTED ===
-const hasMultipleTargets = computed(() => dspStore.availableTargets.length > 1);
+// === PRESETS ===
+// Default presets with gain values for 10 EQ bands
+const defaultPresets = computed(() => [
+  {
+    id: 'flat',
+    label: t('dsp.quickPresets.flat', 'Flat'),
+    gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  {
+    id: 'bass_boost',
+    label: t('dsp.quickPresets.bassBoost', 'Bass Boost'),
+    gains: [6, 5, 3, 1, 0, 0, 0, 0, 0, 0]
+  },
+  {
+    id: 'vocal',
+    label: t('dsp.quickPresets.vocal', 'Vocal'),
+    gains: [-2, -1, 0, 1, 2, 3, 2, 1, 0, 0]
+  },
+  {
+    id: 'night',
+    label: t('dsp.quickPresets.nightMode', 'Night'),
+    gains: [-4, -2, 0, 1, 1, 1, 0, -1, -2, -3]
+  }
+]);
 
-// Check if current target is linked to other clients
-const isTargetLinked = computed(() => {
-  return dspStore.isClientLinked(dspStore.selectedTarget);
+const userPresets = computed(() => dspStore.presets);
+
+// Convert presets to Dropdown options format
+const presetOptions = computed(() => {
+  const options = [];
+
+  // Default presets group
+  defaultPresets.value.forEach(preset => {
+    options.push({
+      label: preset.label,
+      value: `default:${preset.id}`
+    });
+  });
+
+  // User presets group (if any)
+  if (userPresets.value.length > 0) {
+    userPresets.value.forEach(preset => {
+      options.push({
+        label: preset,
+        value: `user:${preset}`
+      });
+    });
+  }
+
+  return options;
 });
 
 // === MOBILE DETECTION ===
@@ -127,6 +190,41 @@ function handleFilterUpdate({ id, field, value }) {
 function handleFilterChange({ id, field, value }) {
   dspStore.finalizeFilterUpdate(id);
 }
+
+// === PRESET HANDLING ===
+async function handlePresetChange(value) {
+  if (!value) return;
+
+  if (value.startsWith('default:')) {
+    // Apply default preset
+    const presetId = value.slice(8);
+    const preset = defaultPresets.value.find(p => p.id === presetId);
+    if (preset) {
+      await applyDefaultPreset(preset);
+    }
+  } else if (value.startsWith('user:')) {
+    // Load user preset
+    const presetName = value.slice(5);
+    await dspStore.loadPreset(presetName);
+  }
+}
+
+async function applyDefaultPreset(preset) {
+  for (let i = 0; i < dspStore.filters.length && i < preset.gains.length; i++) {
+    const filter = dspStore.filters[i];
+    if (filter.gain !== preset.gains[i]) {
+      dspStore.updateFilter(filter.id, 'gain', preset.gains[i]);
+      await dspStore.finalizeFilterUpdate(filter.id);
+    }
+  }
+}
+
+// Watch for active preset changes from store
+watch(() => dspStore.activePreset, (newPreset) => {
+  if (newPreset && !currentPreset.value.startsWith('default:')) {
+    currentPreset.value = 'user:' + newPreset;
+  }
+}, { immediate: true });
 
 // === WEBSOCKET HANDLERS ===
 function handleDspFilterChanged(event) {
@@ -221,6 +319,38 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
+/* Settings section pattern */
+.settings-section {
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-06);
+  padding: var(--space-05-fixed) var(--space-05);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05-fixed);
+}
+
+.section-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-03);
+}
+
+.section-header :deep(.dropdown) {
+  max-width: 200px;
+}
+
+.zone-suffix {
+  color: var(--color-text-secondary);
+  font-weight: normal;
+}
+
 /* Transitions */
 .fade-slide-enter-active,
 .fade-slide-leave-active {
@@ -241,6 +371,10 @@ onUnmounted(() => {
 @media (max-aspect-ratio: 4/3) {
   .dsp-modal {
     gap: var(--space-02);
+  }
+
+  .settings-section {
+    border-radius: var(--radius-05);
   }
 }
 </style>

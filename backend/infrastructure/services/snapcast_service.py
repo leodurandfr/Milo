@@ -187,25 +187,33 @@ class SnapcastService:
         """Extract and filter clients from server status"""
         clients = []
         exclude_names = {'snapweb client', 'snapweb'}
-        
+
         for group in status.get("server", {}).get("groups", []):
             for client_data in group.get("clients", []):
                 if not client_data.get("connected"):
                     continue
-                
+
                 name = client_data["config"]["name"] or client_data["host"]["name"]
                 if any(exclude in name.lower() for exclude in exclude_names):
                     continue
-                
+
+                host = client_data["host"]["name"]
+                ip = client_data["host"]["ip"].replace("::ffff:", "")
+
+                # dsp_id: identifier used by DSP linked_groups
+                # "local" for the main Milo server, IP address for remote clients
+                dsp_id = "local" if host == "milo" else ip
+
                 clients.append({
                     "id": client_data["id"],
                     "name": name,
                     "volume": client_data["config"]["volume"]["percent"],
                     "muted": client_data["config"]["volume"]["muted"],
-                    "host": client_data["host"]["name"],
-                    "ip": client_data["host"]["ip"].replace("::ffff:", "")
+                    "host": host,
+                    "ip": ip,
+                    "dsp_id": dsp_id
                 })
-        
+
         return clients
     
     async def get_detailed_clients(self) -> List[Dict[str, Any]]:
@@ -214,25 +222,32 @@ class SnapcastService:
             status = await self._request("Server.GetStatus")
             clients = []
             exclude_names = {'snapweb client', 'snapweb'}
-            
+
             for group in status.get("server", {}).get("groups", []):
                 for client_data in group.get("clients", []):
                     if not client_data.get("connected"):
                         continue
-                    
+
                     name = client_data["config"]["name"] or client_data["host"]["name"]
                     if any(exclude in name.lower() for exclude in exclude_names):
                         continue
-                    
+
+                    host = client_data["host"]["name"]
+                    ip = client_data["host"]["ip"].replace("::ffff:", "")
                     last_seen = client_data.get("lastSeen", {})
-                    
+
+                    # dsp_id: identifier used by DSP linked_groups
+                    # "local" for the main Milo server, IP address for remote clients
+                    dsp_id = "local" if host == "milo" else ip
+
                     clients.append({
                         "id": client_data["id"],
                         "name": name,
                         "volume": client_data["config"]["volume"]["percent"],
                         "muted": client_data["config"]["volume"]["muted"],
-                        "host": client_data["host"]["name"],
-                        "ip": client_data["host"]["ip"].replace("::ffff:", ""),
+                        "host": host,
+                        "ip": ip,
+                        "dsp_id": dsp_id,
                         "mac": client_data["host"]["mac"],
                         "latency": client_data["config"]["latency"],
                         "last_seen": last_seen,
@@ -244,7 +259,7 @@ class SnapcastService:
                         "snapclient_info": client_data.get("snapclient", {}),
                         "group_id": group["id"]
                     })
-            
+
             return clients
             
         except Exception as e:

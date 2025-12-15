@@ -69,9 +69,6 @@ function handleBandChange(filterId, { field, value }) {
   display: flex;
   justify-content: space-between;
   gap: var(--space-02);
-  padding: var(--space-04);
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-06);
   overflow-x: auto;
   transition: opacity var(--transition-normal);
 }
@@ -84,8 +81,6 @@ function handleBandChange(filterId, { field, value }) {
 .parametric-eq.mobile .eq-bands {
   flex-direction: column;
   gap: var(--space-03);
-  padding: var(--space-03);
-  border-radius: var(--radius-05);
 }
 
 /* Scrollbar styling */

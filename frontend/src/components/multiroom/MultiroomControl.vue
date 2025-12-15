@@ -64,21 +64,12 @@ const linkedGroups = computed(() => {
   return dspStore.linkedGroups || [];
 });
 
-// Normalize hostname: linkedGroups uses "local" but clients use "milo" for local host
-function normalizeHostname(hostname) {
-  return hostname === 'milo' ? 'local' : hostname;
-}
-
-// Denormalize hostname: convert "local" back to "milo" for client lookup
-function denormalizeHostname(hostname) {
-  return hostname === 'local' ? 'milo' : hostname;
-}
-
 // Get zone info for a client (returns zone object if linked, null otherwise)
-function getZoneForClient(hostname) {
-  const normalized = normalizeHostname(hostname);
+function getZoneForClient(client) {
+  const dspId = client.dsp_id;
+  if (!dspId) return null;
   for (const group of linkedGroups.value) {
-    if (group.client_ids && group.client_ids.includes(normalized)) {
+    if (group.client_ids?.includes(dspId)) {
       return group;
     }
   }
@@ -87,12 +78,9 @@ function getZoneForClient(hostname) {
 
 // Check if a client is the "primary" of its zone (first in the list)
 function isZonePrimary(client) {
-  const hostname = client.host || '';
-  const zone = getZoneForClient(hostname);
+  const zone = getZoneForClient(client);
   if (!zone) return true; // Not in a zone, show it
-  // Compare normalized hostname with first client in zone
-  const normalized = normalizeHostname(hostname);
-  return zone.client_ids[0] === normalized;
+  return zone.client_ids[0] === client.dsp_id;
 }
 
 // Get zone badge for display (shows client names or count)
@@ -164,20 +152,17 @@ const displayClients = computed(() => {
     return multiroomStore.clients
       .filter(client => isZonePrimary(client))
       .map(client => {
-        // Use IP for remote clients, 'local' for main Milo
-        const hostname = client.host === 'milo' ? 'local' : (client.ip || client.host || '');
-        const dspVol = dspStore.getClientDspVolume(hostname);
-        const zone = getZoneForClient(client.host || '');
+        const dspVol = dspStore.getClientDspVolume(client.dsp_id);
+        const zone = getZoneForClient(client);
 
         if (zone) {
           // This is a zone primary - show as "Zone X" with client names
           const zoneIndex = linkedGroups.value.indexOf(zone) + 1;
           const clientNames = zone.client_ids
-            .map(h => {
-              // Denormalize hostname for client lookup (zone uses "local", clients use "milo")
-              const lookupHost = denormalizeHostname(h);
-              const c = multiroomStore.clients.find(cl => cl.host === lookupHost);
-              return c ? c.name : h;
+            .map(dspId => {
+              // Find client by dsp_id
+              const c = multiroomStore.clients.find(cl => cl.dsp_id === dspId);
+              return c ? c.name : dspId;
             })
             .join(', ');
           return {
@@ -193,40 +178,35 @@ const displayClients = computed(() => {
 
   // No linked groups - just add dspVolume to each client
   return multiroomStore.clients.map(client => {
-    // Use IP for remote clients, 'local' for main Milo
-    const hostname = client.host === 'milo' ? 'local' : (client.ip || client.host || '');
-    const dspVol = dspStore.getClientDspVolume(hostname);
+    const dspVol = dspStore.getClientDspVolume(client.dsp_id);
     return { ...client, dspVolume: dspVol };
   });
 });
 
 // === HANDLERS ===
 async function handleVolumeChange(clientId, volumeDb) {
-  // Volume is always in dB, find client hostname and update DSP volume
+  // Volume is always in dB, find client and update DSP volume
   const client = multiroomStore.clients.find(c => c.id === clientId);
   if (!client) return;
 
-  // Use IP for remote clients, 'local' for main Milo
-  const hostname = client.host === 'milo' ? 'local' : (client.ip || client.host);
-
   // Check if this client is part of a zone
-  const zone = getZoneForClient(hostname);
+  const zone = getZoneForClient(client);
 
   if (zone && zone.client_ids.length > 1) {
     // Update all clients in the zone
-    const updatePromises = zone.client_ids.map(async (zoneHostname) => {
-      const success = await dspStore.updateClientDspVolume(zoneHostname, volumeDb);
+    const updatePromises = zone.client_ids.map(async (dspId) => {
+      const success = await dspStore.updateClientDspVolume(dspId, volumeDb);
       if (success) {
         // Update local cache for immediate UI feedback
-        dspStore.setClientDspVolume(zoneHostname, volumeDb);
+        dspStore.setClientDspVolume(dspId, volumeDb);
       }
     });
     await Promise.all(updatePromises);
   } else {
     // Single client, update directly
-    const success = await dspStore.updateClientDspVolume(hostname, volumeDb);
+    const success = await dspStore.updateClientDspVolume(client.dsp_id, volumeDb);
     if (success) {
-      dspStore.setClientDspVolume(hostname, volumeDb);
+      dspStore.setClientDspVolume(client.dsp_id, volumeDb);
     }
   }
 }

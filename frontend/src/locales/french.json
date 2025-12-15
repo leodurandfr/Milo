@@ -53,11 +53,21 @@
     "presets": "Pré-réglages"
   },
   "dsp": {
-    "title": "DSP",
+    "title": "Égaliseur DSP",
     "disabled": "Le DSP est désactivé",
     "connecting": "Connexion au DSP...",
-    "selectPreset": "Préréglage",
+    "selectPreset": "Preset",
     "selectTarget": "Appareil",
+    "zones": {
+      "title": "Zones",
+      "configure": "Configurer les zones"
+    },
+    "equalizer": {
+      "title": "Égaliseur 10 bandes"
+    },
+    "advanced": {
+      "title": "Effets avancés"
+    },
     "presets": "Préréglages",
     "savePreset": "Sauvegarder",
     "loadPreset": "Charger",
@@ -101,7 +111,7 @@
       "right": "Canal droit"
     },
     "volume": {
-      "title": "Volume DSP",
+      "title": "Volume",
       "level": "Niveau",
       "muted": "Muet"
     },
