@@ -33,7 +33,7 @@ class SystemAudioState:
     - Operational state of the active plugin
     - Associated metadata
     - Audio routing state (multiroom_enabled flag)
-    - DSP state (CamillaDSP enabled)
+    - DSP effects state (equalizer, compressor, loudness enabled)
     - Target source during transitions
     """
     active_source: AudioSource = AudioSource.NONE
@@ -43,7 +43,7 @@ class SystemAudioState:
     metadata: Dict[str, Any] = None
     error: Optional[str] = None
     multiroom_enabled: bool = False
-    dsp_enabled: bool = False
+    dsp_effects_enabled: bool = False
     
     def __post_init__(self):
         if self.metadata is None:
@@ -59,7 +59,7 @@ class SystemAudioState:
             "metadata": self.metadata,
             "error": self.error,
             "multiroom_enabled": self.multiroom_enabled,
-            "dsp_enabled": self.dsp_enabled
+            "dsp_effects_enabled": self.dsp_effects_enabled
         }
     
     @classmethod
@@ -76,5 +76,6 @@ class SystemAudioState:
             metadata=data.get("metadata", {}),
             error=data.get("error"),
             multiroom_enabled=data.get("multiroom_enabled", False),
-            dsp_enabled=data.get("dsp_enabled", False)
+            # Support both new key and legacy key for backwards compatibility
+            dsp_effects_enabled=data.get("dsp_effects_enabled", data.get("dsp_enabled", False))
         )

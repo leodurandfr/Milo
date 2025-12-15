@@ -58,10 +58,10 @@ def create_routing_router(routing_service, state_machine):
             return {"status": "error", "message": str(e)}
 
     @router.post("/dsp/{enabled}")
-    async def set_dsp_enabled(enabled: str):
-        """Enables/disables DSP processing"""
+    async def set_dsp_effects_enabled(enabled: str):
+        """Enables/disables DSP effects (EQ, compressor, loudness). Volume always works via DSP."""
         try:
-            dsp_enabled = enabled.lower() in ("true", "1", "on", "enabled")
+            dsp_effects_enabled = enabled.lower() in ("true", "1", "on", "enabled")
 
             current_state = await state_machine.get_current_state()
             active_source = None
@@ -72,15 +72,15 @@ def create_routing_router(routing_service, state_machine):
                 except ValueError:
                     pass
 
-            success = await routing_service.set_dsp_enabled(dsp_enabled, active_source)
+            success = await routing_service.set_dsp_effects_enabled(dsp_effects_enabled, active_source)
             if not success:
-                return {"status": "error", "message": "Failed to change DSP state"}
+                return {"status": "error", "message": "Failed to change DSP effects state"}
 
-            await state_machine.update_dsp_state(dsp_enabled)
+            await state_machine.update_dsp_effects_state(dsp_effects_enabled)
 
             return {
                 "status": "success",
-                "dsp_enabled": dsp_enabled,
+                "dsp_effects_enabled": dsp_effects_enabled,
                 "active_source": current_state["active_source"] if active_source else "none"
             }
         except Exception as e:
@@ -95,11 +95,11 @@ def create_routing_router(routing_service, state_machine):
         }
 
     @router.get("/dsp/status")
-    async def get_dsp_status():
-        """Gets current DSP status"""
+    async def get_dsp_effects_status():
+        """Gets current DSP effects status"""
         routing_state = routing_service.get_state()
         return {
-            "dsp_enabled": routing_state.get('dsp_enabled', False)
+            "dsp_effects_enabled": routing_state.get('dsp_effects_enabled', False)
         }
 
     return router

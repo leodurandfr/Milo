@@ -5,20 +5,20 @@
     <div class="section-group">
       <!-- Section Header: "Zones" + "Configurer les zones" button -->
       <div class="section-header">
-        <h2 class="heading-2">{{ $t('dsp.zones.title', 'Zones') }}</h2>
+        <h2 class="heading-2">{{ zoneTabs.length === 1 ? zoneTabs[0].label : $t('dsp.zones.title', 'Zones') }}</h2>
         <Button
           v-if="hasMultipleTargets"
           size="small"
           variant="background-strong"
-          @click="emit('openLinkDialog')"
+          @click="handleOpenZoneSettings"
         >
           {{ $t('dsp.zones.configure', 'Configurer les zones') }}
         </Button>
       </div>
 
-      <!-- Zone/Client Tabs -->
+      <!-- Zone/Client Tabs (hidden when single target) -->
       <Tabs
-        v-if="zoneTabs.length > 0"
+        v-if="zoneTabs.length > 1"
         v-model="selectedTargetLocal"
         :tabs="zoneTabs"
         size="small"
@@ -37,7 +37,9 @@
             class="client-volume-row"
             :class="{ 'client-muted': getClientMute(client.id) }"
           >
-            <span class="client-name heading-2" :class="{ 'muted': getClientMute(client.id) }">
+            <!-- Separator line above each row -->
+            <div class="client-separator"></div>
+            <span class="client-name heading-3" :class="{ 'muted': getClientMute(client.id) }">
               {{ client.name }}
             </span>
             <div class="volume-control">
@@ -58,8 +60,6 @@
               type="background-strong"
               @change="(enabled) => handleMuteToggle(client.id, !enabled)"
             />
-            <!-- Separator line (except for last item) -->
-            <div v-if="index < zoneClients.length - 1" class="client-separator"></div>
           </div>
         </div>
       </template>
@@ -67,7 +67,7 @@
       <!-- Case B: Single client selected (or zone with single client) -->
       <template v-else>
         <div class="single-client-row">
-          <span class="volume-label heading-2" :class="{ 'muted': currentTargetMute }">
+          <span class="volume-label heading-3" :class="{ 'muted': currentTargetMute }">
             {{ $t('dsp.volume.title', 'Volume') }}
           </span>
           <div class="volume-control">
@@ -144,16 +144,20 @@ const zoneTabs = computed(() => {
         .map(id => targets.value.find(t => t.id === id))
         .filter(Boolean);
 
-      // Use first client's name as zone name or create a combined name
-      const zoneName = linkedClients.length > 0
+      // Find the group for this zone to get custom name
+      const group = dspStore.getZoneGroup(target.id);
+
+      // Use custom zone name if set, otherwise combine client names
+      const zoneName = group?.name || (linkedClients.length > 0
         ? linkedClients.map(c => c.name).join(' + ')
-        : target.name;
+        : target.name);
 
       tabs.push({
         label: zoneName,
         value: `zone:${linkedIds.join(',')}`,
         badge: 'link',
-        disabled: linkedClients.some(c => !c.available)
+        disabled: linkedClients.some(c => !c.available),
+        groupId: group?.id || null
       });
 
       // Mark all linked clients as processed
@@ -215,7 +219,7 @@ const selectedZoneName = computed(() => {
 
 // === VOLUME HELPERS ===
 function getClientVolume(clientId) {
-  return dspStore.getClientDspVolume(clientId);
+  return Math.round(dspStore.getClientDspVolume(clientId));
 }
 
 function getClientMute(clientId) {
@@ -223,6 +227,11 @@ function getClientMute(clientId) {
 }
 
 // === HANDLERS ===
+function handleOpenZoneSettings() {
+  // Navigate to zone list (settings page)
+  emit('openLinkDialog');
+}
+
 async function handleTargetChange(targetValue) {
   selectedTargetLocal.value = targetValue;
 
@@ -343,7 +352,7 @@ defineExpose({ selectedZoneName });
 .volume-controls {
   display: flex;
   flex-direction: column;
-  gap: var(--space-03);
+  gap: var(--space-04);
 }
 
 .volume-subtitle {
@@ -365,17 +374,13 @@ defineExpose({ selectedZoneName });
   position: relative;
 }
 
-.client-volume-row:first-child {
-  padding-top: 0;
-}
-
 .client-volume-row:last-child {
   padding-bottom: 0;
 }
 
 .client-separator {
   position: absolute;
-  bottom: 0;
+  top: 0;
   left: 0;
   right: 0;
   height: 1px;

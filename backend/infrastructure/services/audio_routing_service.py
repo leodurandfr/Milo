@@ -15,7 +15,7 @@ class AudioRoutingService:
 
     IMPORTANT: This service no longer has its own state. It directly uses
     state_machine.system_state as the single source of truth for multiroom_enabled
-    and dsp_enabled. This eliminates desynchronization risks.
+    and dsp_effects_enabled. This eliminates desynchronization risks.
     """
 
     # Strict whitelist for command validation
@@ -91,18 +91,18 @@ class AudioRoutingService:
             async with self.state_machine._state_lock:
                 self.state_machine.system_state.multiroom_enabled = value
 
-    async def _get_dsp_enabled(self) -> bool:
-        """Accesses DSP state in a thread-safe manner"""
+    async def _get_dsp_effects_enabled(self) -> bool:
+        """Accesses DSP effects state in a thread-safe manner"""
         if not self.state_machine:
             return False
         async with self.state_machine._state_lock:
-            return self.state_machine.system_state.dsp_enabled
+            return self.state_machine.system_state.dsp_effects_enabled
 
-    async def _set_dsp_state(self, value: bool) -> None:
-        """Modifies DSP state in a thread-safe manner (internal method)"""
+    async def _set_dsp_effects_state(self, value: bool) -> None:
+        """Modifies DSP effects state in a thread-safe manner (internal method)"""
         if self.state_machine:
             async with self.state_machine._state_lock:
-                self.state_machine.system_state.dsp_enabled = value
+                self.state_machine.system_state.dsp_effects_enabled = value
 
     # Synchronous properties for compatibility (read-only, may be slightly out of sync)
     @property
@@ -113,11 +113,11 @@ class AudioRoutingService:
         return self.state_machine.system_state.multiroom_enabled
 
     @property
-    def dsp_enabled(self) -> bool:
-        """Accesses DSP state (FAST READ - may be slightly out of sync)"""
+    def dsp_effects_enabled(self) -> bool:
+        """Accesses DSP effects state (FAST READ - may be slightly out of sync)"""
         if not self.state_machine:
             return False
-        return self.state_machine.system_state.dsp_enabled
+        return self.state_machine.system_state.dsp_effects_enabled
     
     async def initialize(self) -> None:
         """Initializes service state"""
@@ -132,20 +132,23 @@ class AudioRoutingService:
             # Load state from SettingsService
             if self.settings_service:
                 multiroom = await self.settings_service.get_setting('routing.multiroom_enabled')
-                dsp = await self.settings_service.get_setting('dsp.enabled')
+                # Support both new and legacy setting key
+                dsp_effects = await self.settings_service.get_setting('dsp.effects_enabled')
+                if dsp_effects is None:
+                    dsp_effects = await self.settings_service.get_setting('dsp.enabled')
                 # Explicit bool conversion for defensive programming
                 await self._set_multiroom_state(self._to_bool(multiroom))
-                await self._set_dsp_state(self._to_bool(dsp))
+                await self._set_dsp_effects_state(self._to_bool(dsp_effects))
                 current_multiroom = await self._get_multiroom_enabled()
-                current_dsp = await self._get_dsp_enabled()
-                self.logger.info(f"Loaded state from settings: multiroom={current_multiroom}, dsp={current_dsp}")
+                current_dsp_effects = await self._get_dsp_effects_enabled()
+                self.logger.info(f"Loaded state from settings: multiroom={current_multiroom}, dsp_effects={current_dsp_effects}")
             else:
                 self.logger.warning("SettingsService not available, using defaults")
                 await self._set_multiroom_state(False)
-                await self._set_dsp_state(False)
+                await self._set_dsp_effects_state(False)
 
             await self._update_systemd_environment()
-            self.logger.info(f"ALSA environment initialized: MULTIROOM={self.multiroom_enabled}, DSP={self.dsp_enabled}")
+            self.logger.info(f"ALSA environment initialized: MULTIROOM={self.multiroom_enabled}, DSP_EFFECTS={self.dsp_effects_enabled}")
 
             snapcast_status = await self.get_snapcast_status()
             services_running = snapcast_status.get("multiroom_available", False)
@@ -174,9 +177,9 @@ class AudioRoutingService:
                 if connected:
                     self.logger.info("Backend connected to CamillaDSP daemon")
 
-                    # Apply effect state based on dsp.enabled setting
-                    current_dsp = await self._get_dsp_enabled()
-                    if current_dsp:
+                    # Apply effect state based on dsp.effects_enabled setting
+                    current_dsp_effects = await self._get_dsp_effects_enabled()
+                    if current_dsp_effects:
                         self.logger.info("DSP effects enabled, restoring from settings")
                         await self.camilladsp_service.restore_effects()
                     else:
@@ -187,8 +190,8 @@ class AudioRoutingService:
 
             self._initial_detection_done = True
             current_multiroom = await self._get_multiroom_enabled()
-            current_dsp = await self._get_dsp_enabled()
-            self.logger.info(f"Routing initialized with persisted state: multiroom={current_multiroom}, dsp={current_dsp}")
+            current_dsp_effects = await self._get_dsp_effects_enabled()
+            self.logger.info(f"Routing initialized with persisted state: multiroom={current_multiroom}, dsp_effects={current_dsp_effects}")
 
             # Schedule delayed DSP sync if multiroom is already enabled at startup
             if current_multiroom:
@@ -197,7 +200,7 @@ class AudioRoutingService:
         except Exception as e:
             self.logger.error(f"Error during initial state detection: {e}")
             await self._set_multiroom_state(False)
-            await self._set_dsp_state(False)
+            await self._set_dsp_effects_state(False)
             await self._update_systemd_environment()
             self._initial_detection_done = True
 
@@ -334,7 +337,7 @@ class AudioRoutingService:
         except Exception as e:
             self.logger.error(f"❌ Auto-configure multiroom failed: {e}")
 
-    async def set_dsp_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
+    async def set_dsp_effects_enabled(self, enabled: bool, active_source: AudioSource = None) -> bool:
         """
         Enables/disables DSP EFFECTS (not the service itself).
 
@@ -346,7 +349,7 @@ class AudioRoutingService:
         Volume control via CamillaDSP is ALWAYS active regardless of this setting.
         """
         async with self._routing_lock:  # Guarantee atomicity of routing operations
-            current_state = await self._get_dsp_enabled()
+            current_state = await self._get_dsp_effects_enabled()
             if current_state == enabled:
                 self.logger.info(f"DSP effects already {'enabled' if enabled else 'bypassed'}")
                 return True
@@ -355,7 +358,7 @@ class AudioRoutingService:
                 old_state = current_state
                 self.logger.info(f"{'Enabling' if enabled else 'Bypassing'} DSP effects")
 
-                await self._set_dsp_state(enabled)
+                await self._set_dsp_effects_state(enabled)
 
                 # Toggle DSP effects (NOT the service!)
                 if self.camilladsp_service:
@@ -383,13 +386,13 @@ class AudioRoutingService:
 
                 # Save state via SettingsService
                 if self.settings_service:
-                    await self.settings_service.set_setting('dsp.enabled', enabled)
+                    await self.settings_service.set_setting('dsp.effects_enabled', enabled)
 
                 self.logger.info(f"DSP effects {'enabled' if enabled else 'bypassed'}")
                 return True
 
             except Exception as e:
-                await self._set_dsp_state(old_state)
+                await self._set_dsp_effects_state(old_state)
                 self.logger.error(f"Error changing DSP effects state: {e}")
                 return False
     
@@ -402,7 +405,7 @@ class AudioRoutingService:
         """
         mode_value = "multiroom" if self.multiroom_enabled else "direct"
         # Note: MILO_EQUALIZER env var name kept for ALSA config compatibility
-        equalizer_value = "_eq" if self.dsp_enabled else ""
+        equalizer_value = "_eq" if self.dsp_effects_enabled else ""
 
         # Strict validation
         if mode_value not in self.ALLOWED_MODES:
@@ -622,7 +625,7 @@ class AudioRoutingService:
         """
         return {
             "multiroom_enabled": self.multiroom_enabled,
-            "dsp_enabled": self.dsp_enabled
+            "dsp_effects_enabled": self.dsp_effects_enabled
         }
     
     async def get_snapcast_status(self) -> Dict[str, Any]:

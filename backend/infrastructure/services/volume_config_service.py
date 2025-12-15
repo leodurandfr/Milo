@@ -42,7 +42,6 @@ class VolumeConfigService:
     async def load(self) -> VolumeConfig:
         """
         Load volume configuration from settings.
-        Performs one-shot migration from old ALSA format if needed.
 
         Returns:
             VolumeConfig with loaded values
@@ -50,11 +49,6 @@ class VolumeConfigService:
         try:
             self.settings_service.invalidate_cache()
             volume_config = await self.settings_service.get_setting('volume') or {}
-
-            # One-shot migration: convert old ALSA format to dB
-            if 'alsa_min' in volume_config or 'alsa_max' in volume_config:
-                self.logger.info("Migrating volume config from ALSA (%) to dB format...")
-                volume_config = await self._migrate_to_db_format(volume_config)
 
             self._config = VolumeConfig(
                 limit_min_db=volume_config.get("limit_min_db", -80.0),
@@ -69,40 +63,6 @@ class VolumeConfigService:
         except Exception as e:
             self.logger.error(f"Error loading volume config: {e}")
             return self._config
-
-    async def _migrate_to_db_format(self, old_config: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Migrate old ALSA-based config (%) to new dB-based config.
-        Conversion: dB = -80 + (percent / 100) * 80
-
-        Args:
-            old_config: Old configuration with alsa_* keys
-
-        Returns:
-            New configuration with *_db keys
-        """
-        def percent_to_db(percent: float) -> float:
-            """Convert 0-100% to -80 to 0 dB."""
-            return round(-80.0 + (percent / 100.0) * 80.0, 1)
-
-        def step_percent_to_db(step_percent: float) -> float:
-            """Convert step percentage to dB (1% ≈ 0.8 dB)."""
-            return max(1.0, round(step_percent * 0.8, 1))
-
-        new_config = {
-            'limit_min_db': percent_to_db(old_config.get('alsa_min', 0)),
-            'limit_max_db': percent_to_db(old_config.get('alsa_max', 65)),
-            'step_mobile_db': step_percent_to_db(old_config.get('mobile_volume_steps', 5)),
-            'step_rotary_db': step_percent_to_db(old_config.get('rotary_volume_steps', 2)),
-            'startup_volume_db': percent_to_db(old_config.get('startup_volume', 37)),
-            'restore_last_volume': old_config.get('restore_last_volume', False)
-        }
-
-        # Save new format and remove old keys
-        await self.settings_service.set_setting('volume', new_config)
-        self.logger.info(f"Migration complete: {new_config}")
-
-        return new_config
 
     async def reload_limits(self) -> tuple[float, float]:
         """

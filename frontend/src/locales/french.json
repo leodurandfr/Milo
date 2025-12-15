@@ -55,12 +55,23 @@
   "dsp": {
     "title": "Égaliseur DSP",
     "disabled": "Le DSP est désactivé",
+    "effects_disabled": "Les effets DSP sont désactivés",
     "connecting": "Connexion au DSP...",
     "selectPreset": "Preset",
     "selectTarget": "Appareil",
     "zones": {
       "title": "Zones",
-      "configure": "Configurer les zones"
+      "configure": "Configurer les zones",
+      "zoneName": "Nom de la zone",
+      "zoneNamePlaceholder": "ex: Salon",
+      "selectClients": "Sélectionner les clients",
+      "selectClientsDescription": "Sélectionnez au moins 2 clients pour créer une zone.",
+      "createZone": "Créer une zone",
+      "editZone": "Modifier la zone",
+      "updateZone": "Mettre à jour",
+      "description": "Liez les clients pour créer des zones avec des réglages DSP partagés. Les modifications s'appliqueront à tous les membres.",
+      "noZones": "Aucune zone créée. Créez une zone pour lier plusieurs clients.",
+      "inOtherZone": "Dans une autre zone"
     },
     "equalizer": {
       "title": "Égaliseur 10 bandes"
@@ -324,7 +335,8 @@
     "saving": "Enregistrement...",
     "confirm": "Confirmer",
     "restore": "Restaurer",
-    "delete": "Supprimer"
+    "delete": "Supprimer",
+    "modify": "Modifier"
   },
   "radio": {
     "edit_station_title": "Modifier {name}",

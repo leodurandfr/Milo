@@ -248,21 +248,24 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
     # === DSP Enable/Disable ===
 
     @router.get("/enabled")
-    async def get_dsp_enabled():
-        """Get DSP enabled state from settings"""
+    async def get_dsp_effects_enabled():
+        """Get DSP effects enabled state from settings (EQ, compressor, loudness)"""
         try:
             if settings_service:
-                enabled = await settings_service.get_setting("dsp.enabled")
+                # Support both new and legacy setting key
+                enabled = await settings_service.get_setting("dsp.effects_enabled")
+                if enabled is None:
+                    enabled = await settings_service.get_setting("dsp.enabled")
                 # Default to True if not set
                 return {"enabled": enabled if enabled is not None else True}
             return {"enabled": True}
         except Exception as e:
-            logger.error(f"Error getting DSP enabled state: {e}")
+            logger.error(f"Error getting DSP effects enabled state: {e}")
             return {"enabled": True}
 
     @router.put("/enabled")
-    async def set_dsp_enabled(request: Request):
-        """Set DSP enabled state, start/stop CamillaDSP service, and persist to settings"""
+    async def set_dsp_effects_enabled(request: Request):
+        """Set DSP effects enabled state (EQ, compressor, loudness). Volume always works."""
         try:
             body = await request.json()
             enabled = body.get("enabled", True)
@@ -273,25 +276,25 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
                 async with state_machine._state_lock:
                     active_source = state_machine.system_state.active_source
 
-            # Use routing_service to properly start/stop CamillaDSP service and reconnect
+            # Use routing_service to properly toggle DSP effects
             if routing_service:
-                success = await routing_service.set_dsp_enabled(enabled, active_source)
+                success = await routing_service.set_dsp_effects_enabled(enabled, active_source)
                 if success:
-                    logger.info(f"DSP enabled state set to: {enabled}")
+                    logger.info(f"DSP effects enabled state set to: {enabled}")
                     return {"status": "success", "enabled": enabled}
                 else:
-                    return {"status": "error", "message": "Failed to change DSP state"}
+                    return {"status": "error", "message": "Failed to change DSP effects state"}
 
             # Fallback: just save setting if no routing_service (should not happen)
             if settings_service:
-                await settings_service.set_setting("dsp.enabled", enabled)
-                logger.info(f"DSP enabled state set to: {enabled} (fallback, no routing_service)")
+                await settings_service.set_setting("dsp.effects_enabled", enabled)
+                logger.info(f"DSP effects enabled state set to: {enabled} (fallback, no routing_service)")
                 await state_machine.broadcast_event("dsp", "enabled_changed", {"enabled": enabled})
                 return {"status": "success", "enabled": enabled}
 
             return {"status": "error", "message": "Settings service not available"}
         except Exception as e:
-            logger.error(f"Error setting DSP enabled state: {e}")
+            logger.error(f"Error setting DSP effects enabled state: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # === Status & Connection ===
@@ -740,6 +743,9 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
                     # Merge with existing group
                     merged_ids = list(existing_ids | new_client_ids)
                     linked_groups[i]["client_ids"] = merged_ids
+                    # Update name if provided
+                    if payload.name:
+                        linked_groups[i]["name"] = payload.name
                     all_clients = merged_ids
                     await settings_service.set_setting("dsp.linked_groups", linked_groups)
                     await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
@@ -757,7 +763,8 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
             # Create new group
             new_group = {
                 "id": f"group_{len(linked_groups) + 1}",
-                "client_ids": payload.client_ids
+                "client_ids": payload.client_ids,
+                "name": payload.name or ""
             }
             linked_groups.append(new_group)
             await settings_service.set_setting("dsp.linked_groups", linked_groups)
@@ -828,6 +835,33 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
 
         except Exception as e:
             logger.error(f"Error clearing links: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.put("/links/{group_id}/name")
+    async def update_link_group_name(group_id: str, request: Request):
+        """Update the name of a linked client group (zone)"""
+        try:
+            if not settings_service:
+                raise HTTPException(status_code=500, detail="Settings service not available")
+
+            body = await request.json()
+            name = body.get("name", "")
+
+            linked_groups = await settings_service.get_setting("dsp.linked_groups") or []
+
+            for group in linked_groups:
+                if group.get("id") == group_id:
+                    group["name"] = name
+                    await settings_service.set_setting("dsp.linked_groups", linked_groups)
+                    await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
+                    return {"status": "success", "linked_groups": linked_groups}
+
+            raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error updating link group name: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # === Client DSP Proxy Routes ===
@@ -922,26 +956,69 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
 
     @router.get("/client/{hostname}/volume")
     async def get_client_volume(hostname: str):
-        """Proxy volume GET to client"""
+        """Get volume for a specific client (local or remote)."""
+        normalized = 'local' if hostname in ('local', 'milo') else hostname
+
+        if normalized == 'local':
+            # Return local CamillaDSP volume directly
+            try:
+                volume = await dsp_service.get_volume()
+                return {"main": volume.get("main", -30), "mute": volume.get("mute", False)}
+            except Exception:
+                # Fallback if DSP not connected
+                return {"main": -30, "mute": False}
+
+        # Remote client: proxy
         return await _proxy_client_request(hostname, "GET", "/dsp/volume")
 
     @router.put("/client/{hostname}/volume")
     async def update_client_volume(hostname: str, request: Request):
-        """Proxy volume update to client and persist settings"""
+        """
+        Set volume for a specific client (local or remote).
+
+        For 'local'/'milo': Uses multiroom_handler.set_client_volume_db() to change
+        only the local CamillaDSP volume without affecting other clients.
+
+        For remote clients: Proxies to the client's DSP API.
+        """
         body = await request.json()
+        volume_db = body.get("volume")
+
+        # Normalize hostname: 'milo' -> 'local'
+        normalized = 'local' if hostname in ('local', 'milo') else hostname
+
+        if normalized == 'local':
+            # Handle local CamillaDSP volume via multiroom handler
+            # This sets only this client's volume (updates offset, doesn't affect others)
+            if not state_machine:
+                raise HTTPException(status_code=500, detail="State machine not available")
+
+            volume_service = getattr(state_machine, 'volume_service', None)
+            if not volume_service:
+                raise HTTPException(status_code=500, detail="Volume service not available")
+
+            multiroom_handler = volume_service._multiroom_handler
+            success = await multiroom_handler.set_client_volume_db('local', volume_db)
+
+            if success:
+                # Broadcast volume change (will include only this client's change)
+                await volume_service._schedule_broadcast(show_bar=False)
+                return {"status": "success", "main": volume_db}
+            else:
+                raise HTTPException(status_code=500, detail="Failed to set local volume")
+
+        # Remote client: proxy to client's DSP API
         result = await _proxy_client_request(hostname, "PUT", "/dsp/volume", body)
+
         # Save volume to Milo after successful update
         if result.get("status") == "success":
             volume_data = {k: v for k, v in result.items() if k != "status"}
             await _update_client_settings(hostname, "volume", volume_data)
 
-            # Update multiroom volume cache and broadcast average for VolumeBar
-            volume_db = body.get("volume")
+            # Update multiroom volume cache
             if volume_db is not None and state_machine:
                 volume_service = getattr(state_machine, 'volume_service', None)
                 if volume_service:
-                    # Normalize hostname: 'milo' -> 'local'
-                    normalized = 'local' if hostname == 'milo' else hostname
                     await volume_service.update_client_volume_db(normalized, volume_db)
 
         return result

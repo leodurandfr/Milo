@@ -1,0 +1,326 @@
+<!-- frontend/src/components/dsp/ZoneEdit.vue -->
+<!-- Form for creating or editing a DSP zone -->
+<template>
+  <div class="zone-edit">
+    <!-- Zone Name Input -->
+    <section class="settings-section">
+      <div class="section-group">
+        <h2 class="heading-2">{{ $t('dsp.zones.zoneName', 'Zone Name') }}</h2>
+        <InputText
+          v-model="zoneName"
+          :placeholder="$t('dsp.zones.zoneNamePlaceholder', 'e.g., Living Room')"
+          size="medium"
+          :maxlength="30"
+        />
+      </div>
+    </section>
+
+    <!-- Client Selection -->
+    <section class="settings-section">
+      <div class="section-group">
+        <h2 class="heading-2">{{ $t('dsp.zones.selectClients', 'Select Clients') }}</h2>
+        <p class="description text-mono">
+          {{ $t('dsp.zones.selectClientsDescription', 'Select at least 2 clients to create a zone.') }}
+        </p>
+        <div class="clients-list">
+          <label
+            v-for="target in availableTargets"
+            :key="target.id"
+            class="client-item"
+            :class="{
+              disabled: !target.available || isClientInOtherZone(target.id),
+              selected: selectedClients.includes(target.id)
+            }"
+          >
+            <div class="radio-indicator" :class="{ checked: selectedClients.includes(target.id) }">
+              <span class="radio-dot"></span>
+            </div>
+            <input
+              type="checkbox"
+              :checked="selectedClients.includes(target.id)"
+              :disabled="!target.available || isClientInOtherZone(target.id)"
+              @change="toggleClient(target.id)"
+              class="hidden-checkbox"
+            />
+            <span class="client-name">{{ target.name }}</span>
+            <span v-if="isClientInOtherZone(target.id)" class="badge badge-disabled">
+              {{ getOtherZoneName(target.id) }}
+            </span>
+            <span v-if="!target.available" class="badge badge-offline">
+              {{ $t('dsp.linkedClients.offline', 'Offline') }}
+            </span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Actions -->
+    <div class="actions">
+      <Button
+        variant="background-strong"
+        size="medium"
+        :disabled="saving"
+        @click="$emit('back')"
+      >
+        {{ $t('common.cancel', 'Cancel') }}
+      </Button>
+      <Button
+        variant="brand"
+        size="medium"
+        :loading="saving"
+        :disabled="selectedClients.length < 2"
+        @click="handleSave"
+      >
+        {{ $t('common.save', 'Save') }}
+      </Button>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue';
+import { useDspStore } from '@/stores/dspStore';
+import Button from '@/components/ui/Button.vue';
+import InputText from '@/components/ui/InputText.vue';
+
+const props = defineProps({
+  // Group ID if editing an existing zone, null for creating new
+  groupId: {
+    type: String,
+    default: null
+  }
+});
+
+const emit = defineEmits(['back', 'saved']);
+
+const dspStore = useDspStore();
+const saving = ref(false);
+const zoneName = ref('');
+const selectedClients = ref([]);
+
+// Get available targets from store
+const availableTargets = computed(() => dspStore.availableTargets);
+
+// Find the current group being edited
+const currentGroup = computed(() => {
+  if (!props.groupId) return null;
+  return dspStore.linkedGroups.find(g => g.id === props.groupId);
+});
+
+// Check if a client is in a different zone (not the one being edited)
+function isClientInOtherZone(clientId) {
+  for (const group of dspStore.linkedGroups) {
+    // Skip the group being edited
+    if (props.groupId && group.id === props.groupId) continue;
+
+    if (group.client_ids && group.client_ids.includes(clientId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Get name of the zone that contains a client
+function getOtherZoneName(clientId) {
+  for (const group of dspStore.linkedGroups) {
+    if (props.groupId && group.id === props.groupId) continue;
+
+    if (group.client_ids && group.client_ids.includes(clientId)) {
+      // Return custom name or generate from client names
+      if (group.name) return group.name;
+
+      const clientNames = group.client_ids
+        .map(id => {
+          const target = availableTargets.value.find(t => t.id === id);
+          return target ? target.name : id;
+        })
+        .join(' + ');
+      return clientNames;
+    }
+  }
+  return '';
+}
+
+// Toggle client selection
+function toggleClient(clientId) {
+  const index = selectedClients.value.indexOf(clientId);
+  if (index === -1) {
+    selectedClients.value.push(clientId);
+  } else {
+    selectedClients.value.splice(index, 1);
+  }
+}
+
+// Initialize state when mounted
+onMounted(() => {
+  if (currentGroup.value) {
+    // Editing existing zone
+    zoneName.value = currentGroup.value.name || '';
+    selectedClients.value = [...(currentGroup.value.client_ids || [])];
+  } else {
+    // Creating new zone
+    selectedClients.value = [];
+    zoneName.value = '';
+  }
+});
+
+async function handleSave() {
+  if (selectedClients.value.length < 2) return;
+
+  saving.value = true;
+  try {
+    // Link clients with zone name
+    await dspStore.linkClients(selectedClients.value, null, zoneName.value || null);
+    emit('saved');
+    emit('back');
+  } catch (error) {
+    console.error('Error saving zone:', error);
+  } finally {
+    saving.value = false;
+  }
+}
+</script>
+
+<style scoped>
+.zone-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.settings-section {
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-06);
+  padding: var(--space-05-fixed) var(--space-05);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-05-fixed);
+}
+
+.section-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+}
+
+.description {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.clients-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.client-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-03);
+  padding: var(--space-03);
+  background: var(--color-background-strong);
+  border-radius: var(--radius-04);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  border: 2px solid transparent;
+}
+
+.client-item:hover:not(.disabled) {
+  background: var(--color-background-medium);
+}
+
+.client-item.selected {
+  border-color: var(--color-brand);
+  background: var(--color-background-medium);
+}
+
+.client-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hidden-checkbox {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Custom radio indicator */
+.radio-indicator {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--color-text-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.radio-indicator.checked {
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+}
+
+.radio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.radio-indicator.checked .radio-dot {
+  background: var(--color-text-inverse);
+}
+
+.client-name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-02);
+}
+
+.badge-disabled {
+  background: var(--color-background-medium);
+  color: var(--color-text-light);
+}
+
+.badge-offline {
+  background: var(--color-background-medium);
+  color: var(--color-text-light);
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-03);
+  padding-top: var(--space-02);
+}
+
+/* Mobile adjustments */
+@media (max-aspect-ratio: 4/3) {
+  .settings-section {
+    border-radius: var(--radius-05);
+  }
+
+  .actions {
+    grid-template-columns: 1fr;
+  }
+
+  .actions > :last-child {
+    order: -1;
+  }
+}
+</style>

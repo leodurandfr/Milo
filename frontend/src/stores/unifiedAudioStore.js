@@ -15,7 +15,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     metadata: {},
     error: null,
     multiroom_enabled: false,
-    dsp_enabled: false
+    dsp_effects_enabled: false
   });
 
   // === VOLUME STATE (in dB) ===
@@ -111,6 +111,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   async function adjustVolume(delta_db, showBar = true) {
     try {
       const response = await axios.post('/api/volume/adjust', { delta_db, show_bar: showBar });
+      if (response.data.status === 'success') {
+        // Apply delta locally for immediate UI update (before WebSocket broadcast arrives)
+        const { useDspStore } = await import('./dspStore');
+        const dspStore = useDspStore();
+        dspStore.applyGlobalDelta(delta_db);
+      }
       return response.data.status === 'success';
     } catch (error) {
       console.error('Error adjusting volume:', error);
@@ -191,14 +197,14 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       ? newState.metadata
       : {};
 
-    // Validate multiroom_enabled and dsp_enabled (must be boolean)
+    // Validate multiroom_enabled and dsp_effects_enabled (must be boolean)
     const multiroomEnabled = typeof newState.multiroom_enabled === 'boolean'
       ? newState.multiroom_enabled
       : systemState.value.multiroom_enabled;
 
-    const dspEnabled = typeof newState.dsp_enabled === 'boolean'
-      ? newState.dsp_enabled
-      : systemState.value.dsp_enabled;
+    const dspEffectsEnabled = typeof newState.dsp_effects_enabled === 'boolean'
+      ? newState.dsp_effects_enabled
+      : systemState.value.dsp_effects_enabled;
 
     systemState.value = {
       active_source: activeSource,
@@ -208,7 +214,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       metadata: metadata,
       error: newState.error || null,
       multiroom_enabled: multiroomEnabled,
-      dsp_enabled: dspEnabled
+      dsp_effects_enabled: dspEffectsEnabled
     };
 
     // Log warning if validation changed values
@@ -237,8 +243,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         volumeState.value.step_mobile_db = event.data.step_mobile_db;
       }
 
-      // Sync multiroom client volumes if provided
-      if (event.data.client_volumes && systemState.value.multiroom_enabled) {
+      // Sync client volumes to dspStore (always includes 'local', plus remote clients in multiroom)
+      if (event.data.client_volumes) {
         try {
           const dspStore = useDspStore();
           for (const [hostname, volumeDb] of Object.entries(event.data.client_volumes)) {
