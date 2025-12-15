@@ -22,13 +22,14 @@
         ></div>
       </div>
 
-      <!-- Scale markers -->
+      <!-- Scale markers (dynamic based on min/max) -->
       <div v-if="showScale" class="meter-scale">
-        <span class="scale-marker" style="--pos: 100%">0</span>
-        <span class="scale-marker" style="--pos: 90%">-6</span>
-        <span class="scale-marker" style="--pos: 75%">-12</span>
-        <span class="scale-marker" style="--pos: 50%">-24</span>
-        <span class="scale-marker" style="--pos: 0%">-60</span>
+        <span
+          v-for="marker in scaleMarkers"
+          :key="marker.value"
+          class="scale-marker"
+          :style="{ '--pos': marker.position + '%' }"
+        >{{ marker.label }}</span>
       </div>
     </div>
 
@@ -45,11 +46,11 @@ import { ref, computed, watch, onUnmounted } from 'vue';
 const props = defineProps({
   level: {
     type: Number,
-    default: -60
+    default: -80
   },
   min: {
     type: Number,
-    default: -60
+    default: -80
   },
   max: {
     type: Number,
@@ -99,6 +100,19 @@ function dbToPercent(db) {
 
 const levelPercent = computed(() => dbToPercent(props.level));
 const peakPercent = computed(() => dbToPercent(peakLevel.value));
+
+// Dynamic scale markers based on min/max
+const scaleMarkers = computed(() => {
+  const range = props.max - props.min;
+  // Generate 5 markers at 0%, 25%, 50%, 75%, 100%
+  return [
+    { value: props.max, position: 100, label: props.max },
+    { value: props.min + range * 0.75, position: 75, label: Math.round(props.min + range * 0.75) },
+    { value: props.min + range * 0.5, position: 50, label: Math.round(props.min + range * 0.5) },
+    { value: props.min + range * 0.25, position: 25, label: Math.round(props.min + range * 0.25) },
+    { value: props.min, position: 0, label: props.min }
+  ];
+});
 
 // Update peak level
 watch(() => props.level, (newLevel) => {
