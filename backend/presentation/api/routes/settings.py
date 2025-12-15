@@ -212,7 +212,7 @@ def create_settings_router(
     @router.get("/dock-apps")
     async def get_dock_apps():
         dock = await settings.get_setting('dock') or {}
-        enabled_apps = dock.get('enabled_apps', ["librespot", "bluetooth", "roc", "radio", "multiroom", "equalizer", "settings"])
+        enabled_apps = dock.get('enabled_apps', ["librespot", "bluetooth", "roc", "radio", "multiroom", "dsp", "settings"])
 
         return {
             "status": "success",
@@ -224,7 +224,7 @@ def create_settings_router(
         """
         Update the enabled apps in the dock.
         If an app is disabled, stop the associated processes.
-        If an app is enabled, start the associated processes (multiroom/equalizer).
+        If an app is enabled, start the associated processes (multiroom/DSP).
         Strict approach: one error = full rollback.
         """
         try:
@@ -317,8 +317,8 @@ def create_settings_router(
                         logger.info("Broadcasting multiroom state update to frontend")
                         await state_machine.update_multiroom_state(False)
                     
-                    # === EQUALIZER ===
-                    elif app == 'equalizer':
+                    # === DSP ===
+                    elif app == 'dsp':
                         # Get the active source to restart the plugin
                         current_state = await state_machine.get_current_state()
                         active_source = None
@@ -328,14 +328,14 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        operations_log.append("Disabling equalizer routing")
-                        logger.info(f"Disabling equalizer for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_equalizer_enabled(False, active_source)
+                        operations_log.append("Disabling DSP routing")
+                        logger.info(f"Disabling DSP for active source: {active_source.value if active_source else 'none'}")
+                        await routing_service.set_dsp_enabled(False, active_source)
 
                         # Notify the frontend via WebSocket
-                        operations_log.append("Broadcasting equalizer state update")
-                        logger.info("Broadcasting equalizer state update to frontend")
-                        await state_machine.update_equalizer_state(False)
+                        operations_log.append("Broadcasting DSP state update")
+                        logger.info("Broadcasting DSP state update to frontend")
+                        await state_machine.update_dsp_state(False)
                 
                 # === HANDLE ENABLES ===
                 for app in enabled_apps_new:
@@ -381,8 +381,8 @@ def create_settings_router(
                         logger.info("Broadcasting multiroom state update to frontend")
                         await state_machine.update_multiroom_state(True)
                     
-                    # === EQUALIZER ===
-                    elif app == 'equalizer':
+                    # === DSP ===
+                    elif app == 'dsp':
                         # Get the active source to restart the plugin
                         current_state = await state_machine.get_current_state()
                         active_source = None
@@ -392,14 +392,14 @@ def create_settings_router(
                             except ValueError:
                                 pass
 
-                        operations_log.append("Enabling equalizer routing")
-                        logger.info(f"Enabling equalizer for active source: {active_source.value if active_source else 'none'}")
-                        await routing_service.set_equalizer_enabled(True, active_source)
+                        operations_log.append("Enabling DSP routing")
+                        logger.info(f"Enabling DSP for active source: {active_source.value if active_source else 'none'}")
+                        await routing_service.set_dsp_enabled(True, active_source)
 
                         # Notify the frontend via WebSocket
-                        operations_log.append("Broadcasting equalizer state update")
-                        logger.info("Broadcasting equalizer state update to frontend")
-                        await state_machine.update_equalizer_state(True)
+                        operations_log.append("Broadcasting DSP state update")
+                        logger.info("Broadcasting DSP state update to frontend")
+                        await state_machine.update_dsp_state(True)
                 
                 # All operations succeeded → save settings
                 operations_log.append("Saving new settings")

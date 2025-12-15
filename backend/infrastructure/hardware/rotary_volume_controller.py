@@ -1,6 +1,6 @@
 # backend/infrastructure/hardware/rotary_volume_controller.py
 """
-KY-040 Rotary Encoder Controller for Volume - Display Volume API Version
+KY-040 Rotary Encoder Controller for Volume - dB Volume API Version
 """
 import lgpio
 import asyncio
@@ -9,7 +9,7 @@ from typing import Optional, Callable, Awaitable
 from time import monotonic
 
 class RotaryVolumeController:
-    """KY-040 rotary encoder controller - Display volume API (0-100%)"""
+    """KY-040 rotary encoder controller - dB volume API (-80 to 0 dB)"""
     
     def __init__(self, volume_service, clk_pin=22, dt_pin=27, sw_pin=23):
         self.volume_service = volume_service
@@ -21,7 +21,7 @@ class RotaryVolumeController:
         self.running = False
         self.logger = logging.getLogger(__name__)
         
-        # Rotary configuration for display volume  
+        # Rotary configuration for dB volume
         self.DEBOUNCE_TIME = 0.05  # 50ms debounce
         self.rotation_accumulator = 0
         self.is_processing = False
@@ -36,7 +36,7 @@ class RotaryVolumeController:
     async def initialize(self) -> bool:
         """Initializes the rotary controller"""
         try:
-            self.logger.info(f"Initializing rotary controller with display volume API (CLK={self.CLK}, DT={self.DT}, SW={self.SW})")
+            self.logger.info(f"Initializing rotary controller with dB volume API (CLK={self.CLK}, DT={self.DT}, SW={self.SW})")
             self.chip_handle = lgpio.gpiochip_open(0)
             
             # Pin configuration
@@ -50,7 +50,7 @@ class RotaryVolumeController:
             asyncio.create_task(self._monitor_loop())
             asyncio.create_task(self._process_rotations_loop())
             
-            self.logger.info("Rotary controller initialized successfully with display volume API")
+            self.logger.info("Rotary controller initialized successfully with dB volume API")
             return True
             
         except Exception as e:
@@ -91,19 +91,19 @@ class RotaryVolumeController:
                 if should_process:
                     self.is_processing = True
                     
-                    # Get dynamic step from config service
-                    volume_step = self.volume_service.config.config.rotary_volume_steps
-                    
-                    # Calculate display volume change (0-100%)
+                    # Get dynamic step from config service (in dB)
+                    volume_step = self.volume_service.config.config.step_rotary_db
+
+                    # Calculate volume change in dB
                     volume_delta = self.rotation_accumulator * volume_step
                     self.rotation_accumulator = 0
                     last_process_time = current_time
-                    
+
                     # Apply change via volume service
                     try:
-                        result = await self.volume_service.adjust_display_volume(volume_delta)
+                        result = await self.volume_service.adjust_volume_db(volume_delta)
                         self._last_volume_update = current_time
-                        self.logger.debug(f"Applied volume delta: {volume_delta}% (via rotary, step={volume_step})")
+                        self.logger.debug(f"Applied volume delta: {volume_delta} dB (via rotary, step={volume_step})")
                     except Exception as e:
                         self.logger.error(f"Error adjusting volume: {e}")
                     

@@ -1,7 +1,7 @@
 # backend/presentation/api/routes/dsp.py
 """
-API routes for CamillaDSP parametric equalizer
-Replaces the old equalizer routes with full DSP capabilities
+API routes for CamillaDSP digital signal processing
+Full DSP capabilities including EQ, compressor, loudness, and volume control
 Supports multi-client DSP control for multiroom setups
 """
 from typing import Optional
@@ -275,7 +275,7 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
 
             # Use routing_service to properly start/stop CamillaDSP service and reconnect
             if routing_service:
-                success = await routing_service.set_equalizer_enabled(enabled, active_source)
+                success = await routing_service.set_dsp_enabled(enabled, active_source)
                 if success:
                     logger.info(f"DSP enabled state set to: {enabled}")
                     return {"status": "success", "enabled": enabled}
@@ -524,37 +524,9 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    # === Volume Control ===
-
-    @router.get("/volume")
-    async def get_volume():
-        """Get current DSP volume settings"""
-        try:
-            volume = await dsp_service.get_volume()
-            return volume
-        except Exception as e:
-            return {"main": 0, "mute": False, "error": str(e)}
-
-    @router.put("/volume")
-    async def set_volume(payload: DspVolumeRequest):
-        """Set DSP volume in dB"""
-        try:
-            success = await dsp_service.set_volume(payload.volume)
-
-            if success:
-                await state_machine.broadcast_event("dsp", "volume_changed", {"volume": payload.volume})
-
-                # Update multiroom volume cache for 'local' client
-                volume_service = getattr(state_machine, 'volume_service', None)
-                if volume_service:
-                    volume_service.update_client_volume_db('local', payload.volume)
-
-                return {"status": "success", "volume": payload.volume}
-
-            return {"status": "error", "message": "Failed to set volume"}
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+    # === Mute Control ===
+    # Note: Volume control is handled by /api/volume/* endpoints.
+    # Use /api/volume/set for volume changes.
 
     @router.put("/mute")
     async def set_mute(payload: DspMuteRequest):
@@ -705,15 +677,21 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
                         continue
 
                     hostname = client.get("host", "")
+                    ip = client.get("ip", "")
                     client_name = client.get("name", hostname)
 
+                    # Use IP as target ID for consistency with volume broadcasts
+                    # (multiroom_volume_handler uses IP addresses)
+                    target_id = ip if ip and ip != "127.0.0.1" else hostname
+
                     # Check if client has DSP available (port 8001)
-                    available = await _check_client_dsp_available(hostname)
+                    available = await _check_client_dsp_available(target_id)
 
                     targets.append({
-                        "id": hostname,
+                        "id": target_id,
                         "name": client_name,
                         "host": hostname,
+                        "ip": ip,
                         "available": available
                     })
             except Exception as e:
@@ -957,14 +935,14 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
             volume_data = {k: v for k, v in result.items() if k != "status"}
             await _update_client_settings(hostname, "volume", volume_data)
 
-            # Update multiroom volume cache for accurate average calculation
+            # Update multiroom volume cache and broadcast average for VolumeBar
             volume_db = body.get("volume")
             if volume_db is not None and state_machine:
                 volume_service = getattr(state_machine, 'volume_service', None)
                 if volume_service:
                     # Normalize hostname: 'milo' -> 'local'
                     normalized = 'local' if hostname == 'milo' else hostname
-                    volume_service.update_client_volume_db(normalized, volume_db)
+                    await volume_service.update_client_volume_db(normalized, volume_db)
 
         return result
 

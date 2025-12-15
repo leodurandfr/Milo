@@ -308,6 +308,9 @@ async function handleMultiroomReady() {
   // Load clients now that services are ready
   await multiroomStore.loadClients(true); // forceNoCache=true
 
+  // Refresh DSP volumes from all clients (volumes were just pushed by backend)
+  await dspStore.loadAllClientDspVolumes(multiroomStore.clients);
+
   transitionState.value = 'idle';
 }
 
@@ -355,7 +358,9 @@ onMounted(async () => {
     on('routing', 'multiroom_error', handleMultiroomError),
     // DSP events for linked groups updates
     on('dsp', 'links_changed', (e) => dspStore.handleLinksChanged(e)),
-    on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e))
+    on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e)),
+    // DSP client volumes pushed (when multiroom activates)
+    on('dsp', 'client_volumes_pushed', (e) => dspStore.handleClientVolumesPushed(e))
   );
 });
 

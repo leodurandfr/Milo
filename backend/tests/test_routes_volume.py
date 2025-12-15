@@ -1,6 +1,8 @@
 # backend/tests/test_routes_volume.py
 """
-Unit tests for Volume API routes
+Unit tests for Volume API routes - dB API Version
+
+All volume values are in dB (-80 to 0).
 """
 import pytest
 from fastapi import FastAPI
@@ -10,21 +12,31 @@ from backend.presentation.api.routes.volume import create_volume_router
 
 
 class TestVolumeRoutes:
-    """Tests for volume routes"""
+    """Tests for volume routes (dB API)"""
 
     @pytest.fixture
     def mock_volume_service(self):
-        """Volume service mock"""
+        """Volume service mock with dB API"""
         service = Mock()
+
+        # Status endpoint
         service.get_status = AsyncMock(return_value={
-            "volume": 50,
+            "volume_db": -30.0,
             "muted": False,
             "multiroom_enabled": False
         })
-        service.get_display_volume = AsyncMock(return_value=50)
-        service.set_display_volume = AsyncMock(return_value=True)
-        service.adjust_display_volume = AsyncMock(return_value=True)
-        # Note: increase/decrease endpoints now use adjust_display_volume(±5)
+
+        # Volume operations (all in dB)
+        service.get_volume_db = AsyncMock(return_value=-30.0)
+        service.set_volume_db = AsyncMock(return_value=True)
+        service.adjust_volume_db = AsyncMock(return_value=True)
+
+        # Config for step values
+        mock_config = Mock()
+        mock_config.config = Mock()
+        mock_config.config.step_mobile_db = 3.0
+        service.config = mock_config
+
         return service
 
     @pytest.fixture
@@ -53,7 +65,7 @@ class TestVolumeRoutes:
         response = client.get("/api/volume/")
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        assert response.json()["volume"] == 50
+        assert response.json()["volume_db"] == -30.0
 
     def test_get_volume_status_error(self, client):
         """Test GET /api/volume/status with service error"""
@@ -63,130 +75,130 @@ class TestVolumeRoutes:
         assert response.json()["status"] == "error"
 
     # ===================
-    # SET VOLUME TESTS
+    # SET VOLUME TESTS (dB: -80 to 0)
     # ===================
 
     def test_set_volume_valid(self, client):
-        """Test POST /api/volume/set with valid volume"""
-        response = client.post("/api/volume/set", json={"volume": 75})
+        """Test POST /api/volume/set with valid volume in dB"""
+        response = client.post("/api/volume/set", json={"volume_db": -30.0})
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        assert response.json()["volume"] == 75
-        client._mock_service.set_display_volume.assert_called_once_with(75, show_bar=True)
+        assert response.json()["volume_db"] == -30.0
+        client._mock_service.set_volume_db.assert_called_once_with(-30.0, show_bar=True)
 
     def test_set_volume_min(self, client):
-        """Test POST /api/volume/set with minimum volume (0)"""
-        response = client.post("/api/volume/set", json={"volume": 0})
+        """Test POST /api/volume/set with minimum volume (-80 dB)"""
+        response = client.post("/api/volume/set", json={"volume_db": -80.0})
         assert response.status_code == 200
         assert response.json()["status"] == "success"
 
     def test_set_volume_max(self, client):
-        """Test POST /api/volume/set with maximum volume (100)"""
-        response = client.post("/api/volume/set", json={"volume": 100})
+        """Test POST /api/volume/set with maximum volume (0 dB)"""
+        response = client.post("/api/volume/set", json={"volume_db": 0.0})
         assert response.status_code == 200
         assert response.json()["status"] == "success"
 
     def test_set_volume_with_show_bar_false(self, client):
         """Test POST /api/volume/set with show_bar=false"""
-        response = client.post("/api/volume/set", json={"volume": 50, "show_bar": False})
+        response = client.post("/api/volume/set", json={"volume_db": -30.0, "show_bar": False})
         assert response.status_code == 200
-        client._mock_service.set_display_volume.assert_called_once_with(50, show_bar=False)
+        client._mock_service.set_volume_db.assert_called_once_with(-30.0, show_bar=False)
 
     def test_set_volume_too_high(self, client):
-        """Test POST /api/volume/set with volume > 100 - should return 422"""
-        response = client.post("/api/volume/set", json={"volume": 150})
+        """Test POST /api/volume/set with volume > 0 dB - should return 422"""
+        response = client.post("/api/volume/set", json={"volume_db": 10.0})
         assert response.status_code == 422
 
-    def test_set_volume_negative(self, client):
-        """Test POST /api/volume/set with negative volume - should return 422"""
-        response = client.post("/api/volume/set", json={"volume": -10})
+    def test_set_volume_too_low(self, client):
+        """Test POST /api/volume/set with volume < -80 dB - should return 422"""
+        response = client.post("/api/volume/set", json={"volume_db": -100.0})
         assert response.status_code == 422
 
     def test_set_volume_missing_field(self, client):
-        """Test POST /api/volume/set without volume field - should return 422"""
+        """Test POST /api/volume/set without volume_db field - should return 422"""
         response = client.post("/api/volume/set", json={})
         assert response.status_code == 422
 
     def test_set_volume_service_failure(self, client):
         """Test POST /api/volume/set when service fails"""
-        client._mock_service.set_display_volume = AsyncMock(return_value=False)
-        response = client.post("/api/volume/set", json={"volume": 50})
+        client._mock_service.set_volume_db = AsyncMock(return_value=False)
+        response = client.post("/api/volume/set", json={"volume_db": -30.0})
         assert response.status_code == 500
 
     # ===================
-    # ADJUST VOLUME TESTS
+    # ADJUST VOLUME TESTS (delta in dB: -60 to 60)
     # ===================
 
     def test_adjust_volume_positive(self, client):
-        """Test POST /api/volume/adjust with positive delta"""
-        response = client.post("/api/volume/adjust", json={"delta": 10})
+        """Test POST /api/volume/adjust with positive delta in dB"""
+        response = client.post("/api/volume/adjust", json={"delta_db": 3.0})
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        assert response.json()["delta"] == 10
+        assert response.json()["delta_db"] == 3.0
 
     def test_adjust_volume_negative(self, client):
-        """Test POST /api/volume/adjust with negative delta"""
-        response = client.post("/api/volume/adjust", json={"delta": -10})
+        """Test POST /api/volume/adjust with negative delta in dB"""
+        response = client.post("/api/volume/adjust", json={"delta_db": -3.0})
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        assert response.json()["delta"] == -10
+        assert response.json()["delta_db"] == -3.0
 
     def test_adjust_volume_max_delta(self, client):
-        """Test POST /api/volume/adjust with max delta (100)"""
-        response = client.post("/api/volume/adjust", json={"delta": 100})
+        """Test POST /api/volume/adjust with max delta (60 dB)"""
+        response = client.post("/api/volume/adjust", json={"delta_db": 60.0})
         assert response.status_code == 200
 
     def test_adjust_volume_min_delta(self, client):
-        """Test POST /api/volume/adjust with min delta (-100)"""
-        response = client.post("/api/volume/adjust", json={"delta": -100})
+        """Test POST /api/volume/adjust with min delta (-60 dB)"""
+        response = client.post("/api/volume/adjust", json={"delta_db": -60.0})
         assert response.status_code == 200
 
     def test_adjust_volume_delta_too_high(self, client):
-        """Test POST /api/volume/adjust with delta > 100 - should return 422"""
-        response = client.post("/api/volume/adjust", json={"delta": 150})
+        """Test POST /api/volume/adjust with delta > 60 dB - should return 422"""
+        response = client.post("/api/volume/adjust", json={"delta_db": 100.0})
         assert response.status_code == 422
 
     def test_adjust_volume_delta_too_low(self, client):
-        """Test POST /api/volume/adjust with delta < -100 - should return 422"""
-        response = client.post("/api/volume/adjust", json={"delta": -150})
+        """Test POST /api/volume/adjust with delta < -60 dB - should return 422"""
+        response = client.post("/api/volume/adjust", json={"delta_db": -100.0})
         assert response.status_code == 422
 
     def test_adjust_volume_service_failure(self, client):
         """Test POST /api/volume/adjust when service fails"""
-        client._mock_service.adjust_display_volume = AsyncMock(return_value=False)
-        response = client.post("/api/volume/adjust", json={"delta": 10})
+        client._mock_service.adjust_volume_db = AsyncMock(return_value=False)
+        response = client.post("/api/volume/adjust", json={"delta_db": 3.0})
         assert response.status_code == 500
 
     # ===================
-    # INCREASE/DECREASE TESTS
+    # INCREASE/DECREASE TESTS (uses step_mobile_db from config)
     # ===================
 
     def test_increase_volume(self, client):
-        """Test POST /api/volume/increase - now uses adjust_display_volume(5)"""
+        """Test POST /api/volume/increase - uses step_mobile_db (3.0 dB)"""
         response = client.post("/api/volume/increase")
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        # Now uses adjust_display_volume(5) instead of increase_display_volume(5)
-        client._mock_service.adjust_display_volume.assert_called_with(5)
+        # Uses adjust_volume_db with step_mobile_db (3.0 dB)
+        client._mock_service.adjust_volume_db.assert_called_with(3.0)
 
     def test_increase_volume_service_failure(self, client):
         """Test POST /api/volume/increase when service fails"""
-        client._mock_service.adjust_display_volume = AsyncMock(return_value=False)
+        client._mock_service.adjust_volume_db = AsyncMock(return_value=False)
         response = client.post("/api/volume/increase")
         assert response.status_code == 500
 
     def test_decrease_volume(self, client):
-        """Test POST /api/volume/decrease - now uses adjust_display_volume(-5)"""
+        """Test POST /api/volume/decrease - uses -step_mobile_db (-3.0 dB)"""
         # Reset mock to track new calls
-        client._mock_service.adjust_display_volume = AsyncMock(return_value=True)
+        client._mock_service.adjust_volume_db = AsyncMock(return_value=True)
         response = client.post("/api/volume/decrease")
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        # Now uses adjust_display_volume(-5) instead of decrease_display_volume(5)
-        client._mock_service.adjust_display_volume.assert_called_with(-5)
+        # Uses adjust_volume_db with -step_mobile_db (-3.0 dB)
+        client._mock_service.adjust_volume_db.assert_called_with(-3.0)
 
     def test_decrease_volume_service_failure(self, client):
         """Test POST /api/volume/decrease when service fails"""
-        client._mock_service.adjust_display_volume = AsyncMock(return_value=False)
+        client._mock_service.adjust_volume_db = AsyncMock(return_value=False)
         response = client.post("/api/volume/decrease")
         assert response.status_code == 500

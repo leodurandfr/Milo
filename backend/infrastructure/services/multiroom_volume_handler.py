@@ -69,7 +69,7 @@ class MultiroomVolumeHandler:
     async def apply_delta_db(self, delta_db: float) -> bool:
         """
         Apply delta to global volume and propagate to all clients.
-        Each client's offset is preserved.
+        Each client's offset is preserved, and each client is clamped individually.
 
         Args:
             delta_db: Volume change in dB (positive = louder)
@@ -80,10 +80,6 @@ class MultiroomVolumeHandler:
         try:
             import aiohttp
 
-            # Update global volume
-            new_global = self.converter.clamp_db(self._global_volume_db + delta_db)
-            self._global_volume_db = new_global
-
             # Get all multiroom client hostnames
             clients = await self._get_snapcast_clients_cached()
             if not clients:
@@ -92,10 +88,30 @@ class MultiroomVolumeHandler:
 
             hostnames = self._extract_hostnames(clients)
 
+            # Calculate new global (don't clamp yet - used for offset calculation)
+            new_global = self._global_volume_db + delta_db
+
+            # Check if ANY client can still move in the requested direction
+            can_move = False
+            for hostname in hostnames:
+                offset = self._client_offset_db.get(hostname, 0.0)
+                current_client_vol = self._client_volume_db.get(hostname, self._global_volume_db)
+                new_client_vol = self.converter.clamp_db(new_global + offset)
+                if new_client_vol != current_client_vol:
+                    can_move = True
+                    break
+
+            if not can_move:
+                self.logger.debug("No client can move further in this direction")
+                return True  # Not an error, just at limit
+
+            # Update global volume (clamp it for storage)
+            self._global_volume_db = self.converter.clamp_db(new_global)
+
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
                 tasks = []
                 for hostname in hostnames:
-                    # Calculate client volume = global + offset
+                    # Calculate client volume = global + offset (clamped per-client)
                     offset = self._client_offset_db.get(hostname, 0.0)
                     client_volume = self.converter.clamp_db(new_global + offset)
 
@@ -110,6 +126,12 @@ class MultiroomVolumeHandler:
                         self.logger.error(f"Failed to set DSP on {hostname}: {result}")
                     elif not result:
                         self.logger.warning(f"Failed to set DSP on {hostname}")
+
+            # Recalculate offsets based on clamped global to stay in sync
+            # This is necessary when global is clamped but clients continue to move
+            for hostname in hostnames:
+                client_volume = self._client_volume_db.get(hostname, self._global_volume_db)
+                self._client_offset_db[hostname] = client_volume - self._global_volume_db
 
             return True
 

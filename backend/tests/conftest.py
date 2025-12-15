@@ -30,7 +30,7 @@ def mock_routing_service():
     service = Mock()
     service.get_state = Mock()
     service.set_multiroom_enabled = AsyncMock(return_value=True)
-    service.set_equalizer_enabled = AsyncMock(return_value=True)
+    service.set_dsp_enabled = AsyncMock(return_value=True)
     return service
 
 

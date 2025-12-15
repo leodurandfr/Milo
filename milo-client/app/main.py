@@ -599,8 +599,13 @@ class DSPManager:
         if makeup_gain is not None:
             self._compressor["makeup_gain"] = makeup_gain
 
+        # Try to connect if not connected
         if not self._connected:
-            return True
+            await self.connect()
+
+        if not self._connected:
+            self.logger.warning("Cannot set compressor: CamillaDSP not connected")
+            return False
 
         try:
             config = await self._get_config()
@@ -652,8 +657,13 @@ class DSPManager:
         if low_boost is not None:
             self._loudness["low_boost"] = low_boost
 
+        # Try to connect if not connected
         if not self._connected:
-            return True
+            await self.connect()
+
+        if not self._connected:
+            self.logger.warning("Cannot set loudness: CamillaDSP not connected")
+            return False
 
         try:
             config = await self._get_config()
@@ -705,8 +715,13 @@ class DSPManager:
         if right is not None:
             self._delay["right"] = max(0, min(50, right))
 
+        # Try to connect if not connected
         if not self._connected:
-            return True
+            await self.connect()
+
+        if not self._connected:
+            self.logger.warning("Cannot set delay: CamillaDSP not connected")
+            return False
 
         try:
             config = await self._get_config()
@@ -755,7 +770,7 @@ class DSPManager:
         if self._connected and self._client:
             try:
                 volume = await asyncio.get_event_loop().run_in_executor(
-                    None, self._client.volume.main
+                    None, self._client.volume.main_volume
                 )
                 mute = await asyncio.get_event_loop().run_in_executor(
                     None, self._client.volume.main_mute
@@ -768,15 +783,21 @@ class DSPManager:
 
     async def set_volume(self, volume: float) -> bool:
         """Set DSP volume in dB"""
-        self._volume["main"] = max(-60, min(0, volume))
+        self._volume["main"] = max(-80, min(0, volume))
+
+        # Try to connect if not connected
+        if not self._connected:
+            await self.connect()
 
         if not self._connected:
-            return True
+            self.logger.warning("Cannot set volume: CamillaDSP not connected")
+            return False
 
         try:
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda v=self._volume["main"]: self._client.volume.set_main_volume(v)
             )
+            self.logger.info(f"Volume set to {self._volume['main']:.1f} dB")
             return True
         except Exception as e:
             self.logger.error(f"Error setting volume: {e}")
@@ -786,8 +807,13 @@ class DSPManager:
         """Set DSP mute state"""
         self._volume["mute"] = muted
 
+        # Try to connect if not connected
         if not self._connected:
-            return True
+            await self.connect()
+
+        if not self._connected:
+            self.logger.warning("Cannot set mute: CamillaDSP not connected")
+            return False
 
         try:
             await asyncio.get_event_loop().run_in_executor(

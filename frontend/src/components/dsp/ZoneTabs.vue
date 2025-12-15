@@ -1,79 +1,68 @@
 <!-- frontend/src/components/dsp/ZoneTabs.vue -->
-<!-- Zone tabs + Preset selector with Save/Reset buttons -->
+<!-- Zone tabs + Volume DSP + Preset selector with Save/Reset buttons -->
 <template>
   <div class="zone-section">
-    <!-- Zone tabs -->
-    <div v-if="targets.length > 1" class="zone-tabs">
-      <button
-        v-for="target in targets"
-        :key="target.id"
-        v-press.light
-        class="zone-tab"
-        :class="{
-          active: selectedTarget === target.id,
-          linked: isLinked(target.id),
-          unavailable: !target.available
-        }"
-        :disabled="!target.available"
-        @click="selectTarget(target.id)"
-      >
-        {{ target.name }}
-        <span v-if="isLinked(target.id)" class="link-badge">
-          <SvgIcon name="link" size="12" />
-        </span>
-      </button>
+    <!-- Zone tabs (only if multiple targets) -->
+    <Tabs
+      v-if="targets.length > 1"
+      v-model="selectedTargetLocal"
+      :tabs="zoneTabs"
+      size="small"
+      @change="handleTargetChange"
+    />
+
+    <!-- Volume DSP Section -->
+    <div class="volume-section">
+      <div class="volume-header">
+        <span class="volume-label text-mono">{{ $t('dsp.volume.title', 'Volume DSP') }}</span>
+        <button
+          v-press.light
+          class="mute-button"
+          :class="{ 'mute-button--active': dspStore.dspVolume.mute }"
+          @click="handleMuteToggle"
+        >
+          <SvgIcon :name="dspStore.dspVolume.mute ? 'volumeOff' : 'volume'" :size="20" />
+        </button>
+      </div>
+      <div class="volume-control">
+        <RangeSlider
+          :model-value="dspStore.dspVolume.main"
+          :min="settingsStore.volumeLimits.min_db"
+          :max="settingsStore.volumeLimits.max_db"
+          :step="1"
+          value-unit=" dB"
+          :disabled="dspStore.dspVolume.mute"
+          @update:model-value="handleVolumeInput"
+          @change="handleVolumeChange"
+        />
+      </div>
     </div>
 
     <!-- Preset row: dropdown + Save + Reset -->
     <div class="preset-row">
-      <label class="preset-label">{{ $t('dsp.preset', 'Preset') }}</label>
+      <span class="preset-label text-mono">{{ $t('dsp.preset', 'Preset') }}</span>
 
-      <select
+      <Dropdown
         v-model="currentPreset"
-        class="preset-select"
+        :options="presetOptions"
+        :placeholder="$t('dsp.selectPreset', '-- Select --')"
         :disabled="disabled"
         @change="handlePresetChange"
-      >
-        <option value="">{{ $t('dsp.selectPreset', '-- Select --') }}</option>
+      />
 
-        <!-- Default presets -->
-        <optgroup :label="$t('dsp.defaultPresets', 'Default')">
-          <option
-            v-for="preset in defaultPresets"
-            :key="preset.id"
-            :value="'default:' + preset.id"
-          >
-            {{ preset.label }}
-          </option>
-        </optgroup>
-
-        <!-- User presets -->
-        <optgroup v-if="userPresets.length > 0" :label="$t('dsp.myPresets', 'My Presets')">
-          <option
-            v-for="preset in userPresets"
-            :key="preset"
-            :value="'user:' + preset"
-          >
-            {{ preset }}
-          </option>
-        </optgroup>
-      </select>
-
-      <button
-        class="preset-btn"
+      <IconButton
+        icon="save"
+        size="medium"
         :disabled="disabled || isSaving"
         @click="openSaveDialog"
-      >
-        <SvgIcon name="save" size="16" />
-      </button>
+      />
 
-      <button
-        class="preset-btn"
+      <IconButton
+        icon="reset"
+        size="medium"
         :disabled="disabled || !currentPreset"
         @click="resetToPreset"
-      >
-        <SvgIcon name="reset" size="16" />
-      </button>
+      />
     </div>
 
     <!-- Save Preset Dialog -->
@@ -90,12 +79,18 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useI18n } from '@/services/i18n';
+import Tabs from '@/components/ui/Tabs.vue';
+import Dropdown from '@/components/ui/Dropdown.vue';
+import IconButton from '@/components/ui/IconButton.vue';
+import RangeSlider from '@/components/ui/RangeSlider.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import PresetSaveDialog from './PresetSaveDialog.vue';
 
 const { t } = useI18n();
 const dspStore = useDspStore();
+const settingsStore = useSettingsStore();
 
 const props = defineProps({
   disabled: {
@@ -110,6 +105,7 @@ const emit = defineEmits(['targetChange', 'presetApplied']);
 const currentPreset = ref('');
 const showSaveDialog = ref(false);
 const isSaving = ref(false);
+const selectedTargetLocal = ref(dspStore.selectedTarget);
 
 // Default presets with gain values for 10 EQ bands
 // Bands: 31Hz, 63Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz
@@ -138,8 +134,42 @@ const defaultPresets = computed(() => [
 
 // Computed
 const targets = computed(() => dspStore.availableTargets);
-const selectedTarget = computed(() => dspStore.selectedTarget);
 const userPresets = computed(() => dspStore.presets);
+
+// Convert targets to Tabs format
+const zoneTabs = computed(() =>
+  targets.value.map(target => ({
+    label: target.name,
+    value: target.id,
+    badge: isLinked(target.id) ? 'link' : undefined,
+    disabled: !target.available
+  }))
+);
+
+// Convert presets to Dropdown options format
+const presetOptions = computed(() => {
+  const options = [];
+
+  // Default presets group
+  defaultPresets.value.forEach(preset => {
+    options.push({
+      label: `${preset.label}`,
+      value: `default:${preset.id}`
+    });
+  });
+
+  // User presets group (if any)
+  if (userPresets.value.length > 0) {
+    userPresets.value.forEach(preset => {
+      options.push({
+        label: preset,
+        value: `user:${preset}`
+      });
+    });
+  }
+
+  return options;
+});
 
 const saveDialogInitialName = computed(() => {
   if (currentPreset.value.startsWith('user:')) {
@@ -153,9 +183,9 @@ function isLinked(clientId) {
   return dspStore.isClientLinked(clientId);
 }
 
-// Select a target/zone
-async function selectTarget(targetId) {
-  if (targetId !== selectedTarget.value) {
+// Handle target/zone change
+async function handleTargetChange(targetId) {
+  if (targetId !== dspStore.selectedTarget) {
     await dspStore.selectTarget(targetId);
     // Clear preset selection when switching zones
     currentPreset.value = '';
@@ -164,23 +194,23 @@ async function selectTarget(targetId) {
 }
 
 // Handle preset selection change
-async function handlePresetChange() {
-  if (!currentPreset.value) return;
+async function handlePresetChange(value) {
+  if (!value) return;
 
-  if (currentPreset.value.startsWith('default:')) {
+  if (value.startsWith('default:')) {
     // Apply default preset
-    const presetId = currentPreset.value.slice(8);
+    const presetId = value.slice(8);
     const preset = defaultPresets.value.find(p => p.id === presetId);
     if (preset) {
       await applyDefaultPreset(preset);
     }
-  } else if (currentPreset.value.startsWith('user:')) {
+  } else if (value.startsWith('user:')) {
     // Load user preset
-    const presetName = currentPreset.value.slice(5);
+    const presetName = value.slice(5);
     await dspStore.loadPreset(presetName);
   }
 
-  emit('presetApplied', currentPreset.value);
+  emit('presetApplied', value);
 }
 
 // Apply a default preset (quick preset)
@@ -229,11 +259,38 @@ async function handleSavePreset(name) {
   }
 }
 
+// === VOLUME CONTROLS ===
+let volumeThrottleTimer = null;
+
+function handleVolumeInput(value) {
+  dspStore.setClientDspVolume(dspStore.selectedTarget, value);
+
+  if (volumeThrottleTimer) clearTimeout(volumeThrottleTimer);
+  volumeThrottleTimer = setTimeout(() => {
+    dspStore.updateDspVolume(value);
+  }, 50);
+}
+
+function handleVolumeChange(value) {
+  if (volumeThrottleTimer) clearTimeout(volumeThrottleTimer);
+  dspStore.updateDspVolume(value);
+}
+
+async function handleMuteToggle() {
+  await dspStore.updateDspMute(!dspStore.dspVolume.mute);
+}
+
 // Watch for active preset changes from store
+// immediate: true ensures preset is restored when modal reopens
 watch(() => dspStore.activePreset, (newPreset) => {
   if (newPreset && !currentPreset.value.startsWith('default:')) {
     currentPreset.value = 'user:' + newPreset;
   }
+}, { immediate: true });
+
+// Sync local target with store
+watch(() => dspStore.selectedTarget, (newTarget) => {
+  selectedTargetLocal.value = newTarget;
 });
 </script>
 
@@ -244,103 +301,27 @@ watch(() => dspStore.activePreset, (newPreset) => {
   gap: var(--space-02);
 }
 
-/* Zone tabs */
-.zone-tabs {
+/* Volume section */
+.volume-section {
   display: flex;
-  gap: var(--space-01);
-  padding: var(--space-01);
-  background: var(--color-background-neutral);
-  border-radius: var(--radius-05);
-  overflow-x: auto;
-}
-
-.zone-tab {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-01);
-  padding: var(--space-02) var(--space-03);
-  border: none;
-  border-radius: var(--radius-04);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-family: 'Space Mono Regular', monospace;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--transition-fast), var(--transition-press);
-  white-space: nowrap;
-}
-
-.zone-tab:hover:not(:disabled) {
-  background: var(--color-background-strong);
-  color: var(--color-text);
-}
-
-.zone-tab.active {
-  background: var(--color-brand);
-  color: var(--color-text-inverse);
-}
-
-.zone-tab.linked .link-badge {
-  opacity: 0.8;
-}
-
-.zone-tab.unavailable {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.link-badge {
-  display: flex;
-  align-items: center;
-}
-
-/* Preset row */
-.preset-row {
-  display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--space-02);
-  padding: var(--space-02);
+  padding: var(--space-03);
   background: var(--color-background-neutral);
   border-radius: var(--radius-05);
 }
 
-.preset-label {
-  font-family: 'Space Mono Regular', monospace;
-  font-size: 13px;
+.volume-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.volume-label {
   color: var(--color-text-secondary);
-  white-space: nowrap;
 }
 
-.preset-select {
-  flex: 1;
-  min-width: 0;
-  padding: var(--space-02) var(--space-03);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-04);
-  background: var(--color-background-strong);
-  color: var(--color-text);
-  font-family: 'Space Mono Regular', monospace;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.preset-select:hover:not(:disabled) {
-  border-color: var(--color-text-light);
-}
-
-.preset-select:focus {
-  outline: none;
-  border-color: var(--color-brand);
-}
-
-.preset-select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.preset-btn {
+.mute-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -351,53 +332,59 @@ watch(() => dspStore.activePreset, (newPreset) => {
   background: var(--color-background-strong);
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-fast), var(--transition-press);
 }
 
-.preset-btn:hover:not(:disabled) {
+.mute-button:hover {
   background: var(--color-border);
   color: var(--color-text);
 }
 
-.preset-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.mute-button--active {
+  background: var(--color-brand);
+  color: var(--color-text-contrast);
 }
 
-/* Scrollbar styling for zone tabs */
-.zone-tabs::-webkit-scrollbar {
-  height: 4px;
+.mute-button--active:hover {
+  background: var(--color-brand);
+  color: var(--color-text-contrast);
 }
 
-.zone-tabs::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 2px;
+.volume-control {
+  display: flex;
+  align-items: center;
+}
+
+/* Preset row */
+.preset-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+  padding: var(--space-02) var(--space-03);
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-05);
+}
+
+.preset-label {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
 }
 
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
-  .zone-tab {
-    padding: var(--space-01) var(--space-02);
-    font-size: 12px;
-  }
-
-  .preset-row {
-    padding: var(--space-01);
+  .volume-section {
+    padding: var(--space-02);
     gap: var(--space-01);
   }
 
-  .preset-label {
-    font-size: 12px;
-  }
-
-  .preset-select {
-    padding: var(--space-01) var(--space-02);
-    font-size: 12px;
-  }
-
-  .preset-btn {
+  .mute-button {
     width: 32px;
     height: 32px;
+  }
+
+  .preset-row {
+    padding: var(--space-01) var(--space-02);
+    gap: var(--space-01);
   }
 }
 </style>
