@@ -15,7 +15,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     metadata: {},
     error: null,
     multiroom_enabled: false,
-    equalizer_enabled: false
+    dsp_enabled: false
   });
 
   // === VOLUME STATE (in dB) ===
@@ -78,12 +78,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     }
   }
 
-  async function setEqualizerEnabled(enabled) {
+  async function setDspEnabled(enabled) {
     try {
-      const response = await axios.post(`/api/routing/equalizer/${enabled}`);
+      const response = await axios.post(`/api/routing/dsp/${enabled}`);
       return response.data.status === 'success';
     } catch (err) {
-      console.error('Set equalizer error:', err);
+      console.error('Set DSP error:', err);
       return false;
     }
   }
@@ -191,14 +191,14 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       ? newState.metadata
       : {};
 
-    // Validate multiroom_enabled and equalizer_enabled (must be boolean)
+    // Validate multiroom_enabled and dsp_enabled (must be boolean)
     const multiroomEnabled = typeof newState.multiroom_enabled === 'boolean'
       ? newState.multiroom_enabled
       : systemState.value.multiroom_enabled;
 
-    const equalizerEnabled = typeof newState.equalizer_enabled === 'boolean'
-      ? newState.equalizer_enabled
-      : systemState.value.equalizer_enabled;
+    const dspEnabled = typeof newState.dsp_enabled === 'boolean'
+      ? newState.dsp_enabled
+      : systemState.value.dsp_enabled;
 
     systemState.value = {
       active_source: activeSource,
@@ -208,7 +208,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       metadata: metadata,
       error: newState.error || null,
       multiroom_enabled: multiroomEnabled,
-      equalizer_enabled: equalizerEnabled
+      dsp_enabled: dspEnabled
     };
 
     // Log warning if validation changed values
@@ -277,7 +277,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     changeSource,
     sendCommand,
     setMultiroomEnabled,
-    setEqualizerEnabled,
+    setDspEnabled,
     updateState,
     setVolume,
     adjustVolume,

@@ -35,7 +35,7 @@ export const useSettingsStore = defineStore('settings', () => {
     radio: true,
     podcast: true,
     multiroom: true,
-    equalizer: true,
+    dsp: true,
     settings: true
   });
 
@@ -93,7 +93,7 @@ export const useSettingsStore = defineStore('settings', () => {
         axios.get('/api/settings/volume-startup').catch(() => ({ data: { config: { startup_volume_db: -30.0, restore_last_volume: false } } })),
         axios.get('/api/settings/volume-steps').catch(() => ({ data: { config: { step_mobile_db: 3.0 } } })),
         axios.get('/api/settings/rotary-steps').catch(() => ({ data: { config: { step_rotary_db: 2.0 } } })),
-        axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'multiroom', 'equalizer', 'settings'] } } })),
+        axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'multiroom', 'dsp', 'settings'] } } })),
         axios.get('/api/settings/spotify-disconnect').catch(() => ({ data: { config: { auto_disconnect_delay: 10.0 } } })),
         axios.get('/api/settings/podcast-credentials').catch(() => ({ data: { config: { taddy_user_id: '', taddy_api_key: '' } } })),
         axios.get('/api/settings/podcast-credentials/status').catch(() => ({ data: { status: 'error' } })),
@@ -142,7 +142,7 @@ export const useSettingsStore = defineStore('settings', () => {
           radio: enabledApps.includes('radio'),
           podcast: enabledApps.includes('podcast'),
           multiroom: enabledApps.includes('multiroom'),
-          equalizer: enabledApps.includes('equalizer'),
+          dsp: enabledApps.includes('dsp'),
           settings: enabledApps.includes('settings')
         };
       }
@@ -233,7 +233,7 @@ export const useSettingsStore = defineStore('settings', () => {
       radio: enabledApps.includes('radio'),
       podcast: enabledApps.includes('podcast'),
       multiroom: enabledApps.includes('multiroom'),
-      equalizer: enabledApps.includes('equalizer'),
+      dsp: enabledApps.includes('dsp'),
       settings: enabledApps.includes('settings')
     };
   }

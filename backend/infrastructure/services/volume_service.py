@@ -231,6 +231,13 @@ class VolumeService:
         Called when multiroom is activated to ensure uniform volume.
         """
         try:
+            # Sync from actual DSP volume before pushing (in case it was changed locally)
+            if self._dsp_service and self._dsp_service.is_volume_control_available():
+                dsp_state = await self._dsp_service.get_volume()
+                if dsp_state and "main" in dsp_state:
+                    self._current_volume_db = dsp_state["main"]
+                    self.logger.info(f"Synced volume from DSP: {self._current_volume_db:.1f} dB")
+
             current_volume = self._current_volume_db
             self.logger.info(f"Pushing local volume {current_volume:.1f} dB to all clients")
             return await self._multiroom_handler.push_volume_to_all_clients(current_volume)
@@ -238,9 +245,20 @@ class VolumeService:
             self.logger.error(f"Error pushing volume to clients: {e}")
             return False
 
-    def update_client_volume_db(self, client_id: str, volume_db: float) -> None:
-        """Update client volume in dB (called from API routes)."""
+    async def update_client_volume_db(self, client_id: str, volume_db: float, broadcast: bool = True) -> None:
+        """
+        Update client volume in dB (called from API routes).
+
+        Args:
+            client_id: Client hostname ('local' or IP address)
+            volume_db: Volume in dB
+            broadcast: Whether to broadcast volume change to update VolumeBar
+        """
         self._multiroom_handler.update_client_volume_db(client_id, volume_db)
+
+        # Broadcast updated average to VolumeBar (without showing the bar)
+        if broadcast and self._is_multiroom_enabled():
+            await self._schedule_broadcast(show_bar=False)
 
     # ============================================================================
     # SERVICE INITIALIZATION
@@ -307,8 +325,8 @@ class VolumeService:
                         self._adjustment_counter += 1
                         clamped_db = self._converter.clamp_db(volume_db)
 
-                        # Check DSP availability
-                        if not self._is_dsp_available():
+                        # Check DSP availability (skip in multiroom mode - uses HTTP to clients)
+                        if not self._is_multiroom_enabled() and not self._is_dsp_available():
                             self.logger.warning("DSP not available, volume change blocked")
                             await self.state_machine.broadcast_event("volume", "volume_error", {
                                 "error": "CamillaDSP not available",
@@ -368,8 +386,8 @@ class VolumeService:
                     try:
                         self._adjustment_counter += 1
 
-                        # Check DSP availability
-                        if not self._is_dsp_available():
+                        # Check DSP availability (skip in multiroom mode - uses HTTP to clients)
+                        if not self._is_multiroom_enabled() and not self._is_dsp_available():
                             self.logger.warning("DSP not available, volume change blocked")
                             await self.state_machine.broadcast_event("volume", "volume_error", {
                                 "error": "CamillaDSP not available",

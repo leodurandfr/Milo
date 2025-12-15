@@ -328,8 +328,8 @@ class CamillaDSPService:
 
     async def set_filter(self, filter_id: str, freq: float, gain: float,
                          q: float, filter_type: str = "Peaking",
-                         enabled: bool = True) -> bool:
-        """Update a single filter band"""
+                         enabled: bool = True, persist: bool = True) -> bool:
+        """Update a single filter band. Set persist=False during bypass operations."""
         if not self._connected:
             self.logger.warning("Cannot set filter: not connected")
             return False
@@ -377,6 +377,10 @@ class CamillaDSPService:
                 "q": q,
                 "type": filter_type
             })
+
+            # Persist filters to settings (skip during bypass operations)
+            if persist:
+                await self._save_filters()
 
             return True
 
@@ -629,9 +633,10 @@ class CamillaDSPService:
         ratio: float = None,
         attack: float = None,
         release: float = None,
-        makeup_gain: float = None
+        makeup_gain: float = None,
+        persist: bool = True
     ) -> bool:
-        """Update compressor settings"""
+        """Update compressor settings. Set persist=False during bypass operations."""
         if not self._connected:
             # Update local cache even when not connected
             if enabled is not None:
@@ -702,6 +707,11 @@ class CamillaDSPService:
             )
 
             await self._broadcast_event("compressor_changed", self._compressor)
+
+            # Persist compressor settings (skip during bypass operations)
+            if persist and self.settings_service:
+                await self.settings_service.set_setting("dsp.compressor", self._compressor)
+
             return True
 
         except Exception as e:
@@ -719,9 +729,10 @@ class CamillaDSPService:
         enabled: bool = None,
         reference_level: int = None,
         high_boost: float = None,
-        low_boost: float = None
+        low_boost: float = None,
+        persist: bool = True
     ) -> bool:
-        """Update loudness compensation settings"""
+        """Update loudness compensation settings. Set persist=False during bypass operations."""
         # Update local cache
         if enabled is not None:
             self._loudness["enabled"] = enabled
@@ -783,6 +794,11 @@ class CamillaDSPService:
             )
 
             await self._broadcast_event("loudness_changed", self._loudness)
+
+            # Persist loudness settings (skip during bypass operations)
+            if persist and self.settings_service:
+                await self.settings_service.set_setting("dsp.loudness", self._loudness)
+
             return True
 
         except Exception as e:
@@ -795,8 +811,8 @@ class CamillaDSPService:
         """Get channel delay settings in milliseconds"""
         return self._delay.copy()
 
-    async def set_delay(self, left: float = None, right: float = None) -> bool:
-        """Set channel delay in milliseconds (0-50ms)"""
+    async def set_delay(self, left: float = None, right: float = None, persist: bool = True) -> bool:
+        """Set channel delay in milliseconds (0-50ms). Set persist=False during bypass operations."""
         if left is not None:
             self._delay["left"] = max(0, min(50, left))
         if right is not None:
@@ -856,6 +872,11 @@ class CamillaDSPService:
             )
 
             await self._broadcast_event("delay_changed", self._delay)
+
+            # Persist delay settings (skip during bypass operations)
+            if persist and self.settings_service:
+                await self.settings_service.set_setting("dsp.delay", self._delay)
+
             return True
 
         except Exception as e:
@@ -1003,24 +1024,25 @@ class CamillaDSPService:
         try:
             self.logger.info("Bypassing all DSP effects...")
 
-            # 1. Reset all EQ filters to 0 dB gain
+            # 1. Reset all EQ filters to 0 dB gain (persist=False to keep saved values)
             for f in self._filters:
                 await self.set_filter(
                     filter_id=f["id"],
                     freq=f["freq"],
                     gain=0,  # Bypass = 0 dB gain
                     q=f.get("q", 1.0),
-                    filter_type=f.get("type", "Peaking")
+                    filter_type=f.get("type", "Peaking"),
+                    persist=False  # Don't overwrite saved settings
                 )
 
-            # 2. Disable compressor (keep settings for restore)
-            await self.set_compressor(enabled=False)
+            # 2. Disable compressor (persist=False to keep settings for restore)
+            await self.set_compressor(enabled=False, persist=False)
 
-            # 3. Disable loudness (keep settings for restore)
-            await self.set_loudness(enabled=False)
+            # 3. Disable loudness (persist=False to keep settings for restore)
+            await self.set_loudness(enabled=False, persist=False)
 
-            # 4. Reset delay to 0
-            await self.set_delay(left=0, right=0)
+            # 4. Reset delay to 0 (persist=False to keep settings for restore)
+            await self.set_delay(left=0, right=0, persist=False)
 
             self.logger.info("DSP effects bypassed (volume unchanged)")
             await self._broadcast_event("effects_bypassed", {"bypassed": True})
@@ -1095,6 +1117,24 @@ class CamillaDSPService:
                 self._filters = saved_filters
                 self.logger.info(f"Loaded {len(self._filters)} saved DSP filters")
 
+            # Load compressor
+            saved_compressor = await self.settings_service.get_setting("dsp.compressor")
+            if saved_compressor:
+                self._compressor.update(saved_compressor)
+                self.logger.info("Loaded saved compressor settings")
+
+            # Load loudness
+            saved_loudness = await self.settings_service.get_setting("dsp.loudness")
+            if saved_loudness:
+                self._loudness.update(saved_loudness)
+                self.logger.info("Loaded saved loudness settings")
+
+            # Load delay
+            saved_delay = await self.settings_service.get_setting("dsp.delay")
+            if saved_delay:
+                self._delay.update(saved_delay)
+                self.logger.info("Loaded saved delay settings")
+
         except Exception as e:
             self.logger.error(f"Error loading saved config: {e}")
 
@@ -1105,10 +1145,21 @@ class CamillaDSPService:
 
         try:
             await self.settings_service.set_setting("dsp.filters", self._filters)
+            await self.settings_service.set_setting("dsp.compressor", self._compressor)
+            await self.settings_service.set_setting("dsp.loudness", self._loudness)
+            await self.settings_service.set_setting("dsp.delay", self._delay)
             return True
         except Exception as e:
             self.logger.error(f"Error saving config: {e}")
             return False
+
+    async def _save_filters(self) -> None:
+        """Save filters to settings (used by set_filter for auto-persistence)"""
+        if self.settings_service:
+            try:
+                await self.settings_service.set_setting("dsp.filters", self._filters)
+            except Exception as e:
+                self.logger.error(f"Error saving filters: {e}")
 
     # === Event Broadcasting ===
 

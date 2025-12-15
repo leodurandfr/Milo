@@ -1,64 +1,59 @@
 <!-- frontend/src/components/dsp/LevelMeters.vue -->
 <!-- Stereo input/output level meters with real-time monitoring -->
 <template>
-  <div class="level-meters" :class="{ collapsed: !expanded }">
-    <!-- Header with toggle -->
-    <button class="meters-header" @click="expanded = !expanded">
-      <span class="meters-title">{{ $t('dsp.meters.title', 'Audio Levels') }}</span>
-      <SvgIcon :name="expanded ? 'caretUp' : 'caretDown'" :size="16" />
-    </button>
+  <div class="level-meters">
+    <!-- Header -->
+    <div class="meters-header">
+      <span class="meters-title text-mono">{{ $t('dsp.meters.title', 'Audio Levels') }}</span>
+    </div>
 
-    <!-- Meters content -->
-    <Transition name="collapse">
-      <div v-if="expanded" class="meters-content">
-        <!-- Input meters -->
-        <div class="meter-group">
-          <span class="group-label text-mono">{{ $t('dsp.meters.input', 'IN') }}</span>
-          <div class="stereo-meters">
-            <LevelMeter
-              :level="inputLeft"
-              label="L"
-              :show-peak="true"
-            />
-            <LevelMeter
-              :level="inputRight"
-              label="R"
-              :show-peak="true"
-            />
-          </div>
-        </div>
-
-        <!-- Output meters -->
-        <div class="meter-group">
-          <span class="group-label text-mono">{{ $t('dsp.meters.output', 'OUT') }}</span>
-          <div class="stereo-meters">
-            <LevelMeter
-              :level="outputLeft"
-              label="L"
-              :show-peak="true"
-            />
-            <LevelMeter
-              :level="outputRight"
-              label="R"
-              :show-peak="true"
-            />
-          </div>
+    <!-- Meters content (always visible) -->
+    <div class="meters-content">
+      <!-- Input meters -->
+      <div class="meter-group">
+        <span class="group-label text-mono-small">{{ $t('dsp.meters.input', 'IN') }}</span>
+        <div class="stereo-meters">
+          <LevelMeter
+            :level="inputLeft"
+            label="L"
+            :show-peak="true"
+          />
+          <LevelMeter
+            :level="inputRight"
+            label="R"
+            :show-peak="true"
+          />
         </div>
       </div>
-    </Transition>
+
+      <!-- Output meters -->
+      <div class="meter-group">
+        <span class="group-label text-mono-small">{{ $t('dsp.meters.output', 'OUT') }}</span>
+        <div class="stereo-meters">
+          <LevelMeter
+            :level="outputLeft"
+            label="L"
+            :show-peak="true"
+          />
+          <LevelMeter
+            :level="outputRight"
+            label="R"
+            :show-peak="true"
+          />
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
 import LevelMeter from './LevelMeter.vue';
-import SvgIcon from '@/components/ui/SvgIcon.vue';
 import axios from 'axios';
 
 const dspStore = useDspStore();
 
-const expanded = ref(false);
 let pollInterval = null;
 
 // Convert array levels to individual channels
@@ -82,9 +77,9 @@ const outputRight = computed(() => {
   return Array.isArray(levels) && levels.length > 1 ? levels[1] : outputLeft.value;
 });
 
-// Poll levels from API when expanded
+// Poll levels from API
 async function pollLevels() {
-  if (!expanded.value || !dspStore.isConnected) return;
+  if (!dspStore.isConnected) return;
 
   try {
     const response = await axios.get('/api/dsp/levels');
@@ -110,19 +105,18 @@ function stopPolling() {
   }
 }
 
-// Start/stop polling based on expanded state
+// Start polling when component mounts (always visible now)
 onMounted(() => {
-  if (expanded.value) startPolling();
+  startPolling();
 });
 
 onUnmounted(() => {
   stopPolling();
 });
 
-// Watch expanded state
-import { watch } from 'vue';
-watch(expanded, (isExpanded) => {
-  if (isExpanded) {
+// Watch connection state
+watch(() => dspStore.isConnected, (isConnected) => {
+  if (isConnected) {
     startPolling();
   } else {
     stopPolling();
@@ -134,38 +128,25 @@ watch(expanded, (isExpanded) => {
 .level-meters {
   display: flex;
   flex-direction: column;
+  gap: var(--space-02);
+  padding: var(--space-03);
   background: var(--color-background-neutral);
   border-radius: var(--radius-05);
-  overflow: hidden;
 }
 
 .meters-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--space-02) var(--space-03);
-  background: transparent;
-  border: none;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.meters-header:hover {
-  background: var(--color-border);
 }
 
 .meters-title {
-  font-size: 13px;
-  font-weight: 500;
+  color: var(--color-text-secondary);
 }
 
 .meters-content {
   display: flex;
   flex-direction: column;
   gap: var(--space-03);
-  padding: var(--space-03);
-  padding-top: 0;
 }
 
 .meter-group {
@@ -176,7 +157,6 @@ watch(expanded, (isExpanded) => {
 
 .group-label {
   min-width: 32px;
-  font-size: 11px;
   color: var(--color-text-light);
   text-align: center;
 }
@@ -188,23 +168,23 @@ watch(expanded, (isExpanded) => {
   gap: var(--space-01);
 }
 
-/* Collapse transition */
-.collapse-enter-active,
-.collapse-leave-active {
-  transition: all var(--transition-normal);
-  overflow: hidden;
-}
+/* Mobile adjustments */
+@media (max-aspect-ratio: 4/3) {
+  .level-meters {
+    padding: var(--space-02);
+    gap: var(--space-01);
+  }
 
-.collapse-enter-from,
-.collapse-leave-to {
-  opacity: 0;
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-}
+  .meters-content {
+    gap: var(--space-02);
+  }
 
-.collapse-enter-to,
-.collapse-leave-from {
-  max-height: 200px;
+  .meter-group {
+    gap: var(--space-02);
+  }
+
+  .group-label {
+    min-width: 28px;
+  }
 }
 </style>
