@@ -6,13 +6,7 @@
       <!-- Section Title -->
       <h2 class="heading-2">
         {{ $t('dsp.advanced.title', 'Effets avancés') }}
-        <span v-if="zoneName" class="zone-suffix">· {{ zoneName }}</span>
       </h2>
-
-      <!-- Zone-wide settings hint -->
-      <p v-if="zoneName" class="zone-hint text-mono-small">
-        {{ $t('dsp.advanced.zoneHint', 'Ces paramètres s\'appliquent à tous les haut-parleurs de la zone.') }}
-      </p>
 
       <!-- Section Tabs -->
       <Tabs
@@ -181,13 +175,6 @@ import Tabs from '@/components/ui/Tabs.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 
-const props = defineProps({
-  zoneName: {
-    type: String,
-    default: ''
-  }
-});
-
 const { t } = useI18n();
 const dspStore = useDspStore();
 
@@ -239,17 +226,6 @@ async function handleDelayChange(channel, value) {
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
-}
-
-.zone-suffix {
-  color: var(--color-text-secondary);
-  font-weight: normal;
-}
-
-.zone-hint {
-  color: var(--color-text-secondary);
-  margin: 0;
-  font-style: italic;
 }
 
 .tab-content {

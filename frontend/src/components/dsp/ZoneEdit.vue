@@ -24,55 +24,27 @@
           {{ $t('dsp.zones.selectClientsDescription', 'Select at least 2 clients to create a zone.') }}
         </p>
         <div class="clients-list">
-          <label
+          <ListItemButton
             v-for="target in availableTargets"
             :key="target.id"
-            class="client-item"
-            :class="{
-              disabled: !target.available || isClientInOtherZone(target.id),
-              selected: selectedClients.includes(target.id),
-              'with-rename': enableClientRenaming && selectedClients.includes(target.id)
-            }"
+            variant="background"
+            action="toggle"
+            icon-variant="standard"
+            :model-value="selectedClients.includes(target.id)"
+            :disabled="!target.available || isClientInOtherZone(target.id)"
+            @click="toggleClient(target.id)"
           >
-            <div class="radio-indicator" :class="{ checked: selectedClients.includes(target.id) }">
-              <span class="radio-dot"></span>
-            </div>
-            <input
-              type="checkbox"
-              :checked="selectedClients.includes(target.id)"
-              :disabled="!target.available || isClientInOtherZone(target.id)"
-              @change="toggleClient(target.id)"
-              class="hidden-checkbox"
-            />
-
-            <!-- When renaming is enabled and client is selected: show hostname + input -->
-            <template v-if="enableClientRenaming && selectedClients.includes(target.id)">
-              <div class="client-rename-row">
-                <span class="client-hostname text-mono">{{ target.host || target.id }}</span>
-                <span class="client-arrow">→</span>
-                <InputText
-                  v-model="clientNames[target.id]"
-                  :placeholder="target.host || target.id"
-                  size="small"
-                  :maxlength="50"
-                  class="client-name-input"
-                  @click.stop
-                />
+            <template #icon>
+              <SvgIcon :name="getSpeakerIcon(target.id)" :size="28" />
+            </template>
+            <template #title>
+              <div class="client-title">
+                <span>{{ target.name }}</span>
+                <span v-if="isClientInOtherZone(target.id)" class="badge">{{ getOtherZoneName(target.id) }}</span>
+                <span v-if="!target.available" class="badge">{{ $t('dsp.linkedClients.offline', 'Offline') }}</span>
               </div>
             </template>
-
-            <!-- Default: show client name -->
-            <template v-else>
-              <span class="client-name">{{ target.name }}</span>
-            </template>
-
-            <span v-if="isClientInOtherZone(target.id)" class="badge badge-disabled">
-              {{ getOtherZoneName(target.id) }}
-            </span>
-            <span v-if="!target.available" class="badge badge-offline">
-              {{ $t('dsp.linkedClients.offline', 'Offline') }}
-            </span>
-          </label>
+          </ListItemButton>
         </div>
       </div>
     </section>
@@ -106,34 +78,27 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
-import { useMultiroomStore } from '@/stores/multiroomStore';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
+import ListItemButton from '@/components/ui/ListItemButton.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
   // Group ID if editing an existing zone, null for creating new
   groupId: {
     type: String,
     default: null
-  },
-  // Enable client renaming in zone edit (used when called from MultiroomSettings)
-  enableClientRenaming: {
-    type: Boolean,
-    default: false
   }
 });
 
 const emit = defineEmits(['back', 'saved']);
 
 const dspStore = useDspStore();
-const multiroomStore = useMultiroomStore();
 const saving = ref(false);
 const deleting = ref(false);
 const zoneName = ref('');
 const originalZoneName = ref('');
 const selectedClients = ref([]);
-// Client names for renaming (dsp_id -> display name)
-const clientNames = ref({});
 
 // Get available targets from store
 const availableTargets = computed(() => dspStore.availableTargets);
@@ -166,16 +131,28 @@ function getOtherZoneName(clientId) {
       // Return custom name or generate from client names
       if (group.name) return group.name;
 
-      const clientNames = group.client_ids
+      const names = group.client_ids
         .map(id => {
           const target = availableTargets.value.find(t => t.id === id);
           return target ? target.name : id;
         })
         .join(' + ');
-      return clientNames;
+      return names;
     }
   }
   return '';
+}
+
+// Get speaker icon name based on type
+function getSpeakerIcon(dspId) {
+  const speakerType = dspStore.getClientSpeakerType(dspId);
+  const iconMap = {
+    satellite: 'speakerSatellite',
+    bookshelf: 'speakerShelf',
+    tower: 'speakerColumn',
+    subwoofer: 'speakerSub'
+  };
+  return iconMap[speakerType] || 'speakerShelf';
 }
 
 // Toggle client selection
@@ -211,12 +188,6 @@ async function saveZoneName() {
   }
 }
 
-// Get the hostname for a client (for display)
-function getClientHostname(dspId) {
-  const target = availableTargets.value.find(t => t.id === dspId);
-  return target?.host || dspId;
-}
-
 // Initialize state when mounted
 onMounted(async () => {
   if (currentGroup.value) {
@@ -229,13 +200,6 @@ onMounted(async () => {
     selectedClients.value = [];
     zoneName.value = '';
   }
-
-  // Initialize client names from multiroomStore
-  if (props.enableClientRenaming) {
-    multiroomStore.clients.forEach(client => {
-      clientNames.value[client.dsp_id] = client.name || client.host;
-    });
-  }
 });
 
 // Create new zone (only used when groupId is null)
@@ -244,22 +208,7 @@ async function handleCreate() {
 
   saving.value = true;
   try {
-    // Save client names first if renaming is enabled
-    if (props.enableClientRenaming) {
-      for (const dspId of selectedClients.value) {
-        const newName = clientNames.value[dspId]?.trim();
-        if (newName) {
-          const client = multiroomStore.clients.find(c => c.dsp_id === dspId);
-          if (client && client.name !== newName) {
-            await multiroomStore.updateClientName(client.id, newName);
-          }
-        }
-      }
-    }
-
-    // Create the zone
     await dspStore.linkClients(selectedClients.value, null, zoneName.value || null);
-
     emit('back');
   } catch (error) {
     console.error('Error creating zone:', error);
@@ -313,122 +262,21 @@ async function handleDelete() {
 }
 
 .clients-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-02);
-  max-height: 300px;
-  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-01);
 }
 
-.client-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-03);
-  background: var(--color-background-strong);
-  border-radius: var(--radius-04);
-  cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-  border: 2px solid transparent;
-}
-
-.client-item:hover:not(.disabled) {
-  background: var(--color-background-medium);
-}
-
-.client-item.selected {
-  border-color: var(--color-brand);
-  background: var(--color-background-medium);
-}
-
-.client-item.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.hidden-checkbox {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* Custom radio indicator */
-.radio-indicator {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid var(--color-text-light);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: border-color var(--transition-fast), background var(--transition-fast);
-}
-
-.radio-indicator.checked {
-  border-color: var(--color-brand);
-  background: var(--color-brand);
-}
-
-.radio-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: transparent;
-  transition: background var(--transition-fast);
-}
-
-.radio-indicator.checked .radio-dot {
-  background: var(--color-text-inverse);
-}
-
-.client-name {
-  flex: 1;
-  font-size: 14px;
-  color: var(--color-text);
-}
-
-/* Client rename row (when enableClientRenaming is true) */
-.client-rename-row {
-  flex: 1;
+.client-title {
   display: flex;
   align-items: center;
   gap: var(--space-02);
-  min-width: 0;
-}
-
-.client-hostname {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.client-arrow {
-  color: var(--color-text-light);
-  font-size: 12px;
-}
-
-.client-name-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.client-item.with-rename {
-  flex-wrap: wrap;
 }
 
 .badge {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: var(--radius-02);
-}
-
-.badge-disabled {
-  background: var(--color-background-medium);
-  color: var(--color-text-light);
-}
-
-.badge-offline {
   background: var(--color-background-medium);
   color: var(--color-text-light);
 }
@@ -437,6 +285,10 @@ async function handleDelete() {
 @media (max-aspect-ratio: 4/3) {
   .settings-section {
     border-radius: var(--radius-05);
+  }
+
+  .clients-list {
+    grid-template-columns: 1fr;
   }
 }
 </style>

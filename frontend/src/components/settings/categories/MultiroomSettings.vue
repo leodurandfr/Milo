@@ -12,7 +12,7 @@
           <div v-if="isMultiroomActive" key="settings" class="settings-container">
             <!-- Zones & Speakers Section -->
             <section class="settings-section">
-              <div class="multiroom-group">
+              <div class="multiroom-group" :class="{ 'multiroom-group--compact': ungroupedClients.length >= 2 }">
                 <!-- Header: Title + Create Zone Button -->
                 <div class="section-header">
                   <h2 class="heading-2">{{ t('multiroom.zonesAndSpeakers') }}</h2>
@@ -46,14 +46,13 @@
                       <span class="zone-header__label heading-3">Zone</span>
                       <span class="zone-header__separator heading-3">·</span>
                       <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
-                      <SvgIcon name="caretRight" :size="24" class="zone-header__caret" />
+                      <SvgIcon name="caretRight" :size="20" class="zone-header__caret" />
                     </button>
                     <!-- Zone clients -->
                     <div class="zone-clients">
                       <ListItemButton
                         v-for="client in zone.clients"
                         :key="client.id"
-                        :title="`${client.name} · ${getSpeakerTypeLabel(client.dsp_id)}`"
                         variant="background"
                         icon-variant="standard"
                         action="caret"
@@ -62,6 +61,12 @@
                         <template #icon>
                           <SvgIcon :name="getSpeakerIcon(client.dsp_id)" :size="28" />
                         </template>
+                        <template #title>
+                          <div class="client-title">
+                            <span>{{ client.name }}</span>
+                            <span class="text-mono-small client-title__type">{{ getSpeakerTypeLabel(client.dsp_id) }}</span>
+                          </div>
+                        </template>
                       </ListItemButton>
                     </div>
                   </div>
@@ -69,27 +74,35 @@
                   <!-- Individual speakers section -->
                   <template v-if="ungroupedClients.length > 0">
                     <h3 v-if="zones.length > 0" class="heading-3 section-subtitle">{{ t('multiroom.individualSpeakers') }}</h3>
-                    <ListItemButton
-                      v-for="client in ungroupedClients"
-                      :key="client.id"
-                      :title="`${client.name} · ${getSpeakerTypeLabel(client.dsp_id)}`"
-                      variant="background"
-                      icon-variant="standard"
-                      action="caret"
-                      @click="handleEditClient(client.id)"
-                    >
-                      <template #icon>
-                        <SvgIcon :name="getSpeakerIcon(client.dsp_id)" :size="28" />
-                      </template>
-                    </ListItemButton>
+                    <div class="ungrouped-clients">
+                      <ListItemButton
+                        v-for="client in ungroupedClients"
+                        :key="client.id"
+                        variant="background"
+                        icon-variant="standard"
+                        action="caret"
+                        @click="handleEditClient(client.id)"
+                      >
+                        <template #icon>
+                          <SvgIcon :name="getSpeakerIcon(client.dsp_id)" :size="28" />
+                        </template>
+                        <template #title>
+                          <div class="client-title">
+                            <span>{{ client.name }}</span>
+                            <span class="text-mono-small client-title__type">{{ getSpeakerTypeLabel(client.dsp_id) }}</span>
+                          </div>
+                        </template>
+                      </ListItemButton>
+                    </div>
                   </template>
                 </div>
               </div>
             </section>
 
-            <!-- Audio presets -->
+            <!-- Advanced settings (includes presets) -->
             <section class="settings-section">
               <div class="multiroom-group">
+                <!-- Presets -->
                 <h2 class="heading-2">{{ t('multiroomSettings.presets') }}</h2>
                 <div class="presets-buttons">
                   <Button v-for="preset in audioPresets" :key="preset.id"
@@ -99,12 +112,10 @@
                     {{ preset.name }}
                   </Button>
                 </div>
-              </div>
-            </section>
 
-            <!-- Advanced settings -->
-            <section class="settings-section">
-              <div class="multiroom-group">
+                <div class="section-divider"></div>
+
+                <!-- Advanced controls -->
                 <h2 class="heading-2">{{ t('multiroomSettings.advanced') }}</h2>
 
                 <div class="form-group">
@@ -368,7 +379,16 @@ onMounted(async () => {
 .multiroom-group {
   display: flex;
   flex-direction: column;
+  gap: var(--space-05);
+}
+
+.multiroom-group--compact {
   gap: var(--space-04);
+}
+
+.section-divider {
+  height: 1px;
+  background: var(--color-border);
 }
 
 .loading-state,
@@ -397,21 +417,38 @@ onMounted(async () => {
 .zone-group {
   display: flex;
   flex-direction: column;
-  gap: var(--space-01);
+  gap: var(--space-04);
 }
 
 /* Zone clients */
 .zone-clients {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-01);
+}
+
+/* Ungrouped clients grid */
+.ungrouped-clients {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-01);
+}
+
+/* Client title with name and type stacked */
+.client-title {
   display: flex;
   flex-direction: column;
-  gap: var(--space-01);
+}
+
+.client-title__type {
+  color: var(--color-text-secondary);
 }
 
 /* Zone header button */
 .zone-header {
   display: flex;
-  align-items: center;
-  gap: var(--space-02);
+  align-items: flex-end;
+  gap: var(--space-01);
   width: 100%;
   cursor: pointer;
 }
@@ -504,6 +541,11 @@ onMounted(async () => {
 
   .settings-section {
     border-radius: var(--radius-05);
+  }
+
+  .zone-clients,
+  .ungrouped-clients {
+    grid-template-columns: 1fr;
   }
 
   .codec-buttons,

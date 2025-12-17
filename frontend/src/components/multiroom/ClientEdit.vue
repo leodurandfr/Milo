@@ -6,13 +6,8 @@
     <section class="settings-section">
       <div class="section-group">
         <h2 class="heading-2">{{ $t('multiroom.speakerName', 'Speaker Name') }}</h2>
-        <InputText
-          v-model="clientName"
-          :placeholder="client?.host"
-          size="medium"
-          :maxlength="50"
-          @blur="saveClientName"
-        />
+        <InputText v-model="clientName" :placeholder="client?.host" size="medium" :maxlength="50"
+          @blur="saveClientName" />
       </div>
     </section>
 
@@ -21,14 +16,13 @@
       <div class="section-group">
         <h2 class="heading-2">{{ $t('multiroom.speakerType', 'Speaker Type') }}</h2>
         <div class="speaker-types">
-          <ListItemButton
-            v-for="type in speakerTypes"
-            :key="type.value"
-            :title="type.label"
-            :variant="selectedSpeakerType === type.value ? 'active' : 'background'"
-            action="radio"
-            @click="selectSpeakerType(type.value)"
-          />
+          <ListItemButton v-for="type in speakerTypes" :key="type.value" :title="type.label" variant="background"
+            action="radio" icon-variant="standard" :model-value="selectedSpeakerType === type.value"
+            @click="selectSpeakerType(type.value)">
+            <template #icon>
+              <SvgIcon :name="type.icon" :size="28" />
+            </template>
+          </ListItemButton>
         </div>
 
         <!-- Subwoofer Info (when subwoofer selected) -->
@@ -75,6 +69,7 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useDspStore } from '@/stores/dspStore';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const props = defineProps({
   clientId: {
@@ -109,10 +104,10 @@ const isInZone = computed(() => !!clientZone.value);
 
 // Speaker type options
 const speakerTypes = computed(() => [
-  { value: 'satellite', label: t('multiroom.speakerTypes.satellite', 'Satellite speakers') },
-  { value: 'bookshelf', label: t('multiroom.speakerTypes.bookshelf', 'Bookshelf speakers') },
-  { value: 'tower', label: t('multiroom.speakerTypes.tower', 'Tower speakers') },
-  { value: 'subwoofer', label: t('multiroom.speakerTypes.subwoofer', 'Subwoofer') }
+  { value: 'satellite', label: t('multiroom.speakerTypes.satellite', 'Satellite speakers'), icon: 'speakerSatellite' },
+  { value: 'bookshelf', label: t('multiroom.speakerTypes.bookshelf', 'Bookshelf speakers'), icon: 'speakerShelf' },
+  { value: 'tower', label: t('multiroom.speakerTypes.tower', 'Tower speakers'), icon: 'speakerColumn' },
+  { value: 'subwoofer', label: t('multiroom.speakerTypes.subwoofer', 'Subwoofer'), icon: 'speakerSub' }
 ]);
 
 async function selectSpeakerType(type) {
@@ -182,7 +177,7 @@ onMounted(async () => {
 .speaker-types {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-02);
+  gap: var(--space-01);
 }
 
 .subwoofer-info {
@@ -245,6 +240,10 @@ onMounted(async () => {
 @media (max-aspect-ratio: 4/3) {
   .settings-section {
     border-radius: var(--radius-05);
+  }
+
+  .speaker-types {
+    grid-template-columns: 1fr;
   }
 }
 </style>
