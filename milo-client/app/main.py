@@ -353,6 +353,20 @@ class MuteUpdate(BaseModel):
     muted: bool
 
 
+class CrossoverUpdate(BaseModel):
+    """Model for crossover highpass filter update"""
+    enabled: bool
+    frequency: Optional[float] = 80.0
+    q: Optional[float] = 0.707
+
+
+class LowpassUpdate(BaseModel):
+    """Model for lowpass filter update (for subwoofers)"""
+    enabled: bool
+    frequency: Optional[float] = 80.0
+    q: Optional[float] = 0.707
+
+
 class DSPManager:
     """Manager for CamillaDSP operations"""
 
@@ -384,6 +398,8 @@ class DSPManager:
         }
         self._delay = {"left": 0.0, "right": 0.0}
         self._volume = {"main": 0.0, "mute": False}
+        self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
+        self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
 
     async def connect(self) -> bool:
         """Connect to local CamillaDSP"""
@@ -781,6 +797,31 @@ class DSPManager:
                 self.logger.warning(f"Error getting volume from CamillaDSP: {e}")
         return self._volume
 
+    async def get_levels(self) -> Dict[str, Any]:
+        """Get current audio levels (peak values for input/output)"""
+        # Try to connect if not connected
+        if not self._connected:
+            await self.connect()
+
+        if not self._connected or not self._client:
+            return {"available": False}
+
+        try:
+            capture_levels = await asyncio.get_event_loop().run_in_executor(
+                None, self._client.levels.capture_peak
+            )
+            playback_levels = await asyncio.get_event_loop().run_in_executor(
+                None, self._client.levels.playback_peak
+            )
+            return {
+                "available": True,
+                "input_peak": capture_levels,
+                "output_peak": playback_levels
+            }
+        except Exception as e:
+            self.logger.debug(f"Error getting levels: {e}")
+            return {"available": False}
+
     async def set_volume(self, volume: float) -> bool:
         """Set DSP volume in dB"""
         self._volume["main"] = max(-80, min(0, volume))
@@ -824,6 +865,140 @@ class DSPManager:
             self.logger.error(f"Error setting mute: {e}")
             return False
 
+    async def set_crossover(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
+        """
+        Set crossover highpass filter for subwoofer integration.
+
+        When enabled, applies a Butterworth highpass filter at the specified
+        frequency to remove bass from speakers (bass handled by subwoofer).
+
+        Args:
+            enabled: Whether to enable the highpass filter
+            frequency: Crossover frequency in Hz (default 80)
+            q: Filter Q factor (default 0.707 = Butterworth)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        self._crossover["enabled"] = enabled
+        self._crossover["frequency"] = frequency
+        self._crossover["q"] = q
+
+        # Try to connect if not connected
+        if not self._connected:
+            await self.connect()
+
+        if not self._connected:
+            self.logger.warning("Cannot set crossover: CamillaDSP not connected")
+            return False
+
+        try:
+            config = await self._get_config()
+            if not config:
+                return False
+
+            if "filters" not in config:
+                config["filters"] = {}
+
+            if enabled:
+                # Add highpass crossover filter
+                config["filters"]["crossover_highpass"] = {
+                    "type": "Biquad",
+                    "parameters": {
+                        "type": "Highpass",
+                        "freq": frequency,
+                        "q": q
+                    }
+                }
+                self._add_filter_to_pipeline(config, "crossover_highpass")
+                self.logger.info(f"Crossover highpass filter enabled at {frequency} Hz (Q={q})")
+            else:
+                # Remove crossover filter
+                if "crossover_highpass" in config.get("filters", {}):
+                    del config["filters"]["crossover_highpass"]
+                self._remove_filter_from_pipeline(config, "crossover_highpass")
+                self.logger.info("Crossover highpass filter disabled")
+
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda c=config: self._client.config.set_active(c)
+            )
+
+            # Save to disk for persistence
+            await self._save_config_to_file(config)
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error setting crossover: {e}")
+            return False
+
+    async def set_lowpass(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
+        """
+        Set lowpass filter for subwoofer.
+
+        When enabled, applies a Butterworth lowpass filter at the specified
+        frequency to send only bass to the subwoofer.
+
+        Args:
+            enabled: Whether to enable the lowpass filter
+            frequency: Cutoff frequency in Hz (default 80)
+            q: Filter Q factor (default 0.707 = Butterworth)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        self._lowpass["enabled"] = enabled
+        self._lowpass["frequency"] = frequency
+        self._lowpass["q"] = q
+
+        # Try to connect if not connected
+        if not self._connected:
+            await self.connect()
+
+        if not self._connected:
+            self.logger.warning("Cannot set lowpass: CamillaDSP not connected")
+            return False
+
+        try:
+            config = await self._get_config()
+            if not config:
+                return False
+
+            if "filters" not in config:
+                config["filters"] = {}
+
+            if enabled:
+                # Add lowpass filter for subwoofer
+                config["filters"]["crossover_lowpass"] = {
+                    "type": "Biquad",
+                    "parameters": {
+                        "type": "Lowpass",
+                        "freq": frequency,
+                        "q": q
+                    }
+                }
+                self._add_filter_to_pipeline(config, "crossover_lowpass")
+                self.logger.info(f"Lowpass filter enabled at {frequency} Hz (Q={q})")
+            else:
+                # Remove lowpass filter
+                if "crossover_lowpass" in config.get("filters", {}):
+                    del config["filters"]["crossover_lowpass"]
+                self._remove_filter_from_pipeline(config, "crossover_lowpass")
+                self.logger.info("Lowpass filter disabled")
+
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda c=config: self._client.config.set_active(c)
+            )
+
+            # Save to disk for persistence
+            await self._save_config_to_file(config)
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error setting lowpass: {e}")
+            return False
+
     def _add_filter_to_pipeline(self, config: Dict, filter_name: str,
                                 channels: List[int] = None) -> None:
         """Add a filter to the pipeline"""
@@ -838,7 +1013,7 @@ class DSPManager:
                 if step.get("type") == "Filter" and channel in step.get("channels", []):
                     if filter_name not in step.get("names", []):
                         step["names"].append(filter_name)
-                    return
+                    break  # Continue to next channel, not return
 
     def _remove_filter_from_pipeline(self, config: Dict, filter_name: str) -> None:
         """Remove a filter from the pipeline"""
@@ -1137,6 +1312,12 @@ async def get_volume():
     return await dsp_manager.get_volume()
 
 
+@app.get("/dsp/levels")
+async def get_levels():
+    """Get real-time audio levels (peak/RMS)"""
+    return await dsp_manager.get_levels()
+
+
 @app.put("/dsp/volume")
 async def update_volume(update: VolumeUpdate):
     """Update DSP volume"""
@@ -1166,6 +1347,58 @@ async def update_mute(update: MuteUpdate):
         raise
     except Exception as e:
         logger.error(f"Error updating mute: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/dsp/crossover")
+async def get_crossover():
+    """Get crossover highpass filter settings"""
+    return dsp_manager._crossover
+
+
+@app.put("/dsp/crossover")
+async def update_crossover(update: CrossoverUpdate):
+    """Update crossover highpass filter settings"""
+    try:
+        success = await dsp_manager.set_crossover(
+            enabled=update.enabled,
+            frequency=update.frequency,
+            q=update.q
+        )
+        if success:
+            return {"status": "success", **dsp_manager._crossover}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update crossover")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating crossover: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/dsp/lowpass")
+async def get_lowpass():
+    """Get lowpass filter settings (for subwoofers)"""
+    return dsp_manager._lowpass
+
+
+@app.put("/dsp/lowpass")
+async def update_lowpass(update: LowpassUpdate):
+    """Update lowpass filter settings (for subwoofers)"""
+    try:
+        success = await dsp_manager.set_lowpass(
+            enabled=update.enabled,
+            frequency=update.frequency,
+            q=update.q
+        )
+        if success:
+            return {"status": "success", **dsp_manager._lowpass}
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update lowpass")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating lowpass: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

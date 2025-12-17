@@ -806,6 +806,169 @@ class CamillaDSPService:
             self.logger.error(f"Error setting loudness: {e}")
             return False
 
+    # === Crossover Filter (for Subwoofer Integration) ===
+
+    async def get_crossover_filter(self) -> Dict[str, Any]:
+        """Get crossover highpass filter settings"""
+        if not self._connected:
+            return {"enabled": False, "frequency": 80, "q": 0.707}
+
+        try:
+            config = await self._get_config()
+
+            if config and "filters" in config and "crossover_highpass" in config["filters"]:
+                filter_data = config["filters"]["crossover_highpass"]
+                params = filter_data.get("parameters", {})
+                return {
+                    "enabled": True,
+                    "frequency": params.get("freq", 80),
+                    "q": params.get("q", 0.707)
+                }
+
+            return {"enabled": False, "frequency": 80, "q": 0.707}
+
+        except Exception as e:
+            self.logger.error(f"Error getting crossover filter: {e}")
+            return {"enabled": False, "frequency": 80, "q": 0.707}
+
+    async def set_crossover_filter(
+        self,
+        enabled: bool,
+        frequency: float = 80.0,
+        q: float = 0.707
+    ) -> bool:
+        """
+        Apply or remove crossover highpass filter for subwoofer integration.
+
+        When enabled, applies a Butterworth highpass filter at the specified
+        frequency to remove bass from speakers (bass handled by subwoofer).
+
+        Args:
+            enabled: Whether to enable the highpass filter
+            frequency: Crossover frequency in Hz (default 80, typical range 40-200)
+            q: Filter Q factor (default 0.707 = Butterworth, flattest passband)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._connected:
+            self.logger.warning("Cannot set crossover filter: not connected")
+            return False
+
+        try:
+            config = await self._get_config()
+
+            if config is None:
+                config = {"filters": {}, "pipeline": []}
+
+            if "filters" not in config:
+                config["filters"] = {}
+
+            if enabled:
+                # Add highpass crossover filter
+                config["filters"]["crossover_highpass"] = {
+                    "type": "Biquad",
+                    "parameters": {
+                        "type": "Highpass",
+                        "freq": frequency,
+                        "q": q
+                    }
+                }
+                # Add to pipeline for both channels
+                self._add_filter_to_pipeline(config, "crossover_highpass")
+                self.logger.info(f"Crossover highpass filter enabled at {frequency} Hz (Q={q})")
+            else:
+                # Remove crossover filter
+                if "crossover_highpass" in config["filters"]:
+                    del config["filters"]["crossover_highpass"]
+                self._remove_filter_from_pipeline(config, "crossover_highpass")
+                self.logger.info("Crossover highpass filter disabled")
+
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda c=config: self._client.config.set_active(c)
+            )
+
+            await self._broadcast_event("crossover_changed", {
+                "enabled": enabled,
+                "frequency": frequency,
+                "q": q
+            })
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error setting crossover filter: {e}")
+            return False
+
+    async def set_lowpass_filter(
+        self,
+        enabled: bool,
+        frequency: float = 80.0,
+        q: float = 0.707
+    ) -> bool:
+        """
+        Apply or remove lowpass filter for subwoofer.
+
+        When enabled, applies a Butterworth lowpass filter at the specified
+        frequency to send only bass to the subwoofer.
+
+        Args:
+            enabled: Whether to enable the lowpass filter
+            frequency: Cutoff frequency in Hz (default 80, typical range 40-200)
+            q: Filter Q factor (default 0.707 = Butterworth, flattest passband)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._connected:
+            self.logger.warning("Cannot set lowpass filter: not connected")
+            return False
+
+        try:
+            config = await self._get_config()
+
+            if config is None:
+                config = {"filters": {}, "pipeline": []}
+
+            if "filters" not in config:
+                config["filters"] = {}
+
+            if enabled:
+                # Add lowpass filter for subwoofer
+                config["filters"]["crossover_lowpass"] = {
+                    "type": "Biquad",
+                    "parameters": {
+                        "type": "Lowpass",
+                        "freq": frequency,
+                        "q": q
+                    }
+                }
+                # Add to pipeline for both channels
+                self._add_filter_to_pipeline(config, "crossover_lowpass")
+                self.logger.info(f"Lowpass filter enabled at {frequency} Hz (Q={q})")
+            else:
+                # Remove lowpass filter
+                if "crossover_lowpass" in config["filters"]:
+                    del config["filters"]["crossover_lowpass"]
+                self._remove_filter_from_pipeline(config, "crossover_lowpass")
+                self.logger.info("Lowpass filter disabled")
+
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda c=config: self._client.config.set_active(c)
+            )
+
+            await self._broadcast_event("lowpass_changed", {
+                "enabled": enabled,
+                "frequency": frequency,
+                "q": q
+            })
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error setting lowpass filter: {e}")
+            return False
+
     # === Channel Delay ===
 
     async def get_delay(self) -> Dict[str, float]:

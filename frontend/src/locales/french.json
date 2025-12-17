@@ -46,7 +46,19 @@
     "error": "Erreur lors de l'activation du multiroom",
     "timeout_error": "Délai d'activation dépassé. Veuillez réessayer.",
     "editSpeaker": "Modifier l'enceinte",
-    "speakerName": "Nom de l'enceinte"
+    "speakerName": "Nom de l'enceinte",
+    "speakerType": "Type d'enceinte",
+    "speakerInfo": "Informations",
+    "speakerTypes": {
+      "satellite": "Enceintes satellites",
+      "bookshelf": "Enceintes bibliothèque",
+      "tower": "Colonnes",
+      "subwoofer": "Caisson de basse"
+    },
+    "crossoverFrequency": "Fréquence de coupure :",
+    "crossoverHint": "Fréquence de coupure du filtre passe-haut",
+    "subwooferAutoCrossover": "Les filtres de crossover numériques seront automatiquement appliqués : passe-bas sur ce caisson, passe-haut sur les autres enceintes de la zone.",
+    "subwooferDisablePhysical": "Réglez le crossover de votre caisson au maximum (LFE/Bypass) pour éviter le cumul des filtres."
   },
   "equalizer": {
     "title": "Égaliseur",
@@ -74,7 +86,13 @@
       "deleteZone": "Supprimer la zone",
       "description": "Liez les clients pour créer des zones avec des réglages DSP partagés. Les modifications s'appliqueront à tous les membres.",
       "noZones": "Aucune zone créée. Créez une zone pour lier plusieurs clients.",
-      "inOtherZone": "Dans une autre zone"
+      "inOtherZone": "Dans une autre zone",
+      "subwoofer": "Sub",
+      "crossover": "Crossover",
+      "crossoverFrequency": "Fréquence de coupure",
+      "crossoverHint": "Filtre passe-haut appliqué aux enceintes. Réglez le crossover de votre subwoofer à la même fréquence.",
+      "manageZone": "Gérer la zone",
+      "addToZone": "Ajouter à une zone"
     },
     "equalizer": {
       "title": "Égaliseur 10 bandes"
@@ -296,6 +314,7 @@
     "bluetooth": "Bluetooth",
     "macOS": "macOS"  },
   "clientDetails": {
+    "editClient": "Modifier le client",
     "viewDetails": "Voir les détails du client",
     "displayName": "Nom affiché",
     "latency": "Latence (ms)",

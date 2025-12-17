@@ -31,8 +31,10 @@
           >
             <!-- Separator line above each row -->
             <div class="client-separator"></div>
-            <span class="client-name heading-3" :class="{ 'muted': getClientMute(client.id) }">
+            <span class="client-name heading-3" :class="{ 'muted': getClientMute(client.id), 'offline': !client.available }">
               {{ client.name }}
+              <span v-if="dspStore.isClientSubwoofer(client.id)" class="badge-sub">Sub</span>
+              <span v-if="!client.available" class="badge-offline">{{ $t('dsp.linkedClients.offline', 'Offline') }}</span>
             </span>
             <div class="volume-control">
               <RangeSlider
@@ -42,7 +44,7 @@
                 :step="1"
                 show-value
                 value-unit=" dB"
-                :disabled="getClientMute(client.id) || disabled"
+                :disabled="getClientMute(client.id) || !client.available || disabled"
                 @input="(v) => handleVolumeInput(client.id, v)"
                 @change="(v) => handleVolumeChange(client.id, v)"
               />
@@ -208,6 +210,14 @@ const selectedZoneName = computed(() => {
   return tab ? tab.label : '';
 });
 
+// Selected client IDs (for level meters aggregation)
+const selectedClientIds = computed(() => {
+  if (isZoneSelected.value) {
+    return selectedTargetLocal.value.replace('zone:', '').split(',');
+  }
+  return [selectedTargetLocal.value];
+});
+
 // === VOLUME HELPERS ===
 function getClientVolume(clientId) {
   return Math.round(dspStore.getClientDspVolume(clientId));
@@ -269,21 +279,8 @@ function handleVolumeChange(clientId, value) {
 }
 
 async function handleMuteToggle(clientId, muted) {
-  dspStore.setClientDspMute(clientId, muted);
-
-  // Update via API
-  if (clientId === 'local' || clientId === dspStore.selectedTarget) {
-    await dspStore.updateDspMute(muted);
-  } else {
-    // For remote clients, we need to call the specific endpoint
-    // This is handled through the DSP store's client API
-    try {
-      const axios = (await import('axios')).default;
-      await axios.put(`/api/dsp/client/${clientId}/mute`, { muted });
-    } catch (error) {
-      console.error(`Error updating mute for ${clientId}:`, error);
-    }
-  }
+  // Mute only this specific client, not all zone members
+  await dspStore.updateClientDspMute(clientId, muted);
 }
 
 // Sync local target with store
@@ -305,8 +302,8 @@ watch(zoneTabs, (tabs) => {
   }
 }, { immediate: true });
 
-// Expose selectedZoneName for parent components
-defineExpose({ selectedZoneName });
+// Expose selectedZoneName and selectedClientIds for parent components
+defineExpose({ selectedZoneName, selectedClientIds });
 </script>
 
 <style scoped>
@@ -383,6 +380,39 @@ defineExpose({ selectedZoneName });
 
 .client-name.muted {
   color: var(--color-text-light);
+}
+
+.client-name.offline {
+  color: var(--color-text-light);
+  font-style: italic;
+}
+
+/* Offline badge */
+.badge-offline {
+  display: inline-block;
+  background: var(--color-background-medium);
+  color: var(--color-text-light);
+  padding: 1px 6px;
+  border-radius: var(--radius-02);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  margin-left: var(--space-02);
+  vertical-align: middle;
+}
+
+/* Subwoofer badge */
+.badge-sub {
+  display: inline-block;
+  background: var(--color-brand);
+  color: var(--color-text-inverse);
+  padding: 1px 6px;
+  border-radius: var(--radius-02);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-left: var(--space-02);
+  vertical-align: middle;
 }
 
 /* Single client row */

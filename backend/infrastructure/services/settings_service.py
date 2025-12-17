@@ -235,6 +235,12 @@ class SettingsService:
             # Preserve DSP section as-is (no strict validation)
             validated['dsp'] = dsp_input
 
+        # Multiroom (client_types for crossover) - Preserve multiroom section without strict validation
+        multiroom_input = settings.get('multiroom', {})
+        if multiroom_input:
+            # Preserve multiroom section as-is (no strict validation)
+            validated['multiroom'] = multiroom_input
+
         return validated
     
     def get_setting_sync(self, key_path: str) -> Any:

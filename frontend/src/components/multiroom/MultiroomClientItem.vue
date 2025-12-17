@@ -14,7 +14,7 @@
         class="client-name heading-2"
         :class="{
           'visible': !isLoading,
-          'muted': client.muted
+          'muted': client.dspMuted
         }"
       >
         <span class="name-text">{{ client.name }}</span>
@@ -35,7 +35,7 @@
         class="volume-control"
         :class="{
           'visible': !isLoading,
-          'muted': client.muted
+          'muted': client.dspMuted
         }"
       >
         <RangeSlider
@@ -43,7 +43,7 @@
           :min="sliderMin"
           :max="sliderMax"
           :step="1"
-          :disabled="client.muted || isLoading"
+          :disabled="client.dspMuted || isLoading"
           show-value
           value-unit=" dB"
           @input="handleVolumeInput"
@@ -66,7 +66,7 @@
         :class="{ 'visible': !isLoading }"
       >
         <Toggle
-          :model-value="!client.muted"
+          :model-value="!client.dspMuted"
           type="background-strong"
           @change="handleMuteToggle"
         />

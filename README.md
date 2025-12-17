@@ -2,7 +2,7 @@
   <img style="pointer-events:none" src="https://leodurand.com/_autres/cover-milo-github@2x.png" />
 </picture>
 
-# Milō
+# Milō (⚠️WIP⚠️)
 
 > Transform your Raspberry Pi into a multiroom audio system with Spotify Connect, Bluetooth, Internet Radio, Podcasts, and Mac streaming.
 
@@ -11,7 +11,6 @@
 
 ## Audio Sources
 
-| Source | Description |
 |--------|-------------|
 | 🎵 **Spotify Connect** | See what's playing and control playback |
 | 📱 **Bluetooth** | Pair any device and stream audio |
@@ -21,7 +20,6 @@
 
 ## Features
 
-| Feature | Description |
 |---------|-------------|
 | 🔊 **Multiroom** | Synchronized playback across multiple speakers |
 | 🎛️ **10-band Equalizer** | Adjust audio frequencies for all speakers |
@@ -29,7 +27,6 @@
 
 ## Hardware
 
-| Component | Requirement |
 |-----------|-------------|
 | **Board** | Raspberry Pi 4 or 5 (64-bit) |
 | **Audio** | HiFiBerry HAT (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate) |

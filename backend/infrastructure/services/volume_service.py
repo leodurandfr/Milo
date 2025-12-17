@@ -264,7 +264,7 @@ class VolumeService:
             volume_db: Volume in dB
             broadcast: Whether to broadcast volume change to update VolumeBar
         """
-        self._multiroom_handler.update_client_volume_db(client_id, volume_db)
+        await self._multiroom_handler.update_client_volume_db(client_id, volume_db)
 
         # Broadcast updated average to VolumeBar (without showing the bar)
         if broadcast and self._is_multiroom_enabled():

@@ -27,6 +27,7 @@ from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.program_version_service import ProgramVersionService
 from backend.infrastructure.services.program_update_service import ProgramUpdateService
 from backend.infrastructure.services.satellite_program_update_service import SatelliteProgramUpdateService
+from backend.infrastructure.services.crossover_service import CrossoverService
 
 class Container(containers.DeclarativeContainer):
     """Dependency injection container for Milo with SettingsService injection"""
@@ -106,6 +107,13 @@ class Container(containers.DeclarativeContainer):
     satellite_program_update_service = providers.Singleton(
         SatelliteProgramUpdateService,
         snapcast_service=snapcast_service
+    )
+
+    # Crossover service for subwoofer integration
+    crossover_service = providers.Singleton(
+        CrossoverService,
+        settings_service=settings_service,
+        dsp_service=camilladsp_service
     )
 
     # Audio plugins with SettingsService instead of static config
@@ -246,6 +254,7 @@ class Container(containers.DeclarativeContainer):
         screen_controller = container.screen_controller()
         snapcast_websocket_service = container.snapcast_websocket_service()
         camilladsp_service = container.camilladsp_service()
+        crossover_service = container.crossover_service()
 
         # ============================================================
         # STEP 2: Resolve circular dependencies (CRITICAL ORDER)
@@ -279,6 +288,10 @@ class Container(containers.DeclarativeContainer):
         #       Allows routing_service to connect/disconnect CamillaDSP when DSP is enabled/disabled
         routing_service.set_camilladsp_service(camilladsp_service)
 
+        # 2.8 - crossover_service → state_machine
+        #       Allows crossover_service to broadcast events
+        crossover_service.set_state_machine(state_machine)
+
         # ============================================================
         # STEP 3: Register plugins (MUST be done BEFORE init_async)
         # ============================================================
@@ -311,7 +324,8 @@ class Container(containers.DeclarativeContainer):
                 ("rotary_controller", rotary_controller.initialize()),
                 ("screen_controller", screen_controller.initialize()),
                 ("snapcast_websocket_service", snapcast_websocket_service.initialize()),
-                ("camilladsp_service", camilladsp_service.initialize())
+                ("camilladsp_service", camilladsp_service.initialize()),
+                ("crossover_service", crossover_service.initialize())
             ]
 
             # Run all initializations in parallel with gather

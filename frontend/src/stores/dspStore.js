@@ -93,6 +93,27 @@ export const useDspStore = defineStore('dsp', () => {
   // Structure: [{ id: 'group_1', client_ids: ['local', 'milo-client-01'] }]
   const linkedGroups = ref([]);
 
+  // Client types (speaker type + crossover) - { clientId: { speaker_type: 'satellite'|'bookshelf'|'tower'|'subwoofer', crossover_frequency: number|null } }
+  const clientTypes = ref({});
+
+  // Default crossover frequencies per speaker type (mirrors backend)
+  const DEFAULT_CROSSOVER_FREQUENCIES = {
+    satellite: 120,
+    bookshelf: 80,
+    tower: 50,
+    subwoofer: null
+  };
+
+  // Zone crossover settings - { zoneId: { frequency: 80, enabled: true, has_subwoofer: false } }
+  const zoneCrossover = ref({});
+
+  // Propagation errors - for showing failed client syncs
+  // Structure: [{ clientId: 'hostname', setting: 'filter', error: 'Cannot reach client', timestamp: Date }]
+  const propagationErrors = ref([]);
+
+  // Auto-clear errors after 10 seconds
+  let errorClearTimeout = null;
+
   // AbortController for cancelling ongoing requests
   let loadAbortController = null;
 
@@ -212,6 +233,36 @@ export const useDspStore = defineStore('dsp', () => {
     } catch (error) {
       console.error('Error fetching linked groups:', error);
       return [];
+    }
+  }
+
+  async function fetchClientTypes() {
+    try {
+      const response = await axios.get('/api/dsp/client-types');
+      return response.data.client_types || {};
+    } catch (error) {
+      console.error('Error fetching client types:', error);
+      return {};
+    }
+  }
+
+  async function fetchZoneCrossover(zoneId) {
+    try {
+      const response = await axios.get(`/api/dsp/links/${zoneId}/crossover`);
+      return response.data || { frequency: 80, enabled: false, has_subwoofer: false };
+    } catch (error) {
+      console.error('Error fetching zone crossover:', error);
+      return { frequency: 80, enabled: false, has_subwoofer: false };
+    }
+  }
+
+  async function fetchZoneAutoCrossover(zoneId) {
+    try {
+      const response = await axios.get(`/api/dsp/links/${zoneId}/auto-crossover`);
+      return response.data.frequency || 80;
+    } catch (error) {
+      console.error('Error fetching zone auto crossover:', error);
+      return 80;
     }
   }
 
@@ -424,40 +475,180 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
-  // Propagate a filter update to linked clients
+  /**
+   * Update mute for a specific client WITHOUT zone propagation.
+   * Mutes only the specified client, even if it's part of a zone.
+   * @param {string} clientId - Client DSP ID ('local' or hostname)
+   * @param {boolean} muted - Mute state
+   * @returns {Promise<boolean>} Success status
+   */
+  async function updateClientDspMute(clientId, muted) {
+    try {
+      setClientDspMute(clientId, muted);
+      const apiBase = getApiBaseForTarget(clientId);
+      await axios.put(`${apiBase}/mute`, { muted });
+      return true;
+    } catch (error) {
+      console.error(`Error updating mute for ${clientId}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Update mute for a specific client with zone propagation.
+   * If the client is part of a zone, mute/unmute all zone members.
+   * @param {string} clientId - Client DSP ID ('local' or hostname)
+   * @param {boolean} muted - Mute state
+   * @returns {Promise<boolean>} Success status
+   */
+  async function updateClientDspMuteWithPropagation(clientId, muted) {
+    try {
+      // Get all linked clients for this client (includes itself if in a zone)
+      const linkedIds = getLinkedClientIds(clientId);
+      const isZone = linkedIds.length > 1;
+
+      // Update cache for all affected clients
+      if (isZone) {
+        linkedIds.forEach(id => setClientDspMute(id, muted));
+      } else {
+        setClientDspMute(clientId, muted);
+      }
+
+      // Call API for the specified client
+      const apiBase = getApiBaseForTarget(clientId);
+      await axios.put(`${apiBase}/mute`, { muted });
+
+      // If part of a zone, propagate to all other zone members
+      if (isZone) {
+        const otherClients = linkedIds.filter(id => id !== clientId);
+        const promises = otherClients.map(async (targetId) => {
+          try {
+            await axios.put(`${getApiBaseForTarget(targetId)}/mute`, { muted });
+          } catch (error) {
+            console.error(`Error propagating mute to ${targetId}:`, error);
+          }
+        });
+        await Promise.all(promises);
+      }
+
+      return true;
+    } catch (error) {
+      console.error(`Error updating mute for ${clientId}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Propagate a filter update to linked clients.
+   * @param {string} filterId - Filter ID to update
+   * @param {object} filterData - Filter data to propagate
+   * @returns {{ success: boolean, errors: Array<{targetId: string, error: string}> }}
+   */
   async function propagateFilterToLinkedClients(filterId, filterData) {
     const linkedIds = getLinkedClientIds(selectedTarget.value);
-    if (linkedIds.length <= 1) return; // No linked clients
+    if (linkedIds.length <= 1) return { success: true, errors: [] };
 
+    const errors = [];
     const promises = linkedIds
       .filter(id => id !== selectedTarget.value)
       .map(async (targetId) => {
         try {
           await axios.put(`${getApiBaseForTarget(targetId)}/filter/${filterId}`, filterData);
         } catch (error) {
+          const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
           console.error(`Error propagating filter to ${targetId}:`, error);
+          errors.push({ targetId, endpoint: `filter/${filterId}`, error: errorMsg });
         }
       });
 
     await Promise.all(promises);
+
+    // Track errors for UI notification
+    if (errors.length > 0) {
+      addPropagationErrors(errors.map(e => ({
+        clientId: e.targetId,
+        setting: `filter/${filterId}`,
+        error: e.error
+      })));
+    }
+
+    return { success: errors.length === 0, errors };
   }
 
-  // Propagate any DSP setting to linked clients
+  /**
+   * Propagate any DSP setting to linked clients.
+   * @param {string} endpoint - API endpoint (e.g., 'mute', 'compressor')
+   * @param {object} data - Data to propagate
+   * @returns {{ success: boolean, errors: Array<{targetId: string, error: string}> }}
+   */
   async function propagateToLinkedClients(endpoint, data) {
     const linkedIds = getLinkedClientIds(selectedTarget.value);
-    if (linkedIds.length <= 1) return; // No linked clients
+    if (linkedIds.length <= 1) return { success: true, errors: [] };
 
+    const errors = [];
     const promises = linkedIds
       .filter(id => id !== selectedTarget.value)
       .map(async (targetId) => {
         try {
           await axios.put(`${getApiBaseForTarget(targetId)}/${endpoint}`, data);
         } catch (error) {
+          const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
           console.error(`Error propagating ${endpoint} to ${targetId}:`, error);
+          errors.push({ targetId, endpoint, error: errorMsg });
         }
       });
 
     await Promise.all(promises);
+
+    // Track errors for UI notification
+    if (errors.length > 0) {
+      addPropagationErrors(errors.map(e => ({
+        clientId: e.targetId,
+        setting: endpoint,
+        error: e.error
+      })));
+    }
+
+    return { success: errors.length === 0, errors };
+  }
+
+  /**
+   * Add propagation errors to the list (for UI notification)
+   */
+  function addPropagationErrors(newErrors) {
+    const now = Date.now();
+    const errorEntries = newErrors.map(e => ({
+      ...e,
+      timestamp: now
+    }));
+    propagationErrors.value = [...propagationErrors.value, ...errorEntries];
+
+    // Auto-clear errors after 10 seconds
+    if (errorClearTimeout) {
+      clearTimeout(errorClearTimeout);
+    }
+    errorClearTimeout = setTimeout(() => {
+      clearPropagationErrors();
+    }, 10000);
+  }
+
+  /**
+   * Clear all propagation errors
+   */
+  function clearPropagationErrors() {
+    propagationErrors.value = [];
+    if (errorClearTimeout) {
+      clearTimeout(errorClearTimeout);
+      errorClearTimeout = null;
+    }
+  }
+
+  /**
+   * Get friendly client name for error display
+   */
+  function getClientDisplayName(clientId) {
+    const target = availableTargets.value.find(t => t.id === clientId);
+    return target?.name || clientId;
   }
 
   // === ACTIONS ===
@@ -756,7 +947,16 @@ export const useDspStore = defineStore('dsp', () => {
       if (response.data.status === 'success') {
         // Update unified cache for selected target
         setClientDspMute(selectedTarget.value, muted);
-        // Mute is NOT propagated to linked clients (independent per client in zones)
+
+        // Propagate mute to all linked clients in the zone
+        const linkedIds = getLinkedClientIds(selectedTarget.value);
+        if (linkedIds.length > 1) {
+          // Update cache for all linked clients
+          linkedIds.forEach(id => setClientDspMute(id, muted));
+          // Propagate to remote clients
+          await propagateToLinkedClients('mute', { muted });
+        }
+
         return true;
       }
       return false;
@@ -769,9 +969,10 @@ export const useDspStore = defineStore('dsp', () => {
   // === TARGET MANAGEMENT ===
 
   async function loadTargets() {
-    const [targets, groups] = await Promise.all([
+    const [targets, groups, types] = await Promise.all([
       fetchAvailableTargets(),
-      fetchLinkedGroups()
+      fetchLinkedGroups(),
+      fetchClientTypes()
     ]);
     if (targets.length > 0) {
       availableTargets.value = targets;
@@ -780,6 +981,7 @@ export const useDspStore = defineStore('dsp', () => {
       await loadAllClientDspVolumes(clients);
     }
     linkedGroups.value = groups;
+    clientTypes.value = types;
   }
 
   async function selectTarget(targetId) {
@@ -899,9 +1101,214 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
+  // === SPEAKER TYPE / CROSSOVER MANAGEMENT ===
+
+  /**
+   * Get the speaker type for a client
+   * @param {string} clientId - Client ID (dsp_id)
+   * @returns {string} Speaker type: 'satellite', 'bookshelf', 'tower', or 'subwoofer'
+   */
+  function getClientSpeakerType(clientId) {
+    const clientData = clientTypes.value[clientId];
+    if (!clientData) return 'bookshelf';
+    // Migration: handle old is_subwoofer format
+    if ('is_subwoofer' in clientData && !('speaker_type' in clientData)) {
+      return clientData.is_subwoofer ? 'subwoofer' : 'bookshelf';
+    }
+    return clientData.speaker_type || 'bookshelf';
+  }
+
+  /**
+   * Get the crossover frequency for a client
+   * @param {string} clientId - Client ID (dsp_id)
+   * @returns {number|null} Crossover frequency in Hz, or null for subwoofer
+   */
+  function getClientCrossoverFrequency(clientId) {
+    const clientData = clientTypes.value[clientId];
+    if (clientData?.crossover_frequency !== undefined) {
+      return clientData.crossover_frequency;
+    }
+    // Return default based on speaker type
+    const speakerType = getClientSpeakerType(clientId);
+    return DEFAULT_CROSSOVER_FREQUENCIES[speakerType] ?? 80;
+  }
+
+  /**
+   * Check if a client is marked as a subwoofer (derived from speaker_type)
+   * @param {string} clientId - Client ID (dsp_id)
+   * @returns {boolean} True if client is a subwoofer
+   */
+  function isClientSubwoofer(clientId) {
+    return getClientSpeakerType(clientId) === 'subwoofer';
+  }
+
+  /**
+   * Set the speaker type for a client
+   * @param {string} clientId - Client ID (dsp_id)
+   * @param {string} speakerType - 'satellite', 'bookshelf', 'tower', or 'subwoofer'
+   * @returns {Promise<boolean>} Success status
+   */
+  async function setClientSpeakerType(clientId, speakerType) {
+    try {
+      const response = await axios.put(`/api/dsp/client/${clientId}/speaker-type`, {
+        speaker_type: speakerType
+      });
+      if (response.data.status === 'success') {
+        clientTypes.value[clientId] = {
+          speaker_type: speakerType,
+          crossover_frequency: response.data.crossover_frequency
+        };
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error setting client speaker type:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Set custom crossover frequency for a client
+   * @param {string} clientId - Client ID (dsp_id)
+   * @param {number} frequency - Crossover frequency in Hz (20-200)
+   * @returns {Promise<boolean>} Success status
+   */
+  async function setClientCrossoverFrequency(clientId, frequency) {
+    try {
+      const response = await axios.put(`/api/dsp/client/${clientId}/crossover-frequency`, {
+        frequency
+      });
+      if (response.data.status === 'success') {
+        clientTypes.value[clientId] = {
+          speaker_type: response.data.speaker_type,
+          crossover_frequency: response.data.crossover_frequency
+        };
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error setting client crossover frequency:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if a zone has a subwoofer
+   * @param {string} zoneId - Zone ID
+   * @returns {boolean} True if zone contains a subwoofer client
+   */
+  function hasSubwooferInZone(zoneId) {
+    const zone = linkedGroups.value.find(g => g.id === zoneId);
+    if (!zone) return false;
+    return zone.client_ids?.some(clientId => isClientSubwoofer(clientId)) || false;
+  }
+
+  /**
+   * Get crossover settings for a zone
+   * @param {string} zoneId - Zone ID
+   * @returns {Object} Crossover settings { frequency, enabled, has_subwoofer }
+   */
+  function getZoneCrossoverSettings(zoneId) {
+    return zoneCrossover.value[zoneId] || { frequency: 80, enabled: false, has_subwoofer: false };
+  }
+
+  /**
+   * Get automatic crossover frequency for a zone (MIN of speaker frequencies)
+   * @param {string} zoneId - Zone ID
+   * @returns {Promise<number>} Crossover frequency in Hz
+   */
+  async function getZoneAutoCrossover(zoneId) {
+    return await fetchZoneAutoCrossover(zoneId);
+  }
+
+  /**
+   * Update crossover frequency for a zone
+   * @param {string} zoneId - Zone ID
+   * @param {number} frequency - Crossover frequency in Hz (40-200)
+   * @returns {Promise<boolean>} Success status
+   */
+  async function setZoneCrossoverFrequency(zoneId, frequency) {
+    try {
+      const response = await axios.put(`/api/dsp/links/${zoneId}/crossover`, { frequency });
+      if (response.data.status === 'success') {
+        zoneCrossover.value[zoneId] = {
+          ...zoneCrossover.value[zoneId],
+          frequency: response.data.frequency,
+          enabled: response.data.enabled,
+          has_subwoofer: response.data.has_subwoofer
+        };
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error setting zone crossover:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Manually apply crossover to all clients in a zone
+   * @param {string} zoneId - Zone ID
+   * @returns {Promise<boolean>} Success status
+   */
+  async function applyZoneCrossover(zoneId) {
+    try {
+      const response = await axios.post(`/api/dsp/links/${zoneId}/crossover/apply`);
+      return response.data.status === 'success';
+    } catch (error) {
+      console.error('Error applying zone crossover:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Load client types and crossover settings
+   */
+  async function loadCrossoverSettings() {
+    const types = await fetchClientTypes();
+    clientTypes.value = types;
+
+    // Load crossover settings for each zone
+    for (const zone of linkedGroups.value) {
+      const crossover = await fetchZoneCrossover(zone.id);
+      zoneCrossover.value[zone.id] = crossover;
+    }
+  }
+
   function handleLinksChanged(event) {
     if (event.data && event.data.linked_groups !== undefined) {
       linkedGroups.value = event.data.linked_groups;
+    }
+  }
+
+  function handleClientTypeChanged(event) {
+    if (event.data) {
+      const { client_id, speaker_type, crossover_frequency } = event.data;
+      if (client_id && speaker_type) {
+        clientTypes.value[client_id] = { speaker_type, crossover_frequency };
+      }
+    }
+  }
+
+  function handleClientCrossoverChanged(event) {
+    if (event.data) {
+      const { client_id, crossover_frequency } = event.data;
+      if (client_id && crossover_frequency !== undefined) {
+        const currentType = clientTypes.value[client_id]?.speaker_type || 'bookshelf';
+        clientTypes.value[client_id] = {
+          speaker_type: currentType,
+          crossover_frequency
+        };
+      }
+    }
+  }
+
+  function handleZoneCrossoverChanged(event) {
+    if (event.data) {
+      const { zone_id, frequency, enabled, has_subwoofer } = event.data;
+      if (zone_id) {
+        zoneCrossover.value[zone_id] = { frequency, enabled, has_subwoofer };
+      }
     }
   }
 
@@ -957,10 +1364,10 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   function handleMuteChanged(event) {
-    if (event.data.muted !== undefined) {
-      // Update unified cache for selected target
-      setClientDspMute(selectedTarget.value, event.data.muted);
-    }
+    // No-op: Mute state is managed locally by updateClientDspMute/updateDspMute.
+    // WebSocket event doesn't include client ID, so we can't reliably update
+    // the correct client's mute state. All mute changes go through store
+    // functions which update the cache before making API calls.
   }
 
   // === CLEANUP ===
@@ -1093,6 +1500,25 @@ export const useDspStore = defineStore('dsp', () => {
     getZoneName,
     getZoneGroup,
 
+    // Speaker Type / Crossover Management
+    clientTypes,
+    zoneCrossover,
+    DEFAULT_CROSSOVER_FREQUENCIES,
+    getClientSpeakerType,
+    getClientCrossoverFrequency,
+    setClientSpeakerType,
+    setClientCrossoverFrequency,
+    isClientSubwoofer,
+    hasSubwooferInZone,
+    getZoneCrossoverSettings,
+    getZoneAutoCrossover,
+    setZoneCrossoverFrequency,
+    applyZoneCrossover,
+    loadCrossoverSettings,
+    handleClientTypeChanged,
+    handleClientCrossoverChanged,
+    handleZoneCrossoverChanged,
+
     // Preset Management
     savePreset,
     loadPreset,
@@ -1116,6 +1542,13 @@ export const useDspStore = defineStore('dsp', () => {
     getClientDspMute,
     clearClientDspVolumes,
     applyGlobalDelta,
+    updateClientDspMute,
+    updateClientDspMuteWithPropagation,
+
+    // Propagation Errors
+    propagationErrors,
+    clearPropagationErrors,
+    getClientDisplayName,
 
     // WebSocket Handlers
     handleFilterChanged,

@@ -92,6 +92,12 @@ function getZoneAverageVolume(zone) {
   return volumes.reduce((sum, v) => sum + v, 0) / volumes.length;
 }
 
+// Check if a zone is muted (ALL clients must be muted)
+function getZoneMuted(zone) {
+  if (!zone?.client_ids?.length) return false;
+  return zone.client_ids.every(dspId => dspStore.getClientDspMute(dspId));
+}
+
 // Track starting state when zone slider drag begins
 // Structure: { zoneId: { startAvg, clientStarts: { dspId: volume } } }
 const zoneSliderState = ref({});
@@ -166,7 +172,7 @@ const displayClients = computed(() => {
       id: `placeholder-${i}`,
       name: '',
       volume: 0,
-      muted: false
+      dspMuted: false
     }));
   }
 
@@ -176,17 +182,18 @@ const displayClients = computed(() => {
       id: `placeholder-${i}`,
       name: '',
       volume: 0,
-      muted: false
+      dspMuted: false
     }));
   }
 
-  // Add dspVolume from cache to each client (volume always in dB via DSP)
+  // Add dspVolume and dspMuted from cache to each client
   // If there are linked groups, filter to show only zone primaries
   if (linkedGroups.value.length > 0) {
     return multiroomStore.clients
       .filter(client => isZonePrimary(client))
       .map(client => {
         const dspVol = dspStore.getClientDspVolume(client.dsp_id);
+        const dspMut = dspStore.getClientDspMute(client.dsp_id);
         const zone = getZoneForClient(client);
 
         if (zone) {
@@ -208,18 +215,20 @@ const displayClients = computed(() => {
             name: zoneName,
             zoneClients: clientNames,
             dspVolume: zoneVolume,
+            dspMuted: getZoneMuted(zone),
             volumeLoading: zoneVolume === null,  // Flag to show loading state
             zoneClientIds: zone.client_ids  // Needed for delta calculation
           };
         }
-        return { ...client, dspVolume: dspVol };
+        return { ...client, dspVolume: dspVol, dspMuted: dspMut };
       });
   }
 
-  // No linked groups - just add dspVolume to each client
+  // No linked groups - just add dspVolume and dspMuted to each client
   return multiroomStore.clients.map(client => {
     const dspVol = dspStore.getClientDspVolume(client.dsp_id);
-    return { ...client, dspVolume: dspVol };
+    const dspMut = dspStore.getClientDspMute(client.dsp_id);
+    return { ...client, dspVolume: dspVol, dspMuted: dspMut };
   });
 });
 
@@ -261,7 +270,22 @@ async function handleVolumeChange(clientId, volumeDb) {
 }
 
 async function handleMuteToggle(clientId, muted) {
-  await multiroomStore.toggleClientMute(clientId, muted);
+  const client = multiroomStore.clients.find(c => c.id === clientId);
+  if (!client) return;
+
+  // Check if this client is part of a zone
+  const zone = getZoneForClient(client);
+
+  if (zone && zone.client_ids.length > 1) {
+    // Zone mute: mute ALL clients in the zone
+    const updatePromises = zone.client_ids.map(async (dspId) => {
+      await dspStore.updateClientDspMute(dspId, muted);
+    });
+    await Promise.all(updatePromises);
+  } else {
+    // Single client
+    await dspStore.updateClientDspMute(client.dsp_id, muted);
+  }
 }
 
 // === TRANSITION HELPERS ===
