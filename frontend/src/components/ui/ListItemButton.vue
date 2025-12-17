@@ -18,7 +18,7 @@
       class="list-item-button__title heading-3"
       :class="{ 'list-item-button__title--inactive': isActionInactive }"
     >
-      {{ title }}
+      <slot name="title">{{ title }}</slot>
     </span>
 
     <!-- Right-side action -->
@@ -39,7 +39,7 @@ import Radio from '@/components/ui/Radio.vue';
 const props = defineProps({
   title: {
     type: String,
-    required: true
+    default: ''
   },
   variant: {
     type: String,
@@ -172,6 +172,7 @@ function handleClick(event) {
   min-height: 40px;
   display: flex;
   align-items: center;
+  gap: var(--space-01);
   color: var(--color-text);
   transition: color var(--transition-fast);
 }
