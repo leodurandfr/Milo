@@ -40,6 +40,8 @@
     "disabled": "Multiroom is not enabled",
     "noClients": "No client is connected",
     "speakers": "Multiroom speakers",
+    "zonesAndSpeakers": "Zones and speakers",
+    "individualSpeakers": "Individual speakers",
     "loadingSpeakers": "Loading speakers...",
     "noSpeakers": "No speakers connected",
     "restarting": "Restarting multiroom...",

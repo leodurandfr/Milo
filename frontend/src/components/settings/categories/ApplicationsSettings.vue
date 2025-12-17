@@ -11,7 +11,7 @@
           <ListItemButton
             :title="t('applications.spotify')"
             :model-value="config.spotify"
-            :variant="config.spotify ? 'active' : 'inactive'"
+            variant="background"
             action="toggle"
             :disabled="!canDisableAudioSource('spotify')"
             @update:model-value="(val) => handleToggle('spotify', val)"
@@ -24,7 +24,7 @@
           <ListItemButton
             :title="t('applications.bluetooth')"
             :model-value="config.bluetooth"
-            :variant="config.bluetooth ? 'active' : 'inactive'"
+            variant="background"
             action="toggle"
             :disabled="!canDisableAudioSource('bluetooth')"
             @update:model-value="(val) => handleToggle('bluetooth', val)"
@@ -37,7 +37,7 @@
           <ListItemButton
             :title="t('applications.macOS')"
             :model-value="config.mac"
-            :variant="config.mac ? 'active' : 'inactive'"
+            variant="background"
             action="toggle"
             :disabled="!canDisableAudioSource('mac')"
             @update:model-value="(val) => handleToggle('mac', val)"
@@ -50,7 +50,7 @@
           <ListItemButton
             :title="t('audioSources.radio')"
             :model-value="config.radio"
-            :variant="config.radio ? 'active' : 'inactive'"
+            variant="background"
             action="toggle"
             :disabled="!canDisableAudioSource('radio')"
             @update:model-value="(val) => handleToggle('radio', val)"
@@ -63,7 +63,7 @@
           <ListItemButton
             :title="t('podcasts.podcasts')"
             :model-value="config.podcast"
-            :variant="config.podcast ? 'active' : 'inactive'"
+            variant="background"
             action="toggle"
             :disabled="!canDisableAudioSource('podcast')"
             @update:model-value="(val) => handleToggle('podcast', val)"
@@ -82,7 +82,7 @@
           <ListItemButton
             :title="t('multiroom.title')"
             :model-value="config.multiroom"
-            :variant="config.multiroom ? 'active' : 'inactive'"
+            variant="background"
             action="toggle"
             @update:model-value="(val) => handleToggle('multiroom', val)"
           >
@@ -94,7 +94,7 @@
           <ListItemButton
             :title="t('equalizer.title')"
             :model-value="config.equalizer"
-            :variant="config.equalizer ? 'active' : 'inactive'"
+            variant="background"
             action="toggle"
             @update:model-value="(val) => handleToggle('equalizer', val)"
           >
@@ -106,7 +106,7 @@
           <ListItemButton
             :title="t('common.settings')"
             :model-value="config.settings"
-            :variant="config.settings ? 'active' : 'inactive'"
+            variant="background"
             action="toggle"
             @update:model-value="(val) => handleToggle('settings', val)"
           >

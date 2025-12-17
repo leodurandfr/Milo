@@ -908,11 +908,21 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
                 raise HTTPException(status_code=500, detail="Settings service not available")
 
             linked_groups = await settings_service.get_setting("dsp.linked_groups") or []
-            updated_groups = [g for g in linked_groups if g.get("id") != group_id]
 
-            if len(updated_groups) == len(linked_groups):
+            # Find the zone to be deleted
+            zone_to_delete = next((g for g in linked_groups if g.get("id") == group_id), None)
+            if not zone_to_delete:
                 raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
 
+            # Disable crossover filters for all clients in this zone before deletion
+            if crossover_service:
+                for client_id in zone_to_delete.get("client_ids", []):
+                    await crossover_service._set_client_crossover(client_id, enabled=False, frequency=80)
+                    await crossover_service._set_client_lowpass(client_id, enabled=False, frequency=80)
+                    logger.info(f"Disabled crossover filters for client {client_id} (zone deleted)")
+
+            # Remove the zone from settings
+            updated_groups = [g for g in linked_groups if g.get("id") != group_id]
             await settings_service.set_setting("dsp.linked_groups", updated_groups)
             await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": updated_groups})
             return {"status": "success", "linked_groups": updated_groups}

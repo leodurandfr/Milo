@@ -260,7 +260,6 @@ async function handleCreate() {
     // Create the zone
     await dspStore.linkClients(selectedClients.value, null, zoneName.value || null);
 
-    emit('saved');
     emit('back');
   } catch (error) {
     console.error('Error creating zone:', error);
@@ -275,7 +274,6 @@ async function handleDelete() {
   deleting.value = true;
   try {
     await dspStore.deleteZone(props.groupId);
-    emit('saved');
     emit('back');
   } catch (error) {
     console.error('Error deleting zone:', error);
