@@ -12,10 +12,21 @@
         <!-- SETTINGS: Sections visible only if multiroom is enabled -->
         <Transition name="settings">
           <div v-if="isMultiroomActive" key="settings" class="settings-container">
-            <!-- Speakers & Zones Section -->
+            <!-- Zones & Speakers Section -->
             <section class="settings-section">
               <div class="multiroom-group">
-                <h2 class="heading-2">{{ t('multiroom.speakers') }}</h2>
+                <!-- Header: Title + Create Zone Button -->
+                <div class="section-header">
+                  <h2 class="heading-2">{{ t('multiroom.zonesAndSpeakers') }}</h2>
+                  <Button
+                    v-if="ungroupedClients.length >= 2"
+                    variant="brand"
+                    size="small"
+                    @click="handleCreateZone"
+                  >
+                    {{ t('dsp.zones.createZone', 'Create Zone') }}
+                  </Button>
+                </div>
 
                 <div v-if="multiroomStore.isLoading" class="loading-state">
                   <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
@@ -27,83 +38,36 @@
 
                 <div v-else class="speakers-list">
                   <!-- Zones -->
-                  <div
-                    v-for="zone in zones"
-                    :key="zone.id"
-                    class="zone-item"
-                  >
-                    <!-- Zone Header (Expandable) -->
-                    <div
-                      class="zone-header"
-                      @click="toggleZoneExpansion(zone.id)"
-                    >
-                      <span class="zone-expand-icon">{{ expandedZones.has(zone.id) ? '▼' : '▶' }}</span>
-                      <span class="zone-name heading-3">{{ zone.displayName }}</span>
-                      <span class="zone-count text-mono-small">{{ zone.clientCount }} {{ t('multiroom.speakers').toLowerCase() }}</span>
-                      <IconButton
-                        icon="caretRight"
-                        variant="background-strong"
-                        size="small"
-                        @click.stop="handleEditZone(zone.id)"
-                      />
-                    </div>
-
-                    <!-- Zone Members (Expanded) -->
-                    <Transition name="expand">
-                      <div v-if="expandedZones.has(zone.id)" class="zone-members">
-                        <div
-                          v-for="client in zone.clients"
-                          :key="client.id"
-                          class="client-row-simple"
-                        >
-                          <span class="client-name heading-3">
-                            {{ client.name }}
-                            <span v-if="dspStore.isClientSubwoofer(client.dsp_id)" class="badge badge-sub">Sub</span>
-                          </span>
-                          <IconButton
-                            icon="caretRight"
-                            variant="background-strong"
-                            size="small"
-                            @click="handleEditClient(client.id)"
-                          />
-                        </div>
-                      </div>
-                    </Transition>
-                  </div>
-
-                  <!-- Separator (if both zones and ungrouped clients exist) -->
-                  <div v-if="zones.length > 0 && ungroupedClients.length > 0" class="separator"></div>
-
-                  <!-- Ungrouped Clients -->
-                  <div
-                    v-for="client in ungroupedClients"
-                    :key="client.id"
-                    class="ungrouped-client"
-                  >
-                    <div class="client-row-simple">
-                      <span class="client-name heading-3">
-                        {{ client.name }}
-                        <span v-if="dspStore.isClientSubwoofer(client.dsp_id)" class="badge badge-sub">Sub</span>
-                      </span>
-                      <IconButton
-                        icon="caretRight"
-                        variant="background-strong"
-                        size="small"
+                  <div v-for="zone in zones" :key="zone.id" class="zone-group">
+                    <!-- Zone header (clickable) -->
+                    <ListItemButton
+                      :title="`Zone · ${zone.displayName}`"
+                      action="caret"
+                      @click="handleEditZone(zone.id)"
+                    />
+                    <!-- Zone clients -->
+                    <div class="zone-clients">
+                      <ListItemButton
+                        v-for="client in zone.clients"
+                        :key="client.id"
+                        :title="`${client.name} · ${getSpeakerTypeLabel(client.dsp_id)}`"
+                        action="caret"
                         @click="handleEditClient(client.id)"
                       />
                     </div>
                   </div>
 
-                  <!-- Create Zone Button -->
-                  <Button
-                    v-if="sortedMultiroomClients.length >= 2"
-                    variant="brand"
-                    size="medium"
-                    class="create-zone-button"
-                    @click="handleCreateZone"
-                  >
-                    {{ t('dsp.zones.createZone', 'Create Zone') }}
-                  </Button>
+                  <!-- Individual speakers section -->
+                  <template v-if="ungroupedClients.length > 0">
+                    <h3 v-if="zones.length > 0" class="heading-3 section-subtitle">{{ t('multiroom.individualSpeakers') }}</h3>
+                    <ListItemButton
+                      v-for="client in ungroupedClients"
+                      :key="client.id"
+                      :title="`${client.name} · ${getSpeakerTypeLabel(client.dsp_id)}`"
+                      action="caret"
+                      @click="handleEditClient(client.id)"
+                    />
+                  </template>
                 </div>
               </div>
             </section>
@@ -181,7 +145,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useDspStore } from '@/stores/dspStore';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
-import IconButton from '@/components/ui/IconButton.vue';
+import ListItemButton from '@/components/ui/ListItemButton.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
 const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client']);
@@ -200,9 +164,6 @@ const contentWrapperRef = ref(null);
 const containerHeight = ref('auto');
 let resizeObserver = null;
 let isFirstResize = true;
-
-// Zone expansion state
-const expandedZones = ref(new Set());
 
 // Sorted clients with "milo" first
 const sortedMultiroomClients = computed(() => multiroomStore.sortedClients);
@@ -248,15 +209,10 @@ const ungroupedClients = computed(() => {
     }));
 });
 
-// Toggle zone expansion
-function toggleZoneExpansion(zoneId) {
-  if (expandedZones.value.has(zoneId)) {
-    expandedZones.value.delete(zoneId);
-  } else {
-    expandedZones.value.add(zoneId);
-  }
-  // Force reactivity
-  expandedZones.value = new Set(expandedZones.value);
+// Get translated speaker type label
+function getSpeakerTypeLabel(clientDspId) {
+  const speakerType = dspStore.getClientSpeakerType(clientDspId);
+  return t(`multiroom.speakerTypes.${speakerType}`);
 }
 
 // Navigation handlers - emit to parent (SettingsModal)
@@ -450,6 +406,14 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
 }
 
+/* Section header with title and button */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-03);
+}
+
 /* Speakers list */
 .speakers-list {
   display: flex;
@@ -457,113 +421,26 @@ onUnmounted(() => {
   gap: var(--space-02);
 }
 
-/* Zone item */
-.zone-item {
-  background: var(--color-background-strong);
-  border-radius: var(--radius-04);
-  overflow: hidden;
-}
-
-.zone-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-03);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
-
-.zone-header:hover {
-  background: var(--color-background-medium);
-}
-
-.zone-expand-icon {
-  font-size: 10px;
-  color: var(--color-text-secondary);
-  width: 12px;
-  text-align: center;
-}
-
-.zone-name {
-  flex: 1;
-  color: var(--color-text);
-}
-
-.zone-count {
-  color: var(--color-text-secondary);
-}
-
-/* Zone members (expanded) */
-.zone-members {
+/* Zone group (zone header + clients) */
+.zone-group {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--color-border);
-  padding: 0 var(--space-03);
+  gap: var(--space-01);
 }
 
-/* Client row (simplified - no volume/mute controls) */
-.client-row-simple {
+/* Zone clients (indented under zone) */
+.zone-clients {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-03);
-  padding: var(--space-03) 0;
+  flex-direction: column;
+  gap: var(--space-01);
+  padding-left: var(--space-04);
 }
 
-.client-row-simple:not(:last-child) {
-  border-bottom: 1px solid var(--color-border);
-}
-
-/* Separator */
-.separator {
-  height: 1px;
-  background: var(--color-border);
-  margin: var(--space-02) 0;
-}
-
-/* Ungrouped client */
-.ungrouped-client {
-  background: var(--color-background-strong);
-  border-radius: var(--radius-04);
-  padding: 0 var(--space-03);
-}
-
-.ungrouped-client .client-row-simple {
-  border-bottom: none;
-}
-
-.client-name {
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: var(--space-02);
-}
-
-/* Badge styles */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px 6px;
-  border-radius: var(--radius-02);
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  flex-shrink: 0;
-}
-
-.badge-sub {
-  background: var(--color-brand);
-  color: var(--color-text-on-brand);
-}
-
-/* Create zone button */
-.create-zone-button {
-  margin-top: var(--space-02);
+/* Section subtitle (e.g., "Individual speakers") */
+.section-subtitle {
+  color: var(--color-text-secondary);
+  margin-top: var(--space-03);
+  margin-bottom: var(--space-01);
 }
 
 /* Presets and codec buttons */
@@ -600,25 +477,6 @@ onUnmounted(() => {
   bottom: 0;
   width: 100%;
   z-index: 10;
-}
-
-/* Expand transition */
-.expand-enter-active,
-.expand-leave-active {
-  transition: all var(--transition-normal);
-  overflow: hidden;
-}
-
-.expand-enter-from,
-.expand-leave-to {
-  opacity: 0;
-  max-height: 0;
-}
-
-.expand-enter-to,
-.expand-leave-from {
-  opacity: 1;
-  max-height: 500px;
 }
 
 /* Transitions for settings */

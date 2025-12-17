@@ -273,6 +273,48 @@
           />
         </div>
       </div>
+
+      <!-- Radio -->
+      <div class="component-block">
+        <h3 class="heading-2">Radio</h3>
+        <p class="text-mono text-secondary">32px circle button | Inactive: grey (#A6ACA6) | Active: brand (#FF6428)</p>
+
+        <div class="controls-panel">
+          <label class="control-item">
+            <input type="checkbox" v-model="radioState.disabled" />
+            <span class="text-mono">disabled</span>
+          </label>
+        </div>
+
+        <div class="preview-container">
+          <Radio
+            v-model="radioState.value"
+            :disabled="radioState.disabled"
+          />
+        </div>
+
+        <!-- All states overview -->
+        <h4 class="heading-3">All States</h4>
+        <div class="component-grid">
+          <div class="component-row">
+            <h5 class="heading-4">states</h5>
+            <div class="component-states">
+              <div class="component-state">
+                <Radio :model-value="false" />
+                <span class="text-mono">inactive</span>
+              </div>
+              <div class="component-state">
+                <Radio :model-value="true" />
+                <span class="text-mono">active</span>
+              </div>
+              <div class="component-state">
+                <Radio :model-value="false" disabled />
+                <span class="text-mono">disabled</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- ==================== SLIDERS ==================== -->
@@ -376,15 +418,14 @@
       <!-- ListItemButton -->
       <div class="component-block">
         <h3 class="heading-2">ListItemButton</h3>
-        <p class="text-mono text-secondary">Variants: default, active, inactive | Actions: none, caret, toggle</p>
+        <p class="text-mono text-secondary">Variants: background-neutral, background | Actions: none, caret, toggle, radio | Text color auto-deduced from action state</p>
 
         <div class="controls-panel">
           <label class="control-item">
             <span class="text-mono">variant</span>
             <select v-model="listItemState.variant">
-              <option value="default">default</option>
-              <option value="active">active</option>
-              <option value="inactive">inactive</option>
+              <option value="background-neutral">background-neutral</option>
+              <option value="background">background</option>
             </select>
           </label>
           <label class="control-item">
@@ -393,6 +434,7 @@
               <option value="none">none</option>
               <option value="caret">caret</option>
               <option value="toggle">toggle</option>
+              <option value="radio">radio</option>
             </select>
           </label>
           <label class="control-item">
@@ -426,7 +468,7 @@
         <h4 class="heading-3">All Variants</h4>
         <div class="component-grid">
           <div class="component-row">
-            <h5 class="heading-4">default (navigation)</h5>
+            <h5 class="heading-4">background-neutral (white)</h5>
             <div class="component-states component-states--vertical">
               <ListItemButton title="With caret" action="caret">
                 <template #icon><SvgIcon name="settings" :size="40" /></template>
@@ -437,26 +479,43 @@
             </div>
           </div>
           <div class="component-row">
-            <h5 class="heading-4">active / inactive (selection)</h5>
+            <h5 class="heading-4">background (grey + border)</h5>
             <div class="component-states component-states--vertical">
-              <ListItemButton title="Active item" variant="active">
+              <ListItemButton title="With caret" variant="background" action="caret">
                 <template #icon><SvgIcon name="settings" :size="40" /></template>
               </ListItemButton>
-              <ListItemButton title="Inactive item" variant="inactive">
+              <ListItemButton title="Without action" variant="background">
                 <template #icon><SvgIcon name="settings" :size="40" /></template>
               </ListItemButton>
             </div>
           </div>
           <div class="component-row">
-            <h5 class="heading-4">toggle action</h5>
+            <h5 class="heading-4">toggle action (text auto-deduced)</h5>
             <div class="component-states component-states--vertical">
-              <ListItemButton title="Toggle on" variant="active" action="toggle" :model-value="true">
+              <ListItemButton title="Toggle on (normal text)" action="toggle" :model-value="true">
                 <template #icon><SvgIcon name="settings" :size="40" /></template>
               </ListItemButton>
-              <ListItemButton title="Toggle off" variant="inactive" action="toggle" :model-value="false">
+              <ListItemButton title="Toggle off (secondary text)" action="toggle" :model-value="false">
                 <template #icon><SvgIcon name="settings" :size="40" /></template>
               </ListItemButton>
-              <ListItemButton title="Disabled" variant="inactive" action="toggle" :model-value="false" disabled>
+              <ListItemButton title="Disabled" action="toggle" :model-value="false" disabled>
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+            </div>
+          </div>
+          <div class="component-row">
+            <h5 class="heading-4">radio action (text auto-deduced)</h5>
+            <div class="component-states component-states--vertical">
+              <ListItemButton title="Radio on (normal text)" action="radio" :model-value="true">
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+              <ListItemButton title="Radio off (secondary text)" action="radio" :model-value="false">
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+              <ListItemButton title="background + Radio on" variant="background" action="radio" :model-value="true">
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+              <ListItemButton title="background + Radio off" variant="background" action="radio" :model-value="false">
                 <template #icon><SvgIcon name="settings" :size="40" /></template>
               </ListItemButton>
             </div>
@@ -653,6 +712,7 @@ import IconButton from '@/components/ui/IconButton.vue'
 import InputText from '@/components/ui/InputText.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import Toggle from '@/components/ui/Toggle.vue'
+import Radio from '@/components/ui/Radio.vue'
 import RangeSlider from '@/components/ui/RangeSlider.vue'
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue'
 import ListItemButton from '@/components/ui/ListItemButton.vue'
@@ -713,6 +773,12 @@ const toggleState = ref({
   hasTitle: false
 })
 
+// Radio state
+const radioState = ref({
+  value: false,
+  disabled: false
+})
+
 // RangeSlider state
 const rangeState = ref({
   value: 50,
@@ -735,7 +801,7 @@ const doubleRangeState = ref({
 
 // ListItemButton state
 const listItemState = ref({
-  variant: 'default',
+  variant: 'background-neutral',
   action: 'caret',
   hasIcon: true,
   disabled: false,

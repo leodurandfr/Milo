@@ -40,6 +40,8 @@
     "disabled": "Le multiroom est désactivé",
     "noClients": "Aucun client n'est connecté",
     "speakers": "Enceintes multiroom",
+    "zonesAndSpeakers": "Zones et enceintes",
+    "individualSpeakers": "Enceintes individuelles",
     "loadingSpeakers": "Chargement des enceintes...",
     "noSpeakers": "Aucune enceinte connectée",
     "restarting": "Redémarrage du multiroom en cours...",
