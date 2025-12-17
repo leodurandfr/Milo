@@ -9,7 +9,7 @@
     @pointerdown="handlePointerDown"
   >
     <!-- Icon on the left -->
-    <div v-if="$slots.icon" class="list-item-button__icon">
+    <div v-if="$slots.icon" class="list-item-button__icon" :class="`list-item-button__icon--${iconVariant}`">
       <slot name="icon"></slot>
     </div>
 
@@ -58,6 +58,11 @@ const props = defineProps({
   disabled: {
     type: Boolean,
     default: false
+  },
+  iconVariant: {
+    type: String,
+    default: 'full',
+    validator: (value) => ['full', 'standard'].includes(value)
   }
 });
 
@@ -107,6 +112,11 @@ function handleClick(event) {
   cursor: pointer;
 }
 
+/* More left padding when no icon */
+.list-item-button:not(:has(.list-item-button__icon)) {
+  padding: var(--space-03) var(--space-03) var(--space-03) var(--space-05);
+}
+
 .list-item-button:disabled {
   cursor: not-allowed;
 }
@@ -126,7 +136,7 @@ function handleClick(event) {
   box-shadow: inset 0 0 0 1px var(--color-border);
 }
 
-/* Left icon */
+/* Left icon - base */
 .list-item-button__icon {
   flex-shrink: 0;
   width: 40px;
@@ -134,17 +144,34 @@ function handleClick(event) {
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--color-text);
 }
 
-.list-item-button__icon :deep(img),
-.list-item-button__icon :deep(svg) {
+/* Icon variant: full (40x40, no container styling) */
+.list-item-button__icon--full :deep(img),
+.list-item-button__icon--full :deep(svg) {
   width: 40px;
   height: 40px;
+}
+
+/* Icon variant: standard (28x28 with container) */
+.list-item-button__icon--standard {
+  background: var(--color-background-neutral);
+  border-radius: 10px;
+}
+
+.list-item-button__icon--standard :deep(img),
+.list-item-button__icon--standard :deep(svg) {
+  width: 28px;
+  height: 28px;
 }
 
 /* Title */
 .list-item-button__title {
   flex: 1;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
   color: var(--color-text);
   transition: color var(--transition-fast);
 }
@@ -181,15 +208,29 @@ function handleClick(event) {
 
 /* Responsive - Mobile */
 @media (max-aspect-ratio: 4/3) {
+  .list-item-button__title {
+    min-height: 32px;
+  }
+
   .list-item-button__icon {
     width: 32px;
     height: 32px;
   }
 
-  .list-item-button__icon :deep(img),
-  .list-item-button__icon :deep(svg) {
+  .list-item-button__icon--full :deep(img),
+  .list-item-button__icon--full :deep(svg) {
     width: 32px;
     height: 32px;
+  }
+
+  .list-item-button__icon--standard {
+    border-radius: 8px;
+  }
+
+  .list-item-button__icon--standard :deep(img),
+  .list-item-button__icon--standard :deep(svg) {
+    width: 24px;
+    height: 24px;
   }
 }
 </style>

@@ -394,6 +394,17 @@ export const useDspStore = defineStore('dsp', () => {
   async function updateClientDspVolume(hostname, volumeDb) {
     try {
       const normalized = normalizeHostname(hostname);
+
+      // Skip remote clients when multiroom is disabled
+      if (normalized !== 'local') {
+        const { useUnifiedAudioStore } = await import('./unifiedAudioStore');
+        const audioStore = useUnifiedAudioStore();
+        if (!audioStore.systemState.multiroom_enabled) {
+          console.warn(`Skipping volume update for ${hostname} - multiroom disabled`);
+          return false;
+        }
+      }
+
       // Unified endpoint for all clients (local and remote)
       // Backend handles 'local' specially via multiroom_handler.set_client_volume_db()
       await axios.put(`/api/dsp/client/${normalized}/volume`, { volume: volumeDb });
@@ -484,6 +495,18 @@ export const useDspStore = defineStore('dsp', () => {
    */
   async function updateClientDspMute(clientId, muted) {
     try {
+      const normalized = normalizeHostname(clientId);
+
+      // Skip remote clients when multiroom is disabled
+      if (normalized !== 'local') {
+        const { useUnifiedAudioStore } = await import('./unifiedAudioStore');
+        const audioStore = useUnifiedAudioStore();
+        if (!audioStore.systemState.multiroom_enabled) {
+          console.warn(`Skipping mute update for ${clientId} - multiroom disabled`);
+          return false;
+        }
+      }
+
       setClientDspMute(clientId, muted);
       const apiBase = getApiBaseForTarget(clientId);
       await axios.put(`${apiBase}/mute`, { muted });

@@ -36,6 +36,9 @@ class SnapcastWebSocketService:
 
         # ID for JSON-RPC requests
         self.request_id = 0
+
+        # Ready event - signaled when WebSocket is connected and initialized
+        self._ready_event = asyncio.Event()
     
     async def initialize(self) -> bool:
         """Initializes the WebSocket service"""
@@ -103,10 +106,22 @@ class SnapcastWebSocketService:
             await self.websocket.close()
             self.websocket = None
 
+        # Reset ready event
+        self._ready_event.clear()
+
         # NO LONGER clear caches - keep memory of existing clients
         # to avoid resetting their volumes when multiroom is re-enabled
         # (snapserver already persists volumes correctly in server.json)
-    
+
+    async def wait_for_ready(self, timeout: float = 10.0) -> bool:
+        """Wait for WebSocket to be connected and initialized"""
+        try:
+            await asyncio.wait_for(self._ready_event.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Timeout waiting for Snapcast WebSocket ready after {timeout}s")
+            return False
+
     async def cleanup(self) -> None:
         """Cleans up resources"""
         self.logger.info("Cleaning up Snapcast WebSocket service")
@@ -166,6 +181,10 @@ class SnapcastWebSocketService:
             self._is_initializing = True
             await self._initialize_existing_clients()
             asyncio.create_task(self._clear_init_flag_after_delay(2.0))
+
+            # Signal that WebSocket is ready
+            self._ready_event.set()
+            self.logger.info("✅ Snapcast WebSocket ready and initialized")
 
             # Listen for messages
             async for msg in self.websocket:

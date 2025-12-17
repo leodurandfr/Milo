@@ -142,7 +142,7 @@
           </section>
 
           <!-- Section 3: Satellite Programs -->
-          <section v-if="isMultiroomEnabled" class="settings-section">
+          <section v-if="isMultiroomEnabled && (satellitesLoading || satellitesError || satellites.length > 0)" class="settings-section">
             <h1 class="heading-2">{{ $t('updates.satelliteProgramsTitle') }}</h1>
 
             <div v-if="satellitesLoading" class="programs-list">
@@ -160,10 +160,6 @@
               <Button size="small" variant="background-strong" @click="loadSatellites">
                 {{ $t('updates.retry') }}
               </Button>
-            </div>
-
-            <div v-else-if="satellites.length === 0" class="empty-state">
-              <p class="text-mono">{{ $t('updates.noSatellites') }}</p>
             </div>
 
             <div v-else class="programs-list">

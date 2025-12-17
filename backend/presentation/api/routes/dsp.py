@@ -1433,6 +1433,19 @@ async def _check_client_dsp_available(hostname: str) -> bool:
 
 async def _proxy_client_request(hostname: str, method: str, path: str, body: dict = None):
     """Proxy a request to a client's DSP API"""
+    # Check if multiroom is disabled - skip remote client requests
+    try:
+        from backend.config.container import container
+        routing_svc = container.routing_service()
+        if routing_svc and not await routing_svc._get_multiroom_enabled():
+            logger.warning(f"Skipping proxy request to {hostname} - multiroom is disabled")
+            raise HTTPException(status_code=503, detail=f"Multiroom is disabled, cannot reach {hostname}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log but continue if we can't check multiroom status
+        logger.debug(f"Could not check multiroom status: {e}")
+
     try:
         # Don't add .local suffix for IP addresses
         host = hostname if _is_ip_address(hostname) else f"{hostname}.local"

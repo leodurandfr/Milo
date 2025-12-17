@@ -292,7 +292,16 @@ class AudioRoutingService:
                     else:
                         await self.snapcast_websocket_service.stop_connection()
 
-                # Broadcast multiroom_ready event after services are started
+                # Wait for WebSocket to actually connect and initialize
+                if enabled and self.snapcast_websocket_service:
+                    self.logger.info("⏳ Waiting for Snapcast WebSocket to be ready...")
+                    ws_ready = await self.snapcast_websocket_service.wait_for_ready(timeout=15.0)
+                    if ws_ready:
+                        self.logger.info("✅ Snapcast WebSocket is ready")
+                    else:
+                        self.logger.warning("⚠️ Snapcast WebSocket not ready after timeout, proceeding anyway")
+
+                # Broadcast multiroom_ready event after WebSocket is connected
                 if enabled and self.state_machine:
                     self.logger.info("📢 Broadcasting multiroom_ready event")
                     await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
@@ -507,7 +516,19 @@ class AudioRoutingService:
             # Step 5: Restart plugin with new routing
             if plugin:
                 self.logger.info(f"Restarting plugin {active_source.value} for multiroom mode")
-                await plugin.restart()
+                restart_success = await plugin.restart()
+
+                if not restart_success:
+                    self.logger.warning(f"Plugin {active_source.value} restart failed, attempting recovery via start()")
+                    start_success = await plugin.start()
+
+                    if not start_success:
+                        self.logger.error(f"Plugin {active_source.value} recovery failed after multiroom enable")
+                        if self.state_machine:
+                            await self.state_machine.broadcast_event("routing", "plugin_restart_failed", {
+                                "source": active_source.value,
+                                "message": f"Failed to restart {active_source.value} after enabling multiroom"
+                            })
 
             # Step 6: Resume playback if it was active
             if was_playing and plugin and playback_metadata:
@@ -580,7 +601,19 @@ class AudioRoutingService:
             # Step 4: Restart plugin with new routing
             if plugin:
                 self.logger.info(f"Restarting plugin {active_source.value} for direct mode")
-                await plugin.restart()
+                restart_success = await plugin.restart()
+
+                if not restart_success:
+                    self.logger.warning(f"Plugin {active_source.value} restart failed, attempting recovery via start()")
+                    start_success = await plugin.start()
+
+                    if not start_success:
+                        self.logger.error(f"Plugin {active_source.value} recovery failed after multiroom disable")
+                        if self.state_machine:
+                            await self.state_machine.broadcast_event("routing", "plugin_restart_failed", {
+                                "source": active_source.value,
+                                "message": f"Failed to restart {active_source.value} after disabling multiroom"
+                            })
 
             # Step 5: Resume playback if it was active
             if was_playing and plugin and playback_metadata:

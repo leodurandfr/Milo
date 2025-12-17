@@ -50,6 +50,10 @@ import checkIcon from '@/assets/icons/check.svg?raw'
 import rewind15Icon from '@/assets/icons/rewind-15.svg?raw'
 import forward30Icon from '@/assets/icons/forward-30.svg?raw'
 import linkIcon from '@/assets/icons/link.svg?raw'
+import speakerSubIcon from '@/assets/icons/speaker-sub.svg?raw'
+import speakerShelfIcon from '@/assets/icons/speaker-shelf.svg?raw'
+import speakerColumnIcon from '@/assets/icons/speaker-column.svg?raw'
+import speakerSatelliteIcon from '@/assets/icons/speaker-satellite.svg?raw'
 
 const icons = {
   play: playIcon,
@@ -79,7 +83,11 @@ const icons = {
   check: checkIcon,
   rewind15: rewind15Icon,
   forward30: forward30Icon,
-  link: linkIcon
+  link: linkIcon,
+  speakerSub: speakerSubIcon,
+  speakerShelf: speakerShelfIcon,
+  speakerColumn: speakerColumnIcon,
+  speakerSatellite: speakerSatelliteIcon
 }
 
 const props = defineProps({

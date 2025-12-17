@@ -93,12 +93,14 @@
 import { ref, computed, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import Tabs from '@/components/ui/Tabs.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 
 const dspStore = useDspStore();
 const settingsStore = useSettingsStore();
+const audioStore = useUnifiedAudioStore();
 
 const props = defineProps({
   disabled: {
@@ -122,8 +124,22 @@ const hasMultipleTargets = computed(() => targets.value.length > 1);
 // Convert targets to Tabs format (zones + individual clients)
 const zoneTabs = computed(() => {
   const tabs = [];
+  const multiroomEnabled = audioStore.systemState.multiroom_enabled;
 
-  // Group linked clients into zones
+  // When multiroom is disabled, only show local Milo
+  if (!multiroomEnabled) {
+    const localTarget = targets.value.find(t => t.id === 'local');
+    if (localTarget) {
+      return [{
+        label: localTarget.name,
+        value: 'local',
+        disabled: !localTarget.available
+      }];
+    }
+    return [];
+  }
+
+  // Group linked clients into zones (multiroom enabled)
   const processedIds = new Set();
 
   for (const target of targets.value) {

@@ -1,10 +1,8 @@
 <!-- frontend/src/components/settings/categories/MultiroomSettings.vue -->
 <template>
   <div class="multiroom-settings">
-    <!-- Main content with animated height -->
-    <div class="content-container" :style="{ height: containerHeight }">
-      <div class="content-wrapper" ref="contentWrapperRef" :class="{ 'with-background': !isMultiroomActive }">
-        <!-- MESSAGE: Multiroom disabled -->
+    <div class="content-wrapper" :class="{ 'with-background': !isMultiroomActive }">
+      <!-- MESSAGE: Multiroom disabled -->
         <Transition name="fade-slide">
           <MessageContent v-if="!isMultiroomActive" key="message" icon="multiroom" :title="t('multiroom.disabled')" />
         </Transition>
@@ -40,20 +38,31 @@
                   <!-- Zones -->
                   <div v-for="zone in zones" :key="zone.id" class="zone-group">
                     <!-- Zone header (clickable) -->
-                    <ListItemButton
-                      :title="`Zone · ${zone.displayName}`"
-                      action="caret"
+                    <button
+                      type="button"
+                      class="zone-header"
                       @click="handleEditZone(zone.id)"
-                    />
+                    >
+                      <span class="zone-header__label heading-3">Zone</span>
+                      <span class="zone-header__separator heading-3">·</span>
+                      <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
+                      <SvgIcon name="caretRight" :size="24" class="zone-header__caret" />
+                    </button>
                     <!-- Zone clients -->
                     <div class="zone-clients">
                       <ListItemButton
                         v-for="client in zone.clients"
                         :key="client.id"
                         :title="`${client.name} · ${getSpeakerTypeLabel(client.dsp_id)}`"
+                        variant="background"
+                        icon-variant="standard"
                         action="caret"
                         @click="handleEditClient(client.id)"
-                      />
+                      >
+                        <template #icon>
+                          <SvgIcon :name="getSpeakerIcon(client.dsp_id)" :size="28" />
+                        </template>
+                      </ListItemButton>
                     </div>
                   </div>
 
@@ -64,9 +73,15 @@
                       v-for="client in ungroupedClients"
                       :key="client.id"
                       :title="`${client.name} · ${getSpeakerTypeLabel(client.dsp_id)}`"
+                      variant="background"
+                      icon-variant="standard"
                       action="caret"
                       @click="handleEditClient(client.id)"
-                    />
+                    >
+                      <template #icon>
+                        <SvgIcon :name="getSpeakerIcon(client.dsp_id)" :size="28" />
+                      </template>
+                    </ListItemButton>
                   </template>
                 </div>
               </div>
@@ -130,14 +145,12 @@
            </Button>
           </div>
         </Transition>
-      </div>
     </div>
-
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useMultiroomStore } from '@/stores/multiroomStore';
@@ -147,6 +160,7 @@ import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client']);
 
@@ -158,12 +172,6 @@ const dspStore = useDspStore();
 
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
-
-// ResizeObserver to animate height
-const contentWrapperRef = ref(null);
-const containerHeight = ref('auto');
-let resizeObserver = null;
-let isFirstResize = true;
 
 // Sorted clients with "milo" first
 const sortedMultiroomClients = computed(() => multiroomStore.sortedClients);
@@ -213,6 +221,18 @@ const ungroupedClients = computed(() => {
 function getSpeakerTypeLabel(clientDspId) {
   const speakerType = dspStore.getClientSpeakerType(clientDspId);
   return t(`multiroom.speakerTypes.${speakerType}`);
+}
+
+// Get speaker icon name based on type
+function getSpeakerIcon(clientDspId) {
+  const speakerType = dspStore.getClientSpeakerType(clientDspId);
+  const iconMap = {
+    satellite: 'speakerSatellite',
+    bookshelf: 'speakerShelf',
+    tower: 'speakerColumn',
+    subwoofer: 'speakerSub'
+  };
+  return iconMap[speakerType] || 'speakerShelf';
 }
 
 // Navigation handlers - emit to parent (SettingsModal)
@@ -282,36 +302,6 @@ async function applyServerConfig() {
   await multiroomStore.applyServerConfig();
 }
 
-// === RESIZE OBSERVER ===
-function setupResizeObserver() {
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
-
-  resizeObserver = new ResizeObserver(entries => {
-    if (entries[0]) {
-      const newHeight = entries[0].contentRect.height;
-
-      // First time: initialize without transition
-      if (isFirstResize) {
-        containerHeight.value = `${newHeight}px`;
-        isFirstResize = false;
-        return;
-      }
-
-      const currentHeight = parseFloat(containerHeight.value);
-
-      if (Math.abs(newHeight - currentHeight) > 2) {
-        containerHeight.value = `${newHeight}px`;
-      }
-    }
-  });
-
-  if (contentWrapperRef.value) {
-    resizeObserver.observe(contentWrapperRef.value);
-  }
-}
-
 // Watcher to load data when multiroom is enabled
 watch(isMultiroomActive, async (newValue, oldValue) => {
   if (newValue && !oldValue) {
@@ -325,10 +315,6 @@ onMounted(async () => {
   if (isMultiroomActive.value) {
     await loadMultiroomData();
   }
-
-  // Setup ResizeObserver after next tick so the ref is available
-  await nextTick();
-  setupResizeObserver();
 
   // Subscribe to WebSocket events for linked groups changes
   on('dsp', 'links_changed', (e) => dspStore.handleLinksChanged(e));
@@ -345,12 +331,6 @@ onMounted(async () => {
   // Subscribe to DSP client volumes pushed (when multiroom activates)
   on('dsp', 'client_volumes_pushed', (e) => dspStore.handleClientVolumesPushed(e));
 });
-
-onUnmounted(() => {
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
-});
 </script>
 
 <style scoped>
@@ -359,19 +339,11 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-.content-container {
-  transition: height var(--transition-spring);
-  overflow: visible;
-  position: relative;
-}
-
 .content-wrapper {
   display: flex;
   flex-direction: column;
-  overflow: visible;
   border-radius: var(--radius-07);
   transition: background 400ms ease;
-  position: relative;
 }
 
 .content-wrapper.with-background {
@@ -428,12 +400,37 @@ onUnmounted(() => {
   gap: var(--space-01);
 }
 
-/* Zone clients (indented under zone) */
+/* Zone clients */
 .zone-clients {
   display: flex;
   flex-direction: column;
   gap: var(--space-01);
-  padding-left: var(--space-04);
+}
+
+/* Zone header button */
+.zone-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+  width: 100%;
+  cursor: pointer;
+}
+
+.zone-header__label {
+  color: var(--color-text);
+}
+
+.zone-header__separator {
+  color: var(--color-text-secondary);
+}
+
+.zone-header__name {
+  color: var(--color-brand);
+}
+
+.zone-header__caret {
+  flex-shrink: 0;
+  color: var(--color-brand);
 }
 
 /* Section subtitle (e.g., "Individual speakers") */
