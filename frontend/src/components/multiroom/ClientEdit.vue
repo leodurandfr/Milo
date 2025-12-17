@@ -25,7 +25,8 @@
             v-for="type in speakerTypes"
             :key="type.value"
             :title="type.label"
-            :variant="selectedSpeakerType === type.value ? 'active' : 'inactive'"
+            :variant="selectedSpeakerType === type.value ? 'active' : 'background'"
+            action="radio"
             @click="selectSpeakerType(type.value)"
           />
         </div>

@@ -183,12 +183,13 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
         try:
             available = await snapcast_service.is_available()
             if not available:
-                raise HTTPException(status_code=503, detail="Snapcast server not available")
+                return {"config": None, "error": "Snapcast server not available"}
 
             config = await snapcast_service.get_server_config()
             return {"config": config}
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"Error getting server config: {e}")
+            return {"config": None, "error": str(e)}
 
     # === SERVER CONFIGURATION ROUTES ===
 

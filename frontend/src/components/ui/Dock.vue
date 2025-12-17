@@ -115,12 +115,11 @@ const DOCK_ANIM_STAGGER = 0.016;       // Stagger between items in seconds
 // Actions with reactive titles
 const ALL_ADDITIONAL_ACTIONS = computed(() => [
   { id: 'multiroom', icon: 'multiroom', title: t('multiroom.title'), handler: () => emit('open-multiroom') },
-  { id: 'equalizer', icon: 'equalizer', title: t('equalizer.title'), handler: () => emit('open-equalizer') },
   { id: 'settings', icon: 'settings', title: t('common.settings'), handler: () => emit('open-settings') }
 ]);
 
 // === DYNAMIC CONFIGURATION ===
-const enabledApps = ref(["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "equalizer", "settings"]);
+const enabledApps = ref(["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "settings"]);
 const mobileVolumeStepsDb = ref(3.0);  // Volume step in dB
 
 // Computed to separate audio plugins and features
@@ -159,7 +158,7 @@ const volumeControlsWithSteps = computed(() => [
 ]);
 
 // === EMISSIONS ===
-const emit = defineEmits(['open-multiroom', 'open-equalizer', 'open-settings']);
+const emit = defineEmits(['open-multiroom', 'open-settings']);
 
 // === MAIN REFS ===
 const dragZone = ref(null);
@@ -623,7 +622,7 @@ const loadDockConfig = async () => {
     const response = await fetch('/api/settings/dock-apps');
     const data = await response.json();
     if (data.status === 'success') {
-      enabledApps.value = data.config.enabled_apps || ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "equalizer", "settings"];
+      enabledApps.value = data.config.enabled_apps || ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "settings"];
     }
   } catch (error) {
     console.error('Error loading dock config:', error);

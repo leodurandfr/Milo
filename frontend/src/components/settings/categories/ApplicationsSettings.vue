@@ -92,18 +92,6 @@
           </ListItemButton>
 
           <ListItemButton
-            :title="t('equalizer.title')"
-            :model-value="config.equalizer"
-            variant="background"
-            action="toggle"
-            @update:model-value="(val) => handleToggle('equalizer', val)"
-          >
-            <template #icon>
-              <AppIcon name="equalizer" :size="40" />
-            </template>
-          </ListItemButton>
-
-          <ListItemButton
             :title="t('common.settings')"
             :model-value="config.settings"
             variant="background"

@@ -11,10 +11,18 @@
     >
       <template v-if="currentView === 'multiroom'" #actions="{ iconType }">
         <Toggle
-          v-model="isMultiroomActive"
+          :model-value="isMultiroomActive"
           :type="iconType"
           :disabled="unifiedStore.systemState.transitioning || isMultiroomToggling"
           @change="handleMultiroomToggle"
+        />
+      </template>
+      <template v-else-if="currentView === 'equalizer'" #actions="{ iconType }">
+        <Toggle
+          :model-value="dspStore.isDspEffectsEnabled"
+          :type="iconType"
+          :disabled="dspStore.isTogglingEnabled"
+          @change="handleDspToggle"
         />
       </template>
     </ModalHeader>
@@ -42,6 +50,18 @@
               </template>
             </ListItemButton>
 
+            <ListItemButton :title="t('equalizer.title')" action="caret" @click="goToView('equalizer')">
+              <template #icon>
+                <img :src="equalizerIcon" alt="Equalizer" />
+              </template>
+            </ListItemButton>
+
+            <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" action="caret" @click="goToView('multiroom')">
+              <template #icon>
+                <img :src="multiroomIcon" alt="Multiroom" />
+              </template>
+            </ListItemButton>
+
             <ListItemButton :title="t('settings.screen')" action="caret" @click="goToView('screen')">
               <template #icon>
                 <img :src="displayIcon" alt="Display" />
@@ -51,12 +71,6 @@
             <ListItemButton v-if="settingsStore.dockApps.spotify" :title="t('audioSources.spotify')" action="caret" @click="goToView('spotify')">
               <template #icon>
                 <img :src="spotifyIcon" alt="Spotify" />
-              </template>
-            </ListItemButton>
-
-            <ListItemButton v-if="settingsStore.dockApps.multiroom" :title="t('multiroom.title')" action="caret" @click="goToView('multiroom')">
-              <template #icon>
-                <img :src="multiroomIcon" alt="Multiroom" />
               </template>
             </ListItemButton>
 
@@ -147,6 +161,9 @@
         <!-- Podcast view -->
         <PodcastSettings v-else-if="currentView === 'podcast'" key="podcast" class="view-content" />
 
+        <!-- Equalizer view -->
+        <EqualizerSettings v-else-if="currentView === 'equalizer'" key="equalizer" class="view-content" />
+
         <!-- Updates view -->
         <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
 
@@ -163,6 +180,7 @@ import { i18n } from '@/services/i18n';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useRadioStore } from '@/stores/radioStore';
+import { useDspStore } from '@/stores/dspStore';
 import { useNavigationStack } from '@/composables/useNavigationStack';
 import useWebSocket from '@/services/websocket';
 import axios from 'axios';
@@ -182,6 +200,7 @@ import updatesIcon from '@/assets/settings-icons/updates.svg';
 import informationIcon from '@/assets/settings-icons/information.svg';
 import radioIcon from '@/assets/settings-icons/radio.svg';
 import podcastIcon from '@/assets/settings-icons/podcast.svg';
+import equalizerIcon from '@/assets/settings-icons/equalizer.svg';
 import ApplicationsSettings from '@/components/settings/categories/ApplicationsSettings.vue';
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
@@ -194,6 +213,7 @@ import ManageStation from '@/components/settings/categories/radio/ManageStation.
 import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
+import EqualizerSettings from '@/components/settings/categories/EqualizerSettings.vue';
 
 const props = defineProps({
   initialView: {
@@ -209,6 +229,7 @@ const { on } = useWebSocket();
 const settingsStore = useSettingsStore();
 const unifiedStore = useUnifiedAudioStore();
 const radioStore = useRadioStore();
+const dspStore = useDspStore();
 
 // Inject modal scroll reset function and content ref for scroll position check
 const resetScroll = inject('modalResetScroll', () => {});
@@ -245,6 +266,7 @@ const headerTitle = computed(() => {
     'radio-add': t('radio.manageStation.addStationTitle'),
     'radio-edit': t('radio.manageStation.editStationTitle'),
     'podcast': t('podcastSettings.title'),
+    'equalizer': t('equalizer.title'),
     'updates': t('settings.updates'),
     'info': t('settings.information')
   };
@@ -436,7 +458,7 @@ async function handleRadioStationEdited(station) {
 // Placeholder for odd grid
 const shouldShowPlaceholder = computed(() => {
   // Count the number of visible IconButtons
-  let count = 6; // Base: Languages, Applications, Volume, Screen, Updates, Information
+  let count = 7; // Base: Languages, Applications, Volume, Screen, Equalizer, Updates, Information
   if (settingsStore.dockApps.spotify) count++;
   if (settingsStore.dockApps.multiroom) count++;
   if (settingsStore.dockApps.radio) count++;
@@ -452,6 +474,10 @@ const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enab
 
 async function handleMultiroomToggle(enabled) {
   await unifiedStore.setMultiroomEnabled(enabled);
+}
+
+async function handleDspToggle(enabled) {
+  await dspStore.toggleDspEffectsEnabled(enabled);
 }
 
 function handleMultiroomEnabling() {

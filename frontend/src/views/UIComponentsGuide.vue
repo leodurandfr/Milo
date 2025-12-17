@@ -418,7 +418,7 @@
       <!-- ListItemButton -->
       <div class="component-block">
         <h3 class="heading-2">ListItemButton</h3>
-        <p class="text-mono text-secondary">Variants: background-neutral, background | Actions: none, caret, toggle, radio | Text color auto-deduced from action state</p>
+        <p class="text-mono text-secondary">Variants: background-neutral, background | Actions: none, caret, toggle, radio | Icon variants: full (40x40), standard (28x28 with container)</p>
 
         <div class="controls-panel">
           <label class="control-item">
@@ -442,6 +442,13 @@
             <span class="text-mono">icon</span>
           </label>
           <label class="control-item">
+            <span class="text-mono">iconVariant</span>
+            <select v-model="listItemState.iconVariant">
+              <option value="full">full (40x40)</option>
+              <option value="standard">standard (28x28)</option>
+            </select>
+          </label>
+          <label class="control-item">
             <input type="checkbox" v-model="listItemState.disabled" />
             <span class="text-mono">disabled</span>
           </label>
@@ -453,12 +460,13 @@
               title="List item title"
               :variant="listItemState.variant"
               :action="listItemState.action"
+              :icon-variant="listItemState.iconVariant"
               :model-value="listItemState.toggleValue"
               :disabled="listItemState.disabled"
               @update:model-value="listItemState.toggleValue = $event"
             >
               <template v-if="listItemState.hasIcon" #icon>
-                <SvgIcon name="settings" :size="40" />
+                <SvgIcon name="settings" :size="listItemState.iconVariant === 'full' ? 40 : 28" />
               </template>
             </ListItemButton>
           </div>
@@ -487,6 +495,18 @@
               <ListItemButton title="Without action" variant="background">
                 <template #icon><SvgIcon name="settings" :size="40" /></template>
               </ListItemButton>
+            </div>
+          </div>
+          <div class="component-row">
+            <h5 class="heading-4">icon-variant: full vs standard</h5>
+            <div class="component-states component-states--vertical">
+              <ListItemButton title="icon-variant=full (40x40)" variant="background" action="caret">
+                <template #icon><SvgIcon name="settings" :size="40" /></template>
+              </ListItemButton>
+              <ListItemButton title="icon-variant=standard (28x28)" variant="background" icon-variant="standard" action="caret">
+                <template #icon><SvgIcon name="speakerShelf" :size="28" /></template>
+              </ListItemButton>
+              <ListItemButton title="No icon (extra left padding)" variant="background" action="caret" />
             </div>
           </div>
           <div class="component-row">
@@ -803,6 +823,7 @@ const doubleRangeState = ref({
 const listItemState = ref({
   variant: 'background-neutral',
   action: 'caret',
+  iconVariant: 'full',
   hasIcon: true,
   disabled: false,
   toggleValue: false

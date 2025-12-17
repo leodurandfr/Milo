@@ -7,17 +7,12 @@
       <VolumeBar />
       <Dock
         @open-multiroom="isMultiroomOpen = true"
-        @open-equalizer="isEqualizerOpen = true"
         @open-settings="isSettingsOpen = true"
       />
     </template>
 
     <Modal :is-open="isMultiroomOpen" @close="isMultiroomOpen = false">
       <MultiroomModal />
-    </Modal>
-
-    <Modal :is-open="isEqualizerOpen" @close="isEqualizerOpen = false">
-      <DspModal />
     </Modal>
 
     <Modal :is-open="isSettingsOpen" @close="closeSettings">
@@ -39,9 +34,6 @@ import Modal from '@/components/ui/Modal.vue';
 // Lazy-loaded modals
 const MultiroomModal = defineAsyncComponent(() =>
   import('@/components/multiroom/MultiroomModal.vue')
-);
-const DspModal = defineAsyncComponent(() =>
-  import('@/components/dsp/DspModal.vue')
 );
 const SettingsModal = defineAsyncComponent(() =>
   import('@/components/settings/SettingsModal.vue')
@@ -92,7 +84,6 @@ watch(isReady, (ready) => {
 });
 
 const isMultiroomOpen = ref(false);
-const isEqualizerOpen = ref(false);
 const isSettingsOpen = ref(false);
 
 // Settings navigation - supports direct navigation to sub-views
@@ -110,11 +101,9 @@ function closeSettings() {
 
 // Provide for child components
 provide('openMultiroom', () => isMultiroomOpen.value = true);
-provide('openEqualizer', () => isEqualizerOpen.value = true);
 provide('openSettings', openSettings);
 provide('closeModals', () => {
   isMultiroomOpen.value = false;
-  isEqualizerOpen.value = false;
   closeSettings();
 });
 
@@ -173,7 +162,6 @@ onMounted(async () => {
   // Preload modals in background for instant display when user opens them
   Promise.all([
     import('@/components/multiroom/MultiroomModal.vue'),
-    import('@/components/dsp/DspModal.vue'),
     import('@/components/settings/SettingsModal.vue'),
     import('@/components/ui/VirtualKeyboard.vue')
   ]);
