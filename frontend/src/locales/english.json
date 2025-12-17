@@ -46,7 +46,19 @@
     "error": "Error activating multiroom",
     "timeout_error": "Activation timeout. Please try again.",
     "editSpeaker": "Edit Speaker",
-    "speakerName": "Speaker Name"
+    "speakerName": "Speaker Name",
+    "speakerType": "Speaker Type",
+    "speakerInfo": "Information",
+    "speakerTypes": {
+      "satellite": "Satellite speakers",
+      "bookshelf": "Bookshelf speakers",
+      "tower": "Tower speakers",
+      "subwoofer": "Subwoofer"
+    },
+    "crossoverFrequency": "Crossover frequency:",
+    "crossoverHint": "High-pass filter cutoff frequency",
+    "subwooferAutoCrossover": "Digital crossover filters will be automatically applied: lowpass on this subwoofer, highpass on other speakers in the zone.",
+    "subwooferDisablePhysical": "Set your subwoofer's crossover to maximum (LFE/Bypass) to avoid filter stacking."
   },
   "equalizer": {
     "title": "Equalizer",
@@ -74,7 +86,13 @@
       "deleteZone": "Delete Zone",
       "description": "Link clients to create zones with shared DSP settings. Changes to one zone member will apply to all.",
       "noZones": "No zones created yet. Create a zone to link multiple clients.",
-      "inOtherZone": "In other zone"
+      "inOtherZone": "In other zone",
+      "subwoofer": "Sub",
+      "crossover": "Crossover",
+      "crossoverFrequency": "Crossover Frequency",
+      "crossoverHint": "High-pass filter applied to speakers. Set your subwoofer's crossover to match.",
+      "manageZone": "Manage zone",
+      "addToZone": "Add to zone"
     },
     "equalizer": {
       "title": "10 Bands Equalizer"
@@ -297,6 +315,7 @@
     "macOS": "macOS"
   },
   "clientDetails": {
+    "editClient": "Edit client",
     "viewDetails": "View client details",
     "displayName": "Display name",
     "latency": "Latency (ms)",

@@ -11,6 +11,7 @@
           :placeholder="$t('dsp.zones.zoneNamePlaceholder', 'e.g., Living Room')"
           size="medium"
           :maxlength="30"
+          @blur="saveZoneName"
         />
       </div>
     </section>
@@ -76,38 +77,29 @@
       </div>
     </section>
 
+    <!-- Create Zone Button (only when creating new zone) -->
+    <Button
+      v-if="!groupId"
+      variant="brand"
+      size="medium"
+      :loading="saving"
+      :disabled="selectedClients.length < 2"
+      @click="handleCreate"
+    >
+      {{ $t('dsp.zones.createZone', 'Create Zone') }}
+    </Button>
+
     <!-- Delete Zone (only when editing existing zone) -->
     <Button
       v-if="groupId"
-      variant="background-strong"
+      variant="important"
       size="medium"
-      :disabled="saving || deleting"
+      :disabled="deleting"
       :loading="deleting"
       @click="handleDelete"
     >
       {{ $t('dsp.zones.deleteZone', 'Delete Zone') }}
     </Button>
-
-    <!-- Actions -->
-    <div class="actions">
-      <Button
-        variant="background-strong"
-        size="medium"
-        :disabled="saving || deleting"
-        @click="$emit('back')"
-      >
-        {{ $t('common.cancel', 'Cancel') }}
-      </Button>
-      <Button
-        variant="brand"
-        size="medium"
-        :loading="saving"
-        :disabled="selectedClients.length < 2 || deleting"
-        @click="handleSave"
-      >
-        {{ $t('common.save', 'Save') }}
-      </Button>
-    </div>
   </div>
 </template>
 
@@ -138,6 +130,7 @@ const multiroomStore = useMultiroomStore();
 const saving = ref(false);
 const deleting = ref(false);
 const zoneName = ref('');
+const originalZoneName = ref('');
 const selectedClients = ref([]);
 // Client names for renaming (dsp_id -> display name)
 const clientNames = ref({});
@@ -186,12 +179,35 @@ function getOtherZoneName(clientId) {
 }
 
 // Toggle client selection
-function toggleClient(clientId) {
+async function toggleClient(clientId) {
   const index = selectedClients.value.indexOf(clientId);
   if (index === -1) {
     selectedClients.value.push(clientId);
   } else {
     selectedClients.value.splice(index, 1);
+  }
+
+  // Auto-save when editing existing zone (and still has 2+ clients)
+  if (props.groupId && selectedClients.value.length >= 2) {
+    try {
+      await dspStore.linkClients(selectedClients.value, null, zoneName.value || null);
+    } catch (error) {
+      console.error('Error updating zone clients:', error);
+    }
+  }
+}
+
+// Save zone name on blur (only when editing existing zone)
+async function saveZoneName() {
+  if (!props.groupId) return;
+  const newName = zoneName.value?.trim() || '';
+  if (newName === originalZoneName.value) return;
+
+  try {
+    await dspStore.updateZoneName(props.groupId, newName);
+    originalZoneName.value = newName;
+  } catch (error) {
+    console.error('Error saving zone name:', error);
   }
 }
 
@@ -202,10 +218,11 @@ function getClientHostname(dspId) {
 }
 
 // Initialize state when mounted
-onMounted(() => {
+onMounted(async () => {
   if (currentGroup.value) {
     // Editing existing zone
     zoneName.value = currentGroup.value.name || '';
+    originalZoneName.value = zoneName.value;
     selectedClients.value = [...(currentGroup.value.client_ids || [])];
   } else {
     // Creating new zone
@@ -221,7 +238,8 @@ onMounted(() => {
   }
 });
 
-async function handleSave() {
+// Create new zone (only used when groupId is null)
+async function handleCreate() {
   if (selectedClients.value.length < 2) return;
 
   saving.value = true;
@@ -231,7 +249,6 @@ async function handleSave() {
       for (const dspId of selectedClients.value) {
         const newName = clientNames.value[dspId]?.trim();
         if (newName) {
-          // Find client by dsp_id
           const client = multiroomStore.clients.find(c => c.dsp_id === dspId);
           if (client && client.name !== newName) {
             await multiroomStore.updateClientName(client.id, newName);
@@ -240,12 +257,13 @@ async function handleSave() {
       }
     }
 
-    // Link clients with zone name
+    // Create the zone
     await dspStore.linkClients(selectedClients.value, null, zoneName.value || null);
+
     emit('saved');
     emit('back');
   } catch (error) {
-    console.error('Error saving zone:', error);
+    console.error('Error creating zone:', error);
   } finally {
     saving.value = false;
   }
@@ -417,25 +435,10 @@ async function handleDelete() {
   color: var(--color-text-light);
 }
 
-.actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-03);
-  padding-top: var(--space-02);
-}
-
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
   .settings-section {
     border-radius: var(--radius-05);
-  }
-
-  .actions {
-    grid-template-columns: 1fr;
-  }
-
-  .actions > :last-child {
-    order: -1;
   }
 }
 </style>

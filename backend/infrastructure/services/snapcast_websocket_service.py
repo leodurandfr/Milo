@@ -27,6 +27,10 @@ class SnapcastWebSocketService:
         self.reconnect_task = None
         self._known_client_ids = set()
 
+        # Deduplication: track client IDs currently being processed
+        # Prevents race conditions when Client.OnConnect and Server.OnUpdate fire simultaneously
+        self._processing_client_ids: set = set()
+
         # Initialization state - suppress verbose logs during startup
         self._is_initializing = False
 
@@ -329,13 +333,25 @@ class SnapcastWebSocketService:
             # Update cache
             self._known_client_ids = current_client_ids
 
-            # Initialize new clients
+            # Initialize new clients (with deduplication)
             for client in new_clients:
                 client_id = client.get("id")
-                client_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
 
-                self.logger.info(f"  - Initializing new client {client_id} (Snapcast volume: {client_volume}%)")
-                await self._notify_volume_service_client_connected(client_id, client)
+                # Deduplication: skip if already being processed by Client.OnConnect
+                if client_id in self._processing_client_ids:
+                    self.logger.debug(f"Skipping Server.OnUpdate init for {client_id} - already being processed")
+                    continue
+
+                # Mark as processing
+                self._processing_client_ids.add(client_id)
+
+                try:
+                    client_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
+                    self.logger.info(f"  - Initializing new client {client_id} (Snapcast volume: {client_volume}%)")
+                    await self._notify_volume_service_client_connected(client_id, client)
+                finally:
+                    # Remove from processing set
+                    self._processing_client_ids.discard(client_id)
             
         except Exception as e:
             self.logger.error(f"Error handling Server.OnUpdate: {e}", exc_info=True)
@@ -352,28 +368,41 @@ class SnapcastWebSocketService:
         """Client connected - Snapcast volume is always 100% passthrough, real volume via CamillaDSP"""
         client = params.get("client", {})
         client_id = client.get("id")
-        client_name = client.get("config", {}).get("name", "Unknown")
-        client_host = client.get("host", {}).get("name", "Unknown")
-        client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
-        snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
 
-        self.logger.info(f"🔵 NEW CLIENT CONNECTED:")
-        self.logger.info(f"  - ID: {client_id}")
-        self.logger.info(f"  - Name: {client_name}")
-        self.logger.info(f"  - Host: {client_host}")
-        self.logger.info(f"  - IP: {client_ip}")
-        self.logger.info(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
+        # Deduplication: skip if already being processed by Server.OnUpdate
+        if client_id in self._processing_client_ids:
+            self.logger.debug(f"Skipping Client.OnConnect for {client_id} - already being processed")
+            return
 
-        await self._notify_volume_service_client_connected(client_id, client)
+        # Mark as processing
+        self._processing_client_ids.add(client_id)
 
-        await self._broadcast_snapcast_event("client_connected", {
-            "client_id": client_id,
-            "client_name": client_name,
-            "client_host": client_host,
-            "client_ip": client_ip,
-            "volume": snapcast_volume,
-            "muted": client.get("config", {}).get("volume", {}).get("muted", False)
-        })
+        try:
+            client_name = client.get("config", {}).get("name", "Unknown")
+            client_host = client.get("host", {}).get("name", "Unknown")
+            client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
+            snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
+
+            self.logger.info(f"🔵 NEW CLIENT CONNECTED:")
+            self.logger.info(f"  - ID: {client_id}")
+            self.logger.info(f"  - Name: {client_name}")
+            self.logger.info(f"  - Host: {client_host}")
+            self.logger.info(f"  - IP: {client_ip}")
+            self.logger.info(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
+
+            await self._notify_volume_service_client_connected(client_id, client)
+
+            await self._broadcast_snapcast_event("client_connected", {
+                "client_id": client_id,
+                "client_name": client_name,
+                "client_host": client_host,
+                "client_ip": client_ip,
+                "volume": snapcast_volume,
+                "muted": client.get("config", {}).get("volume", {}).get("muted", False)
+            })
+        finally:
+            # Remove from processing set
+            self._processing_client_ids.discard(client_id)
     
     async def _handle_client_disconnect(self, params: Dict[str, Any]) -> None:
         """Client disconnected - Streamlined version"""
@@ -437,6 +466,17 @@ class SnapcastWebSocketService:
                 # Ensure Snapcast volume is 100% passthrough
                 await snapcast_service.set_volume(client_id, 100)
                 self.logger.info(f"  - Snapcast volume set to 100% (passthrough)")
+
+            # Apply any pending settings for this client (queued while offline)
+            crossover_service = getattr(self.state_machine, 'crossover_service', None)
+            if crossover_service:
+                # Get client IP/DSP ID from client data
+                client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
+                if client_ip:
+                    has_pending = crossover_service.has_pending_settings(client_ip)
+                    if has_pending:
+                        self.logger.info(f"  - Applying pending settings for reconnected client {client_ip}")
+                        await crossover_service.apply_pending_settings(client_ip)
 
         except Exception as e:
             self.logger.error(f"❌ Error initializing new client: {e}", exc_info=True)

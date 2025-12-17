@@ -34,6 +34,16 @@
               </div>
 
               <template v-if="dspStore.isConnected">
+                <!-- Propagation Error Banner -->
+                <div v-if="dspStore.propagationErrors.length > 0" class="error-banner" @click="dspStore.clearPropagationErrors">
+                  <span class="error-icon">⚠</span>
+                  <span class="error-text">
+                    {{ $t('dsp.syncError', 'Failed to sync settings to') }}:
+                    {{ dspStore.propagationErrors.map(e => dspStore.getClientDisplayName(e.clientId)).join(', ') }}
+                  </span>
+                  <span class="error-dismiss">×</span>
+                </div>
+
                 <!-- Section 1: Zones (tabs + volumes) -->
                 <ZoneTabs
                   ref="zoneTabsRef"
@@ -71,7 +81,7 @@
                 <AdvancedDsp :zone-name="selectedZoneName" />
 
                 <!-- Level Meters -->
-                <LevelMeters />
+                <LevelMeters :client-ids="selectedClientIds" />
               </template>
             </div>
       </Transition>
@@ -106,6 +116,11 @@ const zoneTabsRef = ref(null);
 // Selected zone/client name from ZoneTabs component
 const selectedZoneName = computed(() => {
   return zoneTabsRef.value?.selectedZoneName ?? '';
+});
+
+// Selected client IDs for level meters aggregation
+const selectedClientIds = computed(() => {
+  return zoneTabsRef.value?.selectedClientIds ?? ['local'];
 });
 
 let unsubscribeFunctions = [];
@@ -309,6 +324,40 @@ onUnmounted(() => {
 
 .status-text {
   font-size: 14px;
+}
+
+/* Error banner for propagation failures */
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+  padding: var(--space-03);
+  background: var(--color-error, #f44336);
+  background: rgba(244, 67, 54, 0.15);
+  border: 1px solid var(--color-error, #f44336);
+  border-radius: var(--radius-04);
+  color: var(--color-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.error-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.error-text {
+  flex: 1;
+}
+
+.error-dismiss {
+  font-size: 18px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.error-banner:hover .error-dismiss {
+  opacity: 1;
 }
 
 /* Settings section pattern */

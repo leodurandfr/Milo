@@ -308,3 +308,32 @@ class DspLinkedClientsRequest(BaseModel):
         if len(result) < 2:
             raise ValueError('At least 2 different clients must be linked')
         return result
+
+
+# =============================================================================
+# Speaker Types / Crossover Integration
+# =============================================================================
+
+SPEAKER_TYPES = Literal['satellite', 'bookshelf', 'tower', 'subwoofer']
+
+
+class ClientSpeakerTypeRequest(BaseModel):
+    """Request to set client speaker type"""
+    speaker_type: SPEAKER_TYPES = Field(..., description="Speaker type: satellite, bookshelf, tower, or subwoofer")
+
+
+class ZoneCrossoverRequest(BaseModel):
+    """Zone crossover frequency configuration"""
+    frequency: float = Field(
+        default=80.0,
+        ge=40,
+        le=200,
+        description="Crossover frequency in Hz (highpass cutoff for speakers)"
+    )
+
+
+class CrossoverFilterRequest(BaseModel):
+    """Direct crossover filter configuration (for milo-client API)"""
+    enabled: bool = Field(..., description="Enable or disable crossover highpass filter")
+    frequency: float = Field(default=80.0, ge=40, le=200, description="Crossover frequency in Hz")
+    q: float = Field(default=0.707, ge=0.5, le=1.5, description="Filter Q factor (0.707 = Butterworth)")

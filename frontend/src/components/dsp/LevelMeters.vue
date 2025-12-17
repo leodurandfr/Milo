@@ -61,6 +61,13 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import LevelMeter from './LevelMeter.vue';
 import axios from 'axios';
 
+const props = defineProps({
+  clientIds: {
+    type: Array,
+    default: () => ['local']
+  }
+});
+
 const dspStore = useDspStore();
 const settingsStore = useSettingsStore();
 
@@ -96,7 +103,13 @@ async function pollLevels() {
   if (!dspStore.isConnected) return;
 
   try {
-    const response = await axios.get('/api/dsp/levels');
+    // Use zone endpoint for multiple clients, local endpoint for single client
+    const ids = props.clientIds;
+    const endpoint = ids.length > 1
+      ? `/api/dsp/levels/zone/${ids.join(',')}`
+      : '/api/dsp/levels';
+
+    const response = await axios.get(endpoint);
     if (response.data.available) {
       dspStore.inputPeak = response.data.input_peak || [meterMin.value, meterMin.value];
       dspStore.outputPeak = response.data.output_peak || [meterMin.value, meterMin.value];
@@ -136,6 +149,13 @@ watch(() => dspStore.isConnected, (isConnected) => {
     stopPolling();
   }
 });
+
+// Re-poll immediately when clientIds change (zone selection changed)
+watch(() => props.clientIds, () => {
+  if (dspStore.isConnected) {
+    pollLevels();
+  }
+}, { deep: true });
 </script>
 
 <style scoped>

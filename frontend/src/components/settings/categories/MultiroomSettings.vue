@@ -48,35 +48,23 @@
                       />
                     </div>
 
-                    <!-- Zone Members (Expanded) with volume/mute controls -->
+                    <!-- Zone Members (Expanded) -->
                     <Transition name="expand">
                       <div v-if="expandedZones.has(zone.id)" class="zone-members">
                         <div
                           v-for="client in zone.clients"
                           :key="client.id"
-                          class="client-volume-row"
-                          :class="{ 'client-muted': client.muted }"
+                          class="client-row-simple"
                         >
-                          <span class="client-name heading-3" :class="{ 'muted': client.muted }">
+                          <span class="client-name heading-3">
                             {{ client.name }}
+                            <span v-if="dspStore.isClientSubwoofer(client.dsp_id)" class="badge badge-sub">Sub</span>
                           </span>
-                          <div class="volume-control">
-                            <RangeSlider
-                              :model-value="getClientVolume(client)"
-                              :min="volumeLimits.min_db"
-                              :max="volumeLimits.max_db"
-                              :step="1"
-                              show-value
-                              value-unit=" dB"
-                              :disabled="client.muted"
-                              @input="(v) => handleVolumeInput(client, v)"
-                              @change="(v) => handleVolumeChange(client, v)"
-                            />
-                          </div>
-                          <Toggle
-                            :model-value="!client.muted"
-                            type="background-strong"
-                            @change="(enabled) => handleMuteToggle(client, !enabled)"
+                          <IconButton
+                            icon="caretRight"
+                            variant="background-strong"
+                            size="small"
+                            @click="handleEditClient(client.id)"
                           />
                         </div>
                       </div>
@@ -92,17 +80,18 @@
                     :key="client.id"
                     class="ungrouped-client"
                   >
-                    <div class="ungrouped-client-info">
-                      <span class="client-hostname text-mono-small">{{ client.host }}</span>
-                      <span class="client-arrow">→</span>
-                      <span class="client-name heading-4">{{ client.name }}</span>
+                    <div class="client-row-simple">
+                      <span class="client-name heading-3">
+                        {{ client.name }}
+                        <span v-if="dspStore.isClientSubwoofer(client.dsp_id)" class="badge badge-sub">Sub</span>
+                      </span>
+                      <IconButton
+                        icon="caretRight"
+                        variant="background-strong"
+                        size="small"
+                        @click="handleEditClient(client.id)"
+                      />
                     </div>
-                    <IconButton
-                      icon="caretRight"
-                      variant="background-strong"
-                      size="small"
-                      @click="handleEditClient(client.id)"
-                    />
                   </div>
 
                   <!-- Create Zone Button -->
@@ -190,11 +179,9 @@ import useWebSocket from '@/services/websocket';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useDspStore } from '@/stores/dspStore';
-import { useSettingsStore } from '@/stores/settingsStore';
 import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import IconButton from '@/components/ui/IconButton.vue';
-import Toggle from '@/components/ui/Toggle.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
 const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client']);
@@ -204,7 +191,6 @@ const { on } = useWebSocket();
 const multiroomStore = useMultiroomStore();
 const unifiedStore = useUnifiedAudioStore();
 const dspStore = useDspStore();
-const settingsStore = useSettingsStore();
 
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -218,20 +204,10 @@ let isFirstResize = true;
 // Zone expansion state
 const expandedZones = ref(new Set());
 
-// Volume limits from settings
-const volumeLimits = computed(() => settingsStore.volumeLimits);
-
-// Local volume cache for responsive UI during drag
-const localVolumeCache = ref({});
-
-// Throttling for volume updates
-const throttleTimeouts = new Map();
-const finalTimeouts = new Map();
-
 // Sorted clients with "milo" first
 const sortedMultiroomClients = computed(() => multiroomStore.sortedClients);
 
-// Get zones with client details (including volume and muted state)
+// Get zones with client details
 const zones = computed(() => {
   return dspStore.linkedGroups.map((group, index) => {
     const clients = (group.client_ids || [])
@@ -241,9 +217,7 @@ const zones = computed(() => {
           id: client.id,
           dsp_id: dspId,
           host: client.host,
-          name: client.name || client.host,
-          muted: client.muted || false,
-          volume: dspStore.getClientDspVolume(dspId)
+          name: client.name || client.host
         } : null;
       })
       .filter(Boolean);
@@ -283,66 +257,6 @@ function toggleZoneExpansion(zoneId) {
   }
   // Force reactivity
   expandedZones.value = new Set(expandedZones.value);
-}
-
-// === ZONE CLIENT VOLUME/MUTE HANDLERS ===
-
-// Get client volume (from local cache or dspStore)
-function getClientVolume(client) {
-  if (localVolumeCache.value[client.dsp_id] !== undefined) {
-    return localVolumeCache.value[client.dsp_id];
-  }
-  const volume = dspStore.getClientDspVolume(client.dsp_id);
-  return Math.max(volumeLimits.value.min_db, Math.min(volumeLimits.value.max_db, Math.round(volume)));
-}
-
-// Handle volume input (during slider drag)
-function handleVolumeInput(client, value) {
-  // Update local cache for responsive UI
-  localVolumeCache.value[client.dsp_id] = value;
-
-  // Clear existing timeouts
-  if (throttleTimeouts.has(client.id)) {
-    clearTimeout(throttleTimeouts.get(client.id));
-  }
-  if (finalTimeouts.has(client.id)) {
-    clearTimeout(finalTimeouts.get(client.id));
-  }
-
-  // Throttled update (50ms)
-  throttleTimeouts.set(client.id, setTimeout(async () => {
-    await dspStore.updateClientDspVolume(client.dsp_id, value);
-  }, 50));
-
-  // Final update (500ms)
-  finalTimeouts.set(client.id, setTimeout(async () => {
-    await dspStore.updateClientDspVolume(client.dsp_id, value);
-  }, 500));
-}
-
-// Handle volume change (on slider release)
-function handleVolumeChange(client, value) {
-  // Clear throttle timeouts
-  if (throttleTimeouts.has(client.id)) {
-    clearTimeout(throttleTimeouts.get(client.id));
-    throttleTimeouts.delete(client.id);
-  }
-  if (finalTimeouts.has(client.id)) {
-    clearTimeout(finalTimeouts.get(client.id));
-    finalTimeouts.delete(client.id);
-  }
-
-  // Clear local cache
-  delete localVolumeCache.value[client.dsp_id];
-
-  // Final update
-  dspStore.updateClientDspVolume(client.dsp_id, value);
-  dspStore.setClientDspVolume(client.dsp_id, value);
-}
-
-// Handle mute toggle
-async function handleMuteToggle(client, muted) {
-  await multiroomStore.toggleClientMute(client.id, muted);
 }
 
 // Navigation handlers - emit to parent (SettingsModal)
@@ -480,9 +394,6 @@ onUnmounted(() => {
   if (resizeObserver) {
     resizeObserver.disconnect();
   }
-  // Clear all throttle timeouts
-  throttleTimeouts.forEach(timeout => clearTimeout(timeout));
-  finalTimeouts.forEach(timeout => clearTimeout(timeout));
 });
 </script>
 
@@ -590,35 +501,17 @@ onUnmounted(() => {
   padding: 0 var(--space-03);
 }
 
-/* Client volume row (pattern from ZoneTabs) */
-.client-volume-row {
-  display: grid;
-  grid-template-columns: minmax(100px, 150px) 1fr auto;
+/* Client row (simplified - no volume/mute controls) */
+.client-row-simple {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-03);
   padding: var(--space-03) 0;
-  position: relative;
 }
 
-.client-volume-row:not(:last-child) {
+.client-row-simple:not(:last-child) {
   border-bottom: 1px solid var(--color-border);
-}
-
-.client-volume-row .client-name {
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color var(--transition-fast);
-}
-
-.client-volume-row .client-name.muted {
-  color: var(--color-text-light);
-}
-
-.client-volume-row .volume-control {
-  flex: 1;
-  min-width: 0;
 }
 
 /* Separator */
@@ -630,29 +523,13 @@ onUnmounted(() => {
 
 /* Ungrouped client */
 .ungrouped-client {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-03);
   background: var(--color-background-strong);
   border-radius: var(--radius-04);
+  padding: 0 var(--space-03);
 }
 
-.ungrouped-client-info {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--space-02);
-  min-width: 0;
-}
-
-.client-hostname {
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-}
-
-.client-arrow {
-  color: var(--color-text-light);
+.ungrouped-client .client-row-simple {
+  border-bottom: none;
 }
 
 .client-name {
@@ -660,6 +537,28 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+}
+
+/* Badge styles */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: var(--radius-02);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.badge-sub {
+  background: var(--color-brand);
+  color: var(--color-text-on-brand);
 }
 
 /* Create zone button */
@@ -755,25 +654,6 @@ onUnmounted(() => {
   .codec-buttons,
   .presets-buttons {
     flex-direction: column;
-  }
-
-  /* Mobile: stack volume control below name */
-  .client-volume-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-02);
-    padding: var(--space-02) 0;
-  }
-
-  .client-volume-row .client-name {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .client-volume-row .volume-control {
-    order: 3;
-    width: 100%;
-    flex-basis: 100%;
   }
 }
 </style>

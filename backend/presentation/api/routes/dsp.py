@@ -31,7 +31,10 @@ from backend.presentation.api.models import (
     DspCompressorRequest,
     DspLoudnessRequest,
     DspDelayRequest,
-    DspLinkedClientsRequest
+    DspLinkedClientsRequest,
+    ClientSpeakerTypeRequest,
+    ZoneCrossoverRequest,
+    CrossoverFilterRequest
 )
 
 logger = logging.getLogger(__name__)
@@ -241,7 +244,7 @@ async def _sync_dsp_settings(source_client: str, target_clients: list):
     return {"synced": synced, "errors": errors if errors else None}
 
 
-def create_dsp_router(dsp_service, state_machine, settings_service=None, routing_service=None):
+def create_dsp_router(dsp_service, state_machine, settings_service=None, routing_service=None, crossover_service=None):
     """Creates DSP router with injected dependencies"""
     router = APIRouter(prefix="/api/dsp", tags=["dsp"])
 
@@ -320,6 +323,50 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
             return levels
         except Exception as e:
             return {"available": False, "error": str(e)}
+
+    @router.get("/levels/zone/{client_ids}")
+    async def get_zone_levels(client_ids: str):
+        """Get aggregated (MAX) audio levels for multiple clients in a zone."""
+        ids = client_ids.split(",")
+
+        async def get_client_levels(client_id: str):
+            """Get levels from a single client."""
+            normalized = 'local' if client_id in ('local', 'milo') else client_id
+            if normalized == 'local':
+                try:
+                    return await dsp_service.get_levels()
+                except Exception:
+                    return None
+            else:
+                # Proxy to remote client
+                try:
+                    host = client_id if _is_ip_address(client_id) else f"{client_id}.local"
+                    timeout = aiohttp.ClientTimeout(total=1.0)
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        async with session.get(f"http://{host}:8001/dsp/levels") as resp:
+                            if resp.status == 200:
+                                return await resp.json()
+                except Exception:
+                    pass
+                return None
+
+        # Poll all clients in parallel
+        results = await asyncio.gather(*[get_client_levels(cid) for cid in ids])
+
+        # Aggregate: MAX of all available readings
+        input_peak = [-80.0, -80.0]
+        output_peak = [-80.0, -80.0]
+        available = False
+
+        for r in results:
+            if r and r.get("available"):
+                available = True
+                inp = r.get("input_peak", [-80.0, -80.0])
+                out = r.get("output_peak", [-80.0, -80.0])
+                input_peak = [max(input_peak[0], inp[0]), max(input_peak[1], inp[1])]
+                output_peak = [max(output_peak[0], out[0]), max(output_peak[1], out[1])]
+
+        return {"available": available, "input_peak": input_peak, "output_peak": output_peak}
 
     @router.post("/connect")
     async def connect_dsp():
@@ -753,6 +800,10 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
                     # Sync settings from source to all clients in merged group
                     sync_result = await _sync_dsp_settings(source_client, all_clients)
 
+                    # Apply crossover if zone has a subwoofer
+                    if crossover_service:
+                        await crossover_service.on_zone_changed(linked_groups[i]["id"])
+
                     return {
                         "status": "success",
                         "message": "Merged with existing group",
@@ -772,6 +823,10 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
 
             # Sync settings from source to all other clients
             sync_result = await _sync_dsp_settings(source_client, all_clients)
+
+            # Apply crossover if zone has a subwoofer
+            if crossover_service:
+                await crossover_service.on_zone_changed(new_group["id"])
 
             return {
                 "status": "success",
@@ -795,6 +850,7 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
             linked_groups = await settings_service.get_setting("dsp.linked_groups") or []
             updated_groups = []
             found = False
+            modified_group_ids = []  # Track groups that were modified and still exist
 
             for group in linked_groups:
                 client_ids = group.get("client_ids", [])
@@ -806,6 +862,7 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
                     if len(client_ids) >= 2:
                         group["client_ids"] = client_ids
                         updated_groups.append(group)
+                        modified_group_ids.append(group["id"])
                 else:
                     updated_groups.append(group)
 
@@ -814,6 +871,12 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
 
             await settings_service.set_setting("dsp.linked_groups", updated_groups)
             await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": updated_groups})
+
+            # Recalculate crossover for modified groups that still exist
+            if crossover_service:
+                for group_id in modified_group_ids:
+                    await crossover_service.on_zone_changed(group_id)
+
             return {"status": "success", "linked_groups": updated_groups}
 
         except HTTPException:
@@ -885,6 +948,197 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
             raise
         except Exception as e:
             logger.error(f"Error updating link group name: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # === Speaker Type / Crossover Management ===
+
+    @router.get("/client/{client_id}/type")
+    async def get_client_type(client_id: str):
+        """Get client speaker type"""
+        try:
+            from backend.config.container import container
+            crossover_service = container.crossover_service()
+            client_type = await crossover_service.get_client_type(client_id)
+            return {"client_id": client_id, **client_type}
+        except Exception as e:
+            logger.error(f"Error getting client type: {e}")
+            return {"client_id": client_id, "speaker_type": "bookshelf"}
+
+    @router.put("/client/{client_id}/speaker-type")
+    async def set_client_speaker_type(client_id: str, payload: ClientSpeakerTypeRequest):
+        """Set client speaker type (satellite, bookshelf, tower, subwoofer)"""
+        try:
+            from backend.config.container import container
+            crossover_service = container.crossover_service()
+            success = await crossover_service.set_client_speaker_type(
+                client_id,
+                payload.speaker_type
+            )
+
+            if success:
+                # Get the crossover frequency (default or custom)
+                client_type = await crossover_service.get_client_type(client_id)
+                return {
+                    "status": "success",
+                    "client_id": client_id,
+                    "speaker_type": payload.speaker_type,
+                    "crossover_frequency": client_type.get("crossover_frequency")
+                }
+
+            raise HTTPException(status_code=500, detail="Failed to update client speaker type")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error setting client speaker type: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.put("/client/{client_id}/crossover-frequency")
+    async def set_client_crossover_frequency(client_id: str, payload: dict):
+        """Set custom crossover frequency for a client"""
+        try:
+            from backend.config.container import container
+            crossover_service = container.crossover_service()
+
+            frequency = payload.get("frequency")
+            if frequency is None:
+                raise HTTPException(status_code=400, detail="frequency is required")
+
+            success = await crossover_service.set_client_crossover_frequency(
+                client_id,
+                float(frequency)
+            )
+
+            if success:
+                client_type = await crossover_service.get_client_type(client_id)
+                return {
+                    "status": "success",
+                    "client_id": client_id,
+                    "speaker_type": client_type.get("speaker_type"),
+                    "crossover_frequency": client_type.get("crossover_frequency")
+                }
+
+            raise HTTPException(status_code=500, detail="Failed to update crossover frequency")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error setting client crossover frequency: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/client-types")
+    async def get_all_client_types():
+        """Get all client type configurations"""
+        try:
+            from backend.config.container import container
+            crossover_service = container.crossover_service()
+            client_types = await crossover_service.get_all_client_types()
+            return {"client_types": client_types}
+        except Exception as e:
+            logger.error(f"Error getting client types: {e}")
+            return {"client_types": {}}
+
+    @router.get("/links/{group_id}/crossover")
+    async def get_zone_crossover(group_id: str):
+        """Get crossover settings for a zone"""
+        try:
+            from backend.config.container import container
+            crossover_service = container.crossover_service()
+            crossover = await crossover_service.get_zone_crossover(group_id)
+            return {"zone_id": group_id, **crossover}
+        except Exception as e:
+            logger.error(f"Error getting zone crossover: {e}")
+            return {
+                "zone_id": group_id,
+                "frequency": 80,
+                "enabled": False,
+                "has_subwoofer": False
+            }
+
+    @router.get("/links/{group_id}/auto-crossover")
+    async def get_zone_auto_crossover(group_id: str):
+        """Get automatic crossover frequency for a zone (MIN of speaker frequencies)"""
+        try:
+            from backend.config.container import container
+            crossover_service = container.crossover_service()
+            frequency = await crossover_service.get_zone_auto_crossover(group_id)
+            return {"zone_id": group_id, "frequency": frequency}
+        except Exception as e:
+            logger.error(f"Error getting zone auto crossover: {e}")
+            return {"zone_id": group_id, "frequency": 80}
+
+    @router.put("/links/{group_id}/crossover")
+    async def set_zone_crossover(group_id: str, payload: ZoneCrossoverRequest):
+        """Set crossover frequency for a zone"""
+        try:
+            from backend.config.container import container
+            crossover_service = container.crossover_service()
+            success = await crossover_service.set_zone_crossover_frequency(
+                group_id,
+                payload.frequency
+            )
+
+            if success:
+                crossover = await crossover_service.get_zone_crossover(group_id)
+                return {"status": "success", "zone_id": group_id, **crossover}
+
+            raise HTTPException(status_code=500, detail="Failed to update zone crossover")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error setting zone crossover: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/links/{group_id}/crossover/apply")
+    async def apply_zone_crossover(group_id: str):
+        """Manually apply crossover settings to all clients in a zone"""
+        try:
+            from backend.config.container import container
+            crossover_service = container.crossover_service()
+            success = await crossover_service.apply_zone_crossover(group_id)
+
+            if success:
+                return {"status": "success", "message": f"Crossover applied to zone {group_id}"}
+
+            raise HTTPException(status_code=500, detail="Failed to apply crossover")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error applying zone crossover: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/crossover")
+    async def get_local_crossover():
+        """Get local crossover filter settings"""
+        try:
+            crossover = await dsp_service.get_crossover_filter()
+            return crossover
+        except Exception as e:
+            logger.error(f"Error getting local crossover: {e}")
+            return {"enabled": False, "frequency": 80, "q": 0.707}
+
+    @router.put("/crossover")
+    async def set_local_crossover(payload: CrossoverFilterRequest):
+        """Set local crossover filter (direct control)"""
+        try:
+            success = await dsp_service.set_crossover_filter(
+                enabled=payload.enabled,
+                frequency=payload.frequency,
+                q=payload.q
+            )
+
+            if success:
+                crossover = await dsp_service.get_crossover_filter()
+                return {"status": "success", **crossover}
+
+            raise HTTPException(status_code=500, detail="Failed to update crossover")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error setting local crossover: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # === Client DSP Proxy Routes ===
@@ -1038,11 +1292,18 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
             volume_data = {k: v for k, v in result.items() if k != "status"}
             await _update_client_settings(hostname, "volume", volume_data)
 
-            # Update multiroom volume cache
-            if volume_db is not None and state_machine:
+            # Update multiroom volume cache with actual response value, not request
+            # The response 'main' field contains the actual volume set by the client
+            actual_volume = result.get("main", result.get("volume", volume_db))
+            if actual_volume is not None and state_machine:
                 volume_service = getattr(state_machine, 'volume_service', None)
                 if volume_service:
-                    await volume_service.update_client_volume_db(normalized, volume_db)
+                    await volume_service.update_client_volume_db(normalized, actual_volume)
+                    # Log if requested vs actual differs (client clamped the value)
+                    if actual_volume != volume_db:
+                        logger.info(
+                            f"Client {hostname} volume clamped: requested {volume_db} dB, actual {actual_volume} dB"
+                        )
 
         return result
 
