@@ -358,12 +358,14 @@ class MultiroomVolumeHandler:
                     hostname = self._get_hostname_from_client(client)
                     break
 
-            if hostname:
-                # Initialize with global volume (no offset)
-                self._client_volume_db[hostname] = self._global_volume_db
-                self._client_offset_db[hostname] = 0.0
+            # Initialize with average volume of existing clients
+            avg_volume = self.get_average_volume_db()
 
-            self.logger.info(f"Client {client_id} initialized: Snapcast=100%, DSP={self._global_volume_db:.1f} dB")
+            if hostname:
+                self._client_volume_db[hostname] = avg_volume
+                self._client_offset_db[hostname] = avg_volume - self._global_volume_db
+
+            self.logger.info(f"Client {client_id} initialized: Snapcast=100%, DSP={avg_volume:.1f} dB (avg)")
             return True
 
         except Exception as e:

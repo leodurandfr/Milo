@@ -405,9 +405,9 @@ install_milo_client_application() {
     # Install packages from piwheels (faster for ARM)
     sudo -u "$MILO_CLIENT_USER" bash -c "source $MILO_CLIENT_VENV_DIR/bin/activate && pip install -r $MILO_CLIENT_APP_DIR/requirements.txt"
 
-    # Install camilladsp separately from PyPI (not available on piwheels)
-    log_info "Installing camilladsp from PyPI..."
-    sudo -u "$MILO_CLIENT_USER" bash -c "source $MILO_CLIENT_VENV_DIR/bin/activate && pip install --index-url https://pypi.org/simple/ camilladsp"
+    # Install camilladsp from GitHub (not available on PyPI/piwheels)
+    log_info "Installing camilladsp from GitHub..."
+    sudo -u "$MILO_CLIENT_USER" bash -c "source $MILO_CLIENT_VENV_DIR/bin/activate && pip install git+https://github.com/HEnquist/pycamilladsp.git"
 
     log_success "Milo Client application installed"
 }
@@ -645,6 +645,46 @@ EOF
     log_success "Sudo permissions configured"
 }
 
+configure_network_priority() {
+    log_info "Configuring network priority (ethernet over wifi)..."
+
+    # Create NetworkManager dispatcher script to disconnect WiFi when Ethernet is connected
+    sudo tee /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority > /dev/null << 'EOF'
+#!/bin/bash
+# NetworkManager dispatcher script for WiFi/Ethernet priority
+# Automatically disconnects WiFi when Ethernet is connected
+
+INTERFACE=$1
+ACTION=$2
+
+case "$INTERFACE" in
+    eth0)
+        case "$ACTION" in
+            up)
+                # Ethernet is up, disconnect WiFi to avoid duplicate connections
+                if nmcli device status | grep -q "^wlan0.*connected"; then
+                    nmcli device disconnect wlan0
+                fi
+                ;;
+        esac
+        ;;
+esac
+
+exit 0
+EOF
+
+    sudo chmod +x /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority
+
+    # If currently connected via both ethernet and wifi, disconnect wifi now
+    if ip addr show eth0 2>/dev/null | grep -q "inet " && \
+       nmcli device status | grep -q "^wlan0.*connected"; then
+        log_info "Disconnecting WiFi (ethernet is available)..."
+        nmcli device disconnect wlan0 || true
+    fi
+
+    log_success "Network priority configured"
+}
+
 
 finalize_installation() {
     log_info "Finalizing installation..."
@@ -873,6 +913,7 @@ main() {
     enable_services
     install_wrapper_script
     configure_sudoers
+    configure_network_priority
 
     finalize_installation
 }
