@@ -1,13 +1,19 @@
-<!-- frontend/src/components/multiroom/MultiroomClientItem.vue -->
+<!-- frontend/src/components/multiroom/MultiroomItem.vue -->
 <template>
-  <div class="multiroom-client-item">
+  <div class="multiroom-item">
     <!-- CLIENT NAME -->
-    <div class="client-name-wrapper">
-      <!-- Skeleton shimmer -->
+    <div class="client-name-wrapper" :class="{ 'is-zone': client.isZone || zoneClients }">
+      <!-- Skeleton wrapper -->
       <div
-        class="client-name-skeleton heading-2"
+        class="client-name-skeletons"
         :class="{ 'visible': isLoading }"
-      ></div>
+      >
+        <div class="item-name-skeleton"></div>
+        <div
+          v-if="client.isZone || zoneClients"
+          class="zone-clients-skeleton"
+        ></div>
+      </div>
 
       <!-- Real content -->
       <div
@@ -17,8 +23,8 @@
           'muted': client.dspMuted
         }"
       >
-        <span class="name-text">{{ client.name }}</span>
-        <span v-if="zoneBadge" class="zone-badge">{{ zoneBadge }}</span>
+        <span class="item-name">{{ client.name }}</span>
+        <span v-if="zoneClients" class="zone-clients text-mono">{{ zoneClients }}</span>
       </div>
     </div>
 
@@ -92,8 +98,8 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  // Badge to show when client is part of a zone
-  zoneBadge: {
+  // Client names to show when item represents a zone
+  zoneClients: {
     type: String,
     default: ''
   }
@@ -163,7 +169,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.multiroom-client-item {
+.multiroom-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -171,22 +177,44 @@ onUnmounted(() => {
   gap: var(--space-04);
   padding: var(--space-04) var(--space-04) var(--space-04) var(--space-05);
   background: var(--color-background-neutral);
+  max-height: 72px;
 }
 
 /* === CLIENT NAME WRAPPER === */
 .client-name-wrapper {
-  min-width: 144px;
-  max-width: 144px;
-  height: 28px;
+  min-width: 190px;
+  max-width: 190px;
+  min-height: 24px;
   position: relative;
   display: flex;
   align-items: center;
 }
 
-/* Skeleton for name */
-.client-name-skeleton {
+.client-name-wrapper.is-zone {
+  min-height: 42px;
+}
+
+/* Skeleton wrapper for name */
+.client-name-skeletons {
   position: absolute;
   inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: var(--space-01);
+  opacity: 0;
+  transition: opacity 300ms ease 0ms;
+  pointer-events: none;
+}
+
+.client-name-skeletons.visible {
+  opacity: 1;
+  transition: opacity 300ms ease 0ms;
+}
+
+.item-name-skeleton {
+  height: 20px;
+  width: 64%;
   border-radius: var(--radius-full);
   background: linear-gradient(
     90deg,
@@ -196,26 +224,30 @@ onUnmounted(() => {
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
-  opacity: 0;
-  transition: opacity 300ms ease 0ms;
-  pointer-events: none;
 }
 
-.client-name-skeleton.visible {
-  opacity: 1;
-  transition: opacity 300ms ease 0ms;
+.zone-clients-skeleton {
+  height: 14px;
+  width: 80%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    var(--color-background-strong) 0%,
+    var(--color-background-medium-16) 50%,
+    var(--color-background-strong) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  animation-delay: 0.2s;
 }
 
 /* Real name content */
 .client-name {
-  position: absolute;
-  inset: 0;
   color: var(--color-text);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   opacity: 0;
   transition: opacity 300ms ease 0ms, color 300ms ease;
+  width: 100%;
 }
 
 .client-name.visible {
@@ -229,26 +261,24 @@ onUnmounted(() => {
 
 .client-name {
   display: flex;
-  align-items: center;
-  gap: var(--space-02);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
 }
 
-.name-text {
+.item-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
-  min-width: 0;
+  width: 100%;
 }
 
-.zone-badge {
-  flex-shrink: 0;
-  font-size: 10px;
-  padding: 2px 6px;
-  background: var(--color-background-strong);
-  color: var(--color-text-secondary);
-  border-radius: var(--radius-full);
-  font-weight: 500;
+.zone-clients {
+  color: var(--color-text-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
 }
 
 /* === VOLUME WRAPPER === */
@@ -357,19 +387,20 @@ onUnmounted(() => {
 }
 
 @media (max-aspect-ratio: 4/3) {
-  .multiroom-client-item {
+  .multiroom-item {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-03);
     border-radius: var(--radius-05);
+    max-height: none;
+
   }
 
   .client-name-wrapper {
     flex: 1;
     order: 1;
     min-width: 0;
-    height: 26px;
   }
 
   .toggle-wrapper {
@@ -377,6 +408,7 @@ onUnmounted(() => {
     margin-left: auto;
     width: 56px;
     height: 32px;
+    align-self: flex-start;
   }
 
   .toggle-skeleton {

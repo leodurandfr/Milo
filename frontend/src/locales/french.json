@@ -62,12 +62,6 @@
     "subwooferAutoCrossover": "Les filtres de crossover numériques seront automatiquement appliqués : passe-bas sur ce caisson, passe-haut sur les autres enceintes de la zone.",
     "subwooferDisablePhysical": "Réglez le crossover de votre caisson au maximum (LFE/Bypass) pour éviter le cumul des filtres."
   },
-  "equalizer": {
-    "title": "Égaliseur",
-    "disabled": "L'égaliseur est désactivé",
-    "loading": "Chargement de l'égaliseur",
-    "presets": "Pré-réglages"
-  },
   "dsp": {
     "title": "Égaliseur DSP",
     "disabled": "Le DSP est désactivé",
@@ -128,6 +122,7 @@
     "hideAdvanced": "Masquer options",
     "compressor": {
       "title": "Compresseur",
+      "enable": "Activer le compresseur",
       "threshold": "Seuil",
       "ratio": "Ratio",
       "attack": "Attaque",
@@ -136,11 +131,13 @@
     },
     "loudness": {
       "title": "Loudness",
+      "enable": "Activer le loudness",
       "lowBoost": "Boost graves",
       "highBoost": "Boost aigus"
     },
     "delay": {
-      "title": "Délai de canal",
+      "title": "Délai",
+      "enable": "Activer le délai de canal",
       "left": "Canal gauche",
       "right": "Canal droit"
     },

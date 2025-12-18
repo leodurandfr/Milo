@@ -49,16 +49,12 @@
       <div class="volume-group">
         <h2 class="heading-2">{{ t('volumeSettings.startup') }}</h2>
 
-        <div class="startup-mode-buttons">
-          <Button :variant="!config.restore_last_volume ? 'outline' : 'background-strong'" size="medium"
-            @click="updateSetting('volume-startup', { startup_volume_db: config.startup_volume_db, restore_last_volume: false })">
-            {{ t('volumeSettings.fixedVolume') }}
-          </Button>
-          <Button :variant="config.restore_last_volume ? 'outline' : 'background-strong'" size="medium"
-            @click="updateSetting('volume-startup', { startup_volume_db: config.startup_volume_db, restore_last_volume: true })">
-            {{ t('volumeSettings.restoreLast') }}
-          </Button>
-        </div>
+        <ButtonGroup
+          :model-value="config.restore_last_volume"
+          :options="startupModeOptions"
+          mobile-layout="column-reverse"
+          @change="handleStartupModeChange"
+        />
 
         <div v-if="!config.restore_last_volume" class="setting-item-container">
           <div class="volume-item-setting text-mono">
@@ -75,12 +71,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
-import Button from '@/components/ui/Button.vue';
+import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
 
@@ -97,6 +93,19 @@ const config = ref({
   restore_last_volume: false,
   startup_volume_db: -30.0
 });
+
+// Startup mode options for ButtonGroup
+const startupModeOptions = computed(() => [
+  { label: t('volumeSettings.fixedVolume'), value: false },
+  { label: t('volumeSettings.restoreLast'), value: true }
+]);
+
+function handleStartupModeChange(restoreLast) {
+  updateSetting('volume-startup', {
+    startup_volume_db: config.value.startup_volume_db,
+    restore_last_volume: restoreLast
+  });
+}
 
 // Sync local refs with the store on mount
 function syncFromStore() {
@@ -211,28 +220,15 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-.startup-mode-buttons {
-  display: flex;
-  gap: var(--space-02);
-}
-
-.startup-mode-buttons .btn {
-  flex: 1;
-}
-
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
-    .settings-section {
+  .settings-section {
     border-radius: var(--radius-05);
-  }
-  .startup-mode-buttons {
-    flex-direction: column-reverse;
   }
 
   .volume-steps-control,
   .startup-volume-control {
     gap: var(--space-05);
   }
-
 }
 </style>

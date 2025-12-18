@@ -132,7 +132,7 @@ function handleToggle(event) {
 }
 
 .toggle--secondary .slider {
-  background-color: var(--color-background-strong);
+  background-color: var(--color-text-light);
 }
 
 .toggle--secondary input:checked+.slider {

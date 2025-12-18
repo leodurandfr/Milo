@@ -50,7 +50,7 @@
               </template>
             </ListItemButton>
 
-            <ListItemButton :title="t('equalizer.title')" action="caret" @click="goToView('equalizer')">
+            <ListItemButton :title="t('dsp.title')" action="caret" @click="goToView('equalizer')">
               <template #icon>
                 <img :src="equalizerIcon" alt="Equalizer" />
               </template>
@@ -161,8 +161,13 @@
         <!-- Podcast view -->
         <PodcastSettings v-else-if="currentView === 'podcast'" key="podcast" class="view-content" />
 
-        <!-- Equalizer view -->
-        <EqualizerSettings v-else-if="currentView === 'equalizer'" key="equalizer" class="view-content" />
+        <!-- DSP view -->
+        <DspSettings
+          v-else-if="currentView === 'equalizer'"
+          key="equalizer"
+          class="view-content"
+          @configure-zone="handleEditZone"
+        />
 
         <!-- Updates view -->
         <UpdateManager v-else-if="currentView === 'updates'" key="updates" class="view-content" />
@@ -206,14 +211,14 @@ import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue'
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
 import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
 import MultiroomSettings from '@/components/settings/categories/MultiroomSettings.vue';
-import ZoneEdit from '@/components/dsp/ZoneEdit.vue';
+import ZoneEdit from './categories/dsp/ZoneEdit.vue';
 import ClientEdit from '@/components/multiroom/ClientEdit.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';
 import UpdateManager from '@/components/settings/categories/UpdateManager.vue';
 import InfoSettings from '@/components/settings/categories/InfoSettings.vue';
-import EqualizerSettings from '@/components/settings/categories/EqualizerSettings.vue';
+import DspSettings from '@/components/settings/categories/DspSettings.vue';
 
 const props = defineProps({
   initialView: {
@@ -266,7 +271,7 @@ const headerTitle = computed(() => {
     'radio-add': t('radio.manageStation.addStationTitle'),
     'radio-edit': t('radio.manageStation.editStationTitle'),
     'podcast': t('podcastSettings.title'),
-    'equalizer': t('equalizer.title'),
+    'equalizer': t('dsp.title'),
     'updates': t('settings.updates'),
     'info': t('settings.information')
   };

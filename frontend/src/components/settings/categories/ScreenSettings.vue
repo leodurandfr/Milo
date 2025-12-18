@@ -25,13 +25,13 @@
           <div class="screen-description text-mono">
             {{ t('screenSettings.sleepDelay') }}
           </div>
-          <div class="timeout-buttons">
-            <Button v-for="timeout in timeoutPresets" :key="timeout.value"
-              :variant="isTimeoutActive(timeout.value) ? 'outline' : 'background-strong'" size="medium"
-              @click="setScreenTimeout(timeout.value)">
-              {{ timeout.label }}
-            </Button>
-          </div>
+          <ButtonGroup
+            :model-value="config.timeout_seconds"
+            :options="timeoutPresets"
+            mobile-layout="grid-3"
+            :last-full-width="true"
+            @change="setScreenTimeout"
+          />
         </div>
       </div>
     </section>
@@ -45,7 +45,7 @@ import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
 import axios from 'axios';
-import Button from '@/components/ui/Button.vue';
+import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 
 const { t } = useI18n();
@@ -76,13 +76,6 @@ const timeoutPresets = computed(() => [
   { value: 3600, label: t('time.1h') },
   { value: 0, label: t('time.never') }
 ]);
-
-function isTimeoutActive(value) {
-  if (value === 0) {
-    return config.value.timeout_seconds === 0;
-  }
-  return config.value.timeout_seconds === value;
-}
 
 let brightnessInstantTimeout = null;
 let brightnessDebounceTimeout = null;
@@ -184,31 +177,10 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.timeout-buttons {
-  display: flex;
-  gap: var(--space-02);
-  flex-wrap: wrap;
-}
-
-.timeout-buttons :deep(.btn) {
-  flex: 1;
-  white-space: nowrap;
-}
-
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .settings-section {
     border-radius: var(--radius-05);
-  }
-
-  .timeout-buttons {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--space-02);
-  }
-
-  .timeout-buttons :deep(.btn:last-child) {
-    grid-column: 1 / -1;
   }
 
   .brightness-control {

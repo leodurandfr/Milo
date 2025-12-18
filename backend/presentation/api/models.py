@@ -137,7 +137,7 @@ class RotaryStepsRequest(BaseModel):
 # SETTINGS - DOCK APPS
 # =============================================================================
 
-VALID_DOCK_APPS = {'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'multiroom', 'dsp', 'equalizer', 'settings'}
+VALID_DOCK_APPS = {'spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'multiroom', 'dsp', 'settings'}
 AUDIO_SOURCE_APPS = {'spotify', 'bluetooth', 'mac', 'radio', 'podcast'}
 
 class DockAppsRequest(BaseModel):
@@ -284,6 +284,7 @@ class DspLoudnessRequest(BaseModel):
 
 class DspDelayRequest(BaseModel):
     """DSP channel delay request"""
+    enabled: Optional[bool] = None
     left: Optional[float] = Field(None, ge=0, le=50, description="Left channel delay in ms")
     right: Optional[float] = Field(None, ge=0, le=50, description="Right channel delay in ms")
 

@@ -104,14 +104,13 @@
               <div class="multiroom-group">
                 <!-- Presets -->
                 <h2 class="heading-2">{{ t('multiroomSettings.presets') }}</h2>
-                <div class="presets-buttons">
-                  <Button v-for="preset in audioPresets" :key="preset.id"
-                    :variant="isPresetActive(preset) ? 'outline' : 'background-strong'" size="medium"
-                    :disabled="multiroomStore.isApplyingServerConfig"
-                    @click="applyPreset(preset)">
-                    {{ preset.name }}
-                  </Button>
-                </div>
+                <ButtonGroup
+                  :model-value="activePresetId"
+                  :options="presetOptions"
+                  :disabled="multiroomStore.isApplyingServerConfig"
+                  mobile-layout="column"
+                  @change="handlePresetChange"
+                />
 
                 <div class="section-divider"></div>
 
@@ -132,20 +131,12 @@
 
                 <div class="form-group">
                   <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
-                  <div class="codec-buttons">
-                    <Button :variant="multiroomStore.serverConfig.codec === 'opus' ? 'outline' : 'background-strong'" size="medium"
-                      @click="selectCodec('opus')">
-                      Opus
-                    </Button>
-                    <Button :variant="multiroomStore.serverConfig.codec === 'flac' ? 'outline' : 'background-strong'" size="medium"
-                      @click="selectCodec('flac')">
-                      FLAC
-                    </Button>
-                    <Button :variant="multiroomStore.serverConfig.codec === 'pcm' ? 'outline' : 'background-strong'" size="medium"
-                      @click="selectCodec('pcm')">
-                      PCM
-                    </Button>
-                  </div>
+                  <ButtonGroup
+                    :model-value="multiroomStore.serverConfig.codec"
+                    :options="codecOptions"
+                    mobile-layout="column"
+                    @change="selectCodec"
+                  />
                 </div>
               </div>
             </section>
@@ -168,6 +159,7 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useDspStore } from '@/stores/dspStore';
 import Button from '@/components/ui/Button.vue';
+import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
@@ -190,7 +182,7 @@ const sortedMultiroomClients = computed(() => multiroomStore.sortedClients);
 // Get zones with client details
 const zones = computed(() => {
   return dspStore.linkedGroups.map((group, index) => {
-    const clients = (group.client_ids || [])
+    const clients = dspStore.sortClientIdsLocalFirst(group.client_ids || [])
       .map(dspId => {
         const client = multiroomStore.clients.find(c => c.dsp_id === dspId);
         return client ? {
@@ -277,13 +269,31 @@ const audioPresets = computed(() => [
   }
 ]);
 
-function isPresetActive(preset) {
+// ButtonGroup options for presets
+const presetOptions = computed(() =>
+  audioPresets.value.map(preset => ({
+    label: preset.name,
+    value: preset.id
+  }))
+);
+
+// Active preset ID (or null if custom config)
+const activePresetId = computed(() => {
   const current = multiroomStore.serverConfig;
-  const presetConfig = preset.config;
-  return current.buffer === presetConfig.buffer &&
-    current.codec === presetConfig.codec &&
-    current.chunk_ms === presetConfig.chunk_ms;
-}
+  const active = audioPresets.value.find(preset =>
+    current.buffer === preset.config.buffer &&
+    current.codec === preset.config.codec &&
+    current.chunk_ms === preset.config.chunk_ms
+  );
+  return active?.id || null;
+});
+
+// Codec options for ButtonGroup
+const codecOptions = [
+  { label: 'Opus', value: 'opus' },
+  { label: 'FLAC', value: 'flac' },
+  { label: 'PCM', value: 'pcm' }
+];
 
 // === MULTIROOM - CLIENTS ===
 
@@ -301,8 +311,11 @@ async function loadMultiroomData() {
 
 // === MULTIROOM - SERVER CONFIG ===
 
-function applyPreset(preset) {
-  multiroomStore.applyPreset(preset);
+function handlePresetChange(presetId) {
+  const preset = audioPresets.value.find(p => p.id === presetId);
+  if (preset) {
+    multiroomStore.applyPreset(preset);
+  }
 }
 
 function selectCodec(codecName) {
@@ -477,16 +490,6 @@ onMounted(async () => {
   margin-bottom: var(--space-01);
 }
 
-/* Presets and codec buttons */
-.presets-buttons {
-  display: flex;
-  gap: var(--space-02);
-}
-
-.presets-buttons .btn {
-  flex: 1;
-}
-
 .form-group {
   display: flex;
   flex-direction: column;
@@ -495,15 +498,6 @@ onMounted(async () => {
 
 .form-group label {
   color: var(--color-text-secondary);
-}
-
-.codec-buttons {
-  display: flex;
-  gap: var(--space-02);
-}
-
-.codec-buttons .btn {
-  flex: 1;
 }
 
 .apply-button-sticky {
@@ -538,7 +532,6 @@ onMounted(async () => {
 
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
-
   .settings-section {
     border-radius: var(--radius-05);
   }
@@ -546,11 +539,6 @@ onMounted(async () => {
   .zone-clients,
   .ungrouped-clients {
     grid-template-columns: 1fr;
-  }
-
-  .codec-buttons,
-  .presets-buttons {
-    flex-direction: column;
   }
 }
 </style>

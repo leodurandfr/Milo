@@ -4,6 +4,7 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 
 const CACHE_KEY = 'multiroom_clients_cache';
+const DISPLAY_CACHE_KEY = 'multiroom_display_cache';
 
 export const useMultiroomStore = defineStore('multiroom', () => {
   // === STATE ===
@@ -25,6 +26,14 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   // Memorization of the last known number of clients (for skeletons)
   const lastKnownClientCount = ref(3);
+
+  // Memorization of display items structure (for zone-aware skeletons)
+  // Each item: { type: 'zone' | 'client' }
+  const lastKnownDisplayItems = ref([
+    { type: 'client' },
+    { type: 'client' },
+    { type: 'client' }
+  ]);
 
   // === COMPUTED ===
   const sortedClients = computed(() => {
@@ -81,6 +90,37 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       localStorage.removeItem(CACHE_KEY);
     } catch (error) {
       console.error('Error clearing multiroom cache:', error);
+    }
+  }
+
+  // === DISPLAY CACHE MANAGEMENT ===
+  function loadDisplayCache() {
+    try {
+      const cached = localStorage.getItem(DISPLAY_CACHE_KEY);
+      if (!cached) return null;
+      return JSON.parse(cached);
+    } catch (error) {
+      console.warn('Error loading display cache:', error);
+      return null;
+    }
+  }
+
+  function saveDisplayCache(displayItems) {
+    try {
+      const items = displayItems.map(item => ({
+        type: item.zoneClients ? 'zone' : 'client'
+      }));
+      localStorage.setItem(DISPLAY_CACHE_KEY, JSON.stringify(items));
+      lastKnownDisplayItems.value = items;
+    } catch (error) {
+      console.error('Error saving display cache:', error);
+    }
+  }
+
+  function preloadDisplayCache() {
+    const cache = loadDisplayCache();
+    if (cache && cache.length > 0) {
+      lastKnownDisplayItems.value = cache;
     }
   }
 
@@ -384,6 +424,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     isApplyingServerConfig,
     isLoadingServerConfig,
     lastKnownClientCount,
+    lastKnownDisplayItems,
 
     // Computed
     sortedClients,
@@ -396,6 +437,10 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     toggleClientMute,
     updateClientName,
     clearCache,
+
+    // Actions - Display Cache
+    preloadDisplayCache,
+    saveDisplayCache,
 
     // Actions - Server Config
     loadServerConfig,

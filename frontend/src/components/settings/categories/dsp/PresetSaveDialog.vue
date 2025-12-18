@@ -1,4 +1,4 @@
-<!-- frontend/src/components/dsp/PresetSaveDialog.vue -->
+<!-- frontend/src/components/settings/categories/dsp/PresetSaveDialog.vue -->
 <!-- Dialog for saving DSP presets with name input -->
 <template>
   <Transition name="dialog-fade">

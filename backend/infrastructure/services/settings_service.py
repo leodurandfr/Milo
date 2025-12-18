@@ -42,10 +42,10 @@ class SettingsService:
             },
             "routing": {
                 "multiroom_enabled": False,
-                "equalizer_enabled": False
+                "dsp_effects_enabled": False
             },
             "dock": {
-                "enabled_apps": ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "equalizer", "settings"]
+                "enabled_apps": ["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "dsp", "settings"]
             }
         }
     
