@@ -1,4 +1,4 @@
-<!-- frontend/src/components/dsp/ZoneList.vue -->
+<!-- frontend/src/components/settings/categories/dsp/ZoneList.vue -->
 <!-- List view showing all DSP zones with modify/delete actions -->
 <template>
   <div class="zone-list">
@@ -84,7 +84,7 @@ const availableTargets = computed(() => dspStore.availableTargets);
 const zones = computed(() => {
   return dspStore.linkedGroups.map((group, index) => {
     // Build client names string
-    const clientNames = (group.client_ids || [])
+    const clientNames = dspStore.sortClientIdsLocalFirst(group.client_ids || [])
       .map(id => {
         const target = availableTargets.value.find(t => t.id === id);
         return target ? target.name : id;

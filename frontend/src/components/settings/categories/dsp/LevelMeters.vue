@@ -1,4 +1,4 @@
-<!-- frontend/src/components/dsp/LevelMeters.vue -->
+<!-- frontend/src/components/settings/categories/dsp/LevelMeters.vue -->
 <!-- Stereo input/output level meters with real-time monitoring -->
 <template>
   <div class="level-meters">

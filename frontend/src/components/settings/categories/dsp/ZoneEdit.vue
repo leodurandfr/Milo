@@ -1,4 +1,4 @@
-<!-- frontend/src/components/dsp/ZoneEdit.vue -->
+<!-- frontend/src/components/settings/categories/dsp/ZoneEdit.vue -->
 <!-- Form for creating or editing a DSP zone -->
 <template>
   <div class="zone-edit">
@@ -131,7 +131,7 @@ function getOtherZoneName(clientId) {
       // Return custom name or generate from client names
       if (group.name) return group.name;
 
-      const names = group.client_ids
+      const names = dspStore.sortClientIdsLocalFirst(group.client_ids)
         .map(id => {
           const target = availableTargets.value.find(t => t.id === id);
           return target ? target.name : id;

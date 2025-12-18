@@ -1,7 +1,7 @@
-<!-- frontend/src/components/settings/categories/EqualizerSettings.vue -->
-<!-- Equalizer settings wrapper - imports DSP components from frontend/src/components/dsp -->
+<!-- frontend/src/components/settings/categories/DspSettings.vue -->
+<!-- DSP settings wrapper - imports DSP components from frontend/src/components/dsp -->
 <template>
-  <div class="equalizer-settings">
+  <div class="dsp-settings">
     <!-- Main content -->
     <div class="content-wrapper">
       <Transition name="fade-slide" mode="out-in">
@@ -35,9 +35,10 @@
           </div>
 
           <!-- Section 1: Zones (tabs + volumes) -->
-          <ZoneTabs
+          <ItemSelector
             ref="zoneTabsRef"
             :disabled="dspStore.isUpdating"
+            @configure-zone="handleConfigureZone"
           />
 
           <!-- Section 2: 10 Bands Equalizer with presets dropdown -->
@@ -85,10 +86,12 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import Dropdown from '@/components/ui/Dropdown.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
-import ZoneTabs from '@/components/dsp/ZoneTabs.vue';
-import ParametricEQ from '@/components/dsp/ParametricEQ.vue';
-import AdvancedDsp from '@/components/dsp/AdvancedDsp.vue';
-import LevelMeters from '@/components/dsp/LevelMeters.vue';
+import ItemSelector from './dsp/ItemSelector.vue';
+import ParametricEQ from './dsp/ParametricEQ.vue';
+import AdvancedDsp from './dsp/AdvancedDsp.vue';
+import LevelMeters from './dsp/LevelMeters.vue';
+
+const emit = defineEmits(['configure-zone']);
 
 const { t } = useI18n();
 const dspStore = useDspStore();
@@ -176,6 +179,11 @@ function handleFilterUpdate({ id, field, value }) {
 
 function handleFilterChange({ id, field, value }) {
   dspStore.finalizeFilterUpdate(id);
+}
+
+// === ZONE CONFIGURATION ===
+function handleConfigureZone(groupId) {
+  emit('configure-zone', groupId);
 }
 
 // === PRESET HANDLING ===
@@ -277,7 +285,7 @@ defineExpose({
 </script>
 
 <style scoped>
-.equalizer-settings {
+.dsp-settings {
   display: flex;
   flex-direction: column;
 }

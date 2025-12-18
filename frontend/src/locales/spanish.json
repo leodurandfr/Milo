@@ -46,11 +46,8 @@
     "error": "Error al activar multiroom",
     "timeout_error": "Tiempo de activación agotado. Por favor, inténtelo de nuevo."
   },
-  "equalizer": {
-    "title": "Ecualizador",
-    "disabled": "Ecualizador desactivado",
-    "loading": "Cargando ecualizador",
-    "presets": "Presets de audio"
+  "dsp": {
+    "title": "Ecualizador DSP"
   },
   "status": {
     "loading": "Iniciando...",

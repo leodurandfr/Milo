@@ -62,12 +62,6 @@
     "subwooferAutoCrossover": "Digital crossover filters will be automatically applied: lowpass on this subwoofer, highpass on other speakers in the zone.",
     "subwooferDisablePhysical": "Set your subwoofer's crossover to maximum (LFE/Bypass) to avoid filter stacking."
   },
-  "equalizer": {
-    "title": "Equalizer",
-    "disabled": "Equalizer disabled",
-    "loading": "Loading equalizer",
-    "presets": "Audio presets"
-  },
   "dsp": {
     "title": "DSP Equalizer",
     "disabled": "DSP is disabled",
@@ -128,6 +122,7 @@
     "hideAdvanced": "Hide Advanced",
     "compressor": {
       "title": "Compressor",
+      "enable": "Enable Compressor",
       "threshold": "Threshold",
       "ratio": "Ratio",
       "attack": "Attack",
@@ -136,11 +131,13 @@
     },
     "loudness": {
       "title": "Loudness",
+      "enable": "Enable Loudness",
       "lowBoost": "Bass Boost",
       "highBoost": "Treble Boost"
     },
     "delay": {
-      "title": "Channel Delay",
+      "title": "Delay",
+      "enable": "Enable Channel Delay",
       "left": "Left Channel",
       "right": "Right Channel"
     },

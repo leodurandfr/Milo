@@ -7,13 +7,13 @@
         <div class="spotify-description text-mono">
           {{ t('spotifySettings.disconnectDelay') }}
         </div>
-        <div class="timeout-buttons">
-          <Button v-for="delay in disconnectPresets" :key="delay.value"
-            :variant="isDisconnectActive(delay.value) ? 'outline' : 'background-strong'" size="medium"
-            @click="setSpotifyDisconnect(delay.value)">
-            {{ delay.label }}
-          </Button>
-        </div>
+        <ButtonGroup
+          :model-value="config.auto_disconnect_delay"
+          :options="disconnectPresets"
+          mobile-layout="grid-3"
+          :last-full-width="true"
+          @change="setSpotifyDisconnect"
+        />
       </div>
     </div>
   </section>
@@ -25,7 +25,7 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
-import Button from '@/components/ui/Button.vue';
+import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 
 const { t } = useI18n();
 const { on } = useWebSocket();
@@ -46,13 +46,6 @@ const disconnectPresets = computed(() => [
   { value: 3600, label: t('time.1h') },
   { value: 0, label: t('time.never') }
 ]);
-
-function isDisconnectActive(value) {
-  if (value === 0) {
-    return config.value.auto_disconnect_delay === 0;
-  }
-  return config.value.auto_disconnect_delay === value;
-}
 
 function setSpotifyDisconnect(value) {
   updateSetting('spotify-disconnect', { auto_disconnect_delay: value });
@@ -99,31 +92,10 @@ onMounted(() => {
   color: var(--color-text-secondary);
 }
 
-.timeout-buttons {
-  display: flex;
-  gap: var(--space-02);
-  flex-wrap: wrap;
-}
-
-.timeout-buttons :deep(.btn) {
-  flex: 1;
-  white-space: nowrap;
-}
-
 /* Responsive */
 @media (max-aspect-ratio: 4/3) {
   .settings-section {
     border-radius: var(--radius-05);
-  }
-
-  .timeout-buttons {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--space-02);
-  }
-
-  .timeout-buttons :deep(.btn:last-child) {
-    grid-column: 1 / -1;
   }
 }
 </style>

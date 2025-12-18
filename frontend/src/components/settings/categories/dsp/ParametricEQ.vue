@@ -1,4 +1,4 @@
-<!-- frontend/src/components/dsp/ParametricEQ.vue -->
+<!-- frontend/src/components/settings/categories/dsp/ParametricEQ.vue -->
 <!-- 10+ band parametric equalizer display -->
 <template>
   <div class="parametric-eq" :class="{ 'mobile': isMobile }">

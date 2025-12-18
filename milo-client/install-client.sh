@@ -121,11 +121,18 @@ collect_user_choices() {
     echo ""
     echo "Select your HiFiBerry audio card:"
     echo ""
+    echo "=== Amplifiers ==="
     echo "1) Amp2"
     echo "2) Amp4"
     echo "3) Amp4 Pro"
     echo "4) Amp100"
-    echo "5) Beocreate 4CA"
+    echo ""
+    echo "=== DACs ==="
+    echo "5) DAC2 HD"
+    echo "6) DAC+ (Standard)"
+    echo ""
+    echo "=== Other ==="
+    echo "7) Beocreate 4CA"
     echo ""
 
     while true; do
@@ -137,8 +144,10 @@ collect_user_choices() {
             2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Amp4"; break;;
             3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Amp4 Pro"; break;;
             4) HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Amp100"; break;;
-            5) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Beocreate 4CA"; break;;
-            *) echo "Invalid choice. Please enter a number between 1 and 5.";;
+            5) HIFIBERRY_OVERLAY="hifiberry-dacplushd"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: DAC2 HD"; break;;
+            6) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: DAC+ (Standard)"; break;;
+            7) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Beocreate 4CA"; break;;
+            *) echo "Invalid choice. Please enter a number between 1 and 7.";;
         esac
     done
 

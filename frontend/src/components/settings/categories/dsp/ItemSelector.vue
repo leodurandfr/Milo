@@ -1,39 +1,89 @@
-<!-- frontend/src/components/dsp/ZoneTabs.vue -->
-<!-- Zone tabs + Volume controls for zones/clients -->
+<!-- frontend/src/components/settings/categories/dsp/ItemSelector.vue -->
+<!-- Zone/Client selector with volume controls -->
 <template>
-  <section class="settings-section">
-    <div class="section-group">
-      <!-- Section Header: "Zones" -->
-      <div class="section-header">
-        <h2 class="heading-2">{{ zoneTabs.length === 1 ? zoneTabs[0].label : $t('dsp.zones.title', 'Zones') }}</h2>
+  <div class="item-selector">
+    <!-- Tabs section (only when multiple items) -->
+    <section v-if="zoneTabs.length > 1" class="settings-section tabs-section">
+      <div class="tabs-container">
+        <button
+          v-for="tab in zoneTabs"
+          :key="tab.value"
+          type="button"
+          class="tab-button heading-4"
+          :class="{
+            'tab-button--active': selectedTargetLocal === tab.value,
+            'tab-button--disabled': tab.disabled
+          }"
+          :disabled="tab.disabled"
+          @click="handleTargetChange(tab.value)"
+        >
+          <SvgIcon v-if="tab.badge" :name="tab.badge" :size="12" class="tab-badge" />
+          {{ tab.label }}
+        </button>
       </div>
+    </section>
 
-      <!-- Zone/Client Tabs (hidden when single target) -->
-      <Tabs
-        v-if="zoneTabs.length > 1"
-        v-model="selectedTargetLocal"
-        :tabs="zoneTabs"
-        size="small"
-        @change="handleTargetChange"
-      />
+    <!-- Volume section -->
+    <section class="settings-section volume-section">
+      <!-- CAS 1: Single client (no zone) -->
+      <template v-if="!isZoneSelected && zoneClients.length === 1">
+        <div class="single-client-row">
+          <div class="client-icon-container">
+            <SvgIcon :name="getSpeakerIcon(zoneClients[0].id)" :size="28" />
+          </div>
+          <div class="client-info">
+            <span class="client-name heading-3">{{ zoneClients[0].name }}</span>
+            <span class="volume-label text-mono">{{ $t('dsp.volume.title', 'Volume') }}</span>
+          </div>
+          <div class="volume-control">
+            <RangeSlider
+              :model-value="currentTargetVolume"
+              :min="settingsStore.volumeLimits.min_db"
+              :max="settingsStore.volumeLimits.max_db"
+              :step="1"
+              show-value
+              value-unit=" dB"
+              :disabled="currentTargetMute || disabled"
+              @input="(v) => handleVolumeInput(selectedTargetLocal, v)"
+              @change="(v) => handleVolumeChange(selectedTargetLocal, v)"
+            />
+          </div>
+          <Toggle
+            :model-value="!currentTargetMute"
+            variant="secondary"
+            @change="(enabled) => handleMuteToggle(selectedTargetLocal, !enabled)"
+          />
+        </div>
+      </template>
 
-      <!-- Volume Controls -->
-      <div class="volume-controls">
-      <!-- Case A: Zone selected (multiple clients) -->
-      <template v-if="isZoneSelected && zoneClients.length > 1">
-        <span class="volume-subtitle text-mono">{{ $t('dsp.volume.title', 'Volume') }}</span>
-        <div class="clients-list">
-          <div
-            v-for="(client, index) in zoneClients"
-            :key="client.id"
-            class="client-volume-row"
-            :class="{ 'client-muted': getClientMute(client.id) }"
+      <!-- CAS 2 & 3: Zone selected (single or multiple zones) -->
+      <template v-else>
+        <!-- Zone header with volume label -->
+        <div class="zone-header">
+          <div class="zone-header__info">
+            <h2 class="heading-2">{{ currentZoneName }}</h2>
+            <span class="volume-label text-mono">{{ $t('dsp.volume.title', 'Volume') }}</span>
+          </div>
+          <Button
+            v-if="currentZoneGroupId"
+            variant="background-strong"
+            size="small"
+            @click="handleConfigureZone"
           >
-            <!-- Separator line above each row -->
+            {{ $t('dsp.zones.configure', 'Configure zone') }}
+          </Button>
+        </div>
+
+        <!-- Clients list -->
+        <div class="clients-list">
+          <template v-for="(client, index) in zoneClients" :key="client.id">
             <div class="client-separator"></div>
-            <span class="client-name heading-3" :class="{ 'muted': getClientMute(client.id), 'offline': !client.available }">
+            <div class="client-volume-row">
+            <div class="client-icon-container">
+              <SvgIcon :name="getSpeakerIcon(client.id)" :size="28" />
+            </div>
+            <span class="client-name heading-4" :class="{ 'muted': getClientMute(client.id), 'offline': !client.available }">
               {{ client.name }}
-              <span v-if="dspStore.isClientSubwoofer(client.id)" class="badge-sub">Sub</span>
               <span v-if="!client.available" class="badge-offline">{{ $t('dsp.linkedClients.offline', 'Offline') }}</span>
             </span>
             <div class="volume-control">
@@ -51,42 +101,15 @@
             </div>
             <Toggle
               :model-value="!getClientMute(client.id)"
-              type="background-strong"
+              variant="secondary"
               @change="(enabled) => handleMuteToggle(client.id, !enabled)"
             />
-          </div>
+            </div>
+          </template>
         </div>
       </template>
-
-      <!-- Case B: Single client selected (or zone with single client) -->
-      <template v-else>
-        <div class="single-client-row">
-          <span class="volume-label heading-3" :class="{ 'muted': currentTargetMute }">
-            {{ $t('dsp.volume.title', 'Volume') }}
-          </span>
-          <div class="volume-control">
-            <RangeSlider
-              :model-value="currentTargetVolume"
-              :min="settingsStore.volumeLimits.min_db"
-              :max="settingsStore.volumeLimits.max_db"
-              :step="1"
-              show-value
-              value-unit=" dB"
-              :disabled="currentTargetMute || disabled"
-              @input="(v) => handleVolumeInput(selectedTargetLocal, v)"
-              @change="(v) => handleVolumeChange(selectedTargetLocal, v)"
-            />
-          </div>
-          <Toggle
-            :model-value="!currentTargetMute"
-            type="background-strong"
-            @change="(enabled) => handleMuteToggle(selectedTargetLocal, !enabled)"
-          />
-        </div>
-      </template>
-      </div>
-    </div>
-  </section>
+    </section>
+  </div>
 </template>
 
 <script setup>
@@ -94,9 +117,10 @@ import { ref, computed, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import Tabs from '@/components/ui/Tabs.vue';
+import Button from '@/components/ui/Button.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
+import SvgIcon from '@/components/ui/SvgIcon.vue';
 
 const dspStore = useDspStore();
 const settingsStore = useSettingsStore();
@@ -109,7 +133,7 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['targetChange']);
+const emit = defineEmits(['targetChange', 'configureZone']);
 
 // Local state
 const selectedTargetLocal = ref(dspStore.selectedTarget);
@@ -119,9 +143,8 @@ const volumeThrottleMap = new Map();
 
 // === COMPUTED ===
 const targets = computed(() => dspStore.availableTargets);
-const hasMultipleTargets = computed(() => targets.value.length > 1);
 
-// Convert targets to Tabs format (zones + individual clients)
+// Convert targets to tabs format (zones + individual clients)
 const zoneTabs = computed(() => {
   const tabs = [];
   const multiroomEnabled = audioStore.systemState.multiroom_enabled;
@@ -148,8 +171,8 @@ const zoneTabs = computed(() => {
     const linkedIds = dspStore.getLinkedClientIds(target.id);
 
     if (linkedIds.length > 1) {
-      // This is a zone - get names of linked clients
-      const linkedClients = linkedIds
+      // This is a zone - get names of linked clients (local first)
+      const linkedClients = dspStore.sortClientIdsLocalFirst(linkedIds)
         .map(id => targets.value.find(t => t.id === id))
         .filter(Boolean);
 
@@ -190,6 +213,18 @@ const isZoneSelected = computed(() => {
   return selectedTargetLocal.value.startsWith('zone:');
 });
 
+// Get current zone name
+const currentZoneName = computed(() => {
+  const tab = zoneTabs.value.find(t => t.value === selectedTargetLocal.value);
+  return tab ? tab.label : '';
+});
+
+// Get current zone group ID (for configure button)
+const currentZoneGroupId = computed(() => {
+  const tab = zoneTabs.value.find(t => t.value === selectedTargetLocal.value);
+  return tab?.groupId || null;
+});
+
 // Get clients in the selected zone
 const zoneClients = computed(() => {
   if (!isZoneSelected.value) {
@@ -198,9 +233,9 @@ const zoneClients = computed(() => {
     return target ? [target] : [];
   }
 
-  // Parse zone client IDs
+  // Parse zone client IDs (local first)
   const clientIds = selectedTargetLocal.value.replace('zone:', '').split(',');
-  return clientIds
+  return dspStore.sortClientIdsLocalFirst(clientIds)
     .map(id => targets.value.find(t => t.id === id))
     .filter(Boolean);
 });
@@ -243,6 +278,18 @@ function getClientMute(clientId) {
   return dspStore.getClientDspMute(clientId);
 }
 
+// Get speaker icon name based on type
+function getSpeakerIcon(clientDspId) {
+  const speakerType = dspStore.getClientSpeakerType(clientDspId);
+  const iconMap = {
+    satellite: 'speakerSatellite',
+    bookshelf: 'speakerShelf',
+    tower: 'speakerColumn',
+    subwoofer: 'speakerSub'
+  };
+  return iconMap[speakerType] || 'speakerShelf';
+}
+
 // === HANDLERS ===
 async function handleTargetChange(targetValue) {
   selectedTargetLocal.value = targetValue;
@@ -258,6 +305,10 @@ async function handleTargetChange(targetValue) {
   }
 
   emit('targetChange', targetValue);
+}
+
+function handleConfigureZone() {
+  emit('configureZone', currentZoneGroupId.value);
 }
 
 function handleVolumeInput(clientId, value) {
@@ -323,84 +374,176 @@ defineExpose({ selectedZoneName, selectedClientIds });
 </script>
 
 <style scoped>
-/* Settings section pattern from VolumeSettings.vue */
+.item-selector {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
 .settings-section {
   background: var(--color-background-neutral);
   border-radius: var(--radius-06);
   padding: var(--space-05-fixed) var(--space-05);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-05-fixed);
+}
+.settings-section.tabs-section{
+  border-radius: var(--radius-05);
 }
 
-.section-group {
+/* === TABS SECTION === */
+.tabs-section {
+  padding: var(--space-02);
+}
+
+.tabs-container {
+  display: flex;
+  gap: var(--space-02);
+  overflow-x: auto;
+}
+
+.tabs-container::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tabs-container::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+.tab-button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-02);
+  height: 40px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: var(--radius-03);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+  /* Inactive state - outline */
+  background-color: var(--color-background-neutral);
+  color: var(--color-brand);
+  box-shadow: inset 0 0 0 2px var(--color-brand);
+}
+
+.tab-button--active {
+  background-color: var(--color-brand);
+  color: var(--color-text-contrast);
+  box-shadow: none;
+}
+
+.tab-button--disabled {
+  background-color: var(--color-background);
+  color: var(--color-text-light);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.tab-badge {
+  opacity: 0.8;
+}
+
+/* === VOLUME SECTION === */
+.volume-section {
   display: flex;
   flex-direction: column;
   gap: var(--space-04);
 }
 
-/* Section Header */
-.section-header {
+/* Single client layout (CAS 1) - horizontal row */
+.single-client-row {
+  display: grid;
+  grid-template-columns: 40px auto 1fr auto;
+  align-items: center;
+  gap: var(--space-03);
+}
+
+.client-icon-container {
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
+  justify-content: center;
+  background: var(--color-background-strong);
+  border-radius: var(--radius-03);
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
+.client-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+}
+
+.client-info .client-name {
+  color: var(--color-text);
+}
+
+.client-info .volume-label {
+  color: var(--color-text-secondary);
+}
+
+/* Zone layout (CAS 2 & 3) */
+.zone-header {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-03);
 }
 
-/* Volume Controls */
-.volume-controls {
+.zone-header__info {
   display: flex;
   flex-direction: column;
-  gap: var(--space-04);
+  gap: var(--space-01);
 }
 
-.volume-subtitle {
+.volume-label {
   color: var(--color-text-secondary);
 }
 
-/* Clients list (for zones) */
+/* Clients list */
 .clients-list {
   display: flex;
   flex-direction: column;
 }
 
-.client-volume-row {
-  display: grid;
-  grid-template-columns: minmax(100px, 150px) 1fr auto;
-  align-items: center;
-  gap: var(--space-03);
-  padding: var(--space-03) 0;
-  position: relative;
-}
-
-.client-volume-row:last-child {
-  padding-bottom: 0;
-}
-
+/* Separator between clients */
 .client-separator {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
   height: 1px;
   background: var(--color-border);
+  margin: var(--space-04) 0;
 }
 
-.client-name {
+.client-separator:first-child {
+  margin-top: 0;
+}
+
+.client-volume-row {
+  display: grid;
+  grid-template-columns: 40px auto 1fr auto;
+  align-items: center;
+  gap: var(--space-03);
+}
+
+.client-volume-row .client-name {
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   transition: color var(--transition-fast);
+  min-width: 130px;
 }
 
-.client-name.muted {
+.client-volume-row .client-name.muted,
+.client-volume-row .client-name.offline {
   color: var(--color-text-light);
 }
 
-.client-name.offline {
-  color: var(--color-text-light);
-  font-style: italic;
+.volume-control {
+  min-width: 0;
 }
 
 /* Offline badge */
@@ -417,80 +560,76 @@ defineExpose({ selectedZoneName, selectedClientIds });
   vertical-align: middle;
 }
 
-/* Subwoofer badge */
-.badge-sub {
-  display: inline-block;
-  background: var(--color-brand);
-  color: var(--color-text-inverse);
-  padding: 1px 6px;
-  border-radius: var(--radius-02);
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  margin-left: var(--space-02);
-  vertical-align: middle;
-}
-
-/* Single client row */
-.single-client-row {
-  display: grid;
-  grid-template-columns: minmax(80px, 100px) 1fr auto;
-  align-items: center;
-  gap: var(--space-03);
-}
-
-.volume-label {
-  color: var(--color-text);
-  transition: color var(--transition-fast);
-}
-
-.volume-label.muted {
-  color: var(--color-text-light);
-}
-
-.volume-control {
-  flex: 1;
-  min-width: 0;
-}
-
 /* Mobile adjustments */
 @media (max-aspect-ratio: 4/3) {
   .settings-section {
     border-radius: var(--radius-05);
   }
 
+  .tabs-container {
+    gap: var(--space-01);
+  }
+
+  .tab-button {
+    height: 38px;
+    padding: 8px 14px;
+  }
+
   .client-volume-row {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    grid-template-rows: auto auto;
     gap: var(--space-02);
-    padding: var(--space-02) 0;
   }
 
-  .client-name {
-    flex: 1;
-    min-width: 0;
+  .client-volume-row .client-icon-container {
+    grid-column: 1;
+    grid-row: 1;
   }
 
-  .volume-control {
-    order: 3;
-    width: 100%;
-    flex-basis: 100%;
+  .client-volume-row .client-name {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
   }
 
+  .client-volume-row > :deep(.toggle) {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .client-volume-row .volume-control {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  /* Single client mobile - same grid pattern */
   .single-client-row {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    grid-template-rows: auto auto;
     gap: var(--space-02);
   }
 
-  .single-client-row .volume-label {
-    flex: 1;
+  .single-client-row .client-icon-container {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .single-client-row .client-info {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+
+  .single-client-row > :deep(.toggle) {
+    grid-column: 3;
+    grid-row: 1;
   }
 
   .single-client-row .volume-control {
-    order: 3;
-    width: 100%;
-    flex-basis: 100%;
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }
 </style>

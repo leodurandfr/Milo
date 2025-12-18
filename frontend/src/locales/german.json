@@ -46,11 +46,8 @@
     "error": "Fehler beim Aktivieren von Multiroom",
     "timeout_error": "Aktivierungszeitüberschreitung. Bitte versuchen Sie es erneut."
   },
-  "equalizer": {
-    "title": "Equalizer",
-    "disabled": "Equalizer deaktiviert",
-    "loading": "Equalizer wird geladen",
-    "presets": "Audio-Voreinstellungen"
+  "dsp": {
+    "title": "DSP Equalizer"
   },
   "status": {
     "loading": "Wird gestartet...",

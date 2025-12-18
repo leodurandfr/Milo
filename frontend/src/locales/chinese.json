@@ -46,11 +46,8 @@
     "error": "激活多房间时出错",
     "timeout_error": "激活超时，请重试。"
   },
-  "equalizer": {
-    "title": "均衡器",
-    "disabled": "均衡器已禁用",
-    "loading": "正在加载均衡器",
-    "presets": "音频预设"
+  "dsp": {
+    "title": "DSP 均衡器"
   },
   "status": {
     "loading": "正在启动...",

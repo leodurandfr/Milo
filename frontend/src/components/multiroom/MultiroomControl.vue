@@ -9,12 +9,12 @@
 
         <!-- CLIENTS: Skeletons OR real items -->
         <div v-else key="clients" class="clients-wrapper">
-          <MultiroomClientItem
+          <MultiroomItem
             v-for="(client, index) in displayClients"
             :key="index"
             :client="client"
             :is-loading="shouldShowLoading"
-            :zone-badge="getZoneBadge(client)"
+            :zone-clients="getZoneClients(client)"
             @volume-change="handleVolumeChange"
             @mute-toggle="handleMuteToggle"
           />
@@ -32,7 +32,7 @@ import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useDspStore } from '@/stores/dspStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import useWebSocket from '@/services/websocket';
-import MultiroomClientItem from './MultiroomClientItem.vue';
+import MultiroomItem from './MultiroomItem.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
 const { t } = useI18n();
@@ -123,8 +123,8 @@ function clearZoneSliderState(zone) {
   delete zoneSliderState.value[zoneId];
 }
 
-// Get zone badge for display (shows client names or count)
-function getZoneBadge(client) {
+// Get zone clients for display (shows client names)
+function getZoneClients(client) {
   // If client has zoneClients property (set by displayClients), use it
   if (client.zoneClients) {
     return client.zoneClients;
@@ -166,23 +166,14 @@ const shouldShowLoading = computed(() => {
 });
 
 const displayClients = computed(() => {
-  // During enabling, show placeholders for skeleton loading
-  if (transitionState.value === 'enabling') {
-    return Array.from({ length: multiroomStore.lastKnownClientCount }, (_, i) => ({
+  // During enabling or loading, show placeholders based on last known display structure
+  if (transitionState.value === 'enabling' || (multiroomStore.clients.length === 0 && multiroomStore.isLoading)) {
+    return multiroomStore.lastKnownDisplayItems.map((item, i) => ({
       id: `placeholder-${i}`,
       name: '',
       volume: 0,
-      dspMuted: false
-    }));
-  }
-
-  // When loading with no clients, show skeleton placeholders
-  if (multiroomStore.clients.length === 0 && multiroomStore.isLoading) {
-    return Array.from({ length: multiroomStore.lastKnownClientCount }, (_, i) => ({
-      id: `placeholder-${i}`,
-      name: '',
-      volume: 0,
-      dspMuted: false
+      dspMuted: false,
+      isZone: item.type === 'zone'
     }));
   }
 
@@ -200,13 +191,13 @@ const displayClients = computed(() => {
           // This is a zone primary - use custom name or fallback to "Zone X"
           const zoneIndex = linkedGroups.value.indexOf(zone) + 1;
           const zoneName = zone.name || `Zone ${zoneIndex}`;
-          const clientNames = zone.client_ids
+          const clientNames = dspStore.sortClientIdsLocalFirst(zone.client_ids)
             .map(dspId => {
               // Find client by dsp_id
               const c = multiroomStore.clients.find(cl => cl.dsp_id === dspId);
               return c ? c.name : dspId;
             })
-            .join(', ');
+            .join(' · ');
           // Use arithmetic average of all clients in zone
           // Returns null if volumes not yet loaded
           const zoneVolume = getZoneAverageVolume(zone);
@@ -377,6 +368,9 @@ function handleMultiroomError(event) {
 
 // === LIFECYCLE ===
 onMounted(async () => {
+  // Preload display cache for zone-aware skeletons
+  multiroomStore.preloadDisplayCache();
+
   // Reset transition state on mount based on current state
   if (isMultiroomActive.value) {
     transitionState.value = 'idle';
@@ -443,6 +437,14 @@ watch(isMultiroomActive, (newValue, oldValue) => {
     multiroomStore.clearCache();
   }
 });
+
+// Save display cache when real clients are loaded (for zone-aware skeleton on next load)
+watch(displayClients, (newClients) => {
+  // Only save when we have real data (not placeholders) and not in loading state
+  if (!shouldShowLoading.value && newClients.length > 0 && !newClients[0].id?.startsWith('placeholder-')) {
+    multiroomStore.saveDisplayCache(newClients);
+  }
+}, { deep: true });
 </script>
 
 <style scoped>

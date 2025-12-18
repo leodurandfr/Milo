@@ -79,7 +79,8 @@ class CamillaDSPService:
             "high_boost": 5.0,
             "low_boost": 8.0
         }
-        self._delay: Dict[str, float] = {
+        self._delay: Dict[str, Any] = {
+            "enabled": False,
             "left": 0.0,
             "right": 0.0
         }
@@ -975,8 +976,10 @@ class CamillaDSPService:
         """Get channel delay settings in milliseconds"""
         return self._delay.copy()
 
-    async def set_delay(self, left: float = None, right: float = None, persist: bool = True) -> bool:
+    async def set_delay(self, enabled: bool = None, left: float = None, right: float = None, persist: bool = True) -> bool:
         """Set channel delay in milliseconds (0-50ms). Set persist=False during bypass operations."""
+        if enabled is not None:
+            self._delay["enabled"] = enabled
         if left is not None:
             self._delay["left"] = max(0, min(50, left))
         if right is not None:
@@ -999,7 +1002,8 @@ class CamillaDSPService:
             if "filters" not in config:
                 config["filters"] = {}
 
-            if self._delay["left"] > 0:
+            # Only apply delay if enabled
+            if self._delay["enabled"] and self._delay["left"] > 0:
                 left_samples = int(self._delay["left"] * sample_rate / 1000)
                 config["filters"]["delay_left"] = {
                     "type": "Delay",
@@ -1015,7 +1019,7 @@ class CamillaDSPService:
                     del config["filters"]["delay_left"]
                 self._remove_filter_from_pipeline(config, "delay_left")
 
-            if self._delay["right"] > 0:
+            if self._delay["enabled"] and self._delay["right"] > 0:
                 right_samples = int(self._delay["right"] * sample_rate / 1000)
                 config["filters"]["delay_right"] = {
                     "type": "Delay",

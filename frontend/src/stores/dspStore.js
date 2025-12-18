@@ -60,11 +60,12 @@ export const useDspStore = defineStore('dsp', () => {
   const loudness = ref({
     enabled: false,
     reference_level: 80,
-    high_boost: 5,
-    low_boost: 8
+    low_boost: 5,
+    high_boost: 5
   });
 
   const delay = ref({
+    enabled: false,
     left: 0,
     right: 0
   });
@@ -284,6 +285,12 @@ export const useDspStore = defineStore('dsp', () => {
       console.error('Error setting DSP enabled state:', error);
       return false;
     }
+  }
+
+  // Sort client IDs with 'local' (internal Milo) first
+  function sortClientIdsLocalFirst(clientIds) {
+    if (!clientIds || !Array.isArray(clientIds)) return [];
+    return [...clientIds].sort((a, b) => (a === 'local' ? -1 : b === 'local' ? 1 : 0));
   }
 
   // Get clients linked to a specific client (including itself)
@@ -715,15 +722,15 @@ export const useDspStore = defineStore('dsp', () => {
       // Update presets
       presets.value = presetsData;
 
-      // Update advanced settings from status
+      // Update advanced settings from status (preserve defaults for missing fields)
       if (statusData?.compressor) {
-        compressor.value = statusData.compressor;
+        compressor.value = { ...compressor.value, ...statusData.compressor };
       }
       if (statusData?.loudness) {
-        loudness.value = statusData.loudness;
+        loudness.value = { ...loudness.value, ...statusData.loudness };
       }
       if (statusData?.delay) {
-        delay.value = statusData.delay;
+        delay.value = { ...delay.value, ...statusData.delay };
       }
       if (statusData?.volume) {
         // Update the unified cache for the selected target
@@ -1522,6 +1529,7 @@ export const useDspStore = defineStore('dsp', () => {
     getLinkedClientIds,
     getZoneName,
     getZoneGroup,
+    sortClientIdsLocalFirst,
 
     // Speaker Type / Crossover Management
     clientTypes,
