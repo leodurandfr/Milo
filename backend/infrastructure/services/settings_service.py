@@ -210,11 +210,11 @@ class SettingsService:
             'enabled_apps': filtered_apps if filtered_apps else self.defaults['dock']['enabled_apps'].copy()
         }
 
-        # Routing (multiroom + equalizer)
+        # Routing (multiroom + DSP effects)
         routing_input = settings.get('routing', {})
         validated['routing'] = {
             'multiroom_enabled': bool(routing_input.get('multiroom_enabled', False)),
-            'equalizer_enabled': bool(routing_input.get('equalizer_enabled', False))
+            'dsp_effects_enabled': bool(routing_input.get('dsp_effects_enabled', False))
         }
 
         # Equalizer (saved_bands) - Preserve equalizer section without strict validation

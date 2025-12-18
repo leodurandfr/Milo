@@ -9,9 +9,8 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === SINGLE SYSTEM STATE ===
   const systemState = ref({
     active_source: 'none',
-    plugin_state: 'inactive',
+    plugin_state: 'ready',
     transitioning: false,
-    target_source: null,
     metadata: {},
     error: null,
     multiroom_enabled: false,
@@ -170,7 +169,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // It should never be needed if the backend works correctly,
     // but it protects against data corruption in transit.
     const validSources = ['none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
-    const validStates = ['inactive', 'ready', 'connected', 'error'];
+    const validStates = ['starting', 'ready', 'connected', 'error'];
 
     // Validate active_source
     const activeSource = validSources.includes(newState.active_source)
@@ -180,17 +179,12 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     // Validate plugin_state
     const pluginState = validStates.includes(newState.plugin_state)
       ? newState.plugin_state
-      : 'inactive';
+      : 'ready';
 
     // Validate transitioning (must be boolean)
     const transitioning = typeof newState.transitioning === 'boolean'
       ? newState.transitioning
       : false;
-
-    // Validate target_source
-    const targetSource = newState.target_source && validSources.includes(newState.target_source)
-      ? newState.target_source
-      : null;
 
     // Validate metadata (must be object)
     const metadata = newState.metadata && typeof newState.metadata === 'object' && !Array.isArray(newState.metadata)
@@ -210,7 +204,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       active_source: activeSource,
       plugin_state: pluginState,
       transitioning: transitioning,
-      target_source: targetSource,
       metadata: metadata,
       error: newState.error || null,
       multiroom_enabled: multiroomEnabled,

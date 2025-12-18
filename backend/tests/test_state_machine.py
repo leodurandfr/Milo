@@ -24,9 +24,8 @@ class TestUnifiedAudioStateMachine:
     def test_initialization(self, state_machine):
         """State machine initialization test"""
         assert state_machine.system_state.active_source == AudioSource.NONE
-        assert state_machine.system_state.plugin_state == PluginState.INACTIVE
+        assert state_machine.system_state.plugin_state == PluginState.READY
         assert state_machine.system_state.transitioning is False
-        assert state_machine.system_state.target_source is None
 
     def test_register_plugin(self, state_machine, mock_plugin):
         """Plugin registration test"""
@@ -55,9 +54,9 @@ class TestUnifiedAudioStateMachine:
         state = state_machine.get_plugin_state(AudioSource.SPOTIFY)
         assert state == PluginState.CONNECTED
 
-        # Non-active source should return INACTIVE
+        # Non-active source should return READY
         state_other = state_machine.get_plugin_state(AudioSource.BLUETOOTH)
-        assert state_other == PluginState.INACTIVE
+        assert state_other == PluginState.READY
 
     @pytest.mark.asyncio
     async def test_get_current_state(self, state_machine):
@@ -95,7 +94,7 @@ class TestUnifiedAudioStateMachine:
         assert result is True
         mock_plugin.stop.assert_called_once()
         assert state_machine.system_state.active_source == AudioSource.NONE
-        assert state_machine.system_state.plugin_state == PluginState.INACTIVE
+        assert state_machine.system_state.plugin_state == PluginState.READY
 
     @pytest.mark.asyncio
     async def test_transition_to_new_source_success(self, state_machine, mock_plugin):
@@ -108,8 +107,9 @@ class TestUnifiedAudioStateMachine:
         assert result is True
         mock_plugin.start.assert_called_once()
         assert state_machine.system_state.active_source == AudioSource.SPOTIFY
-        # State should be at least READY
-        assert state_machine.system_state.plugin_state in [PluginState.READY, PluginState.CONNECTED]
+        # State is STARTING until plugin calls notify_state_change(READY/CONNECTED)
+        # Mock plugin doesn't notify state changes, so it stays at STARTING
+        assert state_machine.system_state.plugin_state in [PluginState.STARTING, PluginState.READY, PluginState.CONNECTED]
 
     @pytest.mark.asyncio
     async def test_transition_to_unregistered_source(self, state_machine):
@@ -206,11 +206,11 @@ class TestUnifiedAudioStateMachine:
         assert state_machine.system_state.multiroom_enabled is True
 
     @pytest.mark.asyncio
-    async def test_update_equalizer_state(self, state_machine):
-        """Equalizer state update test"""
-        await state_machine.update_equalizer_state(True)
+    async def test_update_dsp_effects_state(self, state_machine):
+        """DSP effects state update test"""
+        await state_machine.update_dsp_effects_state(True)
 
-        assert state_machine.system_state.equalizer_enabled is True
+        assert state_machine.system_state.dsp_effects_enabled is True
 
     @pytest.mark.asyncio
     async def test_broadcast_event(self, state_machine, mock_websocket_handler):

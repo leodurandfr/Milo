@@ -19,7 +19,7 @@ class AudioSource(Enum):
 
 class PluginState(Enum):
     """Possible operational states for a plugin."""
-    INACTIVE = "inactive"      # Plugin stopped
+    STARTING = "starting"      # Plugin starting or restarting
     READY = "ready"            # Plugin started, waiting for connection
     CONNECTED = "connected"    # Plugin connected and operational
     ERROR = "error"            # Plugin in error state
@@ -34,12 +34,10 @@ class SystemAudioState:
     - Associated metadata
     - Audio routing state (multiroom_enabled flag)
     - DSP effects state (equalizer, compressor, loudness enabled)
-    - Target source during transitions
     """
     active_source: AudioSource = AudioSource.NONE
-    plugin_state: PluginState = PluginState.INACTIVE
+    plugin_state: PluginState = PluginState.READY
     transitioning: bool = False
-    target_source: Optional[AudioSource] = None
     metadata: Dict[str, Any] = None
     error: Optional[str] = None
     multiroom_enabled: bool = False
@@ -55,7 +53,6 @@ class SystemAudioState:
             "active_source": self.active_source.value,
             "plugin_state": self.plugin_state.value,
             "transitioning": self.transitioning,
-            "target_source": self.target_source.value if self.target_source else None,
             "metadata": self.metadata,
             "error": self.error,
             "multiroom_enabled": self.multiroom_enabled,
@@ -65,17 +62,12 @@ class SystemAudioState:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'SystemAudioState':
         """Create state from dictionary."""
-        target_source_str = data.get("target_source")
-        target_source = AudioSource(target_source_str) if target_source_str else None
-
         return cls(
             active_source=AudioSource(data.get("active_source", "none")),
-            plugin_state=PluginState(data.get("plugin_state", "inactive")),
+            plugin_state=PluginState(data.get("plugin_state", "ready")),
             transitioning=data.get("transitioning", False),
-            target_source=target_source,
             metadata=data.get("metadata", {}),
             error=data.get("error"),
             multiroom_enabled=data.get("multiroom_enabled", False),
-            # Support both new key and legacy key for backwards compatibility
-            dsp_effects_enabled=data.get("dsp_effects_enabled", data.get("dsp_enabled", False))
+            dsp_effects_enabled=data.get("dsp_effects_enabled", False)
         )

@@ -72,7 +72,7 @@ class TestSettingsRoutes:
         """Routing service mock"""
         service = Mock()
         service.set_multiroom_enabled = AsyncMock(return_value=True)
-        service.set_equalizer_enabled = AsyncMock(return_value=True)
+        service.set_dsp_effects_enabled = AsyncMock(return_value=True)
         return service
 
     @pytest.fixture

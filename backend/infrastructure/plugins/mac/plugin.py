@@ -141,7 +141,6 @@ class MacPlugin(UnifiedAudioPlugin):
 
         # Reset state
         self.connected_clients.clear()
-        await self.notify_state_change(PluginState.INACTIVE)
 
         self.logger.info(f"ROC stop completed: {success}")
         return success

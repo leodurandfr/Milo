@@ -215,7 +215,6 @@ class TestRadioPlugin:
         assert plugin._is_playing is False
         plugin.mpv.stop.assert_called_once()
         plugin.mpv.disconnect.assert_called_once()
-        plugin.notify_state_change.assert_called_with(PluginState.INACTIVE)
 
     @pytest.mark.asyncio
     async def test_stop_with_monitor_task(self, plugin):

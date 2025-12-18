@@ -42,7 +42,10 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         # Multiple connections monitoring
         self._monitoring_task = None
         self._first_connected_device = None  # First connected device
-    
+
+        # Flag to ignore PCM disconnect events during restart
+        self._restart_in_progress = False
+
     async def _do_initialize(self) -> bool:
         """Bluetooth plugin-specific initialization"""
         try:
@@ -114,7 +117,6 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         try:
             commands = "\n".join([
                 "power on",
-                "system-alias Milō · Bluetooth",
                 "discoverable-timeout 0",
                 "discoverable on",
                 "pairable on",
@@ -140,9 +142,13 @@ class BluetoothPlugin(UnifiedAudioPlugin):
         try:
             self.logger.info("Restarting Bluetooth plugin")
 
+            # Prevent monitor from triggering disconnect during restart
+            self._restart_in_progress = True
+
             # Restart the audio playback service
             success = await self.control_service(self.bluealsa_aplay_service, "restart")
             if not success:
+                self._restart_in_progress = False
                 await self.notify_state_change(PluginState.ERROR, {"error": "Restart failed"})
                 return False
 
@@ -155,6 +161,9 @@ class BluetoothPlugin(UnifiedAudioPlugin):
                 stderr=asyncio.subprocess.DEVNULL
             )
             stdout, _ = await proc.communicate()
+
+            # Re-enable monitor events before notifying state
+            self._restart_in_progress = False
 
             if proc.returncode == 0:
                 for line in stdout.decode().splitlines():
@@ -181,6 +190,7 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             return True
 
         except Exception as e:
+            self._restart_in_progress = False
             self.logger.error(f"Bluetooth restart error: {e}")
             await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
             return False
@@ -201,7 +211,6 @@ class BluetoothPlugin(UnifiedAudioPlugin):
 
             # Reset state
             self.connected_device = None
-            await self.notify_state_change(PluginState.INACTIVE)
 
             return True
         except Exception as e:
@@ -345,16 +354,21 @@ class BluetoothPlugin(UnifiedAudioPlugin):
     
     async def _on_device_disconnected(self, address: str, name: str) -> None:
         """Callback called on device disconnection"""
+        # Ignore PCM disconnects during restart (bluealsa-aplay service restart)
+        if self._restart_in_progress:
+            self.logger.info(f"Ignoring PCM disconnect during restart: {name}")
+            return
+
         # Check if current device
         if not self.connected_device or self.connected_device.get("address") != address:
             return
-            
+
         # Stop playback
         await self.playback.stop_playback(address)
-        
+
         # Reset state
         self.connected_device = None
-        
+
         # Notify state change
         await self.notify_state_change(PluginState.READY, {"device_connected": False})
     

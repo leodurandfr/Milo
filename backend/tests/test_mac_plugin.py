@@ -202,7 +202,6 @@ class TestMacPlugin:
         assert result is True
         assert plugin._stopping is True
         assert plugin.connected_clients == {}
-        plugin.notify_state_change.assert_called_with(PluginState.INACTIVE)
 
     @pytest.mark.asyncio
     async def test_stop_with_monitor_task(self, plugin):

@@ -53,10 +53,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  targetSource: {
-    type: String,
-    default: null
-  },
   metadata: {
     type: Object,
     default: () => ({})
@@ -71,12 +67,9 @@ const props = defineProps({
 const emit = defineEmits(['disconnect']);
 
 // === SIMPLIFIED DECISION LOGIC ===
-const displayedSource = computed(() => {
-  if (props.transitioning && props.targetSource) {
-    return props.targetSource;
-  }
-  return props.activeSource;
-});
+// With the new flow, active_source is immediately set at transition start,
+// so we can simply use activeSource directly.
+const displayedSource = computed(() => props.activeSource);
 
 const hasCompleteTrackInfo = computed(() => {
   return !!(
@@ -105,7 +98,7 @@ const shouldShowPodcast = computed(() => {
 
 const shouldShowPluginStatus = computed(() => {
   // Don't show status during transition to "none" (deactivation)
-  if (props.transitioning && props.targetSource === 'none') {
+  if (props.transitioning && props.activeSource === 'none') {
     return false;
   }
 

@@ -42,7 +42,7 @@ async def get_mac_status(plugin = Depends(get_mac_plugin)):
 
         return {
             "status": "ok",
-            "is_active": plugin.current_state != PluginState.INACTIVE,
+            "is_active": plugin.is_active_plugin(),
             "plugin_state": plugin.current_state.value,
             "service_active": status.get("service_active", False),
             "listening": status.get("listening", False),

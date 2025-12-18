@@ -217,7 +217,6 @@ class TestPodcastPlugin:
         assert result is True
         assert plugin.current_episode is None
         assert plugin._is_playing is False
-        plugin.notify_state_change.assert_called_with(PluginState.INACTIVE)
 
     # ===================
     # PLAYBACK TESTS

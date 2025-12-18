@@ -72,7 +72,7 @@ class TestSettingsService:
             'volume': {'limit_min_db': -50.0, 'limit_max_db': -15.0},
             'screen': {'timeout_seconds': 15, 'brightness_on': 7},
             'spotify': {'auto_disconnect_delay': 20.0},
-            'routing': {'multiroom_enabled': True, 'equalizer_enabled': False},
+            'routing': {'multiroom_enabled': True, 'dsp_effects_enabled': False},
             'dock': {'enabled_apps': ['spotify', 'bluetooth']}
         }
 
@@ -197,10 +197,10 @@ class TestSettingsService:
     def test_validate_and_merge_routing(self, service):
         """Routing validation test"""
         result = service._validate_and_merge({
-            'routing': {'multiroom_enabled': True, 'equalizer_enabled': False}
+            'routing': {'multiroom_enabled': True, 'dsp_effects_enabled': False}
         })
         assert result['routing']['multiroom_enabled'] is True
-        assert result['routing']['equalizer_enabled'] is False
+        assert result['routing']['dsp_effects_enabled'] is False
 
     def test_validate_and_merge_equalizer_preserved(self, service):
         """Equalizer section preservation test"""

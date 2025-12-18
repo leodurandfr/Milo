@@ -46,7 +46,7 @@ class ScreenController:
         self.boot_grace_period = 30  # Will be calculated as max(30, timeout_seconds) during initialize()
         self.screen_on = True
         self.running = False
-        self.current_plugin_state = "inactive"
+        self.current_plugin_state = "ready"
     
     def _map_brightness_value(self, ui_value: int) -> int:
         """
@@ -176,7 +176,7 @@ class ScreenController:
         while self.running:
             try:
                 system_state = await self.state_machine.get_current_state()
-                new_state = system_state.get("plugin_state", "inactive")
+                new_state = system_state.get("plugin_state", "ready")
                 
                 if self.current_plugin_state != "connected" and new_state == "connected":
                     await self._screen_cmd(self.screen_on_cmd)
