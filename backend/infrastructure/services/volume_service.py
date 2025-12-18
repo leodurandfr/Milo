@@ -314,7 +314,7 @@ class VolumeService:
     # ============================================================================
 
     async def get_volume_db(self) -> float:
-        """Get current volume in dB from CamillaDSP (source of truth)."""
+        """Get current volume in dB (average of non-muted clients in multiroom mode)."""
         if self._dsp_service and self._dsp_service.is_volume_control_available():
             try:
                 dsp_state = await self._dsp_service.get_volume()
@@ -323,6 +323,11 @@ class VolumeService:
                     self._current_volume_db = dsp_state["main"]
             except Exception as e:
                 self.logger.warning(f"Could not query DSP for volume: {e}")
+
+        # In multiroom mode, return average of all non-muted clients
+        if self._is_multiroom_enabled():
+            return self._multiroom_handler.get_average_volume_db()
+
         return self._current_volume_db
 
     async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
@@ -520,8 +525,14 @@ class VolumeService:
         try:
             multiroom = self._is_multiroom_enabled()
 
+            # In multiroom mode, display average volume of all non-muted clients
+            if multiroom:
+                display_volume = self._multiroom_handler.get_average_volume_db()
+            else:
+                display_volume = self._current_volume_db
+
             status = {
-                "volume_db": self._current_volume_db,
+                "volume_db": display_volume,
                 "multiroom_enabled": multiroom,
                 "dsp_available": self._is_dsp_available(),
                 "config": self.get_volume_config_public()
