@@ -119,6 +119,15 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
                 volume = client.get("volume", 100) if client else 100
                 await _broadcast_client_mute_changed(client_id, volume, muted)
 
+                # Update multiroom volume handler mute cache for average calculation
+                if client and hasattr(state_machine, 'volume_service'):
+                    volume_service = state_machine.volume_service
+                    if hasattr(volume_service, '_multiroom_handler'):
+                        host = client.get("host", "")
+                        ip = client.get("ip", "")
+                        hostname = 'local' if (host == 'milo' or ip == '127.0.0.1') else (ip or host.split('.')[0] if '.' in host else host)
+                        volume_service._multiroom_handler.set_client_mute(hostname, muted)
+
             return {"status": "success" if success else "error"}
         except Exception as e:
             return {"status": "error", "message": str(e)}

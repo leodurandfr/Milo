@@ -49,6 +49,7 @@ class MultiroomVolumeHandler:
         self._global_volume_db: float = -30.0
         self._client_offset_db: Dict[str, float] = {}  # hostname -> offset
         self._client_volume_db: Dict[str, float] = {}  # hostname -> actual volume
+        self._client_mute: Dict[str, bool] = {}  # hostname -> muted
 
         # Snapcast cache
         self._snapcast_clients_cache: List[Dict] = []
@@ -192,10 +193,19 @@ class MultiroomVolumeHandler:
         return self._client_offset_db.get(hostname, 0.0)
 
     def get_average_volume_db(self) -> float:
-        """Get average volume across all clients (for VolumeBar display)."""
+        """Get average volume across all non-muted clients (for VolumeBar display)."""
         if not self._client_volume_db:
             return self._global_volume_db
-        volumes = list(self._client_volume_db.values())
+
+        # Filter out muted clients
+        volumes = [
+            vol for hostname, vol in self._client_volume_db.items()
+            if not self._client_mute.get(hostname, False)
+        ]
+
+        if not volumes:
+            return self._global_volume_db
+
         return sum(volumes) / len(volumes)
 
     async def update_client_volume_db(self, client_id: str, volume_db: float) -> None:
@@ -227,6 +237,19 @@ class MultiroomVolumeHandler:
                     self.logger.info("No clients to sync DSP volumes from")
                     return True
 
+                # Clean stale entries before repopulating
+                current_hostnames = set(hostnames)
+                stale_hostnames = set(self._client_volume_db.keys()) - current_hostnames
+                for hostname in stale_hostnames:
+                    del self._client_volume_db[hostname]
+                    self._client_offset_db.pop(hostname, None)
+                    self._client_mute.pop(hostname, None)
+
+                # Build hostname -> client mapping for mute state
+                hostname_to_client = {
+                    self._get_hostname_from_client(c): c for c in clients
+                }
+
                 # Fetch all DSP volumes in parallel
                 import aiohttp
                 volumes = {}
@@ -245,10 +268,14 @@ class MultiroomVolumeHandler:
                 reference_volume = volumes.get('local', next(iter(volumes.values())))
                 self._global_volume_db = reference_volume
 
-                # Calculate and store offsets for all clients
+                # Calculate and store offsets and mute state for all clients
                 for hostname, volume in volumes.items():
                     self._client_volume_db[hostname] = volume
                     self._client_offset_db[hostname] = volume - reference_volume
+                    # Sync mute state from Snapcast
+                    client = hostname_to_client.get(hostname)
+                    if client:
+                        self._client_mute[hostname] = client.get("muted", False)
 
                 self.logger.info(
                     f"Synced {len(volumes)} clients from DSP (global={reference_volume:.1f} dB, "
@@ -289,6 +316,19 @@ class MultiroomVolumeHandler:
                     self.logger.info("No clients to push volume to")
                     return True
 
+                # Clean stale entries before repopulating
+                current_hostnames = set(hostnames)
+                stale_hostnames = set(self._client_volume_db.keys()) - current_hostnames
+                for hostname in stale_hostnames:
+                    del self._client_volume_db[hostname]
+                    self._client_offset_db.pop(hostname, None)
+                    self._client_mute.pop(hostname, None)
+
+                # Build hostname -> client mapping for mute state
+                hostname_to_client = {
+                    self._get_hostname_from_client(c): c for c in clients
+                }
+
                 self.logger.info(f"Pushing volume {clamped:.1f} dB to {len(hostnames)} clients")
 
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
@@ -298,6 +338,10 @@ class MultiroomVolumeHandler:
                         # Initialize all offsets to 0
                         self._client_volume_db[hostname] = clamped
                         self._client_offset_db[hostname] = 0.0
+                        # Sync mute state from Snapcast
+                        client = hostname_to_client.get(hostname)
+                        if client:
+                            self._client_mute[hostname] = client.get("muted", False)
 
                     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -448,10 +492,15 @@ class MultiroomVolumeHandler:
     # STATE MANAGEMENT
     # ============================================================================
 
+    def set_client_mute(self, hostname: str, muted: bool) -> None:
+        """Update mute state for a client."""
+        self._client_mute[hostname] = muted
+
     def invalidate_caches(self) -> None:
         """Invalidate all internal caches."""
         self._client_volume_db = {}
         self._client_offset_db = {}
+        self._client_mute = {}
         self._snapcast_clients_cache = []
         self._snapcast_cache_time = 0
 
