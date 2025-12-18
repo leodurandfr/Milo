@@ -141,12 +141,33 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         pass
 
     async def restart(self) -> bool:
-        """Restarts the systemd service - Base version"""
+        """Restarts the plugin: systemctl restart + reinitialize via _do_start()
+
+        Note: _do_start() is responsible for notifying the appropriate state
+        (READY, CONNECTED, etc.) so this method does not call notify_state_change()
+        on success. Plugins like Mac may detect existing connections and notify
+        CONNECTED, while others notify READY.
+        """
         try:
+            # Restart systemd service
             success = await self.control_service(self.service_name, "restart")
-            return success
+            if not success:
+                self.logger.error(f"Failed to restart service {self.service_name}")
+                await self.notify_state_change(PluginState.ERROR, {"error": "Restart failed"})
+                return False
+
+            # Reinitialize plugin (monitoring, IPC connections, state detection)
+            # _do_start() is responsible for notifying the appropriate state
+            success = await self._do_start()
+            if not success:
+                await self.notify_state_change(PluginState.ERROR, {"error": "Reinitialization failed"})
+                return False
+
+            return True
+
         except Exception as e:
-            self.logger.error(f"Error restarting service: {e}")
+            self.logger.error(f"Error restarting {self.name}: {e}")
+            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
             return False
 
     @abstractmethod

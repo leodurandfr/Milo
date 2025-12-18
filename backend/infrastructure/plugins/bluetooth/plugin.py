@@ -136,17 +136,53 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             return False
     
     async def restart(self) -> bool:
-        """Restarts only bluealsa-aplay to keep device connected"""
+        """Restarts Bluetooth audio service and re-detects connected device"""
         try:
-            self.logger.info("Restarting bluealsa-aplay service (keeping device connected)")
-            
-            # Restart only audio playback service
+            self.logger.info("Restarting Bluetooth plugin")
+
+            # Restart the audio playback service
             success = await self.control_service(self.bluealsa_aplay_service, "restart")
-            
-            return success
-            
+            if not success:
+                await self.notify_state_change(PluginState.ERROR, {"error": "Restart failed"})
+                return False
+
+            await asyncio.sleep(0.5)
+
+            # Re-detect connected device via bluetoothctl
+            proc = await asyncio.create_subprocess_exec(
+                "bluetoothctl", "devices", "Connected",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            stdout, _ = await proc.communicate()
+
+            if proc.returncode == 0:
+                for line in stdout.decode().splitlines():
+                    if line.startswith("Device "):
+                        parts = line.split(" ", 2)
+                        if len(parts) >= 3:
+                            address = parts[1]
+                            name = parts[2] if len(parts) > 2 else address
+                            self.connected_device = {"address": address, "name": name}
+                            self._first_connected_device = address
+                            await self.notify_state_change(PluginState.CONNECTED, {
+                                "device_connected": True,
+                                "device_name": name,
+                                "device_address": address
+                            })
+                            self.logger.info(f"Bluetooth restart: device {name} still connected")
+                            return True
+
+            # No device connected
+            self.connected_device = None
+            self._first_connected_device = None
+            await self.notify_state_change(PluginState.READY, {"device_connected": False})
+            self.logger.info("Bluetooth restart: no device connected")
+            return True
+
         except Exception as e:
-            self.logger.error(f"Error restarting bluealsa-aplay: {e}")
+            self.logger.error(f"Bluetooth restart error: {e}")
+            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
             return False
     
     async def stop(self) -> bool:
