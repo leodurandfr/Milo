@@ -586,6 +586,13 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
 
             if success:
                 await state_machine.broadcast_event("dsp", "mute_changed", {"muted": payload.muted})
+
+                # Update multiroom volume handler mute cache for 'local'
+                if hasattr(state_machine, 'volume_service'):
+                    volume_service = state_machine.volume_service
+                    if hasattr(volume_service, '_multiroom_handler'):
+                        volume_service._multiroom_handler.set_client_mute('local', payload.muted)
+
                 return {"status": "success", "muted": payload.muted}
 
             return {"status": "error", "message": "Failed to set mute"}
@@ -1324,14 +1331,21 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
         result = await _proxy_client_request(hostname, "PUT", "/dsp/mute", body)
         # Save mute to Milo after successful update
         if result.get("status") == "success":
+            muted = result.get("muted", False)
             # Store mute state in volume settings
             settings = await _load_client_dsp_settings()
             if hostname not in settings:
                 settings[hostname] = {}
             if "volume" not in settings[hostname]:
                 settings[hostname]["volume"] = {}
-            settings[hostname]["volume"]["mute"] = result.get("muted", False)
+            settings[hostname]["volume"]["mute"] = muted
             await _save_client_dsp_settings(settings)
+
+            # Update multiroom volume handler mute cache for average calculation
+            if hasattr(state_machine, 'volume_service'):
+                volume_service = state_machine.volume_service
+                if hasattr(volume_service, '_multiroom_handler'):
+                    volume_service._multiroom_handler.set_client_mute(hostname, muted)
         return result
 
     # === Client Settings Persistence ===
