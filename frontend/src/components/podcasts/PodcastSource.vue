@@ -180,8 +180,8 @@ watch(() => unifiedStore.systemState.plugin_state, (newState) => {
         shouldShowPlayerLayout.value = true
       })
     })
-  } else if (!isPodcastActive || newState === 'inactive' || newState === 'ready') {
-    // Different source active, plugin inactive, or ready (no episode) - hide immediately
+  } else if (!isPodcastActive || newState !== 'connected') {
+    // Different source active or not connected - hide immediately
     shouldShowPlayerLayout.value = false
   }
 }, { immediate: true })

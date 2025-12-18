@@ -520,7 +520,10 @@ install_bluez_alsa() {
     
     sudo systemctl stop bluealsa-aplay.service bluealsa.service || true
     sudo systemctl disable bluealsa-aplay.service bluealsa.service || true
-    
+
+    # Set Bluetooth device name via machine-info (BlueZ recommended approach)
+    sudo cp "$MILO_APP_DIR/rootfs/etc/machine-info" /etc/machine-info
+
     log_success "bluez-alsa installed"
 }
 

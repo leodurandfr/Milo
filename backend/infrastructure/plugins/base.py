@@ -36,7 +36,7 @@ class UnifiedAudioPlugin(AudioSourcePlugin, ABC):
         """Gets the current state from the state machine (source of truth)"""
         if self.state_machine and self.is_active_plugin():
             return self.state_machine.system_state.plugin_state
-        return PluginState.INACTIVE
+        return PluginState.READY
     
     @property
     def current_metadata(self) -> Dict[str, Any]:

@@ -24,9 +24,10 @@ class RadioPlugin(UnifiedAudioPlugin):
     - Multiroom and equalizer support via routing service
 
     States:
-        INACTIVE → service stopped
+        STARTING → service starting
         READY → service started (mpv in idle)
         CONNECTED → station playing
+        ERROR → service error
     """
 
     def __init__(self, config: Dict[str, Any], state_machine=None, settings_service=None):
@@ -222,7 +223,6 @@ class RadioPlugin(UnifiedAudioPlugin):
             self._is_buffering = False
             self._metadata = {}
 
-            await self.notify_state_change(PluginState.INACTIVE)
             self.logger.info("Radio plugin stopped")
             return True
 

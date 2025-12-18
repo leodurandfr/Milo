@@ -10,7 +10,6 @@
         :active-source="unifiedStore.systemState.active_source"
         :plugin-state="unifiedStore.systemState.plugin_state"
         :transitioning="unifiedStore.systemState.transitioning"
-        :target-source="unifiedStore.systemState.target_source"
         :metadata="unifiedStore.systemState.metadata"
         :is-disconnecting="disconnectingStates[unifiedStore.systemState.active_source]"
         @disconnect="handleDisconnect"

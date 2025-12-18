@@ -208,7 +208,6 @@ class TestBluetoothPlugin:
 
             assert result is True
             assert plugin.connected_device is None
-            plugin.notify_state_change.assert_called_with(PluginState.INACTIVE)
 
     @pytest.mark.asyncio
     async def test_stop_without_stopping_bluetooth(self, plugin):

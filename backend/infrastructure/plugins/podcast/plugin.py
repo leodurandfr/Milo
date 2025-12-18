@@ -22,9 +22,10 @@ class PodcastPlugin(UnifiedAudioPlugin):
     - Tracks playback progress for resume functionality
 
     States:
-        INACTIVE → service stopped
+        STARTING → service starting
         READY → service started (mpv in idle)
         CONNECTED → episode playing
+        ERROR → service error
     """
 
     def __init__(self, config: Dict[str, Any], state_machine=None, settings_service=None):
@@ -139,6 +140,56 @@ class PodcastPlugin(UnifiedAudioPlugin):
             self.logger.error(f"Podcast start error: {e}")
             return False
 
+    async def restart(self) -> bool:
+        """
+        Restart Podcast plugin with state cleanup.
+
+        Clears current episode and playback state before restarting,
+        so UI shows "Podcasts Prêt" instead of old episode info.
+        """
+        try:
+            self.logger.info("Restarting Podcast plugin")
+
+            # Save progress before restart if episode was playing
+            if self.current_episode and self._current_position > 0:
+                await self._save_progress()
+
+            # Clear playback state
+            self.current_episode = None
+            self._is_playing = False
+            self._is_buffering = False
+            self._metadata = {}
+            self._current_position = 0
+            self._current_duration = 0
+
+            # Stop monitoring tasks
+            if self._monitor_task:
+                self._monitor_task.cancel()
+                try:
+                    await self._monitor_task
+                except asyncio.CancelledError:
+                    pass
+                self._monitor_task = None
+
+            if self._progress_save_task:
+                self._progress_save_task.cancel()
+                try:
+                    await self._progress_save_task
+                except asyncio.CancelledError:
+                    pass
+                self._progress_save_task = None
+
+            # Disconnect mpv before service restart
+            await self.mpv.disconnect()
+
+            # Use base class restart (systemctl restart + _do_start)
+            return await super().restart()
+
+        except Exception as e:
+            self.logger.error(f"Podcast restart error: {e}")
+            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
+            return False
+
     async def stop(self) -> bool:
         """Stops Podcast plugin"""
         try:
@@ -187,7 +238,6 @@ class PodcastPlugin(UnifiedAudioPlugin):
             self._current_position = 0
             self._current_duration = 0
 
-            await self.notify_state_change(PluginState.INACTIVE)
             self.logger.info("Podcast plugin stopped")
             return True
 

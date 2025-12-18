@@ -192,7 +192,6 @@ class SpotifyPlugin(UnifiedAudioPlugin):
             self._is_playing = False
             self._metadata = {}
 
-            await self.notify_state_change(PluginState.INACTIVE)
             return True
         except Exception as e:
             self.logger.error(f"Stop error: {e}")

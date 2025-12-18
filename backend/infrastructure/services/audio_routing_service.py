@@ -468,17 +468,12 @@ class AudioRoutingService:
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
         """Transition to multiroom mode
 
-        IMPORTANT: The plugin must be stopped BEFORE starting Snapserver.
-        If a plugin (e.g., Radio/mpv) is outputting to the ALSA loopback,
-        the format is locked and Snapserver cannot start.
-
         Order:
         1. Save current playback state (what was playing)
-        2. Stop the active plugin (releases ALSA loopback)
-        3. Start Snapserver (opens ALSA loopback capture)
-        4. Start Snapclient
-        5. Restart plugin with new routing
-        6. Resume playback if it was active
+        2. Notify STARTING state to show loading UI
+        3. Start Snapcast services
+        4. Restart plugin with new routing (handles stop internally via systemctl)
+        5. Resume playback if it was active
         """
         try:
             plugin = None
@@ -488,7 +483,7 @@ class AudioRoutingService:
             if active_source and self.get_plugin:
                 plugin = self.get_plugin(active_source)
 
-            # Step 1: Save current playback state before stopping
+            # Step 1: Save current playback state
             if plugin and self.state_machine:
                 current_state = self.state_machine.system_state.plugin_state
                 current_metadata = self.state_machine.system_state.metadata.copy()
@@ -497,13 +492,15 @@ class AudioRoutingService:
                     playback_metadata = current_metadata
                     self.logger.info(f"Saving playback state: {active_source.value} was playing")
 
-            # Step 2: Stop active plugin to release ALSA loopback
-            if plugin:
-                self.logger.info(f"Stopping plugin {active_source.value} before Snapserver start")
-                await plugin.stop()
-                await asyncio.sleep(0.3)  # Brief delay for ALSA to release
+            # Step 2: Notify STARTING state to show loading UI
+            if plugin and self.state_machine:
+                await self.state_machine.update_plugin_state(
+                    source=active_source,
+                    new_state=PluginState.STARTING,
+                    metadata={"reason": "routing_change"}
+                )
 
-            # Step 3-4: Start Snapcast services
+            # Step 3: Start Snapcast services
             self.logger.info("Starting snapcast services")
             snapcast_success = await self._start_snapcast()
             if not snapcast_success:
@@ -513,7 +510,7 @@ class AudioRoutingService:
                     await plugin.start()
                 return False
 
-            # Step 5: Restart plugin with new routing
+            # Step 4: Restart plugin with new routing (handles stop internally)
             if plugin:
                 self.logger.info(f"Restarting plugin {active_source.value} for multiroom mode")
                 restart_success = await plugin.restart()
@@ -530,7 +527,7 @@ class AudioRoutingService:
                                 "message": f"Failed to restart {active_source.value} after enabling multiroom"
                             })
 
-            # Step 6: Resume playback if it was active
+            # Step 5: Resume playback if it was active
             if was_playing and plugin and playback_metadata:
                 # Wait for plugin to be fully ready after restart
                 # The systemd restart takes time, then mpv needs to connect to IPC
@@ -567,9 +564,9 @@ class AudioRoutingService:
 
         Order:
         1. Save current playback state
-        2. Stop the active plugin
+        2. Notify STARTING state to show loading UI
         3. Stop Snapcast services
-        4. Restart plugin with new routing
+        4. Restart plugin with new routing (handles stop internally via systemctl)
         5. Resume playback if it was active
         """
         try:
@@ -580,7 +577,7 @@ class AudioRoutingService:
             if active_source and self.get_plugin:
                 plugin = self.get_plugin(active_source)
 
-            # Step 1: Save current playback state before stopping
+            # Step 1: Save current playback state
             if plugin and self.state_machine:
                 current_state = self.state_machine.system_state.plugin_state
                 current_metadata = self.state_machine.system_state.metadata.copy()
@@ -589,16 +586,19 @@ class AudioRoutingService:
                     playback_metadata = current_metadata
                     self.logger.info(f"Saving playback state: {active_source.value} was playing")
 
-            # Step 2: Stop active plugin
-            if plugin:
-                self.logger.info(f"Stopping plugin {active_source.value} before Snapcast shutdown")
-                await plugin.stop()
+            # Step 2: Notify STARTING state to show loading UI
+            if plugin and self.state_machine:
+                await self.state_machine.update_plugin_state(
+                    source=active_source,
+                    new_state=PluginState.STARTING,
+                    metadata={"reason": "routing_change"}
+                )
 
             # Step 3: Stop Snapcast services
             self.logger.info("Stopping snapcast services")
             await self._stop_snapcast()
 
-            # Step 4: Restart plugin with new routing
+            # Step 4: Restart plugin with new routing (handles stop internally)
             if plugin:
                 self.logger.info(f"Restarting plugin {active_source.value} for direct mode")
                 restart_success = await plugin.restart()
