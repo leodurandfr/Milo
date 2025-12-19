@@ -304,9 +304,7 @@ async function loadMultiroomData() {
     multiroomStore.loadServerConfig(),
     dspStore.loadTargets() // Load DSP targets for linkedGroups
   ]);
-
-  // Load DSP volumes for all clients
-  await dspStore.loadAllClientDspVolumes(multiroomStore.clients);
+  // Volume data comes from unifiedAudioStore.volumeState via WebSocket
 }
 
 // === MULTIROOM - SERVER CONFIG ===
@@ -343,13 +341,9 @@ onMounted(async () => {
   // Subscribe to WebSocket events for linked groups changes
   on('dsp', 'links_changed', (e) => dspStore.handleLinksChanged(e));
 
-  // Subscribe to volume changes from other UIs
+  // Subscribe to volume changes - handled by unifiedAudioStore
   on('volume', 'volume_changed', (event) => {
-    if (event.data?.client_volumes) {
-      for (const [hostname, volumeDb] of Object.entries(event.data.client_volumes)) {
-        dspStore.setClientDspVolume(hostname, volumeDb);
-      }
-    }
+    unifiedStore.handleVolumeEvent(event);
   });
 
   // Subscribe to DSP client volumes pushed (when multiroom activates)

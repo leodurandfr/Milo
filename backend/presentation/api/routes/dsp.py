@@ -502,42 +502,45 @@ def create_dsp_router(
     async def get_dsp_targets():
         """Get available DSP targets (local Milo + remote clients)"""
         try:
-            targets = [
-                {"id": "local", "name": "Milo", "host": "local", "available": True}
-            ]
+            targets = []
 
-            # Get multiroom clients from snapcast
+            # Get all clients from Snapcast (includes local Milo with custom name)
             try:
                 from backend.config.container import container
                 snapcast_svc = container.snapcast_service()
                 clients = await snapcast_svc.get_clients()
 
                 for client in clients:
-                    # Skip the main Milo (localhost)
-                    if client.get("host") == "milo":
-                        continue
-
                     hostname = client.get("host", "")
                     ip = client.get("ip", "")
-                    dsp_id = client.get("dsp_id", ip)  # Use dsp_id for consistency with linked_groups
+                    dsp_id = client.get("dsp_id", ip)
                     client_name = client.get("name", hostname)
 
-                    # Use dsp_id as target ID (must match what's stored in linked_groups.client_ids)
-                    target_id = dsp_id
+                    # Local Milo (main device)
+                    if hostname == "milo":
+                        targets.insert(0, {  # Insert first
+                            "id": "local",
+                            "name": client_name,  # Use custom name from Snapcast
+                            "host": "local",
+                            "available": True
+                        })
+                    else:
+                        # Remote client - check if DSP available via proxy
+                        proxy_target = hostname if hostname.startswith("milo-client") else ip
+                        available = await proxy_service.check_available(proxy_target) if proxy_service else False
 
-                    # Check if client has DSP available (proxy uses hostname or IP)
-                    proxy_target = hostname if hostname.startswith("milo-client") else ip
-                    available = await proxy_service.check_available(proxy_target) if proxy_service else False
-
-                    targets.append({
-                        "id": target_id,
-                        "name": client_name,
-                        "host": hostname,
-                        "ip": ip,
-                        "available": available
-                    })
+                        targets.append({
+                            "id": dsp_id,
+                            "name": client_name,
+                            "host": hostname,
+                            "ip": ip,
+                            "available": available
+                        })
             except Exception as e:
                 logger.warning(f"Error getting multiroom clients for DSP: {e}")
+                # Fallback to hardcoded local if Snapcast fails
+                if not targets:
+                    targets = [{"id": "local", "name": "Milo", "host": "local", "available": True}]
 
             return {"targets": targets}
 
@@ -947,10 +950,28 @@ def create_dsp_router(
 
     @router.get("/client/{hostname}/status")
     async def get_client_dsp_status(hostname: str):
-        """Proxy DSP status request to client"""
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
-        return await proxy_service.request(hostname, "GET", "/dsp/status")
+        """Get DSP status for a specific client with consistent volume."""
+        normalized = 'local' if hostname in ('local', 'milo') else hostname
+
+        # Get base status
+        if normalized == 'local':
+            status = await dsp_service.get_status()
+        else:
+            if not proxy_service:
+                raise HTTPException(status_code=503, detail="Proxy service not available")
+            status = await proxy_service.request(hostname, "GET", "/dsp/status")
+
+        # Inject volume from volume_service (source of truth)
+        if state_machine:
+            volume_service = getattr(state_machine, 'volume_service', None)
+            if volume_service:
+                vol = volume_service.get_client_volume(normalized)
+                if 'volume' not in status:
+                    status['volume'] = {}
+                status['volume']['main'] = vol['main']
+                status['volume']['mute'] = vol['mute']
+
+        return status
 
     @router.get("/client/{hostname}/filters")
     async def get_client_dsp_filters(hostname: str):
@@ -1054,16 +1075,21 @@ def create_dsp_router(
 
     @router.get("/client/{hostname}/volume")
     async def get_client_volume(hostname: str):
-        """Get volume for a specific client (local or remote)."""
+        """Get volume for a specific client (consistent with multiroom model)."""
         normalized = 'local' if hostname in ('local', 'milo') else hostname
 
+        # Use volume_service as source of truth
+        if state_machine:
+            volume_service = getattr(state_machine, 'volume_service', None)
+            if volume_service:
+                return volume_service.get_client_volume(normalized)
+
+        # Fallback: direct DSP query (if volume_service unavailable)
         if normalized == 'local':
-            # Return local CamillaDSP volume directly
             try:
                 volume = await dsp_service.get_volume()
                 return {"main": volume.get("main", -30), "mute": volume.get("mute", False)}
             except Exception:
-                # Fallback if DSP not connected
                 return {"main": -30, "mute": False}
 
         # Remote client: proxy

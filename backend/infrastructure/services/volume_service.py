@@ -14,6 +14,7 @@ from backend.infrastructure.services.volume_converter_service import VolumeConve
 from backend.infrastructure.services.volume_config_service import VolumeConfigService
 from backend.infrastructure.services.volume_storage_service import VolumeStorageService
 from backend.infrastructure.services.multiroom_volume_handler import MultiroomVolumeHandler
+from backend.domain.volume_state import VolumeState, ClientVolume, ZoneVolume
 
 
 class VolumeService:
@@ -482,26 +483,14 @@ class VolumeService:
             self._pending_volume_broadcast = False
             self._pending_show_bar = False
 
-            # In multiroom mode, display average volume of all clients
-            multiroom = self._is_multiroom_enabled()
-            if multiroom:
-                display_volume = self._multiroom_handler.get_average_volume_db()
-            else:
-                display_volume = self._current_volume_db
+            # Get unified volume state
+            volume_state = await self.get_volume_state()
 
             event_data = {
-                "volume_db": display_volume,
                 "show_bar": show_bar,
-                "multiroom_enabled": multiroom,
-                "step_mobile_db": self.config.config.step_mobile_db
+                "step_mobile_db": self.config.config.step_mobile_db,
+                "state": volume_state.to_dict()
             }
-
-            # Always include client_volumes (for DspModal/ZoneTabs updates)
-            # In non-multiroom mode, only 'local' is included
-            if multiroom:
-                event_data["client_volumes"] = dict(self._multiroom_handler._client_volume_db)
-            else:
-                event_data["client_volumes"] = {"local": self._current_volume_db}
 
             await self.state_machine.broadcast_event("volume", "volume_changed", event_data)
         except Exception as e:
@@ -546,6 +535,117 @@ class VolumeService:
         except Exception as e:
             self.logger.error(f"Error status: {e}")
             return {"volume_db": -30.0, "error": str(e)}
+
+    async def get_volume_state(self) -> VolumeState:
+        """
+        Get unified volume state (single source of truth).
+
+        Returns a VolumeState with all volume data for both direct and multiroom modes.
+        """
+        multiroom = self._is_multiroom_enabled()
+
+        if multiroom:
+            handler = self._multiroom_handler
+
+            # Build client volumes from handler
+            clients = {}
+            for hostname, volume in handler.client_volumes.items():
+                clients[hostname] = ClientVolume(
+                    volume_db=volume,
+                    offset_db=handler.client_offsets.get(hostname, 0.0),
+                    mute=handler.client_mutes.get(hostname, False),
+                    available=True
+                )
+
+            # Build zone volumes from linked_groups
+            zones = await self._compute_zones(clients)
+
+            return VolumeState(
+                mode='multiroom',
+                global_volume_db=handler.global_volume,
+                global_mute=False,
+                display_volume_db=handler.get_average_volume_db(),
+                clients=clients,
+                zones=zones
+            )
+        else:
+            # Direct mode - single client
+            # Note: mute is managed via CamillaDSP directly, not tracked here
+            muted = await self._get_dsp_mute() if self._dsp_service else False
+            return VolumeState(
+                mode='direct',
+                global_volume_db=self._current_volume_db,
+                global_mute=muted,
+                display_volume_db=self._current_volume_db,
+                clients={'local': ClientVolume(
+                    volume_db=self._current_volume_db,
+                    offset_db=0.0,
+                    mute=muted,
+                    available=True
+                )},
+                zones={}
+            )
+
+    async def _compute_zones(self, clients: Dict[str, ClientVolume]) -> Dict[str, ZoneVolume]:
+        """Compute zone volumes from linked_groups settings."""
+        zones = {}
+        linked_groups = await self.settings_service.get_setting("dsp.linked_groups") or []
+
+        for group in linked_groups:
+            zone_id = group.get("id")
+            if not zone_id:
+                continue
+
+            client_ids = group.get("client_ids", [])
+
+            # Compute average (exclude muted clients)
+            volumes = [
+                clients[cid].volume_db
+                for cid in client_ids
+                if cid in clients and not clients[cid].mute
+            ]
+            all_muted = len(volumes) == 0
+            avg = sum(volumes) / len(volumes) if volumes else -30.0
+
+            zones[zone_id] = ZoneVolume(
+                id=zone_id,
+                name=group.get("name", f"Zone {len(zones) + 1}"),
+                client_ids=client_ids,
+                average_volume_db=avg,
+                all_muted=all_muted
+            )
+
+        return zones
+
+    def get_client_volume(self, hostname: str) -> dict:
+        """
+        Get volume for a specific client (works in both modes).
+
+        Returns: {"main": volume_db, "mute": bool}
+        Note: In direct mode, mute state is not tracked here (managed via CamillaDSP).
+        """
+        if self._is_multiroom_enabled():
+            handler = self._multiroom_handler
+            return {
+                "main": handler.client_volumes.get(hostname, -30.0),
+                "mute": handler.client_mutes.get(hostname, False)
+            }
+        else:
+            # Direct mode: only 'local' exists
+            # Mute state not tracked here - use get_volume_state() for full state
+            if hostname == 'local':
+                return {"main": self._current_volume_db, "mute": False}
+            return {"main": -30.0, "mute": False}
+
+    async def _get_dsp_mute(self) -> bool:
+        """Get mute state from CamillaDSP (for direct mode)."""
+        try:
+            if self._dsp_service:
+                volume_data = await self._dsp_service.get_volume()
+                return volume_data.get("mute", False)
+        except Exception:
+            pass
+        return False
 
     async def cleanup(self) -> None:
         """Clean up and wait for pending tasks to complete."""

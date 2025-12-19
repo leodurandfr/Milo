@@ -85,15 +85,29 @@ function isZonePrimary(client) {
   return zone.client_ids[0] === client.dsp_id;
 }
 
-// Calculate arithmetic average volume for a zone (in dB)
+// Get zone average volume from unified volume state
 function getZoneAverageVolume(zone) {
+  if (!zone?.id) return -30;
+  // Use pre-calculated zone volume from unified state
+  const zoneData = unifiedStore.volumeState.zones[zone.id];
+  if (zoneData && typeof zoneData.average_volume_db === 'number') {
+    return zoneData.average_volume_db;
+  }
+  // Fallback: calculate from individual clients
   if (!zone?.client_ids?.length) return -30;
   const volumes = zone.client_ids.map(dspId => dspStore.getClientDspVolume(dspId));
   return volumes.reduce((sum, v) => sum + v, 0) / volumes.length;
 }
 
-// Check if a zone is muted (ALL clients must be muted)
+// Check if a zone is muted from unified volume state
 function getZoneMuted(zone) {
+  if (!zone?.id) return false;
+  // Use pre-calculated zone mute from unified state
+  const zoneData = unifiedStore.volumeState.zones[zone.id];
+  if (zoneData && typeof zoneData.all_muted === 'boolean') {
+    return zoneData.all_muted;
+  }
+  // Fallback: check individual clients
   if (!zone?.client_ids?.length) return false;
   return zone.client_ids.every(dspId => dspStore.getClientDspMute(dspId));
 }
@@ -242,10 +256,8 @@ async function handleVolumeChange(clientId, volumeDb) {
     const updatePromises = zone.client_ids.map(async (dspId) => {
       const startVol = state.clientStarts[dspId];
       const newVol = Math.max(settingsStore.volumeLimits.min_db, Math.min(settingsStore.volumeLimits.max_db, startVol + delta));
-      const success = await dspStore.updateClientDspVolume(dspId, newVol);
-      if (success) {
-        dspStore.setClientDspVolume(dspId, newVol);
-      }
+      await dspStore.updateClientDspVolume(dspId, newVol);
+      // Volume state will be updated via WebSocket broadcast
     });
     await Promise.all(updatePromises);
 
@@ -253,10 +265,8 @@ async function handleVolumeChange(clientId, volumeDb) {
     clearZoneSliderState(zone);
   } else {
     // Single client, update directly
-    const success = await dspStore.updateClientDspVolume(client.dsp_id, volumeDb);
-    if (success) {
-      dspStore.setClientDspVolume(client.dsp_id, volumeDb);
-    }
+    await dspStore.updateClientDspVolume(client.dsp_id, volumeDb);
+    // Volume state will be updated via WebSocket broadcast
   }
 }
 
@@ -348,9 +358,7 @@ async function handleMultiroomReady() {
 
   // Load clients now that services are ready
   await multiroomStore.loadClients(true); // forceNoCache=true
-
-  // Refresh DSP volumes from all clients (volumes were just pushed by backend)
-  await dspStore.loadAllClientDspVolumes(multiroomStore.clients);
+  // Volume data comes from unifiedAudioStore.volumeState via WebSocket
 
   transitionState.value = 'idle';
 }
@@ -382,11 +390,10 @@ onMounted(async () => {
   // Load DSP enabled state (for volume mode detection)
   await dspStore.loadEnabledState();
 
-  // Load linked groups and DSP volumes if DSP effects are enabled
+  // Load linked groups if DSP effects are enabled
   if (dspStore.isDspEffectsEnabled) {
     await dspStore.loadTargets();
-    // Fetch actual DSP volumes from all clients
-    await dspStore.loadAllClientDspVolumes(multiroomStore.clients);
+    // Volume data comes from unifiedAudioStore.volumeState via WebSocket
   }
 
   unsubscribeFunctions.push(
@@ -405,13 +412,10 @@ onMounted(async () => {
     on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e)),
     // DSP client volumes pushed (when multiroom activates)
     on('dsp', 'client_volumes_pushed', (e) => dspStore.handleClientVolumesPushed(e)),
-    // Volume changes from other UIs (DspModal/ZoneTabs)
+    // Volume changes - handled by unifiedAudioStore.handleVolumeEvent
+    // The unified state update will trigger reactivity
     on('volume', 'volume_changed', (event) => {
-      if (event.data?.client_volumes) {
-        for (const [hostname, volumeDb] of Object.entries(event.data.client_volumes)) {
-          dspStore.setClientDspVolume(hostname, volumeDb);
-        }
-      }
+      unifiedStore.handleVolumeEvent(event);
     })
   );
 });
