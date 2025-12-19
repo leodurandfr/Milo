@@ -1,5 +1,5 @@
 #!/bin/bash
-# Milo Client - Installation Script v1.3 (with CamillaDSP support)
+# Milo Client - Installation Script v1.4 (refactored to use rootfs files)
 
 set -e
 
@@ -8,6 +8,7 @@ MILO_CLIENT_HOME="/home/$MILO_CLIENT_USER"
 MILO_CLIENT_REPO_DIR="$MILO_CLIENT_HOME/repo"
 MILO_CLIENT_APP_DIR="$MILO_CLIENT_REPO_DIR/milo-client/app"
 MILO_CLIENT_SYSTEM_DIR="$MILO_CLIENT_REPO_DIR/milo-client/system"
+MILO_CLIENT_ROOTFS_DIR="$MILO_CLIENT_REPO_DIR/milo-client/rootfs"
 MILO_CLIENT_VENV_DIR="$MILO_CLIENT_HOME/venv"
 MILO_CLIENT_DATA_DIR="/var/lib/milo-client"
 MILO_CLIENT_REPO_URL="https://github.com/leodurandfr/Milo.git"
@@ -229,6 +230,7 @@ install_dependencies() {
         python3-venv \
         python3-dev \
         libasound2-dev \
+        avahi-daemon \
         avahi-utils
 
     sudo rm -f /etc/apt/apt.conf.d/local
@@ -420,12 +422,8 @@ configure_alsa_loopback() {
         echo "snd-aloop" | sudo tee -a /etc/modules
     fi
 
-    # Configure loopback module options
-    sudo tee /etc/modprobe.d/milo-client-loopback.conf > /dev/null << 'EOF'
-# Milo Client - ALSA Loopback for CamillaDSP
-# 1 card with 2 subdevices (one for DSP routing)
-options snd-aloop index=2 pcm_substreams=2 enable=1
-EOF
+    # Copy loopback module configuration from repo
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/modprobe.d/milo-client-loopback.conf" /etc/modprobe.d/
 
     # Load module immediately if not loaded
     if ! lsmod | grep -q "snd_aloop"; then
@@ -438,125 +436,44 @@ EOF
 configure_alsa() {
     log_info "Configuring ALSA..."
 
-    sudo tee /etc/asound.conf > /dev/null << 'EOF'
-# ALSA configuration for Milo Client with CamillaDSP support
-# ============================================================
-# Audio routing with optional DSP processing:
-# - Direct: Snapclient -> HiFiBerry (no DSP)
-# - With DSP: Snapclient -> Loopback -> CamillaDSP -> HiFiBerry
-
-# === Default Output ===
-# Routes to HiFiBerry directly (no DSP)
-pcm.!default {
-    type plug
-    slave.pcm "hifiberry"
-}
-
-ctl.!default {
-    type hw
-    card sndrpihifiberry
-}
-
-# === HiFiBerry Direct Output ===
-pcm.hifiberry {
-    type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
-}
-
-# === CamillaDSP Input (via Loopback) ===
-# Audio sent here is captured by CamillaDSP for processing
-pcm.camilladsp_input {
-    type plug
-    slave.pcm {
-        type hw
-        card Loopback
-        device 0
-        subdevice 0
-    }
-}
-
-# === DSP-Enabled Output ===
-# Use this for audio that should go through CamillaDSP
-pcm.with_dsp {
-    type plug
-    slave.pcm "camilladsp_input"
-}
-
-# === Snapclient Output Selector ===
-# The milo-client application sets MILO_CLIENT_DSP_ENABLED env var
-# to route snapclient output to DSP or direct based on main Milo settings
-pcm.milo_client_output {
-    type plug
-    slave.pcm "hifiberry"
-}
-EOF
+    # Copy ALSA configuration from repo
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/asound.conf" /etc/asound.conf
 
     log_success "ALSA configuration complete"
+}
+
+initialize_alsa_volume() {
+    log_info "Initializing ALSA volume to 100%..."
+
+    # Wait for sound card to be available
+    sleep 2
+
+    # Set HiFiBerry DAC digital volume to 100%
+    # This ensures the DAC is not muted after installation
+    # Try both control names as they vary between HiFiBerry models
+    if amixer -c sndrpihifiberry sset 'Digital' 100% 2>/dev/null; then
+        log_success "ALSA Digital volume set to 100%"
+    elif amixer -c sndrpihifiberry sset 'Master' 100% 2>/dev/null; then
+        log_success "ALSA Master volume set to 100%"
+    else
+        log_warning "Could not set ALSA volume (card may not be available until reboot)"
+    fi
 }
 
 create_systemd_services() {
     log_info "Installing systemd services..."
 
-    # Copy static service files from repo
+    # Copy all service files from repo
     sudo cp "$MILO_CLIENT_SYSTEM_DIR/milo-client.service" /etc/systemd/system/
     log_success "Installed milo-client.service"
 
     sudo cp "$MILO_CLIENT_SYSTEM_DIR/milo-client-snapclient.service" /etc/systemd/system/
     log_success "Installed milo-client-snapclient.service"
 
-    # Create CamillaDSP service for satellite DSP processing
-    sudo tee /etc/systemd/system/milo-client-camilladsp.service > /dev/null << 'EOF'
-[Unit]
-Description=Milo Client CamillaDSP Audio Processor
-Documentation=https://github.com/HEnquist/camilladsp
-After=sound.target
-Requires=sound.target
-
-[Service]
-Type=simple
-User=milo-client
-Group=milo-client
-
-# Working directory for config files
-WorkingDirectory=/var/lib/milo-client/camilladsp
-
-# Start CamillaDSP with WebSocket server enabled
-# -p 1234: WebSocket server port
-# -a 127.0.0.1: Listen only on localhost
-# -w: Wait for valid config before processing
-ExecStart=/usr/local/bin/camilladsp \
-    -p 1234 \
-    -a 127.0.0.1 \
-    -w \
-    /var/lib/milo-client/camilladsp/config.yml
-
-# Restart policy
-Restart=on-failure
-RestartSec=3s
-
-# Resource limits
-CPUQuota=80%
-MemoryMax=256M
-
-# Security hardening
-NoNewPrivileges=true
-PrivateTmp=true
-
-# Logging
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=milo-client-camilladsp
-
-[Install]
-WantedBy=multi-user.target
-EOF
+    sudo cp "$MILO_CLIENT_SYSTEM_DIR/milo-client-camilladsp.service" /etc/systemd/system/
     log_success "Installed milo-client-camilladsp.service"
 
-    # Create environment file with dynamic value
+    # Create environment file with dynamic values
     sudo tee "$MILO_CLIENT_DATA_DIR/env" > /dev/null << EOF
 MILO_PRINCIPAL_IP=$MILO_PRINCIPAL_IP
 MILO_CLIENT_DSP_ENABLED=false
@@ -581,49 +498,8 @@ enable_services() {
 install_wrapper_script() {
     log_info "Installing secure wrapper script..."
 
-    sudo tee /usr/local/bin/milo-client-install-snapclient > /dev/null << 'WRAPPER_EOF'
-#!/bin/bash
-# Milo Client - Secure Snapclient Installation Wrapper
-# Only allows installing validated snapclient .deb packages
-set -euo pipefail
-
-error_exit() { echo "ERROR: $1" >&2; exit 1; }
-
-[ $# -ne 1 ] && error_exit "Usage: $0 <path-to-snapclient-deb>"
-
-DEB_PATH="$1"
-
-# Validate file exists
-[ ! -f "$DEB_PATH" ] && error_exit "File does not exist: $DEB_PATH"
-
-# Validate absolute path
-[[ "$DEB_PATH" != /* ]] && error_exit "Path must be absolute"
-
-# Validate in temp directory only
-case "$DEB_PATH" in
-    /tmp/*|/var/tmp/*) ;;
-    *) error_exit "DEB file must be in /tmp or /var/tmp" ;;
-esac
-
-# Validate .deb extension
-[[ "$DEB_PATH" != *.deb ]] && error_exit "File must have .deb extension"
-
-# Validate filename pattern (snapclient releases)
-FILENAME=$(basename "$DEB_PATH")
-if ! [[ "$FILENAME" =~ ^snapclient_[0-9]+\.[0-9]+\.[0-9]+-[0-9]+_arm64_(bookworm|trixie|bullseye|buster)\.deb$ ]]; then
-    error_exit "Filename does not match snapclient pattern: $FILENAME"
-fi
-
-# Validate package name inside .deb
-PACKAGE_NAME=$(dpkg-deb --show --showformat='${Package}' "$DEB_PATH" 2>/dev/null) || \
-    error_exit "Failed to read package info"
-[ "$PACKAGE_NAME" != "snapclient" ] && error_exit "Package is not snapclient: $PACKAGE_NAME"
-
-# Update package lists and install
-DEBIAN_FRONTEND=noninteractive apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$DEB_PATH"
-WRAPPER_EOF
-
+    # Copy wrapper script from repo
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/usr/local/bin/milo-client-install-snapclient" /usr/local/bin/
     sudo chmod 755 /usr/local/bin/milo-client-install-snapclient
     sudo chown root:root /usr/local/bin/milo-client-install-snapclient
 
@@ -633,46 +509,47 @@ WRAPPER_EOF
 configure_sudoers() {
     log_info "Configuring sudo permissions for milo-client..."
 
-    sudo tee /etc/sudoers.d/milo-client > /dev/null << 'EOF'
-# Milo Client - Permissions for automatic updates
-milo-client ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop milo-client-snapclient.service
-milo-client ALL=(ALL) NOPASSWD: /usr/bin/systemctl start milo-client-snapclient.service
-milo-client ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active milo-client-snapclient.service
-milo-client ALL=(root) NOPASSWD: /usr/local/bin/milo-client-install-snapclient
-EOF
-
+    # Copy sudoers file from repo
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/sudoers.d/milo-client" /etc/sudoers.d/
     sudo chmod 0440 /etc/sudoers.d/milo-client
+
     log_success "Sudo permissions configured"
+}
+
+configure_avahi() {
+    log_info "Configuring Avahi (mDNS)..."
+
+    # Determine active interface (eth0 preferred, wlan0 as fallback)
+    local active_iface="eth0"
+    local deny_ifaces="wlan0,lo"
+    if ! ip addr show eth0 2>/dev/null | grep -q 'inet '; then
+        if ip addr show wlan0 2>/dev/null | grep -q 'inet '; then
+            active_iface="wlan0"
+            deny_ifaces="eth0,lo"
+            log_info "eth0 not available, using wlan0 for mDNS"
+        fi
+    fi
+
+    # Copy and process Avahi config template
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/avahi/avahi-daemon.conf.template" /etc/avahi/avahi-daemon.conf
+    sudo sed -i "s/__ALLOW_IFACE__/$active_iface/" /etc/avahi/avahi-daemon.conf
+    sudo sed -i "s/__DENY_IFACES__/$deny_ifaces/" /etc/avahi/avahi-daemon.conf
+
+    # Copy failover script for dynamic interface switching
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/NetworkManager/dispatcher.d/99-avahi-interface" /etc/NetworkManager/dispatcher.d/
+    sudo chmod +x /etc/NetworkManager/dispatcher.d/99-avahi-interface
+
+    sudo systemctl enable avahi-daemon
+    sudo systemctl restart avahi-daemon
+
+    log_success "Avahi configured (access via milo-client-$USER_HOSTNAME_CHOICE.local)"
 }
 
 configure_network_priority() {
     log_info "Configuring network priority (ethernet over wifi)..."
 
-    # Create NetworkManager dispatcher script to disconnect WiFi when Ethernet is connected
-    sudo tee /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority > /dev/null << 'EOF'
-#!/bin/bash
-# NetworkManager dispatcher script for WiFi/Ethernet priority
-# Automatically disconnects WiFi when Ethernet is connected
-
-INTERFACE=$1
-ACTION=$2
-
-case "$INTERFACE" in
-    eth0)
-        case "$ACTION" in
-            up)
-                # Ethernet is up, disconnect WiFi to avoid duplicate connections
-                if nmcli device status | grep -q "^wlan0.*connected"; then
-                    nmcli device disconnect wlan0
-                fi
-                ;;
-        esac
-        ;;
-esac
-
-exit 0
-EOF
-
+    # Copy NetworkManager dispatcher script from repo
+    sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority" /etc/NetworkManager/dispatcher.d/
     sudo chmod +x /etc/NetworkManager/dispatcher.d/98-wifi-eth0-priority
 
     # If currently connected via both ethernet and wifi, disconnect wifi now
@@ -909,10 +786,12 @@ main() {
 
     configure_alsa_loopback
     configure_alsa
+    initialize_alsa_volume
     create_systemd_services
     enable_services
     install_wrapper_script
     configure_sudoers
+    configure_avahi
     configure_network_priority
 
     finalize_installation

@@ -47,7 +47,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useSpotifyControl } from './useSpotifyControl';
 import { usePlaybackProgress } from './usePlaybackProgress';
@@ -86,10 +86,6 @@ const persistentMetadata = computed(() => {
 // Real-time playback state (not persisted)
 const isPlaying = computed(() => unifiedStore.systemState.metadata?.is_playing || false);
 
-// === LIFECYCLE ===
-onMounted(() => {
-  console.log('SpotifyView mounted - natural stagger');
-});
 </script>
 
 <style scoped>

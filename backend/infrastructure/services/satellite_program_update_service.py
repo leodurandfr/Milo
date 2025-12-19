@@ -8,13 +8,16 @@ import logging
 import os
 from typing import Dict, Any, List, Optional
 
+from backend.config.constants import CLIENT_API_PORT
+
+
 class SatelliteProgramUpdateService:
     """Service to manage satellites and their updates"""
 
     def __init__(self, snapcast_service):
         self.snapcast_service = snapcast_service
         self.logger = logging.getLogger(__name__)
-        self.satellite_api_port = 8001
+        self.satellite_api_port = CLIENT_API_PORT
 
         # GitHub token (optional)
         self.github_token = os.environ.get('GITHUB_TOKEN')

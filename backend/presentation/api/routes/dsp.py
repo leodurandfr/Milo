@@ -4,23 +4,9 @@ API routes for CamillaDSP digital signal processing
 Full DSP capabilities including EQ, compressor, loudness, and volume control
 Supports multi-client DSP control for multiroom setups
 """
-from typing import Optional
-import aiohttp
 import asyncio
-import ipaddress
-import json
 import logging
-import os
 from fastapi import APIRouter, HTTPException, Request
-
-
-def _is_ip_address(hostname: str) -> bool:
-    """Check if hostname is an IP address (don't add .local suffix for IPs)."""
-    try:
-        ipaddress.ip_address(hostname)
-        return True
-    except ValueError:
-        return False
 
 from backend.presentation.api.models import (
     DspFilterRequest,
@@ -39,212 +25,16 @@ from backend.presentation.api.models import (
 
 logger = logging.getLogger(__name__)
 
-# Client DSP settings persistence file
-CLIENT_DSP_FILE = "/var/lib/milo/client_dsp.json"
-_client_dsp_lock = asyncio.Lock()
 
-
-async def _load_client_dsp_settings() -> dict:
-    """Load client DSP settings from disk"""
-    try:
-        if os.path.exists(CLIENT_DSP_FILE):
-            with open(CLIENT_DSP_FILE, "r") as f:
-                return json.load(f)
-    except Exception as e:
-        logger.error(f"Error loading client DSP settings: {e}")
-    return {}
-
-
-async def _save_client_dsp_settings(settings: dict):
-    """Save client DSP settings to disk atomically"""
-    async with _client_dsp_lock:
-        try:
-            os.makedirs(os.path.dirname(CLIENT_DSP_FILE), exist_ok=True)
-            temp_file = CLIENT_DSP_FILE + ".tmp"
-            with open(temp_file, "w") as f:
-                json.dump(settings, f, indent=2)
-            os.replace(temp_file, CLIENT_DSP_FILE)
-        except Exception as e:
-            logger.error(f"Error saving client DSP settings: {e}")
-
-
-async def _get_client_settings(hostname: str) -> dict:
-    """Get saved DSP settings for a specific client"""
-    settings = await _load_client_dsp_settings()
-    return settings.get(hostname, {})
-
-
-async def _update_client_settings(hostname: str, category: str, data: dict):
-    """Update and persist DSP settings for a client"""
-    settings = await _load_client_dsp_settings()
-    if hostname not in settings:
-        settings[hostname] = {}
-    settings[hostname][category] = data
-    await _save_client_dsp_settings(settings)
-    logger.info(f"Saved {category} settings for client {hostname}")
-
-
-async def _sync_dsp_settings(source_client: str, target_clients: list):
-    """
-    Sync DSP settings from source client to target clients.
-    Gets compressor, loudness, delay, and filters from source and pushes to targets.
-    """
-    synced = []
-    errors = []
-
-    # Get settings from source client
-    try:
-        if source_client == 'local':
-            # Get from local Milo DSP
-            from backend.config.container import container
-            dsp_svc = container.camilladsp_service()
-            source_settings = {
-                'compressor': await dsp_svc.get_compressor(),
-                'loudness': await dsp_svc.get_loudness(),
-                'delay': await dsp_svc.get_delay(),
-                'filters': await dsp_svc.get_filters(),
-                'volume': await dsp_svc.get_volume()
-            }
-        else:
-            # Get from remote client
-            source_settings = {}
-            try:
-                source_settings['compressor'] = await _proxy_client_request(source_client, "GET", "/dsp/compressor")
-            except Exception:
-                pass
-            try:
-                source_settings['loudness'] = await _proxy_client_request(source_client, "GET", "/dsp/loudness")
-            except Exception:
-                pass
-            try:
-                source_settings['delay'] = await _proxy_client_request(source_client, "GET", "/dsp/delay")
-            except Exception:
-                pass
-            try:
-                filters_resp = await _proxy_client_request(source_client, "GET", "/dsp/filters")
-                source_settings['filters'] = filters_resp.get('filters', [])
-            except Exception:
-                pass
-            try:
-                source_settings['volume'] = await _proxy_client_request(source_client, "GET", "/dsp/volume")
-            except Exception:
-                pass
-    except Exception as e:
-        logger.error(f"Error getting settings from source {source_client}: {e}")
-        return {"synced": [], "errors": [f"Failed to get source settings: {e}"]}
-
-    # Push settings to each target client
-    for target in target_clients:
-        if target == source_client:
-            continue
-
-        target_synced = []
-
-        # Sync compressor
-        if 'compressor' in source_settings and source_settings['compressor']:
-            try:
-                if target == 'local':
-                    from backend.config.container import container
-                    dsp_svc = container.camilladsp_service()
-                    await dsp_svc.set_compressor(**source_settings['compressor'])
-                else:
-                    await _proxy_client_request(target, "PUT", "/dsp/compressor", source_settings['compressor'])
-                    await _update_client_settings(target, "compressor", source_settings['compressor'])
-                target_synced.append("compressor")
-            except Exception as e:
-                errors.append(f"{target}/compressor: {e}")
-
-        # Sync loudness
-        if 'loudness' in source_settings and source_settings['loudness']:
-            try:
-                if target == 'local':
-                    from backend.config.container import container
-                    dsp_svc = container.camilladsp_service()
-                    await dsp_svc.set_loudness(**source_settings['loudness'])
-                else:
-                    await _proxy_client_request(target, "PUT", "/dsp/loudness", source_settings['loudness'])
-                    await _update_client_settings(target, "loudness", source_settings['loudness'])
-                target_synced.append("loudness")
-            except Exception as e:
-                errors.append(f"{target}/loudness: {e}")
-
-        # Sync delay
-        if 'delay' in source_settings and source_settings['delay']:
-            try:
-                if target == 'local':
-                    from backend.config.container import container
-                    dsp_svc = container.camilladsp_service()
-                    await dsp_svc.set_delay(**source_settings['delay'])
-                else:
-                    await _proxy_client_request(target, "PUT", "/dsp/delay", source_settings['delay'])
-                    await _update_client_settings(target, "delay", source_settings['delay'])
-                target_synced.append("delay")
-            except Exception as e:
-                errors.append(f"{target}/delay: {e}")
-
-        # Sync filters
-        if 'filters' in source_settings and source_settings['filters']:
-            for flt in source_settings['filters']:
-                filter_id = flt.get('id')
-                if not filter_id:
-                    continue
-                filter_data = {
-                    'freq': flt.get('freq'),
-                    'gain': flt.get('gain'),
-                    'q': flt.get('q'),
-                    'filter_type': flt.get('type')
-                }
-                try:
-                    if target == 'local':
-                        from backend.config.container import container
-                        dsp_svc = container.camilladsp_service()
-                        await dsp_svc.set_filter(filter_id, **filter_data)
-                    else:
-                        await _proxy_client_request(target, "PUT", f"/dsp/filter/{filter_id}", filter_data)
-                    target_synced.append(f"filter:{filter_id}")
-                except Exception as e:
-                    errors.append(f"{target}/filter:{filter_id}: {e}")
-
-        # Sync volume/mute
-        if 'volume' in source_settings and source_settings['volume']:
-            vol = source_settings['volume']
-            # Sync volume level
-            if 'main' in vol:
-                try:
-                    if target == 'local':
-                        from backend.config.container import container
-                        dsp_svc = container.camilladsp_service()
-                        await dsp_svc.set_volume(vol['main'])
-                    else:
-                        await _proxy_client_request(target, "PUT", "/dsp/volume", {"volume": vol['main']})
-                        await _update_client_settings(target, "volume", {"main": vol['main']})
-                    target_synced.append("volume")
-                except Exception as e:
-                    errors.append(f"{target}/volume: {e}")
-            # Sync mute state
-            if 'mute' in vol:
-                try:
-                    if target == 'local':
-                        from backend.config.container import container
-                        dsp_svc = container.camilladsp_service()
-                        await dsp_svc.set_mute(vol['mute'])
-                    else:
-                        await _proxy_client_request(target, "PUT", "/dsp/mute", {"muted": vol['mute']})
-                    target_synced.append("mute")
-                except Exception as e:
-                    errors.append(f"{target}/mute: {e}")
-
-        if target_synced:
-            synced.append({"target": target, "settings": target_synced})
-
-    logger.info(f"Synced DSP settings from {source_client} to {len(synced)} targets")
-    if errors:
-        logger.warning(f"Sync errors: {errors}")
-
-    return {"synced": synced, "errors": errors if errors else None}
-
-
-def create_dsp_router(dsp_service, state_machine, settings_service=None, routing_service=None, crossover_service=None):
+def create_dsp_router(
+    dsp_service,
+    state_machine,
+    settings_service=None,
+    routing_service=None,
+    crossover_service=None,
+    proxy_service=None,
+    sync_service=None
+):
     """Creates DSP router with injected dependencies"""
     router = APIRouter(prefix="/api/dsp", tags=["dsp"])
 
@@ -335,19 +125,13 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
             if normalized == 'local':
                 try:
                     return await dsp_service.get_levels()
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to get local DSP levels: {e}")
                     return None
             else:
-                # Proxy to remote client
-                try:
-                    host = client_id if _is_ip_address(client_id) else f"{client_id}.local"
-                    timeout = aiohttp.ClientTimeout(total=1.0)
-                    async with aiohttp.ClientSession(timeout=timeout) as session:
-                        async with session.get(f"http://{host}:8001/dsp/levels") as resp:
-                            if resp.status == 200:
-                                return await resp.json()
-                except Exception:
-                    pass
+                # Proxy to remote client using proxy_service
+                if proxy_service:
+                    return await proxy_service.get_dsp_levels(client_id)
                 return None
 
         # Poll all clients in parallel
@@ -735,14 +519,15 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
 
                     hostname = client.get("host", "")
                     ip = client.get("ip", "")
+                    dsp_id = client.get("dsp_id", ip)  # Use dsp_id for consistency with linked_groups
                     client_name = client.get("name", hostname)
 
-                    # Use IP as target ID for consistency with volume broadcasts
-                    # (multiroom_volume_handler uses IP addresses)
-                    target_id = ip if ip and ip != "127.0.0.1" else hostname
+                    # Use dsp_id as target ID (must match what's stored in linked_groups.client_ids)
+                    target_id = dsp_id
 
-                    # Check if client has DSP available (port 8001)
-                    available = await _check_client_dsp_available(target_id)
+                    # Check if client has DSP available (proxy uses hostname or IP)
+                    proxy_target = hostname if hostname.startswith("milo-client") else ip
+                    available = await proxy_service.check_available(proxy_target) if proxy_service else False
 
                     targets.append({
                         "id": target_id,
@@ -805,7 +590,7 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
                     await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
 
                     # Sync settings from source to all clients in merged group
-                    sync_result = await _sync_dsp_settings(source_client, all_clients)
+                    sync_result = await sync_service.sync_settings(source_client, all_clients) if sync_service else {"synced": [], "errors": ["Sync service not available"]}
 
                     # Apply crossover if zone has a subwoofer
                     if crossover_service:
@@ -829,7 +614,7 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
             await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
 
             # Sync settings from source to all other clients
-            sync_result = await _sync_dsp_settings(source_client, all_clients)
+            sync_result = await sync_service.sync_settings(source_client, all_clients) if sync_service else {"synced": [], "errors": ["Sync service not available"]}
 
             # Apply crossover if zone has a subwoofer
             if crossover_service:
@@ -1163,89 +948,108 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
     @router.get("/client/{hostname}/status")
     async def get_client_dsp_status(hostname: str):
         """Proxy DSP status request to client"""
-        return await _proxy_client_request(hostname, "GET", "/dsp/status")
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
+        return await proxy_service.request(hostname, "GET", "/dsp/status")
 
     @router.get("/client/{hostname}/filters")
     async def get_client_dsp_filters(hostname: str):
         """Proxy DSP filters request to client"""
-        return await _proxy_client_request(hostname, "GET", "/dsp/filters")
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
+        return await proxy_service.request(hostname, "GET", "/dsp/filters")
 
     @router.put("/client/{hostname}/filter/{filter_id}")
     async def update_client_dsp_filter(hostname: str, filter_id: str, request: Request):
         """Proxy filter update to client and persist settings"""
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
         body = await request.json()
-        result = await _proxy_client_request(hostname, "PUT", f"/dsp/filter/{filter_id}", body)
+        result = await proxy_service.request(hostname, "PUT", f"/dsp/filter/{filter_id}", body)
         # Save filter settings to Milo after successful update
-        if result.get("status") == "success":
-            # Load existing filters and update the specific one
-            settings = await _load_client_dsp_settings()
+        if result.get("status") == "success" and sync_service:
+            settings = await sync_service.load_settings()
             if hostname not in settings:
                 settings[hostname] = {}
             if "filters" not in settings[hostname]:
                 settings[hostname]["filters"] = {}
             filter_data = {k: v for k, v in result.items() if k != "status"}
             settings[hostname]["filters"][filter_id] = filter_data
-            await _save_client_dsp_settings(settings)
+            await sync_service.save_settings(settings)
         return result
 
     @router.post("/client/{hostname}/reset")
     async def reset_client_dsp_filters(hostname: str):
         """Proxy filter reset to client and clear saved filter settings"""
-        result = await _proxy_client_request(hostname, "POST", "/dsp/reset")
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
+        result = await proxy_service.request(hostname, "POST", "/dsp/reset")
         # Clear saved filters for this client
-        if result.get("status") == "success":
-            settings = await _load_client_dsp_settings()
+        if result.get("status") == "success" and sync_service:
+            settings = await sync_service.load_settings()
             if hostname in settings and "filters" in settings[hostname]:
                 settings[hostname]["filters"] = {}
-                await _save_client_dsp_settings(settings)
+                await sync_service.save_settings(settings)
         return result
 
     @router.get("/client/{hostname}/compressor")
     async def get_client_compressor(hostname: str):
         """Proxy compressor GET to client"""
-        return await _proxy_client_request(hostname, "GET", "/dsp/compressor")
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
+        return await proxy_service.request(hostname, "GET", "/dsp/compressor")
 
     @router.put("/client/{hostname}/compressor")
     async def update_client_compressor(hostname: str, request: Request):
         """Proxy compressor update to client and persist settings"""
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
         body = await request.json()
-        result = await _proxy_client_request(hostname, "PUT", "/dsp/compressor", body)
+        result = await proxy_service.request(hostname, "PUT", "/dsp/compressor", body)
         # Save settings to Milo after successful update
-        if result.get("status") == "success":
+        if result.get("status") == "success" and sync_service:
             compressor_data = {k: v for k, v in result.items() if k != "status"}
-            await _update_client_settings(hostname, "compressor", compressor_data)
+            await sync_service.update_client_settings(hostname, "compressor", compressor_data)
         return result
 
     @router.get("/client/{hostname}/loudness")
     async def get_client_loudness(hostname: str):
         """Proxy loudness GET to client"""
-        return await _proxy_client_request(hostname, "GET", "/dsp/loudness")
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
+        return await proxy_service.request(hostname, "GET", "/dsp/loudness")
 
     @router.put("/client/{hostname}/loudness")
     async def update_client_loudness(hostname: str, request: Request):
         """Proxy loudness update to client and persist settings"""
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
         body = await request.json()
-        result = await _proxy_client_request(hostname, "PUT", "/dsp/loudness", body)
+        result = await proxy_service.request(hostname, "PUT", "/dsp/loudness", body)
         # Save settings to Milo after successful update
-        if result.get("status") == "success":
+        if result.get("status") == "success" and sync_service:
             loudness_data = {k: v for k, v in result.items() if k != "status"}
-            await _update_client_settings(hostname, "loudness", loudness_data)
+            await sync_service.update_client_settings(hostname, "loudness", loudness_data)
         return result
 
     @router.get("/client/{hostname}/delay")
     async def get_client_delay(hostname: str):
         """Proxy delay GET to client"""
-        return await _proxy_client_request(hostname, "GET", "/dsp/delay")
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
+        return await proxy_service.request(hostname, "GET", "/dsp/delay")
 
     @router.put("/client/{hostname}/delay")
     async def update_client_delay(hostname: str, request: Request):
         """Proxy delay update to client and persist settings"""
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
         body = await request.json()
-        result = await _proxy_client_request(hostname, "PUT", "/dsp/delay", body)
+        result = await proxy_service.request(hostname, "PUT", "/dsp/delay", body)
         # Save settings to Milo after successful update
-        if result.get("status") == "success":
+        if result.get("status") == "success" and sync_service:
             delay_data = {k: v for k, v in result.items() if k != "status"}
-            await _update_client_settings(hostname, "delay", delay_data)
+            await sync_service.update_client_settings(hostname, "delay", delay_data)
         return result
 
     @router.get("/client/{hostname}/volume")
@@ -1263,7 +1067,9 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
                 return {"main": -30, "mute": False}
 
         # Remote client: proxy
-        return await _proxy_client_request(hostname, "GET", "/dsp/volume")
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
+        return await proxy_service.request(hostname, "GET", "/dsp/volume")
 
     @router.put("/client/{hostname}/volume")
     async def update_client_volume(hostname: str, request: Request):
@@ -1295,6 +1101,8 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
             success = await multiroom_handler.set_client_volume_db('local', volume_db)
 
             if success:
+                # Sync volume_service._current_volume_db for correct broadcast in direct mode
+                volume_service._current_volume_db = volume_db
                 # Broadcast volume change (will include only this client's change)
                 await volume_service._schedule_broadcast(show_bar=False)
                 return {"status": "success", "main": volume_db}
@@ -1302,12 +1110,14 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
                 raise HTTPException(status_code=500, detail="Failed to set local volume")
 
         # Remote client: proxy to client's DSP API
-        result = await _proxy_client_request(hostname, "PUT", "/dsp/volume", body)
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
+        result = await proxy_service.request(hostname, "PUT", "/dsp/volume", body)
 
         # Save volume to Milo after successful update
-        if result.get("status") == "success":
+        if result.get("status") == "success" and sync_service:
             volume_data = {k: v for k, v in result.items() if k != "status"}
-            await _update_client_settings(hostname, "volume", volume_data)
+            await sync_service.update_client_settings(hostname, "volume", volume_data)
 
             # Update multiroom volume cache with actual response value, not request
             # The response 'main' field contains the actual volume set by the client
@@ -1327,19 +1137,21 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
     @router.put("/client/{hostname}/mute")
     async def update_client_mute(hostname: str, request: Request):
         """Proxy mute update to client and persist settings"""
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
         body = await request.json()
-        result = await _proxy_client_request(hostname, "PUT", "/dsp/mute", body)
+        result = await proxy_service.request(hostname, "PUT", "/dsp/mute", body)
         # Save mute to Milo after successful update
-        if result.get("status") == "success":
+        if result.get("status") == "success" and sync_service:
             muted = result.get("muted", False)
             # Store mute state in volume settings
-            settings = await _load_client_dsp_settings()
+            settings = await sync_service.load_settings()
             if hostname not in settings:
                 settings[hostname] = {}
             if "volume" not in settings[hostname]:
                 settings[hostname]["volume"] = {}
             settings[hostname]["volume"]["mute"] = muted
-            await _save_client_dsp_settings(settings)
+            await sync_service.save_settings(settings)
 
             # Update multiroom volume handler mute cache for average calculation
             if hasattr(state_machine, 'volume_service'):
@@ -1353,13 +1165,18 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
     @router.get("/client/{hostname}/saved-settings")
     async def get_client_saved_settings(hostname: str):
         """Get Milo's saved DSP settings for a client"""
-        settings = await _get_client_settings(hostname)
+        if not sync_service:
+            return {"hostname": hostname, "settings": {}}
+        settings = await sync_service.get_client_settings(hostname)
         return {"hostname": hostname, "settings": settings}
 
     @router.post("/client/{hostname}/restore")
     async def restore_client_settings(hostname: str):
         """Restore saved DSP settings to a client"""
-        saved = await _get_client_settings(hostname)
+        if not sync_service or not proxy_service:
+            return {"status": "error", "message": "Services not available", "restored": [], "errors": ["Services not available"]}
+
+        saved = await sync_service.get_client_settings(hostname)
         if not saved:
             return {"status": "success", "message": "No saved settings to restore", "restored": []}
 
@@ -1369,7 +1186,7 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
         # Restore compressor settings
         if "compressor" in saved:
             try:
-                await _proxy_client_request(hostname, "PUT", "/dsp/compressor", saved["compressor"])
+                await proxy_service.request(hostname, "PUT", "/dsp/compressor", saved["compressor"])
                 restored.append("compressor")
             except Exception as e:
                 errors.append(f"compressor: {e}")
@@ -1377,7 +1194,7 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
         # Restore loudness settings
         if "loudness" in saved:
             try:
-                await _proxy_client_request(hostname, "PUT", "/dsp/loudness", saved["loudness"])
+                await proxy_service.request(hostname, "PUT", "/dsp/loudness", saved["loudness"])
                 restored.append("loudness")
             except Exception as e:
                 errors.append(f"loudness: {e}")
@@ -1385,7 +1202,7 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
         # Restore delay settings
         if "delay" in saved:
             try:
-                await _proxy_client_request(hostname, "PUT", "/dsp/delay", saved["delay"])
+                await proxy_service.request(hostname, "PUT", "/dsp/delay", saved["delay"])
                 restored.append("delay")
             except Exception as e:
                 errors.append(f"delay: {e}")
@@ -1394,7 +1211,7 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
         if "filters" in saved:
             for filter_id, filter_data in saved["filters"].items():
                 try:
-                    await _proxy_client_request(hostname, "PUT", f"/dsp/filter/{filter_id}", filter_data)
+                    await proxy_service.request(hostname, "PUT", f"/dsp/filter/{filter_id}", filter_data)
                     restored.append(f"filter:{filter_id}")
                 except Exception as e:
                     errors.append(f"filter:{filter_id}: {e}")
@@ -1405,14 +1222,14 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
             # Restore volume level
             if "main" in vol_settings:
                 try:
-                    await _proxy_client_request(hostname, "PUT", "/dsp/volume", {"volume": vol_settings["main"]})
+                    await proxy_service.request(hostname, "PUT", "/dsp/volume", {"volume": vol_settings["main"]})
                     restored.append("volume")
                 except Exception as e:
                     errors.append(f"volume: {e}")
             # Restore mute state
             if "mute" in vol_settings:
                 try:
-                    await _proxy_client_request(hostname, "PUT", "/dsp/mute", {"muted": vol_settings["mute"]})
+                    await proxy_service.request(hostname, "PUT", "/dsp/mute", {"muted": vol_settings["mute"]})
                     restored.append("mute")
                 except Exception as e:
                     errors.append(f"mute: {e}")
@@ -1428,66 +1245,3 @@ def create_dsp_router(dsp_service, state_machine, settings_service=None, routing
         }
 
     return router
-
-
-# === Helper functions for client proxy ===
-
-async def _check_client_dsp_available(hostname: str) -> bool:
-    """Check if a client's DSP API is available"""
-    try:
-        # Don't add .local suffix for IP addresses
-        host = hostname if _is_ip_address(hostname) else f"{hostname}.local"
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as session:
-            url = f"http://{host}:8001/health"
-            async with session.get(url) as response:
-                return response.status == 200
-    except Exception:
-        return False
-
-
-async def _proxy_client_request(hostname: str, method: str, path: str, body: dict = None):
-    """Proxy a request to a client's DSP API"""
-    # Check if multiroom is disabled - skip remote client requests
-    try:
-        from backend.config.container import container
-        routing_svc = container.routing_service()
-        if routing_svc and not await routing_svc._get_multiroom_enabled():
-            logger.warning(f"Skipping proxy request to {hostname} - multiroom is disabled")
-            raise HTTPException(status_code=503, detail=f"Multiroom is disabled, cannot reach {hostname}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Log but continue if we can't check multiroom status
-        logger.debug(f"Could not check multiroom status: {e}")
-
-    try:
-        # Don't add .local suffix for IP addresses
-        host = hostname if _is_ip_address(hostname) else f"{hostname}.local"
-        url = f"http://{host}:8001{path}"
-        timeout = aiohttp.ClientTimeout(total=10)
-
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            if method == "GET":
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    raise HTTPException(status_code=response.status, detail=f"Client error: {response.status}")
-            elif method == "PUT":
-                async with session.put(url, json=body) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    raise HTTPException(status_code=response.status, detail=f"Client error: {response.status}")
-            elif method == "POST":
-                async with session.post(url, json=body) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    raise HTTPException(status_code=response.status, detail=f"Client error: {response.status}")
-
-    except aiohttp.ClientError as e:
-        logger.error(f"Error proxying request to {hostname}: {e}")
-        raise HTTPException(status_code=503, detail=f"Cannot reach client {hostname}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error proxying to {hostname}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))

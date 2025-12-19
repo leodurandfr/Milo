@@ -461,7 +461,7 @@ class AudioRoutingService:
             try:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
-            except:
+            except Exception:
                 pass
             raise RuntimeError(f"Failed to update environment file: {e}")
     
@@ -549,12 +549,7 @@ class AudioRoutingService:
                     self.logger.info(f"Resuming radio playback: {metadata.get('station_name', station_id)}")
                     result = await plugin.handle_command("play_station", {"station_id": station_id})
                     self.logger.info(f"Resume result: {result}")
-            elif source == AudioSource.PODCAST:
-                episode_id = metadata.get("episode_id")
-                if episode_id:
-                    self.logger.info(f"Resuming podcast playback: {metadata.get('episode_title', episode_id)}")
-                    result = await plugin.handle_command("play_episode", {"episode_id": episode_id})
-                    self.logger.info(f"Resume result: {result}")
+            # Podcast: playback stops cleanly during routing change, user can restart manually
             # Spotify and Bluetooth manage their own playback state
         except Exception as e:
             self.logger.warning(f"Could not resume playback for {source.value}: {e}")
@@ -598,8 +593,11 @@ class AudioRoutingService:
             self.logger.info("Stopping snapcast services")
             await self._stop_snapcast()
 
-            # Step 4: Restart plugin with new routing (handles stop internally)
+            # Step 4: Stop plugin first to release ALSA device, then restart with new routing
             if plugin:
+                self.logger.info(f"Stopping plugin {active_source.value} to release ALSA device")
+                await plugin.stop()
+                await asyncio.sleep(0.5)  # Wait for ALSA to release the device
                 self.logger.info(f"Restarting plugin {active_source.value} for direct mode")
                 restart_success = await plugin.restart()
 

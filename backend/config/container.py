@@ -28,6 +28,8 @@ from backend.infrastructure.services.program_version_service import ProgramVersi
 from backend.infrastructure.services.program_update_service import ProgramUpdateService
 from backend.infrastructure.services.satellite_program_update_service import SatelliteProgramUpdateService
 from backend.infrastructure.services.crossover_service import CrossoverService
+from backend.infrastructure.services.dsp_client_proxy_service import DspClientProxyService
+from backend.infrastructure.services.dsp_settings_sync_service import DspSettingsSyncService
 
 class Container(containers.DeclarativeContainer):
     """Dependency injection container for Milo with SettingsService injection"""
@@ -113,6 +115,19 @@ class Container(containers.DeclarativeContainer):
     crossover_service = providers.Singleton(
         CrossoverService,
         settings_service=settings_service,
+        dsp_service=camilladsp_service
+    )
+
+    # DSP client proxy service for multiroom DSP communication
+    dsp_client_proxy_service = providers.Singleton(
+        DspClientProxyService,
+        routing_service=audio_routing_service
+    )
+
+    # DSP settings sync service for persisting and syncing client settings
+    dsp_settings_sync_service = providers.Singleton(
+        DspSettingsSyncService,
+        proxy_service=dsp_client_proxy_service,
         dsp_service=camilladsp_service
     )
 

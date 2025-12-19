@@ -184,8 +184,8 @@ class SnapcastService:
             return []
     
     def _extract_clients(self, status: dict) -> List[Dict[str, Any]]:
-        """Extract and filter clients from server status"""
-        clients = []
+        """Extract and filter clients from server status with MAC-based deduplication"""
+        raw_clients = []
         exclude_names = {'snapweb client', 'snapweb'}
 
         for group in status.get("server", {}).get("groups", []):
@@ -199,28 +199,68 @@ class SnapcastService:
 
                 host = client_data["host"]["name"]
                 ip = client_data["host"]["ip"].replace("::ffff:", "")
+                mac = client_data["host"].get("mac", "")
 
                 # dsp_id: identifier used by DSP linked_groups
-                # "local" for the main Milo server, IP address for remote clients
-                dsp_id = "local" if host == "milo" else ip
+                # "local" for main Milo, hostname for remote clients (more stable than IP)
+                dsp_id = "local" if host == "milo" else self._get_stable_dsp_id(host, ip)
 
-                clients.append({
+                raw_clients.append({
                     "id": client_data["id"],
                     "name": name,
                     "volume": client_data["config"]["volume"]["percent"],
                     "muted": client_data["config"]["volume"]["muted"],
                     "host": host,
                     "ip": ip,
+                    "mac": mac,
                     "dsp_id": dsp_id
                 })
 
-        return clients
+        return self._deduplicate_by_mac(raw_clients)
+
+    def _get_stable_dsp_id(self, host: str, ip: str) -> str:
+        """Get stable identifier for DSP settings (hostname preferred over IP)"""
+        # Use hostname if it looks like a valid milo-client hostname
+        if host and host.startswith("milo-client"):
+            return host
+        # Otherwise use IP (for clients without proper hostname)
+        return ip
+
+    def _deduplicate_by_mac(self, clients: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove duplicate clients based on MAC address (same device via eth0/wlan0)"""
+        if not clients:
+            return clients
+
+        # Group by MAC address
+        mac_groups: Dict[str, List[Dict[str, Any]]] = {}
+        for client in clients:
+            mac = client.get("mac", "")
+            # Skip deduplication for clients without MAC or with invalid MAC
+            if not mac or mac == "00:00:00:00:00:00":
+                mac_groups.setdefault(client["id"], []).append(client)
+            else:
+                mac_groups.setdefault(mac, []).append(client)
+
+        # For each group, keep only one client (prefer the first one)
+        deduplicated = []
+        for mac, group in mac_groups.items():
+            if len(group) == 1:
+                deduplicated.append(group[0])
+            else:
+                # Multiple clients with same MAC - log and keep first
+                self.logger.info(
+                    f"Duplicate clients detected (MAC: {mac}): "
+                    f"{[c['ip'] for c in group]} - keeping first"
+                )
+                deduplicated.append(group[0])
+
+        return deduplicated
     
     async def get_detailed_clients(self) -> List[Dict[str, Any]]:
-        """Get clients with detailed information"""
+        """Get clients with detailed information and MAC-based deduplication"""
         try:
             status = await self._request("Server.GetStatus")
-            clients = []
+            raw_clients = []
             exclude_names = {'snapweb client', 'snapweb'}
 
             for group in status.get("server", {}).get("groups", []):
@@ -234,13 +274,14 @@ class SnapcastService:
 
                     host = client_data["host"]["name"]
                     ip = client_data["host"]["ip"].replace("::ffff:", "")
+                    mac = client_data["host"].get("mac", "")
                     last_seen = client_data.get("lastSeen", {})
 
                     # dsp_id: identifier used by DSP linked_groups
-                    # "local" for the main Milo server, IP address for remote clients
-                    dsp_id = "local" if host == "milo" else ip
+                    # "local" for main Milo, hostname for remote clients (more stable than IP)
+                    dsp_id = "local" if host == "milo" else self._get_stable_dsp_id(host, ip)
 
-                    clients.append({
+                    raw_clients.append({
                         "id": client_data["id"],
                         "name": name,
                         "volume": client_data["config"]["volume"]["percent"],
@@ -248,7 +289,7 @@ class SnapcastService:
                         "host": host,
                         "ip": ip,
                         "dsp_id": dsp_id,
-                        "mac": client_data["host"]["mac"],
+                        "mac": mac,
                         "latency": client_data["config"]["latency"],
                         "last_seen": last_seen,
                         "connection_quality": self._calculate_connection_quality(last_seen),
@@ -260,7 +301,7 @@ class SnapcastService:
                         "group_id": group["id"]
                     })
 
-            return clients
+            return self._deduplicate_by_mac(raw_clients)
             
         except Exception as e:
             self.logger.error(f"Error getting detailed clients: {e}")
@@ -281,7 +322,7 @@ class SnapcastService:
         try:
             result = await self._request("Server.GetRPCVersion")
             return bool(result)
-        except:
+        except Exception:
             return False
 
     async def get_server_status(self) -> dict:

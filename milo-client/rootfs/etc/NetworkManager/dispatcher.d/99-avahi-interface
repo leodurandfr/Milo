@@ -1,0 +1,38 @@
+#!/bin/bash
+# Avahi interface failover: eth0 preferred, wlan0 as fallback
+INTERFACE=$1
+ACTION=$2
+AVAHI_CONF=/etc/avahi/avahi-daemon.conf
+
+update_avahi_interface() {
+    local iface=$1
+    local deny=$2
+    sed -i "s/^allow-interfaces=.*/allow-interfaces=$iface/" $AVAHI_CONF
+    sed -i "s/^deny-interfaces=.*/deny-interfaces=$deny/" $AVAHI_CONF
+    systemctl restart avahi-daemon
+}
+
+case "$INTERFACE" in
+    eth0)
+        case "$ACTION" in
+            up)
+                update_avahi_interface "eth0" "wlan0,lo"
+                ;;
+            down)
+                if ip addr show wlan0 2>/dev/null | grep -q 'inet '; then
+                    update_avahi_interface "wlan0" "eth0,lo"
+                fi
+                ;;
+        esac
+        ;;
+    wlan0)
+        case "$ACTION" in
+            up)
+                if ! ip addr show eth0 2>/dev/null | grep -q 'inet '; then
+                    update_avahi_interface "wlan0" "eth0,lo"
+                fi
+                ;;
+        esac
+        ;;
+esac
+exit 0

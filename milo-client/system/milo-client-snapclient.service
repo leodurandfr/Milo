@@ -7,8 +7,9 @@ Wants=network-online.target
 Type=simple
 User=milo-client
 Group=audio
+EnvironmentFile=/var/lib/milo-client/env
 
-ExecStart=/usr/bin/snapclient -h milo.local -p 1704 --hostID %H --logsink=system --soundcard camilladsp_input --mixer software
+ExecStart=/usr/bin/snapclient -h ${MILO_PRINCIPAL_IP} -p 1704 --hostID %H --logsink=system --soundcard camilladsp_input --mixer software
 
 Restart=always
 RestartSec=5

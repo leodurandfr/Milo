@@ -342,8 +342,6 @@ async function startLocalUpdate(programKey) {
       throw new Error(response.data.message || 'Failed to start update');
     }
 
-    console.log(`Update started for ${programKey}: ${response.data.message}`);
-
   } catch (error) {
     console.error(`Error starting update for ${programKey}:`, error);
     delete localUpdateStates.value[programKey];
@@ -407,8 +405,6 @@ async function startSatelliteUpdate(hostname) {
       throw new Error(response.data.message || 'Failed to start update');
     }
 
-    console.log(`Update started for satellite ${hostname}: ${response.data.message}`);
-
   } catch (error) {
     console.error(`Error starting update for satellite ${hostname}:`, error);
     delete satelliteUpdateStates.value[hostname];
@@ -440,11 +436,8 @@ const wsListeners = {
       delete localUpdateStates.value[program];
 
       if (success) {
-        console.log(`Update completed for ${program}: ${old_version} → ${new_version}`);
         localCompletedUpdates.value.add(program);
         loadLocalPrograms();
-      } else {
-        console.error(`Update failed for ${program}: ${error}`);
       }
     }
   },
@@ -465,11 +458,8 @@ const wsListeners = {
       delete satelliteUpdateStates.value[hostname];
 
       if (success) {
-        console.log(`Update completed for satellite ${hostname}: ${new_version}`);
         satelliteCompletedUpdates.value.add(hostname);
         loadSatellites();
-      } else {
-        console.error(`Update failed for satellite ${hostname}: ${error}`);
       }
     }
   }
@@ -481,21 +471,6 @@ const wsListeners = {
 onMounted(async () => {
   await loadLocalPrograms();
   await loadSatellites();
-
-
-  // DEBUG: force updating state for "multiroom"
-  // localUpdateStates.value['multiroom'] = {
-  //   updating: true,
-  //   progress: 45,
-  //   message: 'Installing snapserver...'
-  // };
-
-  // DEBUG: force updating state for milo-client
-  // satelliteUpdateStates.value['milo-client-01'] = {
-  //   updating: true,
-  //   progress: 65,
-  //   message: 'Update in progress...'
-  // };
 
   // Register WebSocket listeners
   Object.entries(wsListeners).forEach(([eventType, handler]) => {

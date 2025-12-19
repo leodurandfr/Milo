@@ -191,7 +191,7 @@ async function handleDisconnect() {
         });
         break;
       case 'mac':
-        console.log('MAC disconnect not implemented');
+        // MAC disconnect not supported
         return;
       default:
         console.warn(`Disconnect not supported for ${currentSource}`);
@@ -200,9 +200,7 @@ async function handleDisconnect() {
 
     if (response && response.ok) {
       const result = await response.json();
-      if (result.status === 'success' || result.success) {
-        console.log(`${currentSource} disconnected successfully`);
-      } else {
+      if (result.status !== 'success' && !result.success) {
         console.error(`Disconnect error: ${result.message || result.error}`);
       }
     }

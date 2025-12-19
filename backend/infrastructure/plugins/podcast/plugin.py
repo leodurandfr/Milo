@@ -142,10 +142,9 @@ class PodcastPlugin(UnifiedAudioPlugin):
 
     async def restart(self) -> bool:
         """
-        Restart Podcast plugin with state cleanup.
+        Restart Podcast plugin with clean state.
 
-        Clears current episode and playback state before restarting,
-        so UI shows "Podcasts Prêt" instead of old episode info.
+        Stops any playing episode and saves progress before restarting.
         """
         try:
             self.logger.info("Restarting Podcast plugin")
