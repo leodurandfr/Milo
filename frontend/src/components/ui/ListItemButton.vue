@@ -158,6 +158,7 @@ function handleClick(event) {
 .list-item-button__icon--standard {
   background: var(--color-background-neutral);
   border-radius: 10px;
+  color: var(--color-text-secondary);
 }
 
 .list-item-button__icon--standard :deep(img),
