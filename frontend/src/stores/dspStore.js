@@ -1400,6 +1400,24 @@ export const useDspStore = defineStore('dsp', () => {
     // functions which update the cache before making API calls.
   }
 
+  /**
+   * Handle client name changed event from WebSocket
+   * Updates availableTargets to keep client names in sync
+   * @param {Object} event - { data: { client_id, name, dsp_id } }
+   */
+  function handleClientNameChanged(event) {
+    const { name, dsp_id } = event.data;
+
+    // Find target by dsp_id (matches availableTargets.id)
+    // For local Milo: dsp_id = 'local'
+    // For remote clients: dsp_id = hostname or IP address
+    const target = availableTargets.value.find(t => t.id === dsp_id);
+
+    if (target) {
+      target.name = name;
+    }
+  }
+
   // === CLEANUP ===
   function cleanup() {
     // Cancel pending requests
@@ -1593,6 +1611,7 @@ export const useDspStore = defineStore('dsp', () => {
     handleMuteChanged,
     handleLinksChanged,
     handleEnabledChanged,
-    handleClientVolumesPushed
+    handleClientVolumesPushed,
+    handleClientNameChanged
   };
 });

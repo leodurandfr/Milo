@@ -268,7 +268,9 @@ onMounted(async () => {
     on('dsp', 'delay_changed', (e) => dspStore.handleDelayChanged(e)),
     on('dsp', 'mute_changed', (e) => dspStore.handleMuteChanged(e)),
     on('dsp', 'links_changed', (e) => dspStore.handleLinksChanged(e)),
-    on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e))
+    on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e)),
+    // Keep client names in sync for ItemSelector and ZoneEdit
+    on('snapcast', 'client_name_changed', (e) => dspStore.handleClientNameChanged(e))
   );
 });
 
