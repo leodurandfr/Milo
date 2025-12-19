@@ -329,7 +329,6 @@ function handleSystemStateChanged(event) {
 }
 
 function handleMultiroomEnabling() {
-  console.log('[MultiroomControl] Received multiroom_enabling event');
   transitionState.value = 'enabling';
   errorMessage.value = '';
   multiroomStore.isLoading = true;
@@ -338,7 +337,6 @@ function handleMultiroomEnabling() {
 }
 
 function handleMultiroomDisabling() {
-  console.log('[MultiroomControl] Received multiroom_disabling event');
   transitionState.value = 'disabling';
   errorMessage.value = '';
   multiroomStore.isLoading = false;
@@ -346,7 +344,6 @@ function handleMultiroomDisabling() {
 }
 
 async function handleMultiroomReady() {
-  console.log('[MultiroomControl] Received multiroom_ready event');
   clearTransitionTimeout();
 
   // Load clients now that services are ready
@@ -429,7 +426,6 @@ onUnmounted(() => {
 watch(isMultiroomActive, (newValue, oldValue) => {
   if (!newValue && oldValue) {
     // Multiroom was deactivated
-    console.log('[MultiroomControl] Multiroom deactivated');
     clearTransitionTimeout();
     transitionState.value = 'idle';
     // Clear clients after deactivation

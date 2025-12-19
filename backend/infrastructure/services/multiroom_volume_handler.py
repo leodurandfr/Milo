@@ -15,6 +15,8 @@ import logging
 import time
 from typing import TYPE_CHECKING, Dict, List, Any, Optional, Callable
 
+from backend.config.constants import CLIENT_API_PORT, SNAPCAST_CACHE_MS as _SNAPCAST_CACHE_MS
+
 if TYPE_CHECKING:
     from backend.infrastructure.services.volume_converter_service import VolumeConverterService
 
@@ -29,8 +31,9 @@ class MultiroomVolumeHandler:
     - Actual volume = global + offset (clamped to limits)
     """
 
-    SNAPCAST_CACHE_MS = 50
-    CLIENT_DSP_PORT = 8001
+    # Use constants from config (class attributes for compatibility)
+    CLIENT_DSP_PORT = CLIENT_API_PORT
+    SNAPCAST_CACHE_MS = _SNAPCAST_CACHE_MS
 
     def __init__(
         self,
@@ -245,11 +248,6 @@ class MultiroomVolumeHandler:
                     self._client_offset_db.pop(hostname, None)
                     self._client_mute.pop(hostname, None)
 
-                # Build hostname -> client mapping for mute state
-                hostname_to_client = {
-                    self._get_hostname_from_client(c): c for c in clients
-                }
-
                 # Fetch all DSP volumes in parallel
                 import aiohttp
                 volumes = {}
@@ -268,14 +266,14 @@ class MultiroomVolumeHandler:
                 reference_volume = volumes.get('local', next(iter(volumes.values())))
                 self._global_volume_db = reference_volume
 
-                # Calculate and store offsets and mute state for all clients
+                # Calculate and store offsets for all clients
+                # Mute state is managed via DSP only (set_client_mute called from API routes)
                 for hostname, volume in volumes.items():
                     self._client_volume_db[hostname] = volume
                     self._client_offset_db[hostname] = volume - reference_volume
-                    # Sync mute state from Snapcast
-                    client = hostname_to_client.get(hostname)
-                    if client:
-                        self._client_mute[hostname] = client.get("muted", False)
+                    # Initialize mute to False if not already set (DSP controls actual mute)
+                    if hostname not in self._client_mute:
+                        self._client_mute[hostname] = False
 
                 self.logger.info(
                     f"Synced {len(volumes)} clients from DSP (global={reference_volume:.1f} dB, "
@@ -324,11 +322,6 @@ class MultiroomVolumeHandler:
                     self._client_offset_db.pop(hostname, None)
                     self._client_mute.pop(hostname, None)
 
-                # Build hostname -> client mapping for mute state
-                hostname_to_client = {
-                    self._get_hostname_from_client(c): c for c in clients
-                }
-
                 self.logger.info(f"Pushing volume {clamped:.1f} dB to {len(hostnames)} clients")
 
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
@@ -338,10 +331,9 @@ class MultiroomVolumeHandler:
                         # Initialize all offsets to 0
                         self._client_volume_db[hostname] = clamped
                         self._client_offset_db[hostname] = 0.0
-                        # Sync mute state from Snapcast
-                        client = hostname_to_client.get(hostname)
-                        if client:
-                            self._client_mute[hostname] = client.get("muted", False)
+                        # Initialize mute to False if not already set (DSP controls actual mute)
+                        if hostname not in self._client_mute:
+                            self._client_mute[hostname] = False
 
                     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -535,19 +527,21 @@ class MultiroomVolumeHandler:
 
     def _get_hostname_from_client(self, client: Dict) -> str:
         """Extract hostname from Snapcast client."""
+        # Use dsp_id for consistency with linked_groups and UI
+        dsp_id = client.get("dsp_id")
+        if dsp_id:
+            return dsp_id
+
         host = client.get("host", "")
         ip = client.get("ip", "")
 
         if host == 'milo' or ip == '127.0.0.1':
             return 'local'
 
-        # Prefer IP for reliable connectivity
-        if ip and ip != '127.0.0.1':
-            return ip
-        elif host:
-            return host.split('.')[0] if '.' in host else host
-
-        return client.get("id", "unknown")
+        # Fallback to hostname or IP
+        if host and host.startswith("milo-client"):
+            return host
+        return ip if ip else host
 
     def _extract_hostnames(self, clients: List[Dict]) -> List[str]:
         """Extract hostnames from all clients."""
@@ -563,8 +557,10 @@ class MultiroomVolumeHandler:
                 return None
 
             import aiohttp
+            # Use .local suffix for mDNS resolution if hostname is not an IP
+            target = hostname if '.' in hostname else f"{hostname}.local"
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
-                url = f"http://{hostname}:{self.CLIENT_DSP_PORT}/dsp/volume"
+                url = f"http://{target}:{self.CLIENT_DSP_PORT}/dsp/volume"
                 async with session.get(url) as resp:
                     if resp.status == 200:
                         data = await resp.json()
@@ -582,7 +578,9 @@ class MultiroomVolumeHandler:
                     return await self._dsp_service.set_volume(volume_db)
                 return False
 
-            url = f"http://{hostname}:{self.CLIENT_DSP_PORT}/dsp/volume"
+            # Use .local suffix for mDNS resolution if hostname is not an IP
+            target = hostname if '.' in hostname else f"{hostname}.local"
+            url = f"http://{target}:{self.CLIENT_DSP_PORT}/dsp/volume"
             async with session.put(url, json={"volume": volume_db}) as resp:
                 return resp.status == 200
         except Exception as e:

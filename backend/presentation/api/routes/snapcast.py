@@ -15,7 +15,7 @@ from backend.presentation.api.models import (
 
 logger = logging.getLogger(__name__)
 
-def create_snapcast_router(routing_service, snapcast_service, state_machine):
+def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp_service=None, proxy_service=None):
     """Creates Snapcast router"""
     router = APIRouter(prefix="/api/routing/snapcast", tags=["snapcast"])
 
@@ -108,24 +108,56 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine):
 
     @router.post("/client/{client_id}/mute")
     async def set_snapcast_mute(client_id: str, payload: SnapcastClientMuteRequest):
-        """Mutes/unmutes a client"""
+        """
+        Mutes/unmutes a client via DSP (not Snapcast).
+
+        DSP-only mute strategy: Snapcast volume is always 100% passthrough,
+        mute is controlled via CamillaDSP on each client.
+        """
         try:
             muted = payload.muted
-            success = await snapcast_service.set_mute(client_id, muted)
+
+            # Get client info to determine hostname for DSP control
+            clients = await snapcast_service.get_clients()
+            client = next((c for c in clients if c.get("id") == client_id), None)
+
+            if not client:
+                return {"status": "error", "message": "Client not found"}
+
+            host = client.get("host", "")
+            ip = client.get("ip", "")
+            dsp_id = client.get("dsp_id", "")
+            volume = client.get("volume", 100)
+
+            # Determine hostname for DSP control
+            hostname = dsp_id if dsp_id else ('local' if (host == 'milo' or ip == '127.0.0.1') else ip)
+
+            # Set mute via DSP (not Snapcast)
+            success = False
+            if hostname == 'local':
+                # Local client - use local DSP service
+                if dsp_service:
+                    success = await dsp_service.set_mute(muted)
+                else:
+                    logger.warning("DSP service not available for local mute")
+            else:
+                # Remote client - proxy to client DSP
+                if proxy_service:
+                    try:
+                        result = await proxy_service.request(hostname, "PUT", "/dsp/mute", {"muted": muted})
+                        success = result.get("status") == "success"
+                    except Exception as e:
+                        logger.warning(f"Failed to set DSP mute on {hostname}: {e}")
+                else:
+                    logger.warning(f"Proxy service not available for remote mute on {hostname}")
 
             if success:
-                clients = await snapcast_service.get_clients()
-                client = next((c for c in clients if c.get("id") == client_id), None)
-                volume = client.get("volume", 100) if client else 100
                 await _broadcast_client_mute_changed(client_id, volume, muted)
 
                 # Update multiroom volume handler mute cache for average calculation
-                if client and hasattr(state_machine, 'volume_service'):
+                if hasattr(state_machine, 'volume_service'):
                     volume_service = state_machine.volume_service
                     if hasattr(volume_service, '_multiroom_handler'):
-                        host = client.get("host", "")
-                        ip = client.get("ip", "")
-                        hostname = 'local' if (host == 'milo' or ip == '127.0.0.1') else (ip or host.split('.')[0] if '.' in host else host)
                         volume_service._multiroom_handler.set_client_mute(hostname, muted)
 
             return {"status": "success" if success else "error"}

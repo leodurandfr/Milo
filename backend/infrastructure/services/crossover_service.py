@@ -12,6 +12,8 @@ from typing import Dict, List, Any, Optional, Literal
 
 import aiohttp
 
+from backend.config.constants import CLIENT_API_PORT as _CLIENT_API_PORT
+
 # Valid speaker types
 SPEAKER_TYPES = ['satellite', 'bookshelf', 'tower', 'subwoofer']
 DEFAULT_SPEAKER_TYPE = 'bookshelf'
@@ -40,7 +42,7 @@ class CrossoverService:
 
     DEFAULT_CROSSOVER_FREQUENCY = 80.0  # Hz (THX/Dolby recommended)
     DEFAULT_Q = 0.707  # Butterworth (flattest passband)
-    CLIENT_API_PORT = 8001  # Milo-client API port
+    CLIENT_API_PORT = _CLIENT_API_PORT  # From config.constants
 
     def __init__(self, settings_service=None, dsp_service=None):
         self.logger = logging.getLogger(__name__)

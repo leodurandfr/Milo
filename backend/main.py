@@ -52,6 +52,8 @@ screen_controller = container.screen_controller()
 systemd_manager = container.systemd_manager()
 hardware_service = container.hardware_service()
 crossover_service = container.crossover_service()
+dsp_proxy_service = container.dsp_client_proxy_service()
+dsp_sync_service = container.dsp_settings_sync_service()
 ws_manager = container.websocket_manager()
 websocket_server = WebSocketServer(ws_manager, state_machine)
 state_machine.volume_service = volume_service
@@ -118,10 +120,16 @@ app.include_router(audio_router)
 routing_router = create_routing_router(routing_service, state_machine)
 app.include_router(routing_router)
 
-snapcast_router = create_snapcast_router(routing_service, snapcast_service, state_machine)
+snapcast_router = create_snapcast_router(
+    routing_service, snapcast_service, state_machine,
+    dsp_service=dsp_service, proxy_service=dsp_proxy_service
+)
 app.include_router(snapcast_router)
 
-dsp_router = create_dsp_router(dsp_service, state_machine, settings_service, routing_service, crossover_service)
+dsp_router = create_dsp_router(
+    dsp_service, state_machine, settings_service, routing_service,
+    crossover_service, dsp_proxy_service, dsp_sync_service
+)
 app.include_router(dsp_router)
 
 volume_router = create_volume_router(volume_service)

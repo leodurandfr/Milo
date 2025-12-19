@@ -1076,7 +1076,11 @@ install_avahi_nginx() {
 
 configure_avahi() {
     log_info "Configuring Avahi (mDNS)..."
-    
+
+    # Copy Avahi config with deny-interfaces to prevent mDNS conflicts (milo -> milo-2)
+    log_info "Installing Avahi config (eth0 only, deny wlan0)..."
+    sudo cp "$MILO_APP_DIR/rootfs/etc/avahi/avahi-daemon.conf" /etc/avahi/avahi-daemon.conf
+
     sudo systemctl enable avahi-daemon
     sudo systemctl start avahi-daemon
     

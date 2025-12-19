@@ -100,7 +100,6 @@ class I18nService {
         const serverLanguage = response.data.language;
         await this.loadTranslations(serverLanguage);
         this.currentLanguage.value = serverLanguage;
-        console.log(`Language initialized from server: ${serverLanguage}`);
       }
     } catch (error) {
       console.error('Error initializing language from server:', error);
@@ -116,7 +115,6 @@ class I18nService {
       const response = await axios.post('/api/settings/language', { language });
       
       if (response.data.status === 'success') {
-        console.log(`Language change requested: ${language}`);
         return true;
       }
       return false;
@@ -131,7 +129,6 @@ class I18nService {
     if (newLanguage !== this.currentLanguage.value) {
       await this.loadTranslations(newLanguage);
       this.currentLanguage.value = newLanguage;
-      console.log(`Language synced from WebSocket: ${newLanguage}`);
     }
   }
 

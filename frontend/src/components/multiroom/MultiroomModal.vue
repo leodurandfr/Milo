@@ -4,7 +4,7 @@
     <ModalHeader :title="$t('multiroom.title')">
       <template #actions="{ iconType }">
         <Toggle
-          v-model="isMultiroomActive"
+          :modelValue="isMultiroomActive"
           :type="iconType"
           :disabled="unifiedStore.systemState.transitioning || isToggling"
           @change="handleMultiroomToggle"

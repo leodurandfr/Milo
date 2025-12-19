@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/var/lib/milo/routing.env
-ExecStart=/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard ${MILO_SNAPCLIENT_SOUNDCARD} --mixer software
+ExecStart=/bin/sh -c '/usr/bin/snapclient -h 127.0.0.1 -p 1704 --logsink=system --soundcard ${MILO_SNAPCLIENT_SOUNDCARD} --mixer software --hostID $(cat /sys/class/net/eth0/address 2>/dev/null || cat /sys/class/net/wlan0/address 2>/dev/null || echo "milo-local")'
 User=milo
 Group=audio
 Restart=on-failure
