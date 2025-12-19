@@ -3,7 +3,6 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useSettingsStore } from './settingsStore';
-import { useDspStore } from './dspStore';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === SINGLE SYSTEM STATE ===
@@ -17,10 +16,15 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     dsp_effects_enabled: false
   });
 
-  // === VOLUME STATE (in dB) ===
+  // === VOLUME STATE (unified structure) ===
   const volumeState = ref({
-    volume_db: -30.0,          // Current volume in dB (-60 to 0)
-    step_mobile_db: 3.0        // Volume step for mobile buttons
+    mode: 'direct',                  // 'direct' or 'multiroom'
+    global_volume_db: -30.0,         // Global volume reference
+    global_mute: false,              // Global mute state
+    display_volume_db: -30.0,        // Volume displayed in UI (average in multiroom)
+    clients: {},                     // {hostname: {volume_db, offset_db, mute, available}}
+    zones: {},                       // {zoneId: {id, name, client_ids, average_volume_db, all_muted}}
+    step_mobile_db: 3.0              // Volume step for mobile buttons
   });
 
   // Volume bar visibility state (replaces component coupling)
@@ -96,7 +100,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       });
 
       if (response.data.status === 'success') {
-        volumeState.value.volume_db = response.data.volume_db;
+        // Volume state will be updated via WebSocket broadcast
         return true;
       }
       return false;
@@ -110,12 +114,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   async function adjustVolume(delta_db, showBar = true) {
     try {
       const response = await axios.post('/api/volume/adjust', { delta_db, show_bar: showBar });
-      if (response.data.status === 'success') {
-        // Apply delta locally for immediate UI update (before WebSocket broadcast arrives)
-        const { useDspStore } = await import('./dspStore');
-        const dspStore = useDspStore();
-        dspStore.applyGlobalDelta(delta_db);
-      }
+      // Volume state will be updated via WebSocket broadcast
       return response.data.status === 'success';
     } catch (error) {
       console.error('Error adjusting volume:', error);
@@ -228,34 +227,30 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   }
 
   function handleVolumeEvent(event) {
-    if (event.data && typeof event.data.volume_db === 'number') {
-      volumeState.value.volume_db = event.data.volume_db;
+    const { show_bar, step_mobile_db, state } = event.data || {};
 
-      // Update step if provided
-      if (typeof event.data.step_mobile_db === 'number') {
-        volumeState.value.step_mobile_db = event.data.step_mobile_db;
-      }
+    // Update unified volume state
+    if (state) {
+      volumeState.value.mode = state.mode || 'direct';
+      volumeState.value.global_volume_db = state.global_volume_db ?? -30.0;
+      volumeState.value.global_mute = state.global_mute ?? false;
+      volumeState.value.display_volume_db = state.display_volume_db ?? -30.0;
+      volumeState.value.clients = state.clients || {};
+      volumeState.value.zones = state.zones || {};
+    }
 
-      // Sync client volumes to dspStore (always includes 'local', plus remote clients in multiroom)
-      if (event.data.client_volumes) {
-        try {
-          const dspStore = useDspStore();
-          for (const [hostname, volumeDb] of Object.entries(event.data.client_volumes)) {
-            dspStore.setClientDspVolume(hostname, volumeDb);
-          }
-        } catch (e) {
-          // DSP store may not be initialized yet
-        }
-      }
+    // Update step if provided
+    if (typeof step_mobile_db === 'number') {
+      volumeState.value.step_mobile_db = step_mobile_db;
+    }
 
-      // Show volume bar and auto-hide after 3 seconds (only if show_bar is true or not specified)
-      if (event.data.show_bar !== false) {
-        if (volumeBarHideTimer) clearTimeout(volumeBarHideTimer);
-        showVolumeBar.value = true;
-        volumeBarHideTimer = setTimeout(() => {
-          showVolumeBar.value = false;
-        }, 3000);
-      }
+    // Show volume bar and auto-hide after 3 seconds
+    if (show_bar !== false && state) {
+      if (volumeBarHideTimer) clearTimeout(volumeBarHideTimer);
+      showVolumeBar.value = true;
+      volumeBarHideTimer = setTimeout(() => {
+        showVolumeBar.value = false;
+      }, 3000);
     }
   }
 

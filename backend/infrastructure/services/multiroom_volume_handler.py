@@ -73,6 +73,26 @@ class MultiroomVolumeHandler:
         """Set global volume in dB (used during initialization)."""
         self._global_volume_db = volume_db
 
+    @property
+    def global_volume(self) -> float:
+        """Current global volume in dB."""
+        return self._global_volume_db
+
+    @property
+    def client_volumes(self) -> Dict[str, float]:
+        """All client volumes {hostname: volume_db}."""
+        return dict(self._client_volume_db)
+
+    @property
+    def client_offsets(self) -> Dict[str, float]:
+        """All client offsets {hostname: offset_db}."""
+        return dict(self._client_offset_db)
+
+    @property
+    def client_mutes(self) -> Dict[str, bool]:
+        """All client mute states {hostname: muted}."""
+        return dict(self._client_mute)
+
     async def apply_delta_db(self, delta_db: float) -> bool:
         """
         Apply delta to global volume and propagate to all clients.

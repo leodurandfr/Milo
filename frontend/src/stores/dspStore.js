@@ -7,6 +7,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useSettingsStore } from './settingsStore';
+import { useUnifiedAudioStore } from './unifiedAudioStore';
 
 // Default 10-band parametric EQ frequencies
 const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
@@ -69,19 +70,6 @@ export const useDspStore = defineStore('dsp', () => {
     left: 0,
     right: 0
   });
-
-  // Unified client DSP state cache: { hostname: { volume, mute } }
-  // Single source of truth for volume and mute state per client
-  // Keys are normalized hostnames ('local' for main Milo, 'milo-client-01' for remotes)
-  const clientDspState = ref({});
-
-  // Computed properties for current target (used by DSP Modal)
-  const currentTargetVolume = computed(() =>
-    clientDspState.value[selectedTarget.value]?.volume ?? -30
-  );
-  const currentTargetMute = computed(() =>
-    clientDspState.value[selectedTarget.value]?.mute ?? false
-  );
 
   // Multi-client DSP support
   // 'local' = main Milo, or client hostname like 'milo-client-01'
@@ -358,39 +346,6 @@ export const useDspStore = defineStore('dsp', () => {
   // === CLIENT DSP VOLUMES ===
 
   /**
-   * Get DSP volume for a specific client
-   * @param {string} hostname - Client hostname (can be 'milo' or 'local')
-   * @returns {Promise<number|null>} Volume in dB or null on error
-   */
-  async function fetchClientDspVolume(hostname) {
-    try {
-      const normalized = normalizeHostname(hostname);
-      // All clients (including local) use the unified DSP client endpoint
-      const response = await axios.get(`/api/dsp/client/${normalized}/volume`);
-      return response.data.main ?? response.data.volume ?? null;
-    } catch (error) {
-      console.error(`Error fetching DSP volume for ${hostname}:`, error);
-      return null;
-    }
-  }
-
-  /**
-   * Load DSP volumes for all clients and cache them
-   * @param {Array} clients - Array of client objects with host property
-   */
-  async function loadAllClientDspVolumes(clients) {
-    const promises = clients.map(async (client) => {
-      // Use dsp_id as the canonical key (matches zone.client_ids)
-      const hostname = client.dsp_id || (client.host === 'milo' ? 'local' : (client.ip || client.host || ''));
-      const volume = await fetchClientDspVolume(hostname);
-      if (volume !== null) {
-        setClientDspVolume(hostname, volume);
-      }
-    });
-    await Promise.all(promises);
-  }
-
-  /**
    * Update DSP volume for a client via API
    * Uses unified endpoint for all clients (local and remote).
    * Each client's volume is independent - changing one doesn't affect others.
@@ -423,74 +378,25 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   /**
-   * Set DSP volume in local cache (after successful API update)
-   * @param {string} hostname - Client hostname (can be 'milo' or 'local')
-   * @param {number} volumeDb - Volume in dB (-60 to 0)
-   */
-  function setClientDspVolume(hostname, volumeDb) {
-    const normalized = normalizeHostname(hostname);
-    if (!clientDspState.value[normalized]) {
-      clientDspState.value[normalized] = { volume: volumeDb, mute: false };
-    } else {
-      clientDspState.value[normalized].volume = volumeDb;
-    }
-  }
-
-  /**
-   * Set DSP mute in local cache
+   * Get DSP volume for a client from unified volume state
    * @param {string} hostname - Client hostname
-   * @param {boolean} muted - Mute state
-   */
-  function setClientDspMute(hostname, muted) {
-    const normalized = normalizeHostname(hostname);
-    if (!clientDspState.value[normalized]) {
-      clientDspState.value[normalized] = { volume: -30, mute: muted };
-    } else {
-      clientDspState.value[normalized].mute = muted;
-    }
-  }
-
-  /**
-   * Get cached DSP volume for a client
-   * @param {string} hostname - Client hostname
-   * @returns {number} Volume in dB, defaults to -30 if not cached
+   * @returns {number} Volume in dB, defaults to -30 if not found
    */
   function getClientDspVolume(hostname) {
     const normalized = normalizeHostname(hostname);
-    return clientDspState.value[normalized]?.volume ?? -30;
+    const audioStore = useUnifiedAudioStore();
+    return audioStore.volumeState.clients[normalized]?.volume_db ?? -30;
   }
 
   /**
-   * Get cached DSP mute for a client
+   * Get DSP mute for a client from unified volume state
    * @param {string} hostname - Client hostname
-   * @returns {boolean} Mute state, defaults to false if not cached
+   * @returns {boolean} Mute state, defaults to false if not found
    */
   function getClientDspMute(hostname) {
     const normalized = normalizeHostname(hostname);
-    return clientDspState.value[normalized]?.mute ?? false;
-  }
-
-  /**
-   * Clear all cached client DSP state
-   */
-  function clearClientDspVolumes() {
-    clientDspState.value = {};
-  }
-
-  /**
-   * Apply global volume delta to all cached client volumes
-   * Called when volume is changed via Dock buttons or rotary encoder
-   * @param {number} deltaDb - Volume delta in dB
-   */
-  function applyGlobalDelta(deltaDb) {
-    const settingsStore = useSettingsStore();
-    const limits = settingsStore.volumeLimits;
-
-    for (const hostname of Object.keys(clientDspState.value)) {
-      const current = clientDspState.value[hostname]?.volume ?? -30;
-      const newVolume = Math.max(limits.min_db, Math.min(limits.max_db, current + deltaDb));
-      clientDspState.value[hostname].volume = newVolume;
-    }
+    const audioStore = useUnifiedAudioStore();
+    return audioStore.volumeState.clients[normalized]?.mute ?? false;
   }
 
   /**
@@ -514,7 +420,7 @@ export const useDspStore = defineStore('dsp', () => {
         }
       }
 
-      setClientDspMute(clientId, muted);
+      // Call API - unified state will be updated via WebSocket broadcast
       const apiBase = getApiBaseForTarget(clientId);
       await axios.put(`${apiBase}/mute`, { muted });
       return true;
@@ -537,14 +443,7 @@ export const useDspStore = defineStore('dsp', () => {
       const linkedIds = getLinkedClientIds(clientId);
       const isZone = linkedIds.length > 1;
 
-      // Update cache for all affected clients
-      if (isZone) {
-        linkedIds.forEach(id => setClientDspMute(id, muted));
-      } else {
-        setClientDspMute(clientId, muted);
-      }
-
-      // Call API for the specified client
+      // Call API for the specified client - unified state will be updated via WebSocket
       const apiBase = getApiBaseForTarget(clientId);
       await axios.put(`${apiBase}/mute`, { muted });
 
@@ -732,13 +631,8 @@ export const useDspStore = defineStore('dsp', () => {
       if (statusData?.delay) {
         delay.value = { ...delay.value, ...statusData.delay };
       }
-      if (statusData?.volume) {
-        // Update the unified cache for the selected target
-        setClientDspVolume(selectedTarget.value, statusData.volume.main ?? statusData.volume);
-        if (statusData.volume.mute !== undefined) {
-          setClientDspMute(selectedTarget.value, statusData.volume.mute);
-        }
-      }
+      // Volume data comes from unifiedAudioStore.volumeState via WebSocket
+      // No need to update local cache here
 
       filtersLoaded.value = true;
     } catch (error) {
@@ -975,18 +869,13 @@ export const useDspStore = defineStore('dsp', () => {
     try {
       const response = await axios.put(`${getApiBase()}/mute`, { muted });
       if (response.data.status === 'success') {
-        // Update unified cache for selected target
-        setClientDspMute(selectedTarget.value, muted);
-
         // Propagate mute to all linked clients in the zone
         const linkedIds = getLinkedClientIds(selectedTarget.value);
         if (linkedIds.length > 1) {
-          // Update cache for all linked clients
-          linkedIds.forEach(id => setClientDspMute(id, muted));
           // Propagate to remote clients
           await propagateToLinkedClients('mute', { muted });
         }
-
+        // Unified state will be updated via WebSocket broadcast
         return true;
       }
       return false;
@@ -1006,9 +895,7 @@ export const useDspStore = defineStore('dsp', () => {
     ]);
     if (targets.length > 0) {
       availableTargets.value = targets;
-      // Load volumes for all targets
-      const clients = targets.map(t => ({ dsp_id: t.id, host: t.host }));
-      await loadAllClientDspVolumes(clients);
+      // Volume data comes from unifiedAudioStore.volumeState via WebSocket
     }
     linkedGroups.value = groups;
     clientTypes.value = types;
@@ -1475,12 +1362,8 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   function handleClientVolumesPushed(event) {
-    const { volume_db, hostnames } = event.data;
-    if (hostnames && volume_db !== undefined) {
-      for (const hostname of hostnames) {
-        setClientDspVolume(hostname, volume_db);
-      }
-    }
+    // Volume updates now come via unified WebSocket broadcast to unifiedAudioStore
+    // This handler is kept for backward compatibility but no longer updates local cache
   }
 
   return {
@@ -1579,18 +1462,10 @@ export const useDspStore = defineStore('dsp', () => {
     updateDelay,
     updateDspMute,
 
-    // Unified client DSP state (for multiroom and DSP modal)
-    clientDspState,
-    currentTargetVolume,
-    currentTargetMute,
-    loadAllClientDspVolumes,
+    // Client DSP volume/mute (reads from unified store)
     updateClientDspVolume,
-    setClientDspVolume,
-    setClientDspMute,
     getClientDspVolume,
     getClientDspMute,
-    clearClientDspVolumes,
-    applyGlobalDelta,
     updateClientDspMute,
     updateClientDspMuteWithPropagation,
 

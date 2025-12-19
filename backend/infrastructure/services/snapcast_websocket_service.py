@@ -433,10 +433,35 @@ class SnapcastWebSocketService:
         })
     
     async def _handle_client_name_changed(self, params: Dict[str, Any]) -> None:
-        """Client name changed - Streamlined version"""
+        """Client name changed - Include dsp_id for frontend sync"""
+        client_id = params.get("id")
+        name = params.get("name")
+
+        # Get client host info to compute dsp_id
+        # dsp_id = 'local' for main Milo, hostname or IP for remote clients
+        dsp_id = client_id  # fallback
+
+        try:
+            status = await self._request("Server.GetStatus")
+            for group in status.get("server", {}).get("groups", []):
+                for client in group.get("clients", []):
+                    if client.get("id") == client_id:
+                        host = client.get("host", {}).get("name", "")
+                        ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
+                        if host == "milo":
+                            dsp_id = "local"
+                        elif host.startswith("milo-client"):
+                            dsp_id = host
+                        else:
+                            dsp_id = ip or host
+                        break
+        except Exception as e:
+            self.logger.warning(f"Could not get client info for dsp_id: {e}")
+
         await self._broadcast_snapcast_event("client_name_changed", {
-            "client_id": params.get("id"),
-            "name": params.get("name")
+            "client_id": client_id,
+            "name": name,
+            "dsp_id": dsp_id
         })
     
     # === NEW: DELEGATION TO VOLUME SERVICE + BROADCAST MUTE ===

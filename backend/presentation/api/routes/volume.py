@@ -18,6 +18,15 @@ def create_volume_router(volume_service):
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
+    @router.get("/state")
+    async def get_volume_state():
+        """Get unified volume state (single source of truth)."""
+        try:
+            state = await volume_service.get_volume_state()
+            return {"status": "success", "data": state.to_dict()}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     @router.get("/")
     async def get_current_volume():
         """Gets current volume in dB"""

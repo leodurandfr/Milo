@@ -312,10 +312,7 @@ function handleConfigureZone() {
 }
 
 function handleVolumeInput(clientId, value) {
-  // Update local cache immediately for responsive UI
-  dspStore.setClientDspVolume(clientId, value);
-
-  // Throttle API calls
+  // Throttle API calls - volume state will be updated via WebSocket broadcast
   let throttleState = volumeThrottleMap.get(clientId) || {};
 
   if (throttleState.throttleTimeout) clearTimeout(throttleState.throttleTimeout);

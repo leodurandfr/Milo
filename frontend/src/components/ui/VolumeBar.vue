@@ -16,8 +16,8 @@ import { useSettingsStore } from '@/stores/settingsStore';
 const unifiedStore = useUnifiedAudioStore();
 const settingsStore = useSettingsStore();
 
-// Volume in dB
-const volumeDb = computed(() => unifiedStore.volumeState.volume_db);
+// Volume in dB (display volume: average in multiroom mode)
+const volumeDb = computed(() => unifiedStore.volumeState.display_volume_db);
 
 // Volume limits from settings
 const limitMin = computed(() => settingsStore.volumeLimits.min_db);
