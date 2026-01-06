@@ -16,6 +16,26 @@ const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 1600
 const THROTTLE_DELAY = 50;
 const FINAL_DELAY = 200;
 
+// Cache key for linked groups (localStorage)
+const LINKED_GROUPS_CACHE_KEY = 'dsp_linked_groups_cache';
+
+// Helper function to load linked groups from cache synchronously
+function loadLinkedGroupsFromCache() {
+  try {
+    const cached = localStorage.getItem(LINKED_GROUPS_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      // Only use if recent (< 5 minutes old)
+      if (Date.now() - parsed.timestamp < 5 * 60 * 1000) {
+        return parsed.groups || [];
+      }
+    }
+  } catch (error) {
+    console.error('Error loading linked groups from cache:', error);
+  }
+  return [];
+}
+
 // Filter type options
 export const FILTER_TYPES = [
   { value: 'Peaking', label: 'Peaking' },
@@ -80,7 +100,8 @@ export const useDspStore = defineStore('dsp', () => {
 
   // Linked clients - clients that share DSP settings
   // Structure: [{ id: 'group_1', client_ids: ['local', 'milo-client-01'] }]
-  const linkedGroups = ref([]);
+  // Initialize from cache to prevent flash on modal open
+  const linkedGroups = ref(loadLinkedGroupsFromCache());
 
   // Client types (speaker type + crossover) - { clientId: { speaker_type: 'satellite'|'bookshelf'|'tower'|'subwoofer', crossover_frequency: number|null } }
   const clientTypes = ref({});
@@ -933,6 +954,16 @@ export const useDspStore = defineStore('dsp', () => {
     }
     linkedGroups.value = groups;
     clientTypes.value = types;
+
+    // Cache linked groups for instant load on next modal open
+    try {
+      localStorage.setItem(LINKED_GROUPS_CACHE_KEY, JSON.stringify({
+        groups: groups,
+        timestamp: Date.now()
+      }));
+    } catch (error) {
+      console.error('Error caching linked groups:', error);
+    }
   }
 
   async function selectTarget(targetId) {
