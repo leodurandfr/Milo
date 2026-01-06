@@ -158,18 +158,42 @@ function getSpeakerIcon(dspId) {
 // Toggle client selection
 async function toggleClient(clientId) {
   const index = selectedClients.value.indexOf(clientId);
-  if (index === -1) {
-    selectedClients.value.push(clientId);
-  } else {
-    selectedClients.value.splice(index, 1);
-  }
 
-  // Auto-save when editing existing zone (and still has 2+ clients)
-  if (props.groupId && selectedClients.value.length >= 2) {
-    try {
-      await dspStore.linkClients(selectedClients.value, null, zoneName.value || null);
-    } catch (error) {
-      console.error('Error updating zone clients:', error);
+  if (index === -1) {
+    // Adding client to zone
+    selectedClients.value.push(clientId);
+
+    if (props.groupId) {
+      try {
+        await dspStore.linkClients(selectedClients.value, null, zoneName.value || null);
+      } catch (error) {
+        console.error('Error adding client to zone:', error);
+        // Revert on error
+        selectedClients.value.splice(selectedClients.value.indexOf(clientId), 1);
+      }
+    }
+  } else {
+    // Removing client from zone
+    if (props.groupId) {
+      try {
+        // Use unlinkClient to remove individual client
+        await dspStore.unlinkClient(clientId);
+
+        // Update local state after successful backend call
+        selectedClients.value.splice(index, 1);
+
+        // Check if zone still exists (backend deletes if < 2 clients)
+        const zoneStillExists = dspStore.linkedGroups.find(g => g.id === props.groupId);
+        if (!zoneStillExists) {
+          emit('back'); // Navigate back since zone was deleted
+        }
+      } catch (error) {
+        console.error('Error removing client from zone:', error);
+        // State unchanged on error - stays in sync
+      }
+    } else {
+      // Just creating new zone, not yet saved - update local state only
+      selectedClients.value.splice(index, 1);
     }
   }
 }
