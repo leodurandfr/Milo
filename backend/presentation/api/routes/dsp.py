@@ -364,25 +364,24 @@ def create_dsp_router(
 
     @router.put("/mute")
     async def set_mute(payload: DspMuteRequest):
-        """Set DSP mute state"""
-        try:
-            success = await dsp_service.set_mute(payload.muted)
+        """
+        Mute/unmute local CamillaDSP.
 
-            if success:
-                await state_machine.broadcast_event("dsp", "mute_changed", {"muted": payload.muted})
+        In multiroom mode, this only mutes the local client without affecting others.
+        """
+        # Update local DSP hardware
+        result = await dsp_service.set_mute(payload.muted)
 
-                # Update multiroom volume handler mute cache for 'local'
-                if hasattr(state_machine, 'volume_service'):
-                    volume_service = state_machine.volume_service
-                    if hasattr(volume_service, '_multiroom_handler'):
-                        volume_service._multiroom_handler.set_client_mute('local', payload.muted)
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to set mute")
 
-                return {"status": "success", "muted": payload.muted}
+        # Update volume state store
+        if state_machine:
+            volume_service = getattr(state_machine, 'volume_service', None)
+            if volume_service:
+                await volume_service.set_client_mute('local', payload.muted, broadcast=True)
 
-            return {"status": "error", "message": "Failed to set mute"}
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "success", "mute": payload.muted}
 
     # === Compressor ===
 
@@ -1114,8 +1113,8 @@ def create_dsp_router(
         normalized = 'local' if hostname in ('local', 'milo') else hostname
 
         if normalized == 'local':
-            # Handle local CamillaDSP volume via multiroom handler
-            # This sets only this client's volume (updates offset, doesn't affect others)
+            # Handle local CamillaDSP volume
+            # This sets only this client's volume (updates offset in zones, doesn't affect other clients)
             if not state_machine:
                 raise HTTPException(status_code=500, detail="State machine not available")
 
@@ -1123,17 +1122,10 @@ def create_dsp_router(
             if not volume_service:
                 raise HTTPException(status_code=500, detail="Volume service not available")
 
-            multiroom_handler = volume_service._multiroom_handler
-            success = await multiroom_handler.set_client_volume_db('local', volume_db)
+            # Use new VolumeService architecture (VolumeStateStore + DSPController)
+            await volume_service.update_client_volume_db('local', volume_db, broadcast=True)
 
-            if success:
-                # Sync volume_service._current_volume_db for correct broadcast in direct mode
-                volume_service._current_volume_db = volume_db
-                # Broadcast volume change (will include only this client's change)
-                await volume_service._schedule_broadcast(show_bar=False)
-                return {"status": "success", "main": volume_db}
-            else:
-                raise HTTPException(status_code=500, detail="Failed to set local volume")
+            return {"status": "success", "main": volume_db}
 
         # Remote client: proxy to client's DSP API
         if not proxy_service:
@@ -1162,28 +1154,49 @@ def create_dsp_router(
 
     @router.put("/client/{hostname}/mute")
     async def update_client_mute(hostname: str, request: Request):
-        """Proxy mute update to client and persist settings"""
+        """
+        Set mute for a specific client (local or remote).
+
+        For 'local'/'milo': Uses VolumeService to update mute state.
+        For remote clients: Proxies to the client's DSP API.
+        """
+        body = await request.json()
+        muted = body.get("muted")
+
+        # Normalize hostname: 'milo' -> 'local'
+        normalized = 'local' if hostname in ('local', 'milo') else hostname
+
+        if normalized == 'local':
+            # Handle local mute via VolumeService
+            if not state_machine:
+                raise HTTPException(status_code=500, detail="State machine not available")
+
+            volume_service = getattr(state_machine, 'volume_service', None)
+            if not volume_service:
+                raise HTTPException(status_code=500, detail="Volume service not available")
+
+            # Update local DSP hardware
+            result = await dsp_service.set_mute(muted)
+            if not result:
+                raise HTTPException(status_code=500, detail="Failed to set local mute")
+
+            # Update state store and broadcast
+            await volume_service.set_client_mute('local', muted, broadcast=True)
+
+            return {"status": "success", "mute": muted}
+
+        # Remote client: proxy to client's DSP API
         if not proxy_service:
             raise HTTPException(status_code=503, detail="Proxy service not available")
-        body = await request.json()
-        result = await proxy_service.request(hostname, "PUT", "/dsp/mute", body)
-        # Save mute to Milo after successful update
-        if result.get("status") == "success" and sync_service:
-            muted = result.get("muted", False)
-            # Store mute state in volume settings
-            settings = await sync_service.load_settings()
-            if hostname not in settings:
-                settings[hostname] = {}
-            if "volume" not in settings[hostname]:
-                settings[hostname]["volume"] = {}
-            settings[hostname]["volume"]["mute"] = muted
-            await sync_service.save_settings(settings)
 
-            # Update multiroom volume handler mute cache for average calculation
-            if hasattr(state_machine, 'volume_service'):
-                volume_service = state_machine.volume_service
-                if hasattr(volume_service, '_multiroom_handler'):
-                    volume_service._multiroom_handler.set_client_mute(hostname, muted)
+        result = await proxy_service.request(hostname, "PUT", "/dsp/mute", body)
+
+        # Update Milo's state store on success
+        if result.get("status") == "success" and state_machine:
+            volume_service = getattr(state_machine, 'volume_service', None)
+            if volume_service:
+                await volume_service.set_client_mute(normalized, muted, broadcast=True)
+
         return result
 
     # === Client Settings Persistence ===

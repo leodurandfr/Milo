@@ -77,13 +77,20 @@ class Container(containers.DeclarativeContainer):
         port=1780
     )
 
+    # DSP client proxy service for multiroom DSP communication (MUST be before volume_service)
+    dsp_client_proxy_service = providers.Singleton(
+        DspClientProxyService,
+        routing_service=audio_routing_service
+    )
+
     # Volume service with SettingsService and CamillaDSP injection
     volume_service = providers.Singleton(
         VolumeService,
         state_machine=audio_state_machine,
         snapcast_service=snapcast_service,
         settings_service=settings_service,
-        camilladsp_service=camilladsp_service
+        camilladsp_service=camilladsp_service,
+        dsp_client_proxy_service=dsp_client_proxy_service
     )
 
     # Hardware controllers with SettingsService
@@ -116,12 +123,6 @@ class Container(containers.DeclarativeContainer):
         CrossoverService,
         settings_service=settings_service,
         dsp_service=camilladsp_service
-    )
-
-    # DSP client proxy service for multiroom DSP communication
-    dsp_client_proxy_service = providers.Singleton(
-        DspClientProxyService,
-        routing_service=audio_routing_service
     )
 
     # DSP settings sync service for persisting and syncing client settings

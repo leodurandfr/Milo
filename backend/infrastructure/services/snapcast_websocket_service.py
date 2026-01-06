@@ -31,6 +31,9 @@ class SnapcastWebSocketService:
         # Prevents race conditions when Client.OnConnect and Server.OnUpdate fire simultaneously
         self._processing_client_ids: set = set()
 
+        # Client availability state tracking
+        self._client_availability_state = {}
+
         # Initialization state - suppress verbose logs during startup
         self._is_initializing = False
 
@@ -317,61 +320,91 @@ class SnapcastWebSocketService:
             self.logger.debug(f"Unhandled notification: {method}")
     
     async def _handle_server_update(self, params: Dict[str, Any]) -> None:
-        """Handles Server.OnUpdate and detects new clients AND disconnections"""
+        """Handles Server.OnUpdate - detects new clients, disconnections, and availability changes"""
         try:
-            server = params.get("server", {})
-            groups = server.get("groups", [])
+            # Get clients with availability from snapcast_service
+            snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
+            if not snapcast_service:
+                self.logger.warning("SnapcastService not available for availability detection")
+                return
 
-            # Extract all connected clients
-            current_client_ids = set()
-            new_clients = []
-            
-            for group in groups:
-                for client in group.get("clients", []):
-                    if not client.get("connected"):
+            all_clients = await snapcast_service.get_clients()
+
+            # Track which clients are currently present
+            current_client_ids = {c["id"] for c in all_clients}
+
+            # Detect new clients
+            new_client_ids = current_client_ids - self._known_client_ids
+            for new_id in new_client_ids:
+                client = next((c for c in all_clients if c["id"] == new_id), None)
+                if client:
+                    self.logger.info(f"🟢 NEW CLIENT detected: {new_id}")
+
+                    # Deduplication: skip if already being processed by Client.OnConnect
+                    if new_id in self._processing_client_ids:
+                        self.logger.debug(f"Skipping Server.OnUpdate init for {new_id} - already being processed")
                         continue
-                    
-                    client_id = client.get("id")
-                    current_client_ids.add(client_id)
 
-                    # New client detected?
-                    if client_id not in self._known_client_ids:
-                        self.logger.info(f"🟢 NEW CLIENT DETECTED in Server.OnUpdate: {client_id}")
-                        new_clients.append(client)
+                    # Mark as processing
+                    self._processing_client_ids.add(new_id)
 
-            # NEW: Detect disappeared clients (disconnected)
+                    try:
+                        # Broadcast client connected with availability
+                        await self._broadcast_snapcast_event("client_connected", {
+                            "client_id": client["id"],
+                            "client_name": client["name"],
+                            "client_host": client["host"],
+                            "client_ip": client["ip"],
+                            "dsp_id": client["dsp_id"],
+                            "available": client["available"]
+                        })
+
+                        # Initialize client (set group, volume)
+                        await self._notify_volume_service_client_connected(new_id, {"id": new_id})
+                    finally:
+                        # Remove from processing set
+                        self._processing_client_ids.discard(new_id)
+
+            # Detect disconnected clients
             disconnected_client_ids = self._known_client_ids - current_client_ids
-
             for disconnected_id in disconnected_client_ids:
-                self.logger.info(f"🔴 CLIENT DISCONNECTED detected in Server.OnUpdate: {disconnected_id}")
+                self.logger.info(f"🔴 CLIENT DISCONNECTED: {disconnected_id}")
                 await self._broadcast_snapcast_event("client_disconnected", {
-                    "client_id": disconnected_id,
-                    "client_name": "Unknown"  # No longer have access to the name
+                    "client_id": disconnected_id
                 })
 
-            # Update cache
+            # Detect availability changes for existing clients
+            for client in all_clients:
+                client_id = client["id"]
+                available = client["available"]
+
+                # Check if availability changed
+                previous_available = self._client_availability_state.get(client_id, True)
+
+                if available != previous_available:
+                    self.logger.info(f"🔄 Client {client_id} availability: {previous_available} → {available} (lastSeen: {client.get('last_seen_age', 0)}s ago)")
+                    await self._broadcast_snapcast_event("client_availability_changed", {
+                        "client_id": client_id,
+                        "available": available,
+                        "last_seen_age": client.get("last_seen_age", 0)
+                    })
+
+                    # Update volume service availability state (triggers recalculation internally)
+                    if hasattr(self.state_machine, 'volume_service'):
+                        volume_service = self.state_machine.volume_service
+                        snapcast_service = getattr(self.state_machine.routing_service, 'snapcast_service', None)
+                        if snapcast_service:
+                            hostname = snapcast_service._get_stable_dsp_id(
+                                client.get("host", {}).get("name", ""),
+                                client.get("host", {}).get("ip", "")
+                            )
+                            volume_service.update_client_availability(hostname, available)
+
+                    self._client_availability_state[client_id] = available
+
+            # Update known clients
             self._known_client_ids = current_client_ids
 
-            # Initialize new clients (with deduplication)
-            for client in new_clients:
-                client_id = client.get("id")
-
-                # Deduplication: skip if already being processed by Client.OnConnect
-                if client_id in self._processing_client_ids:
-                    self.logger.debug(f"Skipping Server.OnUpdate init for {client_id} - already being processed")
-                    continue
-
-                # Mark as processing
-                self._processing_client_ids.add(client_id)
-
-                try:
-                    client_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
-                    self.logger.info(f"  - Initializing new client {client_id} (Snapcast volume: {client_volume}%)")
-                    await self._notify_volume_service_client_connected(client_id, client)
-                finally:
-                    # Remove from processing set
-                    self._processing_client_ids.discard(client_id)
-            
         except Exception as e:
             self.logger.error(f"Error handling Server.OnUpdate: {e}", exc_info=True)
         
@@ -402,11 +435,20 @@ class SnapcastWebSocketService:
             client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
             snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
 
+            # Calculate dsp_id using same logic as _extract_clients
+            snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
+            if snapcast_service:
+                dsp_id = snapcast_service._get_stable_dsp_id(client_host, client_ip)
+            else:
+                # Fallback if service not available
+                dsp_id = "local" if client_host == "milo" else (client_host if client_host.startswith("milo-client") else client_ip)
+
             self.logger.info(f"🔵 NEW CLIENT CONNECTED:")
             self.logger.info(f"  - ID: {client_id}")
             self.logger.info(f"  - Name: {client_name}")
             self.logger.info(f"  - Host: {client_host}")
             self.logger.info(f"  - IP: {client_ip}")
+            self.logger.info(f"  - DSP ID: {dsp_id}")
             self.logger.info(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
 
             await self._notify_volume_service_client_connected(client_id, client)
@@ -416,9 +458,17 @@ class SnapcastWebSocketService:
                 "client_name": client_name,
                 "client_host": client_host,
                 "client_ip": client_ip,
+                "dsp_id": dsp_id,
                 "volume": snapcast_volume,
-                "muted": client.get("config", {}).get("volume", {}).get("muted", False)
+                "muted": client.get("config", {}).get("volume", {}).get("muted", False),
+                "available": True
             })
+
+            # Update volume service availability (new connection = available)
+            if hasattr(self.state_machine, 'volume_service'):
+                volume_service = self.state_machine.volume_service
+                self.logger.info(f"🟢 Marking client as available: {dsp_id}")
+                volume_service.update_client_availability(dsp_id, True)
         finally:
             # Remove from processing set
             self._processing_client_ids.discard(client_id)
@@ -426,10 +476,30 @@ class SnapcastWebSocketService:
     async def _handle_client_disconnect(self, params: Dict[str, Any]) -> None:
         """Client disconnected - Streamlined version"""
         client = params.get("client", {})
-        
+        client_id = client.get("id")
+        client_name = client.get("config", {}).get("name")
+
+        # Calculate dsp_id for volume service update
+        client_host = client.get("host", {}).get("name", "Unknown")
+        client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
+
+        snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
+        if snapcast_service:
+            dsp_id = snapcast_service._get_stable_dsp_id(client_host, client_ip)
+        else:
+            dsp_id = "local" if client_host == "milo" else (client_host if client_host.startswith("milo-client") else client_ip)
+
+        self.logger.info(f"🔴 CLIENT DISCONNECTED: {client_host} (dsp_id: {dsp_id})")
+
+        # Update volume service availability (disconnection = unavailable)
+        if hasattr(self.state_machine, 'volume_service'):
+            volume_service = self.state_machine.volume_service
+            volume_service.update_client_availability(dsp_id, False)
+
         await self._broadcast_snapcast_event("client_disconnected", {
-            "client_id": client.get("id"),
-            "client_name": client.get("config", {}).get("name")
+            "client_id": client_id,
+            "client_name": client_name,
+            "dsp_id": dsp_id
         })
     
     async def _handle_client_name_changed(self, params: Dict[str, Any]) -> None:

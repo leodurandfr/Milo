@@ -15,8 +15,12 @@
             :client="client"
             :is-loading="shouldShowLoading"
             :zone-clients="getZoneClients(client)"
+            :is-zone="client.isZone || false"
+            :zone-client-details="client.zoneClientDetails || null"
             @volume-change="handleVolumeChange"
             @mute-toggle="handleMuteToggle"
+            @client-volume-change="handleClientVolumeChange"
+            @client-mute-toggle="handleClientMuteToggle"
           />
         </div>
       </Transition>
@@ -93,9 +97,15 @@ function getZoneAverageVolume(zone) {
   if (zoneData && typeof zoneData.average_volume_db === 'number') {
     return zoneData.average_volume_db;
   }
-  // Fallback: calculate from individual clients
+  // Fallback: calculate from individual clients (only available clients)
   if (!zone?.client_ids?.length) return -30;
-  const volumes = zone.client_ids.map(dspId => dspStore.getClientDspVolume(dspId));
+  // Filter to only connected clients
+  const availableClientIds = zone.client_ids.filter(dspId =>
+    multiroomStore.clients.some(c => c.dsp_id === dspId && c.available)
+  );
+  if (availableClientIds.length === 0) return -30;
+
+  const volumes = availableClientIds.map(dspId => dspStore.getClientDspVolume(dspId));
   return volumes.reduce((sum, v) => sum + v, 0) / volumes.length;
 }
 
@@ -187,7 +197,8 @@ const displayClients = computed(() => {
       name: '',
       volume: 0,
       dspMuted: false,
-      isZone: item.type === 'zone'
+      isZone: item.type === 'zone',
+      zoneClientDetails: null
     }));
   }
 
@@ -205,15 +216,36 @@ const displayClients = computed(() => {
           // This is a zone primary - use custom name or fallback to "Zone X"
           const zoneIndex = linkedGroups.value.indexOf(zone) + 1;
           const zoneName = zone.name || `Zone ${zoneIndex}`;
-          const clientNames = dspStore.sortClientIdsLocalFirst(zone.client_ids)
+          const sortedClientIds = dspStore.sortClientIdsLocalFirst(zone.client_ids);
+          const clientNames = sortedClientIds
             .map(dspId => {
               // Find client by dsp_id
               const c = multiroomStore.clients.find(cl => cl.dsp_id === dspId);
               return c ? c.name : dspId;
             })
             .join(' · ');
+
+          // Build detailed client list for expanded view
+          const zoneClientDetails = sortedClientIds
+            .map(dspId => {
+              const c = multiroomStore.clients.find(cl => cl.dsp_id === dspId);
+
+              // Skip clients not in the client list (offline clients already filtered by backend)
+              if (!c) return null;
+
+              return {
+                id: c.id,
+                dsp_id: dspId,
+                name: c.name,
+                dspVolume: dspStore.getClientDspVolume(dspId),
+                dspMuted: dspStore.getClientDspMute(dspId),
+                speakerType: dspStore.getClientSpeakerType(dspId),
+                available: c.available
+              };
+            })
+            .filter(Boolean); // Remove null entries
+
           // Use arithmetic average of all clients in zone
-          // Returns null if volumes not yet loaded
           const zoneVolume = getZoneAverageVolume(zone);
           return {
             ...client,
@@ -221,11 +253,19 @@ const displayClients = computed(() => {
             zoneClients: clientNames,
             dspVolume: zoneVolume,
             dspMuted: getZoneMuted(zone),
-            volumeLoading: zoneVolume === null,  // Flag to show loading state
-            zoneClientIds: zone.client_ids  // Needed for delta calculation
+            volumeLoading: zoneVolume === null,
+            zoneClientIds: zone.client_ids,
+            isZone: true,
+            zoneClientDetails
           };
         }
-        return { ...client, dspVolume: dspVol, dspMuted: dspMut };
+        return {
+          ...client,
+          dspVolume: dspVol,
+          dspMuted: dspMut,
+          isZone: false,
+          zoneClientDetails: null
+        };
       });
   }
 
@@ -233,7 +273,13 @@ const displayClients = computed(() => {
   return multiroomStore.clients.map(client => {
     const dspVol = dspStore.getClientDspVolume(client.dsp_id);
     const dspMut = dspStore.getClientDspMute(client.dsp_id);
-    return { ...client, dspVolume: dspVol, dspMuted: dspMut };
+    return {
+      ...client,
+      dspVolume: dspVol,
+      dspMuted: dspMut,
+      isZone: false,
+      zoneClientDetails: null
+    };
   });
 });
 
@@ -247,19 +293,19 @@ async function handleVolumeChange(clientId, volumeDb) {
   const zone = getZoneForClient(client);
 
   if (zone && zone.client_ids.length > 1) {
-    // Zone volume change: apply DELTA to preserve relative offsets
+    // Zone volume change: apply DELTA atomically to entire zone
     // Get starting state (captures volumes at start of slider drag)
     const state = getZoneSliderState(zone);
     const delta = volumeDb - state.startAvg;
 
-    // Apply delta to each client from their START volume
-    const updatePromises = zone.client_ids.map(async (dspId) => {
-      const startVol = state.clientStarts[dspId];
-      const newVol = Math.max(settingsStore.volumeLimits.min_db, Math.min(settingsStore.volumeLimits.max_db, startVol + delta));
-      await dspStore.updateClientDspVolume(dspId, newVol);
-      // Volume state will be updated via WebSocket broadcast
-    });
-    await Promise.all(updatePromises);
+    // NEW: Single atomic API call for entire zone
+    // This eliminates race condition - updates all clients in parallel, broadcasts once
+    try {
+      await dspStore.applyZoneDelta(zone.id, delta);
+      // Volume state updated via single WebSocket broadcast from backend
+    } catch (error) {
+      console.error('Failed to apply zone volume delta:', error);
+    }
 
     // Clear state after change completes (slider drag ended)
     clearZoneSliderState(zone);
@@ -278,8 +324,12 @@ async function handleMuteToggle(clientId, muted) {
   const zone = getZoneForClient(client);
 
   if (zone && zone.client_ids.length > 1) {
-    // Zone mute: mute ALL clients in the zone
-    const updatePromises = zone.client_ids.map(async (dspId) => {
+    // Zone mute: mute ALL AVAILABLE clients in the zone
+    const availableClientIds = zone.client_ids.filter(dspId =>
+      multiroomStore.clients.some(c => c.dsp_id === dspId)
+    );
+
+    const updatePromises = availableClientIds.map(async (dspId) => {
       await dspStore.updateClientDspMute(dspId, muted);
     });
     await Promise.all(updatePromises);
@@ -287,6 +337,16 @@ async function handleMuteToggle(clientId, muted) {
     // Single client
     await dspStore.updateClientDspMute(client.dsp_id, muted);
   }
+}
+
+// Handle individual client volume change (within expanded zone)
+async function handleClientVolumeChange(clientDspId, volumeDb) {
+  await dspStore.updateClientDspVolume(clientDspId, volumeDb);
+}
+
+// Handle individual client mute toggle (within expanded zone)
+async function handleClientMuteToggle(clientDspId, muted) {
+  await dspStore.updateClientDspMute(clientDspId, muted);
 }
 
 // === TRANSITION HELPERS ===
@@ -319,6 +379,12 @@ function handleClientConnected(event) {
 function handleClientDisconnected(event) {
   if (transitionState.value !== 'disabling') {
     multiroomStore.handleClientDisconnected(event);
+  }
+}
+
+function handleClientAvailabilityChanged(event) {
+  if (transitionState.value !== 'disabling') {
+    multiroomStore.handleClientAvailabilityChanged(event);
   }
 }
 
@@ -399,6 +465,7 @@ onMounted(async () => {
   unsubscribeFunctions.push(
     on('snapcast', 'client_connected', handleClientConnected),
     on('snapcast', 'client_disconnected', handleClientDisconnected),
+    on('snapcast', 'client_availability_changed', handleClientAvailabilityChanged),
     on('snapcast', 'client_volume_changed', handleClientVolumeChanged),
     on('snapcast', 'client_name_changed', handleClientNameChanged),
     on('snapcast', 'client_mute_changed', handleClientMuteChanged),

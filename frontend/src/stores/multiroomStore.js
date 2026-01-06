@@ -338,14 +338,14 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   // === WEBSOCKET EVENT HANDLERS ===
   function handleClientConnected(event) {
-    const { client_id, client_name, client_host, client_ip, volume, muted } = event.data;
+    const { client_id, client_name, client_host, client_ip, volume, muted, available, dsp_id } = event.data;
 
     if (!client_id) return;
     if (clients.value.find(c => c.id === client_id)) return;
 
-    // Compute dsp_id: 'local' for main Milo, IP address for remote clients
-    // This matches the backend logic in snapcast_service.get_clients()
-    const dsp_id = client_host === 'milo' ? 'local' : (client_ip || client_host || '');
+    // Use dsp_id from backend (already calculated using _get_stable_dsp_id logic)
+    // Fallback to old calculation only if not provided (backward compatibility)
+    const clientDspId = dsp_id || (client_host === 'milo' ? 'local' : (client_ip || client_host || ''));
 
     const newClient = {
       id: client_id,
@@ -354,7 +354,8 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       volume: volume || 0,
       muted: muted || false,
       ip: client_ip || 'Unknown',
-      dsp_id: dsp_id
+      dsp_id: clientDspId,
+      available: available ?? true
     };
 
     clients.value = sortClients([...clients.value, newClient]);
@@ -366,6 +367,20 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     clients.value = clients.value.filter(c => c.id !== clientId);
     saveCache(clients.value);
   }
+
+  function handleClientAvailabilityChanged(event) {
+    const { client_id, available, last_seen_age } = event.data;
+
+    console.log(`🔄 Client ${client_id} availability: ${available} (lastSeen: ${last_seen_age}s ago)`);
+
+    // Find and update client
+    const client = clients.value.find(c => c.id === client_id);
+    if (client) {
+      client.available = available;
+      saveCache(clients.value);
+    }
+  }
+
 
   function handleClientVolumeChanged(event) {
     const { client_id, volume, muted } = event.data;
@@ -452,6 +467,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     // WebSocket Handlers
     handleClientConnected,
     handleClientDisconnected,
+    handleClientAvailabilityChanged,
     handleClientVolumeChanged,
     handleClientNameChanged,
     handleClientMuteChanged,

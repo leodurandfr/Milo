@@ -98,4 +98,78 @@ def create_volume_router(volume_service):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+    # ============================================================================
+    # NEW ATOMIC ZONE OPERATIONS (Refactored architecture)
+    # ============================================================================
+
+    @router.post("/zone/{zone_id}/delta")
+    async def apply_zone_delta(zone_id: str, request: VolumeAdjustRequest):
+        """
+        Apply volume delta to entire zone atomically.
+
+        This endpoint solves the race condition by:
+        1. Calculating updates for ALL clients in the zone
+        2. Applying them in parallel via DSPController
+        3. Broadcasting complete state ONCE after all updates succeed
+
+        Replaces the old pattern of frontend sending multiple parallel requests.
+
+        Args:
+            zone_id: Zone identifier (from dsp.linked_groups settings)
+            request: Delta in dB to apply to zone
+
+        Returns:
+            New zone average and status
+        """
+        try:
+            # Apply delta atomically using new architecture
+            new_average = await volume_service.apply_zone_volume_delta(zone_id, request.delta_db)
+
+            # Get zone info for response
+            volume_state = await volume_service.get_volume_state()
+            zone = volume_state.zones.get(zone_id)
+
+            if not zone:
+                raise HTTPException(status_code=404, detail=f"Zone {zone_id} not found after update")
+
+            clients_updated = len([
+                cid for cid in zone.client_ids
+                if cid in volume_state.clients and volume_state.clients[cid].available
+            ])
+
+            return {
+                "status": "success",
+                "zone_id": zone_id,
+                "new_average_db": new_average,
+                "delta_db": request.delta_db,
+                "clients_updated": clients_updated
+            }
+
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error applying zone delta: {str(e)}")
+
+    @router.get("/zone/{zone_id}")
+    async def get_zone_info(zone_id: str):
+        """
+        Get current zone information.
+
+        Returns zone details including average volume, clients, mute status.
+        """
+        try:
+            volume_state = await volume_service.get_volume_state()
+            zone = volume_state.zones.get(zone_id)
+
+            if not zone:
+                raise HTTPException(status_code=404, detail=f"Zone {zone_id} not found")
+
+            return {"status": "success", "data": zone.to_dict()}
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
     return router
