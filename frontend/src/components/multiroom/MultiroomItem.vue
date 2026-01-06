@@ -3,19 +3,30 @@
   <div class="multiroom-item" :class="{ 'is-zone': isZone, 'is-expanded': isExpanded }">
     <!-- ZONE/CLIENT HEADER ROW (always visible) -->
     <div class="item-header">
-      <!-- Expand button (zones only) -->
-      <button
-        v-if="canExpand"
-        type="button"
-        class="expand-button"
-        :class="{ 'expanded': isExpanded }"
-        @click="toggleExpand"
-      >
-        <SvgIcon name="caretDown" :size="24" />
-      </button>
+      <!-- Icon column: expand button (zones) OR speaker icon (standalone clients) -->
+      <div class="icon-column">
+        <!-- Expand button (zones only) -->
+        <button
+          v-if="canExpand"
+          type="button"
+          class="expand-button"
+          :class="{ 'expanded': isExpanded }"
+          @click="toggleExpand"
+        >
+          <SvgIcon name="caretDown" :size="24" />
+        </button>
+
+        <!-- Speaker icon (standalone clients only) -->
+        <div
+          v-else-if="!isZone"
+          class="client-icon"
+        >
+          <SvgIcon :name="getSpeakerIcon(clientSpeakerType)" :size="24" />
+        </div>
+      </div>
 
       <!-- CLIENT NAME -->
-      <div class="client-name-wrapper" :class="{ 'is-zone': isZone, 'has-expand': canExpand }">
+      <div class="client-name-wrapper" :class="{ 'is-zone': isZone }">
         <!-- Skeleton wrapper -->
         <div
           class="client-name-skeletons"
@@ -30,7 +41,7 @@
 
         <!-- Real content -->
         <div
-          class="client-name heading-2"
+          class="client-name heading-3"
           :class="{
             'visible': !isLoading,
             'muted': client.dspMuted
@@ -85,7 +96,7 @@
         >
           <Toggle
             :model-value="!client.dspMuted"
-            type="background-strong"
+            variant="secondary"
             @change="handleMuteToggle"
           />
         </div>
@@ -107,7 +118,7 @@
 
           <!-- Client name -->
           <span
-            class="client-row-name heading-4"
+            class="client-row-name heading-3"
             :class="{ 'muted': zoneClient.dspMuted, 'offline': !zoneClient.available }"
           >
             {{ zoneClient.name }}
@@ -147,8 +158,10 @@ import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useDspStore } from '@/stores/dspStore';
 
 const settingsStore = useSettingsStore();
+const dspStore = useDspStore();
 
 const props = defineProps({
   client: {
@@ -205,6 +218,12 @@ const canExpand = computed(() => props.isZone && props.zoneClientDetails?.length
 // Slider configuration - always in dB, respecting volume limits
 const sliderMin = computed(() => settingsStore.volumeLimits.min_db);
 const sliderMax = computed(() => settingsStore.volumeLimits.max_db);
+
+// Speaker type for standalone client (not zone)
+const clientSpeakerType = computed(() => {
+  if (props.isZone) return null;
+  return dspStore.getClientSpeakerType(props.client.dsp_id) || 'bookshelf';
+});
 
 // Volume is always in dB (zone average or single client)
 const displayVolume = computed(() => {
@@ -346,11 +365,18 @@ onUnmounted(() => {
 
 /* === ITEM HEADER (zone/client row) === */
 .item-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 40px auto 1fr auto;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-04);
   min-height: 40px;
+}
+
+/* === ICON COLUMN === */
+.icon-column {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
 }
 
 /* === EXPAND BUTTON === */
@@ -378,25 +404,16 @@ onUnmounted(() => {
 
 /* === CLIENT NAME WRAPPER === */
 .client-name-wrapper {
-  min-width: 190px;
-  max-width: 190px;
+  min-width: 100px;
+  max-width: none;
   min-height: 24px;
   position: relative;
   display: flex;
   align-items: center;
 }
 
-.client-name-wrapper.has-expand {
-  min-width: 158px;
-  max-width: 158px;
-}
-
 .client-name-wrapper.is-zone {
   min-height: 42px;
-}
-
-.client-name-wrapper.is-zone.has-expand {
-  min-height: 24px;
 }
 
 /* Skeleton wrapper for name */
@@ -488,7 +505,7 @@ onUnmounted(() => {
 
 /* === VOLUME WRAPPER === */
 .volume-wrapper {
-  flex: 1;
+  min-width: 0;
   height: 40px;
   position: relative;
   display: flex;
@@ -539,7 +556,7 @@ onUnmounted(() => {
 
 /* === TOGGLE WRAPPER === */
 .toggle-wrapper {
-  width: 70px;
+  width: auto;
   height: 40px;
   position: relative;
   display: flex;
@@ -600,7 +617,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 40px auto 1fr auto;
   align-items: center;
-  gap: var(--space-03);
+  gap: var(--space-04);
   padding: var(--space-03) 0;
 }
 
@@ -692,34 +709,31 @@ onUnmounted(() => {
   }
 
   .item-header {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    grid-template-rows: auto auto;
     align-items: center;
     gap: var(--space-03);
   }
 
-  .expand-button {
-    order: 0;
+  .icon-column {
+    grid-column: 1;
+    grid-row: 1;
   }
 
   .client-name-wrapper {
-    flex: 1;
-    order: 1;
-    min-width: 0;
-    max-width: none;
-  }
-
-  .client-name-wrapper.has-expand {
+    grid-column: 2;
+    grid-row: 1;
     min-width: 0;
     max-width: none;
   }
 
   .toggle-wrapper {
-    order: 2;
-    margin-left: auto;
+    grid-column: 3;
+    grid-row: 1;
     width: 56px;
     height: 32px;
-    align-self: flex-start;
+    justify-self: end;
   }
 
   .toggle-skeleton {
@@ -728,16 +742,15 @@ onUnmounted(() => {
   }
 
   .volume-wrapper {
-    order: 3;
-    width: 100%;
-    flex-basis: 100%;
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 
   /* Client row mobile layout */
   .client-row {
     grid-template-columns: 40px 1fr auto;
     grid-template-rows: auto auto;
-    gap: var(--space-02);
+    gap: var(--space-03);
   }
 
   .client-row .client-icon {
