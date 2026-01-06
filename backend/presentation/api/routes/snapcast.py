@@ -154,11 +154,10 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp
             if success:
                 await _broadcast_client_mute_changed(client_id, volume, muted)
 
-                # Update multiroom volume handler mute cache for average calculation
+                # Trigger zone volume recalculation (mute state affects zone averages)
                 if hasattr(state_machine, 'volume_service'):
                     volume_service = state_machine.volume_service
-                    if hasattr(volume_service, '_multiroom_handler'):
-                        volume_service._multiroom_handler.set_client_mute(hostname, muted)
+                    await volume_service._broadcast_volume_state(show_bar=False)
 
             return {"status": "success" if success else "error"}
         except Exception as e:

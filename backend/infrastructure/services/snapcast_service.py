@@ -184,9 +184,12 @@ class SnapcastService:
             return []
     
     def _extract_clients(self, status: dict) -> List[Dict[str, Any]]:
-        """Extract and filter clients from server status with MAC-based deduplication"""
+        """Extract and filter clients from server status with MAC-based deduplication and availability detection"""
+        import time
+
         raw_clients = []
         exclude_names = {'snapweb client', 'snapweb'}
+        now = time.time()
 
         for group in status.get("server", {}).get("groups", []):
             for client_data in group.get("clients", []):
@@ -205,6 +208,25 @@ class SnapcastService:
                 # "local" for main Milo, hostname for remote clients (more stable than IP)
                 dsp_id = "local" if host == "milo" else self._get_stable_dsp_id(host, ip)
 
+                # Calculate availability based on lastSeen timestamp
+                last_seen_data = client_data.get("lastSeen", {})
+                last_seen_sec = last_seen_data.get("sec", 0)
+                last_seen_age = now - last_seen_sec
+
+                # Client is available if:
+                # - Connected to Snapcast (TCP connection alive)
+                # - AND seen recently (within last 60 seconds)
+                is_available = client_data.get("connected", False) and last_seen_age < 60
+
+                # Main device (milo) is always available (localhost)
+                if host == "milo":
+                    is_available = True
+
+                # Skip offline clients (treat as disconnected)
+                # They will not appear in the client list, same as connected=false clients
+                if not is_available:
+                    continue
+
                 raw_clients.append({
                     "id": client_data["id"],
                     "name": name,
@@ -213,7 +235,9 @@ class SnapcastService:
                     "host": host,
                     "ip": ip,
                     "mac": mac,
-                    "dsp_id": dsp_id
+                    "dsp_id": dsp_id,
+                    "available": is_available,
+                    "last_seen_age": int(last_seen_age)
                 })
 
         return self._deduplicate_by_mac(raw_clients)

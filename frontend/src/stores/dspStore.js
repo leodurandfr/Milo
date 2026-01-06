@@ -354,9 +354,9 @@ export const useDspStore = defineStore('dsp', () => {
    * @returns {Promise<boolean>} Success status
    */
   async function updateClientDspVolume(hostname, volumeDb) {
-    try {
-      const normalized = normalizeHostname(hostname);
+    const normalized = normalizeHostname(hostname);
 
+    try {
       // Skip remote clients when multiroom is disabled
       if (normalized !== 'local') {
         const { useUnifiedAudioStore } = await import('./unifiedAudioStore');
@@ -373,7 +373,41 @@ export const useDspStore = defineStore('dsp', () => {
       return true;
     } catch (error) {
       console.error(`Error updating DSP volume for ${hostname}:`, error);
+      // Client availability detection is handled by Snapcast's native lastSeen mechanism
+      // and WebSocket events (client_availability_changed)
       return false;
+    }
+  }
+
+  /**
+   * Apply volume delta to entire zone atomically.
+   *
+   * NEW REFACTORED METHOD - Eliminates race condition:
+   * - Old: 3 parallel requests → 3 stale broadcasts → slider flicker
+   * - New: 1 request → parallel backend updates → 1 correct broadcast → smooth slider
+   *
+   * @param {string} zoneId - Zone identifier
+   * @param {number} deltaDb - Volume change in dB
+   * @returns {Promise<object>} Response with new zone average
+   */
+  async function applyZoneDelta(zoneId, deltaDb) {
+    try {
+      // Check multiroom enabled
+      const { useUnifiedAudioStore } = await import('./unifiedAudioStore');
+      const audioStore = useUnifiedAudioStore();
+      if (!audioStore.systemState.multiroom_enabled) {
+        console.warn('Skipping zone delta - multiroom disabled');
+        return { status: 'error', message: 'Multiroom disabled' };
+      }
+
+      // Call new atomic endpoint
+      const response = await axios.post(`/api/volume/zone/${zoneId}/delta`, { delta_db: deltaDb });
+
+      // Response includes: { status, zone_id, new_average_db, delta_db, clients_updated }
+      return response.data;
+    } catch (error) {
+      console.error(`Error applying zone delta for ${zoneId}:`, error);
+      throw error;
     }
   }
 
@@ -1464,6 +1498,7 @@ export const useDspStore = defineStore('dsp', () => {
 
     // Client DSP volume/mute (reads from unified store)
     updateClientDspVolume,
+    applyZoneDelta,  // NEW: Atomic zone volume update
     getClientDspVolume,
     getClientDspMute,
     updateClientDspMute,

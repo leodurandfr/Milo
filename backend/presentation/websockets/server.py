@@ -67,6 +67,20 @@ class WebSocketServer:
                 }
                 await websocket.send_text(json.dumps(initial_event))
 
+                # Send current volume state immediately after initial_state
+                volume_state = await self.state_machine.volume_service.get_volume_state()
+                volume_event = {
+                    "category": "volume",
+                    "type": "volume_changed",
+                    "source": "volume",
+                    "data": {
+                        "show_bar": False,
+                        "state": volume_state.to_dict()
+                    },
+                    "timestamp": time.time()
+                }
+                await websocket.send_text(json.dumps(volume_event))
+
             # Continue listening for future client messages (if any)
             while True:
                 await websocket.receive_text()
