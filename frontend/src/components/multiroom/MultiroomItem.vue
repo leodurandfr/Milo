@@ -556,7 +556,7 @@ onUnmounted(() => {
 
 /* === TOGGLE WRAPPER === */
 .toggle-wrapper {
-  width: auto;
+  width: 70px;
   height: 40px;
   position: relative;
   display: flex;
