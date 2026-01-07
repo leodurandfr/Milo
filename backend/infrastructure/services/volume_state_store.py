@@ -82,8 +82,9 @@ class VolumeStateStore:
         Must be called after construction.
         """
         async with self._lock:
-            # Load routing mode
-            self._mode = await self.settings_service.get_setting("routing.mode") or "multiroom"
+            # Load routing mode from multiroom_enabled setting
+            multiroom_enabled = await self.settings_service.get_setting("routing.multiroom_enabled")
+            self._mode = "multiroom" if multiroom_enabled else "direct"
 
             # Load zone configurations
             await self._load_zones()
@@ -93,6 +94,38 @@ class VolumeStateStore:
 
             self.logger.info(f"VolumeStateStore initialized: mode={self._mode}, "
                            f"zones={len(self._zones)}, clients={len(self._clients)}")
+
+    async def set_mode(self, mode: str) -> None:
+        """
+        Update volume mode at runtime (called when multiroom is toggled).
+
+        Args:
+            mode: 'direct' or 'multiroom'
+        """
+        async with self._lock:
+            if mode not in ("direct", "multiroom"):
+                self.logger.warning(f"Invalid volume mode: {mode}, ignoring")
+                return
+            old_mode = self._mode
+            self._mode = mode
+            self.logger.info(f"Volume mode changed: {old_mode} -> {mode}")
+
+    def set_local_volume(self, volume_db: float) -> None:
+        """
+        Set local client volume in memory only (no persistence, no lock).
+        Used for direct mode where volume changes are frequent and
+        persistence is handled by VolumeStorageService.
+        """
+        volume_db = self._clamp_db(volume_db)
+        if 'local' in self._clients:
+            self._clients['local'].volume_db = volume_db
+        else:
+            self._clients['local'] = ClientVolume(
+                volume_db=volume_db,
+                offset_db=0.0,
+                mute=False,
+                available=True
+            )
 
     async def _load_zones(self) -> None:
         """Load zone configurations from settings."""
@@ -450,8 +483,15 @@ class VolumeStateStore:
             ]
             global_volume = sum(all_volumes) / len(all_volumes) if all_volumes else self.DEFAULT_VOLUME_DB
 
-            # Calculate display volume (same as global for multiroom, or local for direct)
-            display_volume = global_volume
+            # Calculate display volume (local for direct mode, global for multiroom)
+            if self._mode == "direct":
+                local_client = self._clients.get('local')
+                if local_client and local_client.available:
+                    display_volume = local_client.volume_db
+                else:
+                    display_volume = global_volume
+            else:
+                display_volume = global_volume
 
             # Check if all available clients are muted
             available_clients = [c for c in self._clients.values() if c.available]

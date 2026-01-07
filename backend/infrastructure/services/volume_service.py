@@ -111,6 +111,29 @@ class VolumeService:
             return False
         return self._dsp_service.is_volume_control_available()
 
+    async def update_volume_mode(self, multiroom_enabled: bool) -> None:
+        """
+        Update volume mode when multiroom state changes.
+
+        This syncs VolumeStateStore mode and ensures 'local' client is properly
+        configured when switching to direct mode.
+
+        Args:
+            multiroom_enabled: Whether multiroom is now enabled
+        """
+        mode = "multiroom" if multiroom_enabled else "direct"
+        await self._state_store.set_mode(mode)
+
+        if not multiroom_enabled:
+            # Sync local volume from DSP when switching to direct mode
+            try:
+                current_volume = await self._dsp_service.get_volume()
+                if current_volume is not None:
+                    self._state_store.set_local_volume(current_volume)
+                    self.logger.info(f"Synced local volume from DSP: {current_volume:.1f} dB")
+            except Exception as e:
+                self.logger.warning(f"Failed to sync local volume from DSP: {e}")
+
     # ============================================================================
     # CONFIGURATION LOADING
     # ============================================================================
@@ -575,7 +598,10 @@ class VolumeService:
                 return all(results.values())
             else:
                 # LOCAL: Direct CamillaDSP control
-                return await self._dsp_service.set_volume(volume_db)
+                success = await self._dsp_service.set_volume(volume_db)
+                if success:
+                    self._state_store.set_local_volume(volume_db)
+                return success
 
         except Exception as e:
             self.logger.error(f"Error applying volume: {e}")
@@ -656,7 +682,7 @@ class VolumeService:
                 new_db = self._converter.clamp_db(volume_state.display_volume_db + delta_db)
                 success = await self._dsp_service.set_volume(new_db)
                 if success:
-                    await self._state_store.set_client_volume('local', new_db)
+                    self._state_store.set_local_volume(new_db)
                 return success
 
         except Exception as e:

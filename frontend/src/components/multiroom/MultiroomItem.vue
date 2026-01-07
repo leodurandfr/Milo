@@ -5,23 +5,35 @@
     <div class="item-header">
       <!-- Icon column: expand button (zones) OR speaker icon (standalone clients) -->
       <div class="icon-column">
-        <!-- Expand button (zones only) -->
-        <button
-          v-if="canExpand"
-          type="button"
-          class="expand-button"
-          :class="{ 'expanded': isExpanded }"
-          @click="toggleExpand"
-        >
-          <SvgIcon name="caretDown" :size="24" />
-        </button>
-
-        <!-- Speaker icon (standalone clients only) -->
+        <!-- Skeleton shimmer -->
         <div
-          v-else-if="!isZone"
-          class="client-icon"
+          class="icon-skeleton"
+          :class="{ 'visible': isLoading }"
+        ></div>
+
+        <!-- Real content -->
+        <div
+          class="icon-content"
+          :class="{ 'visible': !isLoading }"
         >
-          <SvgIcon :name="getSpeakerIcon(clientSpeakerType)" :size="24" />
+          <!-- Expand button (zones only) -->
+          <button
+            v-if="canExpand"
+            type="button"
+            class="expand-button"
+            :class="{ 'expanded': isExpanded }"
+            @click="toggleExpand"
+          >
+            <SvgIcon name="caretDown" :size="24" />
+          </button>
+
+          <!-- Speaker icon (standalone clients only) -->
+          <div
+            v-else-if="!isZone"
+            class="client-icon"
+          >
+            <SvgIcon :name="getSpeakerIcon(clientSpeakerType)" :size="24" />
+          </div>
         </div>
       </div>
 
@@ -33,10 +45,6 @@
           :class="{ 'visible': isLoading }"
         >
           <div class="item-name-skeleton"></div>
-          <div
-            v-if="isZone"
-            class="zone-clients-skeleton"
-          ></div>
         </div>
 
         <!-- Real content -->
@@ -378,6 +386,43 @@ onUnmounted(() => {
   width: 40px;
   height: 40px;
   flex-shrink: 0;
+  position: relative;
+}
+
+/* Skeleton for icon column */
+.icon-skeleton {
+  position: absolute;
+  inset: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-03);
+  background: linear-gradient(
+    90deg,
+    var(--color-background-strong) 0%,
+    var(--color-background-medium-16) 50%,
+    var(--color-background-strong) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  opacity: 0;
+  transition: opacity 300ms ease 0ms;
+  pointer-events: none;
+}
+
+.icon-skeleton.visible {
+  opacity: 1;
+  transition: opacity 300ms ease 0ms;
+}
+
+/* Real icon content */
+.icon-content {
+  opacity: 0;
+  transition: opacity 300ms ease 0ms;
+}
+
+.icon-content.visible {
+  opacity: 1;
+  transition: opacity 300ms ease 0ms;
 }
 
 /* === EXPAND BUTTON === */
@@ -423,8 +468,7 @@ onUnmounted(() => {
   inset: 0;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  gap: var(--space-01);
+  justify-content: center;
   opacity: 0;
   transition: opacity 300ms ease 0ms;
   pointer-events: none;
@@ -447,21 +491,6 @@ onUnmounted(() => {
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
-}
-
-.zone-clients-skeleton {
-  height: 14px;
-  width: 80%;
-  border-radius: var(--radius-full);
-  background: linear-gradient(
-    90deg,
-    var(--color-background-strong) 0%,
-    var(--color-background-medium-16) 50%,
-    var(--color-background-strong) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  animation-delay: 0.2s;
 }
 
 /* Real name content */
