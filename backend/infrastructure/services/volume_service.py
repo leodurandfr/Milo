@@ -208,26 +208,6 @@ class VolumeService:
     # CLIENT VOLUME MANAGEMENT (New architecture using VolumeStateStore)
     # ============================================================================
 
-    async def initialize_new_client_volume(self, client_id: str) -> bool:
-        """Initialize new client and apply startup volume in multiroom mode."""
-        if not self._is_multiroom_enabled():
-            return True
-
-        try:
-            startup_db = self._determine_startup_volume_db()
-            await self._state_store.register_client(client_id, volume_db=startup_db, available=True)
-
-            # Apply volume to hardware
-            success = await self._dsp_controller.set_dsp_volume(client_id, startup_db)
-            if not success:
-                self.logger.warning(f"Failed to apply volume to new client {client_id}")
-
-            await self._broadcast_volume_state(show_bar=False)
-            return success
-        except Exception as e:
-            self.logger.error(f"Error initializing new client {client_id}: {e}")
-            return False
-
     async def sync_existing_client_from_snapcast(self, client_id: str) -> bool:
         """
         Sync reconnected client: apply correct volume to DSP.
@@ -265,6 +245,9 @@ class VolumeService:
 
             # PUSH the correct volume to client DSP
             await self._dsp_controller.set_dsp_volume(client_id, expected_volume)
+
+            # UNMUTE the client (CamillaDSP starts muted with -m flag)
+            await self._dsp_controller.set_dsp_mute(client_id, False)
 
             # Register client with the applied volume
             await self._state_store.register_client(client_id, volume_db=expected_volume, available=True)

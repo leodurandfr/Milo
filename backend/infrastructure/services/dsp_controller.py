@@ -141,6 +141,49 @@ class DSPController:
             self.logger.error(f"Error setting remote DSP volume ({hostname}): {e}")
             raise
 
+    async def set_dsp_mute(self, hostname: str, mute: bool) -> bool:
+        """
+        Set mute state for a client's DSP.
+
+        Args:
+            hostname: Client hostname ('local' or 'milo-client-XX')
+            mute: True to mute, False to unmute
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if hostname == "local":
+                result = await asyncio.wait_for(
+                    self._dsp_service.set_mute(mute),
+                    timeout=self._timeout
+                )
+                if result:
+                    self.logger.debug(f"Local DSP mute set to {mute}")
+                    return True
+                return False
+            else:
+                result = await asyncio.wait_for(
+                    self._proxy_service.request(
+                        hostname,
+                        "PUT",
+                        "/dsp/mute",
+                        {"muted": mute}
+                    ),
+                    timeout=self._timeout
+                )
+                if result and result.get("status") == "success":
+                    self.logger.debug(f"Remote DSP ({hostname}) mute set to {mute}")
+                    return True
+                return False
+
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Timeout setting mute for {hostname}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error setting mute for {hostname}: {e}")
+            return False
+
     # ========== Parallel Zone Operations ==========
 
     async def apply_volumes_parallel(self, updates: Dict[str, float]) -> Dict[str, bool]:

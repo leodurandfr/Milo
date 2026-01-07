@@ -16,9 +16,11 @@ WorkingDirectory=/var/lib/milo-client/camilladsp
 # -p 1234: WebSocket server port
 # -a 127.0.0.1: Listen only on localhost
 # -w: Wait for valid config before processing
+# -m: Start muted - milo-client will unmute after setting correct volume
 ExecStart=/usr/local/bin/camilladsp \
     -p 1234 \
     -a 127.0.0.1 \
+    -m \
     -w \
     /var/lib/milo-client/camilladsp/config.yml
 

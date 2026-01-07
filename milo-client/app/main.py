@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -43,11 +44,49 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifecycle management.
+
+    CamillaDSP starts MUTED (-m flag in systemd service).
+    This lifespan just connects - the backend will push
+    the correct volume and unmute when ready.
+    """
+    logger.info("Milo Client API starting up...")
+
+    # Connect to CamillaDSP (stays muted until backend pushes correct volume)
+    if CAMILLADSP_AVAILABLE:
+        max_retries = 10
+        retry_delay = 0.5  # seconds
+
+        for attempt in range(max_retries):
+            connected = await dsp_manager.connect()
+            if connected:
+                logger.info(f"CamillaDSP connected on attempt {attempt + 1}, waiting for backend to set volume and unmute")
+                break
+            else:
+                if attempt < max_retries - 1:
+                    logger.warning(f"CamillaDSP connection attempt {attempt + 1}/{max_retries} failed, retrying in {retry_delay}s...")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error("Failed to connect to CamillaDSP after all retries")
+    else:
+        logger.warning("CamillaDSP client library not available")
+
+    logger.info("Milo Client API startup complete")
+
+    yield  # Application runs here
+
+    logger.info("Milo Client API shutting down...")
+
+
 # FastAPI app
 app = FastAPI(
     title="Milo Client API",
     description="API for Milo client management",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 class SnapclientManager:
@@ -397,7 +436,7 @@ class DSPManager:
             "low_boost": 8.0
         }
         self._delay = {"left": 0.0, "right": 0.0}
-        self._volume = {"main": -40.0, "mute": False}  # Safe default to prevent volume blast on reconnect
+        self._volume = {"main": 0.0, "mute": True}  # Matches CamillaDSP startup state (-m flag)
         self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
 
@@ -417,12 +456,6 @@ class DSPManager:
 
             # Load current state from CamillaDSP config
             await self._load_state_from_config()
-
-            # Apply safe default volume immediately to prevent volume blast on reconnect
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self._client.volume.set_main_volume(self._volume["main"])
-            )
-            self.logger.info(f"Applied safe default volume: {self._volume['main']}dB")
 
             return True
         except Exception as e:

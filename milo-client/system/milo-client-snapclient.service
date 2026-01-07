@@ -1,7 +1,8 @@
 [Unit]
 Description=Snapclient for Milo Client
-After=network-online.target
+After=network-online.target milo-client.service
 Wants=network-online.target
+Requires=milo-client.service
 
 [Service]
 Type=simple
