@@ -296,6 +296,10 @@ class Container(containers.DeclarativeContainer):
         #       Allows state_machine to synchronize multiroom/DSP state
         state_machine.routing_service = routing_service
 
+        # 2.5b - state_machine ← crossover_service
+        #        Allows snapcast_websocket_service to recalculate crossover on client availability changes
+        state_machine.crossover_service = crossover_service
+
         # 2.6 - camilladsp_service → state_machine
         #       Allows DSP service to broadcast events
         camilladsp_service.set_state_machine(state_machine)

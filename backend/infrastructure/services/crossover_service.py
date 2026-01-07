@@ -438,15 +438,30 @@ class CrossoverService:
             frequency = await self.get_zone_auto_crossover(zone_id)
             crossover_enabled = zone.get("crossover_enabled", True)
 
-            # Check if zone has a subwoofer
-            has_subwoofer = any(self.is_client_subwoofer(cid) for cid in client_ids)
+            # Get client availability from volume service
+            available_clients = set(client_ids)
+            if self.state_machine:
+                volume_service = getattr(self.state_machine, 'volume_service', None)
+                if volume_service:
+                    volume_state = await volume_service.get_volume_state()
+                    available_clients = {
+                        cid for cid in client_ids
+                        if cid in volume_state.clients and volume_state.clients[cid].available
+                    }
+
+            # Check if zone has an AVAILABLE subwoofer
+            has_subwoofer = any(
+                self.is_client_subwoofer(cid) and cid in available_clients
+                for cid in client_ids
+            )
 
             # Determine if crossover should be active
             should_apply_crossover = has_subwoofer and crossover_enabled
 
             self.logger.info(
                 f"Applying crossover to zone {zone_id}: "
-                f"has_sub={has_subwoofer}, enabled={crossover_enabled}, freq={frequency}Hz"
+                f"has_sub={has_subwoofer}, enabled={crossover_enabled}, freq={frequency}Hz, "
+                f"available_clients={list(available_clients)}"
             )
 
             # Apply to each client

@@ -389,16 +389,23 @@ class SnapcastWebSocketService:
                         "last_seen_age": client.get("last_seen_age", 0)
                     })
 
+                    # Use dsp_id directly from client (already computed by get_clients())
+                    hostname = client["dsp_id"]
+
                     # Update volume service availability state (triggers recalculation internally)
                     if hasattr(self.state_machine, 'volume_service'):
                         volume_service = self.state_machine.volume_service
-                        snapcast_service = getattr(self.state_machine.routing_service, 'snapcast_service', None)
-                        if snapcast_service:
-                            hostname = snapcast_service._get_stable_dsp_id(
-                                client.get("host", {}).get("name", ""),
-                                client.get("host", {}).get("ip", "")
-                            )
-                            volume_service.update_client_availability(hostname, available)
+                        volume_service.update_client_availability(hostname, available)
+
+                    # Recalculate crossover for zones containing this client
+                    # (e.g., if subwoofer disconnects, remove highpass from speakers)
+                    if hasattr(self.state_machine, 'crossover_service'):
+                        crossover_service = self.state_machine.crossover_service
+                        linked_groups = await crossover_service.settings_service.get_setting("dsp.linked_groups") or []
+                        for zone in linked_groups:
+                            if hostname in zone.get("client_ids", []):
+                                self.logger.info(f"🔄 Recalculating crossover for zone {zone['id']} (client {hostname} availability changed)")
+                                await crossover_service.apply_zone_crossover(zone["id"])
 
                     self._client_availability_state[client_id] = available
 
@@ -492,9 +499,24 @@ class SnapcastWebSocketService:
         self.logger.info(f"🔴 CLIENT DISCONNECTED: {client_host} (dsp_id: {dsp_id})")
 
         # Update volume service availability (disconnection = unavailable)
+        # Use awaitable method to ensure availability is updated before crossover recalculation
         if hasattr(self.state_machine, 'volume_service'):
             volume_service = self.state_machine.volume_service
-            volume_service.update_client_availability(dsp_id, False)
+            await volume_service._state_store.set_client_availability(dsp_id, False)
+
+        # Recalculate crossover for zones containing this client
+        # (e.g., if subwoofer disconnects, remove highpass from speakers)
+        if hasattr(self.state_machine, 'crossover_service'):
+            crossover_service = self.state_machine.crossover_service
+            linked_groups = await crossover_service.settings_service.get_setting("dsp.linked_groups") or []
+            for zone in linked_groups:
+                if dsp_id in zone.get("client_ids", []):
+                    self.logger.info(f"🔄 Recalculating crossover for zone {zone['id']} (client {dsp_id} disconnected)")
+                    await crossover_service.apply_zone_crossover(zone["id"])
+
+        # Broadcast volume state after availability change
+        if hasattr(self.state_machine, 'volume_service'):
+            await volume_service._broadcast_volume_state(show_bar=False)
 
         await self._broadcast_snapcast_event("client_disconnected", {
             "client_id": client_id,
