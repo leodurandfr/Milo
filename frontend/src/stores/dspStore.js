@@ -455,13 +455,19 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   /**
-   * Update mute for a specific client WITHOUT zone propagation.
-   * Mutes only the specified client, even if it's part of a zone.
+   * Update mute for a specific client.
+   * By default, mutes only the specified client. Use { propagate: true } to
+   * also mute/unmute all zone members if the client is part of a zone.
+   *
    * @param {string} clientId - Client DSP ID ('local' or hostname)
    * @param {boolean} muted - Mute state
+   * @param {Object} options - Optional settings
+   * @param {boolean} options.propagate - If true, propagate to all zone members (default: false)
    * @returns {Promise<boolean>} Success status
    */
-  async function updateClientDspMute(clientId, muted) {
+  async function updateClientDspMute(clientId, muted, options = {}) {
+    const { propagate = false } = options;
+
     try {
       const normalized = normalizeHostname(clientId);
 
@@ -478,41 +484,21 @@ export const useDspStore = defineStore('dsp', () => {
       // Call API - unified state will be updated via WebSocket broadcast
       const apiBase = getApiBaseForTarget(clientId);
       await axios.put(`${apiBase}/mute`, { muted });
-      return true;
-    } catch (error) {
-      console.error(`Error updating mute for ${clientId}:`, error);
-      return false;
-    }
-  }
 
-  /**
-   * Update mute for a specific client with zone propagation.
-   * If the client is part of a zone, mute/unmute all zone members.
-   * @param {string} clientId - Client DSP ID ('local' or hostname)
-   * @param {boolean} muted - Mute state
-   * @returns {Promise<boolean>} Success status
-   */
-  async function updateClientDspMuteWithPropagation(clientId, muted) {
-    try {
-      // Get all linked clients for this client (includes itself if in a zone)
-      const linkedIds = getLinkedClientIds(clientId);
-      const isZone = linkedIds.length > 1;
-
-      // Call API for the specified client - unified state will be updated via WebSocket
-      const apiBase = getApiBaseForTarget(clientId);
-      await axios.put(`${apiBase}/mute`, { muted });
-
-      // If part of a zone, propagate to all other zone members
-      if (isZone) {
-        const otherClients = linkedIds.filter(id => id !== clientId);
-        const promises = otherClients.map(async (targetId) => {
-          try {
-            await axios.put(`${getApiBaseForTarget(targetId)}/mute`, { muted });
-          } catch (error) {
-            console.error(`Error propagating mute to ${targetId}:`, error);
-          }
-        });
-        await Promise.all(promises);
+      // If propagate requested and client is part of a zone, update all zone members
+      if (propagate) {
+        const linkedIds = getLinkedClientIds(clientId);
+        if (linkedIds.length > 1) {
+          const otherClients = linkedIds.filter(id => id !== clientId);
+          const promises = otherClients.map(async (targetId) => {
+            try {
+              await axios.put(`${getApiBaseForTarget(targetId)}/mute`, { muted });
+            } catch (error) {
+              console.error(`Error propagating mute to ${targetId}:`, error);
+            }
+          });
+          await Promise.all(promises);
+        }
       }
 
       return true;
@@ -1529,11 +1515,10 @@ export const useDspStore = defineStore('dsp', () => {
 
     // Client DSP volume/mute (reads from unified store)
     updateClientDspVolume,
-    applyZoneDelta,  // NEW: Atomic zone volume update
+    applyZoneDelta,  // Atomic zone volume update
     getClientDspVolume,
     getClientDspMute,
-    updateClientDspMute,
-    updateClientDspMuteWithPropagation,
+    updateClientDspMute,  // Use { propagate: true } for zone propagation
 
     // Propagation Errors
     propagationErrors,

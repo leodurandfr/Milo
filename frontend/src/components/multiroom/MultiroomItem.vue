@@ -115,9 +115,10 @@
     <Transition name="expand">
       <div v-if="isExpanded && zoneClientDetails" class="expanded-clients">
         <div
-          v-for="zoneClient in zoneClientDetails"
+          v-for="(zoneClient, index) in zoneClientDetails"
           :key="zoneClient.dsp_id"
           class="client-row"
+          :style="{ animationDelay: `${150 + index * 120}ms` }"
         >
           <!-- Speaker icon -->
           <div class="client-icon">
@@ -161,13 +162,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue';
+import { ref, computed } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useDspStore } from '@/stores/dspStore';
-import { useAnimatedHeight } from '@/composables/useAnimatedHeight';
+import { useVolumeThrottle, useVolumeThrottleMap } from '@/composables/useVolumeThrottle';
 
 const settingsStore = useSettingsStore();
 const dspStore = useDspStore();
@@ -209,16 +210,30 @@ const emit = defineEmits([
 // === LOCAL STATE ===
 const isExpanded = ref(false);
 const localDisplayVolume = ref(null);
-let throttleTimeout = null;
-let finalTimeout = null;
-
-// Per-client throttle map for expanded clients
-const clientThrottleMap = new Map();
 const clientLocalVolumes = ref({});
 
 // Optimistic mute state (similar to localDisplayVolume for volume)
 const localMutedState = ref(null);
 const clientLocalMutes = ref({});
+
+// === THROTTLE MANAGEMENT (unified via composable) ===
+// Zone header slider: MEDIUM preset (80ms throttle, 300ms final)
+const { throttledFn: throttledZoneVolume, flush: flushZoneVolume } = useVolumeThrottle(
+  (volumeDb) => {
+    if (!props.isLoading) {
+      emit('volume-change', props.client.id, volumeDb);
+    }
+  },
+  'MEDIUM'
+);
+
+// Individual client sliders: use throttle map with FAST preset (50ms throttle, 150ms final)
+const { getThrottledFn: getClientThrottledFn } = useVolumeThrottleMap(
+  (clientDspId) => (value) => {
+    emit('client-volume-change', clientDspId, value);
+  },
+  'FAST'
+);
 
 // === COMPUTED ===
 // Check if zone can be expanded (has client details with multiple clients)
@@ -274,30 +289,14 @@ function toggleExpand() {
 
 function handleVolumeInput(newDisplayVolume) {
   localDisplayVolume.value = newDisplayVolume;
-
-  if (throttleTimeout) clearTimeout(throttleTimeout);
-  if (finalTimeout) clearTimeout(finalTimeout);
-
-  throttleTimeout = setTimeout(() => {
-    sendVolumeUpdate(newDisplayVolume);
-  }, 50);
-
-  finalTimeout = setTimeout(() => {
-    sendVolumeUpdate(newDisplayVolume);
-  }, 500);
+  throttledZoneVolume(newDisplayVolume);
 }
 
 function handleVolumeChange(newDisplayVolume) {
-  if (throttleTimeout) clearTimeout(throttleTimeout);
-  if (finalTimeout) clearTimeout(finalTimeout);
-
   localDisplayVolume.value = null;
-  sendVolumeUpdate(newDisplayVolume);
-}
-
-function sendVolumeUpdate(volumeDb) {
+  flushZoneVolume();
   if (!props.isLoading) {
-    emit('volume-change', props.client.id, volumeDb);
+    emit('volume-change', props.client.id, newDisplayVolume);
   }
 }
 
@@ -312,36 +311,14 @@ function handleMuteToggle(enabled) {
 function handleClientVolumeInput(clientDspId, value) {
   // Update local display volume for smooth UI
   clientLocalVolumes.value[clientDspId] = value;
-
-  let throttleState = clientThrottleMap.get(clientDspId) || {};
-
-  if (throttleState.throttleTimeout) clearTimeout(throttleState.throttleTimeout);
-  if (throttleState.finalTimeout) clearTimeout(throttleState.finalTimeout);
-
-  throttleState.throttleTimeout = setTimeout(() => {
-    emit('client-volume-change', clientDspId, value);
-  }, 30);
-
-  throttleState.finalTimeout = setTimeout(() => {
-    emit('client-volume-change', clientDspId, value);
-  }, 100);
-
-  clientThrottleMap.set(clientDspId, throttleState);
+  // Use throttled function from composable
+  getClientThrottledFn(clientDspId)(value);
 }
 
 function handleClientVolumeChange(clientDspId, value) {
-  // Clear throttle timers
-  const throttleState = clientThrottleMap.get(clientDspId);
-  if (throttleState) {
-    if (throttleState.throttleTimeout) clearTimeout(throttleState.throttleTimeout);
-    if (throttleState.finalTimeout) clearTimeout(throttleState.finalTimeout);
-    clientThrottleMap.delete(clientDspId);
-  }
-
-  // Clear local display volume
+  // Clear local display volume on release
   delete clientLocalVolumes.value[clientDspId];
-
-  // Final update
+  // Emit final value immediately (composable's final timer handles any pending)
   emit('client-volume-change', clientDspId, value);
 }
 
@@ -349,18 +326,7 @@ function handleClientMuteToggle(clientDspId, muted) {
   emit('client-mute-toggle', clientDspId, muted);
 }
 
-// === CLEANUP ===
-onUnmounted(() => {
-  if (throttleTimeout) clearTimeout(throttleTimeout);
-  if (finalTimeout) clearTimeout(finalTimeout);
-
-  // Clear client throttle timers
-  clientThrottleMap.forEach(state => {
-    if (state.throttleTimeout) clearTimeout(state.throttleTimeout);
-    if (state.finalTimeout) clearTimeout(state.finalTimeout);
-  });
-  clientThrottleMap.clear();
-});
+// Note: Cleanup handled automatically by useVolumeThrottle and useVolumeThrottleMap composables
 </script>
 
 <style scoped>
@@ -693,6 +659,23 @@ onUnmounted(() => {
   min-width: 0;
 }
 
+/* Staggered fade-in animation for client rows */
+.expanded-clients .client-row {
+  opacity: 0;
+  animation: fadeInRow 300ms ease forwards;
+}
+
+@keyframes fadeInRow {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .badge-offline {
   display: inline-block;
   background: var(--color-background-medium);
@@ -708,20 +691,12 @@ onUnmounted(() => {
 
 /* === EXPAND TRANSITION === */
 .expand-enter-active {
-  transition:
-    max-height 450ms ease,
-    opacity 350ms ease,
-    margin-top 350ms ease,
-    padding-top 350ms ease;
+  transition: all 400ms ease;
   overflow: hidden;
 }
 
 .expand-leave-active {
-  transition:
-    max-height 250ms ease,
-    opacity 200ms ease,
-    margin-top 250ms ease,
-    padding-top 250ms ease;
+  transition: all 300ms ease;
   overflow: hidden;
 }
 
