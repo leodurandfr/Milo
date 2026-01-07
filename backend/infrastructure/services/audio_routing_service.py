@@ -301,16 +301,22 @@ class AudioRoutingService:
                     else:
                         self.logger.warning("⚠️ Snapcast WebSocket not ready after timeout, proceeding anyway")
 
-                # Broadcast multiroom_ready event after WebSocket is connected
-                if enabled and self.state_machine:
-                    self.logger.info("📢 Broadcasting multiroom_ready event")
-                    await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
-
-                    # Push local volume to all clients for uniform volume
+                # Post-transition operations
+                if self.state_machine:
                     volume_service = getattr(self.state_machine, 'volume_service', None)
+
+                    # Multiroom-specific: broadcast ready event and push volume
+                    if enabled:
+                        self.logger.info("📢 Broadcasting multiroom_ready event")
+                        await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
+
+                        if volume_service:
+                            self.logger.info("📊 Pushing local volume to all clients...")
+                            await volume_service.push_volume_to_all_clients()
+
+                    # Always update volume mode (for both enable and disable)
                     if volume_service:
-                        self.logger.info("📊 Pushing local volume to all clients...")
-                        await volume_service.push_volume_to_all_clients()
+                        await volume_service.update_volume_mode(enabled)
 
                 # Save state via SettingsService
                 if self.settings_service:
