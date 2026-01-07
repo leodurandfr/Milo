@@ -8,15 +8,19 @@ Architecture: "Gros" VolumeStateStore (Option A)
 - Integrates persistence, validation, and limits inline
 - Minimal external dependencies (only SettingsService)
 - Autonomous, testable, simple
+
+CONSOLIDATED: Includes all persistence logic (formerly VolumeStorageService)
 """
 
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass
+import aiofiles
 
 # Use existing domain models
 from backend.domain.volume_state import VolumeState, ClientVolume, ZoneVolume
@@ -40,14 +44,18 @@ class VolumeStateStore:
     - Calculate zone averages (excluding muted/unavailable)
     - Calculate offsets on demand
     - Validate volume limits
-    - Persist state to disk
+    - Persist state to disk (CONSOLIDATED - no separate storage service)
     - Thread-safe with async locks
     """
 
-    # Volume limits (dB)
+    # Technical volume limits (dB) - absolute hardware range
     MIN_DB = -80.0
     MAX_DB = 0.0
     DEFAULT_VOLUME_DB = -30.0
+
+    # Default user limits (dB) - safe user range
+    DEFAULT_USER_MIN_DB = -80.0
+    DEFAULT_USER_MAX_DB = -21.0
 
     # Persistence
     STORAGE_PATH = Path("/var/lib/milo/last_volume.json")
@@ -68,10 +76,32 @@ class VolumeStateStore:
         self._zones: Dict[str, ZoneConfig] = {}
         self._mode: str = "multiroom"  # 'direct' or 'multiroom'
 
+        # Local volume for direct mode (separate from clients for quick access)
+        self._local_volume_db: float = self.DEFAULT_VOLUME_DB
+
+        # User-configurable volume limits (cached from settings)
+        self._user_limit_min_db: float = self.DEFAULT_USER_MIN_DB
+        self._user_limit_max_db: float = self.DEFAULT_USER_MAX_DB
+
+        # Background save task reference (prevent garbage collection)
+        self._save_task: Optional[asyncio.Task] = None
+
         # Concurrency control
         self._lock = asyncio.Lock()
 
+        # Ensure storage directory exists
+        self._ensure_storage_directory()
+
         self.logger.info("VolumeStateStore initialized (SSOT for volume)")
+
+    # ========== Storage Directory ==========
+
+    def _ensure_storage_directory(self) -> None:
+        """Create storage directory if it doesn't exist."""
+        try:
+            self.STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            self.logger.error(f"Failed to create storage directory: {e}")
 
     # ========== Initialization ==========
 
@@ -82,6 +112,12 @@ class VolumeStateStore:
         Must be called after construction.
         """
         async with self._lock:
+            # Load user volume limits from settings
+            min_db = await self.settings_service.get_setting("volume.min_db")
+            max_db = await self.settings_service.get_setting("volume.max_db")
+            self._user_limit_min_db = min_db if min_db is not None else self.DEFAULT_USER_MIN_DB
+            self._user_limit_max_db = max_db if max_db is not None else self.DEFAULT_USER_MAX_DB
+
             # Load routing mode from multiroom_enabled setting
             multiroom_enabled = await self.settings_service.get_setting("routing.multiroom_enabled")
             self._mode = "multiroom" if multiroom_enabled else "direct"
@@ -93,7 +129,9 @@ class VolumeStateStore:
             await self._load_persisted_state()
 
             self.logger.info(f"VolumeStateStore initialized: mode={self._mode}, "
-                           f"zones={len(self._zones)}, clients={len(self._clients)}")
+                           f"zones={len(self._zones)}, clients={len(self._clients)}, "
+                           f"local_volume={self._local_volume_db:.1f}dB, "
+                           f"limits={self._user_limit_min_db:.1f}/{self._user_limit_max_db:.1f}dB")
 
     async def set_mode(self, mode: str) -> None:
         """
@@ -112,11 +150,12 @@ class VolumeStateStore:
 
     def set_local_volume(self, volume_db: float) -> None:
         """
-        Set local client volume in memory only (no persistence, no lock).
-        Used for direct mode where volume changes are frequent and
-        persistence is handled by VolumeStorageService.
+        Set local client volume in memory (no persistence, no lock).
+        Used for direct mode where volume changes are frequent.
+        Call save_local_volume() separately to persist.
         """
         volume_db = self._clamp_db(volume_db)
+        self._local_volume_db = volume_db
         if 'local' in self._clients:
             self._clients['local'].volume_db = volume_db
         else:
@@ -126,6 +165,64 @@ class VolumeStateStore:
                 mute=False,
                 available=True
             )
+
+    def save_local_volume(self, enabled: bool = True) -> None:
+        """
+        Save local volume to disk in background (non-blocking).
+        Called after volume changes in direct mode.
+
+        Args:
+            enabled: Whether volume restore is enabled (if False, skip save)
+        """
+        if not enabled:
+            return
+
+        volume_db = self._local_volume_db
+
+        async def save_async():
+            try:
+                data = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "local_volume_db": volume_db,
+                    "clients": {
+                        hostname: {
+                            "volume_db": client.volume_db,
+                            "mute": client.mute
+                        }
+                        for hostname, client in self._clients.items()
+                    }
+                }
+                temp_file = self.STORAGE_PATH.with_suffix('.tmp')
+
+                async with aiofiles.open(temp_file, 'w') as f:
+                    content = json.dumps(data, indent=2)
+                    await f.write(content)
+                    await f.flush()
+
+                temp_file.replace(self.STORAGE_PATH)
+                self.logger.debug(f"Saved local volume: {volume_db:.1f}dB")
+            except Exception as e:
+                self.logger.error(f"Failed to save volume: {e}")
+
+        # Keep reference to prevent task from being garbage collected
+        self._save_task = asyncio.create_task(save_async())
+
+    def get_startup_volume(self, default_volume_db: float, restore_enabled: bool) -> float:
+        """
+        Determine startup volume (restored or default).
+
+        Args:
+            default_volume_db: Default startup volume in dB
+            restore_enabled: Whether volume restore is enabled
+
+        Returns:
+            Volume to use at startup in dB
+        """
+        if restore_enabled and self._local_volume_db != self.DEFAULT_VOLUME_DB:
+            # Use restored local volume if it was loaded from disk
+            self.logger.info(f"Using restored volume: {self._local_volume_db:.1f}dB")
+            return self._local_volume_db
+        return default_volume_db
 
     async def _load_zones(self) -> None:
         """Load zone configurations from settings."""
@@ -144,7 +241,13 @@ class VolumeStateStore:
         self.logger.debug(f"Loaded {len(self._zones)} zones from settings")
 
     async def _load_persisted_state(self) -> None:
-        """Load persisted volume state from disk."""
+        """
+        Load persisted volume state from disk.
+
+        Handles two formats for backward compatibility:
+        1. Old format (VolumeStorageService): {"volume_db": float, "timestamp": float}
+        2. New format: {"timestamp": ISO, "local_volume_db": float, "clients": {...}}
+        """
         try:
             if not self.STORAGE_PATH.exists():
                 self.logger.debug("No persisted volume state found")
@@ -158,10 +261,10 @@ class VolumeStateStore:
             if timestamp:
                 # Handle different timestamp formats
                 if isinstance(timestamp, (int, float)):
-                    # Unix timestamp
+                    # Unix timestamp (old format)
                     saved_time = datetime.fromtimestamp(timestamp, tz=timezone.utc)
                 elif isinstance(timestamp, str):
-                    # ISO format string
+                    # ISO format string (new format)
                     saved_time = datetime.fromisoformat(timestamp)
                     # Ensure timezone aware
                     if saved_time.tzinfo is None:
@@ -176,6 +279,28 @@ class VolumeStateStore:
                     self.logger.warning(f"Persisted volume state is {age_days} days old (max {self.MAX_AGE_DAYS}), ignoring")
                     return
 
+            # Check for old format (VolumeStorageService): {"volume_db": float}
+            if "volume_db" in data and "clients" not in data:
+                # OLD FORMAT - migrate to new format
+                old_volume = data.get("volume_db", self.DEFAULT_VOLUME_DB)
+                if -80.0 <= old_volume <= 0.0:
+                    self._local_volume_db = old_volume
+                    # Create local client with old volume
+                    self._clients['local'] = ClientVolume(
+                        volume_db=old_volume,
+                        offset_db=0.0,
+                        mute=False,
+                        available=False
+                    )
+                    self.logger.info(f"Migrated old volume format: {old_volume:.1f}dB")
+                return
+
+            # NEW FORMAT - load local_volume_db and clients
+            if "local_volume_db" in data:
+                local_vol = data.get("local_volume_db", self.DEFAULT_VOLUME_DB)
+                if -80.0 <= local_vol <= 0.0:
+                    self._local_volume_db = local_vol
+
             # Restore client volumes
             clients_data = data.get("clients", {})
             for hostname, client_data in clients_data.items():
@@ -189,17 +314,18 @@ class VolumeStateStore:
                     available=False  # Availability set by snapcast events
                 )
 
-            self.logger.info(f"Restored volume state for {len(self._clients)} clients from disk")
+            self.logger.info(f"Restored volume state: local={self._local_volume_db:.1f}dB, {len(self._clients)} clients")
 
         except Exception as e:
             self.logger.error(f"Error loading persisted volume state: {e}", exc_info=True)
 
     async def _persist_state(self) -> None:
-        """Persist current volume state to disk."""
+        """Persist current volume state to disk (unified format)."""
         try:
-            # Prepare data
+            # Prepare data (unified format with local_volume_db)
             data = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "local_volume_db": self._local_volume_db,
                 "clients": {
                     hostname: {
                         "volume_db": client.volume_db,
@@ -218,7 +344,7 @@ class VolumeStateStore:
 
             temp_path.replace(self.STORAGE_PATH)
 
-            self.logger.debug(f"Persisted volume state for {len(self._clients)} clients")
+            self.logger.debug(f"Persisted volume state: local={self._local_volume_db:.1f}dB, {len(self._clients)} clients")
 
         except Exception as e:
             self.logger.error(f"Error persisting volume state: {e}", exc_info=True)
@@ -527,15 +653,41 @@ class VolumeStateStore:
 
     def _clamp_db(self, volume_db: float) -> float:
         """
-        Clamp volume to valid range.
+        Clamp volume to user-configurable limits.
+
+        Uses cached user limits (updated via update_user_limits()).
+        This is the SINGLE point of clamping for all volume operations.
 
         Args:
             volume_db: Volume in dB
 
         Returns:
-            Clamped volume
+            Clamped volume within user limits
         """
-        return max(self.MIN_DB, min(self.MAX_DB, volume_db))
+        return max(self._user_limit_min_db, min(self._user_limit_max_db, volume_db))
+
+    def update_user_limits(self, min_db: float, max_db: float) -> None:
+        """
+        Update user-configurable volume limits (called when config changes).
+
+        Args:
+            min_db: Minimum volume in dB (e.g., -80.0)
+            max_db: Maximum volume in dB (e.g., -21.0 for safety)
+        """
+        # Ensure limits are within technical range
+        self._user_limit_min_db = max(self.MIN_DB, min(self.MAX_DB, min_db))
+        self._user_limit_max_db = max(self.MIN_DB, min(self.MAX_DB, max_db))
+        self.logger.debug(f"User volume limits updated: {self._user_limit_min_db:.1f} to {self._user_limit_max_db:.1f} dB")
+
+    @property
+    def user_limit_min_db(self) -> float:
+        """Get current user minimum volume limit."""
+        return self._user_limit_min_db
+
+    @property
+    def user_limit_max_db(self) -> float:
+        """Get current user maximum volume limit."""
+        return self._user_limit_max_db
 
     async def get_volume_limits(self) -> Dict[str, float]:
         """

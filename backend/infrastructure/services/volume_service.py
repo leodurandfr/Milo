@@ -17,7 +17,6 @@ from typing import Optional, Dict, Any
 from backend.infrastructure.services.settings_service import SettingsService
 from backend.infrastructure.services.volume_converter_service import VolumeConverterService
 from backend.infrastructure.services.volume_config_service import VolumeConfigService
-from backend.infrastructure.services.volume_storage_service import VolumeStorageService
 from backend.infrastructure.services.volume_state_store import VolumeStateStore
 from backend.infrastructure.services.dsp_controller import DSPController
 from backend.domain.volume_state import VolumeState, ClientVolume
@@ -52,9 +51,9 @@ class VolumeService:
         # Initialize sub-services
         self._config_service = VolumeConfigService(self.settings_service)
         self._converter = VolumeConverterService()
-        self._storage = VolumeStorageService()
 
         # NEW ARCHITECTURE: VolumeStateStore (SSOT) + DSPController (hardware abstraction)
+        # VolumeStateStore now handles persistence (consolidated from VolumeStorageService)
         self._state_store = VolumeStateStore(self.settings_service)
         self._dsp_controller = DSPController(self._dsp_service, self._proxy_service)
 
@@ -71,11 +70,6 @@ class VolumeService:
     def config(self) -> VolumeConfigService:
         """Access to volume configuration service."""
         return self._config_service
-
-    @property
-    def storage(self) -> VolumeStorageService:
-        """Access to volume storage service for persistence."""
-        return self._storage
 
     # ============================================================================
     # MODE DETECTION & ALSA SETUP
@@ -141,18 +135,19 @@ class VolumeService:
     async def _load_volume_config(self) -> None:
         """Load volume configuration from settings asynchronously."""
         await self._config_service.load()
-        self._converter.update_limits(
-            self._config_service.config.limit_min_db,
-            self._config_service.config.limit_max_db
-        )
+        # Update limits in both converter and state store (state store is SSOT)
+        min_db = self._config_service.config.limit_min_db
+        max_db = self._config_service.config.limit_max_db
+        self._converter.update_limits(min_db, max_db)
+        self._state_store.update_user_limits(min_db, max_db)
 
     def _save_last_volume(self, volume_db: float) -> None:
-        """Save last volume in background."""
-        self._storage.save(volume_db, self.config.config.restore_last_volume)
+        """Save last volume in background (via VolumeStateStore)."""
+        self._state_store.save_local_volume(self.config.config.restore_last_volume)
 
     def _determine_startup_volume_db(self) -> float:
         """Determine startup volume in dB (restored or default)."""
-        return self._storage.get_startup_volume(
+        return self._state_store.get_startup_volume(
             self.config.config.startup_volume_db,
             self.config.config.restore_last_volume
         )
@@ -164,10 +159,11 @@ class VolumeService:
             current_db = volume_state.display_volume_db
             old_min_db, old_max_db = await self._config_service.reload_limits()
 
-            self._converter.update_limits(
-                self._config_service.config.limit_min_db,
-                self._config_service.config.limit_max_db
-            )
+            # Update limits in both converter and state store (state store is SSOT)
+            new_min = self._config_service.config.limit_min_db
+            new_max = self._config_service.config.limit_max_db
+            self._converter.update_limits(new_min, new_max)
+            self._state_store.update_user_limits(new_min, new_max)
 
             # No change, nothing to do
             if (old_min_db == self.config.config.limit_min_db and
@@ -218,17 +214,8 @@ class VolumeService:
             self.logger.error(f"Error reloading rotary steps: {e}")
             return False
 
-    def invalidate_client_caches(self) -> None:
-        """
-        Invalidate client caches (called when toggling multiroom).
-
-        NOTE: With VolumeStateStore, this is a no-op since there are no caches.
-        State is always consistent and computed on-demand.
-        """
-        self.logger.debug("invalidate_client_caches called (no-op with VolumeStateStore)")
-
     # ============================================================================
-    # CLIENT VOLUME MANAGEMENT (New architecture using VolumeStateStore)
+    # CLIENT VOLUME MANAGEMENT (VolumeStateStore architecture)
     # ============================================================================
 
     async def sync_existing_client_from_snapcast(self, client_id: str) -> bool:
