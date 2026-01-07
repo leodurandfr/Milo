@@ -113,8 +113,8 @@ class VolumeStateStore:
         """
         async with self._lock:
             # Load user volume limits from settings
-            min_db = await self.settings_service.get_setting("volume.min_db")
-            max_db = await self.settings_service.get_setting("volume.max_db")
+            min_db = await self.settings_service.get_setting("volume.limit_min_db")
+            max_db = await self.settings_service.get_setting("volume.limit_max_db")
             self._user_limit_min_db = min_db if min_db is not None else self.DEFAULT_USER_MIN_DB
             self._user_limit_max_db = max_db if max_db is not None else self.DEFAULT_USER_MAX_DB
 
@@ -601,23 +601,23 @@ class VolumeStateStore:
                     all_muted=self._zone_all_muted(zone_id)
                 )
 
-            # Calculate global volume (average of all available, unmuted clients)
-            all_volumes = [
-                client.volume_db
-                for client in self._clients.values()
-                if client.available and not client.mute
-            ]
-            global_volume = sum(all_volumes) / len(all_volumes) if all_volumes else self.DEFAULT_VOLUME_DB
-
-            # Calculate display volume (local for direct mode, global for multiroom)
+            # Calculate global volume (mode-aware)
+            # - Direct mode: use local client's volume
+            # - Multiroom mode: average of all available, unmuted clients
             if self._mode == "direct":
                 local_client = self._clients.get('local')
                 if local_client and local_client.available:
-                    display_volume = local_client.volume_db
+                    global_volume = local_client.volume_db
                 else:
-                    display_volume = global_volume
+                    global_volume = self._local_volume_db
             else:
-                display_volume = global_volume
+                # Multiroom: average of all available, unmuted clients
+                all_volumes = [
+                    client.volume_db
+                    for client in self._clients.values()
+                    if client.available and not client.mute
+                ]
+                global_volume = sum(all_volumes) / len(all_volumes) if all_volumes else self.DEFAULT_VOLUME_DB
 
             # Check if all available clients are muted
             available_clients = [c for c in self._clients.values() if c.available]
@@ -627,7 +627,6 @@ class VolumeStateStore:
                 mode=self._mode,
                 global_volume_db=global_volume,
                 global_mute=global_mute,
-                display_volume_db=display_volume,
                 clients=clients_with_offsets,
                 zones=zone_states
             )
@@ -696,8 +695,8 @@ class VolumeStateStore:
         Returns:
             Dict with min_db, max_db, step_mobile_db, step_button_db
         """
-        min_db = await self.settings_service.get_setting("volume.min_db") or self.MIN_DB
-        max_db = await self.settings_service.get_setting("volume.max_db") or self.MAX_DB
+        min_db = await self.settings_service.get_setting("volume.limit_min_db") or self.MIN_DB
+        max_db = await self.settings_service.get_setting("volume.limit_max_db") or self.MAX_DB
         step_mobile_db = await self.settings_service.get_setting("volume.step_mobile_db") or 3.0
         step_button_db = await self.settings_service.get_setting("volume.step_button_db") or 5.0
 

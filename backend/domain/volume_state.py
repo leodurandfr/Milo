@@ -56,7 +56,6 @@ class VolumeState:
     mode: Literal['direct', 'multiroom']
     global_volume_db: float
     global_mute: bool
-    display_volume_db: float
     clients: Dict[str, ClientVolume] = field(default_factory=dict)
     zones: Dict[str, ZoneVolume] = field(default_factory=dict)
 
@@ -65,7 +64,6 @@ class VolumeState:
             "mode": self.mode,
             "global_volume_db": self.global_volume_db,
             "global_mute": self.global_mute,
-            "display_volume_db": self.display_volume_db,
             "clients": {k: v.to_dict() for k, v in self.clients.items()},
             "zones": {k: v.to_dict() for k, v in self.zones.items()}
         }

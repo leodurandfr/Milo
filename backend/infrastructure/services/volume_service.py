@@ -156,7 +156,7 @@ class VolumeService:
         """Reload volume limits from settings and adjust current volume if needed."""
         try:
             volume_state = await self._state_store.get_complete_state()
-            current_db = volume_state.display_volume_db
+            current_db = volume_state.global_volume_db
             old_min_db, old_max_db = await self._config_service.reload_limits()
 
             # Update limits in both converter and state store (state store is SSOT)
@@ -248,7 +248,7 @@ class VolumeService:
                 expected_volume = self._state_store.get_client_volume(client_id)
 
                 if expected_volume is None:
-                    expected_volume = volume_state.display_volume_db
+                    expected_volume = volume_state.global_volume_db
                     self.logger.info(f"New client {client_id}, applying display volume: {expected_volume:.1f}dB")
                 else:
                     self.logger.info(f"Reconnected client {client_id} (no zone), applying persisted volume: {expected_volume:.1f}dB")
@@ -516,7 +516,7 @@ class VolumeService:
     async def get_volume_db(self) -> float:
         """Get current volume in dB (average of non-muted clients in multiroom mode)."""
         volume_state = await self._state_store.get_complete_state()
-        return volume_state.display_volume_db
+        return volume_state.global_volume_db
 
     async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
         """
@@ -623,7 +623,7 @@ class VolumeService:
 
                         if success:
                             volume_state = await self._state_store.get_complete_state()
-                            self._save_last_volume(volume_state.display_volume_db)
+                            self._save_last_volume(volume_state.global_volume_db)
                             await self._broadcast_volume_state(show_bar)
 
                         return success
@@ -666,7 +666,7 @@ class VolumeService:
             else:
                 # LOCAL: Apply delta to CamillaDSP
                 volume_state = await self._state_store.get_complete_state()
-                new_db = self._converter.clamp_db(volume_state.display_volume_db + delta_db)
+                new_db = self._converter.clamp_db(volume_state.global_volume_db + delta_db)
                 success = await self._dsp_service.set_volume(new_db)
                 if success:
                     self._state_store.set_local_volume(new_db)
@@ -754,7 +754,7 @@ class VolumeService:
             volume_state = await self._state_store.get_complete_state()
 
             return {
-                "volume_db": volume_state.display_volume_db,
+                "volume_db": volume_state.global_volume_db,
                 "multiroom_enabled": self._is_multiroom_enabled(),
                 "dsp_available": self._is_dsp_available(),
                 "config": self.get_volume_config_public(),

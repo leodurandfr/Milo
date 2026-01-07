@@ -435,7 +435,7 @@ class CrossoverService:
                 return False
 
             client_ids = zone.get("client_ids", [])
-            frequency = zone.get("crossover_frequency", self.DEFAULT_CROSSOVER_FREQUENCY)
+            frequency = await self.get_zone_auto_crossover(zone_id)
             crossover_enabled = zone.get("crossover_enabled", True)
 
             # Check if zone has a subwoofer

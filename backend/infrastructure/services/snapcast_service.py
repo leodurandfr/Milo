@@ -244,6 +244,9 @@ class SnapcastService:
 
     def _get_stable_dsp_id(self, host: str, ip: str) -> str:
         """Get stable identifier for DSP settings (hostname preferred over IP)"""
+        # Local snapclient (127.0.0.1) maps to "local"
+        if ip == "127.0.0.1":
+            return "local"
         # Use hostname if it looks like a valid milo-client hostname
         if host and host.startswith("milo-client"):
             return host
