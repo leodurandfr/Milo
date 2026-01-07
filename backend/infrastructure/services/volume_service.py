@@ -229,22 +229,45 @@ class VolumeService:
             return False
 
     async def sync_existing_client_from_snapcast(self, client_id: str) -> bool:
-        """Synchronize existing client from Snapcast."""
+        """
+        Sync reconnected client: apply correct volume to DSP.
+
+        Volume selection priority:
+        1. If client is in a zone -> ALWAYS use zone's current average (consistency)
+        2. If client not in zone -> use persisted volume or display volume
+        """
         if not self._is_multiroom_enabled():
             return True
 
         try:
-            # Read current DSP volume from client
-            if client_id == 'local':
-                volume_data = await self._dsp_service.get_volume()
-                current_volume = volume_data.get("main", -30.0) if volume_data else -30.0
-            else:
-                # Query remote client DSP via proxy
-                result = await self._proxy_service.request(client_id, "GET", "/dsp/volume")
-                current_volume = result.get("main", -30.0) if result else -30.0
+            volume_state = await self._state_store.get_complete_state()
 
-            # Register with current volume
-            await self._state_store.register_client(client_id, volume_db=current_volume, available=True)
+            # FIRST: Check if client is in any zone
+            client_zone_id = None
+            for zone_id, zone_data in volume_state.zones.items():
+                if client_id in zone_data.client_ids:
+                    client_zone_id = zone_id
+                    break
+
+            if client_zone_id:
+                # Client is in a zone - ALWAYS use zone average for consistency
+                expected_volume = volume_state.zones[client_zone_id].average_volume_db
+                self.logger.info(f"Reconnecting client {client_id} in zone '{client_zone_id}', using zone volume: {expected_volume:.1f}dB")
+            else:
+                # Client not in a zone - use persisted volume or display volume
+                expected_volume = self._state_store.get_client_volume(client_id)
+
+                if expected_volume is None:
+                    expected_volume = volume_state.display_volume_db
+                    self.logger.info(f"New client {client_id}, applying display volume: {expected_volume:.1f}dB")
+                else:
+                    self.logger.info(f"Reconnected client {client_id} (no zone), applying persisted volume: {expected_volume:.1f}dB")
+
+            # PUSH the correct volume to client DSP
+            await self._dsp_controller.set_dsp_volume(client_id, expected_volume)
+
+            # Register client with the applied volume
+            await self._state_store.register_client(client_id, volume_db=expected_volume, available=True)
             await self._broadcast_volume_state(show_bar=False)
             return True
         except Exception as e:

@@ -159,6 +159,7 @@ import Toggle from '@/components/ui/Toggle.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useDspStore } from '@/stores/dspStore';
+import { useAnimatedHeight } from '@/composables/useAnimatedHeight';
 
 const settingsStore = useSettingsStore();
 const dspStore = useDspStore();
@@ -677,9 +678,21 @@ onUnmounted(() => {
 }
 
 /* === EXPAND TRANSITION === */
-.expand-enter-active,
+.expand-enter-active {
+  transition:
+    max-height 450ms ease,
+    opacity 350ms ease,
+    margin-top 350ms ease,
+    padding-top 350ms ease;
+  overflow: hidden;
+}
+
 .expand-leave-active {
-  transition: all var(--transition-normal);
+  transition:
+    max-height 250ms ease,
+    opacity 200ms ease,
+    margin-top 250ms ease,
+    padding-top 250ms ease;
   overflow: hidden;
 }
 
@@ -693,7 +706,8 @@ onUnmounted(() => {
 
 .expand-enter-to,
 .expand-leave-from {
-  max-height: 500px;
+  opacity: 1;
+  max-height: 300px;
 }
 
 /* === ANIMATIONS === */

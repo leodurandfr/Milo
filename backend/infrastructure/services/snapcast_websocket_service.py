@@ -567,25 +567,17 @@ class SnapcastWebSocketService:
             self.logger.error(f"Error broadcasting Snapcast event: {e}")
     
     async def _notify_volume_service_client_connected(self, client_id: str, client: Dict[str, Any]) -> None:
-        """Switches new client to Multiroom group (volume controlled via CamillaDSP)"""
+        """Initializes new client: sets Multiroom group, syncs volume, applies pending settings."""
         try:
             self.logger.info(f"🔵 _notify_volume_service_client_connected for {client_id}")
 
-            snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
-
-            # Switch group to Multiroom - Snapcast volume is always 100% passthrough
-            if snapcast_service:
-                self.logger.info(f"  - Setting client group to Multiroom...")
-                await snapcast_service.set_client_group_to_multiroom(client_id)
-                # Ensure Snapcast volume is 100% passthrough
-                await snapcast_service.set_volume(client_id, 100)
-                self.logger.info(f"  - Snapcast volume set to 100% (passthrough)")
+            # Common initialization (Multiroom group + volume sync)
+            await self._sync_existing_client_volume(client_id, client)
 
             # Apply any pending settings for this client (queued while offline)
             crossover_service = getattr(self.state_machine, 'crossover_service', None)
             if crossover_service:
-                # Get client IP/DSP ID from client data
-                client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
+                client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "") if isinstance(client.get("host"), dict) else ""
                 if client_ip:
                     has_pending = crossover_service.has_pending_settings(client_ip)
                     if has_pending:
@@ -596,22 +588,76 @@ class SnapcastWebSocketService:
             self.logger.error(f"❌ Error initializing new client: {e}", exc_info=True)
 
     async def _sync_existing_client_volume(self, client_id: str, client: Dict[str, Any]) -> None:
-        """Ensures existing client is in Multiroom group with 100% volume passthrough"""
+        """
+        Ensures existing client is in Multiroom group with correct volume.
+
+        Sequence to prevent volume blast on reconnect:
+        1. Mute client in Snapcast (prevents audio during setup)
+        2. Join client to multiroom group (audio starts but is muted)
+        3. Set Snapcast volume to 100% passthrough
+        4. Apply correct DSP volume (waits for HTTP response)
+        5. Unmute client (audio now plays at correct volume)
+        """
         try:
-            self.logger.info(f"🔄 _sync_existing_client_volume for {client_id}")
+            self.logger.info(f"_sync_existing_client_volume for {client_id}")
 
             snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
+            if not snapcast_service:
+                self.logger.warning("SnapcastService not available")
+                return
 
-            # Switch group to Multiroom and ensure 100% volume
-            if snapcast_service:
-                self.logger.info(f"  - Setting client group to Multiroom...")
-                await snapcast_service.set_client_group_to_multiroom(client_id)
-                # Ensure Snapcast volume is 100% passthrough
-                await snapcast_service.set_volume(client_id, 100)
-                self.logger.info(f"  - Snapcast volume set to 100% (passthrough)")
+            # Get DSP ID early (needed for volume sync)
+            host = client.get("host", {})
+            hostname = host.get("name", "")
+            ip = host.get("ip", "").replace("::ffff:", "")
+            dsp_id = snapcast_service._get_stable_dsp_id(hostname, ip)
+
+            # 1. MUTE client FIRST to prevent volume blast
+            self.logger.info(f"  - Muting client before group join...")
+            await snapcast_service.set_mute(client_id, True)
+
+            # 2. Join to multiroom group (audio stream starts but is muted)
+            self.logger.info(f"  - Setting client group to Multiroom...")
+            await snapcast_service.set_client_group_to_multiroom(client_id)
+
+            # 3. Set Snapcast volume to 100% passthrough
+            await snapcast_service.set_volume(client_id, 100)
+            self.logger.info(f"  - Snapcast volume set to 100% (passthrough)")
+
+            # 4. Apply correct DSP volume and wait for completion
+            self.logger.info(f"  - Applying DSP volume for {dsp_id}...")
+            await self._sync_client_volume_and_broadcast(dsp_id)
+
+            # 5. UNMUTE after volume is correctly set
+            self.logger.info(f"  - Unmuting client after volume sync...")
+            await snapcast_service.set_mute(client_id, False)
+
+            self.logger.info(f"  - Client {client_id} fully initialized with correct volume")
 
         except Exception as e:
-            self.logger.error(f"❌ Error syncing existing client {client_id}: {e}", exc_info=True)
+            self.logger.error(f"Error syncing existing client {client_id}: {e}", exc_info=True)
+            # Safety: try to unmute on error so client is not stuck muted
+            try:
+                snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
+                if snapcast_service:
+                    await snapcast_service.set_mute(client_id, False)
+            except Exception:
+                pass
+
+    async def _sync_client_volume_and_broadcast(self, dsp_id: str) -> None:
+        """Apply correct volume to client DSP and broadcast state to frontend."""
+        try:
+            volume_service = getattr(self.state_machine, 'volume_service', None)
+            if not volume_service:
+                self.logger.warning(f"No volume_service available to sync volume for {dsp_id}")
+                return
+
+            # Apply correct volume to client DSP and broadcast state
+            self.logger.info(f"  - Applying volume to {dsp_id}")
+            await volume_service.sync_existing_client_from_snapcast(dsp_id)
+
+        except Exception as e:
+            self.logger.error(f"Error syncing client volume for {dsp_id}: {e}", exc_info=True)
 
     async def _broadcast_snapcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
         """Broadcasts a Snapcast event via the Milo WebSocket system"""

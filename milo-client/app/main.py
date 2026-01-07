@@ -397,7 +397,7 @@ class DSPManager:
             "low_boost": 8.0
         }
         self._delay = {"left": 0.0, "right": 0.0}
-        self._volume = {"main": 0.0, "mute": False}
+        self._volume = {"main": -40.0, "mute": False}  # Safe default to prevent volume blast on reconnect
         self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
 
@@ -417,6 +417,12 @@ class DSPManager:
 
             # Load current state from CamillaDSP config
             await self._load_state_from_config()
+
+            # Apply safe default volume immediately to prevent volume blast on reconnect
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda: self._client.volume.set_main_volume(self._volume["main"])
+            )
+            self.logger.info(f"Applied safe default volume: {self._volume['main']}dB")
 
             return True
         except Exception as e:
