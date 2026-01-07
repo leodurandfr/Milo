@@ -82,11 +82,18 @@ function getZoneForClient(client) {
   return null;
 }
 
-// Check if a client is the "primary" of its zone (first in the list)
+// Check if a client is the "primary" of its zone (first available in the list)
 function isZonePrimary(client) {
   const zone = getZoneForClient(client);
   if (!zone) return true; // Not in a zone, show it
-  return zone.client_ids[0] === client.dsp_id;
+
+  // Find the first available client in the zone
+  const firstAvailableId = zone.client_ids.find(dspId =>
+    multiroomStore.clients.some(c => c.dsp_id === dspId)
+  );
+
+  // This client is primary if it's the first available one
+  return firstAvailableId === client.dsp_id;
 }
 
 // Get zone average volume from unified volume state
@@ -130,12 +137,23 @@ const zoneSliderState = ref({});
 function getZoneSliderState(zone) {
   const zoneId = zone.id || zone.client_ids.join('-');
   if (!zoneSliderState.value[zoneId]) {
-    // First input - capture ALL starting volumes
+    // Filter to only available clients (matching getZoneAverageVolume pattern)
+    const availableClientIds = zone.client_ids.filter(dspId =>
+      multiroomStore.clients.some(c => c.dsp_id === dspId && c.available)
+    );
+
+    // Handle edge case: no available clients
+    if (availableClientIds.length === 0) {
+      zoneSliderState.value[zoneId] = { startAvg: -30, clientStarts: {} };
+      return zoneSliderState.value[zoneId];
+    }
+
+    // Capture starting volumes for available clients only
     const clientStarts = {};
-    zone.client_ids.forEach(dspId => {
+    availableClientIds.forEach(dspId => {
       clientStarts[dspId] = dspStore.getClientDspVolume(dspId);
     });
-    const startAvg = Object.values(clientStarts).reduce((s, v) => s + v, 0) / zone.client_ids.length;
+    const startAvg = Object.values(clientStarts).reduce((s, v) => s + v, 0) / availableClientIds.length;
     zoneSliderState.value[zoneId] = { startAvg, clientStarts };
   }
   return zoneSliderState.value[zoneId];
@@ -266,10 +284,16 @@ const displayClients = computed(() => {
           isZone: false,
           zoneClientDetails: null
         };
+      })
+      .sort((a, b) => {
+        // Zones first, then alphabetically by name
+        if (a.isZone && !b.isZone) return -1;
+        if (!a.isZone && b.isZone) return 1;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
       });
   }
 
-  // No linked groups - just add dspVolume and dspMuted to each client
+  // No linked groups - just add dspVolume and dspMuted to each client, sorted alphabetically
   return multiroomStore.clients.map(client => {
     const dspVol = dspStore.getClientDspVolume(client.dsp_id);
     const dspMut = dspStore.getClientDspMute(client.dsp_id);
@@ -280,7 +304,7 @@ const displayClients = computed(() => {
       isZone: false,
       zoneClientDetails: null
     };
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 });
 
 // === HANDLERS ===

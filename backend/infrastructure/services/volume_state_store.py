@@ -199,15 +199,18 @@ class VolumeStateStore:
 
         Args:
             hostname: Client hostname (e.g., 'local', 'milo-client-01')
-            volume_db: Initial volume (None = use default)
+            volume_db: Volume in dB (None = keep existing or use default)
             mute: Initial mute state
             available: Initial availability
         """
         async with self._lock:
             if hostname in self._clients:
-                # Client already registered, update availability only
+                # Update availability and volume if provided
                 self._clients[hostname].available = available
-                self.logger.debug(f"Updated client availability: {hostname} → {available}")
+                if volume_db is not None:
+                    self._clients[hostname].volume_db = self._clamp_db(volume_db)
+                    await self._persist_state()
+                self.logger.debug(f"Updated client: {hostname} → available={available}, volume_db={self._clients[hostname].volume_db:.1f}dB")
             else:
                 # New client
                 if volume_db is None:
@@ -278,6 +281,12 @@ class VolumeStateStore:
                 await self.register_client(hostname, volume_db=volume_db, available=True)
 
             return volume_db
+
+    def get_client_volume(self, hostname: str) -> Optional[float]:
+        """Get persisted volume for a client, or None if not registered."""
+        if hostname in self._clients:
+            return self._clients[hostname].volume_db
+        return None
 
     # ========== Zone Operations ==========
 
