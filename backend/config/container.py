@@ -15,7 +15,12 @@ from backend.infrastructure.services.systemd_manager import SystemdServiceManage
 from backend.infrastructure.services.audio_routing_service import AudioRoutingService
 from backend.infrastructure.services.snapcast_service import SnapcastService
 from backend.infrastructure.services.snapcast_websocket_service import SnapcastWebSocketService
-from backend.infrastructure.services.camilladsp_service import CamillaDSPService
+from backend.infrastructure.services.dsp import (
+    CamillaDSPService,
+    CrossoverService,
+    DspClientProxyService,
+    DspSettingsSyncService,
+)
 from backend.infrastructure.services.volume_service import VolumeService
 from backend.infrastructure.services.settings_service import SettingsService
 from backend.infrastructure.services.hardware_service import HardwareService
@@ -27,9 +32,6 @@ from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.program_version_service import ProgramVersionService
 from backend.infrastructure.services.program_update_service import ProgramUpdateService
 from backend.infrastructure.services.satellite_program_update_service import SatelliteProgramUpdateService
-from backend.infrastructure.services.crossover_service import CrossoverService
-from backend.infrastructure.services.dsp_client_proxy_service import DspClientProxyService
-from backend.infrastructure.services.dsp_settings_sync_service import DspSettingsSyncService
 
 class Container(containers.DeclarativeContainer):
     """Dependency injection container for Milo with SettingsService injection"""

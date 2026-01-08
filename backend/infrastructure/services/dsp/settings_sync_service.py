@@ -15,7 +15,7 @@ from typing import Dict, List, Any, Optional, TYPE_CHECKING
 from backend.config.constants import CLIENT_DSP_FILE
 
 if TYPE_CHECKING:
-    from backend.infrastructure.services.dsp_client_proxy_service import DspClientProxyService
+    from backend.infrastructure.services.dsp.client_proxy_service import DspClientProxyService
 
 
 class DspSettingsSyncService:
