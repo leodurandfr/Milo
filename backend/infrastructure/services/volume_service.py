@@ -15,9 +15,11 @@ import logging
 from typing import Optional, Dict, Any
 
 from backend.infrastructure.services.settings_service import SettingsService
-from backend.infrastructure.services.volume_config_service import VolumeConfigService
-from backend.infrastructure.services.volume_state_store import VolumeStateStore
-from backend.infrastructure.services.dsp_controller import DSPController
+from backend.infrastructure.services.volume import (
+    VolumeConfigService,
+    VolumeStateStore,
+    DSPController,
+)
 from backend.infrastructure.services.shared.client_helpers import get_available_client_ids
 from backend.domain.volume_state import VolumeState, ClientVolume
 
