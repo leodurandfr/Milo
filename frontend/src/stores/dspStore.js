@@ -380,7 +380,6 @@ export const useDspStore = defineStore('dsp', () => {
     try {
       // Skip remote clients when multiroom is disabled
       if (normalized !== 'local') {
-        const { useUnifiedAudioStore } = await import('./unifiedAudioStore');
         const audioStore = useUnifiedAudioStore();
         if (!audioStore.systemState.multiroom_enabled) {
           console.warn(`Skipping volume update for ${hostname} - multiroom disabled`);
@@ -414,7 +413,6 @@ export const useDspStore = defineStore('dsp', () => {
   async function applyZoneDelta(zoneId, deltaDb) {
     try {
       // Check multiroom enabled
-      const { useUnifiedAudioStore } = await import('./unifiedAudioStore');
       const audioStore = useUnifiedAudioStore();
       if (!audioStore.systemState.multiroom_enabled) {
         console.warn('Skipping zone delta - multiroom disabled');
@@ -473,7 +471,6 @@ export const useDspStore = defineStore('dsp', () => {
 
       // Skip remote clients when multiroom is disabled
       if (normalized !== 'local') {
-        const { useUnifiedAudioStore } = await import('./unifiedAudioStore');
         const audioStore = useUnifiedAudioStore();
         if (!audioStore.systemState.multiroom_enabled) {
           console.warn(`Skipping mute update for ${clientId} - multiroom disabled`);
@@ -679,7 +676,8 @@ export const useDspStore = defineStore('dsp', () => {
 
     throttleState.finalTimeout = setTimeout(() => {
       sendFilterUpdate(filterId, filterData);
-      throttleState.lastRequestTime = Date.now();
+      // Clean up this entry after final update (prevents stale entries accumulating)
+      filterThrottleMap.delete(filterId);
     }, FINAL_DELAY);
 
     filterThrottleMap.set(filterId, throttleState);
@@ -1042,10 +1040,6 @@ export const useDspStore = defineStore('dsp', () => {
   function getClientSpeakerType(clientId) {
     const clientData = clientTypes.value[clientId];
     if (!clientData) return 'bookshelf';
-    // Migration: handle old is_subwoofer format
-    if ('is_subwoofer' in clientData && !('speaker_type' in clientData)) {
-      return clientData.is_subwoofer ? 'subwoofer' : 'bookshelf';
-    }
     return clientData.speaker_type || 'bookshelf';
   }
 

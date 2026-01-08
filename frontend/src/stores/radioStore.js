@@ -36,6 +36,7 @@ export const useRadioStore = defineStore('radio', () => {
   const topStationsCacheTimestamp = ref(null);
   const CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
   const BACKGROUND_REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+  const MAX_CACHED_STATIONS = 500; // Maximum stations in memory to prevent unbounded growth
   const LOCALSTORAGE_KEY = 'milo_radio_top_stations';
   const LOCALSTORAGE_TIMESTAMP_KEY = 'milo_radio_top_stations_timestamp';
 
@@ -87,13 +88,25 @@ export const useRadioStore = defineStore('radio', () => {
   // === HELPER FUNCTIONS ===
 
   /**
-   * Add or update station in the map
+   * Add or update station in the map (with cache size limit)
    */
   function upsertStation(station) {
     const enrichedStation = {
       ...station,
       is_favorite: favoriteStationIds.value.has(station.id)
     };
+
+    // Enforce cache limit: remove oldest non-favorite entries if needed
+    if (!stations.value.has(station.id) && stations.value.size >= MAX_CACHED_STATIONS) {
+      // Find and remove oldest non-favorite, non-current station
+      for (const [id, s] of stations.value) {
+        if (!s.is_favorite && id !== currentStationId.value) {
+          stations.value.delete(id);
+          break;
+        }
+      }
+    }
+
     stations.value.set(station.id, enrichedStation);
   }
 

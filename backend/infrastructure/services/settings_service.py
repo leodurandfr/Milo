@@ -59,15 +59,6 @@ class SettingsService:
 
                     settings = json.loads(content)
 
-                    # Migration display → screen
-                    if 'display' in settings:
-                        display_config = settings.pop('display')
-                        if 'screen' not in settings:
-                            settings['screen'] = {
-                                'timeout_seconds': display_config.get('screen_timeout_seconds', 10),
-                                'brightness_on': display_config.get('brightness_on', 5)
-                            }
-
                     # Merge with defaults and validate
                     validated = self._validate_and_merge(settings)
 

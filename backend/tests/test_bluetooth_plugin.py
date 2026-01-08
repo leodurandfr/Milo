@@ -54,6 +54,8 @@ class TestBluetoothPlugin:
             plugin._current_device = "milo_bluetooth"
             plugin._monitoring_task = None
             plugin._first_connected_device = None
+            plugin._restart_lock = asyncio.Lock()
+            plugin._restart_in_progress = False
             plugin._initialized = False
             plugin.logger = Mock()
 
@@ -402,10 +404,16 @@ class TestBluetoothPlugin:
     @pytest.mark.asyncio
     async def test_restart(self, plugin):
         """Test restart (bluealsa-aplay only)"""
-        result = await plugin.restart()
+        with patch('asyncio.create_subprocess_exec') as mock_exec:
+            mock_process = Mock()
+            mock_process.communicate = AsyncMock(return_value=(b"Device AA:BB:CC:DD:EE:FF Test Device\n", b""))
+            mock_process.returncode = 0
+            mock_exec.return_value = mock_process
 
-        assert result is True
-        plugin.control_service.assert_called_with(plugin.bluealsa_aplay_service, "restart")
+            result = await plugin.restart()
+
+            assert result is True
+            plugin.control_service.assert_called_with(plugin.bluealsa_aplay_service, "restart")
 
     # ===================
     # CLEANUP TESTS

@@ -4,6 +4,9 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 import { useUnifiedAudioStore } from './unifiedAudioStore'
 
+// Maximum progress entries to cache (prevents unbounded memory growth)
+const MAX_PROGRESS_ENTRIES = 200
+
 export const usePodcastStore = defineStore('podcast', () => {
   // Access unified audio store (source of truth for playback state)
   const unifiedStore = useUnifiedAudioStore()
@@ -248,6 +251,7 @@ export const usePodcastStore = defineStore('podcast', () => {
         duration: metadata.duration,
         lastPlayed: Date.now()
       })
+      enforceProgressCacheLimit()
     }
 
     // Note: is_playing and is_buffering are read from unifiedStore.systemState.metadata
@@ -276,6 +280,25 @@ export const usePodcastStore = defineStore('podcast', () => {
     return progressCache.value.get(episodeUuid) || null
   }
 
+  /**
+   * Enforce cache limit by evicting oldest entries (LRU based on lastPlayed)
+   * Preserves the currently playing episode
+   */
+  function enforceProgressCacheLimit() {
+    if (progressCache.value.size <= MAX_PROGRESS_ENTRIES) return
+
+    const currentUuid = currentEpisode.value?.uuid
+    const entries = Array.from(progressCache.value.entries())
+      .filter(([uuid]) => uuid !== currentUuid)
+      .sort((a, b) => (a[1].lastPlayed || 0) - (b[1].lastPlayed || 0))
+
+    // Remove oldest entries until under limit
+    const toRemove = progressCache.value.size - MAX_PROGRESS_ENTRIES
+    for (let i = 0; i < toRemove && i < entries.length; i++) {
+      progressCache.value.delete(entries[i][0])
+    }
+  }
+
   function setEpisodeProgress(episodeUuid, position, duration) {
     // Manually set progress (used when loading from API)
     progressCache.value.set(episodeUuid, {
@@ -283,6 +306,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       duration,
       lastPlayed: Date.now()
     })
+    enforceProgressCacheLimit()
   }
 
   function enrichEpisodesWithProgress(episodes) {
@@ -303,6 +327,7 @@ export const usePodcastStore = defineStore('podcast', () => {
       }
     })
 
+    enforceProgressCacheLimit()
     return episodes
   }
 

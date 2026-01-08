@@ -3,6 +3,8 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useSettingsStore } from './settingsStore';
+import { logger } from '@/services/logger';
+import { SystemStateSchema, VolumeStateSchema, validateSchema } from '@/schemas/api';
 
 export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === SINGLE SYSTEM STATE ===
@@ -41,13 +43,13 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   async function changeSource(source) {
     isChangingSource.value = true;
     try {
-      console.log('🚀 CHANGING SOURCE TO:', source);
+      logger.store('unifiedAudio', 'changeSource', { source });
       const response = await axios.post(`/api/audio/source/${source}`);
       const success = response.data.status === 'success';
-      console.log('🚀 CHANGE SOURCE RESPONSE:', success);
+      logger.api('POST', `/api/audio/source/${source}`, { status: response.status, success });
       return success;
     } catch (err) {
-      console.error('Change source error:', err);
+      logger.error('store', 'Change source failed', { source, error: err.message });
       return false;
     } finally {
       isChangingSource.value = false;
@@ -63,7 +65,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       });
       return response.data.status === 'success';
     } catch (err) {
-      console.error(`Command error (${source}/${command}):`, err);
+      logger.error('store', `Command failed: ${source}/${command}`, { error: err.message });
       return false;
     } finally {
       isSendingCommand.value = false;
@@ -75,7 +77,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       const response = await axios.post(`/api/routing/multiroom/${enabled}`);
       return response.data.status === 'success';
     } catch (err) {
-      console.error('Set multiroom error:', err);
+      logger.error('store', 'Set multiroom failed', { enabled, error: err.message });
       return false;
     }
   }
@@ -85,7 +87,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       const response = await axios.post(`/api/routing/dsp/${enabled}`);
       return response.data.status === 'success';
     } catch (err) {
-      console.error('Set DSP error:', err);
+      logger.error('store', 'Set DSP failed', { enabled, error: err.message });
       return false;
     }
   }
@@ -105,7 +107,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       return false;
 
     } catch (error) {
-      console.error('Error setting volume:', error);
+      logger.error('store', 'Set volume failed', { volume_db, error: error.message });
       return false;
     }
   }
@@ -116,7 +118,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
       // Volume state will be updated via WebSocket broadcast
       return response.data.status === 'success';
     } catch (error) {
-      console.error('Error adjusting volume:', error);
+      logger.error('store', 'Adjust volume failed', { delta_db, error: error.message });
       return false;
     }
   }
@@ -146,7 +148,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         const now = Date.now();
         if (now - lastVisibilityLog > DEBOUNCE_MS) {
           lastVisibilityLog = now;
-          console.log('ℹ️ App visible - state already synchronized via WebSocket');
+          logger.debug('system', 'App visible - state synchronized via WebSocket');
         }
       }
     };
@@ -162,59 +164,37 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   // === STATE UPDATE ===
   function updateSystemState(newState, source = 'unknown') {
-    // Defensive validation of values received from WebSocket
-    // Note: This validation is a defensive frontend safety measure.
-    // It should never be needed if the backend works correctly,
-    // but it protects against data corruption in transit.
-    const validSources = ['none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
-    const validStates = ['starting', 'ready', 'connected', 'error'];
+    // Validate incoming state using zod schema
+    const result = validateSchema(SystemStateSchema, newState, `SystemState from ${source}`);
 
-    // Validate active_source
-    const activeSource = validSources.includes(newState.active_source)
-      ? newState.active_source
-      : 'none';
-
-    // Validate plugin_state
-    const pluginState = validStates.includes(newState.plugin_state)
-      ? newState.plugin_state
-      : 'ready';
-
-    // Validate transitioning (must be boolean)
-    const transitioning = typeof newState.transitioning === 'boolean'
-      ? newState.transitioning
-      : false;
-
-    // Validate metadata (must be object)
-    const metadata = newState.metadata && typeof newState.metadata === 'object' && !Array.isArray(newState.metadata)
-      ? newState.metadata
-      : {};
-
-    // Validate multiroom_enabled and dsp_effects_enabled (must be boolean)
-    const multiroomEnabled = typeof newState.multiroom_enabled === 'boolean'
-      ? newState.multiroom_enabled
-      : systemState.value.multiroom_enabled;
-
-    const dspEffectsEnabled = typeof newState.dsp_effects_enabled === 'boolean'
-      ? newState.dsp_effects_enabled
-      : systemState.value.dsp_effects_enabled;
-
-    systemState.value = {
-      active_source: activeSource,
-      plugin_state: pluginState,
-      transitioning: transitioning,
-      metadata: metadata,
-      error: newState.error || null,
-      multiroom_enabled: multiroomEnabled,
-      dsp_effects_enabled: dspEffectsEnabled
-    };
-
-    // Log warning if validation changed values
-    if (activeSource !== newState.active_source || pluginState !== newState.plugin_state) {
-      console.warn('⚠️ Invalid WebSocket data received:', {
-        received: { active_source: newState.active_source, plugin_state: newState.plugin_state },
-        corrected: { active_source: activeSource, plugin_state: pluginState },
-        source
+    if (result.success) {
+      // Schema validation passed - use validated data
+      systemState.value = {
+        ...result.data,
+        error: result.data.error || null
+      };
+    } else {
+      // Schema validation failed - apply safe fallbacks
+      logger.warn('store', 'SystemState validation failed, applying fallbacks', {
+        source,
+        errors: result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`)
       });
+
+      // Fallback to safe defaults for invalid fields
+      const validSources = ['none', 'spotify', 'bluetooth', 'mac', 'radio', 'podcast'];
+      const validStates = ['starting', 'ready', 'connected', 'error'];
+
+      systemState.value = {
+        active_source: validSources.includes(newState.active_source) ? newState.active_source : 'none',
+        plugin_state: validStates.includes(newState.plugin_state) ? newState.plugin_state : 'ready',
+        transitioning: typeof newState.transitioning === 'boolean' ? newState.transitioning : false,
+        metadata: (newState.metadata && typeof newState.metadata === 'object') ? newState.metadata : {},
+        error: newState.error || null,
+        multiroom_enabled: typeof newState.multiroom_enabled === 'boolean'
+          ? newState.multiroom_enabled : systemState.value.multiroom_enabled,
+        dsp_effects_enabled: typeof newState.dsp_effects_enabled === 'boolean'
+          ? newState.dsp_effects_enabled : systemState.value.dsp_effects_enabled
+      };
     }
   }
 
@@ -228,13 +208,25 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   function handleVolumeEvent(event) {
     const { show_bar, step_mobile_db, state } = event.data || {};
 
-    // Update unified volume state
+    // Update unified volume state with schema validation
     if (state) {
-      volumeState.value.mode = state.mode || 'direct';
-      volumeState.value.global_volume_db = state.global_volume_db ?? -30.0;
-      volumeState.value.global_mute = state.global_mute ?? false;
-      volumeState.value.clients = state.clients || {};
-      volumeState.value.zones = state.zones || {};
+      const result = validateSchema(VolumeStateSchema, state, 'VolumeState');
+
+      if (result.success) {
+        volumeState.value.mode = result.data.mode;
+        volumeState.value.global_volume_db = result.data.global_volume_db;
+        volumeState.value.global_mute = result.data.global_mute;
+        volumeState.value.clients = result.data.clients;
+        volumeState.value.zones = result.data.zones;
+      } else {
+        // Fallback to direct assignment with defaults
+        logger.debug('store', 'VolumeState validation partial, using fallbacks');
+        volumeState.value.mode = state.mode || 'direct';
+        volumeState.value.global_volume_db = state.global_volume_db ?? -30.0;
+        volumeState.value.global_mute = state.global_mute ?? false;
+        volumeState.value.clients = state.clients || {};
+        volumeState.value.zones = state.zones || {};
+      }
     }
 
     // Update step if provided

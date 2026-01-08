@@ -271,12 +271,12 @@ class SpotifyPlugin(UnifiedAudioPlugin):
             self.logger.debug("Pause disconnect timer cancelled")
     
     def _start_pause_timer(self) -> None:
-        """Starts auto-disconnect timer après pause"""
+        """Starts auto-disconnect timer after pause"""
         if not self.auto_disconnect_enabled:
             self.logger.debug("Auto-disconnect disabled, skipping timer")
             return
 
-        # Cancel existing timer s'il y en a un
+        # Cancel existing timer if any
         self._cancel_pause_timer()
 
         # Create new timer
