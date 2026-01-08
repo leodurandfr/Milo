@@ -15,10 +15,10 @@ import logging
 from typing import Optional, Dict, Any
 
 from backend.infrastructure.services.settings_service import SettingsService
-from backend.infrastructure.services.volume_converter_service import VolumeConverterService
 from backend.infrastructure.services.volume_config_service import VolumeConfigService
 from backend.infrastructure.services.volume_state_store import VolumeStateStore
 from backend.infrastructure.services.dsp_controller import DSPController
+from backend.infrastructure.services.shared.client_helpers import get_available_client_ids
 from backend.domain.volume_state import VolumeState, ClientVolume
 
 
@@ -50,7 +50,6 @@ class VolumeService:
 
         # Initialize sub-services
         self._config_service = VolumeConfigService(self.settings_service)
-        self._converter = VolumeConverterService()
 
         # NEW ARCHITECTURE: VolumeStateStore (SSOT) + DSPController (hardware abstraction)
         # VolumeStateStore now handles persistence (consolidated from VolumeStorageService)
@@ -60,11 +59,6 @@ class VolumeService:
     # ============================================================================
     # EXPOSED SUB-SERVICES
     # ============================================================================
-
-    @property
-    def converter(self) -> VolumeConverterService:
-        """Access to volume converter service."""
-        return self._converter
 
     @property
     def config(self) -> VolumeConfigService:
@@ -135,22 +129,14 @@ class VolumeService:
     async def _load_volume_config(self) -> None:
         """Load volume configuration from settings asynchronously."""
         await self._config_service.load()
-        # Update limits in both converter and state store (state store is SSOT)
+        # Update state store with new limits (config is SSOT for limits)
         min_db = self._config_service.config.limit_min_db
         max_db = self._config_service.config.limit_max_db
-        self._converter.update_limits(min_db, max_db)
         self._state_store.update_user_limits(min_db, max_db)
 
     def _save_last_volume(self, volume_db: float) -> None:
         """Save last volume in background (via VolumeStateStore)."""
         self._state_store.save_local_volume(self.config.config.restore_last_volume)
-
-    def _determine_startup_volume_db(self) -> float:
-        """Determine startup volume in dB (restored or default)."""
-        return self._state_store.get_startup_volume(
-            self.config.config.startup_volume_db,
-            self.config.config.restore_last_volume
-        )
 
     async def reload_volume_limits(self) -> bool:
         """Reload volume limits from settings and adjust current volume if needed."""
@@ -159,21 +145,16 @@ class VolumeService:
             current_db = volume_state.global_volume_db
             old_min_db, old_max_db = await self._config_service.reload_limits()
 
-            # Update limits in both converter and state store (state store is SSOT)
+            # Update state store with new limits (config is SSOT for limits)
             new_min = self._config_service.config.limit_min_db
             new_max = self._config_service.config.limit_max_db
-            self._converter.update_limits(new_min, new_max)
             self._state_store.update_user_limits(new_min, new_max)
 
             # No change, nothing to do
-            if (old_min_db == self.config.config.limit_min_db and
-                    old_max_db == self.config.config.limit_max_db):
+            if old_min_db == new_min and old_max_db == new_max:
                 return True
 
             # Check if current volume is outside new limits
-            new_min = self.config.config.limit_min_db
-            new_max = self.config.config.limit_max_db
-
             if current_db < new_min or current_db > new_max:
                 # Move to center of new range
                 center_db = (new_min + new_max) / 2.0
@@ -333,14 +314,12 @@ class VolumeService:
                 local_volume = -30.0
                 self.logger.warning(f"Could not read local volume, using default {local_volume:.1f} dB")
 
-            # Get all clients
-            clients = await self.snapcast_service.get_clients()
-            updates = {}
-            for client in clients:
-                client_id = client.get("dsp_id", "")
-                if client_id and client.get("available", True):
-                    updates[client_id] = local_volume
+            # Get all available clients
+            client_ids = await get_available_client_ids(self.snapcast_service)
+            if not client_ids:
+                return True
 
+            updates = {client_id: local_volume for client_id in client_ids}
             if not updates:
                 return True
 
@@ -533,7 +512,7 @@ class VolumeService:
             async with asyncio.timeout(2.0):
                 async with self._volume_lock:
                     try:
-                        clamped_db = self._converter.clamp_db(volume_db)
+                        clamped_db = self._config_service.config.clamp(volume_db)
 
                         # Check DSP availability (skip in multiroom mode - uses HTTP to clients)
                         if not self._is_multiroom_enabled() and not self._is_dsp_available():
@@ -564,15 +543,11 @@ class VolumeService:
         try:
             if self._is_multiroom_enabled():
                 # MULTIROOM: Set absolute volume for all clients
-                clients = await self.snapcast_service.get_clients()
-                updates = {}
-                for client in clients:
-                    client_id = client.get("dsp_id", "")
-                    if client_id and client.get("available", True):
-                        updates[client_id] = volume_db
-
-                if not updates:
+                client_ids = await get_available_client_ids(self.snapcast_service)
+                if not client_ids:
                     return True
+
+                updates = {client_id: volume_db for client_id in client_ids}
 
                 # Apply in parallel
                 results = await self._dsp_controller.apply_volumes_parallel(updates)
@@ -639,17 +614,17 @@ class VolumeService:
         try:
             if self._is_multiroom_enabled():
                 # MULTIROOM: Apply delta to all clients
-                clients = await self.snapcast_service.get_clients()
-                updates = {}
+                client_ids = await get_available_client_ids(self.snapcast_service)
+                if not client_ids:
+                    return True
 
                 volume_state = await self._state_store.get_complete_state()
-                for client in clients:
-                    client_id = client.get("dsp_id", "")
-                    if client_id and client.get("available", True):
-                        current = volume_state.clients.get(client_id)
-                        if current:
-                            new_vol = self._converter.clamp_db(current.volume_db + delta_db)
-                            updates[client_id] = new_vol
+                updates = {}
+                for client_id in client_ids:
+                    current = volume_state.clients.get(client_id)
+                    if current:
+                        new_vol = self._config_service.config.clamp(current.volume_db + delta_db)
+                        updates[client_id] = new_vol
 
                 if not updates:
                     return True
@@ -666,7 +641,7 @@ class VolumeService:
             else:
                 # LOCAL: Apply delta to CamillaDSP
                 volume_state = await self._state_store.get_complete_state()
-                new_db = self._converter.clamp_db(volume_state.global_volume_db + delta_db)
+                new_db = self._config_service.config.clamp(volume_state.global_volume_db + delta_db)
                 success = await self._dsp_service.set_volume(new_db)
                 if success:
                     self._state_store.set_local_volume(new_db)
@@ -789,36 +764,22 @@ class VolumeService:
         """
         return await self._state_store.get_complete_state()
 
-    def get_client_volume(self, hostname: str) -> dict:
+    async def get_client_volume(self, hostname: str) -> dict:
         """
         Get volume for a specific client (works in both modes).
 
         Returns: {"main": volume_db, "mute": bool}
-
-        Note: This is a synchronous wrapper for compatibility with existing code.
-        Consider migrating callers to async get_volume_state() instead.
         """
-        # This is a synchronous method but needs async data
-        # Create a task to get the data
-        async def _get():
+        try:
             volume_state = await self._state_store.get_complete_state()
             client = volume_state.clients.get(hostname)
             if client:
                 return {"main": client.volume_db, "mute": client.mute}
             return {"main": -30.0, "mute": False}
-
-        # Run in event loop
-        try:
-            loop = asyncio.get_event_loop()
-            return loop.run_until_complete(_get())
         except Exception as e:
             self.logger.error(f"Error getting client volume: {e}")
             return {"main": -30.0, "mute": False}
 
     async def cleanup(self) -> None:
-        """Clean up and wait for pending tasks to complete."""
-        try:
-            await self._storage.cleanup()
-            self.logger.info("VolumeService cleanup completed")
-        except Exception as e:
-            self.logger.error(f"Error during volume service cleanup: {e}")
+        """Clean up resources. Currently a no-op as VolumeStateStore handles its own cleanup."""
+        self.logger.info("VolumeService cleanup completed")

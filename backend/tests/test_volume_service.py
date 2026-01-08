@@ -5,7 +5,7 @@ Unit tests for VolumeService - Tests for dB-based volume management
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from backend.infrastructure.services.volume_service import VolumeService
-from backend.infrastructure.services.volume_converter_service import VolumeConverterService
+from backend.domain.volume import VolumeConfig
 
 
 class TestVolumeService:
@@ -58,11 +58,12 @@ class TestVolumeService:
 
     def test_clamp_db_volume(self, service):
         """dB volume clamping test"""
-        assert service.converter.clamp_db(-90.0) == -80.0  # Below min
-        assert service.converter.clamp_db(-80.0) == -80.0  # At min
-        assert service.converter.clamp_db(-30.0) == -30.0  # Middle
-        assert service.converter.clamp_db(-21.0) == -21.0  # At max
-        assert service.converter.clamp_db(0.0) == -21.0    # Above max (clamped to limit)
+        config = service.config.config
+        assert config.clamp(-90.0) == -80.0  # Below min
+        assert config.clamp(-80.0) == -80.0  # At min
+        assert config.clamp(-30.0) == -30.0  # Middle
+        assert config.clamp(-21.0) == -21.0  # At max
+        assert config.clamp(0.0) == -21.0    # Above max (clamped to limit)
 
     @pytest.mark.asyncio
     async def test_load_volume_config(self, service):
@@ -165,33 +166,51 @@ class TestVolumeService:
         assert service.config.config.restore_last_volume is True
 
 
-class TestVolumeConverterService:
-    """Tests for VolumeConverterService"""
+class TestVolumeConfig:
+    """Tests for VolumeConfig domain model"""
 
     @pytest.fixture
-    def converter(self):
-        """Create a VolumeConverterService instance"""
-        return VolumeConverterService()
+    def config(self):
+        """Create a VolumeConfig instance with default values"""
+        return VolumeConfig()
 
-    def test_default_limits(self, converter):
+    def test_default_limits(self, config):
         """Test default limits"""
-        assert converter.limit_min_db == -80.0
-        assert converter.limit_max_db == -21.0
+        assert config.limit_min_db == -80.0
+        assert config.limit_max_db == -21.0
 
-    def test_update_limits(self, converter):
-        """Test updating limits"""
-        converter.update_limits(-50.0, -10.0)
-        assert converter.limit_min_db == -50.0
-        assert converter.limit_max_db == -10.0
+    def test_default_values(self, config):
+        """Test all default values"""
+        assert config.step_mobile_db == 3.0
+        assert config.step_rotary_db == 2.0
+        assert config.startup_volume_db == -30.0
+        assert config.restore_last_volume is False
 
-    def test_clamp_db(self, converter):
-        """Test clamping dB values"""
-        # Within range
-        assert converter.clamp_db(-40.0) == -40.0
+    def test_custom_limits(self):
+        """Test custom limit values"""
+        config = VolumeConfig(limit_min_db=-50.0, limit_max_db=-10.0)
+        assert config.limit_min_db == -50.0
+        assert config.limit_max_db == -10.0
 
-        # Below min
-        assert converter.clamp_db(-90.0) == -80.0
+    def test_clamp_within_range(self, config):
+        """Test clamping value within range"""
+        assert config.clamp(-40.0) == -40.0
 
-        # Above max
-        assert converter.clamp_db(-10.0) == -21.0
+    def test_clamp_below_min(self, config):
+        """Test clamping value below minimum"""
+        assert config.clamp(-90.0) == -80.0
+
+    def test_clamp_above_max(self, config):
+        """Test clamping value above maximum"""
+        assert config.clamp(-10.0) == -21.0
+
+    def test_to_dict(self, config):
+        """Test config serialization to dict"""
+        result = config.to_dict()
+        assert result["limit_min_db"] == -80.0
+        assert result["limit_max_db"] == -21.0
+        assert result["step_mobile_db"] == 3.0
+        assert result["step_rotary_db"] == 2.0
+        assert result["startup_volume_db"] == -30.0
+        assert result["restore_last_volume"] is False
 
