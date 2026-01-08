@@ -4,7 +4,7 @@ Unit tests for VolumeService - Tests for dB-based volume management
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from backend.infrastructure.services.volume_service import VolumeService
+from backend.infrastructure.services.volume import VolumeService
 from backend.domain.volume import VolumeConfig
 
 
@@ -31,7 +31,7 @@ class TestVolumeService:
     @pytest.fixture
     def service(self, mock_state_machine, mock_snapcast_service):
         """Fixture to create a VolumeService"""
-        with patch('backend.infrastructure.services.volume_service.SettingsService') as mock_settings:
+        with patch('backend.infrastructure.services.volume.volume_service.SettingsService') as mock_settings:
             # Mock SettingsService with dB-based config
             settings_instance = Mock()
             settings_instance.get_volume_config = Mock(return_value={
@@ -114,14 +114,22 @@ class TestVolumeService:
     async def test_reload_volume_steps_config(self, service):
         """Volume steps reload test"""
         service.settings_service.invalidate_cache = Mock()
-        service.settings_service.get_setting = AsyncMock(return_value={
-            "limit_min_db": -80.0,
-            "limit_max_db": -21.0,
-            "startup_volume_db": -30.0,
-            "restore_last_volume": False,
-            "step_mobile_db": 5.0,
-            "step_rotary_db": 2.0
-        })
+
+        async def mock_get_setting(key):
+            if key == "volume":
+                return {
+                    "limit_min_db": -80.0,
+                    "limit_max_db": -21.0,
+                    "startup_volume_db": -30.0,
+                    "restore_last_volume": False,
+                    "step_mobile_db": 5.0,
+                    "step_rotary_db": 2.0
+                }
+            elif key == "dsp.linked_groups":
+                return []
+            return None
+
+        service.settings_service.get_setting = AsyncMock(side_effect=mock_get_setting)
 
         result = await service.reload_volume_steps_config()
 
@@ -132,14 +140,22 @@ class TestVolumeService:
     async def test_reload_rotary_steps_config(self, service):
         """Rotary steps reload test"""
         service.settings_service.invalidate_cache = Mock()
-        service.settings_service.get_setting = AsyncMock(return_value={
-            "limit_min_db": -80.0,
-            "limit_max_db": -21.0,
-            "startup_volume_db": -30.0,
-            "restore_last_volume": False,
-            "step_mobile_db": 3.0,
-            "step_rotary_db": 4.0
-        })
+
+        async def mock_get_setting(key):
+            if key == "volume":
+                return {
+                    "limit_min_db": -80.0,
+                    "limit_max_db": -21.0,
+                    "startup_volume_db": -30.0,
+                    "restore_last_volume": False,
+                    "step_mobile_db": 3.0,
+                    "step_rotary_db": 4.0
+                }
+            elif key == "dsp.linked_groups":
+                return []
+            return None
+
+        service.settings_service.get_setting = AsyncMock(side_effect=mock_get_setting)
 
         result = await service.reload_rotary_steps_config()
 
@@ -150,14 +166,22 @@ class TestVolumeService:
     async def test_reload_startup_config(self, service):
         """Startup config reload test"""
         service.settings_service.invalidate_cache = Mock()
-        service.settings_service.get_setting = AsyncMock(return_value={
-            "limit_min_db": -80.0,
-            "limit_max_db": -21.0,
-            "startup_volume_db": -25.0,
-            "restore_last_volume": True,
-            "step_mobile_db": 3.0,
-            "step_rotary_db": 2.0
-        })
+
+        async def mock_get_setting(key):
+            if key == "volume":
+                return {
+                    "limit_min_db": -80.0,
+                    "limit_max_db": -21.0,
+                    "startup_volume_db": -25.0,
+                    "restore_last_volume": True,
+                    "step_mobile_db": 3.0,
+                    "step_rotary_db": 2.0
+                }
+            elif key == "dsp.linked_groups":
+                return []
+            return None
+
+        service.settings_service.get_setting = AsyncMock(side_effect=mock_get_setting)
 
         result = await service.reload_startup_config()
 
