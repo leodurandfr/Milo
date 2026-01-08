@@ -12,7 +12,7 @@ from backend.infrastructure.plugins.bluetooth import BluetoothPlugin
 from backend.infrastructure.plugins.radio import RadioPlugin
 from backend.infrastructure.plugins.podcast import PodcastPlugin
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
-from backend.infrastructure.services.audio_routing_service import AudioRoutingService
+from backend.infrastructure.services.routing import AudioRoutingService
 from backend.infrastructure.services.snapcast_service import SnapcastService
 from backend.infrastructure.services.snapcast_websocket_service import SnapcastWebSocketService
 from backend.infrastructure.services.dsp import (
@@ -21,7 +21,7 @@ from backend.infrastructure.services.dsp import (
     DspClientProxyService,
     DspSettingsSyncService,
 )
-from backend.infrastructure.services.volume_service import VolumeService
+from backend.infrastructure.services.volume import VolumeService
 from backend.infrastructure.services.settings_service import SettingsService
 from backend.infrastructure.services.hardware_service import HardwareService
 from backend.infrastructure.hardware.rotary_volume_controller import RotaryVolumeController

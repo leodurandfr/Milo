@@ -5,7 +5,7 @@ Unit tests for AudioRoutingService
 import pytest
 import os
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from backend.infrastructure.services.audio_routing_service import AudioRoutingService
+from backend.infrastructure.services.routing import AudioRoutingService
 from backend.domain.audio_state import AudioSource
 
 
@@ -15,7 +15,7 @@ class TestAudioRoutingService:
     @pytest.fixture
     def mock_systemd_manager(self):
         """Mock of SystemdServiceManager"""
-        with patch('backend.infrastructure.services.audio_routing_service.SystemdServiceManager') as mock:
+        with patch('backend.infrastructure.services.routing.audio_routing_service.SystemdServiceManager') as mock:
             manager = Mock()
             manager.is_active = AsyncMock(return_value=False)
             manager.start = AsyncMock(return_value=True)
@@ -30,6 +30,11 @@ class TestAudioRoutingService:
         service = AudioRoutingService(settings_service=mock_settings_service)
         # Initialize _initial_detection_done to avoid automatic detection
         service._initial_detection_done = True
+        # Set up transition callbacks (normally done in initialize())
+        service._transitions.set_callbacks(
+            start_snapcast=service._start_snapcast,
+            stop_snapcast=service._stop_snapcast,
+        )
         return service
 
     def test_initialization(self, routing_service):
