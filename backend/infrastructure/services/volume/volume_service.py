@@ -221,9 +221,16 @@ class VolumeService:
                     break
 
             if client_zone_id:
-                # Client is in a zone - ALWAYS use zone average for consistency
-                expected_volume = volume_state.zones[client_zone_id].average_volume_db
-                self.logger.info(f"Reconnecting client {client_id} in zone '{client_zone_id}', using zone volume: {expected_volume:.1f}dB")
+                # Client is in a zone - use cached zone target for consistent initial sync
+                # This prevents the race condition where zone average drifts as clients sync
+                target = self._state_store.get_zone_target_volume(client_zone_id)
+                if target is not None:
+                    expected_volume = target
+                    self.logger.info(f"Syncing client {client_id} in zone '{client_zone_id}', using cached zone target: {expected_volume:.1f}dB")
+                else:
+                    # Fallback to computed average (normal operation after initial sync)
+                    expected_volume = volume_state.zones[client_zone_id].average_volume_db
+                    self.logger.info(f"Reconnecting client {client_id} in zone '{client_zone_id}', using zone volume: {expected_volume:.1f}dB")
             else:
                 # Client not in a zone - use persisted volume or display volume
                 expected_volume = self._state_store.get_client_volume(client_id)
@@ -412,6 +419,10 @@ class VolumeService:
         """
         async with self._volume_lock:
             try:
+                # Clear initial zone targets cache on first user interaction
+                # This ensures computed zone average is used for subsequent reconnects
+                self._state_store.clear_zone_targets()
+
                 # 1. Calculate volume updates for all clients in zone
                 updates = await self._state_store.apply_zone_delta(zone_id, delta_db)
 
