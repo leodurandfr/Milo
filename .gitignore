@@ -51,3 +51,5 @@ yarn-error.log*
 # Ignore Claude doc
 # /CLAUDE.md
 .claude/
+_bmad-output/
+_bmad/
