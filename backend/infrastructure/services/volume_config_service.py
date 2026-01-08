@@ -6,18 +6,8 @@ Range: -80 dB (silent) to 0 dB (maximum)
 """
 import logging
 from typing import Any, Dict
-from dataclasses import dataclass
 
-
-@dataclass
-class VolumeConfig:
-    """Volume configuration data class - all values in dB."""
-    limit_min_db: float = -80.0
-    limit_max_db: float = -21.0
-    step_mobile_db: float = 3.0
-    step_rotary_db: float = 2.0
-    startup_volume_db: float = -30.0
-    restore_last_volume: bool = False
+from backend.domain.volume import VolumeConfig
 
 
 class VolumeConfigService:
@@ -79,17 +69,5 @@ class VolumeConfigService:
         return old_min, old_max
 
     def get_config_dict(self) -> Dict[str, Any]:
-        """
-        Get configuration as dictionary.
-
-        Returns:
-            Dictionary with all config values in dB
-        """
-        return {
-            "limit_min_db": self._config.limit_min_db,
-            "limit_max_db": self._config.limit_max_db,
-            "step_mobile_db": self._config.step_mobile_db,
-            "step_rotary_db": self._config.step_rotary_db,
-            "startup_volume_db": self._config.startup_volume_db,
-            "restore_last_volume": self._config.restore_last_volume
-        }
+        """Get configuration as dictionary."""
+        return self._config.to_dict()

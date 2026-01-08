@@ -22,6 +22,7 @@ from backend.presentation.api.models import (
     ZoneCrossoverRequest,
     CrossoverFilterRequest
 )
+from backend.infrastructure.services.shared.client_helpers import normalize_client_id
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ def create_dsp_router(
 
         async def get_client_levels(client_id: str):
             """Get levels from a single client."""
-            normalized = 'local' if client_id in ('local', 'milo') else client_id
+            normalized = normalize_client_id(client_id)
             if normalized == 'local':
                 try:
                     return await dsp_service.get_levels()
@@ -950,7 +951,7 @@ def create_dsp_router(
     @router.get("/client/{hostname}/status")
     async def get_client_dsp_status(hostname: str):
         """Get DSP status for a specific client with consistent volume."""
-        normalized = 'local' if hostname in ('local', 'milo') else hostname
+        normalized = normalize_client_id(hostname)
 
         # Get base status
         if normalized == 'local':
@@ -964,7 +965,7 @@ def create_dsp_router(
         if state_machine:
             volume_service = getattr(state_machine, 'volume_service', None)
             if volume_service:
-                vol = volume_service.get_client_volume(normalized)
+                vol = await volume_service.get_client_volume(normalized)
                 if 'volume' not in status:
                     status['volume'] = {}
                 status['volume']['main'] = vol['main']
@@ -1075,13 +1076,13 @@ def create_dsp_router(
     @router.get("/client/{hostname}/volume")
     async def get_client_volume(hostname: str):
         """Get volume for a specific client (consistent with multiroom model)."""
-        normalized = 'local' if hostname in ('local', 'milo') else hostname
+        normalized = normalize_client_id(hostname)
 
         # Use volume_service as source of truth
         if state_machine:
             volume_service = getattr(state_machine, 'volume_service', None)
             if volume_service:
-                return volume_service.get_client_volume(normalized)
+                return await volume_service.get_client_volume(normalized)
 
         # Fallback: direct DSP query (if volume_service unavailable)
         if normalized == 'local':
@@ -1110,7 +1111,7 @@ def create_dsp_router(
         volume_db = body.get("volume")
 
         # Normalize hostname: 'milo' -> 'local'
-        normalized = 'local' if hostname in ('local', 'milo') else hostname
+        normalized = normalize_client_id(hostname)
 
         if normalized == 'local':
             # Handle local CamillaDSP volume
@@ -1164,7 +1165,7 @@ def create_dsp_router(
         muted = body.get("muted")
 
         # Normalize hostname: 'milo' -> 'local'
-        normalized = 'local' if hostname in ('local', 'milo') else hostname
+        normalized = normalize_client_id(hostname)
 
         if normalized == 'local':
             # Handle local mute via VolumeService
