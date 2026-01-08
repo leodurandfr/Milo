@@ -345,6 +345,12 @@ class UnifiedAudioStateMachine:
             self.system_state.error = None
             self._state_cache = None
 
+        # Notify clients of emergency stop
+        await self._broadcast_event("system", "emergency_stop", {
+            "active_source": AudioSource.NONE.value,
+            "plugin_state": PluginState.READY.value
+        })
+
     async def _replay_buffered_updates(self) -> None:
         """
         Replay buffered updates after a transition.

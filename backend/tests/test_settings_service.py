@@ -329,29 +329,6 @@ class TestSettingsService:
         assert config['step_rotary_db'] == 3.0
 
     @pytest.mark.asyncio
-    async def test_migration_display_to_screen(self, service, temp_settings_file):
-        """Migration test from display to screen"""
-        # Write settings with old 'display' format
-        old_settings = {
-            'language': 'french',
-            'display': {
-                'screen_timeout_seconds': 20,
-                'brightness_on': 8
-            }
-        }
-
-        with open(temp_settings_file, 'w') as f:
-            json.dump(old_settings, f)
-
-        settings = await service.load_settings()
-
-        # Check that display has been migrated to screen
-        assert 'display' not in settings
-        assert 'screen' in settings
-        assert settings['screen']['timeout_seconds'] == 20
-        assert settings['screen']['brightness_on'] == 8
-
-    @pytest.mark.asyncio
     async def test_load_settings_error_fallback_to_defaults(self, service):
         """Fallback to defaults test in case of loading error"""
         # Force an error by using a corrupted file

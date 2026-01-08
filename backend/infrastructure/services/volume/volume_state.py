@@ -289,9 +289,7 @@ class VolumeStateStore:
         """
         Load persisted volume state from disk.
 
-        Handles two formats for backward compatibility:
-        1. Old format (VolumeStorageService): {"volume_db": float, "timestamp": float}
-        2. New format: {"timestamp": ISO, "local_volume_db": float, "clients": {...}}
+        Format: {"timestamp": ISO, "local_volume_db": float, "clients": {...}}
         """
         try:
             if not self.STORAGE_PATH.exists():
@@ -303,20 +301,10 @@ class VolumeStateStore:
 
             # Validate age
             timestamp = data.get("timestamp")
-            if timestamp:
-                # Handle different timestamp formats
-                if isinstance(timestamp, (int, float)):
-                    # Unix timestamp (old format)
-                    saved_time = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-                elif isinstance(timestamp, str):
-                    # ISO format string (new format)
-                    saved_time = datetime.fromisoformat(timestamp)
-                    # Ensure timezone aware
-                    if saved_time.tzinfo is None:
-                        saved_time = saved_time.replace(tzinfo=timezone.utc)
-                else:
-                    self.logger.warning(f"Unknown timestamp format: {type(timestamp)}")
-                    return
+            if timestamp and isinstance(timestamp, str):
+                saved_time = datetime.fromisoformat(timestamp)
+                if saved_time.tzinfo is None:
+                    saved_time = saved_time.replace(tzinfo=timezone.utc)
 
                 age_days = (datetime.now(timezone.utc) - saved_time).days
 
@@ -324,23 +312,7 @@ class VolumeStateStore:
                     self.logger.warning(f"Persisted volume state is {age_days} days old (max {self.MAX_AGE_DAYS}), ignoring")
                     return
 
-            # Check for old format (VolumeStorageService): {"volume_db": float}
-            if "volume_db" in data and "clients" not in data:
-                # OLD FORMAT - migrate to new format
-                old_volume = data.get("volume_db", self.DEFAULT_VOLUME_DB)
-                if -80.0 <= old_volume <= 0.0:
-                    self._local_volume_db = old_volume
-                    # Create local client with old volume
-                    self._clients['local'] = ClientVolume(
-                        volume_db=old_volume,
-                        offset_db=0.0,
-                        mute=False,
-                        available=False
-                    )
-                    self.logger.info(f"Migrated old volume format: {old_volume:.1f}dB")
-                return
-
-            # NEW FORMAT - load local_volume_db and clients
+            # Load local_volume_db and clients
             if "local_volume_db" in data:
                 local_vol = data.get("local_volume_db", self.DEFAULT_VOLUME_DB)
                 if -80.0 <= local_vol <= 0.0:

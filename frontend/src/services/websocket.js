@@ -1,8 +1,44 @@
 // frontend/src/services/websocket.js
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { logger } from '@/services/logger';
 
 /**
  * WebSocket singleton with smart disconnect when the tab is hidden
+ *
+ * Event Categories & Handlers:
+ * ────────────────────────────────────────────────────────────────
+ * system:
+ *   - initial_state, state_changed, transition_*, error → App.vue → unifiedAudioStore
+ *   - ping → handled internally (health check)
+ *
+ * volume:
+ *   - volume_changed → App.vue (global), Dock.vue, MultiroomControl.vue (local updates)
+ *
+ * plugin:
+ *   - state_changed, metadata → App.vue → unifiedAudioStore, podcastStore
+ *
+ * settings:
+ *   - language_changed → App.vue, LanguageSettings.vue
+ *   - dock_apps_changed → Dock.vue, ApplicationsSettings.vue
+ *   - volume_steps_changed → Dock.vue
+ *   - podcast_credentials_changed → PodcastSettings.vue
+ *   - spotify_disconnect_changed → SpotifySettings.vue
+ *
+ * radio:
+ *   - favorite_added, favorite_removed → RadioSource.vue → radioStore
+ *
+ * snapcast:
+ *   - client_* events → MultiroomControl.vue → multiroomStore
+ *   - client_name_changed → also DspSettings.vue, MultiroomSettings.vue (sync names)
+ *
+ * dsp:
+ *   - filter_*, state_changed, preset_*, compressor_*, loudness_*, delay_* → DspSettings.vue → dspStore
+ *   - links_changed, enabled_changed → DspSettings, MultiroomSettings, MultiroomControl
+ *   - client_volumes_pushed → MultiroomSettings, MultiroomControl
+ *
+ * routing:
+ *   - multiroom_enabling, multiroom_disabling → MultiroomModal, MultiroomControl, SettingsModal
+ *   - multiroom_ready, multiroom_error → MultiroomModal, MultiroomControl
  */
 class WebSocketSingleton {
   constructor() {
@@ -58,9 +94,9 @@ class WebSocketSingleton {
       wsUrl = `${protocol}//${host}:${port}/ws`;
     }
 
-    console.log(`WebSocket connecting to: ${wsUrl}`);
+    logger.info('websocket', `Connecting to ${wsUrl}`);
     this.socket = new WebSocket(wsUrl);
-    
+
     this.socket.onopen = () => {
       const wasReconnecting = this.isConnected.value === false;
       this.isConnected.value = true;
@@ -75,27 +111,27 @@ class WebSocketSingleton {
       }
 
       if (wasReconnecting) {
-        console.log('WebSocket reconnected - requested state sync');
+        logger.info('websocket', 'Reconnected - state sync requested');
         // Notify subscribers that a reconnection occurred
         this.notifyReconnect();
       } else {
-        console.log('WebSocket connected - requested initial state');
+        logger.info('websocket', 'Connected - initial state requested');
       }
     };
-    
+
     this.socket.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
         this.handleMessage(message);
       } catch (error) {
-        console.error('WebSocket message error:', error);
+        logger.error('websocket', 'Message parse error', { error: error.message });
       }
     };
     
     this.socket.onclose = () => {
       this.isConnected.value = false;
       this.socket = null;
-      console.log('WebSocket disconnected');
+      logger.info('websocket', 'Disconnected');
 
       // Auto-reconnect only if the tab is visible
       if (this.subscribers.size > 0 && !document.hidden) {
@@ -105,13 +141,13 @@ class WebSocketSingleton {
           1000 * Math.pow(2, this.reconnectAttempts - 1),
           this.maxReconnectDelay
         );
-        console.log(`WebSocket will reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
+        logger.info('websocket', `Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
         setTimeout(() => this.createConnection(), delay);
       }
     };
-    
+
     this.socket.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      logger.error('websocket', 'Connection error', { error });
     };
   }
 
@@ -138,7 +174,7 @@ class WebSocketSingleton {
       // When tab becomes visible, request fresh state (no disconnect/reconnect needed)
       if (!document.hidden && this.socket?.readyState === WebSocket.OPEN) {
         this.socket.send(JSON.stringify({ type: "ready" }));
-        console.log('Tab visible - requested state refresh');
+        logger.debug('websocket', 'Tab visible - state refresh requested');
       }
     };
 
@@ -163,7 +199,7 @@ class WebSocketSingleton {
 
       // If no ping for 90 seconds (3x the interval), reconnect
       if (timeSinceLastPing > 90000 && !document.hidden) {
-        console.warn('WebSocket ping timeout, reconnecting...');
+        logger.warn('websocket', 'Ping timeout, reconnecting...');
         this.closeConnection();
         // onclose handler will reconnect with exponential backoff
       }
@@ -182,7 +218,7 @@ class WebSocketSingleton {
       try {
         callback();
       } catch (error) {
-        console.error('Reconnect callback error:', error);
+        logger.error('websocket', 'Reconnect callback error', { error: error.message });
       }
     });
   }
@@ -197,17 +233,17 @@ class WebSocketSingleton {
   handleMessage(message) {
     // Validate message structure
     if (!message || typeof message !== 'object') {
-      console.warn('WebSocket: Invalid message format (not an object)');
+      logger.warn('websocket', 'Invalid message format (not an object)');
       return;
     }
 
     if (!message.category || typeof message.category !== 'string') {
-      console.warn('WebSocket: Missing or invalid message.category');
+      logger.warn('websocket', 'Missing or invalid message.category', { message });
       return;
     }
 
     if (!message.type || typeof message.type !== 'string') {
-      console.warn('WebSocket: Missing or invalid message.type');
+      logger.warn('websocket', 'Missing or invalid message.type', { message });
       return;
     }
 
@@ -227,12 +263,17 @@ class WebSocketSingleton {
     const eventKey = `${message.category}.${message.type}`;
     const handlers = this.eventHandlers.get(eventKey);
 
+    // Log received events (except frequent ones like levels)
+    if (message.type !== 'levels' && message.type !== 'ping') {
+      logger.ws('received', eventKey, message.data);
+    }
+
     if (handlers) {
       handlers.forEach(callback => {
         try {
           callback(message);
         } catch (error) {
-          console.error(`WebSocket callback error (${eventKey}):`, error);
+          logger.error('websocket', `Callback error for ${eventKey}`, { error: error.message });
         }
       });
     }

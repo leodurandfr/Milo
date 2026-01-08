@@ -56,20 +56,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       if (!cached) return null;
 
       const clients = JSON.parse(cached);
-
-      // Migrate old cache without dsp_id
-      const needsMigration = clients.some(c => c.dsp_id === undefined);
-      if (needsMigration) {
-        clients.forEach(client => {
-          if (client.dsp_id === undefined) {
-            // Compute dsp_id: 'local' for main Milo, IP address for remote clients
-            client.dsp_id = client.host === 'milo' ? 'local' : (client.ip || client.host || '');
-          }
-        });
-        // Save migrated cache
-        localStorage.setItem(CACHE_KEY, JSON.stringify(clients));
-      }
-
       return clients;
     } catch (error) {
       console.warn('Error loading multiroom cache (corrupted?):', error);
