@@ -509,43 +509,6 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   /**
-   * Propagate a filter update to linked clients.
-   * @param {string} filterId - Filter ID to update
-   * @param {object} filterData - Filter data to propagate
-   * @returns {{ success: boolean, errors: Array<{targetId: string, error: string}> }}
-   */
-  async function propagateFilterToLinkedClients(filterId, filterData) {
-    const linkedIds = getLinkedClientIds(selectedTarget.value);
-    if (linkedIds.length <= 1) return { success: true, errors: [] };
-
-    const errors = [];
-    const promises = linkedIds
-      .filter(id => id !== selectedTarget.value)
-      .map(async (targetId) => {
-        try {
-          await axios.put(`${getApiBaseForTarget(targetId)}/filter/${filterId}`, filterData);
-        } catch (error) {
-          const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
-          console.error(`Error propagating filter to ${targetId}:`, error);
-          errors.push({ targetId, endpoint: `filter/${filterId}`, error: errorMsg });
-        }
-      });
-
-    await Promise.all(promises);
-
-    // Track errors for UI notification
-    if (errors.length > 0) {
-      addPropagationErrors(errors.map(e => ({
-        clientId: e.targetId,
-        setting: `filter/${filterId}`,
-        error: e.error
-      })));
-    }
-
-    return { success: errors.length === 0, errors };
-  }
-
-  /**
    * Propagate any DSP setting to linked clients.
    * @param {string} endpoint - API endpoint (e.g., 'mute', 'compressor')
    * @param {object} data - Data to propagate
@@ -766,7 +729,7 @@ export const useDspStore = defineStore('dsp', () => {
       clearThrottleForFilter(filterId);
 
       // Propagate to linked clients
-      await propagateFilterToLinkedClients(filterId, filterData);
+      await propagateToLinkedClients(`filter/${filterId}`, filterData);
     }
   }
 
