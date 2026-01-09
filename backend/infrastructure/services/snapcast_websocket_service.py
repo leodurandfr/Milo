@@ -242,6 +242,12 @@ class SnapcastWebSocketService:
 
                     client_id = client.get('id')
 
+                    # Get dsp_id for this client
+                    host = client.get("host", {})
+                    hostname = host.get("name", "")
+                    ip = host.get("ip", "").replace("::ffff:", "")
+                    dsp_id = snapcast_service._get_stable_dsp_id(hostname, ip)
+
                     # Check if it's a new client
                     if client_id not in self._known_client_ids:
                         self.logger.info(f"🟢 CLIENT at startup: {client_id}")
@@ -254,7 +260,12 @@ class SnapcastWebSocketService:
                         self.logger.info(f"  Syncing client volume from snapserver: {snapcast_volume}%")
                         await self._sync_existing_client_volume(client_id, client)
                     else:
-                        self.logger.debug(f"Client {client_id} already known")
+                        # Client already known - just update availability (no volume sync)
+                        # This handles the case where multiroom was disabled then re-enabled
+                        self.logger.debug(f"Client {client_id} already known, updating availability")
+                        if hasattr(self.state_machine, 'volume_service'):
+                            volume_service = self.state_machine.volume_service
+                            volume_service.update_client_availability(dsp_id, True)
 
             self.logger.info(f"Initialization complete. Known clients: {len(self._known_client_ids)}")
 
