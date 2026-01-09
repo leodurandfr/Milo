@@ -22,11 +22,13 @@ EnvironmentFile=/var/lib/milo/routing.env
 # Start CamillaDSP with WebSocket server enabled
 # -p 1234: WebSocket server port
 # -a 127.0.0.1: Listen only on localhost
+# -m: Start muted - backend will unmute after setting correct volume
 # -w: Wait for valid config before processing
 # --gain=-60.0: Safe startup volume (restored by backend after init)
 ExecStart=/usr/local/bin/camilladsp \
     -p 1234 \
     -a 127.0.0.1 \
+    -m \
     -w \
     --gain=-60.0 \
     /var/lib/milo/camilladsp/config.yml

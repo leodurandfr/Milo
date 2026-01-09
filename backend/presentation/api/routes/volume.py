@@ -115,7 +115,7 @@ def create_volume_router(volume_service):
         Replaces the old pattern of frontend sending multiple parallel requests.
 
         Args:
-            zone_id: Zone identifier (from dsp.linked_groups settings)
+            zone_id: Zone identifier (from ClientRegistryService)
             request: Delta in dB to apply to zone
 
         Returns:

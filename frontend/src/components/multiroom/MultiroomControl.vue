@@ -10,8 +10,8 @@
         <!-- CLIENTS: Skeletons OR real items -->
         <div v-else key="clients" class="clients-wrapper">
           <MultiroomItem
-            v-for="(client, index) in displayClients"
-            :key="index"
+            v-for="client in displayClients"
+            :key="client.dsp_id || client.id"
             :client="client"
             :is-loading="shouldShowLoading"
             :zone-clients="getZoneClients(client)"
@@ -208,6 +208,13 @@ const shouldShowLoading = computed(() => {
 });
 
 const displayClients = computed(() => {
+  // Force Vue to track volumeState.zones and volumeState.clients as dependencies
+  // This ensures recomputation when zone averages or client volumes change
+  // eslint-disable-next-line no-unused-vars
+  const _zones = unifiedStore.volumeState.zones;
+  // eslint-disable-next-line no-unused-vars
+  const _clients = unifiedStore.volumeState.clients;
+
   // During enabling or loading, show placeholders based on last known display structure
   if (transitionState.value === 'enabling' || (multiroomStore.clients.length === 0 && multiroomStore.isLoading)) {
     return multiroomStore.lastKnownDisplayItems.map((item, i) => ({

@@ -50,7 +50,7 @@ class CrossoverService:
     - Queue pending settings for offline clients
     """
 
-    DEFAULT_CROSSOVER_FREQUENCY = 80.0  # Hz (THX/Dolby recommended)
+    DEFAULT_CROSSOVER_FREQUENCY = 80  # Hz (THX/Dolby recommended)
     DEFAULT_Q = 0.707  # Butterworth (flattest passband)
     CLIENT_API_PORT = _CLIENT_API_PORT  # From config.constants
 
@@ -106,6 +106,62 @@ class CrossoverService:
             dsp_id = data.get("dsp_id")
             if dsp_id:
                 await self._recalculate_zones_for_client(dsp_id)
+
+        elif event_type == RegistryEventType.ZONE_CREATED:
+            zone_id = data.get("zone_id")
+            if zone_id and isinstance(zone_id, str):
+                try:
+                    self.logger.info(f"Zone {zone_id} created, applying crossover filters")
+                    await self.apply_zone_crossover(zone_id)
+                except Exception as e:
+                    self.logger.error(f"Error applying crossover for new zone {zone_id}: {e}")
+
+        elif event_type == RegistryEventType.ZONE_UPDATED:
+            zone_id = data.get("zone_id")
+            if zone_id and isinstance(zone_id, str):
+                try:
+                    self.logger.info(f"Zone {zone_id} updated, recalculating crossover")
+                    await self.apply_zone_crossover(zone_id)
+                except Exception as e:
+                    self.logger.error(f"Error recalculating crossover for zone {zone_id}: {e}")
+
+        elif event_type == RegistryEventType.ZONE_DELETED:
+            zone_data = data.get("zone", {})
+            client_ids = zone_data.get("client_ids", [])
+            zone_id = zone_data.get("id", "unknown")
+            if client_ids:
+                try:
+                    self.logger.info(f"Zone {zone_id} deleted, disabling filters for {len(client_ids)} clients")
+                    for client_id in client_ids:
+                        await self._set_client_crossover(client_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                        await self._set_client_lowpass(client_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                except Exception as e:
+                    self.logger.error(f"Error disabling filters after zone {zone_id} deletion: {e}")
+
+        elif event_type == RegistryEventType.ZONE_CLIENT_ADDED:
+            zone_id = data.get("zone_id")
+            dsp_id = data.get("dsp_id")
+            if zone_id and isinstance(zone_id, str):
+                try:
+                    self.logger.info(f"Client {dsp_id} added to zone {zone_id}, recalculating crossover")
+                    await self.apply_zone_crossover(zone_id)
+                except Exception as e:
+                    self.logger.error(f"Error recalculating crossover after adding client to zone {zone_id}: {e}")
+
+        elif event_type == RegistryEventType.ZONE_CLIENT_REMOVED:
+            zone_id = data.get("zone_id")
+            dsp_id = data.get("dsp_id")
+            try:
+                # Disable filters on removed client
+                if dsp_id:
+                    self.logger.info(f"Client {dsp_id} removed from zone {zone_id}, disabling filters")
+                    await self._set_client_crossover(dsp_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                    await self._set_client_lowpass(dsp_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                # Recalculate remaining zone
+                if zone_id and isinstance(zone_id, str):
+                    await self.apply_zone_crossover(zone_id)
+            except Exception as e:
+                self.logger.error(f"Error handling client {dsp_id} removal from zone {zone_id}: {e}")
 
     async def initialize(self) -> bool:
         """Initialize the crossover service"""
@@ -300,7 +356,7 @@ class CrossoverService:
         Returns:
             Dict with 'frequency', 'enabled', 'has_subwoofer'
         """
-        if not self.settings_service:
+        if not self._registry:
             return {
                 "frequency": self.DEFAULT_CROSSOVER_FREQUENCY,
                 "enabled": False,
@@ -308,10 +364,7 @@ class CrossoverService:
             }
 
         try:
-            # Get zone from linked_groups
-            linked_groups = await self.settings_service.get_setting("dsp.linked_groups") or []
-
-            zone = next((g for g in linked_groups if g.get("id") == zone_id), None)
+            zone = self._registry.get_zone(zone_id)
             if not zone:
                 return {
                     "frequency": self.DEFAULT_CROSSOVER_FREQUENCY,
@@ -320,12 +373,11 @@ class CrossoverService:
                 }
 
             # Check if zone has a subwoofer
-            client_ids = zone.get("client_ids", [])
-            has_subwoofer = any(self.is_client_subwoofer(cid) for cid in client_ids)
+            has_subwoofer = any(self.is_client_subwoofer(cid) for cid in zone.client_ids)
 
             return {
-                "frequency": zone.get("crossover_frequency", self.DEFAULT_CROSSOVER_FREQUENCY),
-                "enabled": zone.get("crossover_enabled", has_subwoofer),  # Auto-enable if sub present
+                "frequency": zone.crossover_frequency,
+                "enabled": zone.crossover_enabled if zone.crossover_enabled is not None else has_subwoofer,
                 "has_subwoofer": has_subwoofer
             }
 
@@ -348,20 +400,17 @@ class CrossoverService:
         Returns:
             Crossover frequency in Hz (MIN of speakers, or 80 if no speakers)
         """
-        if not self.settings_service:
+        if not self._registry:
             return self.DEFAULT_CROSSOVER_FREQUENCY
 
         try:
-            # Get zone from linked_groups
-            linked_groups = await self.settings_service.get_setting("dsp.linked_groups") or []
-            zone = next((g for g in linked_groups if g.get("id") == zone_id), None)
-
+            zone = self._registry.get_zone(zone_id)
             if not zone:
                 return self.DEFAULT_CROSSOVER_FREQUENCY
 
             # Collect crossover frequencies from non-subwoofer speakers
             frequencies = []
-            for client_id in zone.get("client_ids", []):
+            for client_id in zone.client_ids:
                 speaker_type = self.get_client_speaker_type(client_id)
                 if speaker_type != "subwoofer":
                     freq = DEFAULT_CROSSOVER_FREQUENCIES.get(speaker_type)
@@ -386,37 +435,25 @@ class CrossoverService:
         Returns:
             True if successful
         """
-        if not self.settings_service:
+        if not self._registry:
             return False
 
         try:
             # Validate frequency
             frequency = max(40, min(200, frequency))
 
-            # Get linked_groups
-            linked_groups = await self.settings_service.get_setting("dsp.linked_groups") or []
-
-            # Find and update the zone
-            zone_found = False
-            for group in linked_groups:
-                if group.get("id") == zone_id:
-                    group["crossover_frequency"] = frequency
-                    zone_found = True
-                    break
-
-            if not zone_found:
+            zone = self._registry.get_zone(zone_id)
+            if not zone:
                 self.logger.warning(f"Zone {zone_id} not found")
                 return False
 
-            # Save updated linked_groups
-            await self.settings_service.set_setting("dsp.linked_groups", linked_groups)
+            # Update zone via registry (persists automatically + emits ZONE_UPDATED)
+            # The ZONE_UPDATED event handler will call apply_zone_crossover()
+            await self._registry.update_zone(zone_id, crossover_frequency=int(frequency))
 
             self.logger.info(f"Zone {zone_id} crossover frequency set to {frequency} Hz")
 
-            # Apply crossover to zone
-            await self.apply_zone_crossover(zone_id)
-
-            # Broadcast event
+            # Broadcast event for frontend
             await self._broadcast_event("zone_crossover_changed", {
                 "zone_id": zone_id,
                 "frequency": frequency
@@ -445,32 +482,24 @@ class CrossoverService:
         Returns:
             True if successful
         """
-        if not self.settings_service:
+        if not self._registry:
             return False
 
         try:
-            # Get zone configuration
-            linked_groups = await self.settings_service.get_setting("dsp.linked_groups") or []
-            zone = next((g for g in linked_groups if g.get("id") == zone_id), None)
-
+            zone = self._registry.get_zone(zone_id)
             if not zone:
                 self.logger.warning(f"Zone {zone_id} not found")
                 return False
 
-            client_ids = zone.get("client_ids", [])
+            client_ids = zone.client_ids
             frequency = await self.get_zone_auto_crossover(zone_id)
-            crossover_enabled = zone.get("crossover_enabled", True)
+            crossover_enabled = zone.crossover_enabled
 
             # Get client availability from registry (single source of truth)
-            available_clients = set()
-            if self._registry:
-                available_clients = {
-                    cid for cid in client_ids
-                    if self._registry.is_client_available(cid)
-                }
-            else:
-                # Fallback: assume all clients available
-                available_clients = set(client_ids)
+            available_clients = {
+                cid for cid in client_ids
+                if self._registry.is_client_available(cid)
+            }
 
             # Check if zone has an AVAILABLE subwoofer
             has_subwoofer = any(
@@ -701,25 +730,15 @@ class CrossoverService:
             return False
 
     async def _recalculate_zones_for_client(self, client_id: str) -> None:
-        """
-        Recalculate crossover for all zones containing a client.
-
-        Called when a client's availability or speaker type changes.
-        """
+        """Recalculate crossover for zone containing this client."""
         try:
-            # Use registry to find zone for client
-            if self._registry:
-                zone = self._registry.get_zone_for_client(client_id)
-                if zone:
-                    await self.apply_zone_crossover(zone.id)
-            elif self.settings_service:
-                # Fallback to settings lookup
-                linked_groups = await self.settings_service.get_setting("dsp.linked_groups") or []
-                for group in linked_groups:
-                    if client_id in group.get("client_ids", []):
-                        await self.apply_zone_crossover(group.get("id"))
-                        break
+            if not self._registry:
+                self.logger.warning("Registry not available, cannot recalculate zones")
+                return
 
+            zone = self._registry.get_zone_for_client(client_id)
+            if zone:
+                await self.apply_zone_crossover(zone.id)
         except Exception as e:
             self.logger.error(f"Error recalculating zones for client {client_id}: {e}")
 
