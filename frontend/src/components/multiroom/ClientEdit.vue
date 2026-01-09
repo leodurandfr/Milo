@@ -46,13 +46,13 @@
     <section class="settings-section">
       <div class="section-group">
         <h2 class="heading-2">{{ $t('multiroom.speakerInfo', 'Speaker Info') }}</h2>
-        <div class="client-info">
-          <div class="info-row">
-            <span class="info-label text-mono-small">Hostname</span>
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label text-mono">Hostname</span>
             <span class="info-value text-mono">{{ client?.host }}</span>
           </div>
-          <div class="info-row">
-            <span class="info-label text-mono-small">{{ $t('info.ipAddress', 'IP Address') }}</span>
+          <div class="info-item">
+            <span class="info-label text-mono">{{ $t('info.ipAddress', 'IP Address') }}</span>
             <span class="info-value text-mono">{{ client?.ip || 'Unknown' }}</span>
           </div>
         </div>
@@ -209,23 +209,19 @@ onMounted(async () => {
   color: var(--color-text);
 }
 
-.client-info {
-  display: flex;
-  flex-direction: column;
-  background: var(--color-background-strong);
-  border-radius: var(--radius-04);
-  overflow: hidden;
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-02);
 }
 
-.info-row {
+.info-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: var(--space-03) var(--space-04);
-}
-
-.info-row:not(:last-child) {
-  border-bottom: 1px solid var(--color-border);
+  border-radius: var(--radius-04);
+  background: var(--color-background-strong);
 }
 
 .info-label {
@@ -234,6 +230,7 @@ onMounted(async () => {
 
 .info-value {
   color: var(--color-text);
+  text-align: right;
 }
 
 /* Mobile adjustments */
@@ -243,6 +240,10 @@ onMounted(async () => {
   }
 
   .speaker-types {
+    grid-template-columns: 1fr;
+  }
+
+  .info-grid {
     grid-template-columns: 1fr;
   }
 }
