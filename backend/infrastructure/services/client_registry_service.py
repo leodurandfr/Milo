@@ -610,6 +610,10 @@ class ClientRegistryService:
                 for dsp_id, client in self._clients.items()
             }
             await self._settings_service.set_setting("multiroom.client_types", client_types)
+
+            # Update in-memory cache for future client registrations
+            self._persisted_client_types = client_types
+
         except Exception as e:
             self.logger.error(f"Failed to persist client types: {e}")
 
