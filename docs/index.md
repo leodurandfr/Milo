@@ -39,6 +39,13 @@
 | [Data Models](data-models-backend.md) | Domain models, persistence, state | Backend developers |
 | [Source Tree](source-tree-analysis.md) | Directory structure, entry points | All developers |
 
+### Deep Dive Documentation
+
+| Document | Description | Audience |
+|----------|-------------|----------|
+| [Deep Dive: Plugin Audio](deep-dive-plugin-audio.md) | Architecture complète des 5 plugins audio (Spotify, Bluetooth, Mac, Radio, Podcast), interface, state machine | Backend developers |
+| [Deep Dive: Volume, DSP & Multiroom](deep-dive-volume-dsp-multiroom.md) | Système de volume unifié, CamillaDSP, Snapcast multiroom | Backend/Audio |
+
 ### Existing Documentation
 
 | Document | Description |
@@ -156,10 +163,10 @@ Centralized registry of all multiroom clients and zones for coordinated control.
 | Metadata | Value |
 |----------|-------|
 | Workflow | document-project (BMAD) |
-| Mode | Initial Scan |
+| Mode | Initial Scan + Deep Dives |
 | Scan Level | Deep |
 | Generated | 2026-01-09 |
-| Documents Created | 8 |
+| Documents Created | 10 |
 
 ### Generated Documents
 
@@ -171,3 +178,5 @@ Centralized registry of all multiroom clients and zones for coordinated control.
 6. `component-inventory-frontend.md` - Vue components
 7. `data-models-backend.md` - Domain models
 8. `source-tree-analysis.md` - Directory structure
+9. `deep-dive-volume-dsp-multiroom.md` - Deep dive volume/DSP/multiroom
+10. `deep-dive-plugin-audio.md` - Deep dive plugin audio architecture
