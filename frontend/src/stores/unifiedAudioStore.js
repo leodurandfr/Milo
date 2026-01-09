@@ -36,8 +36,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   const isChangingSource = ref(false);
   const isSendingCommand = ref(false);
 
-  let lastWebSocketUpdate = 0;
-
 
   // === AUDIO ACTIONS ===
   async function changeSource(source) {
@@ -200,7 +198,6 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
 
   function updateState(event) {
     if (event.data?.full_state) {
-      lastWebSocketUpdate = Date.now();
       updateSystemState(event.data.full_state, 'websocket');
     }
   }
