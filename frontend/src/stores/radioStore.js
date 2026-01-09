@@ -129,9 +129,9 @@ export const useRadioStore = defineStore('radio', () => {
     };
   }
 
-  // === COMPUTED PROPERTIES (API COMPATIBILITY) ===
+  // === COMPUTED PROPERTIES ===
 
-  // Currently playing station (backward compatible)
+  // Currently playing station
   const currentStation = computed(() => {
     if (!currentStationId.value) return null;
     return getStation(currentStationId.value);

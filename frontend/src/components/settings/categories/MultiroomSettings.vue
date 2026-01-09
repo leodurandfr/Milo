@@ -349,9 +349,6 @@ onMounted(async () => {
     unifiedStore.handleVolumeEvent(event);
   });
 
-  // Subscribe to DSP client volumes pushed (when multiroom activates)
-  on('dsp', 'client_volumes_pushed', (e) => dspStore.handleClientVolumesPushed(e));
-
   // Keep client names in sync for ZoneEdit
   on('snapcast', 'client_name_changed', (e) => dspStore.handleClientNameChanged(e));
 });

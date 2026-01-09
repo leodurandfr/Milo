@@ -508,8 +508,6 @@ onMounted(async () => {
     // DSP events for linked groups updates
     on('dsp', 'links_changed', (e) => dspStore.handleLinksChanged(e)),
     on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e)),
-    // DSP client volumes pushed (when multiroom activates)
-    on('dsp', 'client_volumes_pushed', (e) => dspStore.handleClientVolumesPushed(e)),
     // Volume changes - handled by unifiedAudioStore.handleVolumeEvent
     // The unified state update will trigger reactivity
     on('volume', 'volume_changed', (event) => {

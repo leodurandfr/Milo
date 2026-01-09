@@ -329,10 +329,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     if (!client_id) return;
     if (clients.value.find(c => c.id === client_id)) return;
 
-    // Use dsp_id from backend (already calculated using _get_stable_dsp_id logic)
-    // Fallback to old calculation only if not provided (backward compatibility)
-    const clientDspId = dsp_id || (client_host === 'milo' ? 'local' : (client_ip || client_host || ''));
-
     const newClient = {
       id: client_id,
       name: client_name || client_host || 'Unknown',
@@ -340,7 +336,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       volume: volume || 0,
       muted: muted || false,
       ip: client_ip || 'Unknown',
-      dsp_id: clientDspId,
+      dsp_id,
       available: available ?? true
     };
 
