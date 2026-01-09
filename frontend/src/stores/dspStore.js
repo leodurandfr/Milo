@@ -155,10 +155,10 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   // === API HELPERS ===
-  function getApiBase() {
+  function getApiBase(targetId = selectedTarget.value) {
     // If targeting a remote client, use proxy endpoint
-    if (selectedTarget.value && selectedTarget.value !== 'local') {
-      return `/api/dsp/client/${selectedTarget.value}`;
+    if (targetId && targetId !== 'local') {
+      return `/api/dsp/client/${targetId}`;
     }
     return '/api/dsp';
   }
@@ -244,16 +244,6 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
-  async function fetchZoneAutoCrossover(zoneId) {
-    try {
-      const response = await axios.get(`/api/dsp/links/${zoneId}/auto-crossover`);
-      return response.data.frequency || 80;
-    } catch (error) {
-      console.error('Error fetching zone auto crossover:', error);
-      return 80;
-    }
-  }
-
   async function fetchEnabledState() {
     try {
       const response = await axios.get('/api/dsp/enabled');
@@ -327,14 +317,6 @@ export const useDspStore = defineStore('dsp', () => {
       }
     }
     return null;
-  }
-
-  // Get API base for a specific target (for propagation)
-  function getApiBaseForTarget(targetId) {
-    if (targetId && targetId !== 'local') {
-      return `/api/dsp/client/${targetId}`;
-    }
-    return '/api/dsp';
   }
 
   // Normalize hostname: 'milo' -> 'local' for consistency
@@ -457,7 +439,7 @@ export const useDspStore = defineStore('dsp', () => {
       }
 
       // Call API - unified state will be updated via WebSocket broadcast
-      const apiBase = getApiBaseForTarget(clientId);
+      const apiBase = getApiBase(clientId);
       await axios.put(`${apiBase}/mute`, { muted });
 
       // If propagate requested and client is part of a zone, update all available zone members
@@ -471,7 +453,7 @@ export const useDspStore = defineStore('dsp', () => {
           );
           const promises = otherClients.map(async (targetId) => {
             try {
-              await axios.put(`${getApiBaseForTarget(targetId)}/mute`, { muted });
+              await axios.put(`${getApiBase(targetId)}/mute`, { muted });
             } catch (error) {
               console.error(`Error propagating mute to ${targetId}:`, error);
             }
@@ -514,7 +496,7 @@ export const useDspStore = defineStore('dsp', () => {
     const errors = [];
     const promises = availableClients.map(async (targetId) => {
       try {
-        await axios.put(`${getApiBaseForTarget(targetId)}/${endpoint}`, data);
+        await axios.put(`${getApiBase(targetId)}/${endpoint}`, data);
       } catch (error) {
         const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
         console.error(`Error propagating ${endpoint} to ${targetId}:`, error);
@@ -746,7 +728,7 @@ export const useDspStore = defineStore('dsp', () => {
           );
           const promises = availableClients.map(async (targetId) => {
             try {
-              await axios.post(`${getApiBaseForTarget(targetId)}/reset`);
+              await axios.post(`${getApiBase(targetId)}/reset`);
             } catch (error) {
               console.error(`Error resetting filters on ${targetId}:`, error);
             }
@@ -1102,12 +1084,18 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   /**
-   * Get automatic crossover frequency for a zone (MIN of speaker frequencies)
+   * Get auto-calculated crossover frequency for a zone from API
    * @param {string} zoneId - Zone ID
    * @returns {Promise<number>} Crossover frequency in Hz
    */
   async function getZoneAutoCrossover(zoneId) {
-    return await fetchZoneAutoCrossover(zoneId);
+    try {
+      const response = await axios.get(`/api/dsp/links/${zoneId}/auto-crossover`);
+      return response.data.frequency || 80;
+    } catch (error) {
+      console.error('Error getting zone auto crossover:', error);
+      return 80;
+    }
   }
 
   /**
@@ -1148,37 +1136,6 @@ export const useDspStore = defineStore('dsp', () => {
       console.error('Error applying zone crossover:', error);
       return false;
     }
-  }
-
-  /**
-   * Load crossover settings for zones
-   * Note: clientTypes is now computed from clientRegistryStore
-   */
-  async function loadCrossoverSettings() {
-    // Load crossover settings for each zone
-    for (const zone of linkedGroups.value) {
-      const crossover = await fetchZoneCrossover(zone.id);
-      zoneCrossover.value[zone.id] = crossover;
-    }
-  }
-
-  // Note: handleLinksChanged and handleClientTypeChanged are now no-ops
-  // because linkedGroups and clientTypes delegate to clientRegistryStore,
-  // which is updated via registry.zone_* and registry.speaker_type_changed events.
-
-  function handleLinksChanged(_event) {
-    // No-op: linkedGroups is computed from clientRegistryStore.zoneList
-    // State is updated via registry.zone_* WebSocket events
-  }
-
-  function handleClientTypeChanged(_event) {
-    // No-op: clientTypes is computed from clientRegistryStore.clients
-    // State is updated via registry.speaker_type_changed WebSocket events
-  }
-
-  function handleClientCrossoverChanged(_event) {
-    // No-op: clientTypes is computed from clientRegistryStore.clients
-    // State is updated via registry.speaker_type_changed WebSocket events
   }
 
   function handleZoneCrossoverChanged(event) {
@@ -1367,7 +1324,6 @@ export const useDspStore = defineStore('dsp', () => {
     // Target Management
     loadTargets,
     selectTarget,
-    restoreClientSettings,
 
     // Linked Clients Management
     linkClients,
@@ -1395,9 +1351,6 @@ export const useDspStore = defineStore('dsp', () => {
     getZoneAutoCrossover,
     setZoneCrossoverFrequency,
     applyZoneCrossover,
-    loadCrossoverSettings,
-    handleClientTypeChanged,
-    handleClientCrossoverChanged,
     handleZoneCrossoverChanged,
 
     // Preset Management
@@ -1432,7 +1385,6 @@ export const useDspStore = defineStore('dsp', () => {
     handleCompressorChanged,
     handleLoudnessChanged,
     handleDelayChanged,
-    handleLinksChanged,
     handleEnabledChanged,
     handleClientNameChanged
   };
