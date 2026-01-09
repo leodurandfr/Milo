@@ -23,6 +23,30 @@ from backend.config.constants import (
 )
 
 
+# =============================================================================
+# Shared utility function (used by crossover_service, settings_sync_service)
+# =============================================================================
+
+def is_ip_address(hostname: str) -> bool:
+    """
+    Check if hostname is an IP address.
+
+    Used to determine whether to add .local suffix for mDNS resolution.
+    Supports both IPv4 and IPv6 addresses.
+
+    Args:
+        hostname: The hostname or IP to check
+
+    Returns:
+        True if hostname is a valid IP address, False otherwise
+    """
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        return False
+
+
 class DspClientProxyService:
     """
     Service for proxying DSP requests to remote milo-client instances.
@@ -46,18 +70,9 @@ class DspClientProxyService:
         """Set the routing service (for dependency injection after init)."""
         self.routing_service = routing_service
 
-    @staticmethod
-    def is_ip_address(hostname: str) -> bool:
-        """Check if hostname is an IP address (don't add .local suffix for IPs)."""
-        try:
-            ipaddress.ip_address(hostname)
-            return True
-        except ValueError:
-            return False
-
     def _get_host(self, hostname: str) -> str:
         """Get the full host address, adding .local suffix if needed."""
-        return hostname if self.is_ip_address(hostname) else f"{hostname}.local"
+        return hostname if is_ip_address(hostname) else f"{hostname}.local"
 
     async def check_available(self, hostname: str) -> bool:
         """
