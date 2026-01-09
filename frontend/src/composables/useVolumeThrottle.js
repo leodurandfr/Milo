@@ -33,7 +33,6 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
 
   // State
   const isThrottling = ref(false);
-  let throttleTimer = null;
   let finalTimer = null;
   let lastArgs = null;
   let lastCallTime = 0;
@@ -89,10 +88,6 @@ export function useVolumeThrottle(callback, preset = 'MEDIUM') {
    * Cleanup all timers
    */
   const cleanup = () => {
-    if (throttleTimer) {
-      clearTimeout(throttleTimer);
-      throttleTimer = null;
-    }
     if (finalTimer) {
       clearTimeout(finalTimer);
       finalTimer = null;
