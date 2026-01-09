@@ -23,11 +23,12 @@ EnvironmentFile=/var/lib/milo/routing.env
 # -p 1234: WebSocket server port
 # -a 127.0.0.1: Listen only on localhost
 # -w: Wait for valid config before processing
-# -v: Verbose logging
+# --gain=-60.0: Safe startup volume (restored by backend after init)
 ExecStart=/usr/local/bin/camilladsp \
     -p 1234 \
     -a 127.0.0.1 \
     -w \
+    --gain=-60.0 \
     /var/lib/milo/camilladsp/config.yml
 
 # Restart policy
