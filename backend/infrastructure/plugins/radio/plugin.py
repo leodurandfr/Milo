@@ -260,10 +260,12 @@ class RadioPlugin(UnifiedAudioPlugin):
                     # plugin_state is CONNECTED while a station is loaded
                     # isPlaying in metadata indicates actual playback state
                     if self.current_station:
+                        old_metadata = self._metadata.copy() if self._metadata else {}
                         await self._update_metadata()
 
-                        # Broadcast on each update to sync all clients
-                        await self.notify_state_change(PluginState.CONNECTED, self._metadata)
+                        # Only broadcast if metadata actually changed
+                        if self._metadata != old_metadata:
+                            await self.notify_state_change(PluginState.CONNECTED, self._metadata)
 
                     # Fast polling to quickly detect playback start
                     await asyncio.sleep(0.5)  # Check every 0.5 seconds
