@@ -338,12 +338,6 @@ onMounted(async () => {
     await loadMultiroomData();
   }
 
-  // Subscribe to WebSocket events for linked groups changes
-  on('dsp', 'links_changed', (e) => dspStore.handleLinksChanged(e));
-
-  // Subscribe to speaker type changes (keeps UI in sync when type is changed)
-  on('dsp', 'client_type_changed', (e) => dspStore.handleClientTypeChanged(e));
-
   // Subscribe to volume changes - handled by unifiedAudioStore
   on('volume', 'volume_changed', (event) => {
     unifiedStore.handleVolumeEvent(event);
