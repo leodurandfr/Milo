@@ -29,6 +29,7 @@ from backend.presentation.api.routes.podcast import router as podcast_router
 from backend.presentation.api.routes.settings import create_settings_router
 from backend.presentation.api.routes.programs import create_programs_router
 from backend.presentation.api.routes.health import create_health_router
+from backend.presentation.api.routes.registry import create_registry_router
 from backend.presentation.websockets.server import WebSocketServer
 from backend.domain.audio_state import AudioSource
 
@@ -54,6 +55,7 @@ hardware_service = container.hardware_service()
 crossover_service = container.crossover_service()
 dsp_proxy_service = container.dsp_client_proxy_service()
 dsp_sync_service = container.dsp_settings_sync_service()
+client_registry_service = container.client_registry_service()
 ws_manager = container.websocket_manager()
 websocket_server = WebSocketServer(ws_manager, state_machine)
 state_machine.volume_service = volume_service
@@ -174,6 +176,9 @@ app.include_router(programs_router)
 
 health_router = create_health_router(state_machine, routing_service, snapcast_service)
 app.include_router(health_router)
+
+registry_router = create_registry_router(client_registry_service)
+app.include_router(registry_router)
 
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
 

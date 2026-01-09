@@ -45,6 +45,7 @@ const VirtualKeyboard = defineAsyncComponent(() =>
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useClientRegistryStore } from '@/stores/clientRegistryStore';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useScreenActivity } from '@/composables/useScreenActivity';
@@ -53,6 +54,7 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 const unifiedStore = useUnifiedAudioStore();
 const podcastStore = usePodcastStore();
 const settingsStore = useSettingsStore();
+const clientRegistryStore = useClientRegistryStore();
 const { on, onReconnect } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
 
@@ -142,8 +144,22 @@ onMounted(async () => {
         i18n.handleLanguageChanged(event.data.language);
       }
     }),
+    // Registry events for centralized client/zone management
+    on('registry', 'client_registered', (event) => clientRegistryStore.handleRegistryEvent(event)),
+    on('registry', 'client_updated', (event) => clientRegistryStore.handleRegistryEvent(event)),
+    on('registry', 'client_unregistered', (event) => clientRegistryStore.handleRegistryEvent(event)),
+    on('registry', 'availability_changed', (event) => clientRegistryStore.handleRegistryEvent(event)),
+    on('registry', 'volume_changed', (event) => clientRegistryStore.handleRegistryEvent(event)),
+    on('registry', 'speaker_type_changed', (event) => clientRegistryStore.handleRegistryEvent(event)),
+    on('registry', 'zone_created', (event) => clientRegistryStore.handleRegistryEvent(event)),
+    on('registry', 'zone_deleted', (event) => clientRegistryStore.handleRegistryEvent(event)),
+    on('registry', 'zone_updated', (event) => clientRegistryStore.handleRegistryEvent(event)),
+    on('registry', 'zone_client_added', (event) => clientRegistryStore.handleRegistryEvent(event)),
+    on('registry', 'zone_client_removed', (event) => clientRegistryStore.handleRegistryEvent(event)),
     onReconnect(() => {
       console.log('WebSocket reconnected');
+      // Refresh registry state on reconnect
+      clientRegistryStore.fetchState();
     })
   );
 
@@ -154,6 +170,9 @@ onMounted(async () => {
   // Now perform async initialization
   await loadHardwareInfo();
   await settingsStore.loadAllSettings();
+
+  // Initialize client registry (loads from cache + fetches fresh state)
+  clientRegistryStore.initialize();
 
   // Preload podcast subscriptions list in background (for instant hasSubscriptions check)
   // Only fetches local data, no Taddy API call - episodes loaded when HomeView opens

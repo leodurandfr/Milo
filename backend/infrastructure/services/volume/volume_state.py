@@ -10,6 +10,10 @@ Architecture: "Gros" VolumeStateStore (Option A)
 - Autonomous, testable, simple
 
 CONSOLIDATED: Includes all persistence logic (formerly VolumeStorageService)
+
+Integration with ClientRegistryService:
+- Subscribes to registry availability events
+- Keeps volume/mute state locally, syncs availability from registry
 """
 
 import asyncio
@@ -18,12 +22,15 @@ import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 import aiofiles
 
 # Use existing domain models
 from backend.domain.volume_state import VolumeState, ClientVolume, ZoneVolume
+
+if TYPE_CHECKING:
+    from backend.infrastructure.services.client_registry_service import ClientRegistryService
 
 
 @dataclass
@@ -71,6 +78,9 @@ class VolumeStateStore:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.settings_service = settings_service
 
+        # Client registry reference (set via set_registry after construction)
+        self._registry: Optional["ClientRegistryService"] = None
+
         # State storage
         self._clients: Dict[str, ClientVolume] = {}
         self._zones: Dict[str, ZoneConfig] = {}
@@ -94,6 +104,38 @@ class VolumeStateStore:
         self._ensure_storage_directory()
 
         self.logger.info("VolumeStateStore initialized (SSOT for volume)")
+
+    def set_registry(self, registry: "ClientRegistryService") -> None:
+        """
+        Set the client registry and subscribe to availability events.
+
+        Args:
+            registry: ClientRegistryService instance
+        """
+        self._registry = registry
+        registry.subscribe(self._handle_registry_event)
+        self.logger.info("VolumeStateStore subscribed to ClientRegistryService events")
+
+    async def _handle_registry_event(self, event_type: str, data: dict) -> None:
+        """Handle events from ClientRegistryService."""
+        from backend.domain.client_registry import RegistryEventType
+
+        if event_type == RegistryEventType.AVAILABILITY_CHANGED:
+            dsp_id = data.get("dsp_id")
+            available = data.get("available")
+            if dsp_id is not None and available is not None:
+                await self.set_client_availability(dsp_id, available)
+
+        elif event_type == RegistryEventType.CLIENT_REGISTERED:
+            # Auto-register client in volume state if not exists
+            client_data = data.get("client", {})
+            dsp_id = client_data.get("dsp_id")
+            if dsp_id and dsp_id not in self._clients:
+                await self.register_client(
+                    dsp_id,
+                    volume_db=None,  # Use default
+                    available=client_data.get("available", True)
+                )
 
     # ========== Storage Directory ==========
 

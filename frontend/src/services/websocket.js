@@ -39,6 +39,13 @@ import { logger } from '@/services/logger';
  * routing:
  *   - multiroom_enabling, multiroom_disabling → MultiroomModal, MultiroomControl, SettingsModal
  *   - multiroom_ready, multiroom_error → MultiroomModal, MultiroomControl
+ *
+ * registry:
+ *   - client_registered, client_unregistered, client_updated → clientRegistryStore
+ *   - availability_changed → clientRegistryStore
+ *   - volume_changed, speaker_type_changed → clientRegistryStore
+ *   - zone_created, zone_deleted, zone_updated → clientRegistryStore
+ *   - zone_client_added, zone_client_removed → clientRegistryStore
  */
 class WebSocketSingleton {
   constructor() {
