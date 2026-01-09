@@ -18,7 +18,7 @@ from backend.infrastructure.services.settings_service import SettingsService
 from backend.infrastructure.services.volume.volume_config import VolumeConfigService
 from backend.infrastructure.services.volume.volume_state import VolumeStateStore
 from backend.infrastructure.services.volume.dsp_controller import DSPController
-from backend.infrastructure.services.shared.client_helpers import get_available_client_ids
+from backend.infrastructure.services.snapcast_service import get_available_client_ids
 from backend.domain.volume_state import VolumeState, ClientVolume
 
 
@@ -477,6 +477,9 @@ class VolumeService:
             await self._state_store.initialize()
             self.logger.info("VolumeStateStore initialized")
 
+            # Apply persisted volume to CamillaDSP (safe startup at -50dB, then restore)
+            await self._apply_startup_volume()
+
             # Set ALSA to 100% passthrough - permanent (volume is via CamillaDSP)
             await self._set_alsa_passthrough()
             self.logger.info("ALSA set to 100% passthrough mode")
@@ -490,6 +493,24 @@ class VolumeService:
         except Exception as e:
             self.logger.error(f"Failed to initialize: {e}")
             return False
+
+    async def _apply_startup_volume(self) -> None:
+        """
+        Apply persisted volume to CamillaDSP after safe startup.
+
+        CamillaDSP starts at -50dB (via --gain flag in systemd service).
+        This method restores the user's last known volume from persistence.
+        """
+        try:
+            volume_state = await self._state_store.get_complete_state()
+            local_volume_db = volume_state.global_volume_db
+            if local_volume_db is not None and self._dsp_controller:
+                await self._dsp_controller.set_dsp_volume("local", local_volume_db)
+                self.logger.info(f"Restored startup volume: {local_volume_db:.1f} dB")
+            else:
+                self.logger.info("No persisted volume to restore at startup")
+        except Exception as e:
+            self.logger.error(f"Failed to restore startup volume: {e}")
 
     async def _delayed_initial_broadcast(self):
         """Send initial volume broadcast after short delay."""
