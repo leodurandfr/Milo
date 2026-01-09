@@ -1,6 +1,8 @@
 # backend/infrastructure/services/snapcast_websocket_service.py
 """
 Streamlined Snapcast WebSocket Service - WITHOUT volume management (delegated to VolumeService)
+
+Uses ClientRegistryService as the single source of truth for client/availability tracking.
 """
 import asyncio
 import json
@@ -8,9 +10,12 @@ import logging
 import aiohttp
 from typing import Dict, Any, Optional
 
+from backend.infrastructure.services.client_registry_service import ClientRegistryService
+
+
 class SnapcastWebSocketService:
     """WebSocket service for Snapcast NON-VOLUME notifications - VolumeService handles all volume"""
-    
+
     def __init__(self, state_machine, routing_service, host: str = "localhost", port: int = 1780):
         self.state_machine = state_machine
         self.routing_service = routing_service
@@ -18,21 +23,20 @@ class SnapcastWebSocketService:
         self.port = port
         self.ws_url = f"ws://{host}:{port}/jsonrpc"
         self.logger = logging.getLogger(__name__)
-        
+
+        # Client registry - set after construction via state_machine.client_registry
+        self._registry: Optional[ClientRegistryService] = None
+
         # Connection state
         self.session: Optional[aiohttp.ClientSession] = None
         self.websocket: Optional[aiohttp.ClientWebSocketResponse] = None
         self.running = False
         self.should_connect = False
         self.reconnect_task = None
-        self._known_client_ids = set()
 
         # Deduplication: track client IDs currently being processed
         # Prevents race conditions when Client.OnConnect and Server.OnUpdate fire simultaneously
         self._processing_client_ids: set = set()
-
-        # Client availability state tracking
-        self._client_availability_state = {}
 
         # Initialization state - suppress verbose logs during startup
         self._is_initializing = False
@@ -42,6 +46,13 @@ class SnapcastWebSocketService:
 
         # Ready event - signaled when WebSocket is connected and initialized
         self._ready_event = asyncio.Event()
+
+    @property
+    def registry(self) -> Optional[ClientRegistryService]:
+        """Get the client registry from state_machine if not set directly."""
+        if self._registry:
+            return self._registry
+        return getattr(self.state_machine, 'client_registry', None)
     
     async def initialize(self) -> bool:
         """Initializes the WebSocket service"""
@@ -247,11 +258,24 @@ class SnapcastWebSocketService:
                     hostname = host.get("name", "")
                     ip = host.get("ip", "").replace("::ffff:", "")
                     dsp_id = snapcast_service._get_stable_dsp_id(hostname, ip)
+                    client_name = client.get("config", {}).get("name", hostname or dsp_id)
 
-                    # Check if it's a new client
-                    if client_id not in self._known_client_ids:
-                        self.logger.info(f"🟢 CLIENT at startup: {client_id}")
-                        self._known_client_ids.add(client_id)
+                    # Check if client is already in registry
+                    existing_client = self.registry.get_client(dsp_id) if self.registry else None
+
+                    if not existing_client:
+                        self.logger.info(f"🟢 CLIENT at startup: {client_id} (dsp_id: {dsp_id})")
+
+                        # Register client in registry
+                        if self.registry:
+                            await self.registry.register_client({
+                                "dsp_id": dsp_id,
+                                "snapcast_id": client_id,
+                                "name": client_name,
+                                "host": hostname,
+                                "ip": ip,
+                                "available": True
+                            })
 
                         # ALWAYS sync from snapserver (no heuristics)
                         # Snapserver is the source of truth for client volumes
@@ -262,12 +286,12 @@ class SnapcastWebSocketService:
                     else:
                         # Client already known - just update availability (no volume sync)
                         # This handles the case where multiroom was disabled then re-enabled
-                        self.logger.debug(f"Client {client_id} already known, updating availability")
-                        if hasattr(self.state_machine, 'volume_service'):
-                            volume_service = self.state_machine.volume_service
-                            volume_service.update_client_availability(dsp_id, True)
+                        self.logger.debug(f"Client {dsp_id} already known, updating availability")
+                        if self.registry:
+                            await self.registry.update_availability(dsp_id, True)
 
-            self.logger.info(f"Initialization complete. Known clients: {len(self._known_client_ids)}")
+            client_count = len(self.registry.get_all_clients()) if self.registry else 0
+            self.logger.info(f"Initialization complete. Registered clients: {client_count}")
 
         except Exception as e:
             self.logger.error(f"Error initializing existing clients: {e}", exc_info=True)
@@ -341,87 +365,102 @@ class SnapcastWebSocketService:
 
             all_clients = await snapcast_service.get_clients()
 
-            # Track which clients are currently present
-            current_client_ids = {c["id"] for c in all_clients}
+            # Build set of current snapcast client IDs and dsp_ids
+            current_snapcast_ids = {c["id"] for c in all_clients}
+            current_dsp_ids = {c["dsp_id"] for c in all_clients}
 
-            # Detect new clients
-            new_client_ids = current_client_ids - self._known_client_ids
-            for new_id in new_client_ids:
-                client = next((c for c in all_clients if c["id"] == new_id), None)
-                if client:
-                    self.logger.info(f"🟢 NEW CLIENT detected: {new_id}")
+            # Get known clients from registry
+            known_dsp_ids = set(self.registry.get_client_ids()) if self.registry else set()
+
+            # Detect new clients (by dsp_id since that's what registry uses)
+            for client in all_clients:
+                dsp_id = client["dsp_id"]
+                snapcast_id = client["id"]
+
+                if dsp_id not in known_dsp_ids:
+                    self.logger.info(f"🟢 NEW CLIENT detected: {dsp_id} (snapcast_id: {snapcast_id})")
 
                     # Deduplication: skip if already being processed by Client.OnConnect
-                    if new_id in self._processing_client_ids:
-                        self.logger.debug(f"Skipping Server.OnUpdate init for {new_id} - already being processed")
+                    if snapcast_id in self._processing_client_ids:
+                        self.logger.debug(f"Skipping Server.OnUpdate init for {snapcast_id} - already being processed")
                         continue
 
                     # Mark as processing
-                    self._processing_client_ids.add(new_id)
+                    self._processing_client_ids.add(snapcast_id)
 
                     try:
-                        # Broadcast client connected with availability
+                        # Register client in registry
+                        if self.registry:
+                            await self.registry.register_client({
+                                "dsp_id": dsp_id,
+                                "snapcast_id": snapcast_id,
+                                "name": client["name"],
+                                "host": client["host"],
+                                "ip": client["ip"],
+                                "available": client["available"]
+                            })
+
+                        # Broadcast client connected with availability (for legacy frontend handlers)
                         await self._broadcast_snapcast_event("client_connected", {
-                            "client_id": client["id"],
+                            "client_id": snapcast_id,
                             "client_name": client["name"],
                             "client_host": client["host"],
                             "client_ip": client["ip"],
-                            "dsp_id": client["dsp_id"],
+                            "dsp_id": dsp_id,
                             "available": client["available"]
                         })
 
                         # Initialize client (set group, volume)
-                        await self._notify_volume_service_client_connected(new_id, {"id": new_id})
+                        await self._notify_volume_service_client_connected(snapcast_id, {"id": snapcast_id})
                     finally:
                         # Remove from processing set
-                        self._processing_client_ids.discard(new_id)
+                        self._processing_client_ids.discard(snapcast_id)
 
-            # Detect disconnected clients
-            disconnected_client_ids = self._known_client_ids - current_client_ids
-            for disconnected_id in disconnected_client_ids:
-                self.logger.info(f"🔴 CLIENT DISCONNECTED: {disconnected_id}")
-                await self._broadcast_snapcast_event("client_disconnected", {
-                    "client_id": disconnected_id
-                })
+            # Detect disconnected clients (clients in registry but not in snapcast)
+            for dsp_id in known_dsp_ids:
+                if dsp_id not in current_dsp_ids:
+                    self.logger.info(f"🔴 CLIENT DISCONNECTED: {dsp_id}")
+                    # Mark as unavailable in registry (don't unregister - keeps settings)
+                    if self.registry:
+                        await self.registry.update_availability(dsp_id, False)
+                    # Broadcast for legacy frontend handlers
+                    await self._broadcast_snapcast_event("client_disconnected", {
+                        "client_id": dsp_id,
+                        "dsp_id": dsp_id
+                    })
 
             # Detect availability changes for existing clients
             for client in all_clients:
-                client_id = client["id"]
+                dsp_id = client["dsp_id"]
                 available = client["available"]
 
-                # Check if availability changed
-                previous_available = self._client_availability_state.get(client_id, True)
+                # Get previous availability from registry
+                registry_client = self.registry.get_client(dsp_id) if self.registry else None
+                previous_available = registry_client.available if registry_client else True
 
                 if available != previous_available:
-                    self.logger.info(f"🔄 Client {client_id} availability: {previous_available} → {available} (lastSeen: {client.get('last_seen_age', 0)}s ago)")
+                    self.logger.info(f"🔄 Client {dsp_id} availability: {previous_available} → {available} (lastSeen: {client.get('last_seen_age', 0)}s ago)")
+
+                    # Update registry
+                    if self.registry:
+                        await self.registry.update_availability(dsp_id, available)
+
+                    # Broadcast for legacy frontend handlers
                     await self._broadcast_snapcast_event("client_availability_changed", {
-                        "client_id": client_id,
+                        "client_id": client["id"],
+                        "dsp_id": dsp_id,
                         "available": available,
                         "last_seen_age": client.get("last_seen_age", 0)
                     })
 
-                    # Use dsp_id directly from client (already computed by get_clients())
-                    hostname = client["dsp_id"]
-
-                    # Update volume service availability state (triggers recalculation internally)
-                    if hasattr(self.state_machine, 'volume_service'):
-                        volume_service = self.state_machine.volume_service
-                        volume_service.update_client_availability(hostname, available)
-
                     # Recalculate crossover for zones containing this client
                     # (e.g., if subwoofer disconnects, remove highpass from speakers)
-                    if hasattr(self.state_machine, 'crossover_service'):
+                    if self.registry and hasattr(self.state_machine, 'crossover_service'):
                         crossover_service = self.state_machine.crossover_service
-                        linked_groups = await crossover_service.settings_service.get_setting("dsp.linked_groups") or []
-                        for zone in linked_groups:
-                            if hostname in zone.get("client_ids", []):
-                                self.logger.info(f"🔄 Recalculating crossover for zone {zone['id']} (client {hostname} availability changed)")
-                                await crossover_service.apply_zone_crossover(zone["id"])
-
-                    self._client_availability_state[client_id] = available
-
-            # Update known clients
-            self._known_client_ids = current_client_ids
+                        zone = self.registry.get_zone_for_client(dsp_id)
+                        if zone:
+                            self.logger.info(f"🔄 Recalculating crossover for zone {zone.id} (client {dsp_id} availability changed)")
+                            await crossover_service.apply_zone_crossover(zone.id)
 
         except Exception as e:
             self.logger.error(f"Error handling Server.OnUpdate: {e}", exc_info=True)
@@ -469,8 +508,20 @@ class SnapcastWebSocketService:
             self.logger.info(f"  - DSP ID: {dsp_id}")
             self.logger.info(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
 
+            # Register client in registry
+            if self.registry:
+                await self.registry.register_client({
+                    "dsp_id": dsp_id,
+                    "snapcast_id": client_id,
+                    "name": client_name,
+                    "host": client_host,
+                    "ip": client_ip,
+                    "available": True
+                })
+
             await self._notify_volume_service_client_connected(client_id, client)
 
+            # Broadcast for legacy frontend handlers
             await self._broadcast_snapcast_event("client_connected", {
                 "client_id": client_id,
                 "client_name": client_name,
@@ -481,12 +532,6 @@ class SnapcastWebSocketService:
                 "muted": client.get("config", {}).get("volume", {}).get("muted", False),
                 "available": True
             })
-
-            # Update volume service availability (new connection = available)
-            if hasattr(self.state_machine, 'volume_service'):
-                volume_service = self.state_machine.volume_service
-                self.logger.info(f"🟢 Marking client as available: {dsp_id}")
-                volume_service.update_client_availability(dsp_id, True)
         finally:
             # Remove from processing set
             self._processing_client_ids.discard(client_id)
@@ -509,26 +554,20 @@ class SnapcastWebSocketService:
 
         self.logger.info(f"🔴 CLIENT DISCONNECTED: {client_host} (dsp_id: {dsp_id})")
 
-        # Update volume service availability (disconnection = unavailable)
-        # Use awaitable method to ensure availability is updated before crossover recalculation
-        if hasattr(self.state_machine, 'volume_service'):
-            volume_service = self.state_machine.volume_service
-            await volume_service._state_store.set_client_availability(dsp_id, False)
+        # Update registry availability (don't unregister - keeps settings)
+        if self.registry:
+            await self.registry.update_availability(dsp_id, False)
 
         # Recalculate crossover for zones containing this client
         # (e.g., if subwoofer disconnects, remove highpass from speakers)
-        if hasattr(self.state_machine, 'crossover_service'):
+        if self.registry and hasattr(self.state_machine, 'crossover_service'):
             crossover_service = self.state_machine.crossover_service
-            linked_groups = await crossover_service.settings_service.get_setting("dsp.linked_groups") or []
-            for zone in linked_groups:
-                if dsp_id in zone.get("client_ids", []):
-                    self.logger.info(f"🔄 Recalculating crossover for zone {zone['id']} (client {dsp_id} disconnected)")
-                    await crossover_service.apply_zone_crossover(zone["id"])
+            zone = self.registry.get_zone_for_client(dsp_id)
+            if zone:
+                self.logger.info(f"🔄 Recalculating crossover for zone {zone.id} (client {dsp_id} disconnected)")
+                await crossover_service.apply_zone_crossover(zone.id)
 
-        # Broadcast volume state after availability change
-        if hasattr(self.state_machine, 'volume_service'):
-            await volume_service._broadcast_volume_state(show_bar=False)
-
+        # Broadcast for legacy frontend handlers
         await self._broadcast_snapcast_event("client_disconnected", {
             "client_id": client_id,
             "client_name": client_name,

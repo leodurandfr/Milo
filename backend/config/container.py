@@ -21,6 +21,7 @@ from backend.infrastructure.services.dsp import (
     DspClientProxyService,
     DspSettingsSyncService,
 )
+from backend.infrastructure.services.client_registry_service import ClientRegistryService
 from backend.infrastructure.services.volume import VolumeService
 from backend.infrastructure.services.settings_service import SettingsService
 from backend.infrastructure.services.hardware_service import HardwareService
@@ -43,6 +44,12 @@ class Container(containers.DeclarativeContainer):
     snapcast_service = providers.Singleton(SnapcastService)
     settings_service = providers.Singleton(SettingsService)
     hardware_service = providers.Singleton(HardwareService)
+
+    # Client registry service - single source of truth for clients/zones
+    client_registry_service = providers.Singleton(
+        ClientRegistryService,
+        settings_service=settings_service
+    )
 
     # CamillaDSP service (DSP engine for EQ, compression, etc.)
     camilladsp_service = providers.Singleton(
@@ -273,6 +280,7 @@ class Container(containers.DeclarativeContainer):
         snapcast_websocket_service = container.snapcast_websocket_service()
         camilladsp_service = container.camilladsp_service()
         crossover_service = container.crossover_service()
+        client_registry_service = container.client_registry_service()
 
         # ============================================================
         # STEP 2: Resolve circular dependencies (CRITICAL ORDER)
@@ -314,6 +322,19 @@ class Container(containers.DeclarativeContainer):
         #       Allows crossover_service to broadcast events
         crossover_service.set_state_machine(state_machine)
 
+        # 2.9 - client_registry_service → state_machine
+        #       Allows registry to broadcast events and be accessible from state_machine
+        client_registry_service.set_state_machine(state_machine)
+        state_machine.client_registry = client_registry_service
+
+        # 2.10 - volume_service._state_store → client_registry_service
+        #        Allows VolumeStateStore to receive availability updates from registry
+        volume_service._state_store.set_registry(client_registry_service)
+
+        # 2.11 - crossover_service → client_registry_service
+        #        Allows CrossoverService to query availability and speaker types from registry
+        crossover_service.set_registry(client_registry_service)
+
         # ============================================================
         # STEP 3: Register plugins (MUST be done BEFORE init_async)
         # ============================================================
@@ -341,6 +362,7 @@ class Container(containers.DeclarativeContainer):
 
             # List of services to initialize (order non-critical, run in parallel)
             services = [
+                ("client_registry_service", client_registry_service.initialize()),
                 ("routing_service", routing_service.initialize()),
                 ("volume_service", volume_service.initialize()),
                 ("rotary_controller", rotary_controller.initialize()),

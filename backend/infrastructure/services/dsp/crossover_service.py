@@ -5,15 +5,24 @@ Crossover service for speaker type management in Milo multiroom audio.
 Manages automatic highpass filter application to speakers when a subwoofer
 is present in a zone. The subwoofer receives the full signal while speakers
 get a highpass filter to remove bass (handled by the subwoofer).
+
+Integration with ClientRegistryService:
+- Subscribes to registry availability events
+- Queries registry for speaker types (single source of truth)
+- Updates registry when speaker type changes
+- Applies pending settings when clients reconnect
 """
 import asyncio
 import logging
-from typing import Dict, List, Any, Optional, Literal
+from typing import Dict, List, Any, Optional, Literal, TYPE_CHECKING
 
 import aiohttp
 
 from backend.config.constants import CLIENT_API_PORT as _CLIENT_API_PORT
 from backend.infrastructure.services.dsp.client_proxy_service import is_ip_address
+
+if TYPE_CHECKING:
+    from backend.infrastructure.services.client_registry_service import ClientRegistryService
 
 # Valid speaker types
 SPEAKER_TYPES = ['satellite', 'bookshelf', 'tower', 'subwoofer']
@@ -53,8 +62,8 @@ class CrossoverService:
         # State machine reference (set by container)
         self.state_machine = None
 
-        # Cache for client types: { client_id: { "speaker_type": "bookshelf" } }
-        self._client_types: Dict[str, Dict[str, Any]] = {}
+        # Client registry reference (set via set_registry after construction)
+        self._registry: Optional["ClientRegistryService"] = None
 
         # Pending settings queue for offline clients
         # client_id -> {"crossover": {...}, "volume": {...}, "mute": {...}, ...}
@@ -64,15 +73,46 @@ class CrossoverService:
         """Sets reference to UnifiedAudioStateMachine for event broadcasting"""
         self.state_machine = state_machine
 
+    def set_registry(self, registry: "ClientRegistryService") -> None:
+        """
+        Set the client registry and subscribe to availability events.
+
+        Args:
+            registry: ClientRegistryService instance
+        """
+        self._registry = registry
+        registry.subscribe(self._handle_registry_event)
+        self.logger.info("CrossoverService subscribed to ClientRegistryService events")
+
+    async def _handle_registry_event(self, event_type: str, data: dict) -> None:
+        """Handle events from ClientRegistryService."""
+        from backend.domain.client_registry import RegistryEventType
+
+        if event_type == RegistryEventType.AVAILABILITY_CHANGED:
+            dsp_id = data.get("dsp_id")
+            available = data.get("available")
+
+            if dsp_id and available:
+                # Client came online - apply pending settings
+                if self.has_pending_settings(dsp_id):
+                    self.logger.info(f"Client {dsp_id} reconnected, applying pending settings")
+                    await self.apply_pending_settings(dsp_id)
+
+                # Recalculate crossover for zones containing this client
+                await self._recalculate_zones_for_client(dsp_id)
+
+        elif event_type == RegistryEventType.SPEAKER_TYPE_CHANGED:
+            # Speaker type changed - recalculate zones
+            dsp_id = data.get("dsp_id")
+            if dsp_id:
+                await self._recalculate_zones_for_client(dsp_id)
+
     async def initialize(self) -> bool:
         """Initialize the crossover service"""
         try:
             self.logger.info("Initializing CrossoverService...")
-
-            # Load client types from settings
-            await self._load_client_types()
-
-            self.logger.info("CrossoverService initialized")
+            # Client types are now managed by ClientRegistryService
+            self.logger.info("CrossoverService initialized (using ClientRegistryService for speaker types)")
             return True
 
         except Exception as e:
@@ -80,29 +120,6 @@ class CrossoverService:
             return False
 
     # === Client Type Management ===
-
-    async def _load_client_types(self) -> None:
-        """Load client types from settings"""
-        if not self.settings_service:
-            return
-
-        try:
-            client_types = await self.settings_service.get_setting("multiroom.client_types")
-            if client_types:
-                self._client_types = client_types
-                self.logger.info(f"Loaded client types for {len(self._client_types)} clients")
-        except Exception as e:
-            self.logger.error(f"Error loading client types: {e}")
-
-    async def _save_client_types(self) -> None:
-        """Save client types to settings"""
-        if not self.settings_service:
-            return
-
-        try:
-            await self.settings_service.set_setting("multiroom.client_types", self._client_types)
-        except Exception as e:
-            self.logger.error(f"Error saving client types: {e}")
 
     async def get_client_type(self, client_id: str) -> Dict[str, Any]:
         """
@@ -114,23 +131,19 @@ class CrossoverService:
         Returns:
             Dict with 'speaker_type' and 'crossover_frequency'
         """
-        client_data = self._client_types.get(client_id, {})
+        # Query registry for client data
+        if self._registry:
+            client = self._registry.get_client(client_id)
+            if client:
+                return {
+                    "speaker_type": client.speaker_type,
+                    "crossover_frequency": client.crossover_frequency
+                }
 
-        # Migration: convert old is_subwoofer to speaker_type
-        if "is_subwoofer" in client_data and "speaker_type" not in client_data:
-            speaker_type = "subwoofer" if client_data["is_subwoofer"] else DEFAULT_SPEAKER_TYPE
-        else:
-            speaker_type = client_data.get("speaker_type", DEFAULT_SPEAKER_TYPE)
-
-        # Get crossover frequency (custom or default for type)
-        crossover_freq = client_data.get(
-            "crossover_frequency",
-            DEFAULT_CROSSOVER_FREQUENCIES.get(speaker_type)
-        )
-
+        # Fallback to defaults
         return {
-            "speaker_type": speaker_type,
-            "crossover_frequency": crossover_freq
+            "speaker_type": DEFAULT_SPEAKER_TYPE,
+            "crossover_frequency": DEFAULT_CROSSOVER_FREQUENCIES.get(DEFAULT_SPEAKER_TYPE)
         }
 
     async def set_client_speaker_type(
@@ -162,12 +175,13 @@ class CrossoverService:
             if crossover_frequency is None:
                 crossover_frequency = DEFAULT_CROSSOVER_FREQUENCIES.get(speaker_type)
 
-            # Store client type configuration
-            self._client_types[client_id] = {
-                "speaker_type": speaker_type,
-                "crossover_frequency": crossover_frequency
-            }
-            await self._save_client_types()
+            # Update registry (single source of truth)
+            if self._registry:
+                await self._registry.update_speaker_type(
+                    client_id,
+                    speaker_type,
+                    int(crossover_frequency) if crossover_frequency else None
+                )
 
             self.logger.info(
                 f"Client {client_id} speaker type set to '{speaker_type}' "
@@ -181,15 +195,14 @@ class CrossoverService:
                 # Subwoofer or no crossover - disable highpass
                 await self._set_client_crossover(client_id, False, 80)
 
-            # Broadcast event
+            # Broadcast event (legacy - registry also broadcasts SPEAKER_TYPE_CHANGED)
             await self._broadcast_event("client_type_changed", {
                 "client_id": client_id,
                 "speaker_type": speaker_type,
                 "crossover_frequency": crossover_frequency
             })
 
-            # Check if client is in a zone and recalculate crossover
-            await self._recalculate_zones_for_client(client_id)
+            # Zone recalculation is triggered by registry SPEAKER_TYPE_CHANGED event
 
             return True
 
@@ -212,16 +225,16 @@ class CrossoverService:
             # Validate frequency
             frequency = max(20, min(200, frequency))
 
-            # Get current speaker type
-            client_data = self._client_types.get(client_id, {})
-            speaker_type = client_data.get("speaker_type", DEFAULT_SPEAKER_TYPE)
+            # Get current speaker type from registry
+            speaker_type = self.get_client_speaker_type(client_id)
 
-            # Update with new frequency
-            self._client_types[client_id] = {
-                "speaker_type": speaker_type,
-                "crossover_frequency": frequency
-            }
-            await self._save_client_types()
+            # Update registry (single source of truth)
+            if self._registry:
+                await self._registry.update_speaker_type(
+                    client_id,
+                    speaker_type,
+                    int(frequency)
+                )
 
             self.logger.info(f"Client {client_id} crossover frequency set to {frequency}Hz")
 
@@ -243,20 +256,21 @@ class CrossoverService:
 
     def get_client_speaker_type(self, client_id: str) -> str:
         """Get the speaker type for a client"""
-        client_data = self._client_types.get(client_id, {})
-        # Migration: convert old is_subwoofer to speaker_type
-        if "is_subwoofer" in client_data and "speaker_type" not in client_data:
-            return "subwoofer" if client_data["is_subwoofer"] else DEFAULT_SPEAKER_TYPE
-        return client_data.get("speaker_type", DEFAULT_SPEAKER_TYPE)
+        if self._registry:
+            client = self._registry.get_client(client_id)
+            if client:
+                return client.speaker_type
+        return DEFAULT_SPEAKER_TYPE
 
     def get_client_crossover_frequency(self, client_id: str) -> Optional[float]:
         """Get the crossover frequency for a client"""
-        client_data = self._client_types.get(client_id, {})
+        if self._registry:
+            client = self._registry.get_client(client_id)
+            if client:
+                return client.crossover_frequency
+
         speaker_type = self.get_client_speaker_type(client_id)
-        return client_data.get(
-            "crossover_frequency",
-            DEFAULT_CROSSOVER_FREQUENCIES.get(speaker_type)
-        )
+        return DEFAULT_CROSSOVER_FREQUENCIES.get(speaker_type)
 
     def is_client_subwoofer(self, client_id: str) -> bool:
         """Check if a client is marked as a subwoofer (derived from speaker_type)"""
@@ -264,7 +278,15 @@ class CrossoverService:
 
     async def get_all_client_types(self) -> Dict[str, Dict[str, Any]]:
         """Get all client type configurations"""
-        return self._client_types.copy()
+        if self._registry:
+            return {
+                dsp_id: {
+                    "speaker_type": client.speaker_type,
+                    "crossover_frequency": client.crossover_frequency
+                }
+                for dsp_id, client in self._registry.get_all_clients().items()
+            }
+        return {}
 
     # === Zone Crossover Management ===
 
@@ -439,16 +461,16 @@ class CrossoverService:
             frequency = await self.get_zone_auto_crossover(zone_id)
             crossover_enabled = zone.get("crossover_enabled", True)
 
-            # Get client availability from volume service
-            available_clients = set(client_ids)
-            if self.state_machine:
-                volume_service = getattr(self.state_machine, 'volume_service', None)
-                if volume_service:
-                    volume_state = await volume_service.get_volume_state()
-                    available_clients = {
-                        cid for cid in client_ids
-                        if cid in volume_state.clients and volume_state.clients[cid].available
-                    }
+            # Get client availability from registry (single source of truth)
+            available_clients = set()
+            if self._registry:
+                available_clients = {
+                    cid for cid in client_ids
+                    if self._registry.is_client_available(cid)
+                }
+            else:
+                # Fallback: assume all clients available
+                available_clients = set(client_ids)
 
             # Check if zone has an AVAILABLE subwoofer
             has_subwoofer = any(
@@ -465,8 +487,13 @@ class CrossoverService:
                 f"available_clients={list(available_clients)}"
             )
 
-            # Apply to each client
+            # Apply to each available client only
             for client_id in client_ids:
+                # Skip unavailable clients - they'll get settings when they reconnect
+                if client_id not in available_clients:
+                    self.logger.debug(f"Skipping unavailable client {client_id}")
+                    continue
+
                 is_sub = self.is_client_subwoofer(client_id)
 
                 if should_apply_crossover:
@@ -677,17 +704,21 @@ class CrossoverService:
         """
         Recalculate crossover for all zones containing a client.
 
-        Called when a client's subwoofer status changes.
+        Called when a client's availability or speaker type changes.
         """
-        if not self.settings_service:
-            return
-
         try:
-            linked_groups = await self.settings_service.get_setting("dsp.linked_groups") or []
-
-            for group in linked_groups:
-                if client_id in group.get("client_ids", []):
-                    await self.apply_zone_crossover(group.get("id"))
+            # Use registry to find zone for client
+            if self._registry:
+                zone = self._registry.get_zone_for_client(client_id)
+                if zone:
+                    await self.apply_zone_crossover(zone.id)
+            elif self.settings_service:
+                # Fallback to settings lookup
+                linked_groups = await self.settings_service.get_setting("dsp.linked_groups") or []
+                for group in linked_groups:
+                    if client_id in group.get("client_ids", []):
+                        await self.apply_zone_crossover(group.get("id"))
+                        break
 
         except Exception as e:
             self.logger.error(f"Error recalculating zones for client {client_id}: {e}")

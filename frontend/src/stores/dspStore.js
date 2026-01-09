@@ -8,6 +8,7 @@ import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useSettingsStore } from './settingsStore';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
+import { useClientRegistryStore } from './clientRegistryStore';
 
 // Default 10-band parametric EQ frequencies
 const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
@@ -482,11 +483,15 @@ export const useDspStore = defineStore('dsp', () => {
       const apiBase = getApiBaseForTarget(clientId);
       await axios.put(`${apiBase}/mute`, { muted });
 
-      // If propagate requested and client is part of a zone, update all zone members
+      // If propagate requested and client is part of a zone, update all available zone members
       if (propagate) {
-        const linkedIds = getLinkedClientIds(clientId);
+        const registryStore = useClientRegistryStore();
+        const linkedIds = registryStore.getLinkedClientIds(clientId);
         if (linkedIds.length > 1) {
-          const otherClients = linkedIds.filter(id => id !== clientId);
+          // Only propagate to available clients
+          const otherClients = linkedIds.filter(id =>
+            id !== clientId && registryStore.isClientAvailable(id)
+          );
           const promises = otherClients.map(async (targetId) => {
             try {
               await axios.put(`${getApiBaseForTarget(targetId)}/mute`, { muted });
@@ -507,26 +512,38 @@ export const useDspStore = defineStore('dsp', () => {
 
   /**
    * Propagate any DSP setting to linked clients.
+   * Only propagates to available (connected) clients.
    * @param {string} endpoint - API endpoint (e.g., 'mute', 'compressor')
    * @param {object} data - Data to propagate
-   * @returns {{ success: boolean, errors: Array<{targetId: string, error: string}> }}
+   * @returns {{ success: boolean, errors: Array<{targetId: string, error: string}>, skipped: Array<string> }}
    */
   async function propagateToLinkedClients(endpoint, data) {
-    const linkedIds = getLinkedClientIds(selectedTarget.value);
-    if (linkedIds.length <= 1) return { success: true, errors: [] };
+    // Use clientRegistryStore for availability-aware propagation
+    const registryStore = useClientRegistryStore();
+
+    // Get linked clients that are available
+    const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
+    if (linkedIds.length <= 1) return { success: true, errors: [], skipped: [] };
+
+    // Filter to only available clients (skip unavailable ones)
+    const otherClients = linkedIds.filter(id => id !== selectedTarget.value);
+    const availableClients = otherClients.filter(id => registryStore.isClientAvailable(id));
+    const skippedClients = otherClients.filter(id => !registryStore.isClientAvailable(id));
+
+    if (skippedClients.length > 0) {
+      console.log(`Skipping unavailable clients for ${endpoint}:`, skippedClients);
+    }
 
     const errors = [];
-    const promises = linkedIds
-      .filter(id => id !== selectedTarget.value)
-      .map(async (targetId) => {
-        try {
-          await axios.put(`${getApiBaseForTarget(targetId)}/${endpoint}`, data);
-        } catch (error) {
-          const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
-          console.error(`Error propagating ${endpoint} to ${targetId}:`, error);
-          errors.push({ targetId, endpoint, error: errorMsg });
-        }
-      });
+    const promises = availableClients.map(async (targetId) => {
+      try {
+        await axios.put(`${getApiBaseForTarget(targetId)}/${endpoint}`, data);
+      } catch (error) {
+        const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
+        console.error(`Error propagating ${endpoint} to ${targetId}:`, error);
+        errors.push({ targetId, endpoint, error: errorMsg });
+      }
+    });
 
     await Promise.all(promises);
 
@@ -539,7 +556,7 @@ export const useDspStore = defineStore('dsp', () => {
       })));
     }
 
-    return { success: errors.length === 0, errors };
+    return { success: errors.length === 0, errors, skipped: skippedClients };
   }
 
   /**
@@ -742,18 +759,21 @@ export const useDspStore = defineStore('dsp', () => {
           filter.gain = 0;
         });
 
-        // Propagate reset to linked clients
-        const linkedIds = getLinkedClientIds(selectedTarget.value);
+        // Propagate reset to available linked clients
+        const registryStore = useClientRegistryStore();
+        const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
         if (linkedIds.length > 1) {
-          const promises = linkedIds
-            .filter(id => id !== selectedTarget.value)
-            .map(async (targetId) => {
-              try {
-                await axios.post(`${getApiBaseForTarget(targetId)}/reset`);
-              } catch (error) {
-                console.error(`Error resetting filters on ${targetId}:`, error);
-              }
-            });
+          // Only propagate to available clients
+          const availableClients = linkedIds.filter(id =>
+            id !== selectedTarget.value && registryStore.isClientAvailable(id)
+          );
+          const promises = availableClients.map(async (targetId) => {
+            try {
+              await axios.post(`${getApiBaseForTarget(targetId)}/reset`);
+            } catch (error) {
+              console.error(`Error resetting filters on ${targetId}:`, error);
+            }
+          });
           await Promise.all(promises);
         }
       }
@@ -871,10 +891,11 @@ export const useDspStore = defineStore('dsp', () => {
     try {
       const response = await axios.put(`${getApiBase()}/mute`, { muted });
       if (response.data.status === 'success') {
-        // Propagate mute to all linked clients in the zone
-        const linkedIds = getLinkedClientIds(selectedTarget.value);
+        // Propagate mute to all available linked clients in the zone
+        const registryStore = useClientRegistryStore();
+        const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
         if (linkedIds.length > 1) {
-          // Propagate to remote clients
+          // Propagate to available remote clients
           await propagateToLinkedClients('mute', { muted });
         }
         // Unified state will be updated via WebSocket broadcast
