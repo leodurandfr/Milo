@@ -22,7 +22,7 @@ from backend.presentation.api.models import (
     ZoneCrossoverRequest,
     CrossoverFilterRequest
 )
-from backend.infrastructure.services.shared.client_helpers import normalize_client_id
+from backend.infrastructure.services.snapcast_service import normalize_client_id
 
 logger = logging.getLogger(__name__)
 
