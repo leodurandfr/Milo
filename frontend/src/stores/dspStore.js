@@ -17,26 +17,6 @@ const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 1600
 const THROTTLE_DELAY = 50;
 const FINAL_DELAY = 200;
 
-// Cache key for linked groups (localStorage)
-const LINKED_GROUPS_CACHE_KEY = 'dsp_linked_groups_cache';
-
-// Helper function to load linked groups from cache synchronously
-function loadLinkedGroupsFromCache() {
-  try {
-    const cached = localStorage.getItem(LINKED_GROUPS_CACHE_KEY);
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      // Only use if recent (< 5 minutes old)
-      if (Date.now() - parsed.timestamp < 5 * 60 * 1000) {
-        return parsed.groups || [];
-      }
-    }
-  } catch (error) {
-    console.error('Error loading linked groups from cache:', error);
-  }
-  return [];
-}
-
 // Filter type options
 export const FILTER_TYPES = [
   { value: 'Peaking', label: 'Peaking' },
@@ -99,13 +79,27 @@ export const useDspStore = defineStore('dsp', () => {
     { id: 'local', name: 'Milo', host: 'local', available: true }
   ]);
 
-  // Linked clients - clients that share DSP settings
-  // Structure: [{ id: 'group_1', client_ids: ['local', 'milo-client-01'] }]
-  // Initialize from cache to prevent flash on modal open
-  const linkedGroups = ref(loadLinkedGroupsFromCache());
+  // Client registry store - single source of truth for clients and zones
+  const registryStore = useClientRegistryStore();
 
-  // Client types (speaker type + crossover) - { clientId: { speaker_type: 'satellite'|'bookshelf'|'tower'|'subwoofer', crossover_frequency: number|null } }
-  const clientTypes = ref({});
+  // Linked clients - delegates to clientRegistryStore.zoneList
+  // Structure: [{ id: 'group_1', client_ids: ['local', 'milo-client-01'], name: 'Zone 1' }]
+  const linkedGroups = computed(() => registryStore.zoneList);
+
+  // Client types - builds from clientRegistryStore.clients
+  // Structure: { clientId: { speaker_type: 'satellite'|'bookshelf'|'tower'|'subwoofer', crossover_frequency: number|null } }
+  const clientTypes = computed(() => {
+    const types = {};
+    for (const client of registryStore.clientList) {
+      if (client.dsp_id) {
+        types[client.dsp_id] = {
+          speaker_type: client.speaker_type || 'bookshelf',
+          crossover_frequency: client.crossover_frequency ?? null
+        };
+      }
+    }
+    return types;
+  });
 
   // Default crossover frequencies per speaker type (mirrors backend)
   const DEFAULT_CROSSOVER_FREQUENCIES = {
@@ -237,25 +231,8 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
-  async function fetchLinkedGroups() {
-    try {
-      const response = await axios.get('/api/dsp/links');
-      return response.data.linked_groups || [];
-    } catch (error) {
-      console.error('Error fetching linked groups:', error);
-      return [];
-    }
-  }
-
-  async function fetchClientTypes() {
-    try {
-      const response = await axios.get('/api/dsp/client-types');
-      return response.data.client_types || {};
-    } catch (error) {
-      console.error('Error fetching client types:', error);
-      return {};
-    }
-  }
+  // Note: fetchLinkedGroups and fetchClientTypes removed
+  // linkedGroups and clientTypes now delegate to clientRegistryStore
 
   async function fetchZoneCrossover(zoneId) {
     try {
@@ -911,26 +888,16 @@ export const useDspStore = defineStore('dsp', () => {
   // === TARGET MANAGEMENT ===
 
   async function loadTargets() {
-    const [targets, groups, types] = await Promise.all([
-      fetchAvailableTargets(),
-      fetchLinkedGroups(),
-      fetchClientTypes()
-    ]);
+    // Fetch available DSP targets
+    const targets = await fetchAvailableTargets();
     if (targets.length > 0) {
       availableTargets.value = targets;
       // Volume data comes from unifiedAudioStore.volumeState via WebSocket
     }
-    linkedGroups.value = groups;
-    clientTypes.value = types;
 
-    // Cache linked groups for instant load on next modal open
-    try {
-      localStorage.setItem(LINKED_GROUPS_CACHE_KEY, JSON.stringify({
-        groups: groups,
-        timestamp: Date.now()
-      }));
-    } catch (error) {
-      console.error('Error caching linked groups:', error);
+    // Ensure clientRegistryStore is initialized (linkedGroups and clientTypes delegate to it)
+    if (!registryStore.isInitialized) {
+      await registryStore.initialize();
     }
   }
 
@@ -977,8 +944,8 @@ export const useDspStore = defineStore('dsp', () => {
         payload.name = zoneName;
       }
       const response = await axios.post('/api/dsp/links', payload);
-      if (response.data.linked_groups) {
-        linkedGroups.value = response.data.linked_groups;
+      if (response.data.status === 'success' || response.data.linked_groups) {
+        // State update happens via WebSocket (registry.zone_created)
         // Log sync results if available
         if (response.data.sync?.synced?.length > 0) {
           console.log('DSP settings synced:', response.data.sync.synced);
@@ -998,11 +965,8 @@ export const useDspStore = defineStore('dsp', () => {
   async function unlinkClient(clientId) {
     try {
       const response = await axios.delete(`/api/dsp/links/${clientId}`);
-      if (response.data.linked_groups !== undefined) {
-        linkedGroups.value = response.data.linked_groups;
-        return true;
-      }
-      return false;
+      // State update happens via WebSocket (registry.zone_updated/deleted)
+      return response.data.status === 'success' || response.data.linked_groups !== undefined;
     } catch (error) {
       console.error('Error unlinking client:', error);
       return false;
@@ -1012,11 +976,8 @@ export const useDspStore = defineStore('dsp', () => {
   async function clearAllLinks() {
     try {
       const response = await axios.delete('/api/dsp/links');
-      if (response.data.linked_groups !== undefined) {
-        linkedGroups.value = [];
-        return true;
-      }
-      return false;
+      // State update happens via WebSocket (registry.zone_deleted)
+      return response.data.status === 'success' || response.data.linked_groups !== undefined;
     } catch (error) {
       console.error('Error clearing links:', error);
       return false;
@@ -1026,11 +987,8 @@ export const useDspStore = defineStore('dsp', () => {
   async function deleteZone(groupId) {
     try {
       const response = await axios.delete(`/api/dsp/links/group/${groupId}`);
-      if (response.data.linked_groups !== undefined) {
-        linkedGroups.value = response.data.linked_groups;
-        return true;
-      }
-      return false;
+      // State update happens via WebSocket (registry.zone_deleted)
+      return response.data.status === 'success' || response.data.linked_groups !== undefined;
     } catch (error) {
       console.error('Error deleting zone:', error);
       return false;
@@ -1040,11 +998,8 @@ export const useDspStore = defineStore('dsp', () => {
   async function updateZoneName(groupId, name) {
     try {
       const response = await axios.put(`/api/dsp/links/${groupId}/name`, { name });
-      if (response.data.linked_groups) {
-        linkedGroups.value = response.data.linked_groups;
-        return true;
-      }
-      return false;
+      // State update happens via WebSocket (registry.zone_updated)
+      return response.data.status === 'success' || response.data.linked_groups !== undefined;
     } catch (error) {
       console.error('Error updating zone name:', error);
       return false;
@@ -1099,14 +1054,8 @@ export const useDspStore = defineStore('dsp', () => {
       const response = await axios.put(`/api/dsp/client/${clientId}/speaker-type`, {
         speaker_type: speakerType
       });
-      if (response.data.status === 'success') {
-        clientTypes.value[clientId] = {
-          speaker_type: speakerType,
-          crossover_frequency: response.data.crossover_frequency
-        };
-        return true;
-      }
-      return false;
+      // State update happens via WebSocket (registry.speaker_type_changed)
+      return response.data.status === 'success';
     } catch (error) {
       console.error('Error setting client speaker type:', error);
       return false;
@@ -1124,14 +1073,8 @@ export const useDspStore = defineStore('dsp', () => {
       const response = await axios.put(`/api/dsp/client/${clientId}/crossover-frequency`, {
         frequency
       });
-      if (response.data.status === 'success') {
-        clientTypes.value[clientId] = {
-          speaker_type: response.data.speaker_type,
-          crossover_frequency: response.data.crossover_frequency
-        };
-        return true;
-      }
-      return false;
+      // State update happens via WebSocket (registry.speaker_type_changed)
+      return response.data.status === 'success';
     } catch (error) {
       console.error('Error setting client crossover frequency:', error);
       return false;
@@ -1208,12 +1151,10 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   /**
-   * Load client types and crossover settings
+   * Load crossover settings for zones
+   * Note: clientTypes is now computed from clientRegistryStore
    */
   async function loadCrossoverSettings() {
-    const types = await fetchClientTypes();
-    clientTypes.value = types;
-
     // Load crossover settings for each zone
     for (const zone of linkedGroups.value) {
       const crossover = await fetchZoneCrossover(zone.id);
@@ -1221,32 +1162,23 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
-  function handleLinksChanged(event) {
-    if (event.data && event.data.linked_groups !== undefined) {
-      linkedGroups.value = event.data.linked_groups;
-    }
+  // Note: handleLinksChanged and handleClientTypeChanged are now no-ops
+  // because linkedGroups and clientTypes delegate to clientRegistryStore,
+  // which is updated via registry.zone_* and registry.speaker_type_changed events.
+
+  function handleLinksChanged(_event) {
+    // No-op: linkedGroups is computed from clientRegistryStore.zoneList
+    // State is updated via registry.zone_* WebSocket events
   }
 
-  function handleClientTypeChanged(event) {
-    if (event.data) {
-      const { client_id, speaker_type, crossover_frequency } = event.data;
-      if (client_id && speaker_type) {
-        clientTypes.value[client_id] = { speaker_type, crossover_frequency };
-      }
-    }
+  function handleClientTypeChanged(_event) {
+    // No-op: clientTypes is computed from clientRegistryStore.clients
+    // State is updated via registry.speaker_type_changed WebSocket events
   }
 
-  function handleClientCrossoverChanged(event) {
-    if (event.data) {
-      const { client_id, crossover_frequency } = event.data;
-      if (client_id && crossover_frequency !== undefined) {
-        const currentType = clientTypes.value[client_id]?.speaker_type || 'bookshelf';
-        clientTypes.value[client_id] = {
-          speaker_type: currentType,
-          crossover_frequency
-        };
-      }
-    }
+  function handleClientCrossoverChanged(_event) {
+    // No-op: clientTypes is computed from clientRegistryStore.clients
+    // State is updated via registry.speaker_type_changed WebSocket events
   }
 
   function handleZoneCrossoverChanged(event) {
@@ -1307,13 +1239,6 @@ export const useDspStore = defineStore('dsp', () => {
 
   function handleDelayChanged(event) {
     Object.assign(delay.value, event.data);
-  }
-
-  function handleMuteChanged(event) {
-    // No-op: Mute state is managed locally by updateClientDspMute/updateDspMute.
-    // WebSocket event doesn't include client ID, so we can't reliably update
-    // the correct client's mute state. All mute changes go through store
-    // functions which update the cache before making API calls.
   }
 
   /**
@@ -1388,11 +1313,6 @@ export const useDspStore = defineStore('dsp', () => {
     if (event.data && event.data.enabled !== undefined) {
       isDspEffectsEnabled.value = event.data.enabled;
     }
-  }
-
-  function handleClientVolumesPushed(event) {
-    // Volume updates now come via unified WebSocket broadcast to unifiedAudioStore
-    // This handler is kept for backward compatibility but no longer updates local cache
   }
 
   return {
@@ -1512,10 +1432,8 @@ export const useDspStore = defineStore('dsp', () => {
     handleCompressorChanged,
     handleLoudnessChanged,
     handleDelayChanged,
-    handleMuteChanged,
     handleLinksChanged,
     handleEnabledChanged,
-    handleClientVolumesPushed,
     handleClientNameChanged
   };
 });
