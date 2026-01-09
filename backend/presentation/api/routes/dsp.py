@@ -599,7 +599,14 @@ def create_dsp_router(
                     all_clients = updated_zone.client_ids if updated_zone else list(existing_ids | new_client_ids)
 
                     # Sync settings from source to all clients in merged group
-                    sync_result = await sync_service.sync_settings(source_client, all_clients) if sync_service else {"synced": [], "errors": ["Sync service not available"]}
+                    if sync_service:
+                        source_exists = client_registry_service and client_registry_service.get_client(source_client)
+                        if source_exists:
+                            sync_result = await sync_service.sync_settings(source_client, all_clients)
+                        else:
+                            sync_result = {"synced": [], "errors": [f"Source client '{source_client}' not available"]}
+                    else:
+                        sync_result = {"synced": [], "errors": ["Sync service not available"]}
 
                     # ZONE_CLIENT_ADDED events already trigger crossover recalculation
                     # Get all zones for response
@@ -624,7 +631,14 @@ def create_dsp_router(
             )
 
             # Sync settings from source to all other clients
-            sync_result = await sync_service.sync_settings(source_client, all_clients) if sync_service else {"synced": [], "errors": ["Sync service not available"]}
+            if sync_service:
+                source_exists = client_registry_service and client_registry_service.get_client(source_client)
+                if source_exists:
+                    sync_result = await sync_service.sync_settings(source_client, all_clients)
+                else:
+                    sync_result = {"synced": [], "errors": [f"Source client '{source_client}' not available"]}
+            else:
+                sync_result = {"synced": [], "errors": ["Sync service not available"]}
 
             # ZONE_CREATED event already triggers crossover application
             # Get all zones for response
