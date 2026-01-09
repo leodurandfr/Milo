@@ -34,7 +34,8 @@ def create_dsp_router(
     routing_service=None,
     crossover_service=None,
     proxy_service=None,
-    sync_service=None
+    sync_service=None,
+    client_registry_service=None
 ):
     """Creates DSP router with injected dependencies"""
     router = APIRouter(prefix="/api/dsp", tags=["dsp"])
@@ -552,10 +553,12 @@ def create_dsp_router(
 
     @router.get("/links")
     async def get_linked_clients():
-        """Get all linked client groups"""
+        """Get all linked client groups (zones) from registry"""
         try:
-            if settings_service:
-                linked_groups = await settings_service.get_setting("dsp.linked_groups") or []
+            if client_registry_service:
+                zones = client_registry_service.get_all_zones()
+                # Convert Zone objects to dict format for API compatibility
+                linked_groups = [zone.to_dict() for zone in zones.values()]
             else:
                 linked_groups = []
             return {"linked_groups": linked_groups}
@@ -565,39 +568,44 @@ def create_dsp_router(
 
     @router.post("/links")
     async def create_link_group(payload: DspLinkedClientsRequest):
-        """Create or update a linked client group and sync settings from source"""
+        """Create or update a linked client group (zone) via registry"""
         try:
-            if not settings_service:
-                raise HTTPException(status_code=500, detail="Settings service not available")
-
-            linked_groups = await settings_service.get_setting("dsp.linked_groups") or []
+            if not client_registry_service:
+                raise HTTPException(status_code=500, detail="Registry service not available")
 
             # Determine source client (provided or first in list)
             source_client = payload.source_client or payload.client_ids[0]
             all_clients = payload.client_ids
 
-            # Check if any of these clients are already in another group
+            # Check if any of these clients are already in a zone
             new_client_ids = set(payload.client_ids)
-            for i, group in enumerate(linked_groups):
-                existing_ids = set(group.get("client_ids", []))
+            existing_zones = client_registry_service.get_all_zones()
+
+            for zone in existing_zones.values():
+                existing_ids = set(zone.client_ids)
                 overlap = new_client_ids & existing_ids
                 if overlap:
-                    # Merge with existing group
-                    merged_ids = list(existing_ids | new_client_ids)
-                    linked_groups[i]["client_ids"] = merged_ids
+                    # Merge with existing zone - add new clients
+                    clients_to_add = new_client_ids - existing_ids
+                    for client_id in clients_to_add:
+                        await client_registry_service.add_client_to_zone(zone.id, client_id)
+
                     # Update name if provided
                     if payload.name:
-                        linked_groups[i]["name"] = payload.name
-                    all_clients = merged_ids
-                    await settings_service.set_setting("dsp.linked_groups", linked_groups)
-                    await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
+                        await client_registry_service.update_zone(zone.id, name=payload.name)
+
+                    # Get updated zone
+                    updated_zone = client_registry_service.get_zone(zone.id)
+                    all_clients = updated_zone.client_ids if updated_zone else list(existing_ids | new_client_ids)
 
                     # Sync settings from source to all clients in merged group
                     sync_result = await sync_service.sync_settings(source_client, all_clients) if sync_service else {"synced": [], "errors": ["Sync service not available"]}
 
-                    # Apply crossover if zone has a subwoofer
-                    if crossover_service:
-                        await crossover_service.on_zone_changed(linked_groups[i]["id"])
+                    # ZONE_CLIENT_ADDED events already trigger crossover recalculation
+                    # Get all zones for response
+                    zones = client_registry_service.get_all_zones()
+                    linked_groups = [z.to_dict() for z in zones.values()]
+                    await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
 
                     return {
                         "status": "success",
@@ -606,22 +614,23 @@ def create_dsp_router(
                         "sync": sync_result
                     }
 
-            # Create new group
-            new_group = {
-                "id": f"group_{len(linked_groups) + 1}",
-                "client_ids": payload.client_ids,
-                "name": payload.name or ""
-            }
-            linked_groups.append(new_group)
-            await settings_service.set_setting("dsp.linked_groups", linked_groups)
-            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
+            # Create new zone via registry
+            import uuid
+            zone_id = f"zone_{uuid.uuid4().hex[:8]}"
+            zone = await client_registry_service.create_zone(
+                zone_id=zone_id,
+                name=payload.name or "",
+                client_ids=payload.client_ids
+            )
 
             # Sync settings from source to all other clients
             sync_result = await sync_service.sync_settings(source_client, all_clients) if sync_service else {"synced": [], "errors": ["Sync service not available"]}
 
-            # Apply crossover if zone has a subwoofer
-            if crossover_service:
-                await crossover_service.on_zone_changed(new_group["id"])
+            # ZONE_CREATED event already triggers crossover application
+            # Get all zones for response
+            zones = client_registry_service.get_all_zones()
+            linked_groups = [z.to_dict() for z in zones.values()]
+            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
 
             return {
                 "status": "success",
@@ -637,42 +646,33 @@ def create_dsp_router(
 
     @router.delete("/links/{client_id}")
     async def unlink_client(client_id: str):
-        """Remove a client from its linked group"""
+        """Remove a client from its linked group (zone) via registry"""
         try:
-            if not settings_service:
-                raise HTTPException(status_code=500, detail="Settings service not available")
+            if not client_registry_service:
+                raise HTTPException(status_code=500, detail="Registry service not available")
 
-            linked_groups = await settings_service.get_setting("dsp.linked_groups") or []
-            updated_groups = []
-            found = False
-            modified_group_ids = []  # Track groups that were modified and still exist
-
-            for group in linked_groups:
-                client_ids = group.get("client_ids", [])
-                if client_id in client_ids:
-                    found = True
-                    # Remove client from group
-                    client_ids = [cid for cid in client_ids if cid != client_id]
-                    # Keep group only if it still has 2+ clients
-                    if len(client_ids) >= 2:
-                        group["client_ids"] = client_ids
-                        updated_groups.append(group)
-                        modified_group_ids.append(group["id"])
-                else:
-                    updated_groups.append(group)
-
-            if not found:
+            # Find zone containing this client
+            zone = client_registry_service.get_zone_for_client(client_id)
+            if not zone:
                 raise HTTPException(status_code=404, detail=f"Client {client_id} not found in any linked group")
 
-            await settings_service.set_setting("dsp.linked_groups", updated_groups)
-            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": updated_groups})
+            zone_id = zone.id
+            remaining_clients = len(zone.client_ids) - 1
 
-            # Recalculate crossover for modified groups that still exist
-            if crossover_service:
-                for group_id in modified_group_ids:
-                    await crossover_service.on_zone_changed(group_id)
+            # Remove client from zone via registry
+            # ZONE_CLIENT_REMOVED event will trigger crossover filter cleanup
+            await client_registry_service.remove_client_from_zone(zone_id, client_id)
 
-            return {"status": "success", "linked_groups": updated_groups}
+            # If zone has fewer than 2 clients remaining, delete the zone entirely
+            if remaining_clients < 2:
+                await client_registry_service.delete_zone(zone_id)
+
+            # Get all zones for response
+            zones = client_registry_service.get_all_zones()
+            linked_groups = [z.to_dict() for z in zones.values()]
+            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
+
+            return {"status": "success", "linked_groups": linked_groups}
 
         except HTTPException:
             raise
@@ -682,12 +682,17 @@ def create_dsp_router(
 
     @router.delete("/links")
     async def clear_all_links():
-        """Remove all linked client groups"""
+        """Remove all linked client groups (zones) via registry"""
         try:
-            if not settings_service:
-                raise HTTPException(status_code=500, detail="Settings service not available")
+            if not client_registry_service:
+                raise HTTPException(status_code=500, detail="Registry service not available")
 
-            await settings_service.set_setting("dsp.linked_groups", [])
+            # Delete all zones via registry
+            # ZONE_DELETED events will trigger crossover filter cleanup
+            zones = client_registry_service.get_all_zones()
+            for zone_id in list(zones.keys()):
+                await client_registry_service.delete_zone(zone_id)
+
             await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": []})
             return {"status": "success", "linked_groups": []}
 
@@ -697,30 +702,25 @@ def create_dsp_router(
 
     @router.delete("/links/group/{group_id}")
     async def delete_link_group(group_id: str):
-        """Delete an entire linked client group (zone)"""
+        """Delete an entire linked client group (zone) via registry"""
         try:
-            if not settings_service:
-                raise HTTPException(status_code=500, detail="Settings service not available")
+            if not client_registry_service:
+                raise HTTPException(status_code=500, detail="Registry service not available")
 
-            linked_groups = await settings_service.get_setting("dsp.linked_groups") or []
-
-            # Find the zone to be deleted
-            zone_to_delete = next((g for g in linked_groups if g.get("id") == group_id), None)
-            if not zone_to_delete:
+            # Check zone exists
+            zone = client_registry_service.get_zone(group_id)
+            if not zone:
                 raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
 
-            # Disable crossover filters for all clients in this zone before deletion
-            if crossover_service:
-                for client_id in zone_to_delete.get("client_ids", []):
-                    await crossover_service._set_client_crossover(client_id, enabled=False, frequency=80)
-                    await crossover_service._set_client_lowpass(client_id, enabled=False, frequency=80)
-                    logger.info(f"Disabled crossover filters for client {client_id} (zone deleted)")
+            # Delete zone via registry
+            # ZONE_DELETED event includes zone data and triggers crossover filter cleanup
+            await client_registry_service.delete_zone(group_id)
 
-            # Remove the zone from settings
-            updated_groups = [g for g in linked_groups if g.get("id") != group_id]
-            await settings_service.set_setting("dsp.linked_groups", updated_groups)
-            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": updated_groups})
-            return {"status": "success", "linked_groups": updated_groups}
+            # Get remaining zones for response
+            zones = client_registry_service.get_all_zones()
+            linked_groups = [z.to_dict() for z in zones.values()]
+            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
+            return {"status": "success", "linked_groups": linked_groups}
 
         except HTTPException:
             raise
@@ -730,24 +730,24 @@ def create_dsp_router(
 
     @router.put("/links/{group_id}/name")
     async def update_link_group_name(group_id: str, request: Request):
-        """Update the name of a linked client group (zone)"""
+        """Update the name of a linked client group (zone) via registry"""
         try:
-            if not settings_service:
-                raise HTTPException(status_code=500, detail="Settings service not available")
+            if not client_registry_service:
+                raise HTTPException(status_code=500, detail="Registry service not available")
 
             body = await request.json()
             name = body.get("name", "")
 
-            linked_groups = await settings_service.get_setting("dsp.linked_groups") or []
+            # Update zone name via registry
+            zone = await client_registry_service.update_zone(group_id, name=name)
+            if not zone:
+                raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
 
-            for group in linked_groups:
-                if group.get("id") == group_id:
-                    group["name"] = name
-                    await settings_service.set_setting("dsp.linked_groups", linked_groups)
-                    await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
-                    return {"status": "success", "linked_groups": linked_groups}
-
-            raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
+            # Get all zones for response
+            zones = client_registry_service.get_all_zones()
+            linked_groups = [z.to_dict() for z in zones.values()]
+            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
+            return {"status": "success", "linked_groups": linked_groups}
 
         except HTTPException:
             raise

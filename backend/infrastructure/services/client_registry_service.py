@@ -348,13 +348,17 @@ class ClientRegistryService:
             if zone_id not in self._zones:
                 return False
 
+            # Capture zone data BEFORE deletion for event
+            zone_dict = self._zones[zone_id].to_dict()
             del self._zones[zone_id]
 
         # Persist to settings
         await self._persist_zones()
 
+        # Include zone data in event so CrossoverService can disable filters
         await self._emit_event(RegistryEventType.ZONE_DELETED, {
-            "zone_id": zone_id
+            "zone_id": zone_id,
+            "zone": zone_dict
         })
 
         self.logger.info(f"Zone deleted: {zone_id}")

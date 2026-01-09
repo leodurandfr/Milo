@@ -316,8 +316,9 @@ function handleClientVolumeInput(clientDspId, value) {
 }
 
 function handleClientVolumeChange(clientDspId, value) {
-  // Clear local display volume on release
-  delete clientLocalVolumes.value[clientDspId];
+  // Clear local display volume on release (reassign object to guarantee Vue 3 reactivity)
+  const { [clientDspId]: _, ...rest } = clientLocalVolumes.value;
+  clientLocalVolumes.value = rest;
   // Emit final value immediately (composable's final timer handles any pending)
   emit('client-volume-change', clientDspId, value);
 }

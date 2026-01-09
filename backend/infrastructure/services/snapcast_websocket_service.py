@@ -663,12 +663,13 @@ class SnapcastWebSocketService:
         """
         Ensures existing client is in Multiroom group with correct volume.
 
-        Sequence to prevent volume blast on reconnect:
-        1. Mute client in Snapcast (prevents audio during setup)
-        2. Join client to multiroom group (audio starts but is muted)
-        3. Set Snapcast volume to 100% passthrough
-        4. Apply correct DSP volume (waits for HTTP response)
-        5. Unmute client (audio now plays at correct volume)
+        Sequence:
+        1. Join client to multiroom group
+        2. Set Snapcast volume to 100% passthrough
+        3. Apply correct DSP volume (handles mute/unmute internally via volume_service)
+
+        Note: DSP mute/unmute is handled in volume_service.sync_existing_client_from_snapcast()
+        to prevent volume blast on reconnect. Snapcast mute is informational only.
         """
         try:
             self.logger.info(f"_sync_existing_client_volume for {client_id}")
@@ -684,37 +685,22 @@ class SnapcastWebSocketService:
             ip = host.get("ip", "").replace("::ffff:", "")
             dsp_id = snapcast_service._get_stable_dsp_id(hostname, ip)
 
-            # 1. MUTE client FIRST to prevent volume blast
-            self.logger.info(f"  - Muting client before group join...")
-            await snapcast_service.set_mute(client_id, True)
-
-            # 2. Join to multiroom group (audio stream starts but is muted)
+            # 1. Join to multiroom group
             self.logger.info(f"  - Setting client group to Multiroom...")
             await snapcast_service.set_client_group_to_multiroom(client_id)
 
-            # 3. Set Snapcast volume to 100% passthrough
+            # 2. Set Snapcast volume to 100% passthrough
             await snapcast_service.set_volume(client_id, 100)
             self.logger.info(f"  - Snapcast volume set to 100% (passthrough)")
 
-            # 4. Apply correct DSP volume and wait for completion
+            # 3. Apply correct DSP volume (mute/unmute handled internally)
             self.logger.info(f"  - Applying DSP volume for {dsp_id}...")
             await self._sync_client_volume_and_broadcast(dsp_id)
 
-            # 5. UNMUTE after volume is correctly set
-            self.logger.info(f"  - Unmuting client after volume sync...")
-            await snapcast_service.set_mute(client_id, False)
-
-            self.logger.info(f"  - Client {client_id} fully initialized with correct volume")
+            self.logger.info(f"  - Client {client_id} fully initialized")
 
         except Exception as e:
             self.logger.error(f"Error syncing existing client {client_id}: {e}", exc_info=True)
-            # Safety: try to unmute on error so client is not stuck muted
-            try:
-                snapcast_service = getattr(self.state_machine, 'snapcast_service', None)
-                if snapcast_service:
-                    await snapcast_service.set_mute(client_id, False)
-            except Exception:
-                pass
 
     async def _sync_client_volume_and_broadcast(self, dsp_id: str) -> None:
         """Apply correct volume to client DSP and broadcast state to frontend."""

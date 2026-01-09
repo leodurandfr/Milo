@@ -73,7 +73,7 @@ class VolumeStateStore:
         Initialize VolumeStateStore.
 
         Args:
-            settings_service: For reading dsp.linked_groups and routing.mode
+            settings_service: For reading routing.mode and volume limits
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self.settings_service = settings_service
@@ -136,6 +136,56 @@ class VolumeStateStore:
                     volume_db=None,  # Use default
                     available=client_data.get("available", True)
                 )
+
+        elif event_type == RegistryEventType.ZONE_CREATED:
+            zone_data = data.get("zone", {})
+            zone_id = data.get("zone_id")
+            if zone_id and zone_data:
+                async with self._lock:
+                    self._zones[zone_id] = ZoneConfig(
+                        zone_id=zone_id,
+                        name=zone_data.get("name", zone_id),
+                        client_ids=zone_data.get("client_ids", [])
+                    )
+                self.logger.info(f"Zone {zone_id} added to volume state")
+
+        elif event_type == RegistryEventType.ZONE_UPDATED:
+            zone_data = data.get("zone", {})
+            zone_id = data.get("zone_id")
+            if zone_id and zone_data:
+                async with self._lock:
+                    self._zones[zone_id] = ZoneConfig(
+                        zone_id=zone_id,
+                        name=zone_data.get("name", zone_id),
+                        client_ids=zone_data.get("client_ids", [])
+                    )
+                self.logger.debug(f"Zone {zone_id} updated in volume state")
+
+        elif event_type == RegistryEventType.ZONE_DELETED:
+            zone_id = data.get("zone_id")
+            if zone_id:
+                async with self._lock:
+                    self._zones.pop(zone_id, None)
+                    self._zone_target_volumes.pop(zone_id, None)
+                self.logger.info(f"Zone {zone_id} removed from volume state")
+
+        elif event_type == RegistryEventType.ZONE_CLIENT_ADDED:
+            zone_id = data.get("zone_id")
+            dsp_id = data.get("dsp_id")
+            if zone_id and dsp_id and zone_id in self._zones:
+                async with self._lock:
+                    if dsp_id not in self._zones[zone_id].client_ids:
+                        self._zones[zone_id].client_ids.append(dsp_id)
+                self.logger.debug(f"Client {dsp_id} added to zone {zone_id} in volume state")
+
+        elif event_type == RegistryEventType.ZONE_CLIENT_REMOVED:
+            zone_id = data.get("zone_id")
+            dsp_id = data.get("dsp_id")
+            if zone_id and dsp_id and zone_id in self._zones:
+                async with self._lock:
+                    if dsp_id in self._zones[zone_id].client_ids:
+                        self._zones[zone_id].client_ids.remove(dsp_id)
+                self.logger.debug(f"Client {dsp_id} removed from zone {zone_id} in volume state")
 
     # ========== Storage Directory ==========
 
@@ -272,20 +322,21 @@ class VolumeStateStore:
         return default_volume_db
 
     async def _load_zones(self) -> None:
-        """Load zone configurations from settings."""
-        linked_groups = await self.settings_service.get_setting("dsp.linked_groups") or []
-
+        """Load zone configurations from registry."""
         self._zones.clear()
-        for group in linked_groups:
-            zone_id = group.get("id")
-            if zone_id:
+
+        if self._registry:
+            # Load zones from registry (single source of truth)
+            zones = self._registry.get_all_zones()
+            for zone_id, zone in zones.items():
                 self._zones[zone_id] = ZoneConfig(
                     zone_id=zone_id,
-                    name=group.get("name", zone_id),
-                    client_ids=group.get("client_ids", [])
+                    name=zone.name,
+                    client_ids=zone.client_ids.copy()
                 )
-
-        self.logger.debug(f"Loaded {len(self._zones)} zones from settings")
+            self.logger.debug(f"Loaded {len(self._zones)} zones from registry")
+        else:
+            self.logger.warning("Registry not available, zones not loaded")
 
     def _compute_initial_zone_targets(self) -> None:
         """

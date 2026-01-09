@@ -56,6 +56,9 @@ class VolumeService:
         self._state_store = VolumeStateStore(self.settings_service)
         self._dsp_controller = DSPController(self._dsp_service, self._proxy_service)
 
+        # Snapcast WebSocket service (set via setter to resolve circular dependency)
+        self._snapcast_websocket_service = None
+
     # ============================================================================
     # EXPOSED SUB-SERVICES
     # ============================================================================
@@ -64,6 +67,10 @@ class VolumeService:
     def config(self) -> VolumeConfigService:
         """Access to volume configuration service."""
         return self._config_service
+
+    def set_snapcast_websocket_service(self, service) -> None:
+        """Set Snapcast WebSocket service reference (circular dependency resolution)."""
+        self._snapcast_websocket_service = service
 
     # ============================================================================
     # MODE DETECTION & ALSA SETUP
@@ -203,6 +210,11 @@ class VolumeService:
         """
         Sync reconnected client: apply correct volume to DSP.
 
+        Sequence to prevent volume spike:
+        1. Mute DSP first (safety in case client reconnected without CamillaDSP restart)
+        2. Set correct volume
+        3. Unmute DSP
+
         Volume selection priority:
         1. If client is in a zone -> ALWAYS use zone's current average (consistency)
         2. If client not in zone -> use persisted volume or display volume
@@ -211,6 +223,10 @@ class VolumeService:
             return True
 
         try:
+            # MUTE DSP first to prevent volume spike during sync
+            # This is a safety measure in case client reconnected without CamillaDSP restart
+            await self._dsp_controller.set_dsp_mute(client_id, True)
+
             volume_state = await self._state_store.get_complete_state()
 
             # FIRST: Check if client is in any zone
@@ -241,10 +257,10 @@ class VolumeService:
                 else:
                     self.logger.info(f"Reconnected client {client_id} (no zone), applying persisted volume: {expected_volume:.1f}dB")
 
-            # PUSH the correct volume to client DSP
+            # Set the correct volume while DSP is muted
             await self._dsp_controller.set_dsp_volume(client_id, expected_volume)
 
-            # UNMUTE the client (CamillaDSP starts muted with -m flag)
+            # UNMUTE the client after volume is correctly set
             await self._dsp_controller.set_dsp_mute(client_id, False)
 
             # Register client with the applied volume
@@ -253,6 +269,11 @@ class VolumeService:
             return True
         except Exception as e:
             self.logger.error(f"Error syncing existing client {client_id}: {e}")
+            # Try to unmute on error to avoid client stuck muted
+            try:
+                await self._dsp_controller.set_dsp_mute(client_id, False)
+            except Exception:
+                pass
             return False
 
     async def sync_client_volume_from_external(self, client_id: str, volume_db: float) -> None:
@@ -484,11 +505,9 @@ class VolumeService:
             await self._set_alsa_passthrough()
             self.logger.info("ALSA set to 100% passthrough mode")
 
-            # Initialize client availability from Snapcast
-            await self.initialize_client_availability()
-
-            # Delayed initial broadcast
-            asyncio.create_task(self._delayed_initial_broadcast())
+            # Start initial broadcast task (waits for Snapcast WebSocket in multiroom mode)
+            # Client availability is initialized AFTER WebSocket is ready (inside the task)
+            asyncio.create_task(self._startup_broadcast_after_websocket_ready())
             return True
         except Exception as e:
             self.logger.error(f"Failed to initialize: {e}")
@@ -498,27 +517,59 @@ class VolumeService:
         """
         Apply persisted volume to CamillaDSP after safe startup.
 
-        CamillaDSP starts at -50dB (via --gain flag in systemd service).
-        This method restores the user's last known volume from persistence.
+        CamillaDSP starts muted with -m flag (systemd service).
+        This method restores the user's last known volume from persistence,
+        then unmutes to prevent audio spike.
         """
         try:
             volume_state = await self._state_store.get_complete_state()
             local_volume_db = volume_state.global_volume_db
             if local_volume_db is not None and self._dsp_controller:
+                # Set volume while DSP is still muted (from -m flag at startup)
                 await self._dsp_controller.set_dsp_volume("local", local_volume_db)
                 self.logger.info(f"Restored startup volume: {local_volume_db:.1f} dB")
+
+                # Unmute local DSP after volume is correctly set
+                await self._dsp_controller.set_dsp_mute("local", False)
+                self.logger.info("Local DSP unmuted after startup volume applied")
             else:
                 self.logger.info("No persisted volume to restore at startup")
+                # Still unmute even if no persisted volume
+                if self._dsp_controller:
+                    await self._dsp_controller.set_dsp_mute("local", False)
         except Exception as e:
             self.logger.error(f"Failed to restore startup volume: {e}")
 
-    async def _delayed_initial_broadcast(self):
-        """Send initial volume broadcast after short delay."""
+    async def _startup_broadcast_after_websocket_ready(self):
+        """
+        Wait for Snapcast WebSocket and broadcast initial volume state.
+
+        In multiroom mode, waits for WebSocket to be ready before initializing
+        client availability and syncing all clients.
+        """
         try:
-            await asyncio.sleep(0.5)
+            # Check if multiroom is enabled
+            multiroom_enabled = await self.settings_service.get_setting("routing.multiroom_enabled") or False
+
+            if multiroom_enabled and self._snapcast_websocket_service:
+                self.logger.info("Waiting for Snapcast WebSocket before initial volume broadcast...")
+                ws_ready = await self._snapcast_websocket_service.wait_for_ready(timeout=30.0)
+
+                if ws_ready:
+                    # Initialize client availability NOW that WebSocket is ready
+                    await self.initialize_client_availability()
+
+                    self.logger.info("Snapcast WebSocket ready, syncing all client volumes...")
+                    await self.push_volume_to_all_clients()
+                else:
+                    self.logger.warning("Snapcast WebSocket not ready after timeout, broadcasting with available state")
+            else:
+                # Direct mode or no WebSocket service - short delay for other services
+                await asyncio.sleep(0.5)
+
             await self._broadcast_volume_state(show_bar=False)
         except Exception as e:
-            self.logger.error(f"Error in delayed broadcast: {e}")
+            self.logger.error(f"Error in startup broadcast: {e}")
 
     # ============================================================================
     # PUBLIC API (all in dB)

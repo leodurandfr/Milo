@@ -130,7 +130,8 @@ app.include_router(snapcast_router)
 
 dsp_router = create_dsp_router(
     dsp_service, state_machine, settings_service, routing_service,
-    crossover_service, dsp_proxy_service, dsp_sync_service
+    crossover_service, dsp_proxy_service, dsp_sync_service,
+    client_registry_service
 )
 app.include_router(dsp_router)
 

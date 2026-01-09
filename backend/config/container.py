@@ -331,7 +331,11 @@ class Container(containers.DeclarativeContainer):
         #        Allows VolumeStateStore to receive availability updates from registry
         volume_service._state_store.set_registry(client_registry_service)
 
-        # 2.11 - crossover_service → client_registry_service
+        # 2.11 - volume_service → snapcast_websocket_service
+        #        Allows VolumeService to wait for WebSocket ready at startup
+        volume_service.set_snapcast_websocket_service(snapcast_websocket_service)
+
+        # 2.12 - crossover_service → client_registry_service
         #        Allows CrossoverService to query availability and speaker types from registry
         crossover_service.set_registry(client_registry_service)
 
