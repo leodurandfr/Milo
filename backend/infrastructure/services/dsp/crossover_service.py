@@ -13,6 +13,7 @@ from typing import Dict, List, Any, Optional, Literal
 import aiohttp
 
 from backend.config.constants import CLIENT_API_PORT as _CLIENT_API_PORT
+from backend.infrastructure.services.dsp.client_proxy_service import is_ip_address
 
 # Valid speaker types
 SPEAKER_TYPES = ['satellite', 'bookshelf', 'tower', 'subwoofer']
@@ -577,7 +578,7 @@ class CrossoverService:
         """
         try:
             # Build URL (add .local suffix for hostnames, not for IPs)
-            if self._is_ip_address(hostname):
+            if is_ip_address(hostname):
                 url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/crossover"
             else:
                 url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/crossover"
@@ -634,7 +635,7 @@ class CrossoverService:
         """
         try:
             # Build URL (add .local suffix for hostnames, not for IPs)
-            if self._is_ip_address(hostname):
+            if is_ip_address(hostname):
                 url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/lowpass"
             else:
                 url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/lowpass"
@@ -670,15 +671,6 @@ class CrossoverService:
             return False
         except Exception as e:
             self.logger.error(f"Error proxying lowpass to client {hostname}: {e}")
-            return False
-
-    def _is_ip_address(self, hostname: str) -> bool:
-        """Check if hostname is an IP address"""
-        import ipaddress
-        try:
-            ipaddress.ip_address(hostname)
-            return True
-        except ValueError:
             return False
 
     async def _recalculate_zones_for_client(self, client_id: str) -> None:
@@ -821,7 +813,7 @@ class CrossoverService:
                     return True
             else:
                 # Apply to remote client via HTTP
-                if self._is_ip_address(client_id):
+                if is_ip_address(client_id):
                     url = f"http://{client_id}:{self.CLIENT_API_PORT}/dsp/mute"
                 else:
                     url = f"http://{client_id}.local:{self.CLIENT_API_PORT}/dsp/mute"

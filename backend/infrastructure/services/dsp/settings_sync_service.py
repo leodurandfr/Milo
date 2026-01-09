@@ -13,6 +13,7 @@ import logging
 from typing import Dict, List, Any, Optional, TYPE_CHECKING
 
 from backend.config.constants import CLIENT_DSP_FILE
+from backend.infrastructure.services.dsp.client_proxy_service import is_ip_address
 
 if TYPE_CHECKING:
     from backend.infrastructure.services.dsp.client_proxy_service import DspClientProxyService
@@ -173,7 +174,7 @@ class DspSettingsSyncService:
             if key in valid_ids:
                 continue
             # Check if this looks like an IP address that might be stale
-            if self._is_ip_address(key) and key not in valid_ids:
+            if is_ip_address(key) and key not in valid_ids:
                 stale_keys.append(key)
 
         # Remove stale entries
@@ -186,16 +187,6 @@ class DspSettingsSyncService:
             )
 
         return len(stale_keys)
-
-    def _is_ip_address(self, value: str) -> bool:
-        """Check if a string looks like an IP address."""
-        parts = value.split(".")
-        if len(parts) != 4:
-            return False
-        try:
-            return all(0 <= int(p) <= 255 for p in parts)
-        except ValueError:
-            return False
 
     # =========================================================================
     # Settings Synchronization
