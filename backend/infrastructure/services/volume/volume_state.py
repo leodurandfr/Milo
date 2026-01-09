@@ -583,13 +583,12 @@ class VolumeStateStore:
             zone = self._zones[zone_id]
             updates = {}
 
-            # Apply delta to each available client
+            # Apply delta to each available client (including muted ones)
             for client_id in zone.client_ids:
                 if client_id in self._clients:
                     client = self._clients[client_id]
 
-                    # Only update available, unmuted clients
-                    if client.available and not client.mute:
+                    if client.available:
                         new_volume = self._clamp_db(client.volume_db + delta_db)
                         updates[client_id] = new_volume
 
@@ -613,53 +612,32 @@ class VolumeStateStore:
 
     def compute_zone_average(self, zone_id: str) -> float:
         """
-        Compute average volume for a zone.
-
-        Uses a two-tier approach:
-        1. If any clients are unmuted, average ONLY those (exclude muted clients)
-        2. If ALL clients are muted, average ALL available clients (show real volume)
-        3. If no clients available, return default volume
+        Compute average volume for a zone (all available clients).
 
         Args:
             zone_id: Zone identifier
 
         Returns:
-            Average volume in dB (or DEFAULT_VOLUME_DB if no valid clients)
+            Average volume in dB (or DEFAULT_VOLUME_DB if no available clients)
         """
         if zone_id not in self._zones:
             self.logger.warning(f"Cannot compute average for unknown zone: {zone_id}")
             return self.DEFAULT_VOLUME_DB
 
         zone = self._zones[zone_id]
-
-        # Collect volumes in two categories
-        unmuted_volumes = []
-        all_volumes = []
+        volumes = []
 
         for client_id in zone.client_ids:
             if client_id in self._clients:
                 client = self._clients[client_id]
-
                 if client.available:
-                    all_volumes.append(client.volume_db)
+                    volumes.append(client.volume_db)
 
-                    # Collect unmuted clients separately
-                    if not client.mute:
-                        unmuted_volumes.append(client.volume_db)
-
-        # First tier: If there are unmuted clients, use only those
-        if unmuted_volumes:
-            average = sum(unmuted_volumes) / len(unmuted_volumes)
-            self.logger.debug(f"Zone {zone_id} average: {average:.1f}dB from {len(unmuted_volumes)} unmuted clients")
+        if volumes:
+            average = sum(volumes) / len(volumes)
+            self.logger.debug(f"Zone {zone_id} average: {average:.1f}dB from {len(volumes)} clients")
             return average
 
-        # Second tier: All clients are muted, use all available to show real volume
-        if all_volumes:
-            average = sum(all_volumes) / len(all_volumes)
-            self.logger.debug(f"Zone {zone_id} average (all muted): {average:.1f}dB from {len(all_volumes)} clients")
-            return average
-
-        # Final fallback: No available clients at all
         self.logger.debug(f"Zone {zone_id} has no available clients, returning default {self.DEFAULT_VOLUME_DB}dB")
         return self.DEFAULT_VOLUME_DB
 
@@ -687,7 +665,7 @@ class VolumeStateStore:
                         break
 
                 # Calculate offset
-                if zone_avg is not None and client.available and not client.mute:
+                if zone_avg is not None and client.available:
                     offset = client.volume_db - zone_avg
                 else:
                     offset = 0.0
@@ -721,11 +699,11 @@ class VolumeStateStore:
                 else:
                     global_volume = self._local_volume_db
             else:
-                # Multiroom: average of all available, unmuted clients
+                # Multiroom: average of all available clients
                 all_volumes = [
                     client.volume_db
                     for client in self._clients.values()
-                    if client.available and not client.mute
+                    if client.available
                 ]
                 global_volume = sum(all_volumes) / len(all_volumes) if all_volumes else self.DEFAULT_VOLUME_DB
 

@@ -80,7 +80,8 @@
             :min="sliderMin"
             :max="sliderMax"
             :step="1"
-            :disabled="client.dspMuted || isLoading"
+            :disabled="isLoading"
+            :muted="client.dspMuted"
             show-value
             value-unit=" dB"
             @input="handleVolumeInput"
@@ -141,7 +142,8 @@
               :min="sliderMin"
               :max="sliderMax"
               :step="1"
-              :disabled="zoneClient.dspMuted || !zoneClient.available || isLoading"
+              :disabled="!zoneClient.available || isLoading"
+              :muted="zoneClient.dspMuted"
               show-value
               value-unit=" dB"
               @input="(v) => handleClientVolumeInput(zoneClient.dsp_id, v)"

@@ -1,11 +1,11 @@
 <!-- frontend/src/components/ui/RangeSlider.vue -->
 <template>
   <div ref="sliderContainer" :class="['slider-container', orientation]" :style="cssVars">
-    <input type="range" :class="['range-slider', orientation]" :min="min" :max="max" :step="step" :value="modelValue"
+    <input type="range" :class="['range-slider', orientation, { muted: muted }]" :min="min" :max="max" :step="step" :value="modelValue"
       @input="handleInput" @change="handleChange" @pointerdown="handlePointerDown" @pointerup="handlePointerUp"
       :disabled="disabled">
 
-    <div v-if="orientation === 'horizontal' && !hideInlineValue" class="slider-value text-mono" :class="{ dragging: isDragging }">
+    <div v-if="orientation === 'horizontal' && !hideInlineValue" class="slider-value text-mono" :class="{ dragging: isDragging, muted: muted }">
       {{ modelValue }}{{ valueUnit }}
     </div>
   </div>
@@ -21,6 +21,7 @@ const props = defineProps({
   step: { type: Number, default: 1 },
   orientation: { type: String, default: 'horizontal' },
   disabled: { type: Boolean, default: false },
+  muted: { type: Boolean, default: false },
   valueUnit: { type: String, default: '' },
   hideInlineValue: { type: Boolean, default: false }
 });
@@ -225,6 +226,15 @@ function handlePointerUp() {
 .range-slider:disabled::-webkit-slider-thumb,
 .range-slider:disabled::-moz-range-thumb {
   cursor: not-allowed;
+}
+
+/* Muted state: visual disabled appearance but still interactive */
+.range-slider.muted {
+  opacity: 0.5;
+}
+
+.slider-value.muted {
+  opacity: 0.5;
 }
 
 .slider-value {
