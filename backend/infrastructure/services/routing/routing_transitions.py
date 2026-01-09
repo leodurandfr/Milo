@@ -99,7 +99,15 @@ class RoutingTransitions:
                     metadata={"reason": "routing_change"}
                 )
 
-            # Step 3: Start/stop Snapcast services based on target mode
+            # Step 3: Stop plugin FIRST to release ALSA device before routing change
+            # This is critical: in direct_eq mode, the plugin holds camilladsp device
+            # which snapclient needs in multiroom mode
+            if plugin:
+                logger.info(f"Stopping plugin {active_source.value} to release ALSA device")
+                await plugin.stop()
+                await asyncio.sleep(0.5)  # Wait for ALSA to release
+
+            # Step 4: Start/stop Snapcast services based on target mode
             if target_mode == "multiroom":
                 snapcast_success = await self._handle_multiroom_snapcast()
                 if not snapcast_success:
@@ -111,7 +119,7 @@ class RoutingTransitions:
             else:
                 await self._stop_snapcast()
 
-            # Step 4: Restart plugin with new routing
+            # Step 5: Restart plugin with new routing
             if plugin:
                 await self._restart_plugin(plugin, active_source, target_mode)
 

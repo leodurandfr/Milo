@@ -4,11 +4,88 @@ Audio routing service for Milo - UNIFIED version with SystemAudioState as single
 """
 import logging
 import asyncio
-from typing import Dict, Any, Callable, Optional
+import os
+from typing import Dict, Any, Callable, Optional, Literal
 from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
-from backend.infrastructure.services.routing.routing_env import RoutingEnvironment
 from backend.infrastructure.services.routing.routing_transitions import RoutingTransitions
+
+
+# =============================================================================
+# Routing Environment (consolidated from routing_env.py)
+# =============================================================================
+
+class RoutingEnvironment:
+    """
+    Manages the routing environment file for ALSA configuration.
+
+    Environment variables written:
+    - MILO_MODE: "direct" or "multiroom"
+    - MILO_EQUALIZER: "" or "_eq"
+    - MILO_SNAPCLIENT_SOUNDCARD: always "camilladsp"
+    """
+
+    ENVIRONMENT_FILE = "/var/lib/milo/routing.env"
+    ALLOWED_MODES = frozenset(["direct", "multiroom"])
+    ALLOWED_EQUALIZER = frozenset(["", "_eq"])
+
+    @classmethod
+    def update(cls, multiroom_enabled: bool, dsp_effects_enabled: bool) -> None:
+        """
+        Update routing environment file atomically.
+
+        Args:
+            multiroom_enabled: Whether multiroom mode is active
+            dsp_effects_enabled: Whether DSP effects are enabled
+        """
+        logger = logging.getLogger(__name__)
+        mode_value = "multiroom" if multiroom_enabled else "direct"
+        equalizer_value = "_eq" if dsp_effects_enabled else ""
+
+        if mode_value not in cls.ALLOWED_MODES:
+            raise ValueError(f"Invalid mode value: {mode_value}")
+        if equalizer_value not in cls.ALLOWED_EQUALIZER:
+            raise ValueError(f"Invalid equalizer value: {equalizer_value}")
+
+        temp_file = cls.ENVIRONMENT_FILE + ".tmp"
+
+        try:
+            snapclient_soundcard = "camilladsp"
+
+            with open(temp_file, 'w') as f:
+                f.write("# Milo Audio Routing Environment Variables\n")
+                f.write("# This file is automatically modified by Milo backend\n")
+                f.write("# Do not edit manually\n\n")
+                f.write(f"MILO_MODE={mode_value}\n")
+                f.write(f"MILO_EQUALIZER={equalizer_value}\n")
+                f.write(f"MILO_SNAPCLIENT_SOUNDCARD={snapclient_soundcard}\n")
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(temp_file, cls.ENVIRONMENT_FILE)
+            os.environ["MILO_MODE"] = mode_value
+            os.environ["MILO_EQUALIZER"] = equalizer_value
+
+            logger.info(f"Updated routing.env: MODE={mode_value}, EQUALIZER={equalizer_value}")
+
+        except Exception as e:
+            logger.error(f"Failed to update environment file: {e}")
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+            except Exception:
+                pass
+            raise RuntimeError(f"Failed to update environment file: {e}")
+
+    @classmethod
+    def get_mode(cls) -> Literal["direct", "multiroom"]:
+        """Get current routing mode from environment."""
+        return os.environ.get("MILO_MODE", "direct")
+
+    @classmethod
+    def get_equalizer(cls) -> Literal["", "_eq"]:
+        """Get current equalizer suffix from environment."""
+        return os.environ.get("MILO_EQUALIZER", "")
 
 class AudioRoutingService:
     """
