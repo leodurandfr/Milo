@@ -167,7 +167,6 @@ npm run test:coverage
 |----------|---------|-------------|
 | `MILO_LOG_LEVEL` | `INFO` | Log level (DEBUG, INFO, WARNING, ERROR) |
 | `MILO_MODE` | `direct` | Audio mode (direct, multiroom) |
-| `MILO_EQUALIZER` | `` | DSP suffix (_eq or empty) |
 
 ### Frontend
 

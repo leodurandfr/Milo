@@ -775,41 +775,37 @@ curl -s http://localhost:1780/jsonrpc -d '{"id":1,"jsonrpc":"2.0","method":"Serv
 
 
 
-# 07 · Configuration de Multiroom + Equalizer
+# 07 · Configuration ALSA + Multiroom
 
-#### Configuration Snapserver Raspberry #1 :
+#### ALSA Loopback Configuration:
 
-**Création de ALSA Loopback**
+**Create ALSA Loopback**
 ```bash
-# Création snd-aloop.cong via modules-load.d 
+# Create snd-aloop.conf via modules-load.d
 echo "snd_aloop" | sudo tee /etc/modules-load.d/snd-aloop.conf
 
-# Créer la configuration pour le module
+# Create module configuration
 sudo tee /etc/modprobe.d/snd-aloop.conf << 'EOF'
 
-# Configuration du module loopback ALSA
+# ALSA loopback module configuration
 options snd-aloop index=1 enable=1
 EOF
 
-# Redémarrer (important)
+# Reboot (important)
 sudo reboot
 ```
 
 ```bash
-# Vérifier que le loopback est bien chargé
+# Verify loopback is loaded
 lsmod | grep snd_aloop
 ```
 
-**Installation de ALSA Equal** 
-```bash
-sudo apt-get install -y libasound2-plugin-equal
-```
-
-
-**Modifier le fichier : /etc/asound.conf** 
+**Configure ALSA devices : /etc/asound.conf** 
 ```bash
 sudo tee /etc/asound.conf > /dev/null << 'EOF'
-# Configuration ALSA Milo - Version corrigée sans double plug
+# ALSA Configuration for Milo
+# CamillaDSP is ALWAYS in the audio path for volume control
+# MILO_MODE environment variable controls routing: direct or multiroom
 pcm.!default {
     type plug
     slave.pcm {
@@ -824,46 +820,46 @@ ctl.!default {
     card sndrpihifiberry
 }
 
-# === DEVICES DYNAMIQUES POUR MILO (avec support equalizer) ===
+# === DYNAMIC DEVICES FOR MILO ===
+# CamillaDSP is ALWAYS in the audio path (for volume control)
+# DSP effects (EQ, compressor, loudness) are toggled within CamillaDSP via bypass/restore
 
-# Spotify - Device configurable avec equalizer
+# Spotify - Configurable device (direct or multiroom)
 pcm.milo_spotify {
     @func concat
     strings [
         "pcm.milo_spotify_"
         { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
-# Bluetooth - Device configurable avec equalizer
+# Bluetooth - Configurable device (direct or multiroom)
 pcm.milo_bluetooth {
     @func concat
     strings [
         "pcm.milo_bluetooth_"
         { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
-# ROC - Device configurable avec equalizer
+# ROC - Configurable device (direct or multiroom)
 pcm.milo_roc {
     @func concat
     strings [
         "pcm.milo_roc_"
         { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
-# === IMPLEMENTATIONS PAR MODE ===
+# === MODE IMPLEMENTATIONS ===
 
-# Mode MULTIROOM (via snapserver loopback) - SANS equalizer
+# MULTIROOM mode (via snapserver loopback)
+# Each source has its own loopback subdevice
 pcm.milo_spotify_multiroom {
     type plug
     slave.pcm {
         type hw
-        card 1
+        card Loopback
         device 0
         subdevice 2
     }
@@ -873,7 +869,7 @@ pcm.milo_bluetooth_multiroom {
     type plug
     slave.pcm {
         type hw
-        card 1
+        card Loopback
         device 0
         subdevice 0
     }
@@ -883,89 +879,39 @@ pcm.milo_roc_multiroom {
     type plug
     slave.pcm {
         type hw
-        card 1
+        card Loopback
         device 0
         subdevice 1
     }
 }
 
-# Mode MULTIROOM - AVEC equalizer (vers equalizer multiroom)
-pcm.milo_spotify_multiroom_eq {
-    type plug
-    slave.pcm "equal_multiroom"
-}
-
-pcm.milo_bluetooth_multiroom_eq {
-    type plug
-    slave.pcm "equal_multiroom"
-}
-
-pcm.milo_roc_multiroom_eq {
-    type plug
-    slave.pcm "equal_multiroom"
-}
-
-# Mode DIRECT (vers HiFiBerry) - SANS equalizer
+# DIRECT mode (via CamillaDSP to amplifier)
+# CamillaDSP handles volume control and DSP effects
 pcm.milo_spotify_direct {
     type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
+    slave.pcm "camilladsp"
 }
 
 pcm.milo_bluetooth_direct {
     type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
+    slave.pcm "camilladsp"
 }
 
 pcm.milo_roc_direct {
     type plug
+    slave.pcm "camilladsp"
+}
+
+# === CAMILLADSP LOOPBACK ===
+# CamillaDSP reads from this loopback and outputs to HiFiBerry
+pcm.camilladsp {
+    type plug
     slave.pcm {
         type hw
-        card sndrpihifiberry
+        card Loopback
         device 0
+        subdevice 4
     }
-}
-
-# Mode DIRECT - AVEC equalizer (sans double plug - CORRIGÉ)
-pcm.milo_spotify_direct_eq {
-    type plug
-    slave.pcm "equal"
-}
-
-pcm.milo_bluetooth_direct_eq {
-    type plug
-    slave.pcm "equal"
-}
-
-pcm.milo_roc_direct_eq {
-    type plug
-    slave.pcm "equal"
-}
-
-# === EQUALIZERS FIXES ===
-
-# Equalizer pour mode direct (contrôlable via alsamixer -D equal)
-pcm.equal {
-    type equal
-    slave.pcm "plughw:sndrpihifiberry"
-}
-
-# Equalizer pour mode multiroom (même réglages, différente sortie)
-pcm.equal_multiroom {
-    type equal
-    slave.pcm "plughw:1,0"
-}
-
-# Control pour l'equalizer principal (alsamixer)
-ctl.equal {
-    type equal
 }
 EOF
 ```

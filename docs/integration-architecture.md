@@ -309,21 +309,20 @@ HiFiBerry            HiFiBerry         HiFiBerry
 
 ## ALSA Device Naming Convention
 
-Each audio source has 4 ALSA device variants:
+Each audio source has 2 ALSA device variants:
 
 ```
-milo_{source}_direct          # Direct to amplifier
-milo_{source}_direct_eq       # Direct with equalizer
-milo_{source}_multiroom       # To Snapcast loopback
-milo_{source}_multiroom_eq    # To Snapcast with equalizer
+milo_{source}_direct          # Via CamillaDSP to amplifier
+milo_{source}_multiroom       # To Snapcast loopback (each client applies CamillaDSP locally)
 ```
 
 **Selection via environment variables:**
 ```bash
 # /var/lib/milo/routing.env
 MILO_MODE=direct        # or "multiroom"
-MILO_EQUALIZER=         # or "_eq"
 ```
+
+CamillaDSP is always in the audio path for volume control. DSP effects are toggled via bypass/restore within CamillaDSP.
 
 ---
 

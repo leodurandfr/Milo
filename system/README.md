@@ -127,15 +127,15 @@ multi-user.target
 All audio source services use environment variables from `/var/lib/milo/routing.env`:
 
 - **MILO_MODE**: `direct` or `multiroom`
-- **MILO_EQUALIZER**: empty or `_eq`
 
 ALSA device names are dynamically resolved:
-- `milo_spotify` → `milo_spotify_direct`, `milo_spotify_direct_eq`, `milo_spotify_multiroom`, or `milo_spotify_multiroom_eq`
+- `milo_spotify` → `milo_spotify_direct` or `milo_spotify_multiroom`
 
 This allows runtime switching between:
-- **Direct mode**: Audio goes directly to amplifier
-- **Multiroom mode**: Audio routed through Snapcast for synchronization
-- **Equalizer**: Optional 10-band equalizer enabled/disabled
+- **Direct mode**: Audio goes through CamillaDSP to amplifier
+- **Multiroom mode**: Audio routed through Snapcast for synchronization (each client applies CamillaDSP locally)
+
+CamillaDSP is always in the audio path for volume control. DSP effects (EQ, compressor, loudness) are toggled within CamillaDSP via bypass/restore, not via ALSA routing.
 
 ## Installation
 

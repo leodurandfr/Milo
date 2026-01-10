@@ -180,22 +180,25 @@ Audio source → ALSA Loopback → Snapserver → Network
 - Buffer: 1000ms (adjustable based on network latency)
 - Format: PCM 48kHz 16-bit stereo
 
-## Equalizer (alsaequal)
+## DSP Processing (CamillaDSP)
 
 **What is it?**
-- ALSA 10-band plugin based on LADSPA
-- Real-time graphic equalizer
+- Real-time audio DSP processor written in Rust
+- Parametric equalizer, compressor, and loudness control
+- WebSocket API for configuration (port 1234)
+- [**Go to CamillaDSP repository**](https://github.com/HEnquist/camilladsp)
 
 **How does it work?**
-- ALSA plugin inserted in the audio chain
-- IIR filters for each frequency band
-- Configuration via `~/.asoundrc` file
+- CamillaDSP is ALWAYS in the audio path (for volume control)
+- DSP effects (EQ, compressor, loudness) can be enabled/disabled via toggle
+- When effects are disabled, CamillaDSP still handles volume control
+- Configuration stored in `/var/lib/milo/camilladsp/config.yml`
 
-**Frequency bands:**
-```
-31Hz, 63Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz
-```
-
+**Features:**
+- **Parametric EQ**: 10-band fully configurable (frequency, gain, Q)
+- **Compressor**: Dynamic range control with makeup gain
+- **Loudness**: Fletcher-Munson curve compensation
+- **Volume control**: -80 dB to 0 dB range
 
 ## ALSA audio routing
 
@@ -203,12 +206,10 @@ ALSA (Advanced Linux Sound Architecture) is the Linux audio subsystem. Milō use
 
 ### Dynamic virtual devices
 
-Each audio source (Spotify, Bluetooth, Mac) has 4 possible ALSA devices:
+Each audio source (Spotify, Bluetooth, Mac) has 2 possible ALSA devices:
 ```
-milo_spotify_direct          → Direct to amplifier
-milo_spotify_direct_eq       → Direct with equalizer
-milo_spotify_multiroom       → To snapcast (loopback)
-milo_spotify_multiroom_eq    → To snapcast with equalizer
+milo_spotify_direct          → Via CamillaDSP to amplifier
+milo_spotify_multiroom       → To Snapcast (loopback, each client applies CamillaDSP locally)
 ```
 
 ### Automatic selection
@@ -216,14 +217,14 @@ milo_spotify_multiroom_eq    → To snapcast with equalizer
 The backend uses environment variables to select the right device:
 ```bash
 MILO_MODE=direct           # or "multiroom"
-MILO_EQUALIZER=_eq         # or "" (empty)
 ```
 
-**Example:** If multiroom enabled + equalizer enabled:
+**Example:** If multiroom enabled:
 ```
-MILO_MODE=multiroom + MILO_EQUALIZER=_eq
-→ milo_spotify_multiroom_eq
+MILO_MODE=multiroom → milo_spotify_multiroom
 ```
+
+**Note:** CamillaDSP is always in the audio path for volume control. DSP effects (EQ, compressor, loudness) are toggled via bypass/restore within CamillaDSP, not via ALSA routing.
 
 ### ALSA Loopback
 

@@ -250,31 +250,28 @@ pcm.milo_mysource {
     strings [
         "pcm.milo_mysource_"
         { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
+# Direct mode: via CamillaDSP loopback
 pcm.milo_mysource_direct {
     type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
+    slave.pcm "camilladsp"
 }
 
+# Multiroom mode: via Snapcast loopback
 pcm.milo_mysource_multiroom {
     type plug
     slave.pcm {
         type hw
-        card 1
+        card Loopback
         device 0
         subdevice 3
     }
 }
-
-# ... _eq versions too
 ```
+
+Note: CamillaDSP is always in the audio path for volume control. DSP effects are toggled within CamillaDSP.
 
 ### 5. Create API routes
 
