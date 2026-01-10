@@ -294,6 +294,41 @@ class StationManager:
         """
         return station_id in self._favorites
 
+    def get_favorite_metadata_local(self, station_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Gets favorite station metadata from LOCAL data only (no API).
+
+        Priority:
+        1. Modified metadata (user overrides)
+        2. Manual stations (custom_xxx)
+        3. Favorites cache
+
+        Args:
+            station_id: Station ID
+
+        Returns:
+            Station metadata dict or None if not found locally
+        """
+        # Priority 1: Modified metadata
+        if station_id in self._modified_metadata:
+            metadata = self._modified_metadata[station_id].copy()
+            metadata['id'] = station_id
+            return metadata
+
+        # Priority 2: Manual stations
+        if station_id in self._manual_stations:
+            metadata = self._manual_stations[station_id].copy()
+            metadata['id'] = station_id
+            return metadata
+
+        # Priority 3: Favorites cache
+        if station_id in self._favorites_cache:
+            metadata = self._favorites_cache[station_id].copy()
+            metadata['id'] = station_id
+            return metadata
+
+        return None
+
     async def update_favorite_image(self, station_id: str, image_filename: str) -> bool:
         """
         Updates image of a favorite station

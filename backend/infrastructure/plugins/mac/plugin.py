@@ -9,8 +9,7 @@ import ipaddress
 from typing import Dict, Any, Tuple, Optional
 
 from backend.infrastructure.plugins.base import UnifiedAudioPlugin
-from backend.domain.audio_state import PluginState
-from backend.infrastructure.plugins.plugin_utils import format_response
+from backend.domain.audio_state import AudioSource, PluginState
 
 
 # ------------ IP/Port Helpers (IPv4 + IPv6 + scope) -----------------
@@ -58,10 +57,13 @@ class MacPlugin(UnifiedAudioPlugin):
     - IPv4/IPv6 support (including link-local with %scope)
     """
 
-    def __init__(self, config: Dict[str, Any], state_machine=None):
-        super().__init__("roc", state_machine)
-        self.config = config
-        self.service_name = config.get("service_name", "milo-mac.service")
+    def __init__(self, config: Dict[str, Any], state_machine=None, settings_service=None):
+        super().__init__(
+            source=AudioSource.MAC,
+            config=config,
+            state_machine=state_machine,
+            settings_service=settings_service
+        )
 
         # ROC parameters
         self.rtp_port = config.get("rtp_port", 10001)
@@ -144,23 +146,6 @@ class MacPlugin(UnifiedAudioPlugin):
 
         self.logger.info(f"ROC stop completed: {success}")
         return success
-
-    async def start(self) -> bool:
-        """Starts ROC receiver with proper initial state detection"""
-        if not self._initialized and not await self.initialize():
-            await self.notify_state_change(PluginState.ERROR, {"error": "Initialization failed"})
-            return False
-
-        try:
-            success = await self._do_start()
-            if not success:
-                await self.notify_state_change(PluginState.ERROR, {"error": "Start failed"})
-            # Do NOT call notify_state_change(READY) - _do_start() handles correct state
-            return success
-        except Exception as e:
-            self.logger.error(f"Start error: {e}")
-            await self.notify_state_change(PluginState.ERROR, {"error": str(e)})
-            return False
 
     async def _detect_active_connections(self):
         """
@@ -453,12 +438,16 @@ class MacPlugin(UnifiedAudioPlugin):
                     await asyncio.sleep(1)
                     self.monitor_task = asyncio.create_task(self._monitor_events())
 
-                return format_response(success, "Restarted" if success else "Failed")
+                return self.format_response(
+                    success,
+                    message="Restarted" if success else None,
+                    error=None if success else "Failed"
+                )
 
-            return format_response(False, error=f"Unknown command: {command}")
+            return self.format_response(False, error=f"Unknown command: {command}")
 
         except Exception as e:
-            return format_response(False, error=str(e))
+            return self.format_response(False, error=str(e))
 
     async def get_initial_state(self) -> Dict[str, Any]:
         """Initial state"""

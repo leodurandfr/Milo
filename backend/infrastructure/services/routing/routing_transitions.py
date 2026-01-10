@@ -157,29 +157,26 @@ class RoutingTransitions:
         active_source: AudioSource,
         target_mode: str,
     ) -> None:
-        """Restart plugin with new routing configuration."""
+        """
+        Restart plugin with new routing configuration.
+
+        Note: The plugin was already stopped in the main transition() method,
+        so we use start() instead of restart() to bring it back up with all
+        underlying services.
+        """
         mode_label = "multiroom" if target_mode == "multiroom" else "direct"
 
-        # Direct mode: stop plugin first to release ALSA device
-        if target_mode == "direct":
-            logger.info(f"Stopping plugin {active_source.value} to release ALSA device")
-            await plugin.stop()
-            await asyncio.sleep(0.5)  # Wait for ALSA to release
+        # Plugin was already stopped in transition(), use start() to bring it back up
+        logger.info(f"Starting plugin {active_source.value} for {mode_label} mode")
+        start_success = await plugin.start()
 
-        logger.info(f"Restarting plugin {active_source.value} for {mode_label} mode")
-        restart_success = await plugin.restart()
-
-        if not restart_success:
-            logger.warning(f"Plugin {active_source.value} restart failed, attempting recovery via start()")
-            start_success = await plugin.start()
-
-            if not start_success:
-                logger.error(f"Plugin {active_source.value} recovery failed after {mode_label} transition")
-                if self.state_machine:
-                    await self.state_machine.broadcast_event("routing", "plugin_restart_failed", {
-                        "source": active_source.value,
-                        "message": f"Failed to restart {active_source.value} after {mode_label} transition"
-                    })
+        if not start_success:
+            logger.error(f"Plugin {active_source.value} start failed after {mode_label} transition")
+            if self.state_machine:
+                await self.state_machine.broadcast_event("routing", "plugin_restart_failed", {
+                    "source": active_source.value,
+                    "message": f"Failed to start {active_source.value} after {mode_label} transition"
+                })
 
     async def _resume_playback(
         self,

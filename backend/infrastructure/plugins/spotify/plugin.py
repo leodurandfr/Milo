@@ -10,18 +10,21 @@ import json
 from typing import Dict, Any
 
 from backend.infrastructure.plugins.base import UnifiedAudioPlugin
-from backend.domain.audio_state import PluginState
+from backend.domain.audio_state import AudioSource, PluginState
 from backend.infrastructure.plugins.plugin_utils import WebSocketManager
+
 
 class SpotifyPlugin(UnifiedAudioPlugin):
     """Spotify plugin (uses go-librespot internally) with 0 = disabled support"""
-    
+
     def __init__(self, config: Dict[str, Any], state_machine=None, settings_service=None):
-        super().__init__("librespot", state_machine)
-        self.config = config
-        self.service_name = config.get("service_name")
-        self.config_path = os.path.expanduser(config.get("config_path"))
-        self.settings_service = settings_service
+        super().__init__(
+            source=AudioSource.SPOTIFY,
+            config=config,
+            state_machine=state_machine,
+            settings_service=settings_service
+        )
+        self.config_path = os.path.expanduser(config.get("config_path", ""))
 
         # Auto-disconnect configuration (from SettingsService)
         self.auto_disconnect_enabled = True
@@ -105,19 +108,22 @@ class SpotifyPlugin(UnifiedAudioPlugin):
             # Start service
             if not await self.control_service(self.service_name, "start"):
                 return False
-            
+
             # Reset state at startup
             self._device_connected = False
             self._is_playing = False
             self._metadata = {}
             self._cancel_pause_timer()
-            
+
             # Create HTTP session
             self.session = aiohttp.ClientSession()
-            
+
             # Start WebSocket connection
             await self._start_websocket()
-            
+
+            # Notify READY state
+            await self.notify_state_change(PluginState.READY, {"device_connected": False})
+
             return True
         except Exception as e:
             self.logger.error(f"Start error: {e}")
