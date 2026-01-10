@@ -7,27 +7,29 @@ import subprocess
 from typing import Dict, Any
 
 from backend.infrastructure.plugins.base import UnifiedAudioPlugin
-from backend.domain.audio_state import PluginState
+from backend.domain.audio_state import AudioSource, PluginState
 from backend.infrastructure.plugins.bluetooth.agent import BluetoothAgent
 from backend.infrastructure.plugins.bluetooth.bluealsa_monitor import BlueAlsaMonitor
 from backend.infrastructure.plugins.bluetooth.bluealsa_playback import BlueAlsaPlayback
 
+
 class BluetoothPlugin(UnifiedAudioPlugin):
     """Bluetooth plugin for Milo - clean version"""
-    
-    def __init__(self, config: Dict[str, Any], state_machine=None):
-        super().__init__("bluetooth", state_machine)
-        
-        # Configuration
-        self.config = config
+
+    def __init__(self, config: Dict[str, Any], state_machine=None, settings_service=None):
+        super().__init__(
+            source=AudioSource.BLUETOOTH,
+            config=config,
+            state_machine=state_machine,
+            settings_service=settings_service
+        )
+
+        # Additional service configuration (Bluetooth uses multiple services)
         self.bluetooth_service = config.get("bluetooth_service", "bluetooth.service")
-        self.bluealsa_service = config.get("service_name", "milo-bluealsa.service")
+        self.bluealsa_service = self.service_name  # Main service from config
         self.bluealsa_aplay_service = "milo-bluealsa-aplay.service"
         self.stop_bluetooth = config.get("stop_bluetooth_on_exit", True)
         self.auto_agent = config.get("auto_agent", True)
-        
-        # ADD: Define service_name for base class
-        self.service_name = self.bluealsa_service
 
         # State - Renamed to avoid conflict with base class
         self.connected_device = None
@@ -106,6 +108,9 @@ class BluetoothPlugin(UnifiedAudioPlugin):
             # 6. Start BlueALSA monitoring
             if not await self.monitor.start_monitoring():
                 raise RuntimeError("BlueALSA monitoring start error")
+
+            # 7. Notify READY state
+            await self.notify_state_change(PluginState.READY, {"device_connected": False})
 
             return True
         except Exception as e:
