@@ -165,15 +165,20 @@ class RadioPlugin(BaseMediaPlugin):
             return self.format_response(False, error="station_id required")
 
         try:
-            # Get station - favorites use local data only, others use API
+            # Get station with fallback chain: local favorite → provided → API
             station = None
+            provided_station = data.get('station')
+
+            # 1. Try local data for favorites
             if self.station_manager.is_favorite(station_id):
-                # Favorite: use LOCAL data only (no API call)
                 station = self.station_manager.get_favorite_metadata_local(station_id)
-                if station:
-                    self.logger.debug(f"Using local favorite data for {station_id}")
-            else:
-                # Non-favorite: use API
+
+            # 2. Fallback to provided station
+            if not station and provided_station:
+                station = provided_station
+
+            # 3. Fallback to API
+            if not station:
                 station = await self.radio_api.get_station_by_id(station_id)
 
             if not station:
