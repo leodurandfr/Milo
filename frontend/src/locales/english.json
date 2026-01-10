@@ -57,10 +57,16 @@
       "tower": "Tower speakers",
       "subwoofer": "Subwoofer"
     },
-    "crossoverFrequency": "Crossover frequency:",
-    "crossoverHint": "High-pass filter cutoff frequency",
-    "subwooferAutoCrossover": "Digital crossover filters will be automatically applied: lowpass on this subwoofer, highpass on other speakers in the zone.",
-    "subwooferDisablePhysical": "Set your subwoofer's crossover to maximum (LFE/Bypass) to avoid filter stacking."
+    "crossover": {
+      "subwooferNotInZone": "Add this subwoofer to a zone to enable automatic crossover management. Lowpass (subwoofer) and highpass (other speakers) filters will be applied automatically.",
+      "lowpassActive": "Lowpass filter active",
+      "lowpassDescription": "This subwoofer only receives bass frequencies below the crossover frequency.",
+      "highpassOnOthers": "A highpass filter is applied to other speakers in the zone to remove bass (handled by this subwoofer).",
+      "disablePhysicalCrossover": "Set your subwoofer's physical crossover to bypass/LFE to avoid filter stacking.",
+      "highpassActive": "Highpass filter active",
+      "highpassDescription": "Bass frequencies below {freq} Hz are removed from this speaker and handled by the subwoofer in the zone.",
+      "crossoverFrequency": "Crossover frequency:"
+    }
   },
   "dsp": {
     "title": "DSP Equalizer",

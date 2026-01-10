@@ -57,10 +57,16 @@
       "tower": "Colonnes",
       "subwoofer": "Caisson de basse"
     },
-    "crossoverFrequency": "Fréquence de coupure :",
-    "crossoverHint": "Fréquence de coupure du filtre passe-haut",
-    "subwooferAutoCrossover": "Les filtres de crossover numériques seront automatiquement appliqués : passe-bas sur ce caisson, passe-haut sur les autres enceintes de la zone.",
-    "subwooferDisablePhysical": "Réglez le crossover de votre caisson au maximum (LFE/Bypass) pour éviter le cumul des filtres."
+    "crossover": {
+      "subwooferNotInZone": "Ajoutez ce caisson à une zone pour activer la gestion automatique du crossover. Les filtres passe-bas (caisson) et passe-haut (autres enceintes) seront appliqués automatiquement.",
+      "lowpassActive": "Filtre passe-bas actif",
+      "lowpassDescription": "Ce caisson reçoit uniquement les basses en dessous de la fréquence de coupure.",
+      "highpassOnOthers": "Un filtre passe-haut est appliqué aux autres enceintes de la zone pour retirer les basses (gérées par ce caisson).",
+      "disablePhysicalCrossover": "Réglez le crossover physique de votre caisson sur bypass/LFE pour éviter le cumul des filtres.",
+      "highpassActive": "Filtre passe-haut actif",
+      "highpassDescription": "Les basses en dessous de {freq} Hz sont retirées de cette enceinte et gérées par le caisson de la zone.",
+      "crossoverFrequency": "Fréquence de coupure :"
+    }
   },
   "dsp": {
     "title": "Égaliseur DSP",
