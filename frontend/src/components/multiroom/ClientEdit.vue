@@ -25,18 +25,36 @@
           </ListItemButton>
         </div>
 
-        <!-- Subwoofer Info (when subwoofer selected) -->
-        <div v-if="selectedSpeakerType === 'subwoofer'" class="subwoofer-info">
-          <p class="text-small">
-            {{ $t('multiroom.subwooferAutoCrossover', 'Digital crossover filters will be automatically applied: lowpass on this subwoofer, highpass on other speakers in the zone.') }}
-          </p>
-          <p class="text-small">
-            {{ $t('multiroom.subwooferDisablePhysical', "Set your subwoofer's crossover to maximum (LFE/Bypass) to avoid filter stacking.") }}
-          </p>
-          <div class="crossover-recommendation">
-            <span class="text-small">{{ $t('multiroom.crossoverFrequency', 'Crossover frequency:') }}</span>
-            <span class="crossover-value text-mono">{{ zoneCrossoverFrequency }} Hz</span>
-          </div>
+        <!-- Crossover Info Section -->
+        <div v-if="showCrossoverInfo" class="crossover-info">
+          <!-- Case 1: Subwoofer not in zone -->
+          <template v-if="isSubwoofer && !isInZone">
+            <p class="text-mono">
+              {{ $t('multiroom.crossover.subwooferNotInZone', 'Add this subwoofer to a zone to enable automatic crossover management. Lowpass (subwoofer) and highpass (other speakers) filters will be applied automatically.') }}
+            </p>
+          </template>
+
+          <!-- Case 2: Subwoofer in zone -->
+          <template v-else-if="isSubwoofer && isInZone">
+            <h3 class="info-title text-mono">{{ $t('multiroom.crossover.lowpassActive', 'Lowpass filter active') }}</h3>
+            <p class="text-mono">{{ $t('multiroom.crossover.lowpassDescription', 'This subwoofer only receives bass frequencies below the crossover frequency.') }}</p>
+            <div class="crossover-frequency">
+              <span class="info-label text-mono">{{ $t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
+              <span class="crossover-value text-mono">{{ zoneCrossoverFrequency }} Hz</span>
+            </div>
+            <p class="text-mono">{{ $t('multiroom.crossover.highpassOnOthers', 'A highpass filter is applied to other speakers in the zone to remove bass (handled by this subwoofer).') }}</p>
+            <p class="text-mono text-warning">{{ $t('multiroom.crossover.disablePhysicalCrossover', "Set your subwoofer's physical crossover to bypass/LFE to avoid filter stacking.") }}</p>
+          </template>
+
+          <!-- Case 3: Non-subwoofer in zone with subwoofer -->
+          <template v-else-if="!isSubwoofer && isInZone && zoneHasSubwoofer">
+            <h3 class="info-title text-mono">{{ $t('multiroom.crossover.highpassActive', 'Highpass filter active') }}</h3>
+            <p class="text-mono">{{ $t('multiroom.crossover.highpassDescription', { freq: zoneCrossoverFrequency }, `Bass frequencies below ${zoneCrossoverFrequency} Hz are removed from this speaker and handled by the subwoofer in the zone.`) }}</p>
+            <div class="crossover-frequency">
+              <span class="info-label text-mono">{{ $t('multiroom.crossover.crossoverFrequency', 'Crossover frequency:') }}</span>
+              <span class="crossover-value text-mono">{{ zoneCrossoverFrequency }} Hz</span>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -101,6 +119,24 @@ const clientZone = computed(() => {
 });
 
 const isInZone = computed(() => !!clientZone.value);
+
+// Check if current speaker type is subwoofer
+const isSubwoofer = computed(() => selectedSpeakerType.value === 'subwoofer');
+
+// Check if zone contains a subwoofer
+const zoneHasSubwoofer = computed(() => {
+  if (!clientZone.value?.id) return false;
+  return dspStore.hasSubwooferInZone(clientZone.value.id);
+});
+
+// Show crossover info when relevant
+const showCrossoverInfo = computed(() => {
+  // Always show for subwoofer (different message if not in zone)
+  if (isSubwoofer.value) return true;
+  // Show for non-subwoofer in zone with subwoofer
+  if (isInZone.value && zoneHasSubwoofer.value) return true;
+  return false;
+});
 
 // Speaker type options
 const speakerTypes = computed(() => [
@@ -180,7 +216,7 @@ onMounted(async () => {
   gap: var(--space-01);
 }
 
-.subwoofer-info {
+.crossover-info {
   background: var(--color-background-strong);
   border-radius: var(--radius-04);
   padding: var(--space-04);
@@ -190,19 +226,27 @@ onMounted(async () => {
   gap: var(--space-03);
 }
 
-.subwoofer-info p {
+.crossover-info .info-title {
+  color: var(--color-text);
+  margin: 0;
+}
+
+.crossover-info p {
   color: var(--color-text-secondary);
   margin: 0;
 }
 
-.crossover-recommendation {
+.crossover-info .text-warning {
+  color: var(--color-brand);
+}
+
+.crossover-frequency {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.crossover-recommendation .text-small {
-  color: var(--color-text-secondary);
+  padding: var(--space-03) var(--space-04);
+  background: var(--color-background-neutral);
+  border-radius: var(--radius-03);
 }
 
 .crossover-value {
