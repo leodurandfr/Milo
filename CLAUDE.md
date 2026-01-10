@@ -342,15 +342,15 @@ Settings are stored in `/var/lib/milo/settings.json` with:
 Each audio source has 4 ALSA devices selected via environment variables:
 
 ```
-milo_{source}_direct          # Direct to amplifier
-milo_{source}_direct_eq       # Direct with equalizer
-milo_{source}_multiroom       # To snapcast loopback
-milo_{source}_multiroom_eq    # To snapcast with equalizer
+milo_{source}_direct          # Direct via CamillaDSP to amplifier
+milo_{source}_multiroom       # To Snapcast loopback (DSP applied on each client)
 ```
 
 Selection controlled by:
 - `MILO_MODE=direct` or `multiroom`
-- `MILO_EQUALIZER=_eq` or empty
+
+CamillaDSP is ALWAYS in the audio path for volume control.
+DSP effects (EQ, compressor, loudness) are toggled via `bypass_effects()` / `restore_effects()` in CamillaDSP, not via ALSA routing.
 
 These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 
@@ -361,7 +361,7 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 1. **Define enum** in `backend/domain/audio_state.py::AudioSource`
 2. **Create plugin** implementing `AudioSourcePlugin` (extend `UnifiedAudioPlugin` for base functionality)
 3. **Register in container** (`backend/config/container.py`)
-4. **Add ALSA devices** in `/etc/asound.conf` with 4 variants (direct, direct_eq, multiroom, multiroom_eq)
+4. **Add ALSA devices** in `/etc/asound.conf` with 2 variants (direct via CamillaDSP, multiroom via Snapcast)
 5. **Create API routes** in `backend/presentation/api/routes/`
 6. **Register routes** in `backend/main.py`
 7. **Create Vue component** in `frontend/src/components/audio/`

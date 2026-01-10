@@ -21,31 +21,29 @@ class RoutingEnvironment:
 
     Environment variables written:
     - MILO_MODE: "direct" or "multiroom"
-    - MILO_EQUALIZER: "" or "_eq"
     - MILO_SNAPCLIENT_SOUNDCARD: always "camilladsp"
+
+    Note: MILO_EQUALIZER was removed - CamillaDSP is always in the audio path.
+    DSP effects (EQ, compressor, loudness) are controlled via CamillaDSP bypass,
+    not via ALSA routing.
     """
 
     ENVIRONMENT_FILE = "/var/lib/milo/routing.env"
     ALLOWED_MODES = frozenset(["direct", "multiroom"])
-    ALLOWED_EQUALIZER = frozenset(["", "_eq"])
 
     @classmethod
-    def update(cls, multiroom_enabled: bool, dsp_effects_enabled: bool) -> None:
+    def update(cls, multiroom_enabled: bool) -> None:
         """
         Update routing environment file atomically.
 
         Args:
             multiroom_enabled: Whether multiroom mode is active
-            dsp_effects_enabled: Whether DSP effects are enabled
         """
         logger = logging.getLogger(__name__)
         mode_value = "multiroom" if multiroom_enabled else "direct"
-        equalizer_value = "_eq" if dsp_effects_enabled else ""
 
         if mode_value not in cls.ALLOWED_MODES:
             raise ValueError(f"Invalid mode value: {mode_value}")
-        if equalizer_value not in cls.ALLOWED_EQUALIZER:
-            raise ValueError(f"Invalid equalizer value: {equalizer_value}")
 
         temp_file = cls.ENVIRONMENT_FILE + ".tmp"
 
@@ -57,16 +55,14 @@ class RoutingEnvironment:
                 f.write("# This file is automatically modified by Milo backend\n")
                 f.write("# Do not edit manually\n\n")
                 f.write(f"MILO_MODE={mode_value}\n")
-                f.write(f"MILO_EQUALIZER={equalizer_value}\n")
                 f.write(f"MILO_SNAPCLIENT_SOUNDCARD={snapclient_soundcard}\n")
                 f.flush()
                 os.fsync(f.fileno())
 
             os.replace(temp_file, cls.ENVIRONMENT_FILE)
             os.environ["MILO_MODE"] = mode_value
-            os.environ["MILO_EQUALIZER"] = equalizer_value
 
-            logger.info(f"Updated routing.env: MODE={mode_value}, EQUALIZER={equalizer_value}")
+            logger.info(f"Updated routing.env: MODE={mode_value}")
 
         except Exception as e:
             logger.error(f"Failed to update environment file: {e}")
@@ -81,11 +77,6 @@ class RoutingEnvironment:
     def get_mode(cls) -> Literal["direct", "multiroom"]:
         """Get current routing mode from environment."""
         return os.environ.get("MILO_MODE", "direct")
-
-    @classmethod
-    def get_equalizer(cls) -> Literal["", "_eq"]:
-        """Get current equalizer suffix from environment."""
-        return os.environ.get("MILO_EQUALIZER", "")
 
 class AudioRoutingService:
     """
@@ -496,7 +487,7 @@ class AudioRoutingService:
     
     async def _update_systemd_environment(self) -> None:
         """Updates ALSA environment variables via static routing.env file."""
-        RoutingEnvironment.update(self.multiroom_enabled, self.dsp_effects_enabled)
+        RoutingEnvironment.update(self.multiroom_enabled)
     
     async def _transition_to_multiroom(self, active_source: AudioSource = None) -> bool:
         """Transition to multiroom mode."""

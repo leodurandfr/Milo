@@ -100,7 +100,7 @@ class RoutingTransitions:
                 )
 
             # Step 3: Stop plugin FIRST to release ALSA device before routing change
-            # This is critical: in direct_eq mode, the plugin holds camilladsp device
+            # This is critical: in direct mode, the plugin holds camilladsp device
             # which snapclient needs in multiroom mode
             if plugin:
                 logger.info(f"Stopping plugin {active_source.value} to release ALSA device")

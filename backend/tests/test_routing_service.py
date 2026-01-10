@@ -300,11 +300,10 @@ class TestAudioRoutingService:
                 with patch('os.fsync'):
                     await routing_service._update_systemd_environment()
 
-                    # Check that MILO_MODE=multiroom and MILO_EQUALIZER=_eq are written
+                    # Check that MILO_MODE=multiroom is written
                     handle = m()
                     calls = [str(call) for call in handle.write.call_args_list]
                     assert any('MILO_MODE=multiroom' in str(call) for call in calls)
-                    assert any('MILO_EQUALIZER=_eq' in str(call) for call in calls)
 
     @pytest.mark.asyncio
     async def test_get_snapcast_status(self, routing_service, mock_systemd_manager):

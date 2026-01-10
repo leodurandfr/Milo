@@ -14,11 +14,11 @@ Group=milo
 RuntimeDirectory=milo
 RuntimeDirectoryMode=0755
 
-# Load Milo environment variables (MILO_MODE and MILO_EQUALIZER)
+# Load Milo environment variables (MILO_MODE)
 EnvironmentFile=/var/lib/milo/routing.env
 
-# ALSA device routes automatically based on mode
-ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE} MILO_EQUALIZER=${MILO_EQUALIZER}"'
+# ALSA device routes to direct (CamillaDSP) or multiroom (Snapcast)
+ExecStartPre=/bin/sh -c 'echo "ALSA routing: MILO_MODE=${MILO_MODE}"'
 
 # Launch mpv in daemon mode with IPC socket
 ExecStart=/usr/bin/mpv \

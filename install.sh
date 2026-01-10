@@ -719,7 +719,8 @@ configure_alsa_complete() {
 
     sudo tee /etc/asound.conf > /dev/null << 'EOF'
 # ALSA Configuration for Milo with CamillaDSP
-# DSP processing is handled by CamillaDSP daemon via loopback device
+# Audio routing with DSP processing via CamillaDSP
+# CamillaDSP is ALWAYS in the audio path for volume control
 
 pcm.!default {
     type plug
@@ -735,14 +736,14 @@ ctl.!default {
     card sndrpihifiberry
 }
 
-# === Dynamic aliases (with MILO_MODE and MILO_EQUALIZER environment variables) ===
+# === Dynamic aliases (with MILO_MODE environment variable) ===
+# Routes to direct (via CamillaDSP) or multiroom (via Snapcast loopback)
 
 pcm.milo_spotify {
     @func concat
     strings [
         "pcm.milo_spotify_"
         { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
@@ -751,7 +752,6 @@ pcm.milo_bluetooth {
     strings [
         "pcm.milo_bluetooth_"
         { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
@@ -760,7 +760,6 @@ pcm.milo_roc {
     strings [
         "pcm.milo_roc_"
         { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
@@ -769,7 +768,6 @@ pcm.milo_radio {
     strings [
         "pcm.milo_radio_"
         { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
@@ -778,11 +776,40 @@ pcm.milo_podcast {
     strings [
         "pcm.milo_podcast_"
         { @func getenv vars [ MILO_MODE ] default "direct" }
-        { @func getenv vars [ MILO_EQUALIZER ] default "" }
     ]
 }
 
-# === Multiroom Mode (via snapcast) ===
+# === Direct Mode (via CamillaDSP loopback) ===
+# Audio always goes through CamillaDSP for volume control and optional DSP effects
+
+pcm.milo_spotify_direct {
+    type plug
+    slave.pcm "camilladsp_input"
+}
+
+pcm.milo_bluetooth_direct {
+    type plug
+    slave.pcm "camilladsp_input"
+}
+
+pcm.milo_roc_direct {
+    type plug
+    slave.pcm "camilladsp_input"
+}
+
+pcm.milo_radio_direct {
+    type plug
+    slave.pcm "camilladsp_input"
+}
+
+pcm.milo_podcast_direct {
+    type plug
+    slave.pcm "camilladsp_input"
+}
+
+# === Multiroom Mode (via Snapcast loopback) ===
+# Audio goes to Snapcast server, which distributes to clients
+# Each client applies CamillaDSP locally for volume/effects
 
 pcm.milo_spotify_multiroom {
     type plug
@@ -834,135 +861,6 @@ pcm.milo_podcast_multiroom {
     }
 }
 
-# === Multiroom Mode with DSP ===
-# In multiroom mode, DSP is applied on satellites, not on main device
-# These route directly to snapcast (same as without DSP)
-
-pcm.milo_spotify_multiroom_eq {
-    type plug
-    slave.pcm {
-        type hw
-        card Loopback
-        device 0
-        subdevice 2
-    }
-}
-
-pcm.milo_bluetooth_multiroom_eq {
-    type plug
-    slave.pcm {
-        type hw
-        card Loopback
-        device 0
-        subdevice 0
-    }
-}
-
-pcm.milo_roc_multiroom_eq {
-    type plug
-    slave.pcm {
-        type hw
-        card Loopback
-        device 0
-        subdevice 1
-    }
-}
-
-pcm.milo_radio_multiroom_eq {
-    type plug
-    slave.pcm {
-        type hw
-        card Loopback
-        device 0
-        subdevice 3
-    }
-}
-
-pcm.milo_podcast_multiroom_eq {
-    type plug
-    slave.pcm {
-        type hw
-        card Loopback
-        device 0
-        subdevice 4
-    }
-}
-
-# === Direct Mode (to hardware) ===
-
-pcm.milo_spotify_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
-}
-
-pcm.milo_bluetooth_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
-}
-
-pcm.milo_roc_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
-}
-
-pcm.milo_radio_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
-}
-
-pcm.milo_podcast_direct {
-    type plug
-    slave.pcm {
-        type hw
-        card sndrpihifiberry
-        device 0
-    }
-}
-
-# === Direct Mode with DSP (via CamillaDSP loopback) ===
-# Audio is sent to loopback subdevice 5, CamillaDSP captures and processes
-
-pcm.milo_spotify_direct_eq {
-    type plug
-    slave.pcm "camilladsp_input"
-}
-
-pcm.milo_bluetooth_direct_eq {
-    type plug
-    slave.pcm "camilladsp_input"
-}
-
-pcm.milo_roc_direct_eq {
-    type plug
-    slave.pcm "camilladsp_input"
-}
-
-pcm.milo_radio_direct_eq {
-    type plug
-    slave.pcm "camilladsp_input"
-}
-
-pcm.milo_podcast_direct_eq {
-    type plug
-    slave.pcm "camilladsp_input"
-}
-
 # === CamillaDSP loopback device ===
 # Sources write here, CamillaDSP daemon captures from hw:Loopback,1,5
 
@@ -979,7 +877,6 @@ EOF
 
     sudo tee /var/lib/milo/routing.env > /dev/null << 'EOF'
 MILO_MODE=direct
-MILO_EQUALIZER=
 EOF
 
     sudo chown "$MILO_USER:$MILO_USER" /var/lib/milo/routing.env
