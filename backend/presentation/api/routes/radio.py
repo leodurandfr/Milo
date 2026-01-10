@@ -29,6 +29,7 @@ router = APIRouter(prefix="/radio", tags=["radio"])
 class PlayStationRequest(BaseModel):
     """Request to play a station"""
     station_id: str
+    station: Optional[dict] = None  # Full station object to avoid re-fetching from API
 
 
 class FavoriteRequest(BaseModel):
@@ -193,8 +194,8 @@ async def play_station(request: PlayStationRequest):
                     detail="Impossible de démarrer le plugin Radio"
                 )
 
-        # Send the play_station command
-        result = await plugin.handle_command("play_station", {"station_id": request.station_id})
+        command_data = {"station_id": request.station_id, "station": request.station}
+        result = await plugin.handle_command("play_station", command_data)
 
         if not result.get("success"):
             raise HTTPException(

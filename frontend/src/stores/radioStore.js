@@ -401,7 +401,12 @@ export const useRadioStore = defineStore('radio', () => {
 
   async function playStation(stationId) {
     try {
-      const response = await axios.post('/api/radio/play', { station_id: stationId });
+      const station = getStation(stationId);
+      const payload = station
+        ? { station_id: stationId, station }
+        : { station_id: stationId };
+
+      const response = await axios.post('/api/radio/play', payload);
       return response.data.success;
     } catch (error) {
       console.error('Error playing station:', error);
