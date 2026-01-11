@@ -67,9 +67,8 @@ function handleBandChange(filterId, { field, value }) {
 
 .eq-bands {
   display: flex;
-  justify-content: space-between;
+  justify-content: space-around;
   gap: var(--space-02);
-  overflow-x: auto;
   transition: opacity var(--transition-normal);
 }
 
@@ -81,23 +80,5 @@ function handleBandChange(filterId, { field, value }) {
 .parametric-eq.mobile .eq-bands {
   flex-direction: column;
   gap: var(--space-03);
-}
-
-/* Scrollbar styling */
-.eq-bands::-webkit-scrollbar {
-  height: 4px;
-}
-
-.eq-bands::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.eq-bands::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 2px;
-}
-
-.eq-bands::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-light);
 }
 </style>
