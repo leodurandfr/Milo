@@ -19,9 +19,8 @@ def create_router(state_machine):
         return await state_machine.get_current_state()
 
     @router.post("/source/{source_name}")
-    @limiter.limit("20/minute")
-    async def change_audio_source(request: Request, source_name: str):
-        """Changes active audio source with rate limiting"""
+    async def change_audio_source(source_name: str):
+        """Changes active audio source"""
         try:
             source = AudioSource(source_name)
             success = await state_machine.transition_to_source(source)
