@@ -240,20 +240,6 @@ class DspFilterUpdateRequest(BaseModel):
     enabled: Optional[bool] = None
 
 
-class DspPresetRequest(BaseModel):
-    """DSP preset save/load request"""
-    name: str = Field(..., min_length=1, max_length=50)
-
-    @field_validator('name')
-    @classmethod
-    def validate_name(cls, v: str) -> str:
-        # Allow only alphanumeric, spaces, hyphens, underscores
-        cleaned = v.strip()
-        if not all(c.isalnum() or c in ' -_' for c in cleaned):
-            raise ValueError('Preset name can only contain alphanumeric characters, spaces, hyphens, and underscores')
-        return cleaned
-
-
 class DspVolumeRequest(BaseModel):
     """DSP volume request"""
     volume: float = Field(..., ge=-100, le=0, description="Volume in dB")
