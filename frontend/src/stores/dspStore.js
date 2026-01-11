@@ -31,12 +31,14 @@ export const FILTER_TYPES = [
 export const useDspStore = defineStore('dsp', () => {
   // === STATE ===
   const filters = ref([]);
-  const presets = ref([]);
-  const activePreset = ref(null);
+  const builtinPresets = ref([]); // Array of { id, gains } objects
+  const manualGains = ref([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // Saved manual EQ gains
+  const activePreset = ref(null); // Preset ID ('manual' or builtin ID)
   const state = ref('disconnected'); // disconnected, inactive, running, paused
   const isLoading = ref(false);
   const isUpdating = ref(false);
   const isResetting = ref(false);
+  const isLoadingPreset = ref(false); // Flag to prevent "Manual" flicker during preset load
   const filtersLoaded = ref(false);
   const sampleRate = ref(48000);
 
@@ -124,6 +126,32 @@ export const useDspStore = defineStore('dsp', () => {
   const isConnected = computed(() => state.value !== 'disconnected');
   const isRunning = computed(() => state.value === 'running');
 
+  // Manual mode: active when preset is 'manual' or gains differ from active preset
+  const isManualMode = computed(() => {
+    // Don't show manual during preset loading (prevents flicker)
+    if (isLoadingPreset.value) return false;
+
+    // Explicit manual preset
+    if (activePreset.value === 'manual') return true;
+
+    // No preset selected
+    if (!activePreset.value) return true;
+
+    // Check if current gains match the active preset
+    if (!builtinPresets.value.length || !filters.value.length) return false;
+
+    const preset = builtinPresets.value.find(p => p.id === activePreset.value);
+    if (!preset) return true;
+
+    // Compare current gains with the active preset's gains
+    for (let i = 0; i < filters.value.length && i < preset.gains.length; i++) {
+      if (Math.abs(filters.value[i].gain - preset.gains[i]) > 0.1) {
+        return true; // Gain differs = manual mode
+      }
+    }
+    return false;
+  });
+
   // Format frequency for display
   const formatFrequency = (freq) => {
     if (freq >= 1000) {
@@ -186,9 +214,12 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function fetchPresets() {
     try {
-      // Presets are always stored locally on Milo, not on clients
+      // Presets are always fetched from local Milo
       const response = await axios.get('/api/dsp/presets');
-      return response.data.presets || [];
+      builtinPresets.value = response.data.presets || [];
+      manualGains.value = response.data.manual_gains || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      activePreset.value = response.data.active_preset || 'manual';
+      return builtinPresets.value;
     } catch (error) {
       console.error('Error fetching DSP presets:', error);
       return [];
@@ -589,8 +620,7 @@ export const useDspStore = defineStore('dsp', () => {
         initializeFilters();
       }
 
-      // Update presets
-      presets.value = presetsData;
+      // Presets are already updated by fetchPresets()
 
       // Update advanced settings from status (preserve defaults for missing fields)
       if (statusData?.compressor) {
@@ -737,28 +767,12 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   // === PRESET MANAGEMENT ===
-  async function savePreset(name) {
+  async function loadPreset(presetId) {
+    isLoadingPreset.value = true;
     try {
-      const response = await axios.post('/api/dsp/preset', { name });
+      const response = await axios.put(`/api/dsp/preset/${presetId}`);
       if (response.data.status === 'success') {
-        if (!presets.value.includes(name)) {
-          presets.value.push(name);
-        }
-        activePreset.value = name;
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error saving preset:', error);
-      return false;
-    }
-  }
-
-  async function loadPreset(name) {
-    try {
-      const response = await axios.put(`/api/dsp/preset/${name}`);
-      if (response.data.status === 'success') {
-        activePreset.value = name;
+        activePreset.value = presetId;
         // Reload filters after preset load
         await loadStatus();
         return true;
@@ -767,23 +781,8 @@ export const useDspStore = defineStore('dsp', () => {
     } catch (error) {
       console.error('Error loading preset:', error);
       return false;
-    }
-  }
-
-  async function deletePreset(name) {
-    try {
-      const response = await axios.delete(`/api/dsp/preset/${name}`);
-      if (response.data.status === 'success') {
-        presets.value = presets.value.filter(p => p !== name);
-        if (activePreset.value === name) {
-          activePreset.value = null;
-        }
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error deleting preset:', error);
-      return false;
+    } finally {
+      isLoadingPreset.value = false;
     }
   }
 
@@ -1153,7 +1152,7 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   function handlePresetLoaded(event) {
-    activePreset.value = event.data.name;
+    activePreset.value = event.data.id || event.data.name; // Support both formats
   }
 
   function handleLevels(event) {
@@ -1246,7 +1245,6 @@ export const useDspStore = defineStore('dsp', () => {
   return {
     // State
     filters,
-    presets,
     activePreset,
     state,
     isLoading,
@@ -1324,9 +1322,10 @@ export const useDspStore = defineStore('dsp', () => {
     handleZoneCrossoverChanged,
 
     // Preset Management
-    savePreset,
+    builtinPresets,
+    manualGains,
+    isManualMode,
     loadPreset,
-    deletePreset,
 
     // Advanced Features
     updateCompressor,

@@ -8,6 +8,8 @@ import logging
 from typing import Dict, List, Any, Optional
 from enum import Enum
 
+from .presets import get_builtin_presets, get_preset_by_id, DEFAULT_MANUAL_GAINS
+
 
 class DspState(str, Enum):
     """CamillaDSP daemon states"""
@@ -323,8 +325,15 @@ class CamillaDSPService:
 
     async def set_filter(self, filter_id: str, freq: float, gain: float,
                          q: float, filter_type: str = "Peaking",
-                         enabled: bool = True, persist: bool = True) -> bool:
-        """Update a single filter band. Set persist=False during bypass operations."""
+                         enabled: bool = True, persist: bool = True,
+                         from_preset: bool = False) -> bool:
+        """
+        Update a single filter band.
+
+        Args:
+            persist: Set to False during bypass operations
+            from_preset: Set to True when loading a preset (don't switch to manual)
+        """
         if not self._connected:
             self.logger.warning("Cannot set filter: not connected")
             return False
@@ -376,6 +385,15 @@ class CamillaDSPService:
             # Persist filters to settings (skip during bypass operations)
             if persist:
                 await self._save_filters()
+
+                # If user manually modified a filter while on a predefined preset,
+                # save current gains as manual and switch to manual mode
+                if not from_preset and self.settings_service:
+                    current_preset = await self.get_active_preset()
+                    if current_preset and current_preset != "manual":
+                        await self._save_manual_gains()
+                        await self.settings_service.set_setting("dsp.active_preset", "manual")
+                        await self._broadcast_event("preset_loaded", {"id": "manual"})
 
             return True
 
@@ -993,101 +1011,121 @@ class CamillaDSPService:
 
     # === Preset Management ===
 
-    async def save_preset(self, name: str) -> bool:
-        """Save current configuration as a preset"""
-        if not self.settings_service:
+    def get_presets(self) -> List[Dict]:
+        """Return all builtin presets with their gains."""
+        return get_builtin_presets()
+
+    async def load_preset(self, preset_id: str) -> bool:
+        """Load a builtin preset or manual preset by ID."""
+        # Handle manual preset specially
+        if preset_id == "manual":
+            return await self._load_manual_preset()
+
+        preset = get_preset_by_id(preset_id)
+        if not preset:
+            self.logger.warning(f"Preset not found: {preset_id}")
             return False
 
         try:
-            preset_data = {
-                "name": name,
-                "filters": self._filters.copy()
-            }
+            # Save current gains as manual before switching to a preset
+            current_preset = await self.get_active_preset()
+            if current_preset == "manual" or current_preset is None:
+                await self._save_manual_gains()
 
-            # Get existing presets
-            presets = await self.settings_service.get_setting("dsp.presets") or {}
-            presets[name] = preset_data
-
-            await self.settings_service.set_setting("dsp.presets", presets)
-
-            self.logger.info(f"Saved DSP preset: {name}")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error saving preset: {e}")
-            return False
-
-    async def load_preset(self, name: str) -> bool:
-        """Load a preset configuration"""
-        if not self.settings_service:
-            return False
-
-        try:
-            presets = await self.settings_service.get_setting("dsp.presets") or {}
-
-            if name not in presets:
-                self.logger.warning(f"Preset not found: {name}")
-                return False
-
-            preset_data = presets[name]
-
-            # Apply filters from preset
-            for filter_data in preset_data.get("filters", []):
-                await self.set_filter(
-                    filter_id=filter_data["id"],
-                    freq=filter_data["freq"],
-                    gain=filter_data["gain"],
-                    q=filter_data.get("q", 1.0),
-                    filter_type=filter_data.get("type", "Peaking")
-                )
+            # Apply gains from preset to each EQ band
+            for i, gain in enumerate(preset["gains"]):
+                filter_id = f"eq_band_{i:02d}"
+                # Get existing filter config to preserve freq/q/type
+                existing = next((f for f in self._filters if f["id"] == filter_id), None)
+                if existing:
+                    await self.set_filter(
+                        filter_id,
+                        freq=existing["freq"],
+                        gain=gain,
+                        q=existing.get("q", 1.41),
+                        filter_type=existing.get("type", "Peaking"),
+                        from_preset=True
+                    )
 
             # Update active preset in settings
-            await self.settings_service.set_setting("dsp.active_preset", name)
+            if self.settings_service:
+                await self.settings_service.set_setting("dsp.active_preset", preset_id)
 
-            await self._broadcast_event("preset_loaded", {"name": name})
+            await self._broadcast_event("preset_loaded", {"id": preset_id})
 
-            self.logger.info(f"Loaded DSP preset: {name}")
+            self.logger.info(f"Loaded DSP preset: {preset_id}")
             return True
 
         except Exception as e:
             self.logger.error(f"Error loading preset: {e}")
             return False
 
-    async def list_presets(self) -> List[str]:
-        """List available preset names"""
+    async def _save_manual_gains(self) -> None:
+        """Save current gains as the manual preset."""
         if not self.settings_service:
-            return []
+            return
 
+        gains = [f.get("gain", 0) for f in self._filters[:10]]
+        await self.settings_service.set_setting("dsp.manual_gains", gains)
+        self.logger.debug(f"Saved manual gains: {gains}")
+
+    async def _load_manual_preset(self) -> bool:
+        """Load the manual preset (user's saved custom gains)."""
         try:
-            presets = await self.settings_service.get_setting("dsp.presets") or {}
-            return list(presets.keys())
-        except Exception:
-            return []
+            # Get saved manual gains or use default (flat)
+            gains = DEFAULT_MANUAL_GAINS
+            if self.settings_service:
+                saved_gains = await self.settings_service.get_setting("dsp.manual_gains")
+                if saved_gains and len(saved_gains) >= 10:
+                    gains = saved_gains
 
-    async def delete_preset(self, name: str) -> bool:
-        """Delete a preset"""
-        if not self.settings_service:
-            return False
+            # Apply gains
+            for i, gain in enumerate(gains):
+                filter_id = f"eq_band_{i:02d}"
+                existing = next((f for f in self._filters if f["id"] == filter_id), None)
+                if existing:
+                    await self.set_filter(
+                        filter_id,
+                        freq=existing["freq"],
+                        gain=gain,
+                        q=existing.get("q", 1.41),
+                        filter_type=existing.get("type", "Peaking"),
+                        from_preset=True
+                    )
 
-        try:
-            presets = await self.settings_service.get_setting("dsp.presets") or {}
+            # Update active preset
+            if self.settings_service:
+                await self.settings_service.set_setting("dsp.active_preset", "manual")
 
-            if name in presets:
-                del presets[name]
-                await self.settings_service.set_setting("dsp.presets", presets)
+            await self._broadcast_event("preset_loaded", {"id": "manual"})
 
-                # Clear active preset if it was deleted
-                active = await self.settings_service.get_setting("dsp.active_preset")
-                if active == name:
-                    await self.settings_service.set_setting("dsp.active_preset", None)
-
-                return True
-
-            return False
+            self.logger.info("Loaded manual preset")
+            return True
 
         except Exception as e:
-            self.logger.error(f"Error deleting preset: {e}")
+            self.logger.error(f"Error loading manual preset: {e}")
             return False
+
+    async def get_manual_gains(self) -> List[float]:
+        """Get the saved manual gains."""
+        if not self.settings_service:
+            return DEFAULT_MANUAL_GAINS
+
+        gains = await self.settings_service.get_setting("dsp.manual_gains")
+        if gains and len(gains) >= 10:
+            return gains
+        return DEFAULT_MANUAL_GAINS
+
+    async def get_active_preset(self) -> Optional[str]:
+        """Get the currently active preset ID, or None if manual mode."""
+        if not self.settings_service:
+            return None
+        return await self.settings_service.get_setting("dsp.active_preset")
+
+    async def clear_active_preset(self) -> None:
+        """Clear the active preset (switch to manual mode)."""
+        if self.settings_service:
+            await self.settings_service.set_setting("dsp.active_preset", None)
 
     # === Effects Bypass/Restore (for DSP toggle) ===
 

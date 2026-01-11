@@ -102,11 +102,6 @@
     "advanced": {
       "title": "Advanced Effects"
     },
-    "presets": "Presets",
-    "savePreset": "Save preset",
-    "loadPreset": "Load preset",
-    "deletePreset": "Delete preset",
-    "presetName": "Preset name",
     "filters": "Filters",
     "addFilter": "Add filter",
     "removeFilter": "Remove filter",
@@ -146,14 +141,29 @@
       "level": "Level",
       "muted": "Muted"
     },
-    "preset": "Preset",
-    "defaultPresets": "Default",
-    "myPresets": "My Presets",
-    "quickPresets": {
-      "flat": "Flat",
-      "bassBoost": "Bass Boost",
-      "vocal": "Vocal",
-      "nightMode": "Night"
+    "presets": {
+      "manual": "Manual",
+      "acoustic": "Acoustic",
+      "bass_boost": "Bass Boost",
+      "bass_reducer": "Bass Reducer",
+      "classical": "Classical",
+      "dance": "Dance",
+      "deep": "Deep",
+      "electronic": "Electronic",
+      "hip_hop": "Hip-Hop",
+      "jazz": "Jazz",
+      "latin": "Latin",
+      "loudness": "Loudness",
+      "lounge": "Lounge",
+      "piano": "Piano",
+      "pop": "Pop",
+      "rnb": "R&B",
+      "rock": "Rock",
+      "small_speakers": "Small Speakers",
+      "spoken_word": "Spoken Word",
+      "treble_boost": "Treble Boost",
+      "treble_reducer": "Treble Reducer",
+      "vocal_boost": "Vocal Boost"
     },
     "meters": {
       "title": "Audio Levels",
