@@ -4,51 +4,27 @@
   <div class="level-meters">
     <!-- Header -->
     <div class="meters-header">
-      <span class="meters-title text-mono">{{ $t('dsp.meters.title', 'Audio Levels') }}</span>
+      <h2 class="heading-2">{{ $t('dsp.meters.title', 'Niveaux de sortie audio') }}</h2>
     </div>
 
     <!-- Meters content (always visible) -->
     <div class="meters-content">
-      <!-- Input meters -->
-      <div class="meter-group">
-        <span class="group-label text-mono-small">{{ $t('dsp.meters.input', 'IN') }}</span>
-        <div class="stereo-meters">
-          <LevelMeter
-            :level="inputLeft"
-            :min="meterMin"
-            :max="meterMax"
-            label="L"
-            :show-peak="true"
-          />
-          <LevelMeter
-            :level="inputRight"
-            :min="meterMin"
-            :max="meterMax"
-            label="R"
-            :show-peak="true"
-          />
-        </div>
-      </div>
-
       <!-- Output meters -->
-      <div class="meter-group">
-        <span class="group-label text-mono-small">{{ $t('dsp.meters.output', 'OUT') }}</span>
-        <div class="stereo-meters">
-          <LevelMeter
-            :level="outputLeft"
-            :min="meterMin"
-            :max="meterMax"
-            label="L"
-            :show-peak="true"
-          />
-          <LevelMeter
-            :level="outputRight"
-            :min="meterMin"
-            :max="meterMax"
-            label="R"
-            :show-peak="true"
-          />
-        </div>
+      <div class="stereo-meters">
+        <LevelMeter
+          :level="outputLeft"
+          :min="meterMin"
+          :max="meterMax"
+          label="L"
+          :show-peak="true"
+        />
+        <LevelMeter
+          :level="outputRight"
+          :min="meterMin"
+          :max="meterMax"
+          label="R"
+          :show-peak="true"
+        />
       </div>
     </div>
   </div>
@@ -78,16 +54,6 @@ const meterMax = computed(() => settingsStore.volumeLimits.max_db);
 let pollInterval = null;
 
 // Convert array levels to individual channels
-const inputLeft = computed(() => {
-  const levels = dspStore.inputPeak;
-  return Array.isArray(levels) && levels.length > 0 ? levels[0] : meterMin.value;
-});
-
-const inputRight = computed(() => {
-  const levels = dspStore.inputPeak;
-  return Array.isArray(levels) && levels.length > 1 ? levels[1] : inputLeft.value;
-});
-
 const outputLeft = computed(() => {
   const levels = dspStore.outputPeak;
   return Array.isArray(levels) && levels.length > 0 ? levels[0] : meterMin.value;
@@ -162,8 +128,8 @@ watch(() => props.clientIds, () => {
 .level-meters {
   display: flex;
   flex-direction: column;
-  gap: var(--space-02);
-  padding: var(--space-03);
+  gap: var(--space-05);
+  padding: var(--space-05-fixed) var(--space-05);
   background: var(--color-background-neutral);
   border-radius: var(--radius-05);
 }
@@ -173,9 +139,6 @@ watch(() => props.clientIds, () => {
   align-items: center;
 }
 
-.meters-title {
-  color: var(--color-text-secondary);
-}
 
 .meters-content {
   display: flex;
@@ -183,23 +146,11 @@ watch(() => props.clientIds, () => {
   gap: var(--space-03);
 }
 
-.meter-group {
-  display: flex;
-  align-items: center;
-  gap: var(--space-03);
-}
-
-.group-label {
-  min-width: 32px;
-  color: var(--color-text-light);
-  text-align: center;
-}
-
 .stereo-meters {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--space-01);
+  gap: var(--space-04);
 }
 
 /* Mobile adjustments */
@@ -211,14 +162,6 @@ watch(() => props.clientIds, () => {
 
   .meters-content {
     gap: var(--space-02);
-  }
-
-  .meter-group {
-    gap: var(--space-02);
-  }
-
-  .group-label {
-    min-width: 28px;
   }
 }
 </style>

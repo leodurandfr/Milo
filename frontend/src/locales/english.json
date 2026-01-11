@@ -166,9 +166,7 @@
       "vocal_boost": "Vocal Boost"
     },
     "meters": {
-      "title": "Audio Levels",
-      "input": "IN",
-      "output": "OUT"
+      "title": "Audio Output Levels"
     },
     "linkedClients": {
       "title": "Link Clients",

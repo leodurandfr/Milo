@@ -280,9 +280,6 @@ async function handleDelete() {
 
 .description {
   color: var(--color-text-secondary);
-  font-size: 13px;
-  line-height: 1.5;
-  margin: 0;
 }
 
 .clients-list {
