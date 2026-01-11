@@ -33,8 +33,6 @@ class WebSocketManager:
             return
 
         message = json.dumps(event_data)
-        category = event_data.get("category", "unknown")
-        event_type = event_data.get("type", "unknown")
 
         async def send_to_client(connection: WebSocket):
             """Sends message to client with timeout"""

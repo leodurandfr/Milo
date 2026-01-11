@@ -49,14 +49,15 @@ class WebSocketServer:
         ping_task = asyncio.create_task(self._send_ping(websocket))
 
         try:
+            # Pre-refresh metadata while client sets up event listeners
+            await self.state_machine.refresh_active_metadata()
+
             # Wait for client ready signal
             message = await websocket.receive_text()
             client_msg = json.loads(message)
 
             if client_msg.get("type") == "ready":
-                # Refresh active plugin metadata for fresh position data
-                await self.state_machine.refresh_active_metadata()
-                # Client is ready - send initial state
+                # Client is ready - send state immediately
                 current_state = await self.state_machine.get_current_state()
                 initial_event = {
                     "category": "system",
