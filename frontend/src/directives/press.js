@@ -1,19 +1,40 @@
-// Directive v-press pour feedback visuel au clic (150ms minimum)
+// Directive v-press for visual press feedback (150ms minimum)
+// Uses pixel-based shrinking for consistent visual effect across all element sizes
 // Usage:
-//   <button v-press.light>       → press léger (scale 0.97) - cards, inputs
-//   <button v-press>             → press standard (scale 0.92) - buttons
-//   <button v-press.strong>      → press fort (scale 0.88) - dock, playback, toggles
-//   <button v-press="condition"> → conditionnel (actif si truthy)
+//   <button v-press>             → standard press (4px shrink)
+//   <button v-press="condition"> → conditional (active if truthy)
 
-function setupPress(el, binding) {
-  const baseClass = binding.modifiers.strong
-    ? 'interactive-press-strong'
-    : binding.modifiers.light
-      ? 'interactive-press-light'
-      : 'interactive-press'
+const PRESS_SHRINK_PX = 4
 
-  el.classList.add(baseClass)
-  el._pressBaseClass = baseClass
+function updateScale(el) {
+  const rect = el.getBoundingClientRect()
+  const avgDimension = (rect.width + rect.height) / 2
+
+  // Prevent extreme scaling on tiny elements
+  if (avgDimension < 16) {
+    el.style.setProperty('--press-scale', '0.95')
+    return
+  }
+
+  // Calculate scale: (size - shrinkPx) / size
+  const scale = (avgDimension - PRESS_SHRINK_PX) / avgDimension
+
+  // Clamp to reasonable range (0.85 to 0.98)
+  const clampedScale = Math.max(0.85, Math.min(0.98, scale))
+
+  el.style.setProperty('--press-scale', clampedScale.toFixed(4))
+}
+
+function setupPress(el) {
+  // Initial scale calculation
+  updateScale(el)
+
+  // Observe size changes
+  const observer = new ResizeObserver(() => updateScale(el))
+  observer.observe(el)
+  el._pressObserver = observer
+
+  el.classList.add('interactive-press')
 
   el._pressHandler = () => {
     if (el.disabled) return
@@ -25,20 +46,22 @@ function setupPress(el, binding) {
 }
 
 function cleanupPress(el) {
+  if (el._pressObserver) {
+    el._pressObserver.disconnect()
+    delete el._pressObserver
+  }
   if (el._pressHandler) {
     el.removeEventListener('pointerdown', el._pressHandler)
     delete el._pressHandler
   }
-  if (el._pressBaseClass) {
-    el.classList.remove(el._pressBaseClass, 'pressed')
-    delete el._pressBaseClass
-  }
+  el.classList.remove('interactive-press', 'pressed')
+  el.style.removeProperty('--press-scale')
 }
 
 export const vPress = {
   mounted(el, binding) {
     if (binding.value === false) return
-    setupPress(el, binding)
+    setupPress(el)
   },
 
   updated(el, binding) {
@@ -48,11 +71,11 @@ export const vPress = {
     if (wasActive && !shouldBeActive) {
       cleanupPress(el)
     } else if (!wasActive && shouldBeActive) {
-      setupPress(el, binding)
-    } else if (wasActive && shouldBeActive && el._pressBaseClass) {
-      // Re-apply base class if Vue's :class binding removed it during re-render
-      if (!el.classList.contains(el._pressBaseClass)) {
-        el.classList.add(el._pressBaseClass)
+      setupPress(el)
+    } else if (wasActive && shouldBeActive) {
+      // Re-apply class if Vue's :class binding removed it during re-render
+      if (!el.classList.contains('interactive-press')) {
+        el.classList.add('interactive-press')
       }
     }
   },

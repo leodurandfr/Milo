@@ -2,7 +2,7 @@
 <template>
   <button
     type="button"
-    v-press.light="action !== 'toggle' && action !== 'radio'"
+    v-press="action !== 'toggle' && action !== 'radio'"
     :class="['list-item-button', `list-item-button--${variant}`, { 'action-pressed': actionPressed }]"
     :disabled="disabled"
     @click="handleClick"

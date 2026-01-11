@@ -1,6 +1,6 @@
 <!-- frontend/src/components/ui/Button.vue -->
 <template>
-    <button v-press.light :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
+    <button v-press :type="type" :class="buttonClasses" :disabled="disabled" @click="handleClick">
         <LoadingSpinner v-if="loading" size="inherit" class="btn-icon" />
         <SvgIcon v-else-if="leftIcon" :name="leftIcon" class="btn-icon" />
         <slot v-if="!loading || loadingLabel"></slot>

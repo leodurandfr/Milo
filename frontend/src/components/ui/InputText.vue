@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/InputText.vue -->
 <template>
   <div class="input-wrapper">
-    <div v-press.light class="input-container" :class="{ 'keyboard-active': isKeyboardActiveForThis }" @click="handleContainerClick">
+    <div v-press class="input-container" :class="{ 'keyboard-active': isKeyboardActiveForThis }" @click="handleContainerClick">
       <input ref="inputRef" :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
         :maxlength="maxlength" class="heading-3" @input="handleInput" @focus="handleFocus"
         @blur="handleBlur" />
