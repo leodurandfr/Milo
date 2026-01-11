@@ -1192,6 +1192,9 @@ class CamillaDSPService:
         try:
             self.logger.info("Bypassing all DSP effects...")
 
+            # Save current config before bypassing (filters, compressor, loudness, delay)
+            await self.save_current_config()
+
             # 1. Reset all EQ filters to 0 dB gain (persist=False to keep saved values)
             for f in self._filters:
                 await self.set_filter(
