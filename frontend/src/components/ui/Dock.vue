@@ -15,7 +15,7 @@
 
       <button v-for="(app, index) in additionalDockApps.slice().reverse()" :key="app.id"
         @click="() => handleAdditionalAppClick(app.id)"
-        v-press.light class="additional-app-content button-interactive-subtle">
+        v-press class="additional-app-content button-interactive-subtle">
         <AppIcon :name="app.icon" :size="32" />
         <div class="app-title heading-2">{{ getAppTitle(app.id) }}</div>
       </button>
@@ -27,7 +27,7 @@
         <button v-for="{ icon, handler, delta } in volumeControlsWithSteps" :key="icon"
           @pointerdown="(e) => onVolumeHoldStart(delta, e)" @pointerup="onVolumeHoldEnd"
           @pointercancel="onVolumeHoldEnd" @pointerleave="onVolumeHoldEnd"
-          v-press.strong class="volume-btn button-interactive-subtle">
+          v-press class="volume-btn button-interactive-subtle">
           <SvgIcon :name="icon" :size="32" />
         </button>
       </div>
@@ -42,7 +42,7 @@
           @click="() => handleAppClick(id, index)"
           :disabled="unifiedStore.systemState.transitioning"
           :style="{ transitionDelay: getDockItemDelay(index) }"
-          v-press.strong class="dock-item button-interactive-subtle mobile-only">
+          v-press class="dock-item button-interactive-subtle mobile-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
@@ -54,7 +54,7 @@
           @click="() => handleAppClick(id, index)"
           :disabled="unifiedStore.systemState.transitioning"
           :style="{ transitionDelay: getDockItemDelay(index) }"
-          v-press.strong class="dock-item button-interactive-subtle desktop-only">
+          v-press class="dock-item button-interactive-subtle desktop-only">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
 
@@ -70,7 +70,7 @@
           v-if="additionalDockApps.length > 0"
           @click="handleToggleClick"
           :style="{ transitionDelay: getDockItemDelay(dockApps.length) }"
-          v-press.strong class="dock-item toggle-btn mobile-only button-interactive">
+          v-press class="dock-item toggle-btn mobile-only button-interactive">
           <SvgIcon :name="showAdditionalApps ? 'closeDots' : 'threeDots'" :size="32" class="toggle-icon" />
         </button>
 
@@ -80,7 +80,7 @@
           :key="`desktop-feature-${id}`"
           @click="handler"
           :style="{ transitionDelay: getDockItemDelay(enabledAudioPlugins.length + 1 + index) }"
-          class="dock-item desktop-only button-interactive-subtle interactive-press-strong">
+          v-press class="dock-item desktop-only button-interactive-subtle">
           <AppIcon :name="icon" size="large" class="dock-item-icon" />
         </button>
       </div>

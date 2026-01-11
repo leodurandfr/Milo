@@ -6,7 +6,7 @@
     class="radio"
     :class="{ 'radio--active': modelValue }"
     :disabled="disabled"
-    v-press.strong
+    v-press
     @click="toggle"
   >
     <span class="radio__dot"></span>

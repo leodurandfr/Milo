@@ -293,33 +293,17 @@
 }
 
 /* === INTERACTIVE PRESS EFFECTS === */
+/* Pixel-based: all elements shrink by 4px regardless of size */
 
-/* LIGHT: Small elements (cards, list items, inputs, buttons) */
-.interactive-press-light:active,
-.interactive-press-light.pressed {
-    transform: scale(0.96) !important;
-    opacity: 0.6 !important;
+.interactive-press {
+    --press-scale: 0.96; /* fallback, overridden by JS */
+    transition: var(--transition-press);
 }
 
-/* DEFAULT: Standard buttons */
 .interactive-press:active,
 .interactive-press.pressed {
-    transform: scale(0.92) !important;
+    transform: scale(var(--press-scale)) !important;
     opacity: 0.6 !important;
-}
-
-/* STRONG: Large interactive elements (dock items, playback controls, toggles) */
-.interactive-press-strong:active,
-.interactive-press-strong.pressed {
-    transform: scale(0.88) !important;
-    opacity: 0.6 !important;
-}
-
-/* Smooth return transition when releasing (spring easing) */
-.interactive-press-light,
-.interactive-press,
-.interactive-press-strong {
-    transition: var(--transition-press);
 }
 
 /* === VUE TRANSITIONS === */

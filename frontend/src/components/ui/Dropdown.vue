@@ -1,7 +1,7 @@
 <!-- frontend/src/components/ui/Dropdown.vue -->
 <template>
   <div ref="dropdownRef" class="dropdown">
-    <button v-press.light type="button" class="dropdown-trigger"
+    <button v-press type="button" class="dropdown-trigger"
       :class="[`dropdown-trigger--${variant}`, { 'is-open': isOpen, 'has-selection': modelValue }]"
       :disabled="disabled"
       @click="toggleDropdown">
