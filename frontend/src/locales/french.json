@@ -166,9 +166,7 @@
       "vocal_boost": "Amplificateur vocal"
     },
     "meters": {
-      "title": "Niveaux audio",
-      "input": "ENT",
-      "output": "SOR"
+      "title": "Niveaux de sortie audio"
     },
     "linkedClients": {
       "title": "Lier les clients",

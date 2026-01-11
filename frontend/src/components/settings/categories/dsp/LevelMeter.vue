@@ -159,7 +159,6 @@ onUnmounted(() => {
 
 .meter-label {
   min-width: 24px;
-  font-size: 11px;
   color: var(--color-text-secondary);
   text-align: center;
 }
@@ -179,9 +178,9 @@ onUnmounted(() => {
 
 .meter-track {
   position: relative;
-  height: 8px;
+  height: 4px;
   background: var(--color-background);
-  border-radius: 4px;
+  border-radius: var(--radius-full);
   overflow: hidden;
 }
 
@@ -195,7 +194,7 @@ onUnmounted(() => {
   bottom: 0;
   left: 0;
   height: 100%;
-  background: var(--color-success);
+  background: var(--color-brand);
   border-radius: 4px;
   transition: width 50ms linear, height 50ms linear;
 }
