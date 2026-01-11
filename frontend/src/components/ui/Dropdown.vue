@@ -229,6 +229,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   outline: none;
   gap: var(--space-01);
+  box-shadow: inset 0 0 0 2px var(--color-border);
   transition: box-shadow var(--transition-fast), var(--transition-press);
 }
 
