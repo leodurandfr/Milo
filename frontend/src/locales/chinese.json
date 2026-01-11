@@ -38,16 +38,145 @@
     "title": "多房间",
     "settings": "多房间配置",
     "disabled": "多房间未启用",
+    "starting": "正在启动多房间",
     "noClients": "没有客户端连接",
-    "speakers": "多房间扬声器",
-    "loadingSpeakers": "正在加载扬声器...",
-    "noSpeakers": "没有扬声器连接",
+    "zonesAndSpeakers": "音频系统",
+    "individualSpeakers": "独立系统",
+    "loadingSpeakers": "正在加载系统...",
+    "noSpeakers": "没有系统连接",
     "restarting": "正在重启多房间...",
     "error": "激活多房间时出错",
-    "timeout_error": "激活超时，请重试。"
+    "timeout_error": "激活超时，请重试。",
+    "editSpeaker": "编辑音频系统",
+    "speakerName": "系统名称",
+    "speakerType": "扬声器类型",
+    "speakerInfo": "信息",
+    "speakerTypes": {
+      "satellite": "卫星扬声器",
+      "bookshelf": "书架扬声器",
+      "tower": "落地扬声器",
+      "subwoofer": "低音炮"
+    },
+    "crossover": {
+      "subwooferNotInZone": "将此低音炮添加到区域以启用自动分频管理。低通（低音炮）和高通（其他扬声器）滤波器将自动应用。",
+      "lowpassActive": "低通滤波器已激活",
+      "lowpassDescription": "此低音炮仅接收分频点以下的低音。",
+      "highpassOnOthers": "已对区域内其他扬声器应用高通滤波器以移除低音（由此低音炮处理）。",
+      "disablePhysicalCrossover": "将低音炮的物理分频设置为旁路/LFE以避免滤波器叠加。",
+      "highpassActive": "高通滤波器已激活",
+      "highpassDescription": "{freq} Hz以下的低音已从此扬声器移除并由区域低音炮处理。",
+      "crossoverFrequency": "分频频率："
+    }
   },
   "dsp": {
-    "title": "DSP 均衡器"
+    "title": "DSP 均衡器",
+    "disabled": "DSP 已禁用",
+    "effects_disabled": "DSP 效果已禁用",
+    "connecting": "正在连接 DSP...",
+    "selectPreset": "预设",
+    "selectTarget": "设备",
+    "zones": {
+      "title": "区域",
+      "configure": "配置区域",
+      "zoneName": "区域名称",
+      "zoneNamePlaceholder": "例如：客厅",
+      "selectClients": "选择音频系统",
+      "selectClientsDescription": "选择至少2个系统以创建区域。",
+      "createZone": "创建区域",
+      "editZone": "编辑区域",
+      "updateZone": "更新",
+      "deleteZone": "删除区域",
+      "description": "链接系统以创建具有共享DSP设置的区域。更改将应用于所有成员。",
+      "noZones": "尚未创建区域。创建区域以链接多个系统。",
+      "inOtherZone": "在其他区域中",
+      "subwoofer": "低音炮",
+      "crossover": "分频器",
+      "crossoverFrequency": "分频频率",
+      "crossoverHint": "已对扬声器应用高通滤波器。将低音炮的分频点设置为相同频率。",
+      "manageZone": "管理区域",
+      "addToZone": "添加到区域"
+    },
+    "equalizer": {
+      "title": "10段均衡器"
+    },
+    "advanced": {
+      "title": "高级效果"
+    },
+    "filters": "滤波器",
+    "addFilter": "添加滤波器",
+    "removeFilter": "移除滤波器",
+    "resetFilters": "重置",
+    "frequency": "频率",
+    "gain": "增益",
+    "qFactor": "Q值",
+    "filterType": "类型",
+    "filterTypes": {
+      "peaking": "峰值",
+      "lowshelf": "低频搁架",
+      "highshelf": "高频搁架",
+      "lowpass": "低通",
+      "highpass": "高通",
+      "notch": "陷波",
+      "allpass": "全通"
+    },
+    "showAdvanced": "高级选项",
+    "hideAdvanced": "隐藏选项",
+    "compressor": {
+      "title": "压缩器",
+      "enable": "启用压缩器",
+      "threshold": "阈值",
+      "ratio": "比率",
+      "attack": "起音",
+      "release": "释放",
+      "makeup": "补偿增益"
+    },
+    "loudness": {
+      "title": "响度",
+      "enable": "启用响度",
+      "lowBoost": "低频增强",
+      "highBoost": "高频增强"
+    },
+    "volume": {
+      "title": "音量",
+      "level": "电平",
+      "muted": "静音"
+    },
+    "presets": {
+      "manual": "手动",
+      "acoustic": "原声",
+      "bass_boost": "低音增强",
+      "bass_reducer": "低音减弱",
+      "classical": "古典",
+      "dance": "舞曲",
+      "deep": "深沉",
+      "electronic": "电子",
+      "hip_hop": "嘻哈",
+      "jazz": "爵士",
+      "latin": "拉丁",
+      "loudness": "响度",
+      "lounge": "休闲",
+      "piano": "钢琴",
+      "pop": "流行",
+      "rnb": "R&B",
+      "rock": "摇滚",
+      "small_speakers": "小型扬声器",
+      "spoken_word": "语音",
+      "treble_boost": "高音增强",
+      "treble_reducer": "高音减弱",
+      "vocal_boost": "人声增强"
+    },
+    "meters": {
+      "title": "音频输出电平"
+    },
+    "linkedClients": {
+      "title": "链接客户端",
+      "description": "链接的客户端共享相同的DSP设置。更改将应用于所有客户端。",
+      "linked": "已链接",
+      "offline": "离线",
+      "currentGroup": "当前链接：",
+      "link": "链接所选",
+      "unlink": "取消链接"
+    }
   },
   "status": {
     "loading": "正在启动...",
@@ -193,9 +322,11 @@
     "macOS": "macOS"
   },
   "clientDetails": {
+    "editClient": "编辑客户端",
     "viewDetails": "查看客户端详情",
     "displayName": "显示名称",
     "currently": "当前",
+    "hostname": "主机名",
     "ipAddress": "IP 地址",
     "clientName": "客户端名称",
     "snapclientVersion": "Snapclient 版本",
@@ -234,7 +365,8 @@
     "saving": "正在保存...",
     "confirm": "确认",
     "restore": "恢复",
-    "delete": "删除"
+    "delete": "删除",
+    "modify": "编辑"
   },
   "radio": {
     "edit_station_title": "编辑 {name}",

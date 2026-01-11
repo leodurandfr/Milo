@@ -38,16 +38,145 @@
     "title": "Multiroom",
     "settings": "Impostazioni Multiroom",
     "disabled": "Multiroom non è abilitato",
+    "starting": "Avvio Multiroom",
     "noClients": "Nessun client connesso",
-    "speakers": "Altoparlanti multiroom",
-    "loadingSpeakers": "Caricamento altoparlanti...",
-    "noSpeakers": "Nessun altoparlante connesso",
+    "zonesAndSpeakers": "Sistemi audio",
+    "individualSpeakers": "Sistemi individuali",
+    "loadingSpeakers": "Caricamento sistemi...",
+    "noSpeakers": "Nessun sistema connesso",
     "restarting": "Riavvio multiroom...",
     "error": "Errore durante l'attivazione del multiroom",
-    "timeout_error": "Timeout di attivazione. Si prega di riprovare."
+    "timeout_error": "Timeout di attivazione. Si prega di riprovare.",
+    "editSpeaker": "Modifica sistema audio",
+    "speakerName": "Nome del sistema",
+    "speakerType": "Tipo di altoparlante",
+    "speakerInfo": "Informazioni",
+    "speakerTypes": {
+      "satellite": "Altoparlanti satellite",
+      "bookshelf": "Altoparlanti da scaffale",
+      "tower": "Diffusori a torre",
+      "subwoofer": "Subwoofer"
+    },
+    "crossover": {
+      "subwooferNotInZone": "Aggiungi questo subwoofer a una zona per abilitare la gestione automatica del crossover. I filtri passa-basso (subwoofer) e passa-alto (altri altoparlanti) saranno applicati automaticamente.",
+      "lowpassActive": "Filtro passa-basso attivo",
+      "lowpassDescription": "Questo subwoofer riceve solo i bassi al di sotto della frequenza di taglio.",
+      "highpassOnOthers": "Un filtro passa-alto viene applicato agli altri altoparlanti della zona per rimuovere i bassi (gestiti da questo subwoofer).",
+      "disablePhysicalCrossover": "Imposta il crossover fisico del tuo subwoofer su bypass/LFE per evitare l'accumulo di filtri.",
+      "highpassActive": "Filtro passa-alto attivo",
+      "highpassDescription": "I bassi al di sotto di {freq} Hz vengono rimossi da questo altoparlante e gestiti dal subwoofer della zona.",
+      "crossoverFrequency": "Frequenza di taglio:"
+    }
   },
   "dsp": {
-    "title": "Equalizzatore DSP"
+    "title": "Equalizzatore DSP",
+    "disabled": "Il DSP è disabilitato",
+    "effects_disabled": "Gli effetti DSP sono disabilitati",
+    "connecting": "Connessione al DSP...",
+    "selectPreset": "Preset",
+    "selectTarget": "Dispositivo",
+    "zones": {
+      "title": "Zone",
+      "configure": "Configura zone",
+      "zoneName": "Nome della zona",
+      "zoneNamePlaceholder": "es: Soggiorno",
+      "selectClients": "Seleziona sistemi audio",
+      "selectClientsDescription": "Seleziona almeno 2 sistemi per creare una zona.",
+      "createZone": "Crea una zona",
+      "editZone": "Modifica la zona",
+      "updateZone": "Aggiorna",
+      "deleteZone": "Elimina la zona",
+      "description": "Collega i sistemi per creare zone con impostazioni DSP condivise. Le modifiche saranno applicate a tutti i membri.",
+      "noZones": "Nessuna zona creata. Crea una zona per collegare più sistemi.",
+      "inOtherZone": "In un'altra zona",
+      "subwoofer": "Sub",
+      "crossover": "Crossover",
+      "crossoverFrequency": "Frequenza di taglio",
+      "crossoverHint": "Filtro passa-alto applicato agli altoparlanti. Imposta il crossover del tuo subwoofer sulla stessa frequenza.",
+      "manageZone": "Gestisci la zona",
+      "addToZone": "Aggiungi a una zona"
+    },
+    "equalizer": {
+      "title": "Equalizzatore a 10 bande"
+    },
+    "advanced": {
+      "title": "Effetti avanzati"
+    },
+    "filters": "Filtri",
+    "addFilter": "Aggiungi un filtro",
+    "removeFilter": "Rimuovi il filtro",
+    "resetFilters": "Reimposta",
+    "frequency": "Frequenza",
+    "gain": "Guadagno",
+    "qFactor": "Fattore Q",
+    "filterType": "Tipo",
+    "filterTypes": {
+      "peaking": "Campana",
+      "lowshelf": "Bassi",
+      "highshelf": "Alti",
+      "lowpass": "Passa-basso",
+      "highpass": "Passa-alto",
+      "notch": "Notch",
+      "allpass": "Passa-tutto"
+    },
+    "showAdvanced": "Opzioni avanzate",
+    "hideAdvanced": "Nascondi opzioni",
+    "compressor": {
+      "title": "Compressore",
+      "enable": "Attiva il compressore",
+      "threshold": "Soglia",
+      "ratio": "Rapporto",
+      "attack": "Attacco",
+      "release": "Rilascio",
+      "makeup": "Guadagno di compensazione"
+    },
+    "loudness": {
+      "title": "Loudness",
+      "enable": "Attiva il loudness",
+      "lowBoost": "Potenziamento bassi",
+      "highBoost": "Potenziamento alti"
+    },
+    "volume": {
+      "title": "Volume",
+      "level": "Livello",
+      "muted": "Silenziato"
+    },
+    "presets": {
+      "manual": "Manuale",
+      "acoustic": "Acustica",
+      "bass_boost": "Potenziamento bassi",
+      "bass_reducer": "Riduttore di bassi",
+      "classical": "Classica",
+      "dance": "Dance",
+      "deep": "Profondo",
+      "electronic": "Elettronica",
+      "hip_hop": "Hip-Hop",
+      "jazz": "Jazz",
+      "latin": "Latino",
+      "loudness": "Livello sonoro",
+      "lounge": "Lounge",
+      "piano": "Piano",
+      "pop": "Pop",
+      "rnb": "RnB",
+      "rock": "Rock",
+      "small_speakers": "Altoparlanti piccoli",
+      "spoken_word": "Parlato",
+      "treble_boost": "Potenziamento alti",
+      "treble_reducer": "Riduttore di alti",
+      "vocal_boost": "Potenziamento vocale"
+    },
+    "meters": {
+      "title": "Livelli di uscita audio"
+    },
+    "linkedClients": {
+      "title": "Collega client",
+      "description": "I client collegati condividono le stesse impostazioni DSP. Le modifiche si applicano a tutti.",
+      "linked": "Collegato",
+      "offline": "Offline",
+      "currentGroup": "Attualmente collegati:",
+      "link": "Collega selezione",
+      "unlink": "Scollega"
+    }
   },
   "status": {
     "loading": "Avvio...",
@@ -193,9 +322,11 @@
     "macOS": "macOS"
   },
   "clientDetails": {
+    "editClient": "Modifica client",
     "viewDetails": "Visualizza dettagli client",
     "displayName": "Nome visualizzato",
     "currently": "Attualmente",
+    "hostname": "Nome host",
     "ipAddress": "Indirizzo IP",
     "clientName": "Nome client",
     "snapclientVersion": "Versione Snapclient",
@@ -234,7 +365,8 @@
     "saving": "Salvataggio...",
     "confirm": "Conferma",
     "restore": "Ripristina",
-    "delete": "Elimina"
+    "delete": "Elimina",
+    "modify": "Modifica"
   },
   "radio": {
     "edit_station_title": "Modifica {name}",

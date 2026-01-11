@@ -38,16 +38,145 @@
     "title": "मल्टीरूम",
     "settings": "मल्टीरूम कॉन्फ़िगरेशन",
     "disabled": "मल्टीरूम सक्रिय नहीं है",
+    "starting": "मल्टीरूम शुरू हो रहा है",
     "noClients": "कोई क्लाइंट कनेक्ट नहीं है",
-    "speakers": "मल्टीरूम स्पीकर",
-    "loadingSpeakers": "स्पीकर लोड हो रहे हैं...",
-    "noSpeakers": "कोई स्पीकर कनेक्ट नहीं है",
+    "zonesAndSpeakers": "ऑडियो सिस्टम",
+    "individualSpeakers": "व्यक्तिगत सिस्टम",
+    "loadingSpeakers": "सिस्टम लोड हो रहे हैं...",
+    "noSpeakers": "कोई सिस्टम कनेक्ट नहीं है",
     "restarting": "मल्टीरूम पुनः आरंभ हो रहा है...",
     "error": "मल्टीरूम सक्रिय करने में त्रुटि",
-    "timeout_error": "सक्रियण समय समाप्त। कृपया पुनः प्रयास करें।"
+    "timeout_error": "सक्रियण समय समाप्त। कृपया पुनः प्रयास करें।",
+    "editSpeaker": "ऑडियो सिस्टम संपादित करें",
+    "speakerName": "सिस्टम का नाम",
+    "speakerType": "स्पीकर प्रकार",
+    "speakerInfo": "जानकारी",
+    "speakerTypes": {
+      "satellite": "सैटेलाइट स्पीकर",
+      "bookshelf": "बुकशेल्फ़ स्पीकर",
+      "tower": "टावर स्पीकर",
+      "subwoofer": "सबवूफ़र"
+    },
+    "crossover": {
+      "subwooferNotInZone": "ऑटोमैटिक क्रॉसओवर प्रबंधन सक्षम करने के लिए इस सबवूफ़र को एक ज़ोन में जोड़ें। लो-पास (सबवूफ़र) और हाई-पास (अन्य स्पीकर) फ़िल्टर स्वचालित रूप से लागू होंगे।",
+      "lowpassActive": "लो-पास फ़िल्टर सक्रिय",
+      "lowpassDescription": "यह सबवूफ़र केवल कटऑफ़ आवृत्ति से नीचे के बास प्राप्त करता है।",
+      "highpassOnOthers": "ज़ोन के अन्य स्पीकरों पर बास हटाने के लिए हाई-पास फ़िल्टर लागू है (इस सबवूफ़र द्वारा संभाला जाता है)।",
+      "disablePhysicalCrossover": "फ़िल्टर संचय से बचने के लिए अपने सबवूफ़र के भौतिक क्रॉसओवर को बायपास/LFE पर सेट करें।",
+      "highpassActive": "हाई-पास फ़िल्टर सक्रिय",
+      "highpassDescription": "{freq} Hz से नीचे के बास इस स्पीकर से हटा दिए गए हैं और ज़ोन सबवूफ़र द्वारा संभाले जाते हैं।",
+      "crossoverFrequency": "क्रॉसओवर आवृत्ति:"
+    }
   },
   "dsp": {
-    "title": "DSP इक्वलाइज़र"
+    "title": "DSP इक्वलाइज़र",
+    "disabled": "DSP अक्षम है",
+    "effects_disabled": "DSP इफ़ेक्ट्स अक्षम हैं",
+    "connecting": "DSP से कनेक्ट हो रहा है...",
+    "selectPreset": "प्रीसेट",
+    "selectTarget": "डिवाइस",
+    "zones": {
+      "title": "ज़ोन",
+      "configure": "ज़ोन कॉन्फ़िगर करें",
+      "zoneName": "ज़ोन का नाम",
+      "zoneNamePlaceholder": "उदाहरण: लिविंग रूम",
+      "selectClients": "ऑडियो सिस्टम चुनें",
+      "selectClientsDescription": "ज़ोन बनाने के लिए कम से कम 2 सिस्टम चुनें।",
+      "createZone": "ज़ोन बनाएं",
+      "editZone": "ज़ोन संपादित करें",
+      "updateZone": "अपडेट करें",
+      "deleteZone": "ज़ोन हटाएं",
+      "description": "साझा DSP सेटिंग्स के साथ ज़ोन बनाने के लिए सिस्टम लिंक करें। परिवर्तन सभी सदस्यों पर लागू होंगे।",
+      "noZones": "कोई ज़ोन नहीं बनाया गया। कई सिस्टम लिंक करने के लिए ज़ोन बनाएं।",
+      "inOtherZone": "अन्य ज़ोन में",
+      "subwoofer": "सब",
+      "crossover": "क्रॉसओवर",
+      "crossoverFrequency": "क्रॉसओवर आवृत्ति",
+      "crossoverHint": "स्पीकरों पर हाई-पास फ़िल्टर लागू। अपने सबवूफ़र के क्रॉसओवर को समान आवृत्ति पर सेट करें।",
+      "manageZone": "ज़ोन प्रबंधित करें",
+      "addToZone": "ज़ोन में जोड़ें"
+    },
+    "equalizer": {
+      "title": "10-बैंड इक्वलाइज़र"
+    },
+    "advanced": {
+      "title": "उन्नत इफ़ेक्ट्स"
+    },
+    "filters": "फ़िल्टर",
+    "addFilter": "फ़िल्टर जोड़ें",
+    "removeFilter": "फ़िल्टर हटाएं",
+    "resetFilters": "रीसेट करें",
+    "frequency": "आवृत्ति",
+    "gain": "गेन",
+    "qFactor": "Q फ़ैक्टर",
+    "filterType": "प्रकार",
+    "filterTypes": {
+      "peaking": "पीकिंग",
+      "lowshelf": "लो शेल्फ़",
+      "highshelf": "हाई शेल्फ़",
+      "lowpass": "लो-पास",
+      "highpass": "हाई-पास",
+      "notch": "नॉच",
+      "allpass": "ऑल-पास"
+    },
+    "showAdvanced": "उन्नत विकल्प",
+    "hideAdvanced": "विकल्प छुपाएं",
+    "compressor": {
+      "title": "कंप्रेसर",
+      "enable": "कंप्रेसर सक्षम करें",
+      "threshold": "थ्रेशोल्ड",
+      "ratio": "रेशियो",
+      "attack": "अटैक",
+      "release": "रिलीज़",
+      "makeup": "मेकअप गेन"
+    },
+    "loudness": {
+      "title": "लाउडनेस",
+      "enable": "लाउडनेस सक्षम करें",
+      "lowBoost": "लो बूस्ट",
+      "highBoost": "हाई बूस्ट"
+    },
+    "volume": {
+      "title": "वॉल्यूम",
+      "level": "स्तर",
+      "muted": "म्यूट"
+    },
+    "presets": {
+      "manual": "मैनुअल",
+      "acoustic": "एकॉस्टिक",
+      "bass_boost": "बास बूस्ट",
+      "bass_reducer": "बास रिड्यूसर",
+      "classical": "क्लासिकल",
+      "dance": "डांस",
+      "deep": "डीप",
+      "electronic": "इलेक्ट्रॉनिक",
+      "hip_hop": "हिप-हॉप",
+      "jazz": "जैज़",
+      "latin": "लैटिन",
+      "loudness": "लाउडनेस",
+      "lounge": "लाउंज",
+      "piano": "पियानो",
+      "pop": "पॉप",
+      "rnb": "RnB",
+      "rock": "रॉक",
+      "small_speakers": "छोटे स्पीकर",
+      "spoken_word": "स्पोकन वर्ड",
+      "treble_boost": "ट्रेबल बूस्ट",
+      "treble_reducer": "ट्रेबल रिड्यूसर",
+      "vocal_boost": "वोकल बूस्ट"
+    },
+    "meters": {
+      "title": "ऑडियो आउटपुट स्तर"
+    },
+    "linkedClients": {
+      "title": "क्लाइंट लिंक करें",
+      "description": "लिंक किए गए क्लाइंट समान DSP सेटिंग्स साझा करते हैं। परिवर्तन सभी पर लागू होते हैं।",
+      "linked": "लिंक किया गया",
+      "offline": "ऑफ़लाइन",
+      "currentGroup": "वर्तमान में लिंक:",
+      "link": "चयन लिंक करें",
+      "unlink": "अनलिंक करें"
+    }
   },
   "status": {
     "loading": "शुरू हो रहा है...",
@@ -193,9 +322,11 @@
     "macOS": "macOS"
   },
   "clientDetails": {
+    "editClient": "क्लाइंट संपादित करें",
     "viewDetails": "क्लाइंट विवरण देखें",
     "displayName": "प्रदर्शित नाम",
     "currently": "वर्तमान में",
+    "hostname": "होस्टनाम",
     "ipAddress": "आईपी ​​पता",
     "clientName": "क्लाइंट नाम",
     "snapclientVersion": "Snapclient संस्करण",
@@ -234,7 +365,8 @@
     "saving": "सहेजा जा रहा है...",
     "confirm": "पुष्टि करें",
     "restore": "पुनर्स्थापित",
-    "delete": "हटाएं"
+    "delete": "हटाएं",
+    "modify": "संपादित करें"
   },
   "radio": {
     "edit_station_title": "{name} संपादित करें",
