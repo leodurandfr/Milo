@@ -92,7 +92,6 @@ const zoneTabs = computed(() => {
       tabs.push({
         label: zoneName,
         value: `zone:${linkedIds.join(',')}`,
-        badge: 'link',
         disabled: linkedClients.some(c => !c.available),
         groupId: group?.id || null
       });

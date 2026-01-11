@@ -302,13 +302,13 @@ defineExpose({
 
 .section-header {
   display: flex;
-  align-items: center;
+  flex-direction: row;
   justify-content: space-between;
   gap: var(--space-03);
 }
 
 .section-header :deep(.dropdown) {
-  max-width: 200px;
+  max-width: 260px;
 }
 
 .section-title {
@@ -342,5 +342,11 @@ defineExpose({
   .settings-section {
     border-radius: var(--radius-05);
   }
+  .section-header {
+    flex-direction: column;
+  }
+  .section-header :deep(.dropdown) {
+  max-width: none;
+}
 }
 </style>

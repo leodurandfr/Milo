@@ -64,7 +64,7 @@
     <!-- Delete Zone (only when editing existing zone) -->
     <Button
       v-if="groupId"
-      variant="important"
+      variant="brand"
       size="medium"
       :disabled="deleting"
       :loading="deleting"
