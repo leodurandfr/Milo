@@ -68,7 +68,7 @@ class SpotifyPlugin(UnifiedAudioPlugin):
             server = config.get('server', {})
             addr = server.get('address', 'localhost')
             port = server.get('port', 3678)
-            
+
             self.api_url = f"http://{addr}:{port}"
             self.ws_url = f"ws://{addr}:{port}/events"
             

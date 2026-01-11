@@ -438,7 +438,7 @@ external_volume: true
 
 server:
   enabled: true
-  address: "0.0.0.0"
+  address: localhost
   port: 3678
   allow_origin: "*"
   image_size: 'xlarge'
