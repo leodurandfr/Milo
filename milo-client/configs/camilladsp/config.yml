@@ -5,8 +5,6 @@
 devices:
   samplerate: 48000
   chunksize: 1024
-  silence_threshold: -80
-  silence_timeout: 5.0
   capture:
     type: Alsa
     channels: 2
