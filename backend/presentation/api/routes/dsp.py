@@ -11,7 +11,6 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.presentation.api.models import (
     DspFilterRequest,
     DspFilterUpdateRequest,
-    DspPresetRequest,
     DspVolumeRequest,
     DspMuteRequest,
     DspCompressorRequest,
@@ -302,57 +301,31 @@ def create_dsp_router(
     # === Preset Management ===
 
     @router.get("/presets")
-    async def list_presets():
-        """List all available presets"""
+    async def get_presets():
+        """Get all builtin presets with their gains, manual gains, and active preset ID."""
         try:
-            presets = await dsp_service.list_presets()
-            return {"presets": presets}
+            presets = dsp_service.get_presets()
+            active_preset = await dsp_service.get_active_preset()
+            manual_gains = await dsp_service.get_manual_gains()
+            return {
+                "presets": presets,
+                "manual_gains": manual_gains,
+                "active_preset": active_preset
+            }
         except Exception as e:
-            return {"presets": [], "error": str(e)}
+            return {"presets": [], "manual_gains": [0]*10, "active_preset": None, "error": str(e)}
 
-    @router.post("/preset")
-    async def save_preset(payload: DspPresetRequest):
-        """Save current configuration as a preset"""
+    @router.put("/preset/{preset_id}")
+    async def load_preset(preset_id: str):
+        """Load a builtin preset by ID."""
         try:
-            success = await dsp_service.save_preset(payload.name)
+            success = await dsp_service.load_preset(preset_id)
 
             if success:
-                await state_machine.broadcast_event("dsp", "preset_saved", {"name": payload.name})
-                return {"status": "success", "name": payload.name}
+                await state_machine.broadcast_event("dsp", "preset_loaded", {"id": preset_id})
+                return {"status": "success", "id": preset_id}
 
-            return {"status": "error", "message": "Failed to save preset"}
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.put("/preset/{preset_name}")
-    async def load_preset(preset_name: str):
-        """Load a preset configuration"""
-        try:
-            success = await dsp_service.load_preset(preset_name)
-
-            if success:
-                await state_machine.broadcast_event("dsp", "preset_loaded", {"name": preset_name})
-                return {"status": "success", "name": preset_name}
-
-            raise HTTPException(status_code=404, detail=f"Preset '{preset_name}' not found")
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.delete("/preset/{preset_name}")
-    async def delete_preset(preset_name: str):
-        """Delete a preset"""
-        try:
-            success = await dsp_service.delete_preset(preset_name)
-
-            if success:
-                await state_machine.broadcast_event("dsp", "preset_deleted", {"name": preset_name})
-                return {"status": "success", "name": preset_name}
-
-            raise HTTPException(status_code=404, detail=f"Preset '{preset_name}' not found")
+            raise HTTPException(status_code=404, detail=f"Preset '{preset_id}' not found")
 
         except HTTPException:
             raise

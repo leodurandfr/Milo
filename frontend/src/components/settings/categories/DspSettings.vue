@@ -45,16 +45,16 @@
           <section class="settings-section">
             <div class="section-group">
               <div class="section-header">
-                <h2 class="heading-2">
-                  {{ $t('dsp.equalizer.title', '10 Bands Equalizer') }}
-                  <span v-if="selectedZoneName" class="zone-suffix">· {{ selectedZoneName }}</span>
-                </h2>
+                <div class="section-title">
+                  <h2 class="heading-2">{{ $t('dsp.equalizer.title', '10 Bands Equalizer') }}</h2>
+                  <span v-if="selectedZoneName" class="zone-suffix text-mono">{{ selectedZoneName }}</span>
+                </div>
                 <Dropdown
-                  v-model="currentPreset"
+                  :model-value="currentPresetValue"
                   :options="presetOptions"
                   :placeholder="$t('dsp.selectPreset', 'Preset')"
                   :disabled="dspStore.isUpdating"
-                  @change="handlePresetChange"
+                  @update:model-value="handlePresetChange"
                 />
               </div>
               <ParametricEQ
@@ -99,7 +99,6 @@ const { on } = useWebSocket();
 
 // Local state
 const isMobile = ref(false);
-const currentPreset = ref('');
 const zoneTabsRef = ref(null);
 
 // Selected zone/client name from ZoneTabs component
@@ -115,55 +114,34 @@ const selectedClientIds = computed(() => {
 let unsubscribeFunctions = [];
 
 // === PRESETS ===
-// Default presets with gain values for 10 EQ bands
-const defaultPresets = computed(() => [
-  {
-    id: 'flat',
-    label: t('dsp.quickPresets.flat', 'Flat'),
-    gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  },
-  {
-    id: 'bass_boost',
-    label: t('dsp.quickPresets.bassBoost', 'Bass Boost'),
-    gains: [6, 5, 3, 1, 0, 0, 0, 0, 0, 0]
-  },
-  {
-    id: 'vocal',
-    label: t('dsp.quickPresets.vocal', 'Vocal'),
-    gains: [-2, -1, 0, 1, 2, 3, 2, 1, 0, 0]
-  },
-  {
-    id: 'night',
-    label: t('dsp.quickPresets.nightMode', 'Night'),
-    gains: [-4, -2, 0, 1, 1, 1, 0, -1, -2, -3]
-  }
-]);
-
-const userPresets = computed(() => dspStore.presets);
-
-// Convert presets to Dropdown options format
+// Convert builtin presets to Dropdown options format
 const presetOptions = computed(() => {
   const options = [];
 
-  // Default presets group
-  defaultPresets.value.forEach(preset => {
+  // Manual is always first and selectable
+  options.push({
+    label: t('dsp.presets.manual', 'Manual'),
+    value: 'manual'
+  });
+
+  // Add all builtin presets
+  dspStore.builtinPresets.forEach(preset => {
     options.push({
-      label: preset.label,
-      value: `default:${preset.id}`
+      label: t(`dsp.presets.${preset.id}`, preset.id),
+      value: preset.id
     });
   });
 
-  // User presets group (if any)
-  if (userPresets.value.length > 0) {
-    userPresets.value.forEach(preset => {
-      options.push({
-        label: preset,
-        value: `user:${preset}`
-      });
-    });
-  }
-
   return options;
+});
+
+// Current preset value for dropdown
+const currentPresetValue = computed(() => {
+  // If gains differ from active preset, show as manual
+  if (dspStore.isManualMode && dspStore.activePreset !== 'manual') {
+    return 'manual';
+  }
+  return dspStore.activePreset || 'manual';
 });
 
 // === MOBILE DETECTION ===
@@ -189,37 +167,8 @@ function handleConfigureZone(groupId) {
 // === PRESET HANDLING ===
 async function handlePresetChange(value) {
   if (!value) return;
-
-  if (value.startsWith('default:')) {
-    // Apply default preset
-    const presetId = value.slice(8);
-    const preset = defaultPresets.value.find(p => p.id === presetId);
-    if (preset) {
-      await applyDefaultPreset(preset);
-    }
-  } else if (value.startsWith('user:')) {
-    // Load user preset
-    const presetName = value.slice(5);
-    await dspStore.loadPreset(presetName);
-  }
+  await dspStore.loadPreset(value);
 }
-
-async function applyDefaultPreset(preset) {
-  for (let i = 0; i < dspStore.filters.length && i < preset.gains.length; i++) {
-    const filter = dspStore.filters[i];
-    if (filter.gain !== preset.gains[i]) {
-      dspStore.updateFilter(filter.id, 'gain', preset.gains[i]);
-      await dspStore.finalizeFilterUpdate(filter.id);
-    }
-  }
-}
-
-// Watch for active preset changes from store
-watch(() => dspStore.activePreset, (newPreset) => {
-  if (newPreset && !currentPreset.value.startsWith('default:')) {
-    currentPreset.value = 'user:' + newPreset;
-  }
-}, { immediate: true });
 
 // === WEBSOCKET HANDLERS ===
 function handleDspFilterChanged(event) {
@@ -362,9 +311,14 @@ defineExpose({
   max-width: 200px;
 }
 
+.section-title {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-01);
+}
+
 .zone-suffix {
   color: var(--color-text-secondary);
-  font-weight: normal;
 }
 
 /* Transitions */

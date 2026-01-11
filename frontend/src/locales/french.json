@@ -102,11 +102,6 @@
     "advanced": {
       "title": "Effets avancés"
     },
-    "presets": "Préréglages",
-    "savePreset": "Sauvegarder",
-    "loadPreset": "Charger",
-    "deletePreset": "Supprimer",
-    "presetName": "Nom du préréglage",
     "filters": "Filtres",
     "addFilter": "Ajouter un filtre",
     "removeFilter": "Supprimer le filtre",
@@ -146,14 +141,29 @@
       "level": "Niveau",
       "muted": "Muet"
     },
-    "preset": "Preset",
-    "defaultPresets": "Par défaut",
-    "myPresets": "Mes presets",
-    "quickPresets": {
-      "flat": "Plat",
-      "bassBoost": "Basses+",
-      "vocal": "Voix",
-      "nightMode": "Nuit"
+    "presets": {
+      "manual": "Manuel",
+      "acoustic": "Acoustique",
+      "bass_boost": "Amplificateur de basses",
+      "bass_reducer": "Réducteur de basses",
+      "classical": "Classique",
+      "dance": "Dance",
+      "deep": "Profond",
+      "electronic": "Électro",
+      "hip_hop": "Hip-Hop",
+      "jazz": "Jazz",
+      "latin": "Latino",
+      "loudness": "Niveau sonore",
+      "lounge": "Lounge",
+      "piano": "Piano",
+      "pop": "Pop",
+      "rnb": "RnB",
+      "rock": "Rock",
+      "small_speakers": "Petites enceintes",
+      "spoken_word": "Texte parlé",
+      "treble_boost": "Amplificateur d'aigus",
+      "treble_reducer": "Réducteur d'aigus",
+      "vocal_boost": "Amplificateur vocal"
     },
     "meters": {
       "title": "Niveaux audio",
