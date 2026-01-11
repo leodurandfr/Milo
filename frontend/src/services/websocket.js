@@ -32,7 +32,7 @@ import { logger } from '@/services/logger';
  *   - client_name_changed → also DspSettings.vue, MultiroomSettings.vue (sync names)
  *
  * dsp:
- *   - filter_*, state_changed, preset_*, compressor_*, loudness_*, delay_* → DspSettings.vue → dspStore
+ *   - filter_*, state_changed, preset_*, compressor_*, loudness_* → DspSettings.vue → dspStore
  *   - links_changed, enabled_changed → DspSettings, MultiroomSettings, MultiroomControl
  *   - client_volumes_pushed → MultiroomSettings, MultiroomControl
  *

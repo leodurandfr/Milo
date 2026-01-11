@@ -16,7 +16,6 @@ from backend.presentation.api.models import (
     DspMuteRequest,
     DspCompressorRequest,
     DspLoudnessRequest,
-    DspDelayRequest,
     DspLinkedClientsRequest,
     ClientSpeakerTypeRequest,
     ZoneCrossoverRequest,
@@ -447,36 +446,6 @@ def create_dsp_router(
                 return {"status": "success", **loudness}
 
             return {"status": "error", "message": "Failed to update loudness"}
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    # === Channel Delay ===
-
-    @router.get("/delay")
-    async def get_delay():
-        """Get channel delay settings"""
-        try:
-            delay = await dsp_service.get_delay()
-            return delay
-        except Exception as e:
-            return {"left": 0, "right": 0, "error": str(e)}
-
-    @router.put("/delay")
-    async def set_delay(payload: DspDelayRequest):
-        """Update channel delay settings"""
-        try:
-            success = await dsp_service.set_delay(
-                left=payload.left,
-                right=payload.right
-            )
-
-            if success:
-                delay = await dsp_service.get_delay()
-                await state_machine.broadcast_event("dsp", "delay_changed", delay)
-                return {"status": "success", **delay}
-
-            return {"status": "error", "message": "Failed to update delay"}
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
@@ -1067,26 +1036,6 @@ def create_dsp_router(
             await sync_service.update_client_settings(hostname, "loudness", loudness_data)
         return result
 
-    @router.get("/client/{hostname}/delay")
-    async def get_client_delay(hostname: str):
-        """Proxy delay GET to client"""
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
-        return await proxy_service.request(hostname, "GET", "/dsp/delay")
-
-    @router.put("/client/{hostname}/delay")
-    async def update_client_delay(hostname: str, request: Request):
-        """Proxy delay update to client and persist settings"""
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
-        body = await request.json()
-        result = await proxy_service.request(hostname, "PUT", "/dsp/delay", body)
-        # Save settings to Milo after successful update
-        if result.get("status") == "success" and sync_service:
-            delay_data = {k: v for k, v in result.items() if k != "status"}
-            await sync_service.update_client_settings(hostname, "delay", delay_data)
-        return result
-
     @router.get("/client/{hostname}/volume")
     async def get_client_volume(hostname: str):
         """Get volume for a specific client (consistent with multiroom model)."""
@@ -1252,14 +1201,6 @@ def create_dsp_router(
                 restored.append("loudness")
             except Exception as e:
                 errors.append(f"loudness: {e}")
-
-        # Restore delay settings
-        if "delay" in saved:
-            try:
-                await proxy_service.request(hostname, "PUT", "/dsp/delay", saved["delay"])
-                restored.append("delay")
-            except Exception as e:
-                errors.append(f"delay: {e}")
 
         # Restore filter settings
         if "filters" in saved:

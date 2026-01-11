@@ -195,7 +195,6 @@
   "clientDetails": {
     "viewDetails": "क्लाइंट विवरण देखें",
     "displayName": "प्रदर्शित नाम",
-    "latency": "विलंबता (ms)",
     "currently": "वर्तमान में",
     "ipAddress": "आईपी ​​पता",
     "clientName": "क्लाइंट नाम",

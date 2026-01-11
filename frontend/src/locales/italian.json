@@ -195,7 +195,6 @@
   "clientDetails": {
     "viewDetails": "Visualizza dettagli client",
     "displayName": "Nome visualizzato",
-    "latency": "Latenza (ms)",
     "currently": "Attualmente",
     "ipAddress": "Indirizzo IP",
     "clientName": "Nome client",

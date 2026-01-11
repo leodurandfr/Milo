@@ -772,7 +772,7 @@ class CrossoverService:
 
         Args:
             client_id: The client's DSP ID
-            setting_type: Type of setting ('crossover', 'lowpass', 'volume', 'mute', 'filters', 'compressor', 'loudness', 'delay')
+            setting_type: Type of setting ('crossover', 'lowpass', 'volume', 'mute', 'filters', 'compressor', 'loudness')
             settings: The settings to apply
         """
         if client_id not in self._pending_settings:

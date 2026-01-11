@@ -1,5 +1,5 @@
 <!-- frontend/src/components/settings/categories/dsp/AdvancedDsp.vue -->
-<!-- Advanced DSP controls: Compressor, Loudness, Delay -->
+<!-- Advanced DSP controls: Compressor, Loudness -->
 <template>
   <div class="advanced-dsp">
     <!-- Loudness Section -->
@@ -70,32 +70,6 @@
         </div>
       </div>
     </section>
-
-
-
-    <!-- Delay Section -->
-    <section class="settings-section">
-      <div class="effect-header">
-        <h2 class="heading-2">{{ $t('dsp.delay.title', 'Delay') }}</h2>
-        <Toggle :model-value="dspStore.delay.enabled" @change="handleDelayToggle" />
-      </div>
-
-      <div class="effect-controls" :class="{ 'disabled': !dspStore.delay.enabled }">
-        <div class="control-item">
-          <label class="text-mono-small">{{ $t('dsp.delay.left', 'Left Channel') }}</label>
-          <RangeSlider :model-value="dspStore.delay.left" :min="0" :max="50" :step="0.1" value-unit=" ms"
-            :disabled="!dspStore.delay.enabled" @update:model-value="(v) => dspStore.delay.left = v"
-            @change="handleDelayChange('left', $event)" />
-        </div>
-
-        <div class="control-item">
-          <label class="text-mono-small">{{ $t('dsp.delay.right', 'Right Channel') }}</label>
-          <RangeSlider :model-value="dspStore.delay.right" :min="0" :max="50" :step="0.1" value-unit=" ms"
-            :disabled="!dspStore.delay.enabled" @update:model-value="(v) => dspStore.delay.right = v"
-            @change="handleDelayChange('right', $event)" />
-        </div>
-      </div>
-    </section>
   </div>
 </template>
 
@@ -122,15 +96,6 @@ async function handleLoudnessToggle(enabled) {
 
 async function handleLoudnessChange(field, value) {
   await dspStore.updateLoudness({ [field]: value });
-}
-
-// === DELAY ===
-async function handleDelayToggle(enabled) {
-  await dspStore.updateDelay({ enabled });
-}
-
-async function handleDelayChange(channel, value) {
-  await dspStore.updateDelay({ [channel]: value });
 }
 </script>
 

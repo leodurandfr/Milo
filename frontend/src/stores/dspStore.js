@@ -66,12 +66,6 @@ export const useDspStore = defineStore('dsp', () => {
     high_boost: 5
   });
 
-  const delay = ref({
-    enabled: false,
-    left: 0,
-    right: 0
-  });
-
   // Multi-client DSP support
   // 'local' = main Milo, or client hostname like 'milo-client-01'
   const selectedTarget = ref('local');
@@ -605,9 +599,6 @@ export const useDspStore = defineStore('dsp', () => {
       if (statusData?.loudness) {
         loudness.value = { ...loudness.value, ...statusData.loudness };
       }
-      if (statusData?.delay) {
-        delay.value = { ...delay.value, ...statusData.delay };
-      }
       // Volume data comes from unifiedAudioStore.volumeState via WebSocket
       // No need to update local cache here
 
@@ -826,22 +817,6 @@ export const useDspStore = defineStore('dsp', () => {
       return false;
     } catch (error) {
       console.error('Error updating loudness:', error);
-      return false;
-    }
-  }
-
-  async function updateDelay(settings) {
-    try {
-      const response = await axios.put(`${getApiBase()}/delay`, settings);
-      if (response.data.status === 'success') {
-        Object.assign(delay.value, settings);
-        // Propagate to linked clients
-        await propagateToLinkedClients('delay', settings);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error updating delay:', error);
       return false;
     }
   }
@@ -1194,10 +1169,6 @@ export const useDspStore = defineStore('dsp', () => {
     Object.assign(loudness.value, event.data);
   }
 
-  function handleDelayChanged(event) {
-    Object.assign(delay.value, event.data);
-  }
-
   /**
    * Handle client name changed event from WebSocket
    * Updates availableTargets to keep client names in sync
@@ -1293,7 +1264,6 @@ export const useDspStore = defineStore('dsp', () => {
     // Advanced DSP State
     compressor,
     loudness,
-    delay,
 
     // Multi-client support
     selectedTarget,
@@ -1361,7 +1331,6 @@ export const useDspStore = defineStore('dsp', () => {
     // Advanced Features
     updateCompressor,
     updateLoudness,
-    updateDelay,
     updateDspMute,
 
     // Client DSP volume/mute (reads from unified store)
@@ -1384,7 +1353,6 @@ export const useDspStore = defineStore('dsp', () => {
     handleLevels,
     handleCompressorChanged,
     handleLoudnessChanged,
-    handleDelayChanged,
     handleEnabledChanged,
     handleClientNameChanged
   };

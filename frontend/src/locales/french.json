@@ -141,12 +141,6 @@
       "lowBoost": "Boost graves",
       "highBoost": "Boost aigus"
     },
-    "delay": {
-      "title": "Délai",
-      "enable": "Activer le délai de canal",
-      "left": "Canal gauche",
-      "right": "Canal droit"
-    },
     "volume": {
       "title": "Volume",
       "level": "Niveau",
@@ -322,7 +316,6 @@
     "editClient": "Modifier le client",
     "viewDetails": "Voir les détails du client",
     "displayName": "Nom affiché",
-    "latency": "Latence (ms)",
     "currently": "Actuellement",
     "ipAddress": "Adresse IP",
     "clientName": "Nom du client",

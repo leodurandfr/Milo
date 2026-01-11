@@ -141,12 +141,6 @@
       "lowBoost": "Bass Boost",
       "highBoost": "Treble Boost"
     },
-    "delay": {
-      "title": "Delay",
-      "enable": "Enable Channel Delay",
-      "left": "Left Channel",
-      "right": "Right Channel"
-    },
     "volume": {
       "title": "Volume",
       "level": "Level",
@@ -323,7 +317,6 @@
     "editClient": "Edit client",
     "viewDetails": "View client details",
     "displayName": "Display name",
-    "latency": "Latency (ms)",
     "currently": "Currently",
     "ipAddress": "IP address",
     "clientName": "Client name",

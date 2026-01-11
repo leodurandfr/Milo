@@ -5,7 +5,7 @@ DSP Settings Sync Service - Manages client DSP settings persistence and synchron
 This service handles:
 - Persistent storage of DSP settings for remote clients
 - Synchronization of DSP settings between clients in a multiroom setup
-- Settings categories: compressor, loudness, delay, filters, volume
+- Settings categories: compressor, loudness, filters, volume
 """
 import asyncio
 import json
@@ -28,7 +28,7 @@ class DspSettingsSyncService:
     """
 
     # DSP setting categories that can be synced
-    SYNC_CATEGORIES = ['compressor', 'loudness', 'delay', 'filters', 'volume']
+    SYNC_CATEGORIES = ['compressor', 'loudness', 'filters', 'volume']
 
     def __init__(
         self,
@@ -208,7 +208,6 @@ class DspSettingsSyncService:
             return {
                 'compressor': await self.dsp_service.get_compressor(),
                 'loudness': await self.dsp_service.get_loudness(),
-                'delay': await self.dsp_service.get_delay(),
                 'filters': await self.dsp_service.get_filters(),
                 'volume': await self.dsp_service.get_volume()
             }
@@ -218,7 +217,7 @@ class DspSettingsSyncService:
                 raise ValueError("Proxy service not available for remote settings")
 
             source_settings = {}
-            for category in ['compressor', 'loudness', 'delay', 'volume']:
+            for category in ['compressor', 'loudness', 'volume']:
                 try:
                     source_settings[category] = await self.proxy_service.request(
                         source_client, "GET", f"/dsp/{category}"
@@ -260,8 +259,6 @@ class DspSettingsSyncService:
                     await self.dsp_service.set_compressor(**data)
                 elif category == 'loudness':
                     await self.dsp_service.set_loudness(**data)
-                elif category == 'delay':
-                    await self.dsp_service.set_delay(**data)
             else:
                 if not self.proxy_service:
                     return False
@@ -280,7 +277,7 @@ class DspSettingsSyncService:
         """
         Sync DSP settings from source client to target clients.
 
-        Gets compressor, loudness, delay, filters and volume from source
+        Gets compressor, loudness, filters and volume from source
         and pushes to all targets.
 
         Args:
@@ -320,13 +317,6 @@ class DspSettingsSyncService:
                     target_synced.append("loudness")
                 else:
                     errors.append(f"{target}/loudness")
-
-            # Sync delay
-            if source_settings.get('delay'):
-                if await self._push_setting_to_target(target, 'delay', source_settings['delay']):
-                    target_synced.append("delay")
-                else:
-                    errors.append(f"{target}/delay")
 
             # Sync filters
             if source_settings.get('filters'):

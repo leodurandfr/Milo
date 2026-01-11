@@ -79,11 +79,6 @@ class CamillaDSPService:
             "high_boost": 5.0,
             "low_boost": 8.0
         }
-        self._delay: Dict[str, Any] = {
-            "enabled": False,
-            "left": 0.0,
-            "right": 0.0
-        }
         self._volume: Dict[str, Any] = {
             "main": 0.0,  # dB
             "mute": False
@@ -235,7 +230,6 @@ class CamillaDSPService:
                 "filters": await self.get_filters(),
                 "compressor": self._compressor,
                 "loudness": self._loudness,
-                "delay": self._delay,
                 "volume": await self.get_volume(),
             }
 
@@ -301,7 +295,7 @@ class CamillaDSPService:
         result = []
 
         for name, filter_data in filters_config.items():
-            # Only include EQ band filters (skip advanced filters like loudness, compressor, delay)
+            # Only include EQ band filters (skip advanced filters like loudness, compressor)
             if not name.startswith("eq_band_"):
                 continue
 
@@ -970,87 +964,6 @@ class CamillaDSPService:
             self.logger.error(f"Error setting lowpass filter: {e}")
             return False
 
-    # === Channel Delay ===
-
-    async def get_delay(self) -> Dict[str, float]:
-        """Get channel delay settings in milliseconds"""
-        return self._delay.copy()
-
-    async def set_delay(self, enabled: bool = None, left: float = None, right: float = None, persist: bool = True) -> bool:
-        """Set channel delay in milliseconds (0-50ms). Set persist=False during bypass operations."""
-        if enabled is not None:
-            self._delay["enabled"] = enabled
-        if left is not None:
-            self._delay["left"] = max(0, min(50, left))
-        if right is not None:
-            self._delay["right"] = max(0, min(50, right))
-
-        if not self._connected:
-            return True
-
-        try:
-            # CamillaDSP uses sample count for delay
-            # At 48kHz, 1ms = 48 samples
-            sample_rate = 48000
-
-            config = await self._get_config()
-
-            if config is None:
-                config = {"filters": {}, "pipeline": []}
-
-            # Add delay filters if needed
-            if "filters" not in config:
-                config["filters"] = {}
-
-            # Only apply delay if enabled
-            if self._delay["enabled"] and self._delay["left"] > 0:
-                left_samples = int(self._delay["left"] * sample_rate / 1000)
-                config["filters"]["delay_left"] = {
-                    "type": "Delay",
-                    "parameters": {
-                        "delay": left_samples,
-                        "unit": "samples"
-                    }
-                }
-                # Add delay_left to pipeline for channel 0 only
-                self._add_filter_to_pipeline(config, "delay_left", channels=[0])
-            else:
-                if "delay_left" in config.get("filters", {}):
-                    del config["filters"]["delay_left"]
-                self._remove_filter_from_pipeline(config, "delay_left")
-
-            if self._delay["enabled"] and self._delay["right"] > 0:
-                right_samples = int(self._delay["right"] * sample_rate / 1000)
-                config["filters"]["delay_right"] = {
-                    "type": "Delay",
-                    "parameters": {
-                        "delay": right_samples,
-                        "unit": "samples"
-                    }
-                }
-                # Add delay_right to pipeline for channel 1 only
-                self._add_filter_to_pipeline(config, "delay_right", channels=[1])
-            else:
-                if "delay_right" in config.get("filters", {}):
-                    del config["filters"]["delay_right"]
-                self._remove_filter_from_pipeline(config, "delay_right")
-
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
-
-            await self._broadcast_event("delay_changed", self._delay)
-
-            # Persist delay settings (skip during bypass operations)
-            if persist and self.settings_service:
-                await self.settings_service.set_setting("dsp.delay", self._delay)
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error setting delay: {e}")
-            return False
-
     # === Level Monitoring ===
 
     async def get_levels(self) -> Dict[str, Any]:
@@ -1192,7 +1105,7 @@ class CamillaDSPService:
         try:
             self.logger.info("Bypassing all DSP effects...")
 
-            # Save current config before bypassing (filters, compressor, loudness, delay)
+            # Save current config before bypassing (filters, compressor, loudness)
             await self.save_current_config()
 
             # 1. Reset all EQ filters to 0 dB gain (persist=False to keep saved values)
@@ -1211,9 +1124,6 @@ class CamillaDSPService:
 
             # 3. Disable loudness (persist=False to keep settings for restore)
             await self.set_loudness(enabled=False, persist=False)
-
-            # 4. Reset delay to 0 (persist=False to keep settings for restore)
-            await self.set_delay(left=0, right=0, persist=False)
 
             self.logger.info("DSP effects bypassed (volume unchanged)")
             await self._broadcast_event("effects_bypassed", {"bypassed": True})
@@ -1261,11 +1171,6 @@ class CamillaDSPService:
                 if saved_loudness:
                     await self.set_loudness(**saved_loudness)
 
-                # 4. Restore delay settings
-                saved_delay = await self.settings_service.get_setting("dsp.delay")
-                if saved_delay:
-                    await self.set_delay(**saved_delay)
-
             self.logger.info("DSP effects restored from settings")
             await self._broadcast_event("effects_restored", {"bypassed": False})
             return True
@@ -1300,12 +1205,6 @@ class CamillaDSPService:
                 self._loudness.update(saved_loudness)
                 self.logger.info("Loaded saved loudness settings")
 
-            # Load delay
-            saved_delay = await self.settings_service.get_setting("dsp.delay")
-            if saved_delay:
-                self._delay.update(saved_delay)
-                self.logger.info("Loaded saved delay settings")
-
         except Exception as e:
             self.logger.error(f"Error loading saved config: {e}")
 
@@ -1318,7 +1217,6 @@ class CamillaDSPService:
             await self.settings_service.set_setting("dsp.filters", self._filters)
             await self.settings_service.set_setting("dsp.compressor", self._compressor)
             await self.settings_service.set_setting("dsp.loudness", self._loudness)
-            await self.settings_service.set_setting("dsp.delay", self._delay)
             return True
         except Exception as e:
             self.logger.error(f"Error saving config: {e}")
