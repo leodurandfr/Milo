@@ -66,11 +66,11 @@
         <h2 class="heading-2">{{ $t('multiroom.speakerInfo', 'Speaker Info') }}</h2>
         <div class="info-grid">
           <div class="info-item">
-            <span class="info-label text-mono">Hostname</span>
+            <span class="info-label text-mono">{{ $t('clientDetails.hostname', 'Hostname') }}</span>
             <span class="info-value text-mono">{{ client?.host }}</span>
           </div>
           <div class="info-item">
-            <span class="info-label text-mono">{{ $t('info.ipAddress', 'IP Address') }}</span>
+            <span class="info-label text-mono">{{ $t('clientDetails.ipAddress', 'IP Address') }}</span>
             <span class="info-value text-mono">{{ client?.ip || 'Unknown' }}</span>
           </div>
         </div>

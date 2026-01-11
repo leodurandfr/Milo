@@ -47,8 +47,6 @@
                       class="zone-header"
                       @click="handleEditZone(zone.id)"
                     >
-                      <span class="zone-header__label heading-3">Zone</span>
-                      <span class="zone-header__separator heading-3">·</span>
                       <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
                       <SvgIcon name="caretRight" :size="20" class="zone-header__caret" />
                     </button>
@@ -485,14 +483,6 @@ onMounted(async () => {
   gap: var(--space-01);
   width: 100%;
   cursor: pointer;
-}
-
-.zone-header__label {
-  color: var(--color-text);
-}
-
-.zone-header__separator {
-  color: var(--color-text-secondary);
 }
 
 .zone-header__name {
