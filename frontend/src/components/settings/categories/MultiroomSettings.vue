@@ -1,15 +1,19 @@
 <!-- frontend/src/components/settings/categories/MultiroomSettings.vue -->
 <template>
   <div class="multiroom-settings">
-    <div class="content-wrapper" :class="{ 'with-background': !isMultiroomActive }">
-      <!-- MESSAGE: Multiroom disabled -->
-        <Transition name="fade-slide">
-          <MessageContent v-if="!isMultiroomActive" key="message" icon="multiroom" :title="t('multiroom.disabled')" />
-        </Transition>
-
-        <!-- SETTINGS: Sections visible only if multiroom is enabled -->
-        <Transition name="settings">
-          <div v-if="isMultiroomActive" key="settings" class="settings-container">
+    <div class="content-wrapper">
+      <Transition name="fade-slide" mode="out-in">
+        <!-- MESSAGE: Enabling or Disabled -->
+        <MessageContent
+          v-if="showMessage"
+          :key="transitionState"
+          :loading="isLoading"
+          :loading-delay="0"
+          :icon="isLoading ? null : 'multiroom'"
+          :title="messageTitle"
+        />
+        <!-- SETTINGS: Active and ready -->
+        <div v-else key="settings" class="settings-container">
             <!-- Zones & Speakers Section -->
             <section class="settings-section">
               <div class="multiroom-group" :class="{ 'multiroom-group--compact': ungroupedClients.length >= 2 }">
@@ -152,7 +156,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useMultiroomStore } from '@/stores/multiroomStore';
@@ -175,6 +179,19 @@ const dspStore = useDspStore();
 
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
+const transitionState = ref('idle'); // 'idle' | 'enabling' | 'disabling'
+
+// Message display logic
+const showMessage = computed(() => {
+  return transitionState.value !== 'idle' || !isMultiroomActive.value;
+});
+const showSettings = computed(() => {
+  return isMultiroomActive.value && transitionState.value === 'idle';
+});
+const isLoading = computed(() => transitionState.value === 'enabling');
+const messageTitle = computed(() => {
+  return transitionState.value === 'enabling' ? t('multiroom.starting') : t('multiroom.disabled');
+});
 
 // Sorted clients with "milo" first
 const sortedMultiroomClients = computed(() => multiroomStore.sortedClients);
@@ -324,19 +341,32 @@ async function applyServerConfig() {
   await multiroomStore.applyServerConfig();
 }
 
-// Watcher to load data when multiroom is enabled
-watch(isMultiroomActive, async (newValue, oldValue) => {
-  if (newValue && !oldValue) {
-    // Multiroom has just been enabled, load data
-    await loadMultiroomData();
-  }
-});
-
 onMounted(async () => {
   // Load only if multiroom is enabled
   if (isMultiroomActive.value) {
     await loadMultiroomData();
   }
+
+  // Handle multiroom state transitions
+  on('routing', 'multiroom_enabling', () => {
+    transitionState.value = 'enabling';
+  });
+
+  on('routing', 'multiroom_disabling', () => {
+    transitionState.value = 'disabling';
+  });
+
+  on('routing', 'multiroom_ready', async () => {
+    transitionState.value = 'idle';
+    await loadMultiroomData();
+  });
+
+  // Reset to idle when multiroom is fully disabled
+  on('system', 'state_changed', (event) => {
+    if (event?.multiroom_enabled === false && transitionState.value === 'disabling') {
+      transitionState.value = 'idle';
+    }
+  });
 
   // Subscribe to volume changes - handled by unifiedAudioStore
   on('volume', 'volume_changed', (event) => {
@@ -496,29 +526,6 @@ onMounted(async () => {
   bottom: 0;
   width: 100%;
   z-index: 10;
-}
-
-/* Transitions for settings */
-.settings-enter-active {
-  transition: opacity 300ms ease 100ms, transform 300ms ease 100ms;
-}
-
-.settings-leave-active {
-  transition: opacity 300ms ease, transform 300ms ease;
-  position: absolute;
-  width: 100%;
-  top: 0;
-  left: 0;
-}
-
-.settings-enter-from {
-  opacity: 0;
-  transform: translateY(12px);
-}
-
-.settings-leave-to {
-  opacity: 0;
-  transform: translateY(-12px);
 }
 
 /* Responsive */

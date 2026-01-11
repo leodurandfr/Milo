@@ -38,6 +38,7 @@
     "title": "Multiroom",
     "settings": "Multiroom Settings",
     "disabled": "Multiroom is not enabled",
+    "starting": "Starting Multiroom",
     "noClients": "No client is connected",
     "speakers": "Multiroom speakers",
     "zonesAndSpeakers": "Zones and speakers",

@@ -38,6 +38,7 @@
     "title": "Multiroom",
     "settings": "Configuration Multiroom",
     "disabled": "Le multiroom est désactivé",
+    "starting": "Démarrage du Multiroom",
     "noClients": "Aucun client n'est connecté",
     "speakers": "Enceintes multiroom",
     "zonesAndSpeakers": "Zones et enceintes",
