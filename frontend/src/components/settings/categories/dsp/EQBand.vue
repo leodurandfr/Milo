@@ -3,7 +3,7 @@
 <template>
   <div class="eq-band" :class="{ 'horizontal': orientation === 'horizontal', 'compact': compact }">
     <!-- Frequency label -->
-    <div class="band-label text-mono">{{ displayName }}</div>
+    <div class="band-label text-mono-small">{{ displayName }}</div>
 
     <!-- Gain slider (vertical or horizontal) -->
     <div class="gain-slider">
@@ -23,14 +23,14 @@
     </div>
 
     <!-- Gain value display -->
-    <div class="gain-value text-mono" :class="{ 'dragging': isDragging, 'positive': gainValue > 0, 'negative': gainValue < 0 }">
-      {{ gainValue > 0 ? '+' : '' }}{{ gainValue.toFixed(1) }} dB
+    <div class="gain-value text-mono-small" :class="{ 'dragging': isDragging, 'positive': gainValue > 0, 'negative': gainValue < 0 }">
+      {{ gainValue > 0 ? '+' : '' }}{{ gainValue.toFixed(1) }}
     </div>
 
     <!-- Q and Type controls (shown in expanded mode) -->
     <div v-if="showAdvanced" class="advanced-controls">
       <div class="q-control">
-        <span class="control-label text-mono">Q</span>
+        <span class="control-label text-mono-small">Q</span>
         <RangeSlider
           :model-value="qValue"
           :min="0.1"
@@ -42,7 +42,7 @@
           @input="handleQInput"
           @change="handleQChange"
         />
-        <span class="control-value text-mono">{{ qValue.toFixed(1) }}</span>
+        <span class="control-value text-mono-small">{{ qValue.toFixed(1) }}</span>
       </div>
 
       <div class="type-control">
@@ -136,7 +136,6 @@ function handleTypeChange(value) {
   flex-direction: column;
   align-items: center;
   gap: var(--space-02);
-  min-width: 56px;
 }
 
 .eq-band.horizontal {
@@ -153,11 +152,10 @@ function handleTypeChange(value) {
 .band-label {
   color: var(--color-text-secondary);
   text-align: center;
-  font-size: 13px;
 }
 
 .eq-band.horizontal .band-label {
-  min-width: 48px;
+  min-width: 32px;
   text-align: right;
 }
 
@@ -178,9 +176,7 @@ function handleTypeChange(value) {
 
 .gain-value {
   color: var(--color-text-secondary);
-  font-size: 12px;
   text-align: center;
-  min-width: 56px;
   transition: color var(--transition-fast);
 }
 
@@ -202,7 +198,7 @@ function handleTypeChange(value) {
 }
 
 .eq-band.horizontal .gain-value {
-  min-width: 64px;
+  min-width: 32px;
   text-align: left;
 }
 
@@ -225,13 +221,11 @@ function handleTypeChange(value) {
 
 .control-label {
   color: var(--color-text-light);
-  font-size: 11px;
   min-width: 16px;
 }
 
 .control-value {
   color: var(--color-text-secondary);
-  font-size: 11px;
   min-width: 32px;
   text-align: right;
 }
@@ -247,12 +241,7 @@ function handleTypeChange(value) {
   }
 
   .gain-value {
-    font-size: 11px;
     min-width: 48px;
-  }
-
-  .band-label {
-    font-size: 12px;
   }
 }
 </style>
