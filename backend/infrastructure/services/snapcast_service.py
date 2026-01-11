@@ -146,19 +146,6 @@ class SnapcastService:
             self.logger.error(f"Error setting mute: {e}")
             return False
 
-    async def set_client_latency(self, client_id: str, latency: int) -> bool:
-        """Set a client's latency"""
-        try:
-            result = await self._request("Client.SetLatency", {
-                "id": client_id,
-                "latency": max(0, min(1000, latency))
-            })
-            return bool(result)
-
-        except Exception as e:
-            self.logger.error(f"Error setting client latency: {e}")
-            return False
-
     async def set_client_name(self, client_id: str, name: str) -> bool:
         """Set a client's name"""
         try:
@@ -317,7 +304,6 @@ class SnapcastService:
                         "ip": ip,
                         "dsp_id": dsp_id,
                         "mac": mac,
-                        "latency": client_data["config"]["latency"],
                         "last_seen": last_seen,
                         "connection_quality": self._calculate_connection_quality(last_seen),
                         "host_info": {

@@ -282,13 +282,6 @@ class DspLoudnessRequest(BaseModel):
     low_boost: Optional[float] = Field(None, ge=0, le=15, description="Low frequency boost in dB")
 
 
-class DspDelayRequest(BaseModel):
-    """DSP channel delay request"""
-    enabled: Optional[bool] = None
-    left: Optional[float] = Field(None, ge=0, le=50, description="Left channel delay in ms")
-    right: Optional[float] = Field(None, ge=0, le=50, description="Right channel delay in ms")
-
-
 class DspLinkedClientsRequest(BaseModel):
     """DSP linked clients request - clients that share the same DSP settings"""
     client_ids: List[str] = Field(..., min_length=2, description="List of client IDs to link together")

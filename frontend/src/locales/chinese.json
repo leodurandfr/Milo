@@ -195,7 +195,6 @@
   "clientDetails": {
     "viewDetails": "查看客户端详情",
     "displayName": "显示名称",
-    "latency": "延迟 (ms)",
     "currently": "当前",
     "ipAddress": "IP 地址",
     "clientName": "客户端名称",
