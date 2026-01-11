@@ -73,14 +73,14 @@ watch(isReady, (ready) => {
       // Start logo animation 0.1s before boot-screen ends
       setTimeout(() => {
         bootScreen.classList.add('logo-exit');
-      }, 1400);
+      }, 700);
 
       // Fade out boot-screen and mount app
       setTimeout(() => {
         bootScreen.classList.add('fade-out');
         isBootComplete.value = true;
         setTimeout(() => bootScreen.remove(), 400);
-      }, 1500);
+      }, 800);
     }
   }
 });
