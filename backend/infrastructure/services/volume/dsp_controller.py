@@ -9,10 +9,12 @@ Key features:
 - Parallel updates with asyncio.gather()
 - Timeout and error handling
 - Retry logic for transient failures
+- Wait for client readiness before sending commands
 """
 
 import asyncio
 import logging
+import time
 from typing import Dict, Optional
 
 
@@ -45,6 +47,44 @@ class DSPController:
         self._timeout = self.DEFAULT_TIMEOUT
 
         self.logger.info("DSPController initialized")
+
+    # ========== Client Readiness ==========
+
+    async def wait_for_client_ready(self, hostname: str, max_wait: float = 10.0, interval: float = 0.5) -> bool:
+        """
+        Wait for a remote client's DSP API to become available.
+
+        This method polls the client's health endpoint until dsp_ready is true,
+        ensuring CamillaDSP is connected before sending volume commands.
+
+        Args:
+            hostname: Client hostname ('local' or 'milo-client-XX')
+            max_wait: Maximum wait time in seconds
+            interval: Check interval in seconds
+
+        Returns:
+            True if client became ready, False if timeout
+        """
+        if hostname == "local":
+            return True  # Local is always ready
+
+        start_time = time.time()
+        attempts = 0
+
+        while (time.time() - start_time) < max_wait:
+            attempts += 1
+            try:
+                if await self._proxy_service.check_available(hostname):
+                    elapsed = time.time() - start_time
+                    self.logger.info(f"[{time.time():.3f}] WAIT_READY: {hostname} ready after {attempts} attempts ({elapsed:.1f}s)")
+                    return True
+            except Exception as e:
+                self.logger.debug(f"Health check failed for {hostname}: {e}")
+
+            await asyncio.sleep(interval)
+
+        self.logger.warning(f"[{time.time():.3f}] WAIT_READY: {hostname} not ready after {max_wait}s ({attempts} attempts)")
+        return False
 
     # ========== Single Client Operations ==========
 

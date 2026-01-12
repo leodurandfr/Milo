@@ -76,13 +76,13 @@ class DspClientProxyService:
 
     async def check_available(self, hostname: str) -> bool:
         """
-        Check if a client's DSP API is available.
+        Check if a client's DSP API is available AND DSP is ready.
 
         Args:
             hostname: The client hostname or IP address
 
         Returns:
-            True if the client's health endpoint responds with 200, False otherwise
+            True if the client's health endpoint responds with 200 AND dsp_ready is true
         """
         try:
             host = self._get_host(hostname)
@@ -90,7 +90,11 @@ class DspClientProxyService:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 url = f"http://{host}:{CLIENT_API_PORT}/health"
                 async with session.get(url) as response:
-                    return response.status == 200
+                    if response.status == 200:
+                        data = await response.json()
+                        # Check dsp_ready flag (default True for backward compatibility)
+                        return data.get("dsp_ready", True)
+                    return False
         except Exception:
             return False
 

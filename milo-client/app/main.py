@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
         for attempt in range(max_retries):
             connected = await dsp_manager.connect()
             if connected:
-                logger.info(f"CamillaDSP connected on attempt {attempt + 1}, waiting for backend to set volume and unmute")
+                logger.info(f"[{time.time():.3f}] STARTUP: CamillaDSP connected on attempt {attempt + 1}, MUTED, waiting for backend")
                 break
             else:
                 if attempt < max_retries - 1:
@@ -877,7 +877,7 @@ class DSPManager:
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda v=self._volume["main"]: self._client.volume.set_main_volume(v)
             )
-            self.logger.info(f"Volume set to {self._volume['main']:.1f} dB")
+            self.logger.info(f"[{time.time():.3f}] VOLUME_SET: Volume set to {self._volume['main']:.1f} dB")
             return True
         except Exception as e:
             self.logger.error(f"Error setting volume: {e}")
@@ -899,6 +899,7 @@ class DSPManager:
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda m=muted: self._client.volume.set_main_mute(m)
             )
+            self.logger.info(f"[{time.time():.3f}] MUTE_SET: Mute set to {muted}")
             return True
         except Exception as e:
             self.logger.error(f"Error setting mute: {e}")
@@ -1102,11 +1103,12 @@ def get_hostname() -> str:
 
 @app.get("/health")
 async def health_check():
-    """Basic health endpoint"""
+    """Health endpoint with DSP readiness status"""
     return {
         "status": "healthy",
         "timestamp": int(time.time()),
-        "hostname": get_hostname()
+        "hostname": get_hostname(),
+        "dsp_ready": dsp_manager._connected  # True when CamillaDSP is connected
     }
 
 @app.get("/status")
