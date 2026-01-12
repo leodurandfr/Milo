@@ -82,6 +82,7 @@ class Container(containers.DeclarativeContainer):
         SnapcastWebSocketService,
         state_machine=audio_state_machine,
         routing_service=audio_routing_service,
+        settings_service=settings_service,
         host="localhost",
         port=1780
     )
