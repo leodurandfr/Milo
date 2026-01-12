@@ -68,7 +68,11 @@ class WebSocketServer:
                 }
                 await websocket.send_text(json.dumps(initial_event))
 
-                # Send current volume state immediately after initial_state
+                # Wait for client availability to be initialized before sending volume state
+                # This ensures zone averages include available clients with correct volumes
+                await self.state_machine.volume_service.wait_for_availability(timeout=5.0)
+
+                # Send current volume state after availability is ready
                 volume_state = await self.state_machine.volume_service.get_volume_state()
                 volume_event = {
                     "category": "volume",
