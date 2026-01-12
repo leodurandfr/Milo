@@ -12,6 +12,7 @@ REFACTORED ARCHITECTURE (Phase 5):
 """
 import asyncio
 import logging
+import time
 from typing import Optional, Dict, Any
 
 from backend.infrastructure.services.settings_service import SettingsService
@@ -246,9 +247,20 @@ class VolumeService:
             return True
 
         try:
+            self.logger.info(f"[{time.time():.3f}] DSP_SYNC: Start for {client_id}")
+
+            # Wait for client to be ready before sending any commands
+            # This ensures CamillaDSP is connected and ready to receive volume/mute
+            if client_id != "local":
+                ready = await self._dsp_controller.wait_for_client_ready(client_id, max_wait=10.0)
+                if not ready:
+                    self.logger.error(f"[{time.time():.3f}] DSP_SYNC: Client {client_id} not ready after timeout, skipping sync")
+                    return False
+
             # MUTE DSP first to prevent volume spike during sync
             # This is a safety measure in case client reconnected without CamillaDSP restart
             await self._dsp_controller.set_dsp_mute(client_id, True)
+            self.logger.info(f"[{time.time():.3f}] DSP_SYNC: Muted DSP for {client_id}")
 
             volume_state = await self._state_store.get_complete_state()
 
@@ -282,13 +294,14 @@ class VolumeService:
 
             # Set the correct volume while DSP is muted
             await self._dsp_controller.set_dsp_volume(client_id, expected_volume)
+            self.logger.info(f"[{time.time():.3f}] DSP_SYNC: Volume set to {expected_volume:.1f}dB for {client_id}")
 
             # Apply persisted mute state (or unmute if no persisted state)
             persisted_mute = False
             if client_id in self._state_store._clients:
                 persisted_mute = self._state_store._clients[client_id].mute
             await self._dsp_controller.set_dsp_mute(client_id, persisted_mute)
-            self.logger.debug(f"Applied mute state to {client_id}: {persisted_mute}")
+            self.logger.info(f"[{time.time():.3f}] DSP_SYNC: Unmuted DSP for {client_id} (mute={persisted_mute})")
 
             # Register client with the applied volume
             await self._state_store.register_client(client_id, volume_db=expected_volume, available=True)
@@ -364,6 +377,8 @@ class VolumeService:
         - restore_last_volume=false: Use startup_volume_db for all clients
         """
         try:
+            self.logger.info(f"[{time.time():.3f}] PUSH_ALL: Starting push to all clients")
+
             # Get all available clients
             client_ids = await get_available_client_ids(self.snapcast_service)
             if not client_ids:
@@ -392,10 +407,11 @@ class VolumeService:
                 return True
 
             mode = "persisted" if restore_enabled else f"startup ({startup_volume:.1f}dB)"
-            self.logger.info(f"Pushing {mode} volumes to {len(updates)} clients")
+            self.logger.info(f"[{time.time():.3f}] PUSH_ALL: Pushing {mode} volumes to {len(updates)} clients")
 
             # Apply volumes to all clients in parallel
             results = await self._dsp_controller.apply_volumes_parallel(updates)
+            self.logger.info(f"[{time.time():.3f}] PUSH_ALL: Applied volumes to {len(updates)} clients")
 
             # Update state store for successful volume updates
             successful_updates = {
@@ -637,18 +653,20 @@ class VolumeService:
             multiroom_enabled = await self.settings_service.get_setting("routing.multiroom_enabled") or False
 
             if multiroom_enabled and self._snapcast_websocket_service:
-                self.logger.info("Waiting for Snapcast WebSocket before initial volume broadcast...")
+                self.logger.info(f"[{time.time():.3f}] STARTUP_BROADCAST: Waiting for Snapcast WebSocket...")
                 ws_ready = await self._snapcast_websocket_service.wait_for_ready(timeout=30.0)
 
                 if ws_ready:
+                    self.logger.info(f"[{time.time():.3f}] STARTUP_BROADCAST: WebSocket ready, starting client sync")
                     # Initialize client availability NOW that WebSocket is ready
                     await self.initialize_client_availability()
 
                     # Signal that availability is ready (WebSocket can now send accurate state)
                     self._availability_ready.set()
 
-                    self.logger.info("Snapcast WebSocket ready, syncing all client volumes...")
+                    self.logger.info(f"[{time.time():.3f}] STARTUP_BROADCAST: Calling push_volume_to_all_clients")
                     await self.push_volume_to_all_clients()
+                    self.logger.info(f"[{time.time():.3f}] STARTUP_BROADCAST: push_volume_to_all_clients complete")
                 else:
                     self.logger.warning("Snapcast WebSocket not ready after timeout, broadcasting with available state")
                     # Still signal ready so WebSocket doesn't wait forever

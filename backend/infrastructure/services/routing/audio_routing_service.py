@@ -5,6 +5,7 @@ Audio routing service for Milo - UNIFIED version with SystemAudioState as single
 import logging
 import asyncio
 import os
+import time
 from typing import Dict, Any, Callable, Optional, Literal
 from backend.domain.audio_state import AudioSource
 from backend.infrastructure.services.systemd_manager import SystemdServiceManager
@@ -281,18 +282,21 @@ class AudioRoutingService:
     async def _delayed_multiroom_sync(self):
         """Sync client volumes from DSP after startup delay (ensures all services ready)."""
         try:
+            self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Waiting 3s before startup sync...")
             # Wait for all services to be fully initialized
             await asyncio.sleep(3.0)
 
             # Check multiroom is still enabled
             if not await self._get_multiroom_enabled():
+                self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Multiroom disabled, skipping sync")
                 return
 
             # Sync volumes from DSP
             volume_service = getattr(self.state_machine, 'volume_service', None) if self.state_machine else None
             if volume_service:
-                self.logger.info("📊 Syncing client volumes from DSP (startup sync)...")
+                self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: Starting sync_all_clients_from_dsp")
                 await volume_service.sync_all_clients_from_dsp()
+                self.logger.info(f"[{time.time():.3f}] DELAYED_SYNC: sync_all_clients_from_dsp complete")
             else:
                 self.logger.warning("VolumeService not available for DSP sync")
 
