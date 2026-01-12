@@ -58,6 +58,7 @@ class CamillaDSPService:
         self._reconnect_task: Optional[asyncio.Task] = None
         self._monitor_task: Optional[asyncio.Task] = None
         self._connected = False
+        self._connection_ready = asyncio.Event()  # Signaled when connected to CamillaDSP
 
         # State machine reference (set by container)
         self.state_machine = None
@@ -100,6 +101,31 @@ class CamillaDSPService:
         """Whether we have an active connection to CamillaDSP"""
         return self._connected and self._client is not None
 
+    async def wait_for_connection(self, timeout: float = 10.0) -> bool:
+        """
+        Wait for CamillaDSP connection to be established.
+
+        This is used by VolumeService to ensure DSP is ready before applying
+        startup volume/mute state. Services initialize in parallel, so we need
+        to wait for the connection before sending commands.
+
+        Args:
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            True if connected within timeout, False otherwise
+        """
+        if self._connected:
+            return True
+
+        try:
+            await asyncio.wait_for(self._connection_ready.wait(), timeout=timeout)
+            # Event was set, check actual connection status
+            return self._connected
+        except asyncio.TimeoutError:
+            self.logger.warning(f"CamillaDSP connection wait timed out after {timeout}s")
+            return False
+
     def is_volume_control_available(self) -> bool:
         """
         Check if DSP can be used for volume control.
@@ -121,13 +147,20 @@ class CamillaDSPService:
 
             if connected:
                 self.logger.info("CamillaDSP service initialized and connected")
+
+                # Apply saved preset to daemon on startup
+                await self._apply_saved_preset()
             else:
                 self.logger.warning("CamillaDSP service initialized but not connected (daemon may not be running)")
+                # Signal event even on failure so waiters don't block forever
+                self._connection_ready.set()
 
             return True
 
         except Exception as e:
             self.logger.error(f"Error initializing CamillaDSP service: {e}")
+            # Signal event on error so waiters don't block forever
+            self._connection_ready.set()
             return False
 
     async def connect(self) -> bool:
@@ -155,6 +188,9 @@ class CamillaDSPService:
                 self._state = await self._get_daemon_state()
 
                 self.logger.info(f"Connected to CamillaDSP at {self.host}:{self.port}, state: {self._state}")
+
+                # Signal that connection is ready (VolumeService waits for this at startup)
+                self._connection_ready.set()
 
                 # Broadcast state change event (frontend listens for 'state_changed')
                 await self._broadcast_event("state_changed", {"state": self._state.value})
@@ -1245,6 +1281,56 @@ class CamillaDSPService:
 
         except Exception as e:
             self.logger.error(f"Error loading saved config: {e}")
+
+    async def _apply_saved_preset(self) -> None:
+        """Apply the saved preset to CamillaDSP daemon on startup."""
+        if not self.settings_service:
+            return
+
+        try:
+            active_preset = await self.settings_service.get_setting("dsp.active_preset")
+
+            if active_preset:
+                self.logger.info(f"Applying saved preset on startup: {active_preset}")
+                await self._apply_preset_without_save(active_preset)
+            else:
+                self.logger.info("No saved preset, using flat EQ")
+
+        except Exception as e:
+            self.logger.error(f"Error applying saved preset on startup: {e}")
+
+    async def _apply_preset_without_save(self, preset_id: str) -> bool:
+        """Apply preset gains to daemon without saving to settings (for startup restore)."""
+        if preset_id == "manual":
+            # Get saved manual gains
+            gains = DEFAULT_MANUAL_GAINS
+            saved_gains = await self.settings_service.get_setting("dsp.manual_gains")
+            if saved_gains and len(saved_gains) >= 10:
+                gains = saved_gains
+        else:
+            # Get builtin preset gains
+            preset = get_preset_by_id(preset_id)
+            if not preset:
+                self.logger.warning(f"Preset not found: {preset_id}")
+                return False
+            gains = preset["gains"]
+
+        # Apply gains to each EQ band
+        for i, gain in enumerate(gains):
+            filter_id = f"eq_band_{i:02d}"
+            existing = next((f for f in self._filters if f["id"] == filter_id), None)
+            if existing:
+                await self.set_filter(
+                    filter_id,
+                    freq=existing["freq"],
+                    gain=gain,
+                    q=existing.get("q", 1.41),
+                    filter_type=existing.get("type", "Peaking"),
+                    from_preset=True
+                )
+
+        self.logger.info(f"Applied preset gains on startup: {preset_id}")
+        return True
 
     async def save_current_config(self) -> bool:
         """Save current configuration to settings"""
