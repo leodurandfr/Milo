@@ -36,8 +36,10 @@ function setupPress(el) {
 
   el.classList.add('interactive-press')
 
-  el._pressHandler = () => {
+  el._pressHandler = (e) => {
     if (el.disabled) return
+    // Capture pointer to ensure click fires even after scale transform shrinks hit area
+    el.setPointerCapture(e.pointerId)
     el.classList.add('pressed')
     setTimeout(() => el.classList.remove('pressed'), 150)
   }
