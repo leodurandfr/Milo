@@ -59,6 +59,9 @@ class VolumeService:
         # Snapcast WebSocket service (set via setter to resolve circular dependency)
         self._snapcast_websocket_service = None
 
+        # Event to signal when client availability has been initialized (for WebSocket handshake)
+        self._availability_ready = asyncio.Event()
+
     # ============================================================================
     # EXPOSED SUB-SERVICES
     # ============================================================================
@@ -71,6 +74,26 @@ class VolumeService:
     def set_snapcast_websocket_service(self, service) -> None:
         """Set Snapcast WebSocket service reference (circular dependency resolution)."""
         self._snapcast_websocket_service = service
+
+    async def wait_for_availability(self, timeout: float = 5.0) -> bool:
+        """
+        Wait for client availability initialization to complete.
+
+        Called by WebSocket server before sending initial volume state
+        to ensure zone data includes available clients with correct volumes.
+
+        Args:
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            True if availability is ready, False if timeout
+        """
+        try:
+            await asyncio.wait_for(self._availability_ready.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Availability wait timed out after {timeout}s")
+            return False
 
     # ============================================================================
     # MODE DETECTION & ALSA SETUP
@@ -260,8 +283,12 @@ class VolumeService:
             # Set the correct volume while DSP is muted
             await self._dsp_controller.set_dsp_volume(client_id, expected_volume)
 
-            # UNMUTE the client after volume is correctly set
-            await self._dsp_controller.set_dsp_mute(client_id, False)
+            # Apply persisted mute state (or unmute if no persisted state)
+            persisted_mute = False
+            if client_id in self._state_store._clients:
+                persisted_mute = self._state_store._clients[client_id].mute
+            await self._dsp_controller.set_dsp_mute(client_id, persisted_mute)
+            self.logger.debug(f"Applied mute state to {client_id}: {persisted_mute}")
 
             # Register client with the applied volume
             await self._state_store.register_client(client_id, volume_db=expected_volume, available=True)
@@ -329,32 +356,48 @@ class VolumeService:
 
     async def push_volume_to_all_clients(self) -> bool:
         """
-        Push current local volume to all multiroom clients.
-        Called when multiroom is activated to ensure uniform volume.
+        Push volume and mute state to all multiroom clients.
+        Called when multiroom is activated to restore client states.
+
+        Respects startup settings:
+        - restore_last_volume=true: Use persisted client volumes
+        - restore_last_volume=false: Use startup_volume_db for all clients
         """
         try:
-            # Get local DSP volume
-            dsp_state = await self._dsp_service.get_volume()
-            if dsp_state and "main" in dsp_state:
-                local_volume = dsp_state["main"]
-                self.logger.info(f"Pushing local volume {local_volume:.1f} dB to all clients")
-            else:
-                local_volume = -30.0
-                self.logger.warning(f"Could not read local volume, using default {local_volume:.1f} dB")
-
             # Get all available clients
             client_ids = await get_available_client_ids(self.snapcast_service)
             if not client_ids:
                 return True
 
-            updates = {client_id: local_volume for client_id in client_ids}
+            # Check startup configuration
+            restore_enabled = self.config.config.restore_last_volume
+            startup_volume = self.config.config.startup_volume_db
+
+            # Build volume updates based on startup settings
+            updates = {}
+            for client_id in client_ids:
+                if restore_enabled and client_id in self._state_store._clients:
+                    # Restore mode: use persisted volume
+                    updates[client_id] = self._state_store._clients[client_id].volume_db
+                elif restore_enabled:
+                    # Restore mode but no persisted state: use local DSP volume
+                    dsp_state = await self._dsp_service.get_volume()
+                    local_volume = dsp_state.get("main", -30.0) if dsp_state else -30.0
+                    updates[client_id] = local_volume
+                else:
+                    # Fixed startup mode: use startup_volume_db
+                    updates[client_id] = startup_volume
+
             if not updates:
                 return True
 
-            # Apply to all clients in parallel
+            mode = "persisted" if restore_enabled else f"startup ({startup_volume:.1f}dB)"
+            self.logger.info(f"Pushing {mode} volumes to {len(updates)} clients")
+
+            # Apply volumes to all clients in parallel
             results = await self._dsp_controller.apply_volumes_parallel(updates)
 
-            # Update state store
+            # Update state store for successful volume updates
             successful_updates = {
                 hostname: volume
                 for hostname, volume in updates.items()
@@ -363,6 +406,16 @@ class VolumeService:
 
             for hostname, volume in successful_updates.items():
                 await self._state_store.set_client_volume(hostname, volume)
+
+            # Apply persisted mute states to clients
+            for client_id in client_ids:
+                if client_id in self._state_store._clients:
+                    mute_state = self._state_store._clients[client_id].mute
+                    try:
+                        await self._dsp_controller.set_dsp_mute(client_id, mute_state)
+                        self.logger.debug(f"Applied mute state to {client_id}: {mute_state}")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to apply mute to {client_id}: {e}")
 
             await self._broadcast_volume_state(show_bar=False)
 
@@ -515,30 +568,62 @@ class VolumeService:
 
     async def _apply_startup_volume(self) -> None:
         """
-        Apply persisted volume to CamillaDSP after safe startup.
+        Apply startup volume and mute state to CamillaDSP.
 
         CamillaDSP starts muted with -m flag (systemd service).
-        This method restores the user's last known volume from persistence,
-        then unmutes to prevent audio spike.
+        This method either:
+        - Restores the user's last known volume (if restore_last_volume=true)
+        - Uses startup_volume_db (if restore_last_volume=false)
+        Then applies persisted mute state.
         """
         try:
-            volume_state = await self._state_store.get_complete_state()
-            local_volume_db = volume_state.global_volume_db
-            if local_volume_db is not None and self._dsp_controller:
-                # Set volume while DSP is still muted (from -m flag at startup)
-                await self._dsp_controller.set_dsp_volume("local", local_volume_db)
-                self.logger.info(f"Restored startup volume: {local_volume_db:.1f} dB")
+            # Wait for CamillaDSP to be connected (services initialize in parallel)
+            if self._dsp_service:
+                connected = await self._dsp_service.wait_for_connection(timeout=10.0)
+                if not connected:
+                    self.logger.warning("CamillaDSP not connected, startup volume/mute not applied")
+                    return
 
-                # Unmute local DSP after volume is correctly set
-                await self._dsp_controller.set_dsp_mute("local", False)
-                self.logger.info("Local DSP unmuted after startup volume applied")
+            # Determine target volume based on restore setting
+            restore_enabled = self.config.config.restore_last_volume
+            startup_volume = self.config.config.startup_volume_db
+
+            if restore_enabled:
+                # Use persisted volume from last session
+                # Note: We read the local client's volume directly, not global_volume_db,
+                # because at startup clients aren't marked available yet (availability is
+                # set later after Snapcast WebSocket connects), so global_volume_db would
+                # fall back to DEFAULT_VOLUME_DB (-30 dB).
+                if 'local' in self._state_store._clients:
+                    target_volume = self._state_store._clients['local'].volume_db
+                else:
+                    # Direct mode fallback
+                    target_volume = self._state_store._local_volume_db
+                self.logger.info(f"Restoring persisted volume: {target_volume:.1f} dB")
             else:
-                self.logger.info("No persisted volume to restore at startup")
-                # Still unmute even if no persisted volume
+                # Use configured startup volume
+                target_volume = startup_volume
+                self.logger.info(f"Using startup volume setting: {target_volume:.1f} dB")
+
+            # Get persisted mute state for local client
+            local_mute = False
+            if 'local' in self._state_store._clients:
+                local_mute = self._state_store._clients['local'].mute
+
+            if target_volume is not None and self._dsp_controller:
+                # Set volume while DSP is still muted (from -m flag at startup)
+                await self._dsp_controller.set_dsp_volume("local", target_volume)
+
+                # Apply persisted mute state (or unmute if not muted)
+                await self._dsp_controller.set_dsp_mute("local", local_mute)
+                self.logger.info(f"Applied startup state: volume={target_volume:.1f} dB, mute={local_mute}")
+            else:
+                self.logger.info("No target volume, applying default unmuted state")
+                # Unmute even if no target volume
                 if self._dsp_controller:
                     await self._dsp_controller.set_dsp_mute("local", False)
         except Exception as e:
-            self.logger.error(f"Failed to restore startup volume: {e}")
+            self.logger.error(f"Failed to apply startup volume: {e}")
 
     async def _startup_broadcast_after_websocket_ready(self):
         """
@@ -559,13 +644,20 @@ class VolumeService:
                     # Initialize client availability NOW that WebSocket is ready
                     await self.initialize_client_availability()
 
+                    # Signal that availability is ready (WebSocket can now send accurate state)
+                    self._availability_ready.set()
+
                     self.logger.info("Snapcast WebSocket ready, syncing all client volumes...")
                     await self.push_volume_to_all_clients()
                 else:
                     self.logger.warning("Snapcast WebSocket not ready after timeout, broadcasting with available state")
+                    # Still signal ready so WebSocket doesn't wait forever
+                    self._availability_ready.set()
             else:
                 # Direct mode or no WebSocket service - short delay for other services
                 await asyncio.sleep(0.5)
+                # Signal ready for direct mode
+                self._availability_ready.set()
 
             await self._broadcast_volume_state(show_bar=False)
         except Exception as e:
