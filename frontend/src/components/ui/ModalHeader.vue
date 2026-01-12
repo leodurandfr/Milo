@@ -193,9 +193,12 @@ function handleBack() {
 }
 
 /* Header content fade transition */
+/* iOS WebKit requires transform to properly animate opacity */
 .header-fade-enter-active,
 .header-fade-leave-active {
   transition: opacity var(--transition-fast);
+  transform: translate3d(0, 0, 0);
+  -webkit-backface-visibility: hidden;
 }
 
 .header-fade-enter-from,
@@ -204,9 +207,12 @@ function handleBack() {
 }
 
 /* Actions fade transition */
+/* iOS WebKit requires transform to properly animate opacity */
 .actions-fade-enter-active,
 .actions-fade-leave-active {
   transition: opacity var(--transition-fast);
+  transform: translate3d(0, 0, 0);
+  -webkit-backface-visibility: hidden;
 }
 
 .actions-fade-enter-from,
