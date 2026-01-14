@@ -1,0 +1,520 @@
+# backend/tests/test_core_dsp.py
+"""
+Unit tests for core/dsp module.
+
+Tests cover:
+- CamillaDSPService
+- DspClientProxyService
+- DspSettingsSyncService
+- Presets
+"""
+import asyncio
+import pytest
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
+import json
+import tempfile
+from pathlib import Path
+
+from backend.core.dsp import (
+    CamillaDSPService,
+    DspState,
+    FilterType,
+    DspClientProxyService,
+    DspSettingsSyncService,
+    get_builtin_presets,
+    get_preset_by_id,
+    DEFAULT_MANUAL_GAINS,
+    BUILTIN_PRESETS,
+    is_ip_address,
+)
+from backend.core.events import EventBus
+
+
+# =============================================================================
+# Presets Tests
+# =============================================================================
+
+class TestPresets:
+    """Test preset functions"""
+
+    def test_get_builtin_presets_returns_list(self):
+        """Should return list of presets"""
+        presets = get_builtin_presets()
+        assert isinstance(presets, list)
+        assert len(presets) > 0
+
+    def test_builtin_presets_have_required_keys(self):
+        """Each preset should have id and gains"""
+        for preset in BUILTIN_PRESETS:
+            assert "id" in preset
+            assert "gains" in preset
+            assert len(preset["gains"]) == 10
+
+    def test_get_preset_by_id_found(self):
+        """Should find preset by ID"""
+        preset = get_preset_by_id("acoustic")
+        assert preset is not None
+        assert preset["id"] == "acoustic"
+
+    def test_get_preset_by_id_not_found(self):
+        """Should return None for unknown preset"""
+        preset = get_preset_by_id("nonexistent")
+        assert preset is None
+
+    def test_default_manual_gains_flat(self):
+        """Default manual gains should be flat (all zeros)"""
+        assert DEFAULT_MANUAL_GAINS == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+    def test_preset_gains_within_range(self):
+        """All preset gains should be within -15 to +15 dB"""
+        for preset in BUILTIN_PRESETS:
+            for gain in preset["gains"]:
+                assert -15 <= gain <= 15, f"Preset {preset['id']} has out-of-range gain: {gain}"
+
+
+# =============================================================================
+# is_ip_address Tests
+# =============================================================================
+
+class TestIsIpAddress:
+    """Test IP address detection"""
+
+    def test_ipv4_address(self):
+        """Should detect IPv4 addresses"""
+        assert is_ip_address("192.168.1.1") is True
+        assert is_ip_address("10.0.0.1") is True
+        assert is_ip_address("127.0.0.1") is True
+
+    def test_ipv6_address(self):
+        """Should detect IPv6 addresses"""
+        assert is_ip_address("::1") is True
+        assert is_ip_address("2001:db8::1") is True
+
+    def test_hostname_not_ip(self):
+        """Should return False for hostnames"""
+        assert is_ip_address("milo") is False
+        assert is_ip_address("milo-client-1") is False
+        assert is_ip_address("localhost") is False
+
+
+# =============================================================================
+# DspClientProxyService Tests
+# =============================================================================
+
+class TestDspClientProxyService:
+    """Test DSP client proxy service"""
+
+    @pytest.fixture
+    def proxy_service(self):
+        """Create proxy service instance"""
+        return DspClientProxyService()
+
+    def test_get_host_with_ip(self, proxy_service):
+        """Should return IP address as-is"""
+        assert proxy_service._get_host("192.168.1.100") == "192.168.1.100"
+
+    def test_get_host_with_hostname(self, proxy_service):
+        """Should add .local suffix to hostname"""
+        assert proxy_service._get_host("milo-client-1") == "milo-client-1.local"
+
+    def test_set_routing_service(self, proxy_service):
+        """Should set routing service"""
+        mock_routing = Mock()
+        proxy_service.set_routing_service(mock_routing)
+        assert proxy_service.routing_service == mock_routing
+
+    @pytest.mark.asyncio
+    async def test_check_available_success(self, proxy_service):
+        """Should return True when client is available"""
+        with patch("aiohttp.ClientSession") as mock_session:
+            mock_response = AsyncMock()
+            mock_response.status = 200
+            mock_response.json = AsyncMock(return_value={"dsp_ready": True})
+
+            mock_context = AsyncMock()
+            mock_context.__aenter__.return_value = mock_response
+
+            mock_session_instance = MagicMock()
+            mock_session_instance.get.return_value = mock_context
+            mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
+            mock_session_instance.__aexit__ = AsyncMock()
+
+            mock_session.return_value = mock_session_instance
+
+            result = await proxy_service.check_available("192.168.1.100")
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_check_available_not_ready(self, proxy_service):
+        """Should return False when DSP not ready"""
+        with patch("aiohttp.ClientSession") as mock_session:
+            mock_response = AsyncMock()
+            mock_response.status = 200
+            mock_response.json = AsyncMock(return_value={"dsp_ready": False})
+
+            mock_context = AsyncMock()
+            mock_context.__aenter__.return_value = mock_response
+
+            mock_session_instance = MagicMock()
+            mock_session_instance.get.return_value = mock_context
+            mock_session_instance.__aenter__ = AsyncMock(return_value=mock_session_instance)
+            mock_session_instance.__aexit__ = AsyncMock()
+
+            mock_session.return_value = mock_session_instance
+
+            result = await proxy_service.check_available("192.168.1.100")
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_check_available_connection_error(self, proxy_service):
+        """Should return False on connection error"""
+        with patch("backend.core.dsp.client_proxy.aiohttp.ClientSession") as mock_session:
+            mock_session.side_effect = Exception("Connection refused")
+
+            result = await proxy_service.check_available("192.168.1.100")
+            assert result is False
+
+
+# =============================================================================
+# DspSettingsSyncService Tests
+# =============================================================================
+
+class TestDspSettingsSyncService:
+    """Test DSP settings sync service"""
+
+    @pytest.fixture
+    def sync_service(self):
+        """Create sync service instance"""
+        return DspSettingsSyncService()
+
+    @pytest.fixture
+    def temp_settings_file(self):
+        """Create temporary settings file"""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump({}, f)
+            return Path(f.name)
+
+    def test_set_proxy_service(self, sync_service):
+        """Should set proxy service"""
+        mock_proxy = Mock()
+        sync_service.set_proxy_service(mock_proxy)
+        assert sync_service.proxy_service == mock_proxy
+
+    def test_set_dsp_service(self, sync_service):
+        """Should set DSP service"""
+        mock_dsp = Mock()
+        sync_service.set_dsp_service(mock_dsp)
+        assert sync_service.dsp_service == mock_dsp
+
+    @pytest.mark.asyncio
+    async def test_load_settings_empty(self, sync_service, temp_settings_file):
+        """Should return empty dict for empty file"""
+        with patch.object(sync_service, 'load_settings', new_callable=AsyncMock) as mock_load:
+            mock_load.return_value = {}
+            settings = await sync_service.load_settings()
+            assert settings == {}
+
+    @pytest.mark.asyncio
+    async def test_get_client_settings_not_found(self, sync_service):
+        """Should return empty dict for unknown client"""
+        with patch.object(sync_service, 'load_settings', new_callable=AsyncMock) as mock_load:
+            mock_load.return_value = {}
+            settings = await sync_service.get_client_settings("unknown-client")
+            assert settings == {}
+
+    @pytest.mark.asyncio
+    async def test_get_client_settings_found(self, sync_service):
+        """Should return settings for known client"""
+        with patch.object(sync_service, 'load_settings', new_callable=AsyncMock) as mock_load:
+            mock_load.return_value = {
+                "milo-client-1": {"compressor": {"enabled": True}}
+            }
+            settings = await sync_service.get_client_settings("milo-client-1")
+            assert settings == {"compressor": {"enabled": True}}
+
+
+# =============================================================================
+# CamillaDSPService Tests
+# =============================================================================
+
+class TestCamillaDSPService:
+    """Test CamillaDSP service"""
+
+    @pytest.fixture
+    def mock_settings_service(self):
+        """Create mock settings service"""
+        settings = Mock()
+        settings.get_setting = AsyncMock(return_value=None)
+        settings.set_setting = AsyncMock()
+        return settings
+
+    @pytest.fixture
+    def mock_event_bus(self):
+        """Create mock event bus"""
+        return Mock(spec=EventBus)
+
+    @pytest.fixture
+    def dsp_service(self, mock_settings_service, mock_event_bus):
+        """Create DSP service instance"""
+        return CamillaDSPService(
+            settings_service=mock_settings_service,
+            event_bus=mock_event_bus
+        )
+
+    def test_initial_state_disconnected(self, dsp_service):
+        """Should start in disconnected state"""
+        assert dsp_service.state == DspState.DISCONNECTED
+        assert dsp_service.connected is False
+
+    def test_default_host_port(self, dsp_service):
+        """Should use default host and port"""
+        assert dsp_service.host == "127.0.0.1"
+        assert dsp_service.port == 1234
+
+    def test_custom_host_port(self, mock_settings_service, mock_event_bus):
+        """Should accept custom host and port"""
+        service = CamillaDSPService(
+            settings_service=mock_settings_service,
+            event_bus=mock_event_bus,
+            host="192.168.1.100",
+            port=5678
+        )
+        assert service.host == "192.168.1.100"
+        assert service.port == 5678
+
+    def test_set_state_machine(self, dsp_service):
+        """Should set state machine reference"""
+        mock_state_machine = Mock()
+        dsp_service.set_state_machine(mock_state_machine)
+        assert dsp_service.state_machine == mock_state_machine
+
+    def test_is_volume_control_available_disconnected(self, dsp_service):
+        """Should return False when disconnected"""
+        assert dsp_service.is_volume_control_available() is False
+
+    def test_initial_compressor_settings(self, dsp_service):
+        """Should have default compressor settings"""
+        assert dsp_service._compressor["enabled"] is False
+        assert dsp_service._compressor["threshold"] == -20.0
+        assert dsp_service._compressor["ratio"] == 4.0
+
+    def test_initial_loudness_settings(self, dsp_service):
+        """Should have default loudness settings"""
+        assert dsp_service._loudness["enabled"] is False
+        assert dsp_service._loudness["reference_level"] == 80
+
+    def test_initial_volume_settings(self, dsp_service):
+        """Should have default volume settings"""
+        assert dsp_service._volume["main"] == 0.0
+        assert dsp_service._volume["mute"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_compressor(self, dsp_service):
+        """Should return compressor settings copy"""
+        compressor = await dsp_service.get_compressor()
+        assert compressor == dsp_service._compressor
+        # Modify returned value should not affect internal state
+        compressor["enabled"] = True
+        assert dsp_service._compressor["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_loudness(self, dsp_service):
+        """Should return loudness settings copy"""
+        loudness = await dsp_service.get_loudness()
+        assert loudness == dsp_service._loudness
+
+    @pytest.mark.asyncio
+    async def test_get_volume_disconnected(self, dsp_service):
+        """Should return cached volume when disconnected"""
+        volume = await dsp_service.get_volume()
+        assert volume == {"main": 0.0, "mute": False}
+
+    @pytest.mark.asyncio
+    async def test_get_filters_disconnected(self, dsp_service):
+        """Should return empty list when disconnected"""
+        filters = await dsp_service.get_filters()
+        assert filters == []
+
+    @pytest.mark.asyncio
+    async def test_set_filter_disconnected(self, dsp_service):
+        """Should fail when disconnected"""
+        result = await dsp_service.set_filter("eq_band_00", 100, 0, 1.0)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_set_volume_disconnected(self, dsp_service):
+        """Should fail when disconnected"""
+        result = await dsp_service.set_volume(-20)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_set_mute_disconnected(self, dsp_service):
+        """Should fail when disconnected"""
+        result = await dsp_service.set_mute(True)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_set_compressor_disconnected(self, dsp_service):
+        """Should update cache even when disconnected"""
+        result = await dsp_service.set_compressor(enabled=True, threshold=-30)
+        assert result is True
+        assert dsp_service._compressor["enabled"] is True
+        assert dsp_service._compressor["threshold"] == -30
+
+    @pytest.mark.asyncio
+    async def test_set_loudness_disconnected(self, dsp_service):
+        """Should update cache even when disconnected"""
+        result = await dsp_service.set_loudness(enabled=True, low_boost=10.0)
+        assert result is True
+        assert dsp_service._loudness["enabled"] is True
+        assert dsp_service._loudness["low_boost"] == 10.0
+
+    @pytest.mark.asyncio
+    async def test_get_status_disconnected(self, dsp_service):
+        """Should return disconnected status"""
+        status = await dsp_service.get_status()
+        assert status["available"] is False
+        assert status["state"] == DspState.DISCONNECTED.value
+
+    @pytest.mark.asyncio
+    async def test_get_levels_disconnected(self, dsp_service):
+        """Should return unavailable when disconnected"""
+        levels = await dsp_service.get_levels()
+        assert levels["available"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_crossover_filter_disconnected(self, dsp_service):
+        """Should return default crossover when disconnected"""
+        crossover = await dsp_service.get_crossover_filter()
+        assert crossover["enabled"] is False
+        assert crossover["frequency"] == 80
+        assert crossover["q"] == 0.707
+
+    @pytest.mark.asyncio
+    async def test_set_crossover_filter_disconnected(self, dsp_service):
+        """Should fail when disconnected"""
+        result = await dsp_service.set_crossover_filter(enabled=True)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_set_lowpass_filter_disconnected(self, dsp_service):
+        """Should fail when disconnected"""
+        result = await dsp_service.set_lowpass_filter(enabled=True)
+        assert result is False
+
+    def test_get_presets(self, dsp_service):
+        """Should return builtin presets"""
+        presets = dsp_service.get_presets()
+        assert len(presets) == len(BUILTIN_PRESETS)
+
+    @pytest.mark.asyncio
+    async def test_get_active_preset_none(self, dsp_service):
+        """Should return None when no preset active"""
+        preset = await dsp_service.get_active_preset()
+        assert preset is None
+
+    @pytest.mark.asyncio
+    async def test_get_manual_gains_default(self, dsp_service):
+        """Should return default gains when none saved"""
+        gains = await dsp_service.get_manual_gains()
+        assert gains == DEFAULT_MANUAL_GAINS
+
+    @pytest.mark.asyncio
+    async def test_bypass_effects_disconnected(self, dsp_service):
+        """Should fail when disconnected"""
+        result = await dsp_service.bypass_effects()
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_restore_effects_disconnected(self, dsp_service):
+        """Should fail when disconnected"""
+        result = await dsp_service.restore_effects()
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_wait_for_connection_timeout(self, dsp_service):
+        """Should timeout when not connected"""
+        result = await dsp_service.wait_for_connection(timeout=0.1)
+        assert result is False
+
+    def test_parse_filters_empty(self, dsp_service):
+        """Should return empty list for empty config"""
+        result = dsp_service._parse_filters({})
+        assert result == []
+
+    def test_parse_filters_with_eq_bands(self, dsp_service):
+        """Should parse EQ band filters"""
+        config = {
+            "eq_band_00": {
+                "type": "Biquad",
+                "parameters": {
+                    "type": "Peaking",
+                    "freq": 100,
+                    "gain": 3,
+                    "q": 1.41
+                }
+            },
+            "eq_band_01": {
+                "type": "Biquad",
+                "parameters": {
+                    "type": "Peaking",
+                    "freq": 1000,
+                    "gain": -2,
+                    "q": 1.0
+                }
+            }
+        }
+        result = dsp_service._parse_filters(config)
+        assert len(result) == 2
+        assert result[0]["id"] == "eq_band_00"
+        assert result[0]["freq"] == 100
+        assert result[0]["gain"] == 3
+
+    def test_parse_filters_skips_non_eq_filters(self, dsp_service):
+        """Should skip non-EQ filters like loudness"""
+        config = {
+            "eq_band_00": {
+                "type": "Biquad",
+                "parameters": {"type": "Peaking", "freq": 100, "gain": 0, "q": 1}
+            },
+            "loudness_low": {
+                "type": "Biquad",
+                "parameters": {"type": "Lowshelf", "freq": 100, "gain": 5, "slope": 6}
+            }
+        }
+        result = dsp_service._parse_filters(config)
+        assert len(result) == 1
+        assert result[0]["id"] == "eq_band_00"
+
+
+# =============================================================================
+# Filter Type Tests
+# =============================================================================
+
+class TestFilterType:
+    """Test filter type enum"""
+
+    def test_filter_types_exist(self):
+        """Should have all expected filter types"""
+        assert FilterType.PEAKING.value == "Peaking"
+        assert FilterType.LOWSHELF.value == "Lowshelf"
+        assert FilterType.HIGHSHELF.value == "Highshelf"
+        assert FilterType.LOWPASS.value == "Lowpass"
+        assert FilterType.HIGHPASS.value == "Highpass"
+        assert FilterType.NOTCH.value == "Notch"
+        assert FilterType.ALLPASS.value == "Allpass"
+
+
+# =============================================================================
+# DSP State Tests
+# =============================================================================
+
+class TestDspState:
+    """Test DSP state enum"""
+
+    def test_dsp_states_exist(self):
+        """Should have all expected states"""
+        assert DspState.DISCONNECTED.value == "disconnected"
+        assert DspState.INACTIVE.value == "inactive"
+        assert DspState.RUNNING.value == "running"
+        assert DspState.PAUSED.value == "paused"

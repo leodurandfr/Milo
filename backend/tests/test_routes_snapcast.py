@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock
-from backend.presentation.api.routes.snapcast import create_snapcast_router
+from backend.core.multiroom.routes import create_snapcast_router
 
 
 class TestSnapcastRoutes:

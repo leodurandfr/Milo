@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock, patch
-from backend.presentation.api.routes.settings import create_settings_router
+from backend.api.settings import create_settings_router
 
 
 class TestSettingsRoutes:
@@ -99,7 +99,7 @@ class TestSettingsRoutes:
         """Fixture to create a TestClient with mocks"""
         app = FastAPI()
 
-        with patch('backend.presentation.api.routes.settings.SettingsService') as mock_settings_class:
+        with patch('backend.api.settings.SettingsService') as mock_settings_class:
             mock_settings = Mock()
             mock_settings.get_setting = AsyncMock(return_value=None)
             mock_settings.set_setting = AsyncMock(return_value=True)

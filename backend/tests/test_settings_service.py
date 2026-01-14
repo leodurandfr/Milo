@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from unittest.mock import Mock, patch, mock_open, AsyncMock
-from backend.infrastructure.services.settings_service import SettingsService
+from backend.core.settings import SettingsService
 
 
 class TestSettingsService:

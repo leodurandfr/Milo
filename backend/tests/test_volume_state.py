@@ -4,8 +4,8 @@ Unit tests for VolumeStateStore - Single Source of Truth for volume state.
 """
 import pytest
 from unittest.mock import Mock, AsyncMock
-from backend.infrastructure.services.volume.volume_state import VolumeStateStore, ZoneConfig
-from backend.domain.volume_state import ClientVolume
+from backend.core.volume.state import VolumeStateStore, ZoneConfig
+from backend.core.models.volume_state import ClientVolume
 
 
 class TestVolumeStateStore:

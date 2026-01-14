@@ -1,0 +1,10 @@
+# Milo Screen Brightness Control - udev rules
+# Allows milo user to control screen brightness without sudo
+
+# Waveshare 7" USB screen - grant access to hidraw devices
+# The brightness binary communicates via HID
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", MODE="0666"
+
+# Waveshare 8" DSI screen - grant write access to backlight brightness
+# This rule runs when backlight device is added
+SUBSYSTEM=="backlight", ACTION=="add", RUN+="/bin/chmod 0666 /sys/class/backlight/%k/brightness"

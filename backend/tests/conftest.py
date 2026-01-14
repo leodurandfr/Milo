@@ -5,7 +5,7 @@ Pytest configuration - Shared fixtures for all tests
 import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock
-from backend.domain.audio_state import AudioSource, PluginState
+from backend.core.models.audio_state import AudioSource, PluginState
 
 
 @pytest.fixture

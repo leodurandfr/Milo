@@ -60,6 +60,7 @@ import useWebSocket from '@/services/websocket'
 import { useI18n } from '@/services/i18n'
 import { genreOptions as createGenreOptions } from '@/constants/music_genres'
 import { countryOptions as createCountryOptions } from '@/constants/countries'
+import { PLAYER_HIDE_DELAY_MS } from '@/constants/audio_player'
 import IconButton from '@/components/ui/IconButton.vue'
 import Button from '@/components/ui/Button.vue'
 import AudioPlayer from '@/components/audio/AudioPlayer.vue'
@@ -249,29 +250,49 @@ async function handleFavorite() {
 }
 
 // === NOW PLAYING VISIBILITY ===
+// Watch plugin_state to show player when connected
+watch(() => unifiedStore.systemState.plugin_state, (newState) => {
+  const isRadioActive = unifiedStore.systemState.active_source === 'radio'
+
+  if (isRadioActive && newState === 'connected') {
+    // Show player when connected (with smooth entrance)
+    if (stopTimer.value) {
+      clearTimeout(stopTimer.value)
+      stopTimer.value = null
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        shouldShowNowPlayingLayout.value = true
+      })
+    })
+  }
+  // Note: Don't hide here when state becomes 'ready' - let the isCurrentlyPlaying watcher handle the delayed hide
+}, { immediate: true })
+
+// Watch active_source to hide immediately when switching to another source
+watch(() => unifiedStore.systemState.active_source, (newSource) => {
+  if (newSource !== 'radio') {
+    // Different source active - hide immediately
+    if (stopTimer.value) {
+      clearTimeout(stopTimer.value)
+      stopTimer.value = null
+    }
+    shouldShowNowPlayingLayout.value = false
+  }
+}, { immediate: true })
+
+// Auto-hide player after delay when playback stops
 watch(isCurrentlyPlaying, (isPlaying) => {
   if (stopTimer.value) {
     clearTimeout(stopTimer.value)
     stopTimer.value = null
   }
 
-  if (isPlaying && radioStore.currentStation) {
-    requestAnimationFrame(() => {
-      shouldShowNowPlayingLayout.value = true
-    })
-  } else if (!isPlaying && radioStore.currentStation) {
+  // Start hide timer when playback stops but player is visible
+  if (!isPlaying && shouldShowNowPlayingLayout.value) {
     stopTimer.value = setTimeout(() => {
       shouldShowNowPlayingLayout.value = false
-    }, 5000)
-  } else if (!radioStore.currentStation) {
-    shouldShowNowPlayingLayout.value = false
-  }
-}, { immediate: true })
-
-// Stable layout during station changes
-watch(() => radioStore.currentStation, (newStation) => {
-  if (newStation && (isCurrentlyPlaying.value || isBuffering.value)) {
-    shouldShowNowPlayingLayout.value = true
+    }, PLAYER_HIDE_DELAY_MS)
   }
 }, { immediate: true })
 

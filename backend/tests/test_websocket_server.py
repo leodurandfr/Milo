@@ -6,8 +6,8 @@ import pytest
 import asyncio
 import json
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from backend.presentation.websockets.server import WebSocketServer
-from backend.presentation.websockets.manager import WebSocketManager
+from backend.ws.server import WebSocketServer
+from backend.ws.manager import WebSocketManager
 
 
 class TestWebSocketManager:
@@ -161,6 +161,11 @@ class TestWebSocketServer:
             "multiroom": {"enabled": False},
             "equalizer": {"enabled": False}
         })
+        sm.refresh_active_metadata = AsyncMock()
+        # Mock volume_service for _send_volume_state
+        sm.volume_service = Mock()
+        sm.volume_service.wait_for_availability = AsyncMock()
+        sm.volume_service.get_volume_state = AsyncMock(return_value=Mock(to_dict=Mock(return_value={"volume": -30})))
         return sm
 
     @pytest.fixture
@@ -315,6 +320,11 @@ class TestWebSocketIntegration:
             "multiroom": {"enabled": False},
             "equalizer": {"enabled": True}
         })
+        state_machine.refresh_active_metadata = AsyncMock()
+        # Mock volume_service for _send_volume_state
+        state_machine.volume_service = Mock()
+        state_machine.volume_service.wait_for_availability = AsyncMock()
+        state_machine.volume_service.get_volume_state = AsyncMock(return_value=Mock(to_dict=Mock(return_value={"volume": -30})))
 
         server = WebSocketServer(manager, state_machine)
 
