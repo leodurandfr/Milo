@@ -941,7 +941,16 @@ def create_dsp_router(
         """Proxy filter update to client and persist settings"""
         if not proxy_service:
             raise HTTPException(status_code=503, detail="Proxy service not available")
+
         body = await request.json()
+
+        # Check if client is available before proxying
+        available = await proxy_service.check_available(hostname)
+        if not available:
+            logger.warning(f"Client {hostname} is not available, skipping filter update")
+            # Return success with skipped status - client will sync on reconnect
+            return {"status": "skipped", "reason": "client_unavailable", "id": filter_id, **body}
+
         result = await proxy_service.request(hostname, "PUT", f"/dsp/filter/{filter_id}", body)
         # Save filter settings to Milo after successful update
         if result.get("status") == "success" and sync_service:
@@ -960,6 +969,14 @@ def create_dsp_router(
         """Proxy filter reset to client and clear saved filter settings"""
         if not proxy_service:
             raise HTTPException(status_code=503, detail="Proxy service not available")
+
+        # Check if client is available before proxying
+        available = await proxy_service.check_available(hostname)
+        if not available:
+            logger.warning(f"Client {hostname} is not available, skipping filter reset")
+            # Return success with skipped status - client will sync on reconnect
+            return {"status": "skipped", "reason": "client_unavailable"}
+
         result = await proxy_service.request(hostname, "POST", "/dsp/reset")
         # Clear saved filters for this client
         if result.get("status") == "success" and sync_service:
@@ -981,7 +998,16 @@ def create_dsp_router(
         """Proxy compressor update to client and persist settings"""
         if not proxy_service:
             raise HTTPException(status_code=503, detail="Proxy service not available")
+
         body = await request.json()
+
+        # Check if client is available before proxying
+        available = await proxy_service.check_available(hostname)
+        if not available:
+            logger.warning(f"Client {hostname} is not available, skipping compressor update")
+            # Return success with skipped status - client will sync on reconnect
+            return {"status": "skipped", "reason": "client_unavailable", **body}
+
         result = await proxy_service.request(hostname, "PUT", "/dsp/compressor", body)
         # Save settings to Milo after successful update
         if result.get("status") == "success" and sync_service:
@@ -1001,7 +1027,16 @@ def create_dsp_router(
         """Proxy loudness update to client and persist settings"""
         if not proxy_service:
             raise HTTPException(status_code=503, detail="Proxy service not available")
+
         body = await request.json()
+
+        # Check if client is available before proxying
+        available = await proxy_service.check_available(hostname)
+        if not available:
+            logger.warning(f"Client {hostname} is not available, skipping loudness update")
+            # Return success with skipped status - client will sync on reconnect
+            return {"status": "skipped", "reason": "client_unavailable", **body}
+
         result = await proxy_service.request(hostname, "PUT", "/dsp/loudness", body)
         # Save settings to Milo after successful update
         if result.get("status") == "success" and sync_service:
