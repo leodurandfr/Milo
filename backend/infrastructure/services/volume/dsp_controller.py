@@ -52,10 +52,10 @@ class DSPController:
 
     async def wait_for_client_ready(self, hostname: str, max_wait: float = 10.0, interval: float = 0.5) -> bool:
         """
-        Wait for a remote client's DSP API to become available.
+        Wait for a client's DSP to become available.
 
-        This method polls the client's health endpoint until dsp_ready is true,
-        ensuring CamillaDSP is connected before sending volume commands.
+        For local client: waits for CamillaDSP daemon connection.
+        For remote clients: polls health endpoint until dsp_ready is true.
 
         Args:
             hostname: Client hostname ('local' or 'milo-client-XX')
@@ -66,7 +66,16 @@ class DSPController:
             True if client became ready, False if timeout
         """
         if hostname == "local":
-            return True  # Local is always ready
+            # Wait for local CamillaDSP daemon to be connected
+            if self._dsp_service and hasattr(self._dsp_service, 'wait_for_connection'):
+                ready = await self._dsp_service.wait_for_connection(timeout=max_wait)
+                if ready:
+                    self.logger.info(f"[{time.time():.3f}] WAIT_READY: Local CamillaDSP ready")
+                else:
+                    self.logger.warning(f"[{time.time():.3f}] WAIT_READY: Local CamillaDSP not ready after {max_wait}s")
+                return ready
+            # Fallback: if no service or method, assume ready
+            return True
 
         start_time = time.time()
         attempts = 0
@@ -253,17 +262,47 @@ class DSPController:
 
         self.logger.info(f"Applying parallel volume updates to {len(updates)} clients")
 
-        # Create tasks for all updates
+        # First, check availability of remote clients in parallel (fast fail for unreachable clients)
+        remote_clients = [h for h in updates.keys() if h != "local"]
+        available_map = {"local": True}  # Local is always available
+
+        if remote_clients:
+            availability_tasks = {
+                hostname: asyncio.create_task(self._proxy_service.check_available(hostname))
+                for hostname in remote_clients
+            }
+            availability_results = await asyncio.gather(*availability_tasks.values(), return_exceptions=True)
+            for hostname, available in zip(availability_tasks.keys(), availability_results):
+                if isinstance(available, Exception):
+                    self.logger.warning(f"Availability check failed for {hostname}: {available}")
+                    available_map[hostname] = False
+                else:
+                    available_map[hostname] = available
+
+        # Filter updates to only available clients
+        available_updates = {h: v for h, v in updates.items() if available_map.get(h, False)}
+        unavailable_clients = [h for h in updates.keys() if not available_map.get(h, False)]
+
+        if unavailable_clients:
+            self.logger.warning(f"Skipping unavailable clients: {unavailable_clients}")
+
+        # Initialize success_map with failures for unavailable clients
+        success_map = {h: False for h in unavailable_clients}
+
+        if not available_updates:
+            self.logger.warning("No available clients to update")
+            return success_map
+
+        # Create tasks for available updates only
         tasks = {
             hostname: asyncio.create_task(self.set_dsp_volume(hostname, volume))
-            for hostname, volume in updates.items()
+            for hostname, volume in available_updates.items()
         }
 
         # Wait for all tasks to complete (with exception handling)
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
         # Map results back to hostnames
-        success_map = {}
         for hostname, result in zip(tasks.keys(), results):
             if isinstance(result, Exception):
                 self.logger.error(f"Exception updating {hostname}: {result}")

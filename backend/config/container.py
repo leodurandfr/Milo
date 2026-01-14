@@ -41,7 +41,7 @@ class Container(containers.DeclarativeContainer):
 
     # Core services
     systemd_manager = providers.Singleton(SystemdServiceManager)
-    snapcast_service = providers.Singleton(SnapcastService)
+    snapcast_service = providers.Singleton(SnapcastService, host="127.0.0.1")
     settings_service = providers.Singleton(SettingsService)
     hardware_service = providers.Singleton(HardwareService)
 
@@ -83,7 +83,7 @@ class Container(containers.DeclarativeContainer):
         state_machine=audio_state_machine,
         routing_service=audio_routing_service,
         settings_service=settings_service,
-        host="localhost",
+        host="127.0.0.1",
         port=1780
     )
 

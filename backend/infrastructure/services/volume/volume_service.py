@@ -249,13 +249,13 @@ class VolumeService:
         try:
             self.logger.info(f"[{time.time():.3f}] DSP_SYNC: Start for {client_id}")
 
-            # Wait for client to be ready before sending any commands
+            # Wait for client DSP to be ready before sending any commands
             # This ensures CamillaDSP is connected and ready to receive volume/mute
-            if client_id != "local":
-                ready = await self._dsp_controller.wait_for_client_ready(client_id, max_wait=10.0)
-                if not ready:
-                    self.logger.error(f"[{time.time():.3f}] DSP_SYNC: Client {client_id} not ready after timeout, skipping sync")
-                    return False
+            # Applies to ALL clients including local (CamillaDSP may not be connected at startup)
+            ready = await self._dsp_controller.wait_for_client_ready(client_id, max_wait=10.0)
+            if not ready:
+                self.logger.error(f"[{time.time():.3f}] DSP_SYNC: Client {client_id} DSP not ready after timeout, skipping sync")
+                return False
 
             # MUTE DSP first to prevent volume spike during sync
             # This is a safety measure in case client reconnected without CamillaDSP restart
@@ -479,6 +479,9 @@ class VolumeService:
             # Update state store
             await self._state_store.set_client_mute(client_id, mute)
 
+            # Apply to DSP hardware
+            await self._dsp_controller.set_dsp_mute(client_id, mute)
+
             # Broadcast if requested
             if broadcast:
                 await self._broadcast_volume_state(show_bar=False)
@@ -593,12 +596,16 @@ class VolumeService:
         Then applies persisted mute state.
         """
         try:
+            self.logger.info(f"[{time.time():.3f}] STARTUP_VOLUME: Starting local volume application")
+
             # Wait for CamillaDSP to be connected (services initialize in parallel)
             if self._dsp_service:
+                self.logger.info(f"[{time.time():.3f}] STARTUP_VOLUME: Waiting for CamillaDSP connection...")
                 connected = await self._dsp_service.wait_for_connection(timeout=10.0)
                 if not connected:
-                    self.logger.warning("CamillaDSP not connected, startup volume/mute not applied")
+                    self.logger.warning(f"[{time.time():.3f}] STARTUP_VOLUME: CamillaDSP not connected after 10s, startup volume/mute not applied")
                     return
+                self.logger.info(f"[{time.time():.3f}] STARTUP_VOLUME: CamillaDSP connected")
 
             # Determine target volume based on restore setting
             restore_enabled = self.config.config.restore_last_volume

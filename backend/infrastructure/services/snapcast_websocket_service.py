@@ -276,7 +276,9 @@ class SnapcastWebSocketService:
                     existing_client = self.registry.get_client(dsp_id) if self.registry else None
 
                     if not existing_client:
-                        self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: New client {client_id} (dsp_id: {dsp_id})")
+                        is_local = (dsp_id == "local")
+                        local_marker = " ⭐ LOCAL CLIENT" if is_local else ""
+                        self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: New client {client_id} (dsp_id: {dsp_id}){local_marker}")
 
                         # Register client in registry
                         if self.registry:
@@ -305,7 +307,9 @@ class SnapcastWebSocketService:
                             await self.registry.update_availability(dsp_id, True)
 
             client_count = len(self.registry.get_all_clients()) if self.registry else 0
-            self.logger.info(f"Initialization complete. Registered clients: {client_count}")
+            local_found = self.registry.get_client("local") is not None if self.registry else False
+            local_status = "✅ LOCAL FOUND" if local_found else "⚠️ LOCAL NOT YET CONNECTED"
+            self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: Complete. Registered: {client_count} clients. {local_status}")
 
         except Exception as e:
             self.logger.error(f"Error initializing existing clients: {e}", exc_info=True)
@@ -514,7 +518,9 @@ class SnapcastWebSocketService:
                 # Fallback if service not available
                 dsp_id = "local" if client_host == "milo" else (client_host if client_host.startswith("milo-client") else client_ip)
 
-            self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: New client {client_id} (dsp_id: {dsp_id})")
+            is_local = (dsp_id == "local")
+            local_marker = " ⭐ LOCAL CLIENT" if is_local else ""
+            self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: New client {client_id} (dsp_id: {dsp_id}){local_marker}")
             self.logger.info(f"  - Name: {client_name}, Host: {client_host}, IP: {client_ip}")
             self.logger.info(f"  - Snapcast volume: {snapcast_volume}% (passthrough)")
 

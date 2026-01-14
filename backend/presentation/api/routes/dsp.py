@@ -1067,7 +1067,20 @@ def create_dsp_router(
         # Remote client: proxy to client's DSP API
         if not proxy_service:
             raise HTTPException(status_code=503, detail="Proxy service not available")
-        result = await proxy_service.request(hostname, "PUT", "/dsp/volume", body)
+
+        # Check if client is available before proxying (prevents timeout waiting for unreachable client)
+        available = await proxy_service.check_available(hostname)
+        if not available:
+            logger.warning(f"Client {hostname} is not available, cannot update volume")
+            raise HTTPException(status_code=503, detail=f"Client {hostname} is not available")
+
+        try:
+            result = await proxy_service.request(hostname, "PUT", "/dsp/volume", body)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error proxying volume request to {hostname}: {e}")
+            raise HTTPException(status_code=503, detail=f"Cannot reach client {hostname}: {e}")
 
         # Save volume to Milo after successful update
         if result.get("status") == "success" and sync_service:
@@ -1126,7 +1139,19 @@ def create_dsp_router(
         if not proxy_service:
             raise HTTPException(status_code=503, detail="Proxy service not available")
 
-        result = await proxy_service.request(hostname, "PUT", "/dsp/mute", body)
+        # Check if client is available before proxying (prevents timeout waiting for unreachable client)
+        available = await proxy_service.check_available(hostname)
+        if not available:
+            logger.warning(f"Client {hostname} is not available, cannot update mute")
+            raise HTTPException(status_code=503, detail=f"Client {hostname} is not available")
+
+        try:
+            result = await proxy_service.request(hostname, "PUT", "/dsp/mute", body)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error proxying mute request to {hostname}: {e}")
+            raise HTTPException(status_code=503, detail=f"Cannot reach client {hostname}: {e}")
 
         # Update Milo's state store on success
         if result.get("status") == "success" and state_machine:
