@@ -425,9 +425,9 @@ configure_alsa_loopback() {
     # Copy loopback module configuration from repo
     sudo cp "$MILO_CLIENT_ROOTFS_DIR/etc/modprobe.d/milo-client-loopback.conf" /etc/modprobe.d/
 
-    # Load module immediately if not loaded
+    # Load module immediately if not loaded (may fail if audio hardware not yet initialized - will load after reboot)
     if ! lsmod | grep -q "snd_aloop"; then
-        sudo modprobe snd-aloop pcm_substreams=2
+        sudo modprobe snd-aloop pcm_substreams=2 || true
     fi
 
     log_success "ALSA loopback configured"
