@@ -757,7 +757,10 @@ class VolumeService:
                     if results.get(hostname, False):
                         await self._state_store.set_client_volume(hostname, volume)
 
-                return all(results.values())
+                # Graceful degradation: log warning but don't fail
+                if results and not any(results.values()):
+                    self.logger.warning(f"All {len(results)} multiroom clients failed volume update")
+                return True  # Clients will sync on reconnect
             else:
                 # LOCAL: Direct CamillaDSP control
                 success = await self._dsp_service.set_volume(volume_db)
@@ -837,7 +840,10 @@ class VolumeService:
                     if results.get(hostname, False):
                         await self._state_store.set_client_volume(hostname, volume)
 
-                return all(results.values())
+                # Graceful degradation: log warning but don't fail
+                if results and not any(results.values()):
+                    self.logger.warning(f"All {len(results)} multiroom clients failed volume update")
+                return True  # Clients will sync on reconnect
             else:
                 # LOCAL: Apply delta to CamillaDSP
                 volume_state = await self._state_store.get_complete_state()

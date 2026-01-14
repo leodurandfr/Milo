@@ -35,7 +35,7 @@ class SnapcastService:
                         return data.get("result", {})
             return {}
         except Exception as e:
-            self.logger.error(f"Snapcast request failed: {e}")
+            self.logger.error(f"Snapcast request failed: {type(e).__name__}: {e}")
             return {}
     
     async def set_all_groups_to_multiroom(self) -> bool:
