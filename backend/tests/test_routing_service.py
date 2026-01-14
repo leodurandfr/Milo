@@ -5,8 +5,8 @@ Unit tests for AudioRoutingService
 import pytest
 import os
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from backend.infrastructure.services.routing import AudioRoutingService
-from backend.domain.audio_state import AudioSource
+from backend.core.multiroom import AudioRoutingService
+from backend.core.models.audio_state import AudioSource
 
 
 class TestAudioRoutingService:
@@ -15,7 +15,7 @@ class TestAudioRoutingService:
     @pytest.fixture
     def mock_systemd_manager(self):
         """Mock of SystemdServiceManager"""
-        with patch('backend.infrastructure.services.routing.audio_routing_service.SystemdServiceManager') as mock:
+        with patch('backend.core.multiroom.routing.SystemdServiceManager') as mock:
             manager = Mock()
             manager.is_active = AsyncMock(return_value=False)
             manager.start = AsyncMock(return_value=True)

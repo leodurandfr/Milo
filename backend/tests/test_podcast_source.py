@@ -1,0 +1,628 @@
+# backend/tests/test_podcast_source.py
+"""
+Unit tests for PodcastSource (features/podcast/source.py).
+
+Tests cover:
+- AudioSource Protocol compliance
+- Lifecycle (start, stop, restart)
+- Status format
+- Command handling (play, pause, seek, speed)
+- EventBus integration
+- Data service operations
+"""
+import pytest
+import asyncio
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
+
+from backend.features.podcast.source import PodcastSource
+from backend.features.podcast.data import PodcastDataService
+from backend.core.events import EventBus, Events
+from backend.core.audio_source import AudioSource, SourceState
+
+
+@pytest.fixture
+def event_bus():
+    """Create EventBus for tests."""
+    return EventBus(debug=True)
+
+
+@pytest.fixture
+def config():
+    """Default Podcast source config."""
+    return {
+        "mpv_socket": "/tmp/test-podcast-ipc.sock",
+        "taddy_user_id": "test-user",
+        "taddy_api_key": "test-key"
+    }
+
+
+@pytest.fixture
+def podcast_source(event_bus, config):
+    """Create PodcastSource with mocked components."""
+    source = PodcastSource(event_bus, config)
+
+    # Mock service manager
+    source._service_manager = Mock()
+    source._service_manager.start = AsyncMock(return_value=True)
+    source._service_manager.stop = AsyncMock(return_value=True)
+    source._service_manager.restart = AsyncMock(return_value=True)
+    source._service_manager.is_active = AsyncMock(return_value=True)
+
+    return source
+
+
+class TestProtocolCompliance:
+    """Test AudioSource Protocol compliance."""
+
+    def test_implements_protocol(self, podcast_source):
+        """Test PodcastSource implements AudioSource protocol."""
+        assert isinstance(podcast_source, AudioSource)
+
+    def test_has_required_attributes(self, podcast_source):
+        """Test required attributes exist."""
+        assert podcast_source.source_id == "podcast"
+        assert podcast_source.service_name == "milo-podcast.service"
+
+    def test_has_required_methods(self, podcast_source):
+        """Test required methods exist."""
+        assert hasattr(podcast_source, 'start')
+        assert hasattr(podcast_source, 'stop')
+        assert hasattr(podcast_source, 'restart')
+        assert hasattr(podcast_source, 'status')
+        assert hasattr(podcast_source, 'command')
+
+
+class TestPodcastSourceConfig:
+    """Test PodcastSource configuration."""
+
+    def test_default_config(self, event_bus):
+        """Test default configuration values."""
+        source = PodcastSource(event_bus)
+
+        assert source._mpv_socket == "/run/milo/podcast-ipc.sock"
+        assert source._taddy_user_id == "3671"
+        assert source._taddy_api_key == ""
+
+    def test_custom_config(self, event_bus):
+        """Test custom configuration."""
+        config = {
+            "mpv_socket": "/custom/socket.sock",
+            "taddy_user_id": "custom-user",
+            "taddy_api_key": "custom-key"
+        }
+        source = PodcastSource(event_bus, config)
+
+        assert source._mpv_socket == "/custom/socket.sock"
+        assert source._taddy_user_id == "custom-user"
+        assert source._taddy_api_key == "custom-key"
+
+
+class TestPodcastSourceLifecycle:
+    """Test PodcastSource lifecycle methods."""
+
+    @pytest.mark.asyncio
+    async def test_start_success(self, podcast_source):
+        """Test successful start."""
+        # Mock dependencies
+        with patch.object(podcast_source, '_start_service', return_value=True):
+            with patch('backend.features.podcast.source.PodcastDataService') as mock_data_class:
+                mock_data = AsyncMock()
+                mock_data.get_setting = AsyncMock(return_value=1.0)
+                mock_data_class.return_value = mock_data
+
+                with patch('backend.features.podcast.source.TaddyAPI') as mock_api_class:
+                    mock_api = AsyncMock()
+                    mock_api_class.return_value = mock_api
+
+                    with patch('backend.features.podcast.source.MpvController') as mock_mpv_class:
+                        mock_mpv = Mock()
+                        mock_mpv.connect = AsyncMock(return_value=True)
+                        mock_mpv.is_connected = True
+                        mock_mpv_class.return_value = mock_mpv
+
+                        result = await podcast_source.start()
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_start_mpv_connection_failure(self, podcast_source):
+        """Test start fails if MPV connection fails."""
+        with patch.object(podcast_source, '_start_service', return_value=True):
+            with patch('backend.features.podcast.source.PodcastDataService') as mock_data_class:
+                mock_data = AsyncMock()
+                mock_data.get_setting = AsyncMock(return_value=1.0)
+                mock_data_class.return_value = mock_data
+
+                with patch('backend.features.podcast.source.TaddyAPI') as mock_api_class:
+                    mock_api = AsyncMock()
+                    mock_api_class.return_value = mock_api
+
+                    with patch('backend.features.podcast.source.MpvController') as mock_mpv_class:
+                        mock_mpv = Mock()
+                        mock_mpv.connect = AsyncMock(return_value=False)
+                        mock_mpv.disconnect = AsyncMock()
+                        mock_mpv_class.return_value = mock_mpv
+
+                        with patch.object(podcast_source, '_cleanup', new_callable=AsyncMock):
+                            result = await podcast_source.start()
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_stop_success(self, podcast_source):
+        """Test successful stop."""
+        # Setup mocked state
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.disconnect = AsyncMock()
+        podcast_source._taddy_api = Mock()
+        podcast_source._taddy_api.close = AsyncMock()
+        podcast_source._podcast_data = Mock()
+        podcast_source._monitor_task = None
+        podcast_source._progress_save_task = None
+        podcast_source._current_episode = None
+
+        with patch.object(podcast_source, '_stop_service', return_value=True):
+            result = await podcast_source.stop()
+
+        assert result is True
+
+
+class TestPodcastSourceStatus:
+    """Test PodcastSource status method."""
+
+    @pytest.mark.asyncio
+    async def test_status_no_playback(self, podcast_source):
+        """Test status with no playback."""
+        podcast_source._mpv = None
+        podcast_source._podcast_data = Mock()
+
+        status = await podcast_source.status()
+
+        assert "state" in status
+        assert status["mpv_connected"] is False
+        assert status["is_playing"] is False
+        assert status["position"] == 0
+        assert status["duration"] == 0
+
+    @pytest.mark.asyncio
+    async def test_status_with_playback(self, podcast_source):
+        """Test status with active playback."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.is_connected = True
+        podcast_source._mpv.is_playing = AsyncMock(return_value=True)
+        podcast_source._current_episode = {
+            "uuid": "test-episode",
+            "name": "Test Episode"
+        }
+        podcast_source._is_playing = True
+        podcast_source._position = 120
+        podcast_source._duration = 3600
+        podcast_source._playback_speed = 1.5
+        podcast_source._podcast_data = Mock()
+
+        status = await podcast_source.status()
+
+        assert status["mpv_connected"] is True
+        assert status["is_playing"] is True
+        assert status["current_episode"]["name"] == "Test Episode"
+        assert status["position"] == 120
+        assert status["duration"] == 3600
+        assert status["playback_speed"] == 1.5
+
+
+class TestPodcastSourceCommands:
+    """Test PodcastSource command handling."""
+
+    @pytest.mark.asyncio
+    async def test_play_episode_command(self, podcast_source):
+        """Test play_episode command."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.load_stream = AsyncMock(return_value=True)
+        podcast_source._mpv.get_property = AsyncMock(return_value=False)
+        podcast_source._mpv.set_property = AsyncMock()
+        podcast_source._mpv.is_playing = AsyncMock(return_value=False)
+        podcast_source._podcast_data = Mock()
+        podcast_source._podcast_data.get_playback_progress = AsyncMock(return_value=None)
+        podcast_source._podcast_data.cache_episode = AsyncMock(return_value=True)
+        podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
+        podcast_source._taddy_api = Mock()
+        podcast_source._taddy_api.get_episode = AsyncMock(return_value={
+            "uuid": "test-uuid",
+            "name": "Test Episode",
+            "audio_url": "http://stream.url",
+            "duration": 3600
+        })
+
+        result = await podcast_source.command("play_episode", {"episode_uuid": "test-uuid"})
+
+        assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_pause_command(self, podcast_source):
+        """Test pause command."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.pause = AsyncMock()
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._is_playing = True
+        podcast_source._podcast_data = Mock()
+        podcast_source._podcast_data.update_playback_progress = AsyncMock(return_value=True)
+
+        result = await podcast_source.command("pause", {})
+
+        assert result["success"] is True
+        assert podcast_source._is_playing is False
+
+    @pytest.mark.asyncio
+    async def test_resume_command(self, podcast_source):
+        """Test resume command."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.resume = AsyncMock()
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._is_playing = False
+
+        result = await podcast_source.command("resume", {})
+
+        assert result["success"] is True
+        assert podcast_source._is_playing is True
+
+    @pytest.mark.asyncio
+    async def test_seek_command(self, podcast_source):
+        """Test seek command."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.seek = AsyncMock()
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._podcast_data = Mock()
+        podcast_source._podcast_data.update_playback_progress = AsyncMock(return_value=True)
+
+        result = await podcast_source.command("seek", {"position": 300})
+
+        assert result["success"] is True
+        assert podcast_source._position == 300
+
+    @pytest.mark.asyncio
+    async def test_stop_playback_command(self, podcast_source):
+        """Test stop command."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.stop = AsyncMock()
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._podcast_data = Mock()
+        podcast_source._podcast_data.update_playback_progress = AsyncMock(return_value=True)
+        podcast_source._progress_save_task = None
+
+        result = await podcast_source.command("stop", {})
+
+        assert result["success"] is True
+        assert podcast_source._current_episode is None
+        assert podcast_source._is_playing is False
+
+    @pytest.mark.asyncio
+    async def test_set_speed_command(self, podcast_source):
+        """Test set_speed command."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.set_property = AsyncMock()
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._podcast_data = Mock()
+        podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
+
+        result = await podcast_source.command("set_speed", {"speed": 1.5})
+
+        assert result["success"] is True
+        assert podcast_source._playback_speed == 1.5
+
+    @pytest.mark.asyncio
+    async def test_set_speed_invalid_rounds_to_nearest(self, podcast_source):
+        """Test set_speed with invalid value rounds to nearest."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.set_property = AsyncMock()
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._podcast_data = Mock()
+        podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
+
+        result = await podcast_source.command("set_speed", {"speed": 1.3})
+
+        assert result["success"] is True
+        assert podcast_source._playback_speed == 1.25  # Nearest valid
+
+    @pytest.mark.asyncio
+    async def test_unknown_command(self, podcast_source):
+        """Test unknown command returns error."""
+        result = await podcast_source.command("unknown_cmd", {})
+
+        assert result["success"] is False
+        assert "error" in result
+
+
+class TestPodcastSourceEventBus:
+    """Test PodcastSource EventBus integration."""
+
+    @pytest.mark.asyncio
+    async def test_start_emits_event(self, podcast_source, event_bus):
+        """Test start emits SOURCE_STARTED event."""
+        received = []
+
+        async def handler(data):
+            received.append(data)
+
+        event_bus.on(Events.SOURCE_STARTED, handler)
+
+        with patch.object(podcast_source, '_start_service', return_value=True):
+            with patch('backend.features.podcast.source.PodcastDataService') as mock_data_class:
+                mock_data = AsyncMock()
+                mock_data.get_setting = AsyncMock(return_value=1.0)
+                mock_data_class.return_value = mock_data
+
+                with patch('backend.features.podcast.source.TaddyAPI') as mock_api_class:
+                    mock_api = AsyncMock()
+                    mock_api_class.return_value = mock_api
+
+                    with patch('backend.features.podcast.source.MpvController') as mock_mpv_class:
+                        mock_mpv = Mock()
+                        mock_mpv.connect = AsyncMock(return_value=True)
+                        mock_mpv.is_connected = True
+                        mock_mpv_class.return_value = mock_mpv
+
+                        await podcast_source.start()
+
+        assert len(received) == 1
+        assert received[0]["source"] == "podcast"
+
+    @pytest.mark.asyncio
+    async def test_stop_emits_event(self, podcast_source, event_bus):
+        """Test stop emits SOURCE_STOPPED event."""
+        received = []
+
+        async def handler(data):
+            received.append(data)
+
+        event_bus.on(Events.SOURCE_STOPPED, handler)
+
+        # Setup mocked state
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.disconnect = AsyncMock()
+        podcast_source._taddy_api = Mock()
+        podcast_source._taddy_api.close = AsyncMock()
+        podcast_source._podcast_data = Mock()
+        podcast_source._monitor_task = None
+        podcast_source._progress_save_task = None
+        podcast_source._current_episode = None
+
+        with patch.object(podcast_source, '_stop_service', return_value=True):
+            await podcast_source.stop()
+
+        assert len(received) == 1
+        assert received[0]["source"] == "podcast"
+
+
+class TestPodcastDataService:
+    """Test PodcastDataService."""
+
+    @pytest.mark.asyncio
+    async def test_initial_structure(self):
+        """Test initial data structure."""
+        service = PodcastDataService()
+        structure, _ = service._get_default_structure()
+
+        assert "subscriptions" in structure
+        assert "playback_progress" in structure
+        assert "cache" in structure
+        assert "settings" in structure
+        assert structure["subscriptions"] == []
+        assert structure["playback_progress"] == {}
+
+    @pytest.mark.asyncio
+    async def test_ensure_structure(self):
+        """Test ensure_structure adds missing keys."""
+        service = PodcastDataService()
+
+        # Minimal data
+        data = {}
+        ensured, _ = service._ensure_structure(data)
+
+        assert "subscriptions" in ensured
+        assert "playback_progress" in ensured
+        assert "cache" in ensured
+        assert "settings" in ensured
+
+    @pytest.mark.asyncio
+    async def test_settings_defaults(self):
+        """Test default settings."""
+        service = PodcastDataService()
+        structure, _ = service._get_default_structure()
+
+        assert structure["settings"]["safeMode"] is False
+        assert structure["settings"]["playbackSpeed"] == 1.0
+
+
+class TestConnectionState:
+    """Test connection state management."""
+
+    def test_update_state_no_episode(self, podcast_source):
+        """Test state is READY with no episode."""
+        podcast_source._current_episode = None
+        podcast_source._update_connection_state()
+
+        assert podcast_source.state == SourceState.READY
+
+    def test_update_state_with_episode(self, podcast_source):
+        """Test state is CONNECTED with episode."""
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._is_playing = True
+        podcast_source._position = 60
+        podcast_source._duration = 3600
+        podcast_source._podcast_data = Mock()
+        podcast_source._update_connection_state()
+
+        assert podcast_source.state == SourceState.CONNECTED
+
+
+class TestPlaybackMetadata:
+    """Test playback metadata building."""
+
+    def test_build_metadata_no_episode(self, podcast_source):
+        """Test metadata is empty with no episode."""
+        podcast_source._current_episode = None
+
+        metadata = podcast_source._build_playback_metadata()
+
+        assert metadata == {}
+
+    def test_build_metadata_with_episode(self, podcast_source):
+        """Test metadata includes episode info."""
+        podcast_source._current_episode = {
+            "uuid": "test-uuid",
+            "name": "Test Episode",
+            "description": "Test description",
+            "image_url": "http://image.url",
+            "podcast": {
+                "uuid": "podcast-uuid",
+                "name": "Test Podcast"
+            }
+        }
+        podcast_source._is_playing = True
+        podcast_source._is_buffering = False
+        podcast_source._position = 120
+        podcast_source._duration = 3600
+        podcast_source._playback_speed = 1.5
+
+        metadata = podcast_source._build_playback_metadata()
+
+        assert metadata["episode_uuid"] == "test-uuid"
+        assert metadata["episode_name"] == "Test Episode"
+        assert metadata["podcast_name"] == "Test Podcast"
+        assert metadata["position"] == 120
+        assert metadata["duration"] == 3600
+        assert metadata["is_playing"] is True
+        assert metadata["is_buffering"] is False
+        assert metadata["playback_speed"] == 1.5
+
+
+class TestConvenienceMethods:
+    """Test convenience methods for routes."""
+
+    @pytest.mark.asyncio
+    async def test_play_episode_method(self, podcast_source):
+        """Test play_episode convenience method."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.load_stream = AsyncMock(return_value=True)
+        podcast_source._mpv.get_property = AsyncMock(return_value=False)
+        podcast_source._mpv.set_property = AsyncMock()
+        podcast_source._mpv.is_playing = AsyncMock(return_value=False)
+        podcast_source._podcast_data = Mock()
+        podcast_source._podcast_data.get_playback_progress = AsyncMock(return_value=None)
+        podcast_source._podcast_data.cache_episode = AsyncMock(return_value=True)
+        podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
+        podcast_source._taddy_api = Mock()
+        podcast_source._taddy_api.get_episode = AsyncMock(return_value={
+            "uuid": "test-uuid",
+            "name": "Test Episode",
+            "audio_url": "http://stream.url"
+        })
+
+        success = await podcast_source.play_episode("test-uuid")
+
+        assert success is True
+
+    @pytest.mark.asyncio
+    async def test_pause_method(self, podcast_source):
+        """Test pause convenience method."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.pause = AsyncMock()
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._is_playing = True
+        podcast_source._podcast_data = Mock()
+        podcast_source._podcast_data.update_playback_progress = AsyncMock(return_value=True)
+
+        success = await podcast_source.pause()
+
+        assert success is True
+
+    @pytest.mark.asyncio
+    async def test_resume_method(self, podcast_source):
+        """Test resume convenience method."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.resume = AsyncMock()
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._is_playing = False
+
+        success = await podcast_source.resume()
+
+        assert success is True
+
+    @pytest.mark.asyncio
+    async def test_seek_method(self, podcast_source):
+        """Test seek convenience method."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.seek = AsyncMock()
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._podcast_data = Mock()
+        podcast_source._podcast_data.update_playback_progress = AsyncMock(return_value=True)
+
+        success = await podcast_source.seek(300)
+
+        assert success is True
+
+    @pytest.mark.asyncio
+    async def test_set_speed_method(self, podcast_source):
+        """Test set_speed convenience method."""
+        podcast_source._mpv = Mock()
+        podcast_source._mpv.set_property = AsyncMock()
+        podcast_source._current_episode = {"uuid": "test", "name": "Test"}
+        podcast_source._podcast_data = Mock()
+        podcast_source._podcast_data.set_setting = AsyncMock(return_value=True)
+
+        success = await podcast_source.set_speed(1.5)
+
+        assert success is True
+
+
+class TestReloadCredentials:
+    """Test credential reloading."""
+
+    @pytest.mark.asyncio
+    async def test_reload_credentials_success(self, podcast_source):
+        """Test successful credential reload."""
+        podcast_source._taddy_api = Mock()
+        podcast_source._taddy_api.close = AsyncMock()
+
+        with patch('backend.features.podcast.source.TaddyAPI') as mock_api_class:
+            mock_api = AsyncMock()
+            mock_api_class.return_value = mock_api
+
+            success = await podcast_source.reload_credentials("new-user", "new-key")
+
+        assert success is True
+        assert podcast_source._taddy_api is mock_api
+
+
+class TestProperties:
+    """Test public properties."""
+
+    def test_current_episode_property(self, podcast_source):
+        """Test current_episode property."""
+        podcast_source._current_episode = {"uuid": "test"}
+        assert podcast_source.current_episode == {"uuid": "test"}
+
+    def test_is_playing_property(self, podcast_source):
+        """Test is_playing property."""
+        podcast_source._is_playing = True
+        assert podcast_source.is_playing is True
+
+    def test_is_buffering_property(self, podcast_source):
+        """Test is_buffering property."""
+        podcast_source._is_buffering = True
+        assert podcast_source.is_buffering is True
+
+    def test_position_property(self, podcast_source):
+        """Test position property."""
+        podcast_source._position = 120
+        assert podcast_source.position == 120
+
+    def test_duration_property(self, podcast_source):
+        """Test duration property."""
+        podcast_source._duration = 3600
+        assert podcast_source.duration == 3600
+
+    def test_playback_speed_property(self, podcast_source):
+        """Test playback_speed property."""
+        podcast_source._playback_speed = 1.5
+        assert podcast_source.playback_speed == 1.5

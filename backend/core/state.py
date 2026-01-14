@@ -1,0 +1,402 @@
+# backend/core/state.py
+"""
+Simplified Audio State Machine using EventBus for decoupled communication.
+
+This state machine manages audio source transitions and emits events via EventBus.
+It preserves SystemAudioState structure for frontend compatibility.
+
+Usage:
+    from backend.core.events import EventBus
+    from backend.core.state import AudioStateMachine
+
+    event_bus = EventBus()
+    state_machine = AudioStateMachine(event_bus)
+
+    # Activate a source
+    await state_machine.activate_source(AudioSource.RADIO)
+
+    # Listen to events
+    event_bus.on(Events.SOURCE_STARTED, handle_source_started)
+"""
+import asyncio
+import time
+import logging
+from typing import Dict, Any, Optional
+
+from backend.core.models.audio_state import AudioSource, PluginState, SystemAudioState
+from backend.core.audio_source import AudioSource as AudioSourceProtocol
+from backend.core.events import EventBus, Events
+
+logger = logging.getLogger(__name__)
+
+
+class AudioStateMachine:
+    """
+    Simplified state machine using EventBus for communication.
+
+    Key improvements over UnifiedAudioStateMachine:
+    - Uses EventBus instead of direct websocket_handler coupling
+    - Simpler code (~150 LOC vs ~400 LOC)
+    - Easier to test with mock EventBus
+
+    Backward Compatibility:
+    - broadcast_event() method kept for existing services
+    - websocket_handler optional during transition period
+    """
+
+    TRANSITION_TIMEOUT = 5.0
+
+    def __init__(self, event_bus: EventBus):
+        self.event_bus = event_bus
+        self.system_state = SystemAudioState()
+        self.plugins: Dict[AudioSource, Optional[AudioSourceProtocol]] = {
+            source: None for source in AudioSource
+            if source != AudioSource.NONE
+        }
+        self._transition_lock = asyncio.Lock()
+        self._state_lock = asyncio.Lock()
+
+        # Backward compatibility: optional websocket handler
+        self.websocket_handler = None
+        # Backward compatibility: routing_service (resolved later)
+        self.routing_service = None
+
+    def register_plugin(self, source: AudioSource, plugin: AudioSourceProtocol) -> None:
+        """Register a plugin for a specific source."""
+        if source in self.plugins:
+            self.plugins[source] = plugin
+            logger.info(f"Plugin registered for source: {source.value}")
+
+    def get_plugin(self, source: AudioSource) -> Optional[AudioSourceProtocol]:
+        """Get plugin for a specific source."""
+        return self.plugins.get(source)
+
+    def get_plugin_metadata(self, source: AudioSource) -> Dict[str, Any]:
+        """Get metadata for the active source."""
+        if source == self.system_state.active_source:
+            return self.system_state.metadata
+        return {}
+
+    def get_plugin_state(self, source: AudioSource) -> PluginState:
+        """Get state of the active source."""
+        if source == self.system_state.active_source:
+            return self.system_state.plugin_state
+        return PluginState.READY
+
+    def get_state(self) -> Dict[str, Any]:
+        """Return current system state as dict."""
+        return self.system_state.to_dict()
+
+    async def get_current_state(self) -> Dict[str, Any]:
+        """Return current system state (async for compatibility)."""
+        return self.system_state.to_dict()
+
+    async def activate_source(self, source: AudioSource) -> bool:
+        """
+        Activate a source, stopping any currently active source.
+
+        Emits:
+        - Events.SOURCE_STOPPED (if stopping a source)
+        - Events.SOURCE_STARTED (if starting a source)
+        """
+        return await self.transition_to_source(source)
+
+    async def deactivate_source(self) -> bool:
+        """Deactivate the current source."""
+        return await self.transition_to_source(AudioSource.NONE)
+
+    async def transition_to_source(self, target_source: AudioSource) -> bool:
+        """Perform transition to new source with timeout."""
+        async with self._transition_lock:
+            logger.debug(
+                "START TRANSITION: %s -> %s",
+                self.system_state.active_source.value,
+                target_source.value
+            )
+
+            if self.system_state.active_source == target_source and \
+               self.system_state.plugin_state != PluginState.ERROR:
+                logger.info(f"Already on source {target_source.value}")
+                return True
+
+            if target_source != AudioSource.NONE and target_source not in self.plugins:
+                logger.error(f"No plugin registered for source: {target_source.value}")
+                return False
+
+            try:
+                async with asyncio.timeout(self.TRANSITION_TIMEOUT):
+                    async with self._state_lock:
+                        old_source = self.system_state.active_source
+                        self.system_state.transitioning = True
+                        self.system_state.active_source = target_source
+                        self.system_state.plugin_state = (
+                            PluginState.STARTING if target_source != AudioSource.NONE
+                            else PluginState.READY
+                        )
+                        self.system_state.metadata = {}
+
+                    # Emit transition start via EventBus
+                    await self.event_bus.emit(Events.TRANSITION_START, {
+                        "from_source": old_source.value,
+                        "to_source": target_source.value
+                    })
+
+                    # Broadcast for WebSocket (backward compatibility)
+                    await self._broadcast_websocket("system", "transition_start", {
+                        "from_source": old_source.value,
+                        "to_source": target_source.value,
+                        "source": "system"
+                    })
+
+                    # Stop old source
+                    if old_source != AudioSource.NONE:
+                        await self._stop_source(old_source)
+
+                    # Start new source
+                    if target_source != AudioSource.NONE:
+                        success = await self._start_source(target_source)
+                        if not success:
+                            raise ValueError(f"Failed to start {target_source.value}")
+
+                    async with self._state_lock:
+                        self.system_state.transitioning = False
+                        # Set state to READY after successful start
+                        if target_source != AudioSource.NONE:
+                            self.system_state.plugin_state = PluginState.READY
+
+                    # Emit source events via EventBus
+                    if old_source != AudioSource.NONE:
+                        await self.event_bus.emit(Events.SOURCE_STOPPED, {
+                            "source": old_source.value
+                        })
+
+                    if target_source != AudioSource.NONE:
+                        await self.event_bus.emit(Events.SOURCE_STARTED, {
+                            "source": target_source.value,
+                            "old_source": old_source.value
+                        })
+
+                    # Broadcast for WebSocket (backward compatibility)
+                    await self._broadcast_websocket("system", "transition_complete", {
+                        "active_source": target_source.value,
+                        "plugin_state": self.system_state.plugin_state.value,
+                        "source": "system"
+                    })
+
+                    logger.info(f"Transition completed: {target_source.value}")
+                    return True
+
+            except asyncio.TimeoutError:
+                logger.error(f"Transition timeout after {self.TRANSITION_TIMEOUT}s")
+                async with self._state_lock:
+                    self.system_state.transitioning = False
+                    self.system_state.error = "Transition timeout"
+
+                await self._emergency_stop()
+
+                await self.event_bus.emit(Events.SOURCE_ERROR, {
+                    "source": target_source.value,
+                    "error": "Transition timeout"
+                })
+
+                await self._broadcast_websocket("system", "error", {
+                    "error": "timeout",
+                    "attempted_source": target_source.value,
+                    "source": "system"
+                })
+                return False
+
+            except Exception as e:
+                logger.error(f"Transition error: {e}")
+                async with self._state_lock:
+                    self.system_state.transitioning = False
+                    self.system_state.error = str(e)
+
+                await self._emergency_stop()
+
+                await self.event_bus.emit(Events.SOURCE_ERROR, {
+                    "source": target_source.value,
+                    "error": str(e)
+                })
+
+                await self._broadcast_websocket("system", "error", {
+                    "error": str(e),
+                    "attempted_source": target_source.value,
+                    "source": "system"
+                })
+                return False
+
+    async def update_plugin_state(
+        self,
+        source: AudioSource,
+        new_state: PluginState,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Update plugin state and emit events."""
+        async with self._state_lock:
+            if source != self.system_state.active_source:
+                logger.debug(f"Ignoring state update from inactive source: {source.value}")
+                return
+
+            if self.system_state.transitioning:
+                logger.debug(f"Ignoring state update during transition: {source.value}")
+                return
+
+            old_state = self.system_state.plugin_state
+            self.system_state.plugin_state = new_state
+
+            if metadata:
+                self.system_state.metadata.update(metadata)
+
+            if new_state == PluginState.ERROR:
+                self.system_state.error = metadata.get("error") if metadata else "Unknown"
+            else:
+                self.system_state.error = None
+
+        # Emit via EventBus
+        await self.event_bus.emit(Events.SOURCE_STATE_CHANGED, {
+            "source": source.value,
+            "old_state": old_state.value,
+            "new_state": new_state.value,
+            "metadata": metadata
+        })
+
+        # Broadcast for WebSocket (backward compatibility)
+        await self._broadcast_websocket("plugin", "state_changed", {
+            "source": source.value,
+            "old_state": old_state.value,
+            "new_state": new_state.value,
+            "metadata": metadata
+        })
+
+    async def update_multiroom_state(self, enabled: bool) -> None:
+        """Update multiroom state."""
+        async with self._state_lock:
+            old_state = self.system_state.multiroom_enabled
+            self.system_state.multiroom_enabled = enabled
+
+        await self.event_bus.emit(Events.ROUTING_MODE_CHANGED, {
+            "multiroom_enabled": enabled
+        })
+
+        await self._broadcast_websocket("system", "state_changed", {
+            "old_state": old_state,
+            "new_state": enabled,
+            "multiroom_changed": True,
+            "multiroom_enabled": enabled,
+            "source": "routing"
+        })
+
+    async def update_dsp_effects_state(self, enabled: bool) -> None:
+        """Update DSP effects state."""
+        async with self._state_lock:
+            old_state = self.system_state.dsp_effects_enabled
+            self.system_state.dsp_effects_enabled = enabled
+
+        await self.event_bus.emit(Events.DSP_CONFIG_CHANGED, {
+            "dsp_effects_enabled": enabled
+        })
+
+        await self._broadcast_websocket("system", "state_changed", {
+            "old_state": old_state,
+            "new_state": enabled,
+            "dsp_effects_changed": True,
+            "source": "dsp"
+        })
+
+    async def refresh_active_metadata(self) -> bool:
+        """Refresh metadata from the active plugin."""
+        if self.system_state.active_source == AudioSource.NONE:
+            return False
+
+        plugin = self.plugins.get(self.system_state.active_source)
+        if not plugin or not hasattr(plugin, '_refresh_metadata'):
+            return False
+
+        try:
+            if await plugin._refresh_metadata() and hasattr(plugin, '_metadata'):
+                async with self._state_lock:
+                    self.system_state.metadata = plugin._metadata.copy()
+                return True
+        except Exception as e:
+            logger.warning(f"Failed to refresh metadata: {e}")
+
+        return False
+
+    async def _stop_source(self, source: AudioSource) -> None:
+        """Stop specified source."""
+        plugin = self.plugins.get(source)
+        if plugin:
+            try:
+                await plugin.stop()
+            except Exception as e:
+                logger.error(f"Error stopping {source.value}: {e}")
+
+    async def _start_source(self, source: AudioSource) -> bool:
+        """Start specified source."""
+        plugin = self.plugins.get(source)
+        if not plugin:
+            return False
+
+        try:
+            if not getattr(plugin, '_initialized', False):
+                if await plugin.initialize():
+                    plugin._initialized = True
+                else:
+                    return False
+
+            return await plugin.start()
+        except Exception as e:
+            logger.error(f"Error starting {source.value}: {e}")
+            return False
+
+    async def _emergency_stop(self) -> None:
+        """Emergency stop all plugins."""
+        for plugin in self.plugins.values():
+            if plugin:
+                try:
+                    await plugin.stop()
+                except Exception as e:
+                    logger.error(f"Emergency stop error: {e}")
+
+        async with self._state_lock:
+            self.system_state.active_source = AudioSource.NONE
+            self.system_state.plugin_state = PluginState.READY
+            self.system_state.metadata = {}
+            self.system_state.error = None
+
+    # === Backward Compatibility Methods ===
+
+    async def broadcast_event(
+        self,
+        category: str,
+        event_type: str,
+        data: Dict[str, Any]
+    ) -> None:
+        """
+        Broadcast event to WebSocket (backward compatibility).
+
+        This method is kept for existing services that call
+        state_machine.broadcast_event() directly.
+        """
+        await self._broadcast_websocket(category, event_type, data)
+
+    async def _broadcast_websocket(
+        self,
+        category: str,
+        event_type: str,
+        data: Dict[str, Any]
+    ) -> None:
+        """Internal method to broadcast to WebSocket handler if available."""
+        if not self.websocket_handler:
+            return
+
+        event_data = {
+            "category": category,
+            "type": event_type,
+            "source": data.get("source", category),
+            "data": {**data, "full_state": self.system_state.to_dict()},
+            "timestamp": time.time()
+        }
+
+        await self.websocket_handler.handle_event(event_data)

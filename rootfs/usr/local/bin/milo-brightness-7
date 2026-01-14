@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""
+Milo Brightness Control for Waveshare 7" USB Screen
+Replaces the Waveshare binary that calls sudo internally
+
+Protocol: 38-byte HID report
+- Bytes 0-5: Header (0x04, 0xAA, 0x01, 0x00, 0x00, 0x00)
+- Byte 6: Brightness value (0-100, input 0-10 mapped to 0-100)
+- Bytes 7-37: Padding (zeros)
+"""
+import sys
+import glob
+
+def set_brightness(level: int) -> bool:
+    """Set screen brightness via HID
+
+    Args:
+        level: Brightness level 0-10
+
+    Returns:
+        True if successful
+    """
+    # Map 0-10 to 0-100
+    value = min(100, max(0, level * 10))
+
+    # Build HID packet
+    packet = bytearray(38)
+    packet[0] = 0x04
+    packet[1] = 0xAA
+    packet[2] = 0x01
+    packet[6] = value
+
+    # Find hidraw device
+    hidraw_devices = glob.glob('/dev/hidraw*')
+    if not hidraw_devices:
+        print("Error: No hidraw device found", file=sys.stderr)
+        return False
+
+    # Try each hidraw device until one works
+    for device in sorted(hidraw_devices):
+        try:
+            with open(device, 'wb') as f:
+                f.write(packet)
+            return True
+        except (PermissionError, OSError):
+            continue
+
+    print("Error: Could not write to any hidraw device", file=sys.stderr)
+    return False
+
+def main():
+    # Parse arguments (compatible with original: -b <value>)
+    if len(sys.argv) < 3 or sys.argv[1] != '-b':
+        print(f"Usage: {sys.argv[0]} -b <brightness 0-10>", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        brightness = int(sys.argv[2])
+    except ValueError:
+        print("Error: Brightness must be a number 0-10", file=sys.stderr)
+        sys.exit(1)
+
+    if set_brightness(brightness):
+        sys.exit(0)
+    else:
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main()

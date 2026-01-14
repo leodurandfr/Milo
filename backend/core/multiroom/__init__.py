@@ -1,0 +1,68 @@
+# backend/core/multiroom/__init__.py
+"""
+Multiroom module for Milo audio system.
+
+This module provides:
+- ClientRegistryService: Central registry for clients and zones
+- SnapcastService: REST commands to Snapcast server
+- SnapcastWebSocketService: WebSocket notifications from Snapcast
+- CrossoverService: Speaker type and crossover management
+- Routes: FastAPI router for multiroom API
+"""
+
+from backend.core.multiroom.models import (
+    RegisteredClient,
+    Zone,
+    RegistryState,
+    RegistryEventType,
+    SpeakerType,
+    SPEAKER_TYPES,
+    DEFAULT_SPEAKER_TYPE,
+    DEFAULT_CROSSOVER_FREQUENCY,
+    DEFAULT_CROSSOVER_FREQUENCIES,
+    DEFAULT_VOLUME_DB,
+)
+from backend.core.multiroom.registry import ClientRegistryService
+from backend.core.multiroom.snapcast import (
+    SnapcastService,
+    get_available_clients,
+    get_available_client_ids,
+    normalize_client_id,
+)
+from backend.core.multiroom.websocket import SnapcastWebSocketService
+from backend.core.multiroom.crossover import CrossoverService, is_ip_address
+from backend.core.multiroom.routing import AudioRoutingService
+from backend.core.multiroom.routes import (
+    router,
+    create_snapcast_router,
+    setup_multiroom_routes,
+)
+
+__all__ = [
+    # Models
+    "RegisteredClient",
+    "Zone",
+    "RegistryState",
+    "RegistryEventType",
+    "SpeakerType",
+    "SPEAKER_TYPES",
+    "DEFAULT_SPEAKER_TYPE",
+    "DEFAULT_CROSSOVER_FREQUENCY",
+    "DEFAULT_CROSSOVER_FREQUENCIES",
+    "DEFAULT_VOLUME_DB",
+    # Services
+    "ClientRegistryService",
+    "SnapcastService",
+    "SnapcastWebSocketService",
+    "CrossoverService",
+    "AudioRoutingService",
+    # Helpers
+    "is_ip_address",
+    "get_available_clients",
+    "get_available_client_ids",
+    "normalize_client_id",
+    # Routes
+    "router",
+    "create_snapcast_router",
+    "setup_multiroom_routes",
+]

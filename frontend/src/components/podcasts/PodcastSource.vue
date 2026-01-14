@@ -106,6 +106,7 @@ import AudioPlayer from '@/components/audio/AudioPlayer.vue'
 import AudioSourceLayout from '@/components/audio/AudioSourceLayout.vue'
 import Dropdown from '@/components/ui/Dropdown.vue'
 import episodePlaceholder from '@/assets/podcasts/podcast-placeholder.jpg'
+import { PLAYER_HIDE_DELAY_MS } from '@/constants/audio_player'
 
 // Views
 import HomeView from './HomeView.vue'
@@ -165,7 +166,6 @@ const isBuffering = computed(() => {
 // Player layout visibility control - manual ref for animation control
 const shouldShowPlayerLayout = ref(false)
 
-
 // Auto-stop timer: stops playback after 5 seconds of pause
 const stopTimer = ref(null)
 
@@ -175,13 +175,27 @@ watch(() => unifiedStore.systemState.plugin_state, (newState) => {
 
   if (isPodcastActive && newState === 'connected') {
     // Show player when connected (with smooth entrance)
+    if (stopTimer.value) {
+      clearTimeout(stopTimer.value)
+      stopTimer.value = null
+    }
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         shouldShowPlayerLayout.value = true
       })
     })
-  } else if (!isPodcastActive || newState !== 'connected') {
-    // Different source active or not connected - hide immediately
+  }
+  // Note: Don't hide here when state becomes 'ready' - let the isCurrentlyPlaying watcher handle the delayed hide
+}, { immediate: true })
+
+// Watch active_source to hide immediately when switching to another source
+watch(() => unifiedStore.systemState.active_source, (newSource) => {
+  if (newSource !== 'podcast') {
+    // Different source active - hide immediately
+    if (stopTimer.value) {
+      clearTimeout(stopTimer.value)
+      stopTimer.value = null
+    }
     shouldShowPlayerLayout.value = false
   }
 }, { immediate: true })
@@ -215,7 +229,7 @@ watch(() => [isCurrentlyPlaying.value, isBuffering.value, podcastStore.hasCurren
         if (!isCurrentlyPlaying.value && !isBuffering.value) {
           await podcastStore.stop()
         }
-      }, 5000)
+      }, PLAYER_HIDE_DELAY_MS)
     }
   }, { immediate: true })
 

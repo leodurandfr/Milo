@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock
-from backend.presentation.api.routes.volume import create_volume_router
+from backend.api.volume import create_volume_router
 
 
 class TestVolumeRoutes:

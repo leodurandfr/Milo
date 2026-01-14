@@ -630,6 +630,24 @@ configure_journald() {
     log_success "Journald configured (100MB max, 7 days retention)"
 }
 
+install_udev_rules() {
+    log_info "Installing udev rules for screen brightness control..."
+
+    # Copy udev rules from rootfs
+    sudo cp "$MILO_APP_DIR/rootfs/etc/udev/rules.d/99-milo-screen.rules" /etc/udev/rules.d/99-milo-screen.rules
+    sudo chmod 0644 /etc/udev/rules.d/99-milo-screen.rules
+
+    # Reload udev rules
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger
+
+    # Apply permissions immediately for existing devices
+    sudo chmod 0666 /dev/hidraw* 2>/dev/null || true
+    sudo chmod 0666 /sys/class/backlight/*/brightness 2>/dev/null || true
+
+    log_success "Udev rules installed (screen brightness without sudo)"
+}
+
 install_readiness_script() {
     log_info "Installing readiness script..."
 
@@ -1360,20 +1378,12 @@ EOF
         "waveshare_7_usb")
             log_info "Installing brightness control for Waveshare 7\" USB..."
 
-            local temp_dir=$(mktemp -d)
-            cd "$temp_dir"
-
-            git clone https://github.com/waveshare/RPi-USB-Brightness
-            cd RPi-USB-Brightness/64/lite
-            sudo chmod +x Raspi_USB_Backlight_nogui
-            ./Raspi_USB_Backlight_nogui -b 6
-
-            # Copy utility to accessible location
-            sudo cp Raspi_USB_Backlight_nogui /usr/local/bin/milo-brightness-7
+            # Install Python brightness control script (no sudo needed - uses udev rules)
+            sudo cp "$MILO_APP_DIR/rootfs/usr/local/bin/milo-brightness-7" /usr/local/bin/milo-brightness-7
             sudo chmod +x /usr/local/bin/milo-brightness-7
 
-            cd ~
-            rm -rf "$temp_dir"
+            # Test brightness control
+            /usr/local/bin/milo-brightness-7 -b 6
 
             log_success "7\" USB brightness control installed"
             ;;
@@ -1670,6 +1680,7 @@ main() {
    install_readiness_script
    create_systemd_services
    configure_journald
+   install_udev_rules
 
    configure_alsa_loopback
    install_camilladsp

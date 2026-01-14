@@ -4,8 +4,8 @@ Unit tests for VolumeService - Tests for dB-based volume management
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from backend.infrastructure.services.volume import VolumeService
-from backend.domain.volume import VolumeConfig
+from backend.core.volume import VolumeService
+from backend.core.models.volume import VolumeConfig
 
 
 class TestVolumeService:
@@ -29,23 +29,22 @@ class TestVolumeService:
         return service
 
     @pytest.fixture
-    def service(self, mock_state_machine, mock_snapcast_service):
-        """Fixture to create a VolumeService"""
-        with patch('backend.infrastructure.services.volume.volume_service.SettingsService') as mock_settings:
-            # Mock SettingsService with dB-based config
-            settings_instance = Mock()
-            settings_instance.get_volume_config = Mock(return_value={
-                "limit_min_db": -80.0,
-                "limit_max_db": -21.0,
-                "startup_volume_db": -30.0,
-                "restore_last_volume": False,
-                "step_mobile_db": 3.0,
-                "step_rotary_db": 2.0
-            })
-            mock_settings.return_value = settings_instance
+    def mock_settings_service(self):
+        """Mock settings service."""
+        settings = Mock()
+        settings.invalidate_cache = Mock()
+        settings.get_setting = AsyncMock(return_value=None)
+        return settings
 
-            service = VolumeService(mock_state_machine, mock_snapcast_service)
-            return service
+    @pytest.fixture
+    def service(self, mock_state_machine, mock_snapcast_service, mock_settings_service):
+        """Fixture to create a VolumeService"""
+        service = VolumeService(
+            state_machine=mock_state_machine,
+            snapcast_service=mock_snapcast_service,
+            settings_service=mock_settings_service
+        )
+        return service
 
     def test_initialization(self, service):
         """Service initialization test"""

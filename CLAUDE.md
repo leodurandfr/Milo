@@ -92,33 +92,43 @@ milo/
 
 ## Architecture Overview
 
-### Backend: Layered Domain-Driven Design
+### Backend: Feature-Based Architecture
 
 ```
 backend/
-├── domain/                    # Business models (AudioSource, PluginState, SystemAudioState)
-├── application/interfaces/    # Plugin contracts (AudioSourcePlugin)
-├── infrastructure/
-│   ├── plugins/              # Audio source implementations (spotify, mac, bluetooth, radio, podcast)
-│   ├── services/             # Business services:
-│   │                          #   - volume* (volume_service orchestrates: volume_config, volume_converter, volume_storage)
-│   │                          #   - routing, snapcast, snapcast_websocket, settings, equalizer
-│   │                          #   - podcast_data, radio_data, hardware
-│   │                          #   - systemd_manager, program_version, program_update, satellite_program_update
-│   │                          #   - direct_volume_handler, multiroom_volume_handler
-│   ├── hardware/             # Hardware controllers (rotary encoder, screen)
-│   └── state/                # UnifiedAudioStateMachine (single source of truth)
-├── presentation/
-│   ├── api/routes/           # REST endpoints (audio sources, settings, health, etc.)
-│   └── websockets/           # WebSocket server
-└── config/container.py       # Dependency injection with dependency-injector
+├── core/                      # Core infrastructure
+│   ├── models/               # Domain models (AudioSource, PluginState, SystemAudioState, Volume)
+│   ├── state.py              # AudioStateMachine (single source of truth)
+│   ├── events.py             # EventBus for decoupled communication
+│   ├── audio_source.py       # AudioSourceProtocol interface
+│   ├── settings.py           # SettingsService
+│   ├── systemd.py            # SystemdServiceManager
+│   ├── volume/               # Volume service + handlers
+│   ├── dsp/                  # CamillaDSP service + proxy + sync
+│   ├── multiroom/            # Snapcast + routing + crossover
+│   └── programs/             # Update services
+├── features/                  # Audio source implementations
+│   ├── spotify/              # SpotifySource + routes
+│   ├── mac/                  # MacSource + routes
+│   ├── bluetooth/            # BluetoothSource + routes
+│   ├── radio/                # RadioSource + routes + browser_api + genres
+│   └── podcast/              # PodcastSource + routes + taddy_api
+├── api/                       # REST API routes
+│   ├── audio.py, dsp.py, volume.py, settings.py, etc.
+│   └── models.py             # Pydantic models
+├── hardware/                  # Hardware controllers (rotary, screen)
+├── ws/                 # WebSocket server + manager
+├── shared/                    # Shared utilities (MpvController)
+├── config/constants.py        # Centralized constants
+└── dependencies.py            # Service Registry (lazy singletons)
 ```
 
 **Key architectural principles:**
-- **Single Source of Truth**: `UnifiedAudioStateMachine` manages all audio state
-- **Plugin Architecture**: All audio sources implement `AudioSourcePlugin` interface
+- **Single Source of Truth**: `AudioStateMachine` manages all audio state
+- **Feature-Based**: Each audio source is a self-contained feature module
+- **Service Registry**: Simple dict-based DI with lazy singleton creation
 - **Async-first**: asyncio everywhere for non-blocking I/O
-- **Dependency Injection**: via `dependency-injector` library
+- **EventBus**: Decoupled communication between services
 
 ### Frontend: Vue 3 Composition API
 
@@ -170,9 +180,9 @@ frontend/src/
 
 ### 1. Service Initialization Order (CRITICAL)
 
-The order in `backend/config/container.py::initialize_services()` is **CRITICAL** due to circular dependencies:
+The order in `backend/dependencies.py::initialize_services()` is **CRITICAL** due to circular dependencies:
 
-1. **Create instances** (order non-critical)
+1. **Retrieve instances** (triggers lazy creation via `get_service()`)
 2. **Resolve circular dependencies** via setters:
    - `routing_service.set_plugin_callback()` → allows access to state_machine plugins
    - `routing_service.set_snapcast_websocket_service()` → enables lifecycle control
@@ -181,14 +191,14 @@ The order in `backend/config/container.py::initialize_services()` is **CRITICAL*
 3. **Register plugins** in state_machine (BEFORE async init)
 4. **Parallel async initialization** via `asyncio.gather()`
 
-**Do NOT modify this order without understanding the circular dependencies documented in container.py:142-186**
+**Do NOT modify this order without understanding the circular dependencies documented in dependencies.py:227-348**
 
 ### 2. Audio Plugin Architecture
 
-All audio sources must implement `AudioSourcePlugin` interface:
+All audio sources must implement `AudioSourceProtocol` interface:
 
 ```python
-class AudioSourcePlugin(ABC):
+class AudioSourceProtocol(Protocol):
     async def initialize(self) -> bool
     async def start(self) -> bool
     async def stop(self) -> bool
@@ -196,11 +206,11 @@ class AudioSourcePlugin(ABC):
     async def handle_command(self, command: str, data: Dict) -> Dict[str, Any]
 ```
 
-**Base class available**: `UnifiedAudioPlugin` in `backend/infrastructure/plugins/base.py` provides common functionality (state management, systemd control, logging).
+**Base class available**: `UnifiedAudioSource` in `backend/core/audio_source.py` provides common functionality (state management, systemd control, logging).
 
 **Reference implementations**:
-- **Radio plugin** (`backend/infrastructure/plugins/radio/`) - Demonstrates multi-component architecture, external API integration, file uploads, and complex data persistence
-- **Podcast plugin** (`backend/infrastructure/plugins/podcast/`) - Demonstrates external API integration (Taddy API), playback progress tracking with resume functionality, subscription management, and advanced playback controls (speed, seek)
+- **Radio plugin** (`backend/features/radio/`) - Demonstrates multi-component architecture, external API integration, file uploads, and complex data persistence
+- **Podcast plugin** (`backend/features/podcast/`) - Demonstrates external API integration (Taddy API), playback progress tracking with resume functionality, subscription management, and advanced playback controls (speed, seek)
 
 #### Podcast Plugin Architecture
 
@@ -273,7 +283,7 @@ The Podcast plugin demonstrates several advanced patterns:
 
 #### Radio Plugin Architecture
 
-The Radio plugin (`backend/infrastructure/plugins/radio/`) manages internet radio playback with local station management.
+The Radio plugin (`backend/features/radio/`) manages internet radio playback with local station management.
 
 **Frontend Components** (`frontend/src/components/radio/`):
 - `RadioSource.vue` - Main radio interface with station display
@@ -284,7 +294,7 @@ The Radio plugin (`backend/infrastructure/plugins/radio/`) manages internet radi
 
 #### Spotify Plugin Architecture
 
-The Spotify plugin (`backend/infrastructure/plugins/spotify/`) integrates with go-librespot for Spotify Connect functionality.
+The Spotify plugin (`backend/features/spotify/`) integrates with go-librespot for Spotify Connect functionality.
 
 **Frontend Components** (`frontend/src/components/spotify/`):
 - `SpotifySource.vue` - Main Spotify interface with album art and track info
@@ -358,26 +368,29 @@ These are auto-generated in `/var/lib/milo/routing.env` based on settings.json.
 
 ### Adding a New Audio Source Plugin
 
-1. **Define enum** in `backend/domain/audio_state.py::AudioSource`
-2. **Create plugin** implementing `AudioSourcePlugin` (extend `UnifiedAudioPlugin` for base functionality)
-3. **Register in container** (`backend/config/container.py`)
+1. **Define enum** in `backend/core/models/audio_state.py::AudioSource`
+2. **Create feature module** in `backend/features/{source}/` with:
+   - `source.py` - Implementing `AudioSourceProtocol` (extend `UnifiedAudioSource`)
+   - `routes.py` - FastAPI routes
+   - `__init__.py` - Exports
+3. **Register in dependencies** (`backend/dependencies.py::_create_service()`)
 4. **Add ALSA devices** in `/etc/asound.conf` with 2 variants (direct via CamillaDSP, multiroom via Snapcast)
-5. **Create API routes** in `backend/presentation/api/routes/`
+5. **Register plugin** in `backend/dependencies.py::initialize_services()`
 6. **Register routes** in `backend/main.py`
-7. **Create Vue component** in `frontend/src/components/audio/`
+7. **Create Vue component** in `frontend/src/components/{source}/`
 8. **Update stores** if needed in `frontend/src/stores/`
 
 **Reference implementations**:
-- **Radio plugin** - Local station management, file uploads, custom stations with image storage
-- **Podcast plugin** - External API integration (Taddy), playback progress tracking with resume, speed control, complex multi-view frontend with navigation
+- **Radio plugin** (`backend/features/radio/`) - Local station management, file uploads, custom stations with image storage
+- **Podcast plugin** (`backend/features/podcast/`) - External API integration (Taddy), playback progress tracking with resume, speed control, complex multi-view frontend with navigation
 
 ### Adding a New Service
 
-1. Create service in `backend/infrastructure/services/`
-2. Add to container in `backend/config/container.py`
+1. Create service in `backend/core/{service_name}/`
+2. Add creator to `backend/dependencies.py::_create_service()`
 3. Inject dependencies via constructor
-4. If has async `initialize()`, add to `init_async()` in container
-5. Create API routes in `backend/presentation/api/routes/`
+4. If has async `initialize()`, add to `init_async()` in `initialize_services()`
+5. Create API routes in `backend/api/`
 6. Update frontend stores/components as needed
 
 ## Testing
@@ -444,11 +457,11 @@ All components managed by systemd:
 
 ## Common Pitfalls
 
-1. **Don't modify initialization order** in container.py without understanding circular dependencies
+1. **Don't modify initialization order** in dependencies.py without understanding circular dependencies
 2. **Don't bypass state_machine** - always use `update_plugin_state()` and `_broadcast_event()`
 3. **Don't bypass SettingsService** - direct JSON file edits won't persist correctly
 4. **Don't use blocking I/O** - always async/await for file, network, subprocess operations
-5. **Don't skip plugin registration** - register in container BEFORE `initialize_services()`
+5. **Don't skip plugin registration** - register in `initialize_services()` BEFORE `init_async()`
 6. **Don't hardcode ALSA devices** - use environment variable pattern for multiroom/equalizer switching
 
 

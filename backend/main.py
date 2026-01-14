@@ -9,29 +9,28 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
 from contextlib import asynccontextmanager
-from time import monotonic
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from backend.config.container import container
-from backend.presentation.api.routes import audio
-from backend.presentation.api.routes.routing import create_routing_router
-from backend.presentation.api.routes.snapcast import create_snapcast_router
-from backend.presentation.api.routes.dsp import create_dsp_router
-from backend.presentation.api.routes.volume import create_volume_router
-from backend.presentation.api.routes.spotify import setup_spotify_routes
-from backend.presentation.api.routes.mac import setup_mac_routes
-from backend.presentation.api.routes.bluetooth import setup_bluetooth_routes
-from backend.presentation.api.routes.radio import router as radio_router
-from backend.presentation.api.routes.podcast import router as podcast_router
-from backend.presentation.api.routes.settings import create_settings_router
-from backend.presentation.api.routes.programs import create_programs_router
-from backend.presentation.api.routes.health import create_health_router
-from backend.presentation.api.routes.registry import create_registry_router
-from backend.presentation.websockets.server import WebSocketServer
-from backend.domain.audio_state import AudioSource
+from backend.dependencies import get_service, initialize_services, get_init_task
+from backend.api import audio
+from backend.api.routing import create_routing_router
+from backend.core.multiroom.routes import create_snapcast_router
+from backend.api.dsp import create_dsp_router
+from backend.api.volume import create_volume_router
+from backend.api.spotify import setup_spotify_routes
+from backend.api.mac import setup_mac_routes
+from backend.api.bluetooth import setup_bluetooth_routes
+from backend.features.radio.routes import setup_radio_routes
+from backend.features.podcast.routes import setup_podcast_routes
+from backend.api.settings import create_settings_router
+from backend.api.programs import create_programs_router
+from backend.api.health import create_health_router
+from backend.api.registry import create_registry_router
+from backend.ws import WebSocketServer
+from backend.core.models.audio_state import AudioSource
 
 # Configurable log level via MILO_LOG_LEVEL environment variable
 # Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
@@ -41,22 +40,24 @@ logging.basicConfig(level=_log_level)
 logger = logging.getLogger(__name__)
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
-state_machine = container.audio_state_machine()
-routing_service = container.audio_routing_service()
-snapcast_service = container.snapcast_service()
-snapcast_websocket_service = container.snapcast_websocket_service()
-dsp_service = container.camilladsp_service()
-settings_service = container.settings_service()
-volume_service = container.volume_service()
-rotary_controller = container.rotary_controller()
-screen_controller = container.screen_controller()
-systemd_manager = container.systemd_manager()
-hardware_service = container.hardware_service()
-crossover_service = container.crossover_service()
-dsp_proxy_service = container.dsp_client_proxy_service()
-dsp_sync_service = container.dsp_settings_sync_service()
-client_registry_service = container.client_registry_service()
-ws_manager = container.websocket_manager()
+
+# Get services from registry
+state_machine = get_service("audio_state_machine")
+routing_service = get_service("audio_routing_service")
+snapcast_service = get_service("snapcast_service")
+snapcast_websocket_service = get_service("snapcast_websocket_service")
+dsp_service = get_service("camilladsp_service")
+settings_service = get_service("settings_service")
+volume_service = get_service("volume_service")
+rotary_controller = get_service("rotary_controller")
+screen_controller = get_service("screen_controller")
+systemd_manager = get_service("systemd_manager")
+hardware_service = get_service("hardware_service")
+crossover_service = get_service("crossover_service")
+dsp_proxy_service = get_service("dsp_client_proxy_service")
+dsp_sync_service = get_service("dsp_settings_sync_service")
+client_registry_service = get_service("client_registry_service")
+ws_manager = get_service("websocket_manager")
 websocket_server = WebSocketServer(ws_manager, state_machine)
 state_machine.volume_service = volume_service
 state_machine.snapcast_service = snapcast_service
@@ -65,10 +66,12 @@ state_machine.snapcast_service = snapcast_service
 async def lifespan(app: FastAPI):
     """Application lifecycle management with async service initialization."""
     try:
-        container.initialize_services()
+        initialize_services()
 
         logger.info("Waiting for services initialization to complete...")
-        await container._init_task
+        init_task = get_init_task()
+        if init_task:
+            await init_task
         logger.info("Services initialization completed")
 
         for source, plugin in state_machine.plugins.items():
@@ -84,7 +87,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Application startup failed: {e}")
         raise
-    
+
     yield
 
     logger.info("Milo backend shutting down...")
@@ -153,7 +156,14 @@ bluetooth_router = setup_bluetooth_routes(
 )
 app.include_router(bluetooth_router)
 
+radio_router = setup_radio_routes(
+    lambda: state_machine.plugins.get(AudioSource.RADIO)
+)
 app.include_router(radio_router, prefix="/api")
+
+podcast_router = setup_podcast_routes(
+    lambda: state_machine.plugins.get(AudioSource.PODCAST)
+)
 app.include_router(podcast_router, prefix="/api")
 
 settings_router = create_settings_router(
@@ -168,10 +178,10 @@ settings_router = create_settings_router(
 app.include_router(settings_router, prefix="/api/settings", tags=["settings"])
 
 programs_router = create_programs_router(
-    ws_manager=container.websocket_manager(),
-    program_version_service=container.program_version_service(),
-    program_update_service=container.program_update_service(),
-    satellite_program_update_service=container.satellite_program_update_service()
+    ws_manager=get_service("websocket_manager"),
+    program_version_service=get_service("program_version_service"),
+    program_update_service=get_service("program_update_service"),
+    satellite_program_update_service=get_service("satellite_program_update_service")
 )
 app.include_router(programs_router)
 
@@ -185,11 +195,17 @@ app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
 
 if __name__ == "__main__":
     import uvicorn
+
+    # Suppress noisy uvicorn WebSocket connection logs
+    # Must set before uvicorn.run() to affect internal loggers
+    for logger_name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
     uvicorn.run(
         "backend.main:app",
         host="0.0.0.0",
         port=8000,
         reload=False,
-        access_log=False,  # Disable repetitive request logs
-        # log_level="warning",  # Optional: reduce uvicorn noise
+        access_log=False,
+        log_level="warning",
     )
