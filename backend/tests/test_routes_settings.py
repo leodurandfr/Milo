@@ -202,19 +202,7 @@ class TestSettingsRoutes:
         })
         assert response.status_code == 422
 
-    def test_toggle_volume_limits_enable(self, client):
-        """Test POST /volume-limits/toggle enabled=true"""
-        response = client.post("/api/settings/volume-limits/toggle", json={
-            "enabled": True
-        })
-        assert response.status_code == 200
-
-    def test_toggle_volume_limits_disable(self, client):
-        """Test POST /volume-limits/toggle enabled=false"""
-        response = client.post("/api/settings/volume-limits/toggle", json={
-            "enabled": False
-        })
-        assert response.status_code == 200
+    # Note: /volume-limits/toggle route does not exist - removed tests
 
     # ===================
     # VOLUME STARTUP TESTS
@@ -230,9 +218,9 @@ class TestSettingsRoutes:
         assert "config" in response.json()
 
     def test_set_volume_startup_valid(self, client):
-        """Test POST /volume-startup with valid values"""
+        """Test POST /volume-startup with valid values (in dB)"""
         response = client.post("/api/settings/volume-startup", json={
-            "startup_volume": 50,
+            "startup_volume_db": -30.0,
             "restore_last_volume": True
         })
         assert response.status_code == 200
@@ -241,7 +229,7 @@ class TestSettingsRoutes:
     def test_set_volume_startup_out_of_range(self, client):
         """Test POST /volume-startup with out of range volume - should return 422"""
         response = client.post("/api/settings/volume-startup", json={
-            "startup_volume": 150,
+            "startup_volume_db": 10.0,  # Above 0 dB max
             "restore_last_volume": False
         })
         assert response.status_code == 422
@@ -259,16 +247,16 @@ class TestSettingsRoutes:
         assert response.status_code == 200
 
     def test_set_volume_steps_valid(self, client):
-        """Test POST /volume-steps with valid value"""
+        """Test POST /volume-steps with valid value (in dB)"""
         response = client.post("/api/settings/volume-steps", json={
-            "mobile_volume_steps": 7
+            "step_mobile_db": 3.0
         })
         assert response.status_code == 200
 
     def test_set_volume_steps_out_of_range(self, client):
         """Test POST /volume-steps with out of range value - should return 422"""
         response = client.post("/api/settings/volume-steps", json={
-            "mobile_volume_steps": 15
+            "step_mobile_db": 10.0  # Max is 6 dB
         })
         assert response.status_code == 422
 
@@ -285,16 +273,16 @@ class TestSettingsRoutes:
         assert response.status_code == 200
 
     def test_set_rotary_steps_valid(self, client):
-        """Test POST /rotary-steps with valid value"""
+        """Test POST /rotary-steps with valid value (in dB)"""
         response = client.post("/api/settings/rotary-steps", json={
-            "rotary_volume_steps": 3
+            "step_rotary_db": 2.0
         })
         assert response.status_code == 200
 
     def test_set_rotary_steps_out_of_range(self, client):
         """Test POST /rotary-steps with out of range value - should return 422"""
         response = client.post("/api/settings/rotary-steps", json={
-            "rotary_volume_steps": 20
+            "step_rotary_db": 10.0  # Max is 6 dB
         })
         assert response.status_code == 422
 

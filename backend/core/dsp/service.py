@@ -73,6 +73,7 @@ class CamillaDSPService:
         # Current configuration cache
         self._current_config: Dict[str, Any] = {}
         self._filters: List[Dict[str, Any]] = []
+        self._loop = None  # Cached event loop
 
         # Advanced DSP settings cache
         self._compressor: Dict[str, Any] = {
@@ -95,17 +96,20 @@ class CamillaDSPService:
         }
 
     def set_state_machine(self, state_machine) -> None:
-        """Sets reference to UnifiedAudioStateMachine for event broadcasting"""
         self.state_machine = state_machine
+
+    async def _run(self, func):
+        """Run sync pycamilladsp call in executor"""
+        if not self._loop:
+            self._loop = asyncio.get_event_loop()
+        return await self._loop.run_in_executor(None, func)
 
     @property
     def state(self) -> DspState:
-        """Current DSP state"""
         return self._state
 
     @property
     def connected(self) -> bool:
-        """Whether we have an active connection to CamillaDSP"""
         return self._connected and self._client is not None
 
     async def wait_for_connection(self, timeout: float = 10.0) -> bool:
@@ -142,7 +146,6 @@ class CamillaDSPService:
         return self._connected and self._state in (DspState.INACTIVE, DspState.RUNNING, DspState.PAUSED)
 
     async def initialize(self) -> bool:
-        """Initialize the CamillaDSP service"""
         try:
             self.logger.info("Initializing CamillaDSP service...")
 
@@ -171,7 +174,6 @@ class CamillaDSPService:
             return False
 
     async def connect(self) -> bool:
-        """Connect to CamillaDSP daemon via WebSocket"""
         async with self._lock:
             if self._connected:
                 return True
@@ -187,9 +189,7 @@ class CamillaDSPService:
                 self._client = CamillaClient(self.host, self.port)
 
                 # pycamilladsp is synchronous, wrap in executor
-                await asyncio.get_event_loop().run_in_executor(
-                    None, self._client.connect
-                )
+                await self._run(self._client.connect)
 
                 self._connected = True
                 self._state = await self._get_daemon_state()
@@ -211,13 +211,10 @@ class CamillaDSPService:
                 return False
 
     async def disconnect(self) -> None:
-        """Disconnect from CamillaDSP daemon"""
         async with self._lock:
             if self._client:
                 try:
-                    await asyncio.get_event_loop().run_in_executor(
-                        None, self._client.disconnect
-                    )
+                    await self._run(self._client.disconnect)
                 except Exception as e:
                     self.logger.warning(f"Error disconnecting from CamillaDSP: {e}")
 
@@ -230,15 +227,12 @@ class CamillaDSPService:
             await self._broadcast_event("state_changed", {"state": self._state.value})
 
     async def _get_daemon_state(self) -> DspState:
-        """Get current daemon state"""
         if not self._client:
             return DspState.DISCONNECTED
 
         try:
             # pycamilladsp v3 API: general.state() returns ProcessingState enum
-            state = await asyncio.get_event_loop().run_in_executor(
-                None, self._client.general.state
-            )
+            state = await self._run(self._client.general.state)
 
             # Map ProcessingState enum to our DspState
             state_str = str(state).split('.')[-1].upper()
@@ -255,7 +249,6 @@ class CamillaDSPService:
             return DspState.DISCONNECTED
 
     async def get_status(self) -> Dict[str, Any]:
-        """Get comprehensive DSP status"""
         try:
             if not self._connected:
                 return {
@@ -282,9 +275,7 @@ class CamillaDSPService:
             if state == DspState.RUNNING:
                 try:
                     # pycamilladsp v3 API: rate.capture()
-                    rate = await asyncio.get_event_loop().run_in_executor(
-                        None, self._client.rate.capture
-                    )
+                    rate = await self._run(self._client.rate.capture)
                     status["sample_rate"] = rate
                 except Exception:
                     pass
@@ -302,24 +293,21 @@ class CamillaDSPService:
     # === Config Helper ===
 
     async def _get_config(self) -> Optional[Dict[str, Any]]:
-        """Get CamillaDSP config from active or file if inactive"""
-        config = await asyncio.get_event_loop().run_in_executor(
-            None, self._client.config.active
-        )
+        """Get config from active or file if inactive"""
+        config = await self._run(self._client.config.active)
         if config is None:
-            config_path = await asyncio.get_event_loop().run_in_executor(
-                None, self._client.config.file_path
-            )
-            if config_path:
-                config = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda p=config_path: self._client.config.read_and_parse_file(p)
-                )
+            path = await self._run(self._client.config.file_path)
+            if path:
+                config = await self._run(lambda: self._client.config.read_and_parse_file(path))
         return config
+
+    async def _set_config(self, config: Dict) -> None:
+        """Apply config to CamillaDSP"""
+        await self._run(lambda: self._client.config.set_active(config))
 
     # === Filter Management ===
 
     async def get_filters(self) -> List[Dict[str, Any]]:
-        """Get current filter configuration"""
         if not self._connected:
             return self._filters
 
@@ -336,7 +324,6 @@ class CamillaDSPService:
             return self._filters
 
     def _parse_filters(self, filters_config: Dict) -> List[Dict[str, Any]]:
-        """Parse CamillaDSP filter config to simplified format"""
         result = []
 
         for name, filter_data in filters_config.items():
@@ -400,9 +387,7 @@ class CamillaDSPService:
                 if "filters" not in config:
                     config["filters"] = {}
                 config["filters"][filter_id] = filter_config
-                await asyncio.get_event_loop().run_in_executor(
-                    None, lambda c=config: self._client.config.set_active(c)
-                )
+                await self._set_config(config)
 
             # Update local cache
             for f in self._filters:
@@ -447,7 +432,6 @@ class CamillaDSPService:
     async def add_filter(self, filter_id: str, freq: float = 1000,
                          gain: float = 0, q: float = 1.0,
                          filter_type: str = "Peaking") -> bool:
-        """Add a new filter band"""
         if not self._connected:
             return False
 
@@ -473,10 +457,7 @@ class CamillaDSPService:
 
             config["filters"][filter_id] = filter_config
 
-            # Set updated config (pycamilladsp v3 API)
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
+            await self._set_config(config)
 
             # Update local cache
             self._filters.append({
@@ -497,7 +478,6 @@ class CamillaDSPService:
             return False
 
     async def remove_filter(self, filter_id: str) -> bool:
-        """Remove a filter band"""
         if not self._connected:
             return False
 
@@ -507,9 +487,7 @@ class CamillaDSPService:
             if config and "filters" in config and filter_id in config["filters"]:
                 del config["filters"][filter_id]
 
-                await asyncio.get_event_loop().run_in_executor(
-                    None, lambda c=config: self._client.config.set_active(c)
-                )
+                await self._set_config(config)
 
                 # Update local cache
                 self._filters = [f for f in self._filters if f["id"] != filter_id]
@@ -525,7 +503,6 @@ class CamillaDSPService:
             return False
 
     async def reset_filters(self) -> bool:
-        """Reset all filters to flat (0 dB gain)"""
         if not self._connected:
             return False
 
@@ -550,137 +527,71 @@ class CamillaDSPService:
     # === Volume Control ===
 
     async def get_volume(self) -> Dict[str, Any]:
-        """Get current volume settings"""
         if not self._connected:
             return self._volume
 
         try:
-            # pycamilladsp v3 API
-            volume = await asyncio.get_event_loop().run_in_executor(
-                None, self._client.volume.main_volume
-            )
-            mute = await asyncio.get_event_loop().run_in_executor(
-                None, self._client.volume.main_mute
-            )
-
+            volume = await self._run(self._client.volume.main_volume)
+            mute = await self._run(self._client.volume.main_mute)
             self._volume = {"main": volume, "mute": mute}
             return self._volume
-
         except Exception as e:
             self.logger.debug(f"Error getting volume: {e}")
             return self._volume
 
     async def set_volume(self, volume: float) -> bool:
-        """Set main volume in dB (-100 to 0)"""
+        """Set main volume in dB"""
         if not self._connected:
             return False
-
         try:
-            # pycamilladsp v3 API
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda v=volume: self._client.volume.set_main_volume(v)
-            )
-
+            await self._run(lambda: self._client.volume.set_main_volume(volume))
             self._volume["main"] = volume
-            # Note: Volume broadcast is handled by VolumeService._broadcast_volume_state()
-            # to avoid duplicate broadcasts and ensure unified volume:volume_changed events
-
             return True
-
         except Exception as e:
             self.logger.error(f"Error setting volume: {e}")
             return False
 
     async def set_mute(self, muted: bool) -> bool:
-        """Set mute state"""
         if not self._connected:
             return False
-
         try:
-            # pycamilladsp v3 API
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda m=muted: self._client.volume.set_main_mute(m)
-            )
-
+            await self._run(lambda: self._client.volume.set_main_mute(muted))
             self._volume["mute"] = muted
             await self._broadcast_event("mute_changed", {"muted": muted})
-
             return True
-
         except Exception as e:
             self.logger.error(f"Error setting mute: {e}")
             return False
 
     # === Pipeline Management ===
 
-    def _add_filter_to_pipeline(self, config: Dict, filter_name: str, channels: List[int] = None) -> None:
-        """Add a filter to the pipeline for specified channels (both if None)"""
-        if "pipeline" not in config:
-            config["pipeline"] = []
-
-        if channels is None:
-            channels = [0, 1]
-
-        for channel in channels:
-            # Find existing Filter step for this channel
-            filter_step = None
-            for step in config["pipeline"]:
-                if step.get("type") == "Filter" and channel in step.get("channels", []):
-                    filter_step = step
-                    break
-
-            if filter_step:
-                # Add filter to existing step if not already present
-                if filter_name not in filter_step.get("names", []):
-                    filter_step["names"].append(filter_name)
+    def _add_filter_to_pipeline(self, config: Dict, name: str, channels: List[int] = None) -> None:
+        pipeline = config.setdefault("pipeline", [])
+        for ch in (channels or [0, 1]):
+            step = next((s for s in pipeline if s.get("type") == "Filter" and ch in s.get("channels", [])), None)
+            if step:
+                if name not in step.get("names", []):
+                    step["names"].append(name)
             else:
-                # Create new Filter step for this channel
-                config["pipeline"].append({
-                    "type": "Filter",
-                    "channels": [channel],
-                    "names": [filter_name]
-                })
+                pipeline.append({"type": "Filter", "channels": [ch], "names": [name]})
 
-    def _remove_filter_from_pipeline(self, config: Dict, filter_name: str) -> None:
-        """Remove a filter from all pipeline steps"""
-        if "pipeline" not in config:
-            return
+    def _remove_filter_from_pipeline(self, config: Dict, name: str) -> None:
+        for step in config.get("pipeline", []):
+            if step.get("type") == "Filter" and name in step.get("names", []):
+                step["names"].remove(name)
 
-        for step in config["pipeline"]:
-            if step.get("type") == "Filter" and "names" in step:
-                if filter_name in step["names"]:
-                    step["names"].remove(filter_name)
+    def _add_processor_to_pipeline(self, config: Dict, name: str) -> None:
+        pipeline = config.setdefault("pipeline", [])
+        if not any(s.get("type") == "Processor" and s.get("name") == name for s in pipeline):
+            pipeline.append({"type": "Processor", "name": name})
 
-    def _add_processor_to_pipeline(self, config: Dict, processor_name: str) -> None:
-        """Add a processor to the pipeline"""
-        if "pipeline" not in config:
-            config["pipeline"] = []
-
-        # Check if processor already in pipeline
-        for step in config["pipeline"]:
-            if step.get("type") == "Processor" and step.get("name") == processor_name:
-                return
-
-        # Add processor at the end of pipeline (after filters)
-        config["pipeline"].append({
-            "type": "Processor",
-            "name": processor_name
-        })
-
-    def _remove_processor_from_pipeline(self, config: Dict, processor_name: str) -> None:
-        """Remove a processor from the pipeline"""
-        if "pipeline" not in config:
-            return
-
-        config["pipeline"] = [
-            step for step in config["pipeline"]
-            if not (step.get("type") == "Processor" and step.get("name") == processor_name)
-        ]
+    def _remove_processor_from_pipeline(self, config: Dict, name: str) -> None:
+        config["pipeline"] = [s for s in config.get("pipeline", [])
+                              if not (s.get("type") == "Processor" and s.get("name") == name)]
 
     # === Compressor ===
 
     async def get_compressor(self) -> Dict[str, Any]:
-        """Get compressor settings"""
         return self._compressor.copy()
 
     async def set_compressor(
@@ -759,9 +670,7 @@ class CamillaDSPService:
                     del config["processors"]["compressor"]
                 self._remove_processor_from_pipeline(config, "compressor")
 
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
+            await self._set_config(config)
 
             await self._broadcast_event("compressor_changed", self._compressor)
 
@@ -778,7 +687,6 @@ class CamillaDSPService:
     # === Loudness Compensation ===
 
     async def get_loudness(self) -> Dict[str, Any]:
-        """Get loudness compensation settings"""
         return self._loudness.copy()
 
     async def set_loudness(
@@ -846,9 +754,7 @@ class CamillaDSPService:
                 self._remove_filter_from_pipeline(config, "loudness_low")
                 self._remove_filter_from_pipeline(config, "loudness_high")
 
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
+            await self._set_config(config)
 
             await self._broadcast_event("loudness_changed", self._loudness)
 
@@ -862,168 +768,55 @@ class CamillaDSPService:
             self.logger.error(f"Error setting loudness: {e}")
             return False
 
-    # === Crossover Filter (for Subwoofer Integration) ===
+    # === Crossover Filters ===
+
+    async def _set_passband_filter(self, filter_name: str, filter_type: str,
+                                    enabled: bool, freq: float, q: float, event: str) -> bool:
+        """Internal helper for highpass/lowpass filters"""
+        if not self._connected:
+            return False
+        try:
+            config = await self._get_config() or {"filters": {}, "pipeline": []}
+            if "filters" not in config:
+                config["filters"] = {}
+
+            if enabled:
+                config["filters"][filter_name] = {
+                    "type": "Biquad",
+                    "parameters": {"type": filter_type, "freq": freq, "q": q}
+                }
+                self._add_filter_to_pipeline(config, filter_name)
+            else:
+                if filter_name in config["filters"]:
+                    del config["filters"][filter_name]
+                self._remove_filter_from_pipeline(config, filter_name)
+
+            await self._set_config(config)
+            await self._broadcast_event(event, {"enabled": enabled, "frequency": freq, "q": q})
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting {filter_name}: {e}")
+            return False
 
     async def get_crossover_filter(self) -> Dict[str, Any]:
-        """Get crossover highpass filter settings"""
         if not self._connected:
             return {"enabled": False, "frequency": 80, "q": 0.707}
-
         try:
             config = await self._get_config()
-
             if config and "filters" in config and "crossover_highpass" in config["filters"]:
-                filter_data = config["filters"]["crossover_highpass"]
-                params = filter_data.get("parameters", {})
-                return {
-                    "enabled": True,
-                    "frequency": params.get("freq", 80),
-                    "q": params.get("q", 0.707)
-                }
-
+                params = config["filters"]["crossover_highpass"].get("parameters", {})
+                return {"enabled": True, "frequency": params.get("freq", 80), "q": params.get("q", 0.707)}
+            return {"enabled": False, "frequency": 80, "q": 0.707}
+        except Exception:
             return {"enabled": False, "frequency": 80, "q": 0.707}
 
-        except Exception as e:
-            self.logger.error(f"Error getting crossover filter: {e}")
-            return {"enabled": False, "frequency": 80, "q": 0.707}
+    async def set_crossover_filter(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
+        """Apply highpass filter to remove bass from speakers (for subwoofer setups)"""
+        return await self._set_passband_filter("crossover_highpass", "Highpass", enabled, frequency, q, "crossover_changed")
 
-    async def set_crossover_filter(
-        self,
-        enabled: bool,
-        frequency: float = 80.0,
-        q: float = 0.707
-    ) -> bool:
-        """
-        Apply or remove crossover highpass filter for subwoofer integration.
-
-        When enabled, applies a Butterworth highpass filter at the specified
-        frequency to remove bass from speakers (bass handled by subwoofer).
-
-        Args:
-            enabled: Whether to enable the highpass filter
-            frequency: Crossover frequency in Hz (default 80, typical range 40-200)
-            q: Filter Q factor (default 0.707 = Butterworth, flattest passband)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self._connected:
-            self.logger.warning("Cannot set crossover filter: not connected")
-            return False
-
-        try:
-            config = await self._get_config()
-
-            if config is None:
-                config = {"filters": {}, "pipeline": []}
-
-            if "filters" not in config:
-                config["filters"] = {}
-
-            if enabled:
-                # Add highpass crossover filter
-                config["filters"]["crossover_highpass"] = {
-                    "type": "Biquad",
-                    "parameters": {
-                        "type": "Highpass",
-                        "freq": frequency,
-                        "q": q
-                    }
-                }
-                # Add to pipeline for both channels
-                self._add_filter_to_pipeline(config, "crossover_highpass")
-                self.logger.info(f"Crossover highpass filter enabled at {frequency} Hz (Q={q})")
-            else:
-                # Remove crossover filter
-                if "crossover_highpass" in config["filters"]:
-                    del config["filters"]["crossover_highpass"]
-                self._remove_filter_from_pipeline(config, "crossover_highpass")
-                self.logger.info("Crossover highpass filter disabled")
-
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
-
-            await self._broadcast_event("crossover_changed", {
-                "enabled": enabled,
-                "frequency": frequency,
-                "q": q
-            })
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error setting crossover filter: {e}")
-            return False
-
-    async def set_lowpass_filter(
-        self,
-        enabled: bool,
-        frequency: float = 80.0,
-        q: float = 0.707
-    ) -> bool:
-        """
-        Apply or remove lowpass filter for subwoofer.
-
-        When enabled, applies a Butterworth lowpass filter at the specified
-        frequency to send only bass to the subwoofer.
-
-        Args:
-            enabled: Whether to enable the lowpass filter
-            frequency: Cutoff frequency in Hz (default 80, typical range 40-200)
-            q: Filter Q factor (default 0.707 = Butterworth, flattest passband)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self._connected:
-            self.logger.warning("Cannot set lowpass filter: not connected")
-            return False
-
-        try:
-            config = await self._get_config()
-
-            if config is None:
-                config = {"filters": {}, "pipeline": []}
-
-            if "filters" not in config:
-                config["filters"] = {}
-
-            if enabled:
-                # Add lowpass filter for subwoofer
-                config["filters"]["crossover_lowpass"] = {
-                    "type": "Biquad",
-                    "parameters": {
-                        "type": "Lowpass",
-                        "freq": frequency,
-                        "q": q
-                    }
-                }
-                # Add to pipeline for both channels
-                self._add_filter_to_pipeline(config, "crossover_lowpass")
-                self.logger.info(f"Lowpass filter enabled at {frequency} Hz (Q={q})")
-            else:
-                # Remove lowpass filter
-                if "crossover_lowpass" in config["filters"]:
-                    del config["filters"]["crossover_lowpass"]
-                self._remove_filter_from_pipeline(config, "crossover_lowpass")
-                self.logger.info("Lowpass filter disabled")
-
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda c=config: self._client.config.set_active(c)
-            )
-
-            await self._broadcast_event("lowpass_changed", {
-                "enabled": enabled,
-                "frequency": frequency,
-                "q": q
-            })
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error setting lowpass filter: {e}")
-            return False
+    async def set_lowpass_filter(self, enabled: bool, frequency: float = 80.0, q: float = 0.707) -> bool:
+        """Apply lowpass filter to send only bass to subwoofer"""
+        return await self._set_passband_filter("crossover_lowpass", "Lowpass", enabled, frequency, q, "lowpass_changed")
 
     # === Level Monitoring ===
 
@@ -1033,21 +826,9 @@ class CamillaDSPService:
             return {"available": False}
 
         try:
-            # pycamilladsp v3 API
-            capture_levels = await asyncio.get_event_loop().run_in_executor(
-                None, self._client.levels.capture_peak
-            )
-
-            playback_levels = await asyncio.get_event_loop().run_in_executor(
-                None, self._client.levels.playback_peak
-            )
-
-            return {
-                "available": True,
-                "input_peak": capture_levels,
-                "output_peak": playback_levels
-            }
-
+            capture = await self._run(self._client.levels.capture_peak)
+            playback = await self._run(self._client.levels.playback_peak)
+            return {"available": True, "input_peak": capture, "output_peak": playback}
         except Exception as e:
             self.logger.debug(f"Error getting levels: {e}")
             return {"available": False}
@@ -1055,118 +836,69 @@ class CamillaDSPService:
     # === Preset Management ===
 
     def get_presets(self) -> List[Dict]:
-        """Return all builtin presets with their gains."""
         return get_builtin_presets()
 
-    async def load_preset(self, preset_id: str) -> bool:
-        """Load a builtin preset or manual preset by ID."""
-        # Handle manual preset specially
-        if preset_id == "manual":
-            return await self._load_manual_preset()
+    async def _apply_gains(self, gains: List[float]) -> None:
+        """Apply gain values to EQ bands"""
+        for i, gain in enumerate(gains):
+            filter_id = f"eq_band_{i:02d}"
+            existing = next((f for f in self._filters if f["id"] == filter_id), None)
+            if existing:
+                await self.set_filter(filter_id, existing["freq"], gain,
+                                       existing.get("q", 1.41), existing.get("type", "Peaking"),
+                                       from_preset=True)
 
+    async def _get_preset_gains(self, preset_id: str) -> Optional[List[float]]:
+        """Get gains for a preset ID (builtin or manual)"""
+        if preset_id == "manual":
+            if self.settings_service:
+                saved = await self.settings_service.get_setting("dsp.manual_gains")
+                if saved and len(saved) >= 10:
+                    return saved
+            return DEFAULT_MANUAL_GAINS
         preset = get_preset_by_id(preset_id)
-        if not preset:
+        return preset["gains"] if preset else None
+
+    async def load_preset(self, preset_id: str) -> bool:
+        """Load a builtin or manual preset"""
+        gains = await self._get_preset_gains(preset_id)
+        if gains is None:
             self.logger.warning(f"Preset not found: {preset_id}")
             return False
-
         try:
-            # Save current gains as manual before switching to a preset
-            current_preset = await self.get_active_preset()
-            if current_preset == "manual" or current_preset is None:
+            # Save current as manual before switching
+            current = await self.get_active_preset()
+            if current in ("manual", None) and preset_id != "manual":
                 await self._save_manual_gains()
 
-            # Apply gains from preset to each EQ band
-            for i, gain in enumerate(preset["gains"]):
-                filter_id = f"eq_band_{i:02d}"
-                # Get existing filter config to preserve freq/q/type
-                existing = next((f for f in self._filters if f["id"] == filter_id), None)
-                if existing:
-                    await self.set_filter(
-                        filter_id,
-                        freq=existing["freq"],
-                        gain=gain,
-                        q=existing.get("q", 1.41),
-                        filter_type=existing.get("type", "Peaking"),
-                        from_preset=True
-                    )
+            await self._apply_gains(gains)
 
-            # Update active preset in settings
             if self.settings_service:
                 await self.settings_service.set_setting("dsp.active_preset", preset_id)
-
             await self._broadcast_event("preset_loaded", {"id": preset_id})
-
-            self.logger.info(f"Loaded DSP preset: {preset_id}")
             return True
-
         except Exception as e:
             self.logger.error(f"Error loading preset: {e}")
             return False
 
     async def _save_manual_gains(self) -> None:
-        """Save current gains as the manual preset."""
-        if not self.settings_service:
-            return
-
-        gains = [f.get("gain", 0) for f in self._filters[:10]]
-        await self.settings_service.set_setting("dsp.manual_gains", gains)
-        self.logger.debug(f"Saved manual gains: {gains}")
-
-    async def _load_manual_preset(self) -> bool:
-        """Load the manual preset (user's saved custom gains)."""
-        try:
-            # Get saved manual gains or use default (flat)
-            gains = DEFAULT_MANUAL_GAINS
-            if self.settings_service:
-                saved_gains = await self.settings_service.get_setting("dsp.manual_gains")
-                if saved_gains and len(saved_gains) >= 10:
-                    gains = saved_gains
-
-            # Apply gains
-            for i, gain in enumerate(gains):
-                filter_id = f"eq_band_{i:02d}"
-                existing = next((f for f in self._filters if f["id"] == filter_id), None)
-                if existing:
-                    await self.set_filter(
-                        filter_id,
-                        freq=existing["freq"],
-                        gain=gain,
-                        q=existing.get("q", 1.41),
-                        filter_type=existing.get("type", "Peaking"),
-                        from_preset=True
-                    )
-
-            # Update active preset
-            if self.settings_service:
-                await self.settings_service.set_setting("dsp.active_preset", "manual")
-
-            await self._broadcast_event("preset_loaded", {"id": "manual"})
-
-            self.logger.info("Loaded manual preset")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error loading manual preset: {e}")
-            return False
+        if self.settings_service:
+            gains = [f.get("gain", 0) for f in self._filters[:10]]
+            await self.settings_service.set_setting("dsp.manual_gains", gains)
 
     async def get_manual_gains(self) -> List[float]:
-        """Get the saved manual gains."""
-        if not self.settings_service:
-            return DEFAULT_MANUAL_GAINS
-
-        gains = await self.settings_service.get_setting("dsp.manual_gains")
-        if gains and len(gains) >= 10:
-            return gains
+        if self.settings_service:
+            gains = await self.settings_service.get_setting("dsp.manual_gains")
+            if gains and len(gains) >= 10:
+                return gains
         return DEFAULT_MANUAL_GAINS
 
     async def get_active_preset(self) -> Optional[str]:
-        """Get the currently active preset ID, or None if manual mode."""
         if not self.settings_service:
             return None
         return await self.settings_service.get_setting("dsp.active_preset")
 
     async def clear_active_preset(self) -> None:
-        """Clear the active preset (switch to manual mode)."""
         if self.settings_service:
             await self.settings_service.set_setting("dsp.active_preset", None)
 
@@ -1290,54 +1022,17 @@ class CamillaDSPService:
             self.logger.error(f"Error loading saved config: {e}")
 
     async def _apply_saved_preset(self) -> None:
-        """Apply the saved preset to CamillaDSP daemon on startup."""
+        """Apply saved preset on startup"""
         if not self.settings_service:
             return
-
         try:
-            active_preset = await self.settings_service.get_setting("dsp.active_preset")
-
-            if active_preset:
-                self.logger.info(f"Applying saved preset on startup: {active_preset}")
-                await self._apply_preset_without_save(active_preset)
-            else:
-                self.logger.info("No saved preset, using flat EQ")
-
+            preset_id = await self.settings_service.get_setting("dsp.active_preset")
+            if preset_id:
+                gains = await self._get_preset_gains(preset_id)
+                if gains:
+                    await self._apply_gains(gains)
         except Exception as e:
-            self.logger.error(f"Error applying saved preset on startup: {e}")
-
-    async def _apply_preset_without_save(self, preset_id: str) -> bool:
-        """Apply preset gains to daemon without saving to settings (for startup restore)."""
-        if preset_id == "manual":
-            # Get saved manual gains
-            gains = DEFAULT_MANUAL_GAINS
-            saved_gains = await self.settings_service.get_setting("dsp.manual_gains")
-            if saved_gains and len(saved_gains) >= 10:
-                gains = saved_gains
-        else:
-            # Get builtin preset gains
-            preset = get_preset_by_id(preset_id)
-            if not preset:
-                self.logger.warning(f"Preset not found: {preset_id}")
-                return False
-            gains = preset["gains"]
-
-        # Apply gains to each EQ band
-        for i, gain in enumerate(gains):
-            filter_id = f"eq_band_{i:02d}"
-            existing = next((f for f in self._filters if f["id"] == filter_id), None)
-            if existing:
-                await self.set_filter(
-                    filter_id,
-                    freq=existing["freq"],
-                    gain=gain,
-                    q=existing.get("q", 1.41),
-                    filter_type=existing.get("type", "Peaking"),
-                    from_preset=True
-                )
-
-        self.logger.info(f"Applied preset gains on startup: {preset_id}")
-        return True
+            self.logger.error(f"Error applying saved preset: {e}")
 
     async def save_current_config(self) -> bool:
         """Save current configuration to settings"""

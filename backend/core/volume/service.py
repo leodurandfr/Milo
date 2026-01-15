@@ -76,6 +76,43 @@ class VolumeService:
         self._availability_ready = asyncio.Event()
 
     # ============================================================================
+    # HELPERS
+    # ============================================================================
+
+    async def _with_lock(self, func, *args, **kwargs):
+        """Execute func with volume lock and 2s timeout."""
+        try:
+            async with asyncio.timeout(2.0):
+                async with self._volume_lock:
+                    return await func(*args, **kwargs)
+        except asyncio.TimeoutError:
+            self.logger.error("Timeout waiting for volume lock (>2s)")
+            return False
+
+    async def _check_dsp_or_error(self) -> bool:
+        """Check DSP availability, broadcast error if unavailable. Returns True if OK."""
+        if self._is_multiroom_enabled() or self._is_dsp_available():
+            return True
+        self.logger.warning("DSP not available, volume change blocked")
+        await self.state_machine.broadcast_event("volume", "volume_error", {
+            "error": "CamillaDSP not available",
+            "dsp_available": False
+        })
+        return False
+
+    async def _apply_to_multiroom_clients(self, updates: Dict[str, float]) -> bool:
+        """Apply volume updates to multiroom clients and update state store."""
+        if not updates:
+            return True
+        results = await self._dsp_controller.apply_volumes_parallel(updates)
+        for hostname, volume in updates.items():
+            if results.get(hostname, False):
+                await self._state_store.set_client_volume(hostname, volume)
+        if results and not any(results.values()):
+            self.logger.warning(f"All {len(results)} multiroom clients failed volume update")
+        return True  # Graceful degradation: clients will sync on reconnect
+
+    # ============================================================================
     # EXPOSED SUB-SERVICES
     # ============================================================================
 
@@ -210,114 +247,77 @@ class VolumeService:
             self.logger.error(f"Error reloading volume limits: {e}")
             return False
 
-    async def reload_startup_config(self) -> bool:
-        """Reload startup configuration."""
+    async def _reload_config(self, name: str, broadcast: bool = False) -> bool:
+        """Helper: reload config with optional broadcast."""
         try:
             await self._config_service.load()
+            if broadcast:
+                await self._broadcast_volume_state(show_bar=False)
             return True
         except Exception as e:
-            self.logger.error(f"Error reloading startup config: {e}")
+            self.logger.error(f"Error reloading {name}: {e}")
             return False
+
+    async def reload_startup_config(self) -> bool:
+        """Reload startup configuration."""
+        return await self._reload_config("startup config")
 
     async def reload_volume_steps_config(self) -> bool:
         """Reload volume step configuration."""
-        try:
-            await self._config_service.load()
-            await self._broadcast_volume_state(show_bar=False)
-            return True
-        except Exception as e:
-            self.logger.error(f"Error reloading volume steps: {e}")
-            return False
+        return await self._reload_config("volume steps", broadcast=True)
 
     async def reload_rotary_steps_config(self) -> bool:
         """Reload rotary encoder step configuration."""
-        try:
-            await self._config_service.load()
-            return True
-        except Exception as e:
-            self.logger.error(f"Error reloading rotary steps: {e}")
-            return False
+        return await self._reload_config("rotary steps")
 
     # ============================================================================
     # CLIENT VOLUME MANAGEMENT (VolumeStateStore architecture)
     # ============================================================================
 
     async def sync_existing_client_from_snapcast(self, client_id: str) -> bool:
-        """
-        Sync reconnected client: apply correct volume to DSP.
-
-        Sequence to prevent volume spike:
-        1. Mute DSP first (safety in case client reconnected without CamillaDSP restart)
-        2. Set correct volume
-        3. Unmute DSP
-
-        Volume selection priority:
-        1. If client is in a zone -> ALWAYS use zone's current average (consistency)
-        2. If client not in zone -> use persisted volume or display volume
-        """
+        """Sync reconnected client: mute -> set volume -> unmute to prevent volume spike."""
         if not self._is_multiroom_enabled():
             return True
-
         try:
-            self.logger.info(f"[{time.time():.3f}] DSP_SYNC: Start for {client_id}")
-
-            # Wait for client DSP to be ready before sending any commands
-            ready = await self._dsp_controller.wait_for_client_ready(client_id, max_wait=10.0)
-            if not ready:
-                self.logger.error(f"[{time.time():.3f}] DSP_SYNC: Client {client_id} DSP not ready after timeout, skipping sync")
+            # Wait for client DSP to be ready
+            if not await self._dsp_controller.wait_for_client_ready(client_id, max_wait=10.0):
+                self.logger.error(f"DSP_SYNC: Client {client_id} DSP not ready, skipping")
                 return False
 
-            # MUTE DSP first to prevent volume spike during sync
+            # Mute DSP first to prevent volume spike
             await self._dsp_controller.set_dsp_mute(client_id, True)
-            self.logger.info(f"[{time.time():.3f}] DSP_SYNC: Muted DSP for {client_id}")
-
             volume_state = await self._state_store.get_complete_state()
 
-            # FIRST: Check if client is in any zone
-            client_zone_id = None
-            for zone_id, zone_data in volume_state.zones.items():
-                if client_id in zone_data.client_ids:
-                    client_zone_id = zone_id
-                    break
+            # Find client's zone (if any)
+            client_zone_id = next(
+                (zid for zid, zdata in volume_state.zones.items() if client_id in zdata.client_ids),
+                None
+            )
 
+            # Determine target volume
             if client_zone_id:
-                # Client is in a zone - use cached zone target for consistent initial sync
                 target = self._state_store.get_zone_target_volume(client_zone_id)
-                if target is not None:
-                    expected_volume = target
-                    self.logger.info(f"Syncing client {client_id} in zone '{client_zone_id}', using cached zone target: {expected_volume:.1f}dB")
-                else:
-                    # Fallback to computed average (normal operation after initial sync)
-                    expected_volume = volume_state.zones[client_zone_id].average_volume_db
-                    self.logger.info(f"Reconnecting client {client_id} in zone '{client_zone_id}', using zone volume: {expected_volume:.1f}dB")
+                expected_volume = target if target is not None else volume_state.zones[client_zone_id].average_volume_db
+                self.logger.info(f"Syncing {client_id} in zone '{client_zone_id}': {expected_volume:.1f}dB")
             else:
-                # Client not in a zone - use persisted volume or display volume
                 expected_volume = self._state_store.get_client_volume(client_id)
-
                 if expected_volume is None:
                     expected_volume = volume_state.global_volume_db
-                    self.logger.info(f"New client {client_id}, applying display volume: {expected_volume:.1f}dB")
-                else:
-                    self.logger.info(f"Reconnected client {client_id} (no zone), applying persisted volume: {expected_volume:.1f}dB")
+                self.logger.info(f"Syncing {client_id} (no zone): {expected_volume:.1f}dB")
 
-            # Set the correct volume while DSP is muted
+            # Apply volume while muted
             await self._dsp_controller.set_dsp_volume(client_id, expected_volume)
-            self.logger.info(f"[{time.time():.3f}] DSP_SYNC: Volume set to {expected_volume:.1f}dB for {client_id}")
 
-            # Apply persisted mute state (or unmute if no persisted state)
-            persisted_mute = False
-            if client_id in self._state_store._clients:
-                persisted_mute = self._state_store._clients[client_id].mute
+            # Apply persisted mute state
+            client_state = self._state_store._clients.get(client_id)
+            persisted_mute = client_state.mute if client_state else False
             await self._dsp_controller.set_dsp_mute(client_id, persisted_mute)
-            self.logger.info(f"[{time.time():.3f}] DSP_SYNC: Unmuted DSP for {client_id} (mute={persisted_mute})")
 
-            # Register client with the applied volume
             await self._state_store.register_client(client_id, volume_db=expected_volume, available=True)
             await self._broadcast_volume_state(show_bar=False)
             return True
         except Exception as e:
-            self.logger.error(f"Error syncing existing client {client_id}: {e}")
-            # Try to unmute on error to avoid client stuck muted
+            self.logger.error(f"Error syncing client {client_id}: {e}")
             try:
                 await self._dsp_controller.set_dsp_mute(client_id, False)
             except Exception:
@@ -326,47 +326,26 @@ class VolumeService:
 
     async def sync_client_volume_from_external(self, client_id: str, volume_db: float) -> None:
         """Sync client volume from external change (e.g., MultiroomModal)."""
-        if not self._is_multiroom_enabled():
-            return
-
-        try:
-            # Update state store
-            await self._state_store.set_client_volume(client_id, volume_db)
-
-            # Apply to hardware
-            await self._dsp_controller.set_dsp_volume(client_id, volume_db)
-
-            # Broadcast updated state
-            await self._broadcast_volume_state(show_bar=False)
-        except Exception as e:
-            self.logger.error(f"Error syncing client {client_id} volume from external: {e}")
+        if self._is_multiroom_enabled():
+            await self.update_client_volume_db(client_id, volume_db, broadcast=True)
 
     async def sync_all_clients_from_dsp(self) -> bool:
-        """
-        Sync all client volumes from their DSP state.
-        Called when multiroom is enabled to initialize volume offsets.
-        """
+        """Sync all client volumes from their DSP state (called when multiroom is enabled)."""
         if not self._is_multiroom_enabled():
             return True
-
         try:
             clients = await self.snapcast_service.get_clients()
             for client in clients:
-                client_id = client.get("dsp_id", "")
-                if not client_id:
+                cid = client.get("dsp_id", "")
+                if not cid:
                     continue
-
                 # Read DSP volume
-                if client_id == 'local':
-                    volume_data = await self._dsp_service.get_volume()
-                    volume = volume_data.get("main", -30.0) if volume_data else -30.0
+                if cid == 'local':
+                    vol_data = await self._dsp_service.get_volume()
                 else:
-                    result = await self._proxy_service.request(client_id, "GET", "/dsp/volume")
-                    volume = result.get("main", -30.0) if result else -30.0
-
-                # Register with state store
-                available = client.get("available", True)
-                await self._state_store.register_client(client_id, volume_db=volume, available=available)
+                    vol_data = await self._proxy_service.request(cid, "GET", "/dsp/volume")
+                volume = vol_data.get("main", -30.0) if vol_data else -30.0
+                await self._state_store.register_client(cid, volume_db=volume, available=client.get("available", True))
 
             self.logger.info(f"Synced {len(clients)} clients from DSP")
             await self._broadcast_volume_state(show_bar=False)
@@ -376,124 +355,75 @@ class VolumeService:
             return False
 
     async def push_volume_to_all_clients(self) -> bool:
-        """
-        Push volume and mute state to all multiroom clients.
-        Called when multiroom is activated to restore client states.
-
-        Respects startup settings:
-        - restore_last_volume=true: Use persisted client volumes
-        - restore_last_volume=false: Use startup_volume_db for all clients
-        """
+        """Push volume and mute state to all multiroom clients (respects startup settings)."""
         try:
-            self.logger.info(f"[{time.time():.3f}] PUSH_ALL: Starting push to all clients")
-
-            # Get all available clients
             client_ids = await get_available_client_ids(self.snapcast_service)
             if not client_ids:
                 return True
 
-            # Check startup configuration
             restore_enabled = self.config.config.restore_last_volume
             startup_volume = self.config.config.startup_volume_db
 
             # Build volume updates based on startup settings
             updates = {}
-            for client_id in client_ids:
-                if restore_enabled and client_id in self._state_store._clients:
-                    # Restore mode: use persisted volume
-                    updates[client_id] = self._state_store._clients[client_id].volume_db
+            local_volume = None  # Lazy-loaded if needed
+            for cid in client_ids:
+                if restore_enabled and cid in self._state_store._clients:
+                    updates[cid] = self._state_store._clients[cid].volume_db
                 elif restore_enabled:
-                    # Restore mode but no persisted state: use local DSP volume
-                    dsp_state = await self._dsp_service.get_volume()
-                    local_volume = dsp_state.get("main", -30.0) if dsp_state else -30.0
-                    updates[client_id] = local_volume
+                    if local_volume is None:
+                        dsp_state = await self._dsp_service.get_volume()
+                        local_volume = dsp_state.get("main", -30.0) if dsp_state else -30.0
+                    updates[cid] = local_volume
                 else:
-                    # Fixed startup mode: use startup_volume_db
-                    updates[client_id] = startup_volume
+                    updates[cid] = startup_volume
 
             if not updates:
                 return True
 
-            mode = "persisted" if restore_enabled else f"startup ({startup_volume:.1f}dB)"
-            self.logger.info(f"[{time.time():.3f}] PUSH_ALL: Pushing {mode} volumes to {len(updates)} clients")
+            self.logger.info(f"Pushing {'persisted' if restore_enabled else f'startup ({startup_volume:.1f}dB)'} volumes to {len(updates)} clients")
 
-            # Apply volumes to all clients in parallel
+            # Apply volumes and update state store
             results = await self._dsp_controller.apply_volumes_parallel(updates)
-            self.logger.info(f"[{time.time():.3f}] PUSH_ALL: Applied volumes to {len(updates)} clients")
+            for hostname, volume in updates.items():
+                if results.get(hostname, False):
+                    await self._state_store.set_client_volume(hostname, volume)
 
-            # Update state store for successful volume updates
-            successful_updates = {
-                hostname: volume
-                for hostname, volume in updates.items()
-                if results.get(hostname, False)
-            }
-
-            for hostname, volume in successful_updates.items():
-                await self._state_store.set_client_volume(hostname, volume)
-
-            # Apply persisted mute states to clients
-            for client_id in client_ids:
-                if client_id in self._state_store._clients:
-                    mute_state = self._state_store._clients[client_id].mute
+            # Apply persisted mute states
+            for cid in client_ids:
+                if cid in self._state_store._clients:
                     try:
-                        await self._dsp_controller.set_dsp_mute(client_id, mute_state)
-                        self.logger.debug(f"Applied mute state to {client_id}: {mute_state}")
+                        await self._dsp_controller.set_dsp_mute(cid, self._state_store._clients[cid].mute)
                     except Exception as e:
-                        self.logger.warning(f"Failed to apply mute to {client_id}: {e}")
+                        self.logger.warning(f"Failed to apply mute to {cid}: {e}")
 
             await self._broadcast_volume_state(show_bar=False)
 
-            failures = [h for h, success in results.items() if not success]
+            failures = [h for h, ok in results.items() if not ok]
             if failures:
                 self.logger.warning(f"Failed to push volume to: {failures}")
-
             return len(failures) == 0
         except Exception as e:
             self.logger.error(f"Error pushing volume to clients: {e}")
             return False
 
     async def update_client_volume_db(self, client_id: str, volume_db: float, broadcast: bool = True) -> None:
-        """
-        Update client volume in dB (called from API routes).
-
-        Args:
-            client_id: Client hostname ('local' or IP address)
-            volume_db: Volume in dB
-            broadcast: Whether to broadcast volume change to update VolumeBar
-        """
+        """Update client volume in dB (called from API routes)."""
         try:
-            # Update state store
             await self._state_store.set_client_volume(client_id, volume_db)
-
-            # Apply to hardware
             await self._dsp_controller.set_dsp_volume(client_id, volume_db)
-
-            # Broadcast if requested
             if broadcast and self._is_multiroom_enabled():
                 await self._broadcast_volume_state(show_bar=False)
         except Exception as e:
             self.logger.error(f"Error updating client {client_id} volume: {e}")
 
     async def set_client_mute(self, client_id: str, mute: bool, broadcast: bool = True) -> None:
-        """
-        Set mute state for a client.
-
-        Args:
-            client_id: Client hostname ('local' or IP address)
-            mute: Mute state (True = muted, False = unmuted)
-            broadcast: Whether to broadcast mute change
-        """
+        """Set mute state for a client."""
         try:
-            # Update state store
             await self._state_store.set_client_mute(client_id, mute)
-
-            # Apply to DSP hardware
             await self._dsp_controller.set_dsp_mute(client_id, mute)
-
-            # Broadcast if requested
             if broadcast:
                 await self._broadcast_volume_state(show_bar=False)
-
         except Exception as e:
             self.logger.error(f"Error setting client {client_id} mute: {e}")
 
@@ -502,59 +432,32 @@ class VolumeService:
     # ============================================================================
 
     async def apply_zone_volume_delta(self, zone_id: str, delta_db: float) -> float:
-        """
-        Apply volume delta to entire zone atomically.
-
-        This calculates updates for all clients, applies them in parallel, then broadcasts once.
-
-        Args:
-            zone_id: Zone identifier
-            delta_db: Volume change in dB
-
-        Returns:
-            New zone average volume in dB
-
-        Raises:
-            ValueError: If zone not found
-        """
+        """Apply volume delta to entire zone atomically. Returns new zone average in dB."""
         async with self._volume_lock:
             try:
-                # Clear initial zone targets cache on first user interaction
                 self._state_store.clear_zone_targets()
-
-                # 1. Calculate volume updates for all clients in zone
                 updates = await self._state_store.apply_zone_delta(zone_id, delta_db)
 
                 if not updates:
                     self.logger.warning(f"No clients to update in zone {zone_id}")
                     return self._state_store.compute_zone_average(zone_id)
 
-                # 2. Apply updates to hardware in parallel
-                self.logger.info(f"Applying zone delta: {zone_id} +{delta_db:+.1f}dB -> {len(updates)} clients")
+                self.logger.info(f"Applying zone delta: {zone_id} {delta_db:+.1f}dB -> {len(updates)} clients")
                 results = await self._dsp_controller.apply_volumes_parallel(updates)
 
-                # 3. Update state store with successful updates only
-                successful_updates = {
-                    hostname: volume
-                    for hostname, volume in updates.items()
-                    if results.get(hostname, False)
-                }
+                # Update state store with successful updates
+                successful = {h: v for h, v in updates.items() if results.get(h, False)}
+                await self._state_store.apply_zone_updates(successful)
 
-                await self._state_store.apply_zone_updates(successful_updates)
-
-                # Log failures
-                failures = [hostname for hostname, success in results.items() if not success]
+                failures = [h for h, ok in results.items() if not ok]
                 if failures:
                     self.logger.warning(f"Failed to update clients: {failures}")
 
-                # 4. Broadcast complete state once (no bar)
                 await self._broadcast_volume_state(show_bar=False)
 
-                # 5. Return new zone average
                 new_avg = self._state_store.compute_zone_average(zone_id)
-                self.logger.info(f"Zone {zone_id} updated: {new_avg:.1f}dB (success: {len(successful_updates)}/{len(updates)})")
+                self.logger.info(f"Zone {zone_id} updated: {new_avg:.1f}dB ({len(successful)}/{len(updates)} success)")
                 return new_avg
-
             except Exception as e:
                 self.logger.error(f"Error applying zone delta: {e}", exc_info=True)
                 raise
@@ -591,98 +494,54 @@ class VolumeService:
             return False
 
     async def _apply_startup_volume(self) -> None:
-        """
-        Apply startup volume and mute state to CamillaDSP.
-
-        CamillaDSP starts muted with -m flag (systemd service).
-        This method either:
-        - Restores the user's last known volume (if restore_last_volume=true)
-        - Uses startup_volume_db (if restore_last_volume=false)
-        Then applies persisted mute state.
-        """
+        """Apply startup volume and mute state to CamillaDSP (starts muted via -m flag)."""
         try:
-            self.logger.info(f"[{time.time():.3f}] STARTUP_VOLUME: Starting local volume application")
-
-            # Wait for CamillaDSP to be connected (services initialize in parallel)
+            # Wait for CamillaDSP connection
             if self._dsp_service:
-                self.logger.info(f"[{time.time():.3f}] STARTUP_VOLUME: Waiting for CamillaDSP connection...")
-                connected = await self._dsp_service.wait_for_connection(timeout=10.0)
-                if not connected:
-                    self.logger.warning(f"[{time.time():.3f}] STARTUP_VOLUME: CamillaDSP not connected after 10s, startup volume/mute not applied")
+                if not await self._dsp_service.wait_for_connection(timeout=10.0):
+                    self.logger.warning("CamillaDSP not connected after 10s, startup volume not applied")
                     return
-                self.logger.info(f"[{time.time():.3f}] STARTUP_VOLUME: CamillaDSP connected")
 
-            # Determine target volume based on restore setting
+            # Determine target volume
             restore_enabled = self.config.config.restore_last_volume
-            startup_volume = self.config.config.startup_volume_db
-
             if restore_enabled:
-                # Use persisted volume from last session
-                if 'local' in self._state_store._clients:
-                    target_volume = self._state_store._clients['local'].volume_db
-                else:
-                    # Direct mode fallback
-                    target_volume = self._state_store._local_volume_db
+                local_client = self._state_store._clients.get('local')
+                target_volume = local_client.volume_db if local_client else self._state_store._local_volume_db
                 self.logger.info(f"Restoring persisted volume: {target_volume:.1f} dB")
             else:
-                # Use configured startup volume
-                target_volume = startup_volume
-                self.logger.info(f"Using startup volume setting: {target_volume:.1f} dB")
+                target_volume = self.config.config.startup_volume_db
+                self.logger.info(f"Using startup volume: {target_volume:.1f} dB")
 
-            # Get persisted mute state for local client
-            local_mute = False
-            if 'local' in self._state_store._clients:
-                local_mute = self._state_store._clients['local'].mute
+            # Get persisted mute state
+            local_client = self._state_store._clients.get('local')
+            local_mute = local_client.mute if local_client else False
 
             if target_volume is not None and self._dsp_controller:
-                # Set volume while DSP is still muted (from -m flag at startup)
                 await self._dsp_controller.set_dsp_volume("local", target_volume)
-
-                # Apply persisted mute state (or unmute if not muted)
                 await self._dsp_controller.set_dsp_mute("local", local_mute)
-                self.logger.info(f"Applied startup state: volume={target_volume:.1f} dB, mute={local_mute}")
-            else:
-                self.logger.info("No target volume, applying default unmuted state")
-                # Unmute even if no target volume
-                if self._dsp_controller:
-                    await self._dsp_controller.set_dsp_mute("local", False)
+                self.logger.info(f"Startup state applied: {target_volume:.1f} dB, mute={local_mute}")
+            elif self._dsp_controller:
+                await self._dsp_controller.set_dsp_mute("local", False)
         except Exception as e:
             self.logger.error(f"Failed to apply startup volume: {e}")
 
     async def _startup_broadcast_after_websocket_ready(self):
-        """
-        Wait for Snapcast WebSocket and broadcast initial volume state.
-
-        In multiroom mode, waits for WebSocket to be ready before initializing
-        client availability and syncing all clients.
-        """
+        """Wait for Snapcast WebSocket and broadcast initial volume state."""
         try:
-            # Check if multiroom is enabled
             multiroom_enabled = await self.settings_service.get_setting("routing.multiroom_enabled") or False
 
             if multiroom_enabled and self._snapcast_websocket_service:
-                self.logger.info(f"[{time.time():.3f}] STARTUP_BROADCAST: Waiting for Snapcast WebSocket...")
                 ws_ready = await self._snapcast_websocket_service.wait_for_ready(timeout=30.0)
-
                 if ws_ready:
-                    self.logger.info(f"[{time.time():.3f}] STARTUP_BROADCAST: WebSocket ready, starting client sync")
-                    # Initialize client availability NOW that WebSocket is ready
+                    self.logger.info("WebSocket ready, syncing clients")
                     await self.initialize_client_availability()
-
-                    # Signal that availability is ready (WebSocket can now send accurate state)
                     self._availability_ready.set()
-
-                    self.logger.info(f"[{time.time():.3f}] STARTUP_BROADCAST: Calling push_volume_to_all_clients")
                     await self.push_volume_to_all_clients()
-                    self.logger.info(f"[{time.time():.3f}] STARTUP_BROADCAST: push_volume_to_all_clients complete")
                 else:
-                    self.logger.warning("Snapcast WebSocket not ready after timeout, broadcasting with available state")
-                    # Still signal ready so WebSocket doesn't wait forever
+                    self.logger.warning("Snapcast WebSocket not ready after timeout")
                     self._availability_ready.set()
             else:
-                # Direct mode or no WebSocket service - short delay for other services
                 await asyncio.sleep(0.5)
-                # Signal ready for direct mode
                 self._availability_ready.set()
 
             await self._broadcast_volume_state(show_bar=False)
@@ -699,161 +558,73 @@ class VolumeService:
         return volume_state.global_volume_db
 
     async def set_volume_db(self, volume_db: float, show_bar: bool = True) -> bool:
-        """
-        Set volume to specific level in dB.
-
-        Args:
-            volume_db: Target volume in dB (-80 to 0)
-            show_bar: Whether to show volume bar in UI
-
-        Returns:
-            True if successful
-        """
-        try:
-            async with asyncio.timeout(2.0):
-                async with self._volume_lock:
-                    try:
-                        clamped_db = self._config_service.config.clamp(volume_db)
-
-                        # Check DSP availability (skip in multiroom mode - uses HTTP to clients)
-                        if not self._is_multiroom_enabled() and not self._is_dsp_available():
-                            self.logger.warning("DSP not available, volume change blocked")
-                            await self.state_machine.broadcast_event("volume", "volume_error", {
-                                "error": "CamillaDSP not available",
-                                "dsp_available": False
-                            })
-                            return False
-
-                        # Apply volume
-                        success = await self._apply_volume_db(clamped_db)
-
-                        if success:
-                            self._save_last_volume(clamped_db)
-                            await self._broadcast_volume_state(show_bar)
-
-                        return success
-                    except Exception as e:
-                        self.logger.error(f"Error setting volume: {e}")
-                        return False
-        except asyncio.TimeoutError:
-            self.logger.error("Timeout waiting for volume lock (>2s)")
-            return False
+        """Set volume to specific level in dB (-80 to 0)."""
+        async def _do_set():
+            try:
+                if not await self._check_dsp_or_error():
+                    return False
+                clamped_db = self._config_service.config.clamp(volume_db)
+                success = await self._apply_volume_db(clamped_db)
+                if success:
+                    self._save_last_volume(clamped_db)
+                    await self._broadcast_volume_state(show_bar)
+                return success
+            except Exception as e:
+                self.logger.error(f"Error setting volume: {e}")
+                return False
+        return await self._with_lock(_do_set)
 
     async def _apply_volume_db(self, volume_db: float) -> bool:
         """Apply volume to DSP (local or multiroom)."""
         try:
             if self._is_multiroom_enabled():
-                # MULTIROOM: Set absolute volume for all clients
                 client_ids = await get_available_client_ids(self.snapcast_service)
-                if not client_ids:
-                    return True
-
-                updates = {client_id: volume_db for client_id in client_ids}
-
-                # Apply in parallel
-                results = await self._dsp_controller.apply_volumes_parallel(updates)
-
-                # Update state store
-                for hostname, volume in updates.items():
-                    if results.get(hostname, False):
-                        await self._state_store.set_client_volume(hostname, volume)
-
-                # Graceful degradation: log warning but don't fail
-                if results and not any(results.values()):
-                    self.logger.warning(f"All {len(results)} multiroom clients failed volume update")
-                return True  # Clients will sync on reconnect
+                updates = {cid: volume_db for cid in client_ids} if client_ids else {}
+                return await self._apply_to_multiroom_clients(updates)
             else:
-                # LOCAL: Direct CamillaDSP control
                 success = await self._dsp_service.set_volume(volume_db)
                 if success:
                     self._state_store.set_local_volume(volume_db)
                 return success
-
         except Exception as e:
             self.logger.error(f"Error applying volume: {e}")
             return False
 
     async def adjust_volume_db(self, delta_db: float, show_bar: bool = True) -> bool:
-        """
-        Adjust volume by delta in dB.
-
-        Args:
-            delta_db: Volume change in dB (positive = louder, negative = quieter)
-            show_bar: Whether to show volume bar in UI
-
-        Returns:
-            True if successful
-        """
-        try:
-            async with asyncio.timeout(2.0):
-                async with self._volume_lock:
-                    try:
-                        # Check DSP availability (skip in multiroom mode - uses HTTP to clients)
-                        if not self._is_multiroom_enabled() and not self._is_dsp_available():
-                            self.logger.warning("DSP not available, volume change blocked")
-                            await self.state_machine.broadcast_event("volume", "volume_error", {
-                                "error": "CamillaDSP not available",
-                                "dsp_available": False
-                            })
-                            return False
-
-                        # Apply delta
-                        success = await self._apply_delta_db(delta_db)
-
-                        if success:
-                            volume_state = await self._state_store.get_complete_state()
-                            self._save_last_volume(volume_state.global_volume_db)
-                            await self._broadcast_volume_state(show_bar)
-
-                        return success
-                    except Exception as e:
-                        self.logger.error(f"Error adjusting volume: {e}")
-                        return False
-        except asyncio.TimeoutError:
-            self.logger.error("Timeout waiting for volume lock (>2s)")
-            return False
+        """Adjust volume by delta in dB (positive = louder, negative = quieter)."""
+        async def _do_adjust():
+            try:
+                if not await self._check_dsp_or_error():
+                    return False
+                success = await self._apply_delta_db(delta_db)
+                if success:
+                    volume_state = await self._state_store.get_complete_state()
+                    self._save_last_volume(volume_state.global_volume_db)
+                    await self._broadcast_volume_state(show_bar)
+                return success
+            except Exception as e:
+                self.logger.error(f"Error adjusting volume: {e}")
+                return False
+        return await self._with_lock(_do_adjust)
 
     async def _apply_delta_db(self, delta_db: float) -> bool:
         """Apply volume delta in dB."""
         try:
+            volume_state = await self._state_store.get_complete_state()
             if self._is_multiroom_enabled():
-                # MULTIROOM: Apply delta to all clients
                 client_ids = await get_available_client_ids(self.snapcast_service)
-                if not client_ids:
-                    return True
-
-                volume_state = await self._state_store.get_complete_state()
                 updates = {}
-                for client_id in client_ids:
-                    current = volume_state.clients.get(client_id)
+                for cid in client_ids or []:
+                    current = volume_state.clients.get(cid)
                     if current:
-                        new_vol = self._config_service.config.clamp(current.volume_db + delta_db)
-                        updates[client_id] = new_vol
-
-                if not updates:
-                    return True
-
-                # Apply in parallel
-                results = await self._dsp_controller.apply_volumes_parallel(updates)
-
-                # Update state store
-                for hostname, volume in updates.items():
-                    if results.get(hostname, False):
-                        await self._state_store.set_client_volume(hostname, volume)
-
-                # Graceful degradation: log warning but don't fail
-                if results and not any(results.values()):
-                    self.logger.warning(f"All {len(results)} multiroom clients failed volume update")
-                return True  # Clients will sync on reconnect
+                        updates[cid] = self._config_service.config.clamp(current.volume_db + delta_db)
+                return await self._apply_to_multiroom_clients(updates)
             else:
-                # LOCAL: Apply delta to CamillaDSP
-                volume_state = await self._state_store.get_complete_state()
                 new_db = self._config_service.config.clamp(volume_state.global_volume_db + delta_db)
                 success = await self._dsp_service.set_volume(new_db)
                 if success:
                     self._state_store.set_local_volume(new_db)
                 return success
-
         except Exception as e:
             self.logger.error(f"Error applying delta: {e}")
             return False
@@ -938,31 +709,16 @@ class VolumeService:
     async def get_status(self) -> dict:
         """Get complete volume service status."""
         try:
-            volume_state = await self._state_store.get_complete_state()
-
+            vs = await self._state_store.get_complete_state()
             return {
-                "volume_db": volume_state.global_volume_db,
+                "volume_db": vs.global_volume_db,
                 "multiroom_enabled": self._is_multiroom_enabled(),
                 "dsp_available": self._is_dsp_available(),
                 "config": self.get_volume_config_public(),
-                "clients": {
-                    hostname: {
-                        "volume_db": client.volume_db,
-                        "offset_db": client.offset_db,
-                        "mute": client.mute,
-                        "available": client.available
-                    }
-                    for hostname, client in volume_state.clients.items()
-                },
-                "zones": {
-                    zone_id: {
-                        "name": zone.name,
-                        "average_volume_db": zone.average_volume_db,
-                        "client_ids": zone.client_ids,
-                        "all_muted": zone.all_muted
-                    }
-                    for zone_id, zone in volume_state.zones.items()
-                }
+                "clients": {h: {"volume_db": c.volume_db, "offset_db": c.offset_db, "mute": c.mute, "available": c.available}
+                           for h, c in vs.clients.items()},
+                "zones": {zid: {"name": z.name, "average_volume_db": z.average_volume_db, "client_ids": z.client_ids, "all_muted": z.all_muted}
+                          for zid, z in vs.zones.items()}
             }
         except Exception as e:
             self.logger.error(f"Error getting status: {e}")

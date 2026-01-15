@@ -38,6 +38,40 @@ def create_dsp_router(
     """Creates DSP router with injected dependencies"""
     router = APIRouter(prefix="/api/dsp", tags=["dsp"])
 
+    # === Internal Helpers ===
+
+    def _require_proxy():
+        """Raise 503 if proxy_service unavailable."""
+        if not proxy_service:
+            raise HTTPException(status_code=503, detail="Proxy service not available")
+
+    def _require_registry():
+        """Raise 500 if client_registry_service unavailable."""
+        if not client_registry_service:
+            raise HTTPException(status_code=500, detail="Registry service not available")
+
+    def _get_volume_service():
+        """Get volume_service from state_machine or raise 500."""
+        if state_machine:
+            vs = getattr(state_machine, 'volume_service', None)
+            if vs:
+                return vs
+        raise HTTPException(status_code=500, detail="Volume service not available")
+
+    async def _check_client_or_skip(hostname: str, action: str):
+        """Check client availability, return skip response if unavailable, None otherwise."""
+        if proxy_service and not await proxy_service.check_available(hostname):
+            logger.warning(f"Client {hostname} is not available, skipping {action}")
+            return {"status": "skipped", "reason": "client_unavailable"}
+        return None
+
+    async def _broadcast_links():
+        """Broadcast links_changed event with current zones."""
+        zones = client_registry_service.get_all_zones()
+        linked_groups = [z.to_dict() for z in zones.values()]
+        await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
+        return linked_groups
+
     # === DSP Enable/Disable ===
 
     @router.get("/enabled")
@@ -499,11 +533,8 @@ def create_dsp_router(
         try:
             if client_registry_service:
                 zones = client_registry_service.get_all_zones()
-                # Convert Zone objects to dict format for API compatibility
-                linked_groups = [zone.to_dict() for zone in zones.values()]
-            else:
-                linked_groups = []
-            return {"linked_groups": linked_groups}
+                return {"linked_groups": [z.to_dict() for z in zones.values()]}
+            return {"linked_groups": []}
         except Exception as e:
             logger.error(f"Error getting linked clients: {e}")
             return {"linked_groups": []}
@@ -512,88 +543,42 @@ def create_dsp_router(
     async def create_link_group(payload: DspLinkedClientsRequest):
         """Create or update a linked client group (zone) via registry"""
         try:
-            if not client_registry_service:
-                raise HTTPException(status_code=500, detail="Registry service not available")
-
-            # Determine source client (provided or first in list)
+            _require_registry()
             source_client = payload.source_client or payload.client_ids[0]
             all_clients = payload.client_ids
-
-            # Check if any of these clients are already in a zone
             new_client_ids = set(payload.client_ids)
-            existing_zones = client_registry_service.get_all_zones()
 
-            for zone in existing_zones.values():
-                existing_ids = set(zone.client_ids)
-                overlap = new_client_ids & existing_ids
-                if overlap:
-                    # Merge with existing zone - add new clients
-                    clients_to_add = new_client_ids - existing_ids
-                    for client_id in clients_to_add:
-                        await client_registry_service.add_client_to_zone(zone.id, client_id)
+            # Helper to sync settings
+            async def do_sync(target_clients):
+                if not sync_service:
+                    return {"synced": [], "errors": ["Sync service not available"]}
+                if client_registry_service.get_client(source_client):
+                    return await sync_service.sync_settings(source_client, target_clients)
+                return {"synced": [], "errors": [f"Source client '{source_client}' not available"]}
 
-                    # Update name if provided
+            # Check for overlap with existing zones
+            for zone in client_registry_service.get_all_zones().values():
+                if new_client_ids & set(zone.client_ids):
+                    # Merge with existing zone
+                    for cid in new_client_ids - set(zone.client_ids):
+                        await client_registry_service.add_client_to_zone(zone.id, cid)
                     if payload.name:
                         await client_registry_service.update_zone(zone.id, name=payload.name)
+                    updated = client_registry_service.get_zone(zone.id)
+                    all_clients = updated.client_ids if updated else list(set(zone.client_ids) | new_client_ids)
+                    linked_groups = await _broadcast_links()
+                    return {"status": "success", "message": "Merged with existing group",
+                            "linked_groups": linked_groups, "sync": await do_sync(all_clients)}
 
-                    # Get updated zone
-                    updated_zone = client_registry_service.get_zone(zone.id)
-                    all_clients = updated_zone.client_ids if updated_zone else list(existing_ids | new_client_ids)
-
-                    # Sync settings from source to all clients in merged group
-                    if sync_service:
-                        source_exists = client_registry_service and client_registry_service.get_client(source_client)
-                        if source_exists:
-                            sync_result = await sync_service.sync_settings(source_client, all_clients)
-                        else:
-                            sync_result = {"synced": [], "errors": [f"Source client '{source_client}' not available"]}
-                    else:
-                        sync_result = {"synced": [], "errors": ["Sync service not available"]}
-
-                    # ZONE_CLIENT_ADDED events already trigger crossover recalculation
-                    # Get all zones for response
-                    zones = client_registry_service.get_all_zones()
-                    linked_groups = [z.to_dict() for z in zones.values()]
-                    await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
-
-                    return {
-                        "status": "success",
-                        "message": "Merged with existing group",
-                        "linked_groups": linked_groups,
-                        "sync": sync_result
-                    }
-
-            # Create new zone via registry
+            # Create new zone
             import uuid
-            zone_id = f"zone_{uuid.uuid4().hex[:8]}"
-            zone = await client_registry_service.create_zone(
-                zone_id=zone_id,
+            await client_registry_service.create_zone(
+                zone_id=f"zone_{uuid.uuid4().hex[:8]}",
                 name=payload.name or "",
                 client_ids=payload.client_ids
             )
-
-            # Sync settings from source to all other clients
-            if sync_service:
-                source_exists = client_registry_service and client_registry_service.get_client(source_client)
-                if source_exists:
-                    sync_result = await sync_service.sync_settings(source_client, all_clients)
-                else:
-                    sync_result = {"synced": [], "errors": [f"Source client '{source_client}' not available"]}
-            else:
-                sync_result = {"synced": [], "errors": ["Sync service not available"]}
-
-            # ZONE_CREATED event already triggers crossover application
-            # Get all zones for response
-            zones = client_registry_service.get_all_zones()
-            linked_groups = [z.to_dict() for z in zones.values()]
-            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
-
-            return {
-                "status": "success",
-                "linked_groups": linked_groups,
-                "sync": sync_result
-            }
-
+            linked_groups = await _broadcast_links()
+            return {"status": "success", "linked_groups": linked_groups, "sync": await do_sync(all_clients)}
         except HTTPException:
             raise
         except Exception as e:
@@ -604,32 +589,16 @@ def create_dsp_router(
     async def unlink_client(client_id: str):
         """Remove a client from its linked group (zone) via registry"""
         try:
-            if not client_registry_service:
-                raise HTTPException(status_code=500, detail="Registry service not available")
-
-            # Find zone containing this client
+            _require_registry()
             zone = client_registry_service.get_zone_for_client(client_id)
             if not zone:
                 raise HTTPException(status_code=404, detail=f"Client {client_id} not found in any linked group")
 
-            zone_id = zone.id
-            remaining_clients = len(zone.client_ids) - 1
+            await client_registry_service.remove_client_from_zone(zone.id, client_id)
+            if len(zone.client_ids) - 1 < 2:
+                await client_registry_service.delete_zone(zone.id)
 
-            # Remove client from zone via registry
-            # ZONE_CLIENT_REMOVED event will trigger crossover filter cleanup
-            await client_registry_service.remove_client_from_zone(zone_id, client_id)
-
-            # If zone has fewer than 2 clients remaining, delete the zone entirely
-            if remaining_clients < 2:
-                await client_registry_service.delete_zone(zone_id)
-
-            # Get all zones for response
-            zones = client_registry_service.get_all_zones()
-            linked_groups = [z.to_dict() for z in zones.values()]
-            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
-
-            return {"status": "success", "linked_groups": linked_groups}
-
+            return {"status": "success", "linked_groups": await _broadcast_links()}
         except HTTPException:
             raise
         except Exception as e:
@@ -640,18 +609,11 @@ def create_dsp_router(
     async def clear_all_links():
         """Remove all linked client groups (zones) via registry"""
         try:
-            if not client_registry_service:
-                raise HTTPException(status_code=500, detail="Registry service not available")
-
-            # Delete all zones via registry
-            # ZONE_DELETED events will trigger crossover filter cleanup
-            zones = client_registry_service.get_all_zones()
-            for zone_id in list(zones.keys()):
+            _require_registry()
+            for zone_id in list(client_registry_service.get_all_zones().keys()):
                 await client_registry_service.delete_zone(zone_id)
-
             await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": []})
             return {"status": "success", "linked_groups": []}
-
         except Exception as e:
             logger.error(f"Error clearing links: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -660,24 +622,11 @@ def create_dsp_router(
     async def delete_link_group(group_id: str):
         """Delete an entire linked client group (zone) via registry"""
         try:
-            if not client_registry_service:
-                raise HTTPException(status_code=500, detail="Registry service not available")
-
-            # Check zone exists
-            zone = client_registry_service.get_zone(group_id)
-            if not zone:
+            _require_registry()
+            if not client_registry_service.get_zone(group_id):
                 raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
-
-            # Delete zone via registry
-            # ZONE_DELETED event includes zone data and triggers crossover filter cleanup
             await client_registry_service.delete_zone(group_id)
-
-            # Get remaining zones for response
-            zones = client_registry_service.get_all_zones()
-            linked_groups = [z.to_dict() for z in zones.values()]
-            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
-            return {"status": "success", "linked_groups": linked_groups}
-
+            return {"status": "success", "linked_groups": await _broadcast_links()}
         except HTTPException:
             raise
         except Exception as e:
@@ -688,23 +637,11 @@ def create_dsp_router(
     async def update_link_group_name(group_id: str, request: Request):
         """Update the name of a linked client group (zone) via registry"""
         try:
-            if not client_registry_service:
-                raise HTTPException(status_code=500, detail="Registry service not available")
-
+            _require_registry()
             body = await request.json()
-            name = body.get("name", "")
-
-            # Update zone name via registry
-            zone = await client_registry_service.update_zone(group_id, name=name)
-            if not zone:
+            if not await client_registry_service.update_zone(group_id, name=body.get("name", "")):
                 raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
-
-            # Get all zones for response
-            zones = client_registry_service.get_all_zones()
-            linked_groups = [z.to_dict() for z in zones.values()]
-            await state_machine.broadcast_event("dsp", "links_changed", {"linked_groups": linked_groups})
-            return {"status": "success", "linked_groups": linked_groups}
-
+            return {"status": "success", "linked_groups": await _broadcast_links()}
         except HTTPException:
             raise
         except Exception as e:
@@ -713,14 +650,15 @@ def create_dsp_router(
 
     # === Speaker Type / Crossover Management ===
 
+    def _get_crossover_svc():
+        from backend.dependencies import get_service
+        return get_service("crossover_service")
+
     @router.get("/client/{client_id}/type")
     async def get_client_type(client_id: str):
         """Get client speaker type"""
         try:
-            from backend.dependencies import get_service
-            crossover_service = get_service("crossover_service")
-            client_type = await crossover_service.get_client_type(client_id)
-            return {"client_id": client_id, **client_type}
+            return {"client_id": client_id, **await _get_crossover_svc().get_client_type(client_id)}
         except Exception as e:
             logger.error(f"Error getting client type: {e}")
             return {"client_id": client_id, "speaker_type": "bookshelf"}
@@ -729,25 +667,12 @@ def create_dsp_router(
     async def set_client_speaker_type(client_id: str, payload: ClientSpeakerTypeRequest):
         """Set client speaker type (satellite, bookshelf, tower, subwoofer)"""
         try:
-            from backend.dependencies import get_service
-            crossover_service = get_service("crossover_service")
-            success = await crossover_service.set_client_speaker_type(
-                client_id,
-                payload.speaker_type
-            )
-
-            if success:
-                # Get the crossover frequency (default or custom)
-                client_type = await crossover_service.get_client_type(client_id)
-                return {
-                    "status": "success",
-                    "client_id": client_id,
-                    "speaker_type": payload.speaker_type,
-                    "crossover_frequency": client_type.get("crossover_frequency")
-                }
-
-            raise HTTPException(status_code=500, detail="Failed to update client speaker type")
-
+            cs = _get_crossover_svc()
+            if not await cs.set_client_speaker_type(client_id, payload.speaker_type):
+                raise HTTPException(status_code=500, detail="Failed to update client speaker type")
+            ct = await cs.get_client_type(client_id)
+            return {"status": "success", "client_id": client_id, "speaker_type": payload.speaker_type,
+                    "crossover_frequency": ct.get("crossover_frequency")}
         except HTTPException:
             raise
         except Exception as e:
@@ -758,29 +683,15 @@ def create_dsp_router(
     async def set_client_crossover_frequency(client_id: str, payload: dict):
         """Set custom crossover frequency for a client"""
         try:
-            from backend.dependencies import get_service
-            crossover_service = get_service("crossover_service")
-
-            frequency = payload.get("frequency")
-            if frequency is None:
+            freq = payload.get("frequency")
+            if freq is None:
                 raise HTTPException(status_code=400, detail="frequency is required")
-
-            success = await crossover_service.set_client_crossover_frequency(
-                client_id,
-                float(frequency)
-            )
-
-            if success:
-                client_type = await crossover_service.get_client_type(client_id)
-                return {
-                    "status": "success",
-                    "client_id": client_id,
-                    "speaker_type": client_type.get("speaker_type"),
-                    "crossover_frequency": client_type.get("crossover_frequency")
-                }
-
-            raise HTTPException(status_code=500, detail="Failed to update crossover frequency")
-
+            cs = _get_crossover_svc()
+            if not await cs.set_client_crossover_frequency(client_id, float(freq)):
+                raise HTTPException(status_code=500, detail="Failed to update crossover frequency")
+            ct = await cs.get_client_type(client_id)
+            return {"status": "success", "client_id": client_id, "speaker_type": ct.get("speaker_type"),
+                    "crossover_frequency": ct.get("crossover_frequency")}
         except HTTPException:
             raise
         except Exception as e:
@@ -791,10 +702,7 @@ def create_dsp_router(
     async def get_all_client_types():
         """Get all client type configurations"""
         try:
-            from backend.dependencies import get_service
-            crossover_service = get_service("crossover_service")
-            client_types = await crossover_service.get_all_client_types()
-            return {"client_types": client_types}
+            return {"client_types": await _get_crossover_svc().get_all_client_types()}
         except Exception as e:
             logger.error(f"Error getting client types: {e}")
             return {"client_types": {}}
@@ -803,27 +711,16 @@ def create_dsp_router(
     async def get_zone_crossover(group_id: str):
         """Get crossover settings for a zone"""
         try:
-            from backend.dependencies import get_service
-            crossover_service = get_service("crossover_service")
-            crossover = await crossover_service.get_zone_crossover(group_id)
-            return {"zone_id": group_id, **crossover}
+            return {"zone_id": group_id, **await _get_crossover_svc().get_zone_crossover(group_id)}
         except Exception as e:
             logger.error(f"Error getting zone crossover: {e}")
-            return {
-                "zone_id": group_id,
-                "frequency": 80,
-                "enabled": False,
-                "has_subwoofer": False
-            }
+            return {"zone_id": group_id, "frequency": 80, "enabled": False, "has_subwoofer": False}
 
     @router.get("/links/{group_id}/auto-crossover")
     async def get_zone_auto_crossover(group_id: str):
         """Get automatic crossover frequency for a zone (MIN of speaker frequencies)"""
         try:
-            from backend.dependencies import get_service
-            crossover_service = get_service("crossover_service")
-            frequency = await crossover_service.get_zone_auto_crossover(group_id)
-            return {"zone_id": group_id, "frequency": frequency}
+            return {"zone_id": group_id, "frequency": await _get_crossover_svc().get_zone_auto_crossover(group_id)}
         except Exception as e:
             logger.error(f"Error getting zone auto crossover: {e}")
             return {"zone_id": group_id, "frequency": 80}
@@ -832,19 +729,10 @@ def create_dsp_router(
     async def set_zone_crossover(group_id: str, payload: ZoneCrossoverRequest):
         """Set crossover frequency for a zone"""
         try:
-            from backend.dependencies import get_service
-            crossover_service = get_service("crossover_service")
-            success = await crossover_service.set_zone_crossover_frequency(
-                group_id,
-                payload.frequency
-            )
-
-            if success:
-                crossover = await crossover_service.get_zone_crossover(group_id)
-                return {"status": "success", "zone_id": group_id, **crossover}
-
-            raise HTTPException(status_code=500, detail="Failed to update zone crossover")
-
+            cs = _get_crossover_svc()
+            if not await cs.set_zone_crossover_frequency(group_id, payload.frequency):
+                raise HTTPException(status_code=500, detail="Failed to update zone crossover")
+            return {"status": "success", "zone_id": group_id, **await cs.get_zone_crossover(group_id)}
         except HTTPException:
             raise
         except Exception as e:
@@ -855,15 +743,9 @@ def create_dsp_router(
     async def apply_zone_crossover(group_id: str):
         """Manually apply crossover settings to all clients in a zone"""
         try:
-            from backend.dependencies import get_service
-            crossover_service = get_service("crossover_service")
-            success = await crossover_service.apply_zone_crossover(group_id)
-
-            if success:
-                return {"status": "success", "message": f"Crossover applied to zone {group_id}"}
-
-            raise HTTPException(status_code=500, detail="Failed to apply crossover")
-
+            if not await _get_crossover_svc().apply_zone_crossover(group_id):
+                raise HTTPException(status_code=500, detail="Failed to apply crossover")
+            return {"status": "success", "message": f"Crossover applied to zone {group_id}"}
         except HTTPException:
             raise
         except Exception as e:
@@ -932,56 +814,37 @@ def create_dsp_router(
     @router.get("/client/{hostname}/filters")
     async def get_client_dsp_filters(hostname: str):
         """Proxy DSP filters request to client"""
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
+        _require_proxy()
         return await proxy_service.request(hostname, "GET", "/dsp/filters")
 
     @router.put("/client/{hostname}/filter/{filter_id}")
     async def update_client_dsp_filter(hostname: str, filter_id: str, request: Request):
         """Proxy filter update to client and persist settings"""
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
-
+        _require_proxy()
         body = await request.json()
-
-        # Check if client is available before proxying
-        available = await proxy_service.check_available(hostname)
-        if not available:
-            logger.warning(f"Client {hostname} is not available, skipping filter update")
-            # Return success with skipped status - client will sync on reconnect
-            return {"status": "skipped", "reason": "client_unavailable", "id": filter_id, **body}
+        skip = await _check_client_or_skip(hostname, "filter update")
+        if skip:
+            return {**skip, "id": filter_id, **body}
 
         result = await proxy_service.request(hostname, "PUT", f"/dsp/filter/{filter_id}", body)
-        # Save filter settings to Milo after successful update
         if result.get("status") == "success" and sync_service:
             settings = await sync_service.load_settings()
-            if hostname not in settings:
-                settings[hostname] = {}
-            if "filters" not in settings[hostname]:
-                settings[hostname]["filters"] = {}
-            filter_data = {k: v for k, v in result.items() if k != "status"}
-            settings[hostname]["filters"][filter_id] = filter_data
+            settings.setdefault(hostname, {}).setdefault("filters", {})[filter_id] = {k: v for k, v in result.items() if k != "status"}
             await sync_service.save_settings(settings)
         return result
 
     @router.post("/client/{hostname}/reset")
     async def reset_client_dsp_filters(hostname: str):
         """Proxy filter reset to client and clear saved filter settings"""
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
-
-        # Check if client is available before proxying
-        available = await proxy_service.check_available(hostname)
-        if not available:
-            logger.warning(f"Client {hostname} is not available, skipping filter reset")
-            # Return success with skipped status - client will sync on reconnect
-            return {"status": "skipped", "reason": "client_unavailable"}
+        _require_proxy()
+        skip = await _check_client_or_skip(hostname, "filter reset")
+        if skip:
+            return skip
 
         result = await proxy_service.request(hostname, "POST", "/dsp/reset")
-        # Clear saved filters for this client
         if result.get("status") == "success" and sync_service:
             settings = await sync_service.load_settings()
-            if hostname in settings and "filters" in settings[hostname]:
+            if hostname in settings:
                 settings[hostname]["filters"] = {}
                 await sync_service.save_settings(settings)
         return result
@@ -989,124 +852,74 @@ def create_dsp_router(
     @router.get("/client/{hostname}/compressor")
     async def get_client_compressor(hostname: str):
         """Proxy compressor GET to client"""
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
+        _require_proxy()
         return await proxy_service.request(hostname, "GET", "/dsp/compressor")
 
     @router.put("/client/{hostname}/compressor")
     async def update_client_compressor(hostname: str, request: Request):
         """Proxy compressor update to client and persist settings"""
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
-
+        _require_proxy()
         body = await request.json()
-
-        # Check if client is available before proxying
-        available = await proxy_service.check_available(hostname)
-        if not available:
-            logger.warning(f"Client {hostname} is not available, skipping compressor update")
-            # Return success with skipped status - client will sync on reconnect
-            return {"status": "skipped", "reason": "client_unavailable", **body}
+        skip = await _check_client_or_skip(hostname, "compressor update")
+        if skip:
+            return {**skip, **body}
 
         result = await proxy_service.request(hostname, "PUT", "/dsp/compressor", body)
-        # Save settings to Milo after successful update
         if result.get("status") == "success" and sync_service:
-            compressor_data = {k: v for k, v in result.items() if k != "status"}
-            await sync_service.update_client_settings(hostname, "compressor", compressor_data)
+            await sync_service.update_client_settings(hostname, "compressor", {k: v for k, v in result.items() if k != "status"})
         return result
 
     @router.get("/client/{hostname}/loudness")
     async def get_client_loudness(hostname: str):
         """Proxy loudness GET to client"""
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
+        _require_proxy()
         return await proxy_service.request(hostname, "GET", "/dsp/loudness")
 
     @router.put("/client/{hostname}/loudness")
     async def update_client_loudness(hostname: str, request: Request):
         """Proxy loudness update to client and persist settings"""
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
-
+        _require_proxy()
         body = await request.json()
-
-        # Check if client is available before proxying
-        available = await proxy_service.check_available(hostname)
-        if not available:
-            logger.warning(f"Client {hostname} is not available, skipping loudness update")
-            # Return success with skipped status - client will sync on reconnect
-            return {"status": "skipped", "reason": "client_unavailable", **body}
+        skip = await _check_client_or_skip(hostname, "loudness update")
+        if skip:
+            return {**skip, **body}
 
         result = await proxy_service.request(hostname, "PUT", "/dsp/loudness", body)
-        # Save settings to Milo after successful update
         if result.get("status") == "success" and sync_service:
-            loudness_data = {k: v for k, v in result.items() if k != "status"}
-            await sync_service.update_client_settings(hostname, "loudness", loudness_data)
+            await sync_service.update_client_settings(hostname, "loudness", {k: v for k, v in result.items() if k != "status"})
         return result
 
     @router.get("/client/{hostname}/volume")
     async def get_client_volume(hostname: str):
         """Get volume for a specific client (consistent with multiroom model)."""
         normalized = normalize_client_id(hostname)
-
-        # Use volume_service as source of truth
         if state_machine:
-            volume_service = getattr(state_machine, 'volume_service', None)
-            if volume_service:
-                return await volume_service.get_client_volume(normalized)
-
-        # Fallback: direct DSP query (if volume_service unavailable)
+            vs = getattr(state_machine, 'volume_service', None)
+            if vs:
+                return await vs.get_client_volume(normalized)
         if normalized == 'local':
             try:
-                volume = await dsp_service.get_volume()
-                return {"main": volume.get("main", -30), "mute": volume.get("mute", False)}
+                vol = await dsp_service.get_volume()
+                return {"main": vol.get("main", -30), "mute": vol.get("mute", False)}
             except Exception:
                 return {"main": -30, "mute": False}
-
-        # Remote client: proxy
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
+        _require_proxy()
         return await proxy_service.request(hostname, "GET", "/dsp/volume")
 
     @router.put("/client/{hostname}/volume")
     async def update_client_volume(hostname: str, request: Request):
-        """
-        Set volume for a specific client (local or remote).
-
-        For 'local'/'milo': Uses multiroom_handler.set_client_volume_db() to change
-        only the local CamillaDSP volume without affecting other clients.
-
-        For remote clients: Proxies to the client's DSP API.
-        """
+        """Set volume for a specific client (local or remote)."""
         body = await request.json()
         volume_db = body.get("volume")
-
-        # Normalize hostname: 'milo' -> 'local'
         normalized = normalize_client_id(hostname)
 
         if normalized == 'local':
-            # Handle local CamillaDSP volume
-            # This sets only this client's volume (updates offset in zones, doesn't affect other clients)
-            if not state_machine:
-                raise HTTPException(status_code=500, detail="State machine not available")
-
-            volume_service = getattr(state_machine, 'volume_service', None)
-            if not volume_service:
-                raise HTTPException(status_code=500, detail="Volume service not available")
-
-            # Use new VolumeService architecture (VolumeStateStore + DSPController)
-            await volume_service.update_client_volume_db('local', volume_db, broadcast=True)
-
+            vs = _get_volume_service()
+            await vs.update_client_volume_db('local', volume_db, broadcast=True)
             return {"status": "success", "main": volume_db}
 
-        # Remote client: proxy to client's DSP API
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
-
-        # Check if client is available before proxying (prevents timeout waiting for unreachable client)
-        available = await proxy_service.check_available(hostname)
-        if not available:
-            logger.warning(f"Client {hostname} is not available, cannot update volume")
+        _require_proxy()
+        if not await proxy_service.check_available(hostname):
             raise HTTPException(status_code=503, detail=f"Client {hostname} is not available")
 
         try:
@@ -1114,70 +927,36 @@ def create_dsp_router(
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"Error proxying volume request to {hostname}: {e}")
             raise HTTPException(status_code=503, detail=f"Cannot reach client {hostname}: {e}")
 
-        # Save volume to Milo after successful update
-        if result.get("status") == "success" and sync_service:
-            volume_data = {k: v for k, v in result.items() if k != "status"}
-            await sync_service.update_client_settings(hostname, "volume", volume_data)
-
-            # Update multiroom volume cache with actual response value, not request
-            # The response 'main' field contains the actual volume set by the client
-            actual_volume = result.get("main", result.get("volume", volume_db))
-            if actual_volume is not None and state_machine:
-                volume_service = getattr(state_machine, 'volume_service', None)
-                if volume_service:
-                    await volume_service.update_client_volume_db(normalized, actual_volume)
-                    # Log if requested vs actual differs (client clamped the value)
-                    if actual_volume != volume_db:
-                        logger.info(
-                            f"Client {hostname} volume clamped: requested {volume_db} dB, actual {actual_volume} dB"
-                        )
-
+        if result.get("status") == "success":
+            if sync_service:
+                await sync_service.update_client_settings(hostname, "volume", {k: v for k, v in result.items() if k != "status"})
+            actual = result.get("main", result.get("volume", volume_db))
+            if actual is not None:
+                vs = getattr(state_machine, 'volume_service', None) if state_machine else None
+                if vs:
+                    await vs.update_client_volume_db(normalized, actual)
+                    if actual != volume_db:
+                        logger.info(f"Client {hostname} volume clamped: {volume_db} -> {actual} dB")
         return result
 
     @router.put("/client/{hostname}/mute")
     async def update_client_mute(hostname: str, request: Request):
-        """
-        Set mute for a specific client (local or remote).
-
-        For 'local'/'milo': Uses VolumeService to update mute state.
-        For remote clients: Proxies to the client's DSP API.
-        """
+        """Set mute for a specific client (local or remote)."""
         body = await request.json()
         muted = body.get("muted")
-
-        # Normalize hostname: 'milo' -> 'local'
         normalized = normalize_client_id(hostname)
 
         if normalized == 'local':
-            # Handle local mute via VolumeService
-            if not state_machine:
-                raise HTTPException(status_code=500, detail="State machine not available")
-
-            volume_service = getattr(state_machine, 'volume_service', None)
-            if not volume_service:
-                raise HTTPException(status_code=500, detail="Volume service not available")
-
-            # Update local DSP hardware
-            result = await dsp_service.set_mute(muted)
-            if not result:
+            vs = _get_volume_service()
+            if not await dsp_service.set_mute(muted):
                 raise HTTPException(status_code=500, detail="Failed to set local mute")
-
-            # Update state store and broadcast
-            await volume_service.set_client_mute('local', muted, broadcast=True)
-
+            await vs.set_client_mute('local', muted, broadcast=True)
             return {"status": "success", "mute": muted}
 
-        # Remote client: proxy to client's DSP API
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
-
-        # Check if client is available before proxying (prevents timeout waiting for unreachable client)
-        available = await proxy_service.check_available(hostname)
-        if not available:
-            logger.warning(f"Client {hostname} is not available, cannot update mute")
+        _require_proxy()
+        if not await proxy_service.check_available(hostname):
             raise HTTPException(status_code=503, detail=f"Client {hostname} is not available")
 
         try:
@@ -1185,15 +964,12 @@ def create_dsp_router(
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"Error proxying mute request to {hostname}: {e}")
             raise HTTPException(status_code=503, detail=f"Cannot reach client {hostname}: {e}")
 
-        # Update Milo's state store on success
-        if result.get("status") == "success" and state_machine:
-            volume_service = getattr(state_machine, 'volume_service', None)
-            if volume_service:
-                await volume_service.set_client_mute(normalized, muted, broadcast=True)
-
+        if result.get("status") == "success":
+            vs = getattr(state_machine, 'volume_service', None) if state_machine else None
+            if vs:
+                await vs.set_client_mute(normalized, muted, broadcast=True)
         return result
 
     # === Client Settings Persistence ===
@@ -1210,66 +986,35 @@ def create_dsp_router(
     async def restore_client_settings(hostname: str):
         """Restore saved DSP settings to a client"""
         if not sync_service or not proxy_service:
-            return {"status": "error", "message": "Services not available", "restored": [], "errors": ["Services not available"]}
+            return {"status": "error", "restored": [], "errors": ["Services not available"]}
 
         saved = await sync_service.get_client_settings(hostname)
         if not saved:
             return {"status": "success", "message": "No saved settings to restore", "restored": []}
 
-        restored = []
-        errors = []
+        restored, errors = [], []
 
-        # Restore compressor settings
+        async def try_restore(name: str, path: str, data):
+            try:
+                await proxy_service.request(hostname, "PUT", path, data)
+                restored.append(name)
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+
         if "compressor" in saved:
-            try:
-                await proxy_service.request(hostname, "PUT", "/dsp/compressor", saved["compressor"])
-                restored.append("compressor")
-            except Exception as e:
-                errors.append(f"compressor: {e}")
-
-        # Restore loudness settings
+            await try_restore("compressor", "/dsp/compressor", saved["compressor"])
         if "loudness" in saved:
-            try:
-                await proxy_service.request(hostname, "PUT", "/dsp/loudness", saved["loudness"])
-                restored.append("loudness")
-            except Exception as e:
-                errors.append(f"loudness: {e}")
-
-        # Restore filter settings
-        if "filters" in saved:
-            for filter_id, filter_data in saved["filters"].items():
-                try:
-                    await proxy_service.request(hostname, "PUT", f"/dsp/filter/{filter_id}", filter_data)
-                    restored.append(f"filter:{filter_id}")
-                except Exception as e:
-                    errors.append(f"filter:{filter_id}: {e}")
-
-        # Restore volume settings
-        if "volume" in saved:
-            vol_settings = saved["volume"]
-            # Restore volume level
-            if "main" in vol_settings:
-                try:
-                    await proxy_service.request(hostname, "PUT", "/dsp/volume", {"volume": vol_settings["main"]})
-                    restored.append("volume")
-                except Exception as e:
-                    errors.append(f"volume: {e}")
-            # Restore mute state
-            if "mute" in vol_settings:
-                try:
-                    await proxy_service.request(hostname, "PUT", "/dsp/mute", {"muted": vol_settings["mute"]})
-                    restored.append("mute")
-                except Exception as e:
-                    errors.append(f"mute: {e}")
+            await try_restore("loudness", "/dsp/loudness", saved["loudness"])
+        for fid, fdata in saved.get("filters", {}).items():
+            await try_restore(f"filter:{fid}", f"/dsp/filter/{fid}", fdata)
+        if "main" in saved.get("volume", {}):
+            await try_restore("volume", "/dsp/volume", {"volume": saved["volume"]["main"]})
+        if "mute" in saved.get("volume", {}):
+            await try_restore("mute", "/dsp/mute", {"muted": saved["volume"]["mute"]})
 
         logger.info(f"Restored settings for {hostname}: {restored}")
         if errors:
             logger.warning(f"Errors restoring settings for {hostname}: {errors}")
-
-        return {
-            "status": "success" if not errors else "partial",
-            "restored": restored,
-            "errors": errors if errors else None
-        }
+        return {"status": "success" if not errors else "partial", "restored": restored, "errors": errors or None}
 
     return router
