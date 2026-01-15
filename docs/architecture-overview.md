@@ -14,7 +14,7 @@
 - Touch-screen interface with Vue 3 SPA
 - FastAPI async backend
 
-**Architecture Pattern:** Layered Domain-Driven Design + Plugin Architecture
+**Architecture Pattern:** Feature-Based Architecture + Plugin System
 
 ---
 
@@ -44,94 +44,74 @@ All I/O operations use async/await. No blocking calls allowed in the main event 
 ### 4. WebSocket State Sync
 All state changes broadcast via WebSocket. Frontend never polls - it reacts to server events.
 
-### 5. Dependency Injection
-All services are wired via `dependency-injector` container, enabling clean testing and separation.
+### 5. Service Registry
+All services use a simple dict-based Service Registry with lazy singleton creation (`dependencies.py`).
 
 ---
 
 ## Backend Architecture
 
-### Layer Structure
+### Feature-Based Structure
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    PRESENTATION LAYER                        │
-│  ┌────────────────────┐  ┌────────────────────────────────┐ │
-│  │   REST API Routes  │  │   WebSocket Server             │ │
-│  │   (14 modules)     │  │   (real-time events)           │ │
-│  └────────────────────┘  └────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    APPLICATION LAYER                         │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │              AudioSourcePlugin Interface               │ │
-│  │   initialize() | start() | stop() | handle_command()   │ │
-│  └────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   INFRASTRUCTURE LAYER                       │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │   Plugins   │  │  Services   │  │   State Machine     │ │
-│  │  (5 types)  │  │ (15+ svcs)  │  │   (centralized)     │ │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      DOMAIN LAYER                            │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │ AudioSource  │  │ PluginState  │  │ RegisteredClient │  │
-│  │ SystemState  │  │ Zone         │  │ VolumeState      │  │
-│  └──────────────┘  └──────────────┘  └──────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+backend/
+├── core/                      # Core infrastructure
+│   ├── models/               # Domain models (AudioSource, PluginState, Volume)
+│   ├── state.py              # AudioStateMachine (single source of truth)
+│   ├── events.py             # EventBus for decoupled communication
+│   ├── audio_source.py       # AudioSourceProtocol interface
+│   ├── settings.py           # SettingsService
+│   ├── systemd.py            # SystemdServiceManager
+│   ├── volume/               # Volume service + handlers
+│   ├── dsp/                  # CamillaDSP service + proxy + sync
+│   └── multiroom/            # Snapcast + routing + crossover
+├── features/                  # Audio source implementations
+│   ├── spotify/              # SpotifySource + routes
+│   ├── mac/                  # MacSource + routes
+│   ├── bluetooth/            # BluetoothSource + routes
+│   ├── radio/                # RadioSource + routes + browser_api
+│   └── podcast/              # PodcastSource + routes + taddy_api
+├── api/                       # REST API routes
+├── ws/                        # WebSocket server + manager
+├── hardware/                  # Hardware controllers (rotary, screen)
+├── shared/                    # Shared utilities (MpvController)
+├── config/                    # Constants
+└── dependencies.py            # Service Registry (lazy singletons)
 ```
 
 ### Key Services
 
 | Service | File | Responsibility |
 |---------|------|----------------|
-| `UnifiedAudioStateMachine` | `state/state_machine.py` | Central state + event broadcast |
-| `SettingsService` | `settings_service.py` | Persistent settings |
-| `VolumeService` | `volume/volume_service.py` | Volume control orchestration |
-| `AudioRoutingService` | `routing/audio_routing_service.py` | Direct/multiroom switching |
-| `SnapcastService` | `snapcast_service.py` | Snapcast JSON-RPC |
-| `CamillaDSPService` | `dsp/camilladsp_service.py` | DSP WebSocket control |
-| `ClientRegistryService` | `client_registry_service.py` | Multiroom client/zone registry |
+| `AudioStateMachine` | `core/state.py` | Central state + event broadcast |
+| `SettingsService` | `core/settings.py` | Persistent settings |
+| `VolumeService` | `core/volume/service.py` | Volume control orchestration |
+| `AudioRoutingService` | `core/multiroom/routing.py` | Direct/multiroom switching |
+| `SnapcastService` | `core/multiroom/snapcast.py` | Snapcast JSON-RPC |
+| `CamillaDSPService` | `core/dsp/service.py` | DSP WebSocket control |
+| `ClientRegistryService` | `core/multiroom/registry.py` | Multiroom client/zone registry |
 
 ### Plugin System
 
 ```python
-# Interface (application/interfaces/audio_source.py)
-class AudioSourcePlugin(ABC):
-    @abstractmethod
+# Interface (core/audio_source.py)
+class AudioSourceProtocol(Protocol):
     async def initialize(self) -> bool: ...
-
-    @abstractmethod
     async def start(self) -> bool: ...
-
-    @abstractmethod
     async def stop(self) -> bool: ...
-
-    @abstractmethod
     async def get_status(self) -> Dict[str, Any]: ...
-
-    @abstractmethod
     async def handle_command(self, command: str, data: Dict) -> Dict[str, Any]: ...
 ```
 
-**Registered Plugins:**
+**Registered Plugins** (in `features/`):
 
-| Plugin | Service | IPC |
-|--------|---------|-----|
-| SpotifyPlugin | milo-spotify (go-librespot) | HTTP API |
-| BluetoothPlugin | milo-bluealsa | D-Bus |
-| MacPlugin | milo-mac (ROC) | Systemd |
-| RadioPlugin | milo-radio (mpv) | Unix socket |
-| PodcastPlugin | milo-podcast (mpv) | Unix socket |
+| Plugin | Location | Service | IPC |
+|--------|----------|---------|-----|
+| SpotifySource | `features/spotify/` | milo-spotify (go-librespot) | HTTP API |
+| BluetoothSource | `features/bluetooth/` | milo-bluealsa | D-Bus |
+| MacSource | `features/mac/` | milo-mac (ROC) | Systemd |
+| RadioSource | `features/radio/` | milo-radio (mpv) | Unix socket |
+| PodcastSource | `features/podcast/` | milo-podcast (mpv) | Unix socket |
 
 ---
 
@@ -196,30 +176,30 @@ Component Re-render
 - Always use `state_machine._broadcast_event()` for notifications
 - Always use `settings_service.set_setting()` for persistence
 - Always use async/await for I/O operations
-- Always register plugins in container before `initialize_services()`
+- Always register plugins in `dependencies.py` before `initialize_services()`
 
 ### DON'T:
 - Don't modify `state_machine._state` directly
 - Don't bypass SettingsService for settings
 - Don't use blocking I/O
 - Don't hardcode ALSA device names (use env vars)
-- Don't modify container initialization order without understanding dependencies
+- Don't modify `dependencies.py` initialization order without understanding circular dependencies
 
 ---
 
 ## Service Initialization Order
 
-**CRITICAL:** The order in `container.py::initialize_services()` must be preserved:
+**CRITICAL:** The order in `dependencies.py::initialize_services()` must be preserved:
 
 ```python
-# 1. Create instances (order non-critical)
+# 1. Retrieve instances (triggers lazy creation via get_service())
 # 2. Resolve circular dependencies via setters:
 routing_service.set_plugin_callback()           # Access to plugins
 routing_service.set_snapcast_websocket_service() # Lifecycle control
 routing_service.set_state_machine()             # Event broadcasting
 state_machine.routing_service = routing_service # Circular ref complete
 
-# 3. Register plugins (BEFORE async init)
+# 3. Register plugins in state_machine (BEFORE async init)
 # 4. Parallel async initialization via asyncio.gather()
 ```
 
@@ -310,7 +290,7 @@ state_machine.routing_service = routing_service # Circular ref complete
 
 ### Key Files
 - Backend entry: `backend/main.py`
-- DI container: `backend/config/container.py`
-- State machine: `backend/infrastructure/state/state_machine.py`
+- Service Registry: `backend/dependencies.py`
+- State machine: `backend/core/state.py`
 - Frontend entry: `frontend/src/main.js`
 - Settings: `/var/lib/milo/settings.json`

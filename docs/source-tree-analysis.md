@@ -25,111 +25,110 @@ milo/                              # Project root
 
 ## Backend Structure (`backend/`)
 
+**Architecture: Feature-Based** (refactorisé janvier 2026)
+
 ```
 backend/
 ├── main.py                        # 🚀 Entry point - FastAPI app
+├── dependencies.py                # 🔧 Service Registry (lazy singletons)
+│
 ├── config/
-│   ├── container.py               # 🔧 DI container (dependency-injector)
 │   └── constants.py               # Configuration constants
 │
-├── domain/                        # 📦 Business models (DDD)
-│   ├── audio_state.py             # AudioSource, PluginState, SystemAudioState
-│   ├── audio_routing.py           # Routing models
-│   ├── client_registry.py         # RegisteredClient, Zone, RegistryState
-│   ├── volume.py                  # Volume models
-│   ├── volume_state.py            # Volume state models
-│   └── exceptions.py              # Domain exceptions
+├── core/                          # 📦 Core infrastructure
+│   ├── state.py                   # 🎯 AudioStateMachine (SSOT)
+│   ├── events.py                  # EventBus for decoupled communication
+│   ├── audio_source.py            # 🔌 AudioSourceProtocol interface
+│   ├── settings.py                # SettingsService (persistence)
+│   ├── systemd.py                 # SystemdServiceManager
+│   │
+│   ├── models/                    # Domain models
+│   │   ├── audio_state.py         # AudioSource, PluginState, SystemAudioState
+│   │   ├── audio_routing.py       # Routing models
+│   │   ├── client_registry.py     # RegisteredClient, Zone, RegistryState
+│   │   └── volume.py              # Volume models
+│   │
+│   ├── volume/                    # Volume service
+│   │   ├── service.py             # VolumeService (orchestration)
+│   │   ├── state.py               # Volume state management
+│   │   └── handlers.py            # Volume event handlers
+│   │
+│   ├── dsp/                       # CamillaDSP integration
+│   │   ├── service.py             # CamillaDSPService (WebSocket control)
+│   │   ├── proxy.py               # DspClientProxyService
+│   │   ├── sync.py                # DspSettingsSyncService
+│   │   └── config.py              # DSP configuration
+│   │
+│   └── multiroom/                 # Snapcast + routing
+│       ├── routing.py             # AudioRoutingService
+│       ├── snapcast.py            # SnapcastService (JSON-RPC)
+│       ├── websocket.py           # SnapcastWebSocketService
+│       ├── registry.py            # ClientRegistryService (SSOT clients)
+│       └── crossover.py           # CrossoverService
 │
-├── application/
-│   └── interfaces/
-│       └── audio_source.py        # 🔌 AudioSourcePlugin interface
+├── features/                      # 🎵 Audio source plugins
+│   ├── spotify/                   # Spotify Connect (go-librespot)
+│   │   ├── source.py              # SpotifySource
+│   │   └── routes.py              # /spotify/* routes
+│   │
+│   ├── bluetooth/                 # Bluetooth audio (BlueALSA)
+│   │   ├── source.py              # BluetoothSource
+│   │   ├── agent.py               # D-Bus agent
+│   │   ├── monitor.py             # BlueALSA monitor
+│   │   └── routes.py              # /bluetooth/* routes
+│   │
+│   ├── mac/                       # Mac streaming (ROC)
+│   │   ├── source.py              # MacSource
+│   │   └── routes.py              # /roc/* routes
+│   │
+│   ├── radio/                     # Internet radio (mpv)
+│   │   ├── source.py              # RadioSource
+│   │   ├── routes.py              # /api/radio/* routes
+│   │   ├── browser_api.py         # RadioBrowser API client
+│   │   ├── data.py                # RadioDataService
+│   │   ├── genres.py              # Genre definitions
+│   │   └── images.py              # Station image management
+│   │
+│   ├── podcast/                   # Podcasts (mpv + Taddy API)
+│   │   ├── source.py              # PodcastSource
+│   │   ├── routes.py              # /api/podcast/* routes
+│   │   ├── taddy_api.py           # Taddy GraphQL client
+│   │   └── data.py                # PodcastDataService
+│   │
+│   └── programs/                  # Update services
+│       ├── version.py             # ProgramVersionService
+│       ├── update.py              # ProgramUpdateService
+│       └── satellite.py           # SatelliteProgramUpdateService
 │
-├── infrastructure/
-│   ├── plugins/                   # Audio source implementations
-│   │   ├── base.py                # UnifiedAudioPlugin base class
-│   │   ├── plugin_utils.py        # Shared plugin utilities
-│   │   ├── spotify/               # Spotify Connect (go-librespot)
-│   │   │   └── plugin.py
-│   │   ├── bluetooth/             # Bluetooth audio (BlueALSA)
-│   │   │   ├── plugin.py
-│   │   │   ├── agent.py
-│   │   │   ├── bluealsa_monitor.py
-│   │   │   └── bluealsa_playback.py
-│   │   ├── mac/                   # Mac streaming (ROC)
-│   │   │   └── plugin.py
-│   │   ├── radio/                 # Internet radio (mpv)
-│   │   │   ├── plugin.py
-│   │   │   ├── mpv_controller.py
-│   │   │   ├── station_manager.py
-│   │   │   ├── radio_browser_api.py
-│   │   │   ├── image_manager.py
-│   │   │   └── genres.py
-│   │   └── podcast/               # Podcasts (mpv + Taddy API)
-│   │       ├── plugin.py
-│   │       └── taddy_api.py
-│   │
-│   ├── services/                  # Business services
-│   │   ├── settings_service.py    # Settings persistence
-│   │   ├── snapcast_service.py    # Snapcast control
-│   │   ├── snapcast_websocket_service.py
-│   │   ├── client_registry_service.py  # Client/zone management
-│   │   ├── systemd_manager.py     # Service control (PolicyKit)
-│   │   ├── hardware_service.py    # Hardware configuration
-│   │   ├── radio_data_service.py  # Radio persistence
-│   │   ├── podcast_data_service.py # Podcast persistence
-│   │   ├── program_version_service.py
-│   │   ├── program_update_service.py
-│   │   ├── satellite_program_update_service.py
-│   │   ├── routing/               # Audio routing
-│   │   │   ├── audio_routing_service.py
-│   │   │   └── routing_transitions.py
-│   │   ├── volume/                # Volume control
-│   │   │   ├── volume_service.py
-│   │   │   ├── volume_state.py
-│   │   │   ├── volume_config.py
-│   │   │   └── dsp_controller.py
-│   │   └── dsp/                   # CamillaDSP integration
-│   │       ├── camilladsp_service.py
-│   │       ├── camilladsp_config.py
-│   │       ├── crossover_service.py
-│   │       ├── client_proxy_service.py
-│   │       └── settings_sync_service.py
-│   │
-│   ├── hardware/                  # Hardware controllers
-│   │   ├── rotary_volume_controller.py  # GPIO rotary encoder
-│   │   └── screen_controller.py   # Screen brightness/timeout
-│   │
-│   └── state/
-│       └── state_machine.py       # 🎯 UnifiedAudioStateMachine
+├── api/                           # REST API routes (non-feature)
+│   ├── audio.py                   # /api/audio/*
+│   ├── volume.py                  # /api/volume/*
+│   ├── routing.py                 # /api/routing/*
+│   ├── dsp.py                     # /api/dsp/*
+│   ├── snapcast.py                # /api/snapcast/*
+│   ├── registry.py                # /api/registry/*
+│   ├── settings.py                # /api/settings/*
+│   ├── programs.py                # /api/programs/*
+│   ├── health.py                  # /api/health, /api/ping
+│   └── models.py                  # Pydantic models
 │
-├── presentation/
-│   ├── api/
-│   │   ├── models.py              # Pydantic request/response models
-│   │   └── routes/                # REST endpoints
-│   │       ├── audio.py           # /api/audio/*
-│   │       ├── volume.py          # /api/volume/*
-│   │       ├── routing.py         # /api/routing/*
-│   │       ├── dsp.py             # /api/dsp/* (54KB - largest)
-│   │       ├── spotify.py         # /spotify/*
-│   │       ├── bluetooth.py       # /bluetooth/*
-│   │       ├── mac.py             # /roc/*
-│   │       ├── radio.py           # /api/radio/*
-│   │       ├── podcast.py         # /api/podcast/*
-│   │       ├── snapcast.py        # /api/snapcast/*
-│   │       ├── registry.py        # /api/registry/*
-│   │       ├── settings.py        # /api/settings/*
-│   │       ├── programs.py        # /api/programs/*
-│   │       └── health.py          # /api/health, /api/ping
-│   │
-│   └── websockets/
-│       ├── server.py              # WebSocket endpoint handler
-│       ├── manager.py             # Connection management
-│       └── events.py              # Event definitions
+├── ws/                            # WebSocket server
+│   ├── server.py                  # WebSocket endpoint handler
+│   ├── manager.py                 # Connection management
+│   └── events.py                  # Event handler
+│
+├── hardware/                      # Hardware controllers
+│   ├── service.py                 # HardwareService
+│   ├── rotary.py                  # RotaryVolumeController (GPIO)
+│   └── screen.py                  # ScreenController
+│
+├── shared/                        # Shared utilities
+│   └── mpv.py                     # MpvController (shared by radio/podcast)
 │
 └── tests/                         # pytest test suite
     ├── conftest.py                # Test fixtures
     ├── test_*.py                  # Unit tests
-    └── README.md
+    └── integration/               # Integration tests
 ```
 
 ---

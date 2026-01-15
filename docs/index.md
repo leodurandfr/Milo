@@ -92,7 +92,7 @@ A multiroom audio system for Raspberry Pi supporting:
 | Layer | Technology |
 |-------|------------|
 | Frontend | Vue 3, Pinia, Vite, axios, Zod |
-| Backend | FastAPI, Pydantic, dependency-injector |
+| Backend | FastAPI, Pydantic, Service Registry (lazy singletons) |
 | Audio | ALSA, CamillaDSP, Snapcast, mpv |
 | Infrastructure | systemd, Raspberry Pi OS |
 
@@ -101,10 +101,10 @@ A multiroom audio system for Raspberry Pi supporting:
 ## Key Concepts
 
 ### State Machine
-The `UnifiedAudioStateMachine` is the single source of truth for audio state. All changes go through it.
+The `AudioStateMachine` (in `core/state.py`) is the single source of truth for audio state. Uses EventBus for decoupled communication.
 
 ### Plugin System
-Audio sources implement `AudioSourcePlugin` interface. Each manages its own systemd service.
+Audio sources implement `AudioSourceProtocol` interface (in `core/audio_source.py`). Each plugin is in `features/` and manages its own systemd service.
 
 ### WebSocket Sync
 All state changes broadcast via WebSocket. Frontend reacts, never polls.

@@ -89,25 +89,28 @@ npm run dev
 
 ```
 milo/
-├── backend/           # FastAPI backend
-│   ├── main.py        # Entry point
-│   ├── config/        # DI container
-│   ├── domain/        # Business models
-│   ├── infrastructure/# Services, plugins
-│   ├── presentation/  # API routes, WebSocket
-│   └── tests/         # pytest tests
+├── backend/              # FastAPI backend
+│   ├── main.py           # Entry point
+│   ├── dependencies.py   # Service Registry (lazy singletons)
+│   ├── core/             # Core infrastructure (state, events, services)
+│   ├── features/         # Audio source plugins (spotify, bluetooth, etc.)
+│   ├── api/              # REST API routes
+│   ├── ws/               # WebSocket server
+│   ├── hardware/         # Hardware controllers
+│   ├── shared/           # Shared utilities
+│   └── tests/            # pytest tests
 │
-├── frontend/          # Vue 3 frontend
+├── frontend/             # Vue 3 frontend
 │   ├── src/
-│   │   ├── stores/    # Pinia stores
-│   │   ├── components/# Vue components
+│   │   ├── stores/       # Pinia stores
+│   │   ├── components/   # Vue components
 │   │   ├── composables/
-│   │   └── services/  # WebSocket, i18n
-│   └── tests/         # Vitest tests
+│   │   └── services/     # WebSocket, i18n
+│   └── tests/            # Vitest tests
 │
-├── milo-client/       # Satellite client
-├── system/            # Systemd services
-└── rootfs/            # System files
+├── milo-client/          # Satellite client
+├── system/               # Systemd services
+└── rootfs/               # System files
 ```
 
 ---
@@ -184,7 +187,7 @@ Vite proxy configuration in `vite.config.js`:
 - **Async/await everywhere** for I/O operations
 - **Type hints** for function signatures
 - **Docstrings** for public methods
-- **Layered architecture** (domain, infrastructure, presentation)
+- **Feature-based architecture** (core/, features/, api/)
 
 ### JavaScript/Vue (Frontend)
 
@@ -199,33 +202,36 @@ Vite proxy configuration in `vite.config.js`:
 
 ### New Audio Source Plugin
 
-1. Create enum in `backend/domain/audio_state.py`:
+1. Create enum in `backend/core/models/audio_state.py`:
    ```python
    class AudioSource(Enum):
        NEW_SOURCE = "new_source"
    ```
 
-2. Create plugin in `backend/infrastructure/plugins/new_source/`:
+2. Create feature module in `backend/features/new_source/`:
    ```python
-   class NewSourcePlugin(UnifiedAudioPlugin):
+   # source.py
+   class NewSourceSource(UnifiedAudioSource):
        async def initialize(self) -> bool: ...
        async def start(self) -> bool: ...
        async def stop(self) -> bool: ...
+
+   # routes.py - FastAPI routes for this source
    ```
 
-3. Register in `backend/config/container.py`
+3. Register in `backend/dependencies.py`
 
 4. Add ALSA devices in `/etc/asound.conf`
 
-5. Create API routes in `backend/presentation/api/routes/`
+5. Create API routes in `backend/features/new_source/routes.py`
 
-6. Create Vue component in `frontend/src/components/`
+6. Create Vue component in `frontend/src/components/new_source/`
 
 7. Update Pinia store if needed
 
 ### New API Endpoint
 
-1. Create route file or add to existing in `backend/presentation/api/routes/`
+1. Create route file or add to existing in `backend/api/` or `backend/features/<feature>/routes.py`
 2. Register router in `backend/main.py`
 3. Update frontend store to call new endpoint
 4. Add Zod schema for response validation
@@ -325,7 +331,7 @@ sudo journalctl -u 'milo-*' -f
 
 ## Resources
 
-- [Architecture Documentation](architecture.md)
+- [Architecture Overview](architecture-overview.md)
 - [API Contracts](api-contracts-backend.md)
 - [Component Inventory](component-inventory-frontend.md)
 - [Source Tree Analysis](source-tree-analysis.md)

@@ -11,6 +11,7 @@
 
 ## Audio Sources
 
+| Source | Description |
 |--------|-------------|
 | 🎵 **Spotify Connect** | See what's playing and control playback |
 | 📱 **Bluetooth** | Pair any device and stream audio |
@@ -20,6 +21,7 @@
 
 ## Features
 
+| Feature | Description |
 |---------|-------------|
 | 🔊 **Multiroom** | Synchronized playback across multiple speakers |
 | 🎛️ **10-band Equalizer** | Adjust audio frequencies for all speakers |
@@ -27,6 +29,7 @@
 
 ## Hardware
 
+| Component | Requirement |
 |-----------|-------------|
 | **Board** | Raspberry Pi 4 or 5 (64-bit) |
 | **Audio** | HiFiBerry HAT (Amp2, Amp4, Amp4 Pro, Amp100, Beocreate) |
@@ -91,8 +94,11 @@ Control Milō from your other devices:
 
 ## Documentation
 
-- [🏗️ Architecture](docs/architecture.md) — How Milō works
-- [💻 Developer Guide](docs/development.md) — Contribute to the project
+- [📚 Documentation Index](docs/index.md) — All documentation
+- [🏗️ Architecture](docs/architecture-overview.md) — How Milō works
+- [💻 Developer Guide](docs/development-guide.md) — Contribute to the project
+- [🔌 API Reference](docs/api-contracts-backend.md) — REST API endpoints
+- [🧩 Components](docs/component-inventory-frontend.md) — Vue components
 
 ## License
 
