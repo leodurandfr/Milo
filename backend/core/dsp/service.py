@@ -840,6 +840,13 @@ class CamillaDSPService:
 
     async def _apply_gains(self, gains: List[float]) -> None:
         """Apply gain values to EQ bands"""
+        # Ensure filters are loaded from CamillaDSP before applying gains
+        if not self._filters:
+            await self.get_filters()
+
+        # Default EQ frequencies if filters still not available
+        DEFAULT_EQ_FREQS = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+
         for i, gain in enumerate(gains):
             filter_id = f"eq_band_{i:02d}"
             existing = next((f for f in self._filters if f["id"] == filter_id), None)
@@ -847,6 +854,11 @@ class CamillaDSPService:
                 await self.set_filter(filter_id, existing["freq"], gain,
                                        existing.get("q", 1.41), existing.get("type", "Peaking"),
                                        from_preset=True)
+            else:
+                # Filter doesn't exist in cache - use default frequency
+                freq = DEFAULT_EQ_FREQS[i] if i < len(DEFAULT_EQ_FREQS) else 1000
+                self.logger.warning(f"Filter {filter_id} not in cache, creating with freq={freq}")
+                await self.set_filter(filter_id, freq, gain, 1.41, "Peaking", from_preset=True)
 
     async def _get_preset_gains(self, preset_id: str) -> Optional[List[float]]:
         """Get gains for a preset ID (builtin or manual)"""
@@ -861,13 +873,19 @@ class CamillaDSPService:
 
     async def load_preset(self, preset_id: str) -> bool:
         """Load a builtin or manual preset"""
+        # Early return if already on the same preset (avoids overwriting current values)
+        current = await self.get_active_preset()
+        if preset_id == current:
+            self.logger.debug(f"Already on preset {preset_id}, skipping")
+            return True
+
         gains = await self._get_preset_gains(preset_id)
         if gains is None:
             self.logger.warning(f"Preset not found: {preset_id}")
             return False
+
         try:
             # Save current as manual before switching
-            current = await self.get_active_preset()
             if current in ("manual", None) and preset_id != "manual":
                 await self._save_manual_gains()
 
@@ -875,6 +893,7 @@ class CamillaDSPService:
 
             if self.settings_service:
                 await self.settings_service.set_setting("dsp.active_preset", preset_id)
+                self.logger.info(f"Saved active preset: {preset_id}")
             await self._broadcast_event("preset_loaded", {"id": preset_id})
             return True
         except Exception as e:

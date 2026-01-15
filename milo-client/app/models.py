@@ -11,6 +11,7 @@ class FilterUpdate(BaseModel):
     freq: Optional[float] = None
     q: Optional[float] = None
     filter_type: Optional[str] = None
+    enabled: Optional[bool] = None
 
 
 class CompressorUpdate(BaseModel):
