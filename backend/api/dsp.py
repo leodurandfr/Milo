@@ -324,7 +324,7 @@ def create_dsp_router(
             success = await dsp_service.reset_filters()
 
             if success:
-                await state_machine.broadcast_event("dsp", "filters_reset", {})
+                # Note: filters_reset event is already broadcast by dsp_service.reset_filters()
                 return {"status": "success", "message": "All filters reset to flat"}
 
             return {"status": "error", "message": "Failed to reset filters"}
@@ -356,7 +356,7 @@ def create_dsp_router(
             success = await dsp_service.load_preset(preset_id)
 
             if success:
-                await state_machine.broadcast_event("dsp", "preset_loaded", {"id": preset_id})
+                # Note: preset_loaded event is already broadcast by dsp_service.load_preset()
                 return {"status": "success", "id": preset_id}
 
             raise HTTPException(status_code=404, detail=f"Preset '{preset_id}' not found")
@@ -830,7 +830,9 @@ def create_dsp_router(
         result = await proxy_service.request(hostname, "PUT", f"/dsp/filter/{filter_id}", body)
         if result.get("status") == "success" and sync_service:
             settings = await sync_service.load_settings()
-            settings.setdefault(hostname, {}).setdefault("filters", {})[filter_id] = {k: v for k, v in result.items() if k != "status"}
+            # Save the request body (contains full filter data) instead of response
+            # milo-client only returns {"status": "success", "filter_id": ...}
+            settings.setdefault(hostname, {}).setdefault("filters", {})[filter_id] = body
             await sync_service.save_settings(settings)
         return result
 
@@ -1007,7 +1009,13 @@ def create_dsp_router(
         if "loudness" in saved:
             await try_restore("loudness", "/dsp/loudness", saved["loudness"])
         for fid, fdata in saved.get("filters", {}).items():
-            await try_restore(f"filter:{fid}", f"/dsp/filter/{fid}", fdata)
+            # Transform saved filter data to match DspFilterUpdateRequest schema:
+            # - Remove 'id' (it's in the URL)
+            # - Rename 'type' to 'filter_type' (Pydantic model uses filter_type)
+            filter_payload = {k: v for k, v in fdata.items() if k != "id"}
+            if "type" in filter_payload:
+                filter_payload["filter_type"] = filter_payload.pop("type")
+            await try_restore(f"filter:{fid}", f"/dsp/filter/{fid}", filter_payload)
         if "main" in saved.get("volume", {}):
             await try_restore("volume", "/dsp/volume", {"volume": saved["volume"]["main"]})
         if "mute" in saved.get("volume", {}):

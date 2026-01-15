@@ -150,10 +150,13 @@ export const useDspStore = defineStore('dsp', () => {
     const preset = builtinPresets.value.find(p => p.id === activePreset.value);
     if (!preset) return true;
 
-    // Compare current gains with the active preset's gains
-    for (let i = 0; i < filters.value.length && i < preset.gains.length; i++) {
-      if (Math.abs(filters.value[i].gain - preset.gains[i]) > 0.1) {
-        return true; // Gain differs = manual mode
+    // Compare current gains with the active preset's gains (by filter ID, not index)
+    for (let i = 0; i < preset.gains.length; i++) {
+      const filterId = `eq_band_${i.toString().padStart(2, '0')}`;
+      const filter = filters.value.find(f => f.id === filterId);
+      // If filter not found or gain differs by more than 0.1, consider as manual
+      if (!filter || Math.abs(filter.gain - preset.gains[i]) > 0.1) {
+        return true;
       }
     }
     return false;
@@ -769,8 +772,8 @@ export const useDspStore = defineStore('dsp', () => {
       const response = await axios.put(`/api/dsp/preset/${presetId}`);
       if (response.data.status === 'success') {
         activePreset.value = presetId;
-        // Reload filters after preset load
-        await loadStatus();
+        // WebSocket filter_changed events update filters.value automatically
+        // No need to fetch - that returns stale data and overwrites correct state
         return true;
       }
       return false;

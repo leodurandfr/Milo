@@ -420,6 +420,18 @@ class TestCamillaDSPService:
         assert gains == DEFAULT_MANUAL_GAINS
 
     @pytest.mark.asyncio
+    async def test_load_preset_skips_when_already_active(self, dsp_service, mock_settings_service):
+        """Should skip loading when already on the same preset"""
+        # Setup: preset is already active
+        mock_settings_service.get_setting = AsyncMock(return_value="acoustic")
+
+        # Should return True without applying gains
+        result = await dsp_service.load_preset("acoustic")
+        assert result is True
+        # set_setting should NOT be called (no change needed)
+        mock_settings_service.set_setting.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_bypass_effects_disconnected(self, dsp_service):
         """Should fail when disconnected"""
         result = await dsp_service.bypass_effects()
