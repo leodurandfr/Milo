@@ -335,10 +335,9 @@ describe('podcastStore', () => {
 
     describe('removeSubscription', () => {
       it('should remove subscription by uuid', () => {
-        store.subscriptions = [
-          { uuid: 'pod1', name: 'Podcast 1' },
-          { uuid: 'pod2', name: 'Podcast 2' }
-        ];
+        // Use addSubscription instead of direct assignment (subscriptions is now a computed from Map)
+        store.addSubscription({ uuid: 'pod1', name: 'Podcast 1' });
+        store.addSubscription({ uuid: 'pod2', name: 'Podcast 2' });
 
         store.removeSubscription('pod1');
 
@@ -347,7 +346,8 @@ describe('podcastStore', () => {
       });
 
       it('should also remove episodes from latestSubscriptionEpisodes', () => {
-        store.subscriptions = [{ uuid: 'pod1', name: 'Podcast 1' }];
+        // Use addSubscription instead of direct assignment
+        store.addSubscription({ uuid: 'pod1', name: 'Podcast 1' });
         store.latestSubscriptionEpisodes = [
           { uuid: 'ep1', podcast: { uuid: 'pod1' } },
           { uuid: 'ep2', podcast: { uuid: 'pod2' } }

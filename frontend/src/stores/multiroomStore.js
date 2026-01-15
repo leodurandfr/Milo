@@ -1,26 +1,77 @@
 // frontend/src/stores/multiroomStore.js
+/**
+ * Multiroom store for Snapcast server configuration.
+ *
+ * Client data is now derived from clientRegistryStore (single source of truth).
+ * This store only manages Snapcast-specific server settings.
+ */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
+import { useClientRegistryStore } from './clientRegistryStore';
+import { useUnifiedAudioStore } from './unifiedAudioStore';
 
-const CACHE_KEY = 'multiroom_clients_cache';
 const DISPLAY_CACHE_KEY = 'multiroom_display_cache';
 
+// Volume conversion helpers
+// Backend uses dB (-72 to 0), Snapcast UI uses percentage (0-100)
+const MIN_DB = -72;
+const MAX_DB = 0;
+
+function dbToPercent(db) {
+  // Clamp to valid range
+  const clampedDb = Math.max(MIN_DB, Math.min(MAX_DB, db));
+  // Linear conversion: -72dB = 0%, 0dB = 100%
+  return Math.round(((clampedDb - MIN_DB) / (MAX_DB - MIN_DB)) * 100);
+}
+
+function percentToDb(percent) {
+  // Clamp to valid range
+  const clampedPercent = Math.max(0, Math.min(100, percent));
+  // Linear conversion: 0% = -72dB, 100% = 0dB
+  return MIN_DB + (clampedPercent / 100) * (MAX_DB - MIN_DB);
+}
+
 export const useMultiroomStore = defineStore('multiroom', () => {
-  // === STATE ===
-  const clients = ref([]);
+  // === DERIVED STATE FROM CLIENT REGISTRY ===
+  const registryStore = useClientRegistryStore();
+  const audioStore = useUnifiedAudioStore();
+
+  // Clients derived from clientRegistryStore with Snapcast-compatible format
+  // This replaces the old ref([]) and provides backward compatibility
+  const clients = computed(() => {
+    return registryStore.clientList.map(client => {
+      const volumeState = audioStore.volumeState.clients[client.dsp_id];
+      return {
+        // Snapcast uses snapcast_id as primary ID
+        id: client.snapcast_id,
+        dsp_id: client.dsp_id,
+        name: client.name,
+        host: client.host,
+        ip: client.ip,
+        mac: client.snapcast_id, // MAC address = snapcast_id
+        available: client.available,
+        // Convert dB to percentage for UI
+        volume: dbToPercent(volumeState?.volume_db ?? -30),
+        muted: volumeState?.mute ?? false,
+        last_seen_age: 0 // Not tracked here, use registry if needed
+      };
+    });
+  });
 
   // AbortController for cancelling ongoing requests
-  let clientsAbortController = null;
   let serverConfigAbortController = null;
-  const isLoading = ref(false);
-  const serverConfig = ref({
+  const isLoading = computed(() => !registryStore.isInitialized);
+
+  // Server config with defaults (overwritten when loaded from backend)
+  const DEFAULT_SERVER_CONFIG = {
     buffer: 1000,
     codec: 'flac',
     chunk_ms: 20,
     sampleformat: '48000:16:2'
-  });
-  const originalServerConfig = ref({});
+  };
+  const serverConfig = ref({ ...DEFAULT_SERVER_CONFIG });
+  const originalServerConfig = ref({ ...DEFAULT_SERVER_CONFIG });
   const isApplyingServerConfig = ref(false);
   const isLoadingServerConfig = ref(false);
 
@@ -36,48 +87,15 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   ]);
 
   // === COMPUTED ===
-  const sortedClients = computed(() => {
-    const clientsList = [...clients.value];
-    return clientsList.sort((a, b) => {
-      if (a.host === 'milo') return -1;
-      if (b.host === 'milo') return 1;
-      return a.name.localeCompare(b.name);
-    });
-  });
+  // Note: sortedClients removed - clients is already sorted (derived from registryStore.clientList)
+  // Components should use 'clients' directly
 
   const hasServerConfigChanges = computed(() => {
     return JSON.stringify(serverConfig.value) !== JSON.stringify(originalServerConfig.value);
   });
 
-  // === CACHE MANAGEMENT ===
-  function loadCache() {
-    try {
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (!cached) return null;
-
-      const clients = JSON.parse(cached);
-      return clients;
-    } catch (error) {
-      console.warn('Error loading multiroom cache (corrupted?):', error);
-      return null;
-    }
-  }
-
-  function saveCache(clientsList) {
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(clientsList));
-    } catch (error) {
-      console.error('Error saving multiroom cache:', error);
-    }
-  }
-
-  function clearCache() {
-    try {
-      localStorage.removeItem(CACHE_KEY);
-    } catch (error) {
-      console.error('Error clearing multiroom cache:', error);
-    }
-  }
+  // Note: Client cache management removed - clients are derived from clientRegistryStore
+  // which has its own caching mechanism
 
   // === DISPLAY CACHE MANAGEMENT ===
   function loadDisplayCache() {
@@ -111,18 +129,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   }
 
   // === API CALLS ===
-  async function fetchClients(signal = null) {
-    try {
-      const response = await axios.get('/api/routing/snapcast/clients', { signal });
-      return response.data.clients || [];
-    } catch (error) {
-      if (axios.isCancel(error) || error.name === 'CanceledError') {
-        return null; // Request was cancelled
-      }
-      console.error('Error fetching multiroom clients:', error);
-      return [];
-    }
-  }
+  // Note: fetchClients removed - clients are derived from clientRegistryStore
 
   async function fetchServerConfig(signal = null) {
     try {
@@ -150,117 +157,33 @@ export const useMultiroomStore = defineStore('multiroom', () => {
 
   // === ACTIONS - CLIENTS ===
 
+  // Note: Client loading functions removed - clients are derived from clientRegistryStore
+
   /**
-   * Preloads the cache synchronously and updates lastKnownClientCount
-   * Returns the number of clients in the cache (or the default value)
+   * Initialize client registry (backward compatibility)
+   * Now delegates to clientRegistryStore.initialize()
+   */
+  async function loadClients() {
+    if (!registryStore.isInitialized) {
+      await registryStore.initialize();
+    }
+    // Update lastKnownClientCount for skeleton rendering
+    lastKnownClientCount.value = clients.value.length || 3;
+  }
+
+  /**
+   * Preload cache (backward compatibility)
+   * Returns the number of clients
    */
   function preloadCache() {
-    const cache = loadCache();
-    if (cache && cache.length > 0) {
-      lastKnownClientCount.value = cache.length;
-      clients.value = cache;
-      return cache.length;
-    }
-    return lastKnownClientCount.value;
+    return clients.value.length || lastKnownClientCount.value;
   }
 
-  async function loadClients(forceNoCache = false) {
-    // Cancel previous request if it exists
-    if (clientsAbortController) {
-      clientsAbortController.abort();
-    }
-    clientsAbortController = new AbortController();
-    const signal = clientsAbortController.signal;
-
-    // If clients are already loaded (via preloadCache), just refresh
-    if (clients.value.length > 0 && !forceNoCache) {
-      isLoading.value = false;
-
-      // Refresh in the background
-      const freshClients = await fetchClients(signal);
-      if (freshClients === null) return; // Request was cancelled
-
-      const sortedFresh = sortClients(freshClients);
-
-      if (JSON.stringify(sortedFresh) !== JSON.stringify(clients.value)) {
-        clients.value = sortedFresh;
-        lastKnownClientCount.value = sortedFresh.length;
-        saveCache(sortedFresh);
-      }
-      clientsAbortController = null;
-      return;
-    }
-
-    // Otherwise, load normally with cache
-    const cache = forceNoCache ? null : loadCache();
-
-    if (cache && cache.length > 0 && !forceNoCache) {
-      lastKnownClientCount.value = cache.length;
-      clients.value = cache;
-      isLoading.value = false;
-
-      // Refresh in the background
-      const freshClients = await fetchClients(signal);
-      if (freshClients === null) return; // Request was cancelled
-
-      const sortedFresh = sortClients(freshClients);
-
-      if (JSON.stringify(sortedFresh) !== JSON.stringify(cache)) {
-        clients.value = sortedFresh;
-        saveCache(sortedFresh);
-      }
-    } else {
-      // No cache: load with skeleton
-      isLoading.value = true;
-      const freshClients = await fetchClients(signal);
-      if (freshClients === null) {
-        isLoading.value = false;
-        return; // Request was cancelled
-      }
-
-      const sortedClients = sortClients(freshClients);
-
-      lastKnownClientCount.value = sortedClients.length || 3;
-      clients.value = sortedClients;
-      saveCache(sortedClients);
-      isLoading.value = false;
-    }
-    clientsAbortController = null;
-  }
-
-  async function updateClientVolume(clientId, volume) {
-    try {
-      await axios.post(`/api/routing/snapcast/client/${clientId}/volume`, { volume });
-      return true;
-    } catch (error) {
-      console.error('Error updating client volume:', error);
-      return false;
-    }
-  }
-
-  async function toggleClientMute(clientId, muted) {
-    try {
-      await axios.post(`/api/routing/snapcast/client/${clientId}/mute`, { muted });
-      return true;
-    } catch (error) {
-      console.error('Error toggling client mute:', error);
-      return false;
-    }
-  }
-
-  async function updateClientName(clientId, name) {
-    const trimmedName = name?.trim();
-    if (!trimmedName) return false;
-
-    try {
-      const response = await axios.post(`/api/routing/snapcast/client/${clientId}/name`, {
-        name: trimmedName
-      });
-      return response.data.status === 'success';
-    } catch (error) {
-      console.error('Error updating client name:', error);
-      return false;
-    }
+  /**
+   * Clear cache (backward compatibility - no-op since no local cache)
+   */
+  function clearCache() {
+    // No-op - clients are derived from clientRegistryStore which manages its own cache
   }
 
   // === ACTIONS - SERVER CONFIG ===
@@ -277,7 +200,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       const config = await fetchServerConfig(signal);
       if (config) {
         serverConfig.value = config;
-        originalServerConfig.value = JSON.parse(JSON.stringify(config));
+        originalServerConfig.value = { ...config };
       }
     } finally {
       isLoadingServerConfig.value = false;
@@ -295,7 +218,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
       });
 
       if (response.data.status === 'success') {
-        originalServerConfig.value = JSON.parse(JSON.stringify(serverConfig.value));
+        originalServerConfig.value = { ...serverConfig.value };
         console.log('Multiroom server config applied successfully');
         return true;
       }
@@ -322,90 +245,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     serverConfig.value.chunk_ms = preset.config.chunk_ms;
   }
 
-  // === WEBSOCKET EVENT HANDLERS ===
-  function handleClientConnected(event) {
-    const { client_id, client_name, client_host, client_ip, volume, muted, available, dsp_id } = event.data;
-
-    if (!client_id) return;
-    if (clients.value.find(c => c.id === client_id)) return;
-
-    const newClient = {
-      id: client_id,
-      name: client_name || client_host || 'Unknown',
-      host: client_host || 'unknown',
-      volume: volume || 0,
-      muted: muted || false,
-      ip: client_ip || 'Unknown',
-      dsp_id,
-      available: available ?? true
-    };
-
-    clients.value = sortClients([...clients.value, newClient]);
-    saveCache(clients.value);
-  }
-
-  function handleClientDisconnected(event) {
-    const clientId = event.data.client_id;
-    clients.value = clients.value.filter(c => c.id !== clientId);
-    saveCache(clients.value);
-  }
-
-  function handleClientAvailabilityChanged(event) {
-    const { client_id, available, last_seen_age } = event.data;
-
-    console.log(`🔄 Client ${client_id} availability: ${available} (lastSeen: ${last_seen_age}s ago)`);
-
-    // Find and update client
-    const client = clients.value.find(c => c.id === client_id);
-    if (client) {
-      client.available = available;
-      saveCache(clients.value);
-    }
-  }
-
-
-  function handleClientVolumeChanged(event) {
-    const { client_id, volume, muted } = event.data;
-    const client = clients.value.find(c => c.id === client_id);
-    if (client) {
-      client.volume = volume;
-      if (muted !== undefined) client.muted = muted;
-    }
-  }
-
-  function handleClientNameChanged(event) {
-    const { client_id, name } = event.data;
-    const client = clients.value.find(c => c.id === client_id);
-    if (client) {
-      client.name = name;
-      clients.value = sortClients(clients.value);
-    }
-  }
-
-  function handleClientMuteChanged(event) {
-    const { client_id, muted, volume } = event.data;
-    const client = clients.value.find(c => c.id === client_id);
-    if (client) {
-      client.muted = muted;
-      if (volume !== undefined) client.volume = volume;
-    }
-  }
-
-  // === HELPERS ===
-  function sortClients(clientsList) {
-    return [...clientsList].sort((a, b) => {
-      if (a.host === 'milo') return -1;
-      if (b.host === 'milo') return 1;
-      return a.name.localeCompare(b.name);
-    });
-  }
+  // Note: WebSocket handlers for client events removed
+  // Client state is now derived from clientRegistryStore which handles all registry events
 
   // === CLEANUP ===
   function cancelPendingRequests() {
-    if (clientsAbortController) {
-      clientsAbortController.abort();
-      clientsAbortController = null;
-    }
     if (serverConfigAbortController) {
       serverConfigAbortController.abort();
       serverConfigAbortController = null;
@@ -413,7 +257,7 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   }
 
   return {
-    // State
+    // State (clients is computed from clientRegistryStore, already sorted: local first, then alphabetical)
     clients,
     isLoading,
     serverConfig,
@@ -424,15 +268,11 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     lastKnownDisplayItems,
 
     // Computed
-    sortedClients,
     hasServerConfigChanges,
 
-    // Actions - Clients
+    // Actions - Clients (backward compatibility)
     preloadCache,
     loadClients,
-    updateClientVolume,
-    toggleClientMute,
-    updateClientName,
     clearCache,
 
     // Actions - Display Cache
@@ -446,13 +286,9 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     selectCodec,
     applyPreset,
 
-    // WebSocket Handlers
-    handleClientConnected,
-    handleClientDisconnected,
-    handleClientAvailabilityChanged,
-    handleClientVolumeChanged,
-    handleClientNameChanged,
-    handleClientMuteChanged,
+    // Volume conversion utilities (exported for components that need them)
+    dbToPercent,
+    percentToDb,
 
     // Cleanup
     cancelPendingRequests

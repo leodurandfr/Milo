@@ -381,7 +381,7 @@ function startTransitionTimeout() {
       console.warn('[MultiroomControl] Transition timeout reached');
       transitionState.value = 'error';
       errorMessage.value = t('multiroom.timeout_error');
-      multiroomStore.isLoading = false;
+      // Note: isLoading is now computed, no need to set it manually
     }
   }, TRANSITION_TIMEOUT_MS);
 }
@@ -394,35 +394,8 @@ function clearTransitionTimeout() {
 }
 
 // === WEBSOCKET HANDLERS ===
-function handleClientConnected(event) {
-  if (transitionState.value !== 'disabling') {
-    multiroomStore.handleClientConnected(event);
-  }
-}
-
-function handleClientDisconnected(event) {
-  if (transitionState.value !== 'disabling') {
-    multiroomStore.handleClientDisconnected(event);
-  }
-}
-
-function handleClientAvailabilityChanged(event) {
-  if (transitionState.value !== 'disabling') {
-    multiroomStore.handleClientAvailabilityChanged(event);
-  }
-}
-
-function handleClientVolumeChanged(event) {
-  multiroomStore.handleClientVolumeChanged(event);
-}
-
-function handleClientNameChanged(event) {
-  multiroomStore.handleClientNameChanged(event);
-}
-
-function handleClientMuteChanged(event) {
-  multiroomStore.handleClientMuteChanged(event);
-}
+// Note: Client event handlers removed - clients are now derived from clientRegistryStore
+// which handles registry events in App.vue. The snapcast events are no longer needed here.
 
 function handleSystemStateChanged(event) {
   unifiedStore.updateState(event);
@@ -431,15 +404,14 @@ function handleSystemStateChanged(event) {
 function handleMultiroomEnabling() {
   transitionState.value = 'enabling';
   errorMessage.value = '';
-  multiroomStore.isLoading = true;
-  multiroomStore.clearCache();
+  // Note: isLoading is now computed from registryStore.isInitialized
   startTransitionTimeout();
 }
 
 function handleMultiroomDisabling() {
   transitionState.value = 'disabling';
   errorMessage.value = '';
-  multiroomStore.isLoading = false;
+  // Note: isLoading is now computed from registryStore.isInitialized
   startTransitionTimeout();
 }
 
@@ -458,7 +430,7 @@ function handleMultiroomError(event) {
   clearTransitionTimeout();
   transitionState.value = 'error';
   errorMessage.value = event?.message || t('multiroom.error');
-  multiroomStore.isLoading = false;
+  // Note: isLoading is now computed from registryStore.isInitialized
 }
 
 // === LIFECYCLE ===
@@ -483,13 +455,9 @@ onMounted(async () => {
   // Load linked groups (zones are a multiroom feature, independent of DSP effects)
   await dspStore.loadTargets();
 
+  // Note: snapcast client event subscriptions removed - clients are now derived from
+  // clientRegistryStore which handles registry events globally in App.vue
   unsubscribeFunctions.push(
-    on('snapcast', 'client_connected', handleClientConnected),
-    on('snapcast', 'client_disconnected', handleClientDisconnected),
-    on('snapcast', 'client_availability_changed', handleClientAvailabilityChanged),
-    on('snapcast', 'client_volume_changed', handleClientVolumeChanged),
-    on('snapcast', 'client_name_changed', handleClientNameChanged),
-    on('snapcast', 'client_mute_changed', handleClientMuteChanged),
     on('system', 'state_changed', handleSystemStateChanged),
     on('routing', 'multiroom_enabling', handleMultiroomEnabling),
     on('routing', 'multiroom_disabling', handleMultiroomDisabling),
@@ -516,9 +484,8 @@ watch(isMultiroomActive, (newValue, oldValue) => {
     // Multiroom was deactivated
     clearTransitionTimeout();
     transitionState.value = 'idle';
-    // Clear clients after deactivation
-    multiroomStore.clients = [];
-    multiroomStore.clearCache();
+    // Note: clients are now derived from clientRegistryStore, no need to clear them
+    // They will simply not be displayed when multiroom is inactive
   }
 });
 

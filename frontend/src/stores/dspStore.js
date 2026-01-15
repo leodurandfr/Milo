@@ -6,7 +6,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
-import { useSettingsStore } from './settingsStore';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
 import { useClientRegistryStore } from './clientRegistryStore';
 
@@ -71,12 +70,20 @@ export const useDspStore = defineStore('dsp', () => {
   // Multi-client DSP support
   // 'local' = main Milo, or client hostname like 'milo-client-01'
   const selectedTarget = ref('local');
-  const availableTargets = ref([
-    { id: 'local', name: 'Milo', host: 'local', available: true }
-  ]);
 
   // Client registry store - single source of truth for clients and zones
   const registryStore = useClientRegistryStore();
+
+  // Available DSP targets - computed from clientRegistryStore (single source of truth)
+  const availableTargets = computed(() => {
+    return registryStore.clientList.map(client => ({
+      id: client.dsp_id,
+      name: client.name,
+      host: client.host,
+      ip: client.ip,
+      available: client.available
+    }));
+  });
 
   // Linked clients - delegates to clientRegistryStore.zoneList
   // Structure: [{ id: 'group_1', client_ids: ['local', 'milo-client-01'], name: 'Zone 1' }]
@@ -246,17 +253,7 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
-  async function fetchAvailableTargets() {
-    try {
-      const response = await axios.get('/api/dsp/targets');
-      return response.data.targets || [];
-    } catch (error) {
-      console.error('Error fetching DSP targets:', error);
-      return [{ id: 'local', name: 'Milo', host: 'local', available: true }];
-    }
-  }
-
-  // Note: fetchLinkedGroups and fetchClientTypes removed
+  // Note: fetchLinkedGroups, fetchClientTypes, and fetchAvailableTargets removed
   // linkedGroups and clientTypes now delegate to clientRegistryStore
 
   async function fetchZoneCrossover(zoneId) {
@@ -578,8 +575,7 @@ export const useDspStore = defineStore('dsp', () => {
    * Get friendly client name for error display
    */
   function getClientDisplayName(clientId) {
-    const target = availableTargets.value.find(t => t.id === clientId);
-    return target?.name || clientId;
+    return registryStore.getClientName(clientId);
   }
 
   // === ACTIONS ===
@@ -844,14 +840,8 @@ export const useDspStore = defineStore('dsp', () => {
   // === TARGET MANAGEMENT ===
 
   async function loadTargets() {
-    // Fetch available DSP targets
-    const targets = await fetchAvailableTargets();
-    if (targets.length > 0) {
-      availableTargets.value = targets;
-      // Volume data comes from unifiedAudioStore.volumeState via WebSocket
-    }
-
-    // Ensure clientRegistryStore is initialized (linkedGroups and clientTypes delegate to it)
+    // Ensure clientRegistryStore is initialized
+    // availableTargets is now a computed property that delegates to clientRegistryStore
     if (!registryStore.isInitialized) {
       await registryStore.initialize();
     }
@@ -1168,23 +1158,8 @@ export const useDspStore = defineStore('dsp', () => {
     Object.assign(loudness.value, event.data);
   }
 
-  /**
-   * Handle client name changed event from WebSocket
-   * Updates availableTargets to keep client names in sync
-   * @param {Object} event - { data: { client_id, name, dsp_id } }
-   */
-  function handleClientNameChanged(event) {
-    const { name, dsp_id } = event.data;
-
-    // Find target by dsp_id (matches availableTargets.id)
-    // For local Milo: dsp_id = 'local'
-    // For remote clients: dsp_id = hostname or IP address
-    const target = availableTargets.value.find(t => t.id === dsp_id);
-
-    if (target) {
-      target.name = name;
-    }
-  }
+  // Note: handleClientNameChanged removed - availableTargets is now a computed
+  // property that automatically updates when clientRegistryStore changes
 
   // === CLEANUP ===
   function cleanup() {
@@ -1352,7 +1327,6 @@ export const useDspStore = defineStore('dsp', () => {
     handleLevels,
     handleCompressorChanged,
     handleLoudnessChanged,
-    handleEnabledChanged,
-    handleClientNameChanged
+    handleEnabledChanged
   };
 });

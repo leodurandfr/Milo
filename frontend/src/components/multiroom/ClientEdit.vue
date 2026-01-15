@@ -84,6 +84,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useMultiroomStore } from '@/stores/multiroomStore';
+import { useClientRegistryStore } from '@/stores/clientRegistryStore';
 import { useDspStore } from '@/stores/dspStore';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -100,6 +101,7 @@ const emit = defineEmits(['back']);
 
 const { t } = useI18n();
 const multiroomStore = useMultiroomStore();
+const clientRegistryStore = useClientRegistryStore();
 const dspStore = useDspStore();
 
 const clientName = ref('');
@@ -166,7 +168,7 @@ async function saveClientName() {
   if (!newName || newName === originalClientName.value) return;
 
   try {
-    await multiroomStore.updateClientName(props.clientId, newName);
+    await clientRegistryStore.updateClientName(props.clientId, newName);
     originalClientName.value = newName;
   } catch (error) {
     console.error('Error saving client name:', error);

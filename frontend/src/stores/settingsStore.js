@@ -22,8 +22,9 @@ export const useSettingsStore = defineStore('settings', () => {
     restore_last_volume: false
   });
 
+  // Note: step_mobile_db is in unifiedAudioStore.volumeState (single source of truth)
+  // Only step_rotary_db is kept here as it's hardware-specific
   const volumeSteps = ref({
-    step_mobile_db: 3.0,
     step_rotary_db: 2.0
   });
 
@@ -75,11 +76,11 @@ export const useSettingsStore = defineStore('settings', () => {
 
     isLoading.value = true;
     try {
+      // Note: step_mobile_db comes from unifiedAudioStore.volumeState via WebSocket initial_state
       const [
         langResponse,
         volumeLimitsResponse,
         volumeStartupResponse,
-        volumeStepsResponse,
         rotaryStepsResponse,
         dockAppsResponse,
         spotifyResponse,
@@ -91,7 +92,6 @@ export const useSettingsStore = defineStore('settings', () => {
         axios.get('/api/settings/language').catch(() => ({ data: { language: 'english' } })),
         axios.get('/api/settings/volume-limits').catch(() => ({ data: { limits: { min_db: -80.0, max_db: -21.0 } } })),
         axios.get('/api/settings/volume-startup').catch(() => ({ data: { config: { startup_volume_db: -30.0, restore_last_volume: false } } })),
-        axios.get('/api/settings/volume-steps').catch(() => ({ data: { config: { step_mobile_db: 3.0 } } })),
         axios.get('/api/settings/rotary-steps').catch(() => ({ data: { config: { step_rotary_db: 2.0 } } })),
         axios.get('/api/settings/dock-apps').catch(() => ({ data: { config: { enabled_apps: ['spotify', 'bluetooth', 'mac', 'radio', 'podcast', 'multiroom', 'dsp', 'settings'] } } })),
         axios.get('/api/settings/spotify-disconnect').catch(() => ({ data: { config: { auto_disconnect_delay: 10.0 } } })),
@@ -122,10 +122,8 @@ export const useSettingsStore = defineStore('settings', () => {
         };
       }
 
-      // Volume steps (in dB)
-      if (volumeStepsResponse.data.config) {
-        volumeSteps.value.step_mobile_db = volumeStepsResponse.data.config.step_mobile_db ?? 3.0;
-      }
+      // Note: step_mobile_db comes from unifiedAudioStore.volumeState via WebSocket
+      // No need to load it here
 
       // Rotary steps (in dB)
       if (rotaryStepsResponse.data.config) {

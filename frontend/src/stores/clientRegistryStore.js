@@ -127,6 +127,15 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
   }
 
   /**
+   * Strip runtime fields from client data.
+   * Volume/mute data lives in volumeState, not here.
+   */
+  function stripRuntimeFields(client) {
+    const { volume_db, mute, ...metadata } = client;
+    return metadata;
+  }
+
+  /**
    * Fetch complete state from backend.
    */
   async function fetchState() {
@@ -135,8 +144,12 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
       const response = await axios.get('/api/registry/state');
       const { clients: clientsData, zones: zonesData } = response.data;
 
-      // Update clients
-      clients.value = new Map(Object.entries(clientsData || {}));
+      // Update clients (strip runtime fields - volume/mute live in volumeState)
+      const cleanedClients = new Map();
+      for (const [id, client] of Object.entries(clientsData || {})) {
+        cleanedClients.set(id, stripRuntimeFields(client));
+      }
+      clients.value = cleanedClients;
 
       // Update zones
       zones.value = new Map(Object.entries(zonesData || {}));
@@ -261,7 +274,8 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
       case 'client_registered':
       case 'client_updated':
         if (data.client) {
-          clients.value.set(data.dsp_id, data.client);
+          // Strip runtime fields - volume/mute live in volumeState
+          clients.value.set(data.dsp_id, stripRuntimeFields(data.client));
           saveCache();
         }
         break;
@@ -275,21 +289,16 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
         if (clients.value.has(data.dsp_id)) {
           const client = clients.value.get(data.dsp_id);
           client.available = data.available;
-          // Update with full client data if provided
+          // Update with full client data if provided (strip runtime fields)
           if (data.client) {
-            clients.value.set(data.dsp_id, data.client);
+            clients.value.set(data.dsp_id, stripRuntimeFields(data.client));
           }
           saveCache();
         }
         break;
 
-      case 'volume_changed':
-        if (clients.value.has(data.dsp_id)) {
-          const client = clients.value.get(data.dsp_id);
-          if (data.volume_db !== undefined) client.volume_db = data.volume_db;
-          if (data.mute !== undefined) client.mute = data.mute;
-        }
-        break;
+      // Note: volume_changed is handled by unifiedAudioStore.handleVolumeEvent()
+      // Volume/mute data lives in volumeState.clients, not here
 
       case 'speaker_type_changed':
         if (clients.value.has(data.dsp_id)) {
@@ -460,6 +469,28 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
     }
   }
 
+  /**
+   * Update client display name.
+   * @param {string} snapcastId - Snapcast client ID (MAC address for local)
+   * @param {string} name - New display name
+   * @returns {Promise<boolean>} Success status
+   */
+  async function updateClientName(snapcastId, name) {
+    const trimmedName = name?.trim();
+    if (!trimmedName) return false;
+
+    try {
+      const response = await axios.post(`/api/routing/snapcast/client/${snapcastId}/name`, {
+        name: trimmedName
+      });
+      // State update will come via WebSocket (registry.client_updated)
+      return response.data.status === 'success';
+    } catch (error) {
+      console.error('Error updating client name:', error);
+      return false;
+    }
+  }
+
   // === RETURN PUBLIC API ===
 
   return {
@@ -506,6 +537,7 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
     addClientToZone,
     removeClientFromZone,
     updateClientType,
+    updateClientName,
 
     // Cache management
     clearCache

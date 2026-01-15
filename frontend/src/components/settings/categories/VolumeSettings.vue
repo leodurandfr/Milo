@@ -76,6 +76,7 @@ import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useSettingsAPI } from '@/composables/useSettingsAPI';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import DoubleRangeSlider from '@/components/ui/DoubleRangeSlider.vue';
@@ -84,6 +85,7 @@ const { t } = useI18n();
 const { on } = useWebSocket();
 const { updateSetting, debouncedUpdate, clearAllTimers } = useSettingsAPI();
 const settingsStore = useSettingsStore();
+const unifiedStore = useUnifiedAudioStore();
 
 // Local refs for instant responsiveness (all values in dB)
 const config = ref({
@@ -107,9 +109,10 @@ function handleStartupModeChange(restoreLast) {
   });
 }
 
-// Sync local refs with the store on mount
+// Sync local refs with the stores on mount
 function syncFromStore() {
-  config.value.step_mobile_db = settingsStore.volumeSteps.step_mobile_db;
+  // step_mobile_db comes from unifiedAudioStore (single source of truth)
+  config.value.step_mobile_db = unifiedStore.volumeState.step_mobile_db;
   config.value.step_rotary_db = settingsStore.volumeSteps.step_rotary_db;
   config.value.limits.min = settingsStore.volumeLimits.min_db;
   config.value.limits.max = settingsStore.volumeLimits.max_db;
@@ -147,10 +150,10 @@ const wsListeners = {
     }
   },
   volume_steps_changed: (msg) => {
+    // step_mobile_db is handled by unifiedAudioStore via volume:volume_changed event
+    // Just update local config for immediate UI responsiveness
     if (msg.data?.config?.step_mobile_db !== undefined) {
-      const stepDb = msg.data.config.step_mobile_db;
-      settingsStore.updateVolumeSteps({ step_mobile_db: stepDb });
-      config.value.step_mobile_db = stepDb;
+      config.value.step_mobile_db = msg.data.config.step_mobile_db;
     }
   },
   rotary_steps_changed: (msg) => {

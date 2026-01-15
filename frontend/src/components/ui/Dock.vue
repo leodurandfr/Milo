@@ -120,7 +120,7 @@ const ALL_ADDITIONAL_ACTIONS = computed(() => [
 
 // === DYNAMIC CONFIGURATION ===
 const enabledApps = ref(["spotify", "bluetooth", "mac", "radio", "podcast", "multiroom", "settings"]);
-const mobileVolumeStepsDb = ref(3.0);  // Volume step in dB
+// Volume step comes from unifiedAudioStore.volumeState (single source of truth)
 
 // Computed to separate audio plugins and features
 const enabledAudioPlugins = computed(() => {
@@ -152,10 +152,13 @@ const additionalDockApps = computed(() => {
 // === STORE AND CONTROLS ===
 const unifiedStore = useUnifiedAudioStore();
 
-const volumeControlsWithSteps = computed(() => [
-  { icon: 'minus', handler: () => unifiedStore.adjustVolume(-mobileVolumeStepsDb.value), delta: -mobileVolumeStepsDb.value },
-  { icon: 'plus', handler: () => unifiedStore.adjustVolume(mobileVolumeStepsDb.value), delta: mobileVolumeStepsDb.value }
-]);
+const volumeControlsWithSteps = computed(() => {
+  const step = unifiedStore.volumeState.step_mobile_db;
+  return [
+    { icon: 'minus', handler: () => unifiedStore.adjustVolume(-step), delta: -step },
+    { icon: 'plus', handler: () => unifiedStore.adjustVolume(step), delta: step }
+  ];
+});
 
 // === EMISSIONS ===
 const emit = defineEmits(['open-multiroom', 'open-settings']);
@@ -629,17 +632,7 @@ const loadDockConfig = async () => {
   }
 };
 
-const loadVolumeStepsConfig = async () => {
-  try {
-    const response = await fetch('/api/settings/volume-steps');
-    const data = await response.json();
-    if (data.status === 'success') {
-      mobileVolumeStepsDb.value = data.config.step_mobile_db || 3.0;
-    }
-  } catch (error) {
-    console.error('Error loading volume steps config:', error);
-  }
-};
+// Note: Volume steps come from unifiedAudioStore.volumeState via WebSocket initial_state
 
 // === GLOBAL EVENTS ===
 const setupDragEvents = () => {
@@ -697,7 +690,7 @@ watch(() => unifiedStore.systemState.active_source, updateActiveIndicator);
 onMounted(async () => {
   setupDragEvents();
 
-  await Promise.all([loadDockConfig(), loadVolumeStepsConfig()]);
+  await loadDockConfig();
 
   // WebSocket listeners
   on('settings', 'dock_apps_changed', (message) => {
@@ -706,17 +699,8 @@ onMounted(async () => {
     }
   });
 
-  on('settings', 'volume_steps_changed', (message) => {
-    if (message.data?.config?.step_mobile_db) {
-      mobileVolumeStepsDb.value = message.data.config.step_mobile_db;
-    }
-  });
-
-  on('volume', 'volume_changed', (message) => {
-    if (message.data?.step_mobile_db && message.data.step_mobile_db !== mobileVolumeStepsDb.value) {
-      mobileVolumeStepsDb.value = message.data.step_mobile_db;
-    }
-  });
+  // Note: step_mobile_db is handled by unifiedAudioStore.handleVolumeEvent()
+  // No need to listen here - we read directly from unifiedStore.volumeState.step_mobile_db
 
   setTimeout(() => showDragIndicator.value = true, 800);
 });

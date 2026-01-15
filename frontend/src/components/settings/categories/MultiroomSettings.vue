@@ -191,8 +191,8 @@ const messageTitle = computed(() => {
   return transitionState.value === 'enabling' ? t('multiroom.starting') : t('multiroom.disabled');
 });
 
-// Sorted clients with "milo" first
-const sortedMultiroomClients = computed(() => multiroomStore.sortedClients);
+// Clients are already sorted (local first, then alphabetical) from clientRegistryStore
+const sortedMultiroomClients = computed(() => multiroomStore.clients);
 
 // Get zones with client details
 const zones = computed(() => {
