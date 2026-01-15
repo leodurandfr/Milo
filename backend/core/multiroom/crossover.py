@@ -611,7 +611,7 @@ class CrossoverService:
             await self.state_machine.broadcast_event("crossover", event_type, data)
 
         if self.event_bus:
-            self.event_bus.emit(f"multiroom.crossover.{event_type}", data)
+            await self.event_bus.emit(f"multiroom.crossover.{event_type}", data)
 
     # === Pending Settings Queue for Offline Clients ===
 

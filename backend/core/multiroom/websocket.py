@@ -715,6 +715,6 @@ class SnapcastWebSocketService:
 
         # Also emit via EventBus
         if self.event_bus:
-            self.event_bus.emit(f"multiroom.{event_type}", data)
+            await self.event_bus.emit(f"multiroom.{event_type}", data)
 
         self.logger.debug(f"Broadcasted Snapcast event: {event_type}")
