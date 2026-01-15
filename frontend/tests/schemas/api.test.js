@@ -50,8 +50,7 @@ describe('API Schemas', () => {
         plugin_state: 'connected',
         transitioning: false,
         metadata: { title: 'Song', artist: 'Artist' },
-        multiroom_enabled: true,
-        dsp_effects_enabled: false
+        multiroom_enabled: true
       };
 
       const result = SystemStateSchema.safeParse(validState);
@@ -64,8 +63,7 @@ describe('API Schemas', () => {
         active_source: 'none',
         plugin_state: 'ready',
         transitioning: false,
-        multiroom_enabled: false,
-        dsp_effects_enabled: false
+        multiroom_enabled: false
       };
 
       const result = SystemStateSchema.safeParse(minimalState);
@@ -78,8 +76,7 @@ describe('API Schemas', () => {
         active_source: 'invalid_source',
         plugin_state: 'ready',
         transitioning: false,
-        multiroom_enabled: false,
-        dsp_effects_enabled: false
+        multiroom_enabled: false
       };
 
       const result = SystemStateSchema.safeParse(invalidState);
@@ -91,8 +88,7 @@ describe('API Schemas', () => {
         active_source: 'spotify',
         plugin_state: 'invalid_state',
         transitioning: false,
-        multiroom_enabled: false,
-        dsp_effects_enabled: false
+        multiroom_enabled: false
       };
 
       const result = SystemStateSchema.safeParse(invalidState);

@@ -55,9 +55,8 @@ export const SystemStateSchema = z.object({
   transitioning: z.boolean(),
   metadata: MetadataSchema.optional().default({}),
   error: z.string().nullable().optional(),
-  multiroom_enabled: z.boolean(),
-  dsp_effects_enabled: z.boolean()
-});
+  multiroom_enabled: z.boolean()
+}).passthrough();
 
 // === VOLUME ===
 

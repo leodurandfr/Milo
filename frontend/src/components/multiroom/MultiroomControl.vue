@@ -60,15 +60,8 @@ let unsubscribeFunctions = [];
 // === COMPUTED ===
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
 
-// DSP effects enabled (EQ, compressor, loudness) - volume always uses DSP
-const isDspEffectsEnabled = computed(() => dspStore.isDspEffectsEnabled);
-
-// Get linked groups from DSP store - only used when DSP effects are enabled
-const linkedGroups = computed(() => {
-  // Zone grouping only applies when DSP effects are enabled
-  if (!isDspEffectsEnabled.value) return [];
-  return dspStore.linkedGroups || [];
-});
+// Get linked groups from DSP store (zones are a multiroom feature, independent of DSP effects)
+const linkedGroups = computed(() => dspStore.linkedGroups || []);
 
 // Get zone info for a client (returns zone object if linked, null otherwise)
 function getZoneForClient(client) {
@@ -487,11 +480,8 @@ onMounted(async () => {
   // Load DSP enabled state (for volume mode detection)
   await dspStore.loadEnabledState();
 
-  // Load linked groups if DSP effects are enabled
-  if (dspStore.isDspEffectsEnabled) {
-    await dspStore.loadTargets();
-    // Volume data comes from unifiedAudioStore.volumeState via WebSocket
-  }
+  // Load linked groups (zones are a multiroom feature, independent of DSP effects)
+  await dspStore.loadTargets();
 
   unsubscribeFunctions.push(
     on('snapcast', 'client_connected', handleClientConnected),
