@@ -1085,7 +1085,7 @@ class CamillaDSPService:
 
         # Also emit via EventBus for internal subscribers
         if self.event_bus:
-            self.event_bus.emit(f"dsp.{event_type}", data)
+            await self.event_bus.emit(f"dsp.{event_type}", data)
 
     # === Cleanup ===
 

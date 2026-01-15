@@ -632,7 +632,7 @@ class ClientRegistryService:
 
         # Emit via EventBus
         if self.event_bus:
-            self.event_bus.emit(f"multiroom.{event_type}", data)
+            await self.event_bus.emit(f"multiroom.{event_type}", data)
 
         # Notify local subscribers
         for callback in self._subscribers:
