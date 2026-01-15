@@ -25,6 +25,7 @@ USER_SCREEN_CHOICE=""
 USER_RESTART_CHOICE=""
 HIFIBERRY_OVERLAY=""
 CARD_NAME=""
+ALSA_CONTROL=""
 SCREEN_TYPE=""
 
 RED='\033[0;31m'
@@ -150,12 +151,12 @@ collect_user_choices() {
         USER_HIFIBERRY_CHOICE=${USER_HIFIBERRY_CHOICE:-1}
         
         case $USER_HIFIBERRY_CHOICE in
-            1) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Selected card: Amp2"; break;;
-            2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Selected card: Amp4"; break;;
-            3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; log_success "Selected card: Amp4 Pro"; break;;
-            4) HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; log_success "Selected card: Amp100"; break;;
-            5) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; log_success "Selected card: Beocreate 4CA"; break;;
-            6) HIFIBERRY_OVERLAY=""; CARD_NAME=""; log_warning "HiFiBerry configuration skipped"; break;;
+            1) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp2"; break;;
+            2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp4"; break;;
+            3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp4 Pro"; break;;
+            4) HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Selected card: Amp100"; break;;
+            5) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Selected card: Beocreate 4CA"; break;;
+            6) HIFIBERRY_OVERLAY=""; CARD_NAME=""; ALSA_CONTROL=""; log_warning "HiFiBerry configuration skipped"; break;;
             *) echo "Invalid choice. Please enter a number between 1 and 6.";;
         esac
     done
@@ -273,6 +274,38 @@ configure_audio_hardware() {
     
     log_success "Audio hardware configuration complete"
     REBOOT_REQUIRED=true
+}
+
+initialize_alsa_volume() {
+    if [[ -z "$CARD_NAME" ]]; then
+        log_info "ALSA volume initialization skipped (no HiFiBerry card configured)"
+        return
+    fi
+
+    log_info "Initializing ALSA volume to 100%..."
+
+    # Wait for sound card to be available
+    sleep 2
+
+    # Set HiFiBerry volume to 100% (passthrough - CamillaDSP manages actual volume)
+    # Use the control name determined during card selection
+    if [[ -n "$ALSA_CONTROL" ]]; then
+        if amixer -c "$CARD_NAME" sset "$ALSA_CONTROL" 100% 2>/dev/null; then
+            log_success "ALSA $ALSA_CONTROL volume set to 100%"
+            return 0
+        fi
+    fi
+
+    # Fallback: try common controls
+    if amixer -c "$CARD_NAME" sset 'Digital' 100% 2>/dev/null; then
+        log_success "ALSA Digital volume set to 100%"
+    elif amixer -c "$CARD_NAME" sset 'DAC' 100% 2>/dev/null; then
+        log_success "ALSA DAC volume set to 100%"
+    elif amixer -c "$CARD_NAME" sset 'Master' 100% 2>/dev/null; then
+        log_success "ALSA Master volume set to 100%"
+    else
+        log_warning "Could not set ALSA volume (card may not be available until reboot)"
+    fi
 }
 
 configure_screen_hardware() {
@@ -1685,6 +1718,7 @@ main() {
    configure_alsa_loopback
    install_camilladsp
    configure_alsa_complete
+   initialize_alsa_volume
    configure_snapserver
    
    configure_fan_control
