@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Literal, Any
 from datetime import datetime
 
+from backend.config.constants import DEFAULT_VOLUME_DB
+
 
 # Speaker types for crossover configuration
 SpeakerType = Literal['satellite', 'bookshelf', 'tower', 'subwoofer']
@@ -20,7 +22,7 @@ SPEAKER_TYPES = ['satellite', 'bookshelf', 'tower', 'subwoofer']
 # Default values
 DEFAULT_SPEAKER_TYPE: SpeakerType = 'bookshelf'
 DEFAULT_CROSSOVER_FREQUENCY = 80
-DEFAULT_VOLUME_DB = -30.0
+# DEFAULT_VOLUME_DB imported from backend.config.constants
 
 # Default crossover frequencies (highpass) per speaker type in Hz
 # Based on typical frequency response of each speaker category

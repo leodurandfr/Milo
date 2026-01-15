@@ -21,6 +21,7 @@ from backend.core.volume.state import VolumeStateStore
 from backend.core.volume.dsp_controller import DSPController
 from backend.core.multiroom.snapcast import get_available_client_ids
 from backend.core.models.volume_state import VolumeState
+from backend.config.constants import DEFAULT_VOLUME_DB
 
 
 class VolumeService:
@@ -179,28 +180,46 @@ class VolumeService:
             return False
         return self._dsp_service.is_volume_control_available()
 
-    async def update_volume_mode(self, multiroom_enabled: bool) -> None:
+    async def update_volume_mode(self, multiroom_enabled: bool) -> float:
         """
         Update volume mode when multiroom state changes.
 
-        This syncs VolumeStateStore mode and ensures 'local' client is properly
-        configured when switching to direct mode.
+        Ensures volume consistency when switching modes:
+        - TO multiroom: returns current local volume to use for all clients
+        - TO direct: sets local volume to current global (average of clients)
 
         Args:
             multiroom_enabled: Whether multiroom is now enabled
-        """
-        mode = "multiroom" if multiroom_enabled else "direct"
-        await self._state_store.set_mode(mode)
 
-        if not multiroom_enabled:
-            # Sync local volume from DSP when switching to direct mode
+        Returns:
+            The volume to use for the new mode (for multiroom: local volume to push)
+        """
+        if multiroom_enabled:
+            # Switching TO multiroom: get current local volume BEFORE mode change
+            current_local = self._state_store._local_volume_db
+            self.logger.info(f"Switching to multiroom: using local volume {current_local:.1f} dB for all clients")
+
+            await self._state_store.set_mode("multiroom")
+            return current_local
+        else:
+            # Switching TO direct: get current global volume BEFORE mode change
+            volume_state = await self._state_store.get_complete_state()
+            current_global = volume_state.global_volume_db
+            self.logger.info(f"Switching to direct: using global volume {current_global:.1f} dB for local")
+
+            await self._state_store.set_mode("direct")
+
+            # Set local volume to the previous global
+            self._state_store.set_local_volume(current_global)
+
+            # Apply to DSP
             try:
-                current_volume = await self._dsp_service.get_volume()
-                if current_volume is not None:
-                    self._state_store.set_local_volume(current_volume)
-                    self.logger.info(f"Synced local volume from DSP: {current_volume:.1f} dB")
+                await self._dsp_service.set_volume(current_global)
+                self.logger.info(f"Applied volume {current_global:.1f} dB to DSP")
             except Exception as e:
-                self.logger.warning(f"Failed to sync local volume from DSP: {e}")
+                self.logger.warning(f"Failed to apply volume to DSP: {e}")
+
+            return current_global
 
     # ============================================================================
     # CONFIGURATION LOADING
@@ -344,7 +363,7 @@ class VolumeService:
                     vol_data = await self._dsp_service.get_volume()
                 else:
                     vol_data = await self._proxy_service.request(cid, "GET", "/dsp/volume")
-                volume = vol_data.get("main", -30.0) if vol_data else -30.0
+                volume = vol_data.get("main", DEFAULT_VOLUME_DB) if vol_data else DEFAULT_VOLUME_DB
                 await self._state_store.register_client(cid, volume_db=volume, available=client.get("available", True))
 
             self.logger.info(f"Synced {len(clients)} clients from DSP")
@@ -354,34 +373,48 @@ class VolumeService:
             self.logger.error(f"Error syncing all clients from DSP: {e}")
             return False
 
-    async def push_volume_to_all_clients(self) -> bool:
-        """Push volume and mute state to all multiroom clients (respects startup settings)."""
+    async def push_volume_to_all_clients(self, target_volume_db: Optional[float] = None) -> bool:
+        """
+        Push volume and mute state to all multiroom clients.
+
+        Args:
+            target_volume_db: If provided, use this volume for ALL clients (mode switch).
+                             If None, respect startup settings (restore/startup volume).
+        """
         try:
             client_ids = await get_available_client_ids(self.snapcast_service)
             if not client_ids:
                 return True
 
-            restore_enabled = self.config.config.restore_last_volume
-            startup_volume = self.config.config.startup_volume_db
-
-            # Build volume updates based on startup settings
+            # Build volume updates
             updates = {}
-            local_volume = None  # Lazy-loaded if needed
-            for cid in client_ids:
-                if restore_enabled and cid in self._state_store._clients:
-                    updates[cid] = self._state_store._clients[cid].volume_db
-                elif restore_enabled:
-                    if local_volume is None:
-                        dsp_state = await self._dsp_service.get_volume()
-                        local_volume = dsp_state.get("main", -30.0) if dsp_state else -30.0
-                    updates[cid] = local_volume
-                else:
-                    updates[cid] = startup_volume
+
+            if target_volume_db is not None:
+                # Mode switch: use target volume for all clients
+                for cid in client_ids:
+                    updates[cid] = target_volume_db
+                self.logger.info(f"Pushing mode-switch volume ({target_volume_db:.1f}dB) to {len(updates)} clients")
+            else:
+                # Startup: respect restore/startup settings
+                restore_enabled = self.config.config.restore_last_volume
+                startup_volume = self.config.config.startup_volume_db
+
+                local_volume = None  # Lazy-loaded if needed
+                for cid in client_ids:
+                    if restore_enabled and cid in self._state_store._clients:
+                        updates[cid] = self._state_store._clients[cid].volume_db
+                    elif restore_enabled:
+                        if local_volume is None:
+                            dsp_state = await self._dsp_service.get_volume()
+                            local_volume = dsp_state.get("main", DEFAULT_VOLUME_DB) if dsp_state else DEFAULT_VOLUME_DB
+                        updates[cid] = local_volume
+                    else:
+                        updates[cid] = startup_volume
+
+                self.logger.info(f"Pushing {'persisted' if restore_enabled else f'startup ({startup_volume:.1f}dB)'} volumes to {len(updates)} clients")
 
             if not updates:
                 return True
-
-            self.logger.info(f"Pushing {'persisted' if restore_enabled else f'startup ({startup_volume:.1f}dB)'} volumes to {len(updates)} clients")
 
             # Apply volumes and update state store
             results = await self._dsp_controller.apply_volumes_parallel(updates)
@@ -722,7 +755,7 @@ class VolumeService:
             }
         except Exception as e:
             self.logger.error(f"Error getting status: {e}")
-            return {"volume_db": -30.0, "error": str(e)}
+            return {"volume_db": DEFAULT_VOLUME_DB, "error": str(e)}
 
     async def get_volume_state(self) -> VolumeState:
         """
@@ -743,10 +776,10 @@ class VolumeService:
             client = volume_state.clients.get(hostname)
             if client:
                 return {"main": client.volume_db, "mute": client.mute}
-            return {"main": -30.0, "mute": False}
+            return {"main": DEFAULT_VOLUME_DB, "mute": False}
         except Exception as e:
             self.logger.error(f"Error getting client volume: {e}")
-            return {"main": -30.0, "mute": False}
+            return {"main": DEFAULT_VOLUME_DB, "mute": False}
 
     async def cleanup(self) -> None:
         """Clean up resources. Currently a no-op as VolumeStateStore handles its own cleanup."""

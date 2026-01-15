@@ -18,6 +18,7 @@ from backend.core.volume import (
 from backend.core.events import EventBus, Events, get_event_bus, reset_event_bus
 from backend.core.models.volume import VolumeConfig
 from backend.core.models.volume_state import VolumeState, ClientVolume, ZoneVolume
+from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
 
 
 # ============================================================================
@@ -54,7 +55,7 @@ class TestVolumeConfigService:
         assert config.limit_max_db == -21.0
         assert config.step_mobile_db == 3.0
         assert config.step_rotary_db == 2.0
-        assert config.startup_volume_db == -30.0
+        assert config.startup_volume_db == DEFAULT_VOLUME_DB
         assert config.restore_last_volume is False
 
     @pytest.mark.asyncio
@@ -186,10 +187,12 @@ class TestVolumeStateStore:
         return VolumeStateStore(mock_settings)
 
     def test_default_values(self, state_store):
-        """Test default store values."""
-        assert state_store.MIN_DB == -80.0
-        assert state_store.MAX_DB == 0.0
-        assert state_store.DEFAULT_VOLUME_DB == -30.0
+        """Test default store values (constants imported from backend.config.constants)."""
+        assert MIN_VOLUME_DB == -80.0
+        assert MAX_VOLUME_DB == 0.0
+        assert DEFAULT_VOLUME_DB == -60.0
+        # Verify initial local volume uses default
+        assert state_store._local_volume_db == DEFAULT_VOLUME_DB
 
     def test_clamp_db(self, state_store):
         """Test dB clamping."""

@@ -18,7 +18,8 @@ from backend.core.multiroom.models import (
     RegistryEventType,
     SpeakerType,
     DEFAULT_SPEAKER_TYPE,
-    DEFAULT_CROSSOVER_FREQUENCY
+    DEFAULT_CROSSOVER_FREQUENCY,
+    DEFAULT_VOLUME_DB
 )
 
 
@@ -140,7 +141,7 @@ class ClientRegistryService:
                     available=client_data.get("available", True),
                     speaker_type=speaker_type,
                     crossover_frequency=crossover_freq,
-                    volume_db=client_data.get("volume_db", -30.0),
+                    volume_db=client_data.get("volume_db", DEFAULT_VOLUME_DB),
                     mute=client_data.get("mute", False)
                 )
                 self._clients[dsp_id] = client

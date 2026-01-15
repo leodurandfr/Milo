@@ -7,6 +7,8 @@ All volume operations should use config.clamp() for limit enforcement.
 """
 from dataclasses import dataclass
 
+from backend.config.constants import DEFAULT_VOLUME_DB
+
 
 @dataclass
 class VolumeConfig:
@@ -20,7 +22,7 @@ class VolumeConfig:
     limit_max_db: float = -21.0
     step_mobile_db: float = 3.0
     step_rotary_db: float = 2.0
-    startup_volume_db: float = -30.0
+    startup_volume_db: float = DEFAULT_VOLUME_DB
     restore_last_volume: bool = False
 
     def clamp(self, volume_db: float) -> float:

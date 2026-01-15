@@ -9,6 +9,8 @@ import aiofiles
 import asyncio
 from typing import Dict, Any
 
+from backend.config.constants import DEFAULT_VOLUME_DB
+
 class SettingsService:
     """Simplified settings manager with support for 0 = disabled"""
 
@@ -24,7 +26,7 @@ class SettingsService:
                 "limit_min_db": -80.0,
                 "limit_max_db": -21.0,
                 "restore_last_volume": False,
-                "startup_volume_db": -30.0,
+                "startup_volume_db": DEFAULT_VOLUME_DB,
                 "step_mobile_db": 3.0,
                 "step_rotary_db": 2.0
             },
@@ -148,7 +150,7 @@ class SettingsService:
                 vol['limit_min_db'] = -6.0
 
         vol['restore_last_volume'] = bool(vol_input.get('restore_last_volume', False))
-        vol['startup_volume_db'] = max(vol['limit_min_db'], min(vol['limit_max_db'], float(vol_input.get('startup_volume_db', -30.0))))
+        vol['startup_volume_db'] = max(vol['limit_min_db'], min(vol['limit_max_db'], float(vol_input.get('startup_volume_db', DEFAULT_VOLUME_DB))))
         vol['step_mobile_db'] = max(1.0, min(6.0, float(vol_input.get('step_mobile_db', 3.0))))
         vol['step_rotary_db'] = max(1.0, min(6.0, float(vol_input.get('step_rotary_db', 2.0))))
         validated['volume'] = vol
@@ -306,7 +308,7 @@ class SettingsService:
         return {
             "limit_min_db": volume_settings.get("limit_min_db", -80.0),
             "limit_max_db": volume_settings.get("limit_max_db", -21.0),
-            "startup_volume_db": volume_settings.get("startup_volume_db", -30.0),
+            "startup_volume_db": volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
             "restore_last_volume": volume_settings.get("restore_last_volume", False),
             "step_mobile_db": volume_settings.get("step_mobile_db", 3.0),
             "step_rotary_db": volume_settings.get("step_rotary_db", 2.0)
@@ -318,7 +320,7 @@ class SettingsService:
         return {
             "limit_min_db": volume_settings.get("limit_min_db", -80.0),
             "limit_max_db": volume_settings.get("limit_max_db", -21.0),
-            "startup_volume_db": volume_settings.get("startup_volume_db", -30.0),
+            "startup_volume_db": volume_settings.get("startup_volume_db", DEFAULT_VOLUME_DB),
             "restore_last_volume": volume_settings.get("restore_last_volume", False),
             "step_mobile_db": volume_settings.get("step_mobile_db", 3.0),
             "step_rotary_db": volume_settings.get("step_rotary_db", 2.0)

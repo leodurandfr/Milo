@@ -29,6 +29,7 @@ import aiofiles
 
 # Use existing domain models
 from backend.core.models.volume_state import VolumeState, ClientVolume, ZoneVolume
+from backend.config.constants import DEFAULT_VOLUME_DB, MIN_VOLUME_DB, MAX_VOLUME_DB
 
 if TYPE_CHECKING:
     from backend.core.multiroom.registry import ClientRegistryService
@@ -56,10 +57,10 @@ class VolumeStateStore:
     - Thread-safe with async locks
     """
 
-    # Technical volume limits (dB) - absolute hardware range
-    MIN_DB = -80.0
-    MAX_DB = 0.0
-    DEFAULT_VOLUME_DB = -30.0
+    # Volume constants imported from backend.config.constants:
+    # - DEFAULT_VOLUME_DB = -60.0 (default volume for new clients)
+    # - MIN_VOLUME_DB = -80.0 (technical minimum)
+    # - MAX_VOLUME_DB = 0.0 (technical maximum)
 
     # Default user limits (dB) - safe user range
     DEFAULT_USER_MIN_DB = -80.0
@@ -89,7 +90,7 @@ class VolumeStateStore:
         self._mode: str = "multiroom"  # 'direct' or 'multiroom'
 
         # Local volume for direct mode (separate from clients for quick access)
-        self._local_volume_db: float = self.DEFAULT_VOLUME_DB
+        self._local_volume_db: float = DEFAULT_VOLUME_DB
 
         # User-configurable volume limits (cached from settings)
         self._user_limit_min_db: float = self.DEFAULT_USER_MIN_DB
@@ -316,7 +317,7 @@ class VolumeStateStore:
         Returns:
             Volume to use at startup in dB
         """
-        if restore_enabled and self._local_volume_db != self.DEFAULT_VOLUME_DB:
+        if restore_enabled and self._local_volume_db != DEFAULT_VOLUME_DB:
             # Use restored local volume if it was loaded from disk
             self.logger.info(f"Using restored volume: {self._local_volume_db:.1f}dB")
             return self._local_volume_db
@@ -359,7 +360,7 @@ class VolumeStateStore:
                 target = sum(volumes) / len(volumes)
                 self._zone_target_volumes[zone_id] = target
             else:
-                self._zone_target_volumes[zone_id] = self.DEFAULT_VOLUME_DB
+                self._zone_target_volumes[zone_id] = DEFAULT_VOLUME_DB
 
         if self._zone_target_volumes:
             self.logger.info(f"Computed initial zone targets: {self._zone_target_volumes}")
@@ -408,14 +409,14 @@ class VolumeStateStore:
 
             # Load local_volume_db and clients
             if "local_volume_db" in data:
-                local_vol = data.get("local_volume_db", self.DEFAULT_VOLUME_DB)
+                local_vol = data.get("local_volume_db", DEFAULT_VOLUME_DB)
                 if -80.0 <= local_vol <= 0.0:
                     self._local_volume_db = local_vol
 
             # Restore client volumes
             clients_data = data.get("clients", {})
             for hostname, client_data in clients_data.items():
-                volume_db = client_data.get("volume_db", self.DEFAULT_VOLUME_DB)
+                volume_db = client_data.get("volume_db", DEFAULT_VOLUME_DB)
                 volume_db = self._clamp_db(volume_db)
 
                 self._clients[hostname] = ClientVolume(
@@ -484,7 +485,7 @@ class VolumeStateStore:
             else:
                 # New client
                 if volume_db is None:
-                    volume_db = self.DEFAULT_VOLUME_DB
+                    volume_db = DEFAULT_VOLUME_DB
 
                 volume_db = self._clamp_db(volume_db)
 
@@ -619,11 +620,11 @@ class VolumeStateStore:
             zone_id: Zone identifier
 
         Returns:
-            Average volume in dB (or DEFAULT_VOLUME_DB if no available clients)
+            Average volume in dB (or DEFAULT_VOLUME if no available clients)
         """
         if zone_id not in self._zones:
             self.logger.warning(f"Cannot compute average for unknown zone: {zone_id}")
-            return self.DEFAULT_VOLUME_DB
+            return DEFAULT_VOLUME_DB
 
         zone = self._zones[zone_id]
         volumes = []
@@ -639,8 +640,8 @@ class VolumeStateStore:
             self.logger.debug(f"Zone {zone_id} average: {average:.1f}dB from {len(volumes)} clients")
             return average
 
-        self.logger.debug(f"Zone {zone_id} has no available clients, returning default {self.DEFAULT_VOLUME_DB}dB")
-        return self.DEFAULT_VOLUME_DB
+        self.logger.debug(f"Zone {zone_id} has no available clients, returning default {DEFAULT_VOLUME_DB}dB")
+        return DEFAULT_VOLUME_DB
 
     # ========== State Retrieval ==========
 
@@ -706,7 +707,7 @@ class VolumeStateStore:
                     for client in self._clients.values()
                     if client.available
                 ]
-                global_volume = sum(all_volumes) / len(all_volumes) if all_volumes else self.DEFAULT_VOLUME_DB
+                global_volume = sum(all_volumes) / len(all_volumes) if all_volumes else DEFAULT_VOLUME_DB
 
             # Check if all available clients are muted
             available_clients = [c for c in self._clients.values() if c.available]
@@ -763,8 +764,8 @@ class VolumeStateStore:
             max_db: Maximum volume in dB (e.g., -21.0 for safety)
         """
         # Ensure limits are within technical range
-        self._user_limit_min_db = max(self.MIN_DB, min(self.MAX_DB, min_db))
-        self._user_limit_max_db = max(self.MIN_DB, min(self.MAX_DB, max_db))
+        self._user_limit_min_db = max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, min_db))
+        self._user_limit_max_db = max(MIN_VOLUME_DB, min(MAX_VOLUME_DB, max_db))
         self.logger.debug(f"User volume limits updated: {self._user_limit_min_db:.1f} to {self._user_limit_max_db:.1f} dB")
 
     @property
@@ -784,8 +785,8 @@ class VolumeStateStore:
         Returns:
             Dict with min_db, max_db, step_mobile_db, step_button_db
         """
-        min_db = await self.settings_service.get_setting("volume.limit_min_db") or self.MIN_DB
-        max_db = await self.settings_service.get_setting("volume.limit_max_db") or self.MAX_DB
+        min_db = await self.settings_service.get_setting("volume.limit_min_db") or MIN_VOLUME_DB
+        max_db = await self.settings_service.get_setting("volume.limit_max_db") or MAX_VOLUME_DB
         step_mobile_db = await self.settings_service.get_setting("volume.step_mobile_db") or 3.0
         step_button_db = await self.settings_service.get_setting("volume.step_button_db") or 5.0
 
