@@ -1,4 +1,4 @@
-<!-- frontend/src/components/settings/categories/MultiroomSettings.vue -->
+<!-- frontend/src/components/settings/categories/multiroom/MultiroomSettings.vue -->
 <template>
   <div class="multiroom-settings">
     <div class="content-wrapper">
