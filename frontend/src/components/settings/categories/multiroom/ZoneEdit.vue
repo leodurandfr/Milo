@@ -1,5 +1,5 @@
-<!-- frontend/src/components/settings/categories/dsp/ZoneEdit.vue -->
-<!-- Form for creating or editing a DSP zone -->
+<!-- frontend/src/components/settings/categories/multiroom/ZoneEdit.vue -->
+<!-- Form for creating or editing a multiroom zone -->
 <template>
   <div class="zone-edit">
     <!-- Zone Name Input -->

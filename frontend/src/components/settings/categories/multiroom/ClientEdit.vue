@@ -1,4 +1,4 @@
-<!-- frontend/src/components/multiroom/ClientEdit.vue -->
+<!-- frontend/src/components/settings/categories/multiroom/ClientEdit.vue -->
 <!-- Form for editing a single client's settings -->
 <template>
   <div class="client-edit">

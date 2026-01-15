@@ -210,9 +210,9 @@ import ApplicationsSettings from '@/components/settings/categories/ApplicationsS
 import VolumeSettings from '@/components/settings/categories/VolumeSettings.vue';
 import ScreenSettings from '@/components/settings/categories/ScreenSettings.vue';
 import SpotifySettings from '@/components/settings/categories/SpotifySettings.vue';
-import MultiroomSettings from '@/components/settings/categories/MultiroomSettings.vue';
-import ZoneEdit from './categories/dsp/ZoneEdit.vue';
-import ClientEdit from '@/components/multiroom/ClientEdit.vue';
+import MultiroomSettings from './categories/multiroom/MultiroomSettings.vue';
+import ZoneEdit from './categories/multiroom/ZoneEdit.vue';
+import ClientEdit from './categories/multiroom/ClientEdit.vue';
 import RadioSettings from '@/components/settings/categories/radio/RadioSettings.vue';
 import ManageStation from '@/components/settings/categories/radio/ManageStation.vue';
 import PodcastSettings from '@/components/settings/categories/PodcastSettings.vue';

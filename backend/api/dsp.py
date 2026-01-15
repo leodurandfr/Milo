@@ -595,7 +595,8 @@ def create_dsp_router(
                 raise HTTPException(status_code=404, detail=f"Client {client_id} not found in any linked group")
 
             await client_registry_service.remove_client_from_zone(zone.id, client_id)
-            if len(zone.client_ids) - 1 < 2:
+            # Delete zone if fewer than 2 clients remain (zone.client_ids already updated in-place)
+            if len(zone.client_ids) < 2:
                 await client_registry_service.delete_zone(zone.id)
 
             return {"status": "success", "linked_groups": await _broadcast_links()}
