@@ -8,6 +8,7 @@ import logging
 from typing import Any, Dict
 
 from backend.core.models.volume import VolumeConfig
+from backend.config.constants import DEFAULT_VOLUME_DB
 
 
 class VolumeConfigService:
@@ -45,7 +46,7 @@ class VolumeConfigService:
                 limit_max_db=volume_config.get("limit_max_db", -21.0),
                 step_mobile_db=volume_config.get("step_mobile_db", 3.0),
                 step_rotary_db=volume_config.get("step_rotary_db", 2.0),
-                startup_volume_db=volume_config.get("startup_volume_db", -30.0),
+                startup_volume_db=volume_config.get("startup_volume_db", DEFAULT_VOLUME_DB),
                 restore_last_volume=volume_config.get("restore_last_volume", False)
             )
 

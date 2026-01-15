@@ -383,18 +383,19 @@ class AudioRoutingService:
                 if self.state_machine:
                     volume_service = getattr(self.state_machine, 'volume_service', None)
 
-                    # Multiroom-specific: broadcast ready event and push volume
+                    # Update volume mode FIRST (returns target volume for mode sync)
+                    target_volume = None
+                    if volume_service:
+                        target_volume = await volume_service.update_volume_mode(enabled)
+
+                    # Multiroom-specific: push volume and broadcast ready event
                     if enabled:
+                        if volume_service and target_volume is not None:
+                            self.logger.info(f"📊 Pushing volume ({target_volume:.1f}dB) to all clients...")
+                            await volume_service.push_volume_to_all_clients(target_volume)
+
                         self.logger.info("📢 Broadcasting multiroom_ready event")
                         await self.state_machine.broadcast_event("routing", "multiroom_ready", {})
-
-                        if volume_service:
-                            self.logger.info("📊 Pushing local volume to all clients...")
-                            await volume_service.push_volume_to_all_clients()
-
-                    # Always update volume mode (for both enable and disable)
-                    if volume_service:
-                        await volume_service.update_volume_mode(enabled)
 
                 # Save state via SettingsService
                 if self.settings_service:

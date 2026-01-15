@@ -54,3 +54,10 @@ CAMILLADSP_COMMAND_TIMEOUT = 5  # Timeout for CamillaDSP commands
 # MULTIROOM SETTINGS
 # =============================================================================
 SNAPCAST_CACHE_MS = 5000        # Client cache duration in milliseconds
+
+# =============================================================================
+# VOLUME SETTINGS (in dB)
+# =============================================================================
+DEFAULT_VOLUME_DB = -60.0       # Default volume for new clients and startup
+MIN_VOLUME_DB = -80.0           # Technical minimum (silent)
+MAX_VOLUME_DB = 0.0             # Technical maximum

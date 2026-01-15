@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, Optional
 from backend.core.settings import SettingsService
 from backend.core.models.audio_state import AudioSource
 from backend.features.podcast.taddy_api import TaddyAPI
+from backend.config.constants import DEFAULT_VOLUME_DB
 from backend.api.models import (
     LanguageRequest,
     VolumeLimitsRequest,
@@ -146,7 +147,7 @@ def create_settings_router(
         return {
             "status": "success",
             "config": {
-                "startup_volume_db": vol.get("startup_volume_db", -30.0),
+                "startup_volume_db": vol.get("startup_volume_db", DEFAULT_VOLUME_DB),
                 "restore_last_volume": vol.get("restore_last_volume", False)
             }
         }
