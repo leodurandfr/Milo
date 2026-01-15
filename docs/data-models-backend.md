@@ -4,7 +4,7 @@
 
 ## Overview
 
-Milo uses a domain-driven design with models defined in `backend/domain/`. No traditional database is used - state is persisted to JSON files in `/var/lib/milo/`.
+Milo uses a feature-based architecture with domain models defined in `backend/core/models/`. No traditional database is used - state is persisted to JSON files in `/var/lib/milo/`.
 
 ---
 
