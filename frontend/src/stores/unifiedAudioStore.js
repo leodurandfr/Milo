@@ -14,8 +14,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     transitioning: false,
     metadata: {},
     error: null,
-    multiroom_enabled: false,
-    dsp_effects_enabled: false
+    multiroom_enabled: false
   });
 
   // === VOLUME STATE (unified structure) ===
@@ -166,10 +165,14 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
     const result = validateSchema(SystemStateSchema, newState, `SystemState from ${source}`);
 
     if (result.success) {
-      // Schema validation passed - use validated data
+      // Schema validation passed - use validated data (explicitly pick only used properties)
       systemState.value = {
-        ...result.data,
-        error: result.data.error || null
+        active_source: result.data.active_source,
+        plugin_state: result.data.plugin_state,
+        transitioning: result.data.transitioning,
+        metadata: result.data.metadata || {},
+        error: result.data.error || null,
+        multiroom_enabled: result.data.multiroom_enabled
       };
     } else {
       // Schema validation failed - apply safe fallbacks
@@ -189,9 +192,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         metadata: (newState.metadata && typeof newState.metadata === 'object') ? newState.metadata : {},
         error: newState.error || null,
         multiroom_enabled: typeof newState.multiroom_enabled === 'boolean'
-          ? newState.multiroom_enabled : systemState.value.multiroom_enabled,
-        dsp_effects_enabled: typeof newState.dsp_effects_enabled === 'boolean'
-          ? newState.dsp_effects_enabled : systemState.value.dsp_effects_enabled
+          ? newState.multiroom_enabled : systemState.value.multiroom_enabled
       };
     }
   }

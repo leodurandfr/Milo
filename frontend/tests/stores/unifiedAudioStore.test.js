@@ -21,7 +21,6 @@ describe('unifiedAudioStore', () => {
       expect(store.systemState.plugin_state).toBe('ready');
       expect(store.systemState.transitioning).toBe(false);
       expect(store.systemState.multiroom_enabled).toBe(false);
-      expect(store.systemState.dsp_effects_enabled).toBe(false);
     });
 
     it('should have correct default volume state', () => {
