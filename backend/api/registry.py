@@ -95,6 +95,24 @@ def create_registry_router(registry_service):
             logger.error(f"Error getting client {dsp_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    @router.delete("/clients/{dsp_id}")
+    async def delete_client(dsp_id: str):
+        """
+        Permanently delete a client from the registry.
+        Removes client from all zones and clears persisted configuration.
+        Use this for offline clients that are no longer needed.
+        """
+        try:
+            success = await registry_service.unregister_client(dsp_id)
+            if not success:
+                raise HTTPException(status_code=404, detail=f"Client {dsp_id} not found")
+            return {"status": "success"}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error deleting client {dsp_id}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     @router.get("/clients/{dsp_id}/available")
     async def check_client_available(dsp_id: str):
         """Check if a specific client is available."""
