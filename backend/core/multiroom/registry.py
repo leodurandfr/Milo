@@ -581,6 +581,18 @@ class ClientRegistryService:
         clients = self.get_available_zone_clients(zone_id)
         return any(c.speaker_type == 'subwoofer' for c in clients)
 
+    def zone_to_enriched_dict(self, zone: Zone) -> Dict[str, Any]:
+        """
+        Convert zone to dict with computed crossover_enabled.
+
+        The crossover_enabled field is computed dynamically based on whether
+        the zone has an available subwoofer, rather than using the stored value.
+        """
+        data = zone.to_dict()
+        # Override stored crossover_enabled with computed value
+        data["crossover_enabled"] = self.has_available_subwoofer(zone.id)
+        return data
+
     def get_zone_ids(self) -> List[str]:
         """Get list of all zone IDs."""
         return list(self._zones.keys())
@@ -598,7 +610,7 @@ class ClientRegistryService:
         """Get complete registry state as dictionary."""
         return {
             "clients": {k: v.to_dict() for k, v in self._clients.items()},
-            "zones": {k: v.to_dict() for k, v in self._zones.items()}
+            "zones": {k: self.zone_to_enriched_dict(v) for k, v in self._zones.items()}
         }
 
     # === EVENT SYSTEM ===

@@ -91,13 +91,15 @@ class CrossoverService:
             dsp_id = data.get("dsp_id")
             available = data.get("available")
 
-            if dsp_id and available:
-                # Client came online - apply pending settings
-                if self.has_pending_settings(dsp_id):
-                    self.logger.info(f"Client {dsp_id} reconnected, applying pending settings")
-                    await self.apply_pending_settings(dsp_id)
+            if dsp_id:
+                if available:
+                    # Client came online - apply pending settings
+                    if self.has_pending_settings(dsp_id):
+                        self.logger.info(f"Client {dsp_id} reconnected, applying pending settings")
+                        await self.apply_pending_settings(dsp_id)
 
-                # Recalculate crossover for zones containing this client
+                # Always recalculate crossover for zones containing this client
+                # (both online AND offline to update crossover_enabled state)
                 await self._recalculate_zones_for_client(dsp_id)
 
         elif event_type == RegistryEventType.SPEAKER_TYPE_CHANGED:
@@ -577,6 +579,8 @@ class CrossoverService:
 
     async def _recalculate_zones_for_client(self, client_id: str) -> None:
         """Recalculate crossover for zone containing this client."""
+        from backend.core.multiroom.models import RegistryEventType
+
         try:
             if not self._registry:
                 self.logger.warning("Registry not available, cannot recalculate zones")
@@ -585,6 +589,12 @@ class CrossoverService:
             zone = self._registry.get_zone_for_client(client_id)
             if zone:
                 await self.apply_zone_crossover(zone.id)
+
+                # Broadcast zone update with computed crossover_enabled
+                await self._registry._emit_event(
+                    RegistryEventType.ZONE_UPDATED,
+                    {"zone_id": zone.id, "zone": self._registry.zone_to_enriched_dict(zone)}
+                )
         except Exception as e:
             self.logger.error(f"Error recalculating zones for client {client_id}: {e}")
 
