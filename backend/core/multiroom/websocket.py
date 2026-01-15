@@ -516,6 +516,20 @@ class SnapcastWebSocketService:
             self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: Calling volume sync for {client_id}")
             await self._notify_volume_service_client_connected(client_id, client)
 
+            # Recalculate crossover for zones containing this client
+            if self.registry and hasattr(self.state_machine, 'crossover_service'):
+                from backend.core.multiroom.models import RegistryEventType
+                crossover_service = self.state_machine.crossover_service
+                zone = self.registry.get_zone_for_client(dsp_id)
+                if zone:
+                    self.logger.info(f"Recalculating crossover for zone {zone.id} (client {dsp_id} connected)")
+                    await crossover_service.apply_zone_crossover(zone.id)
+                    # Broadcast zone update with computed crossover_enabled
+                    await self.registry._emit_event(
+                        RegistryEventType.ZONE_UPDATED,
+                        {"zone_id": zone.id, "zone": self.registry.zone_to_enriched_dict(zone)}
+                    )
+
             await self._broadcast_snapcast_event("client_connected", {
                 "client_id": client_id,
                 "client_name": client_name,
@@ -549,13 +563,8 @@ class SnapcastWebSocketService:
         if self.registry:
             await self.registry.update_availability(dsp_id, False)
 
-        # Recalculate crossover for zones containing this client
-        if self.registry and hasattr(self.state_machine, 'crossover_service'):
-            crossover_service = self.state_machine.crossover_service
-            zone = self.registry.get_zone_for_client(dsp_id)
-            if zone:
-                self.logger.info(f"Recalculating crossover for zone {zone.id} (client {dsp_id} disconnected)")
-                await crossover_service.apply_zone_crossover(zone.id)
+        # Note: Crossover recalculation is handled by CrossoverService via
+        # AVAILABILITY_CHANGED event (triggered by update_availability above)
 
         await self._broadcast_snapcast_event("client_disconnected", {
             "client_id": client_id,

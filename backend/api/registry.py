@@ -152,7 +152,7 @@ def create_registry_router(registry_service):
         try:
             zones = registry_service.get_all_zones()
             return {
-                "zones": [z.to_dict() for z in zones.values()]
+                "zones": [registry_service.zone_to_enriched_dict(z) for z in zones.values()]
             }
         except Exception as e:
             logger.error(f"Error getting zones: {e}")
@@ -165,7 +165,7 @@ def create_registry_router(registry_service):
             zone = registry_service.get_zone(zone_id)
             if not zone:
                 raise HTTPException(status_code=404, detail=f"Zone {zone_id} not found")
-            return zone.to_dict()
+            return registry_service.zone_to_enriched_dict(zone)
         except HTTPException:
             raise
         except Exception as e:
@@ -181,7 +181,7 @@ def create_registry_router(registry_service):
                 name=request.name,
                 client_ids=request.client_ids
             )
-            return {"status": "success", "zone": zone.to_dict()}
+            return {"status": "success", "zone": registry_service.zone_to_enriched_dict(zone)}
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
@@ -198,7 +198,7 @@ def create_registry_router(registry_service):
             if not zone:
                 raise HTTPException(status_code=404, detail=f"Zone {zone_id} not found")
 
-            return {"status": "success", "zone": zone.to_dict()}
+            return {"status": "success", "zone": registry_service.zone_to_enriched_dict(zone)}
         except HTTPException:
             raise
         except Exception as e:
