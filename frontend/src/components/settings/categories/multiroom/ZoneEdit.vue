@@ -31,18 +31,14 @@
             action="toggle"
             icon-variant="standard"
             :model-value="selectedClients.includes(target.id)"
-            :disabled="!target.available || isClientInOtherZone(target.id)"
+            :disabled="!target.available"
             @click="toggleClient(target.id)"
           >
             <template #icon>
               <SvgIcon :name="getSpeakerIcon(target.id)" :size="28" />
             </template>
             <template #title>
-              <div class="client-title">
-                <span>{{ target.name }}</span>
-                <span v-if="isClientInOtherZone(target.id)" class="badge">{{ getOtherZoneName(target.id) }}</span>
-                <span v-if="!target.available" class="badge">{{ $t('dsp.linkedClients.offline', 'Offline') }}</span>
-              </div>
+              {{ target.name }}
             </template>
           </ListItemButton>
         </div>
@@ -108,40 +104,6 @@ const currentGroup = computed(() => {
   if (!props.groupId) return null;
   return dspStore.linkedGroups.find(g => g.id === props.groupId);
 });
-
-// Check if a client is in a different zone (not the one being edited)
-function isClientInOtherZone(clientId) {
-  for (const group of dspStore.linkedGroups) {
-    // Skip the group being edited
-    if (props.groupId && group.id === props.groupId) continue;
-
-    if (group.client_ids && group.client_ids.includes(clientId)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// Get name of the zone that contains a client
-function getOtherZoneName(clientId) {
-  for (const group of dspStore.linkedGroups) {
-    if (props.groupId && group.id === props.groupId) continue;
-
-    if (group.client_ids && group.client_ids.includes(clientId)) {
-      // Return custom name or generate from client names
-      if (group.name) return group.name;
-
-      const names = dspStore.sortClientIdsLocalFirst(group.client_ids)
-        .map(id => {
-          const target = availableTargets.value.find(t => t.id === id);
-          return target ? target.name : id;
-        })
-        .join(' + ');
-      return names;
-    }
-  }
-  return '';
-}
 
 // Get speaker icon name based on type
 function getSpeakerIcon(dspId) {
@@ -286,20 +248,6 @@ async function handleDelete() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
-}
-
-.client-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-02);
-}
-
-.badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: var(--radius-02);
-  background: var(--color-background-medium);
-  color: var(--color-text-light);
 }
 
 /* Mobile adjustments */

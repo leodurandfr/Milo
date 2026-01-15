@@ -32,14 +32,24 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
   // === COMPUTED ===
 
   /**
-   * All clients as an array, sorted with 'milo' first.
+   * All clients as an array, with canonical sort order:
+   * 1. Local client first (dsp_id === 'local')
+   * 2. Connected clients alphabetically
+   * 3. Disconnected clients alphabetically
    */
   const clientList = computed(() => {
     const list = Array.from(clients.value.values());
     return list.sort((a, b) => {
-      if (a.host === 'milo') return -1;
-      if (b.host === 'milo') return 1;
-      return (a.name || a.dsp_id).localeCompare(b.name || b.dsp_id);
+      // Local client always first
+      if (a.dsp_id === 'local') return -1;
+      if (b.dsp_id === 'local') return 1;
+
+      // Then by availability (connected first)
+      if (a.available && !b.available) return -1;
+      if (!a.available && b.available) return 1;
+
+      // Then alphabetically by name (fallback to dsp_id)
+      return (a.name || a.dsp_id).localeCompare(b.name || b.dsp_id, undefined, { sensitivity: 'base' });
     });
   });
 
@@ -288,11 +298,13 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
       case 'availability_changed':
         if (clients.value.has(data.dsp_id)) {
           const client = clients.value.get(data.dsp_id);
-          client.available = data.available;
-          // Update with full client data if provided (strip runtime fields)
-          if (data.client) {
-            clients.value.set(data.dsp_id, stripRuntimeFields(data.client));
-          }
+          // Replace entire object in Map to trigger Vue reactivity
+          // (mutating properties in place doesn't trigger Map reactivity)
+          clients.value.set(data.dsp_id, {
+            ...client,
+            available: data.available,
+            ...(data.client ? stripRuntimeFields(data.client) : {})
+          });
           saveCache();
         }
         break;
@@ -303,10 +315,12 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
       case 'speaker_type_changed':
         if (clients.value.has(data.dsp_id)) {
           const client = clients.value.get(data.dsp_id);
-          client.speaker_type = data.speaker_type;
-          if (data.crossover_frequency !== undefined) {
-            client.crossover_frequency = data.crossover_frequency;
-          }
+          // Replace entire object in Map to trigger Vue reactivity
+          clients.value.set(data.dsp_id, {
+            ...client,
+            speaker_type: data.speaker_type,
+            ...(data.crossover_frequency !== undefined ? { crossover_frequency: data.crossover_frequency } : {})
+          });
           saveCache();
         }
         break;
@@ -491,6 +505,23 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
     }
   }
 
+  /**
+   * Permanently delete a client from the registry.
+   * Removes client from all zones and clears persisted configuration.
+   * @param {string} dspId - Client dsp_id
+   * @returns {Promise<boolean>} Success status
+   */
+  async function deleteClient(dspId) {
+    try {
+      const response = await axios.delete(`/api/registry/clients/${dspId}`);
+      // State update will come via WebSocket (client_unregistered)
+      return response.data.status === 'success';
+    } catch (error) {
+      console.error('Error deleting client:', error);
+      return false;
+    }
+  }
+
   // === RETURN PUBLIC API ===
 
   return {
@@ -538,6 +569,7 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
     removeClientFromZone,
     updateClientType,
     updateClientName,
+    deleteClient,
 
     // Cache management
     clearCache

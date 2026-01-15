@@ -132,17 +132,16 @@
             :class="{ 'muted': zoneClient.dspMuted, 'offline': !zoneClient.available }"
           >
             {{ zoneClient.name }}
-            <span v-if="!zoneClient.available" class="badge-offline">Offline</span>
           </span>
 
-          <!-- Client volume slider -->
-          <div class="client-volume">
+          <!-- Client volume slider (when online) -->
+          <div v-if="zoneClient.available" class="client-volume">
             <RangeSlider
               :model-value="getClientDisplayVolume(zoneClient.dsp_id, zoneClient.dspVolume)"
               :min="sliderMin"
               :max="sliderMax"
               :step="1"
-              :disabled="!zoneClient.available || isLoading"
+              :disabled="isLoading"
               :muted="zoneClient.dspMuted"
               show-value
               value-unit=" dB"
@@ -151,10 +150,16 @@
             />
           </div>
 
+          <!-- Offline indicator (when offline) -->
+          <div v-else class="client-offline text-mono">
+            Hors ligne
+          </div>
+
           <!-- Client mute toggle -->
           <Toggle
             :model-value="!zoneClient.dspMuted"
             variant="secondary"
+            :disabled="!zoneClient.available"
             @change="(enabled) => handleClientMuteToggle(zoneClient.dsp_id, !enabled)"
           />
         </div>
@@ -662,6 +667,17 @@ function handleClientMuteToggle(clientDspId, muted) {
   min-width: 0;
 }
 
+.client-offline {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  background: var(--color-background);
+  border-radius: var(--radius-full);
+  color: var(--color-text-secondary);
+  padding-left: var(--space-04);
+  text-transform: uppercase;
+}
+
 /* Staggered fade-in animation for client rows */
 .expanded-clients .client-row {
   opacity: 0;
@@ -677,19 +693,6 @@ function handleClientMuteToggle(clientDspId, muted) {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.badge-offline {
-  display: inline-block;
-  background: var(--color-background-medium);
-  color: var(--color-text-light);
-  padding: 1px 6px;
-  border-radius: var(--radius-02);
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  margin-left: var(--space-02);
-  vertical-align: middle;
 }
 
 /* === EXPAND TRANSITION === */
@@ -790,7 +793,8 @@ function handleClientMuteToggle(clientDspId, muted) {
     grid-row: 1;
   }
 
-  .client-row .client-volume {
+  .client-row .client-volume,
+  .client-row .client-offline {
     grid-column: 1 / -1;
     grid-row: 2;
   }

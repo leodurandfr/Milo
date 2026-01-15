@@ -159,6 +159,8 @@ class ClientRegistryService:
     async def unregister_client(self, dsp_id: str) -> bool:
         """
         Remove a client from the registry.
+        Cleans up all persisted data (zones, speaker type) so the client
+        is treated as new on reconnect.
 
         Args:
             dsp_id: The client's dsp_id
@@ -166,18 +168,56 @@ class ClientRegistryService:
         Returns:
             True if client was removed, False if not found
         """
+        zones_modified = []  # List of (zone_id, zone_dict) for updated zones
+        zones_deleted = []   # List of (zone_id, zone_dict) for deleted zones
+
         async with self._lock:
             if dsp_id not in self._clients:
                 return False
 
             del self._clients[dsp_id]
 
-            # Remove from any zones
-            for zone in self._zones.values():
+            # Remove from any zones and delete invalid zones (less than 2 clients)
+            zones_to_delete = []
+            for zone_id, zone in self._zones.items():
                 if dsp_id in zone.client_ids:
                     zone.client_ids.remove(dsp_id)
+                    # Mark zone for deletion if less than 2 clients remain
+                    if len(zone.client_ids) < 2:
+                        zones_to_delete.append((zone_id, zone.to_dict()))
+                    else:
+                        # Zone still valid, capture updated state for event
+                        zones_modified.append((zone_id, zone.to_dict()))
+
+            # Delete invalid zones
+            for zone_id, zone_dict in zones_to_delete:
+                del self._zones[zone_id]
+                zones_deleted.append((zone_id, zone_dict))
+                self.logger.info(f"Zone {zone_id} deleted (less than 2 clients remaining)")
+
+            # Clean up persisted client types
+            if hasattr(self, '_persisted_client_types') and dsp_id in self._persisted_client_types:
+                del self._persisted_client_types[dsp_id]
 
             self.logger.info(f"Client unregistered: {dsp_id}")
+
+        # Persist changes outside lock to avoid deadlock
+        if zones_modified or zones_deleted:
+            await self._persist_zones()
+        await self._persist_client_types()
+
+        # Emit zone events BEFORE client unregistered so frontend updates zones first
+        for zone_id, zone_dict in zones_modified:
+            await self._emit_event(RegistryEventType.ZONE_UPDATED, {
+                "zone_id": zone_id,
+                "zone": zone_dict
+            })
+
+        for zone_id, zone_dict in zones_deleted:
+            await self._emit_event(RegistryEventType.ZONE_DELETED, {
+                "zone_id": zone_id,
+                "zone": zone_dict
+            })
 
         await self._emit_event(RegistryEventType.CLIENT_UNREGISTERED, {
             "dsp_id": dsp_id

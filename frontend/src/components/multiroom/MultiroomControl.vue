@@ -261,7 +261,17 @@ const displayClients = computed(() => {
                 available: c.available
               };
             })
-            .filter(Boolean); // Remove null entries
+            .filter(Boolean)
+            .sort((a, b) => {
+              // Local first
+              if (a.dsp_id === 'local') return -1;
+              if (b.dsp_id === 'local') return 1;
+              // Available clients first
+              if (a.available && !b.available) return -1;
+              if (!a.available && b.available) return 1;
+              // Then alphabetically
+              return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+            });
 
           // Use arithmetic average of all clients in zone
           const zoneVolume = getZoneAverageVolume(zone);
@@ -286,14 +296,29 @@ const displayClients = computed(() => {
         };
       })
       .sort((a, b) => {
-        // Zones first, then alphabetically by name
+        // Zone availability: zone is available if ANY client is available
+        const aAvailable = a.isZone
+          ? a.zoneClientDetails?.some(c => c.available) ?? false
+          : a.available;
+        const bAvailable = b.isZone
+          ? b.zoneClientDetails?.some(c => c.available) ?? false
+          : b.available;
+
+        // Available items first
+        if (aAvailable && !bAvailable) return -1;
+        if (!aAvailable && bAvailable) return 1;
+
+        // Within same availability: zones before individual clients
         if (a.isZone && !b.isZone) return -1;
         if (!a.isZone && b.isZone) return 1;
+
+        // Alphabetically (already sorted by store, but needed after zone grouping)
         return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
       });
   }
 
-  // No linked groups - just add dspVolume and dspMuted to each client, sorted alphabetically
+  // No linked groups - just add dspVolume and dspMuted to each client
+  // Sorting handled by clientRegistryStore (local first, available first, alphabetical)
   return multiroomStore.clients.map(client => {
     const dspVol = dspStore.getClientDspVolume(client.dsp_id);
     const dspMut = dspStore.getClientDspMute(client.dsp_id);
@@ -304,7 +329,7 @@ const displayClients = computed(() => {
       isZone: false,
       zoneClientDetails: null
     };
-  }).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  });
 });
 
 // === HANDLERS ===
