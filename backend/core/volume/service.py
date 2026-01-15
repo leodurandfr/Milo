@@ -613,7 +613,11 @@ class VolumeService:
             if self._is_multiroom_enabled():
                 client_ids = await get_available_client_ids(self.snapcast_service)
                 updates = {cid: volume_db for cid in client_ids} if client_ids else {}
-                return await self._apply_to_multiroom_clients(updates)
+                success = await self._apply_to_multiroom_clients(updates)
+                if success:
+                    # Keep _local_volume_db in sync for mode switch fallback
+                    self._state_store.set_local_volume(volume_db)
+                return success
             else:
                 success = await self._dsp_service.set_volume(volume_db)
                 if success:
@@ -651,7 +655,12 @@ class VolumeService:
                     current = volume_state.clients.get(cid)
                     if current:
                         updates[cid] = self._config_service.config.clamp(current.volume_db + delta_db)
-                return await self._apply_to_multiroom_clients(updates)
+                success = await self._apply_to_multiroom_clients(updates)
+                if success and updates:
+                    # Keep _local_volume_db in sync (use average of client volumes)
+                    avg_volume = sum(updates.values()) / len(updates)
+                    self._state_store.set_local_volume(avg_volume)
+                return success
             else:
                 new_db = self._config_service.config.clamp(volume_state.global_volume_db + delta_db)
                 success = await self._dsp_service.set_volume(new_db)
