@@ -28,9 +28,15 @@ export const usePodcastStore = defineStore('podcast', () => {
   const progressCache = ref(new Map())
 
   // === SUBSCRIPTIONS CACHE ===
-  // Cache subscriptions to avoid reloading when navigating between views
-  const subscriptions = ref([])
+  // Cache subscriptions as Map for O(1) lookups by uuid
+  const subscriptions = ref(new Map()) // Map<uuid, subscription>
   const latestSubscriptionEpisodes = ref([])
+
+  // Computed array for iteration (sorted by name)
+  const subscriptionsList = computed(() => {
+    return Array.from(subscriptions.value.values())
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  })
   const subscriptionsListLoaded = ref(false) // True when subscriptions list is loaded (no Taddy call)
   const subscriptionsLoaded = ref(false) // True when latest episodes are also loaded (with Taddy call)
 
@@ -96,7 +102,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     return (currentPosition.value / currentDuration.value) * 100
   })
 
-  const hasSubscriptions = computed(() => subscriptions.value.length > 0)
+  const hasSubscriptions = computed(() => subscriptions.value.size > 0)
 
   // === PLAYBACK ACTIONS ===
 
@@ -333,6 +339,15 @@ export const usePodcastStore = defineStore('podcast', () => {
 
   // === SUBSCRIPTIONS ACTIONS ===
 
+  // Helper to convert array to Map
+  function arrayToSubscriptionsMap(arr) {
+    const map = new Map()
+    for (const sub of arr) {
+      map.set(sub.uuid, sub)
+    }
+    return map
+  }
+
   // Lightweight preload - only fetches subscriptions list (no Taddy API call)
   // Called at app startup to know if hasSubscriptions before opening Podcasts
   async function preloadSubscriptionsList() {
@@ -340,7 +355,7 @@ export const usePodcastStore = defineStore('podcast', () => {
 
     try {
       const response = await axios.get('/api/podcast/subscriptions')
-      subscriptions.value = response.data.subscriptions || []
+      subscriptions.value = arrayToSubscriptionsMap(response.data.subscriptions || [])
       subscriptionsListLoaded.value = true
     } catch (error) {
       console.error('Error preloading subscriptions list:', error)
@@ -352,18 +367,18 @@ export const usePodcastStore = defineStore('podcast', () => {
   async function loadSubscriptions(forceRefresh = false) {
     // Return cached data if fully loaded and not forcing refresh
     if (subscriptionsLoaded.value && !forceRefresh) {
-      return { subscriptions: subscriptions.value, latestEpisodes: latestSubscriptionEpisodes.value }
+      return { subscriptions: subscriptionsList.value, latestEpisodes: latestSubscriptionEpisodes.value }
     }
 
     // Reuse subscriptions list if already preloaded, otherwise fetch
     if (!subscriptionsListLoaded.value) {
       const response = await axios.get('/api/podcast/subscriptions')
-      subscriptions.value = response.data.subscriptions || []
+      subscriptions.value = arrayToSubscriptionsMap(response.data.subscriptions || [])
       subscriptionsListLoaded.value = true
     }
 
     // Fetch latest episodes (Taddy API call) if user has subscriptions
-    if (subscriptions.value.length > 0) {
+    if (subscriptions.value.size > 0) {
       const response = await axios.get('/api/podcast/subscriptions/latest-episodes', { params: { limit: 20 } })
       latestSubscriptionEpisodes.value = enrichEpisodesWithProgress(response.data.results || [])
     } else {
@@ -371,25 +386,34 @@ export const usePodcastStore = defineStore('podcast', () => {
     }
 
     subscriptionsLoaded.value = true
-    return { subscriptions: subscriptions.value, latestEpisodes: latestSubscriptionEpisodes.value }
+    return { subscriptions: subscriptionsList.value, latestEpisodes: latestSubscriptionEpisodes.value }
   }
 
   function addSubscription(subscription) {
-    // Add to subscriptions list if not already present
-    const exists = subscriptions.value.some(s => s.uuid === subscription.uuid)
-    if (!exists) {
-      subscriptions.value = [...subscriptions.value, subscription]
+    // Add to subscriptions Map if not already present (O(1) lookup)
+    if (!subscriptions.value.has(subscription.uuid)) {
+      subscriptions.value.set(subscription.uuid, subscription)
     }
     // Mark as needing refresh to fetch latest episodes on next HomeView load
     subscriptionsLoaded.value = false
   }
 
   function removeSubscription(uuid) {
-    subscriptions.value = subscriptions.value.filter(s => s.uuid !== uuid)
+    subscriptions.value.delete(uuid) // O(1) removal
     // Also remove episodes from this podcast in latestSubscriptionEpisodes
     latestSubscriptionEpisodes.value = latestSubscriptionEpisodes.value.filter(
       ep => ep.podcast?.uuid !== uuid
     )
+  }
+
+  // O(1) subscription check
+  function isSubscribed(uuid) {
+    return subscriptions.value.has(uuid)
+  }
+
+  // Get subscription by uuid (O(1))
+  function getSubscription(uuid) {
+    return subscriptions.value.get(uuid)
   }
 
   // === SEARCH ACTIONS ===
@@ -474,7 +498,7 @@ export const usePodcastStore = defineStore('podcast', () => {
     pendingEpisodeUuid,
     settings,
     progressCache,
-    subscriptions,
+    subscriptions: subscriptionsList, // Expose as array for iteration (backward compatible)
     latestSubscriptionEpisodes,
     subscriptionsLoaded,
 
@@ -525,6 +549,8 @@ export const usePodcastStore = defineStore('podcast', () => {
     loadSubscriptions,
     addSubscription,
     removeSubscription,
+    isSubscribed,
+    getSubscription,
 
     // Search
     setSearchResults,
