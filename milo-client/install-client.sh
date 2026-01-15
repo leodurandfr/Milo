@@ -17,8 +17,10 @@ REBOOT_REQUIRED=false
 # Variables to store user choices
 USER_HOSTNAME_CHOICE=""
 USER_HIFIBERRY_CHOICE=""
+USER_RESTART_CHOICE=""
 HIFIBERRY_OVERLAY=""
 CARD_NAME=""
+ALSA_CONTROL=""
 MILO_PRINCIPAL_IP=""
 
 RED='\033[0;31m'
@@ -141,14 +143,34 @@ collect_user_choices() {
         USER_HIFIBERRY_CHOICE=${USER_HIFIBERRY_CHOICE:-1}
 
         case $USER_HIFIBERRY_CHOICE in
-            1) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Amp2"; break;;
-            2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Amp4"; break;;
-            3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Amp4 Pro"; break;;
-            4) HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Amp100"; break;;
-            5) HIFIBERRY_OVERLAY="hifiberry-dacplushd"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: DAC2 HD"; break;;
-            6) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: DAC+ (Standard)"; break;;
-            7) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; log_success "Card selected: Beocreate 4CA"; break;;
+            1) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: Amp2"; break;;
+            2) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: Amp4"; break;;
+            3) HIFIBERRY_OVERLAY="hifiberry-amp4pro"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: Amp4 Pro"; break;;
+            4) HIFIBERRY_OVERLAY="hifiberry-amp100"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: Amp100"; break;;
+            5) HIFIBERRY_OVERLAY="hifiberry-dacplushd"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: DAC2 HD"; break;;
+            6) HIFIBERRY_OVERLAY="hifiberry-dacplus-std"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="Digital"; log_success "Card selected: DAC+ (Standard)"; break;;
+            7) HIFIBERRY_OVERLAY="hifiberry-dac"; CARD_NAME="sndrpihifiberry"; ALSA_CONTROL="DAC"; log_success "Card selected: Beocreate 4CA"; break;;
             *) echo "Invalid choice. Please enter a number between 1 and 7.";;
+        esac
+    done
+
+    # 3. Reboot choice
+    echo ""
+    log_info "A reboot will be required at the end of installation."
+    while true; do
+        read -p "Automatically reboot at the end? (Y/n): " USER_RESTART_CHOICE
+        case $USER_RESTART_CHOICE in
+            [Nn]* )
+                USER_RESTART_CHOICE="no"
+                break
+                ;;
+            [Yy]* | "" )
+                USER_RESTART_CHOICE="yes"
+                break
+                ;;
+            * )
+                echo "Please answer 'Y' (yes) or 'n' (no)."
+                ;;
         esac
     done
 
@@ -448,11 +470,20 @@ initialize_alsa_volume() {
     # Wait for sound card to be available
     sleep 2
 
-    # Set HiFiBerry DAC digital volume to 100%
-    # This ensures the DAC is not muted after installation
-    # Try both control names as they vary between HiFiBerry models
+    # Set HiFiBerry volume to 100% (passthrough - CamillaDSP manages actual volume)
+    # Use the control name determined during card selection
+    if [[ -n "$ALSA_CONTROL" ]]; then
+        if amixer -c sndrpihifiberry sset "$ALSA_CONTROL" 100% 2>/dev/null; then
+            log_success "ALSA $ALSA_CONTROL volume set to 100%"
+            return 0
+        fi
+    fi
+
+    # Fallback: try common controls
     if amixer -c sndrpihifiberry sset 'Digital' 100% 2>/dev/null; then
         log_success "ALSA Digital volume set to 100%"
+    elif amixer -c sndrpihifiberry sset 'DAC' 100% 2>/dev/null; then
+        log_success "ALSA DAC volume set to 100%"
     elif amixer -c sndrpihifiberry sset 'Master' 100% 2>/dev/null; then
         log_success "ALSA Master volume set to 100%"
     else
@@ -589,23 +620,16 @@ finalize_installation() {
         echo -e "${YELLOW}REBOOT REQUIRED${NC}"
         echo ""
 
-        while true; do
-            read -p "Reboot now? (Y/n): " restart_choice
-            case $restart_choice in
-                [Nn]* )
-                    echo -e "${YELLOW}Remember to reboot manually with: sudo reboot${NC}"
-                    break
-                    ;;
-                [Yy]* | "" )
-                    log_info "Rebooting in 5 seconds..."
-                    sleep 5
-                    sudo reboot
-                    ;;
-                * )
-                    echo "Please answer 'Y' (yes) or 'n' (no)."
-                    ;;
-            esac
-        done
+        case $USER_RESTART_CHOICE in
+            "yes")
+                log_info "Automatic reboot in 5 seconds..."
+                sleep 5
+                sudo reboot
+                ;;
+            "no")
+                echo -e "${YELLOW}Remember to reboot manually with: sudo reboot${NC}"
+                ;;
+        esac
     else
         log_info "Starting services..."
         sudo systemctl start milo-client.service
