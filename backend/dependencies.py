@@ -83,7 +83,7 @@ def _create_service(name: str) -> Any:
     from backend.core.multiroom.crossover import CrossoverService
     from backend.core.dsp import CamillaDSPService, DspClientProxyService, DspSettingsSyncService
     from backend.core.volume import VolumeService
-    from backend.core.programs import ProgramVersionService, ProgramUpdateService, SatelliteProgramUpdateService
+    from backend.features.programs import ProgramVersionService, ProgramUpdateService, SatelliteProgramUpdateService
     from backend.hardware import HardwareService, RotaryVolumeController, ScreenController
     from backend.ws import WebSocketManager, WebSocketEventHandler
     from backend.features.spotify import SpotifySource
@@ -314,6 +314,9 @@ def initialize_services() -> None:
     # =========================================================================
     global _init_task
 
+    # Get radio source for initialization (station data needs early init for API)
+    radio_source = get_service("radio_source")
+
     async def init_async():
         """Async initialization with error handling."""
         services = [
@@ -324,7 +327,9 @@ def initialize_services() -> None:
             ("screen_controller", screen_controller.initialize()),
             ("snapcast_websocket_service", snapcast_websocket_service.initialize()),
             ("camilladsp_service", camilladsp_service.initialize()),
-            ("crossover_service", crossover_service.initialize())
+            ("crossover_service", crossover_service.initialize()),
+            # Radio station data needs early init for API access
+            ("radio_source", radio_source.initialize())
         ]
 
         results = await asyncio.gather(

@@ -25,11 +25,11 @@ class TestSnapcastRoutes:
         service = Mock()
         service.is_available = AsyncMock(return_value=True)
         service.get_clients = AsyncMock(return_value=[
-            {"id": "client1", "name": "Client 1", "volume": 50, "muted": False},
-            {"id": "client2", "name": "Client 2", "volume": 75, "muted": True}
+            {"id": "client1", "name": "Client 1", "volume": 50, "muted": False, "host": "milo", "ip": "127.0.0.1", "dsp_id": "local"},
+            {"id": "client2", "name": "Client 2", "volume": 75, "muted": True, "host": "remote", "ip": "192.168.1.100", "dsp_id": "192.168.1.100"}
         ])
         service.get_detailed_clients = AsyncMock(return_value=[
-            {"id": "client1", "name": "Client 1", "volume": 50, "muted": False, "host": "localhost"},
+            {"id": "client1", "name": "Client 1", "volume": 50, "muted": False, "host": "milo"},
         ])
         service.get_server_config = AsyncMock(return_value={"version": "0.27.0"})
         service.set_volume = AsyncMock(return_value=True)
@@ -43,23 +43,34 @@ class TestSnapcastRoutes:
         """State machine mock"""
         sm = Mock()
         sm.broadcast_event = AsyncMock()
-        # Snapcast volume is always 100% passthrough, real volume via CamillaDSP
+        # Mock volume_service with async _broadcast_volume_state for mute tests
+        sm.volume_service = Mock()
+        sm.volume_service._broadcast_volume_state = AsyncMock()
         return sm
 
     @pytest.fixture
-    def client(self, mock_routing_service, mock_snapcast_service, mock_state_machine):
+    def mock_dsp_service(self):
+        """DSP service mock for local mute control"""
+        service = Mock()
+        service.set_mute = AsyncMock(return_value=True)
+        return service
+
+    @pytest.fixture
+    def client(self, mock_routing_service, mock_snapcast_service, mock_state_machine, mock_dsp_service):
         """Fixture to create a TestClient"""
         app = FastAPI()
         router = create_snapcast_router(
             mock_routing_service,
             mock_snapcast_service,
-            mock_state_machine
+            mock_state_machine,
+            dsp_service=mock_dsp_service
         )
         app.include_router(router)
         client = TestClient(app)
         client._mock_routing = mock_routing_service
         client._mock_snapcast = mock_snapcast_service
         client._mock_state_machine = mock_state_machine
+        client._mock_dsp_service = mock_dsp_service
         return client
 
     # ===================
@@ -160,7 +171,8 @@ class TestSnapcastRoutes:
         )
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        client._mock_snapcast.set_mute.assert_called_once_with("client1", True)
+        # DSP-only mute strategy: mute via CamillaDSP, not Snapcast
+        client._mock_dsp_service.set_mute.assert_called_once_with(True)
 
     def test_set_client_mute_false(self, client):
         """Test POST /api/routing/snapcast/client/{id}/mute with muted=false"""
@@ -170,7 +182,8 @@ class TestSnapcastRoutes:
         )
         assert response.status_code == 200
         assert response.json()["status"] == "success"
-        client._mock_snapcast.set_mute.assert_called_once_with("client1", False)
+        # DSP-only mute strategy: mute via CamillaDSP, not Snapcast
+        client._mock_dsp_service.set_mute.assert_called_once_with(False)
 
     def test_set_client_mute_missing_field(self, client):
         """Test POST /api/routing/snapcast/client/{id}/mute without muted field"""
@@ -244,8 +257,9 @@ class TestSnapcastRoutes:
         """Test GET /api/routing/snapcast/server-config when unavailable"""
         client._mock_snapcast.is_available = AsyncMock(return_value=False)
         response = client.get("/api/routing/snapcast/server-config")
-        # Note: returns 500 because HTTPException is caught by except Exception
-        assert response.status_code == 500
+        assert response.status_code == 200
+        assert response.json()["config"] is None
+        assert "error" in response.json()
 
     def test_update_server_config(self, client):
         """Test POST /api/routing/snapcast/server/config"""

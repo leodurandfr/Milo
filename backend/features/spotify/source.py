@@ -451,6 +451,7 @@ class SpotifySource(BaseAudioSource):
         """Update state based on device connection."""
         if self._device_connected:
             self.set_state(SourceState.CONNECTED, {
+                **self._metadata,
                 "device_connected": True,
                 "is_playing": self._is_playing
             })

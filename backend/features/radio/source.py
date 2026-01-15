@@ -73,11 +73,18 @@ class RadioSource(BaseAudioSource):
         # MPV controller
         self._mpv: Optional[MpvController] = None
 
-        # Station data service
-        self._station_data: Optional[StationDataService] = None
+        # Station data service (initialized immediately for API access)
+        self._station_data = StationDataService(
+            event_bus=event_bus,
+            state_machine=state_machine
+        )
 
-        # RadioBrowser API
-        self._radio_api: Optional[RadioBrowserAPI] = None
+        # RadioBrowser API (initialized immediately for API access)
+        self._radio_api = RadioBrowserAPI(
+            cache_duration_minutes=60,
+            station_manager=self._station_data
+        )
+        self._station_data.radio_api = self._radio_api
 
         # State
         self._metadata: Dict[str, Any] = {}
@@ -88,6 +95,19 @@ class RadioSource(BaseAudioSource):
         # Monitor task
         self._monitor_task: Optional[asyncio.Task] = None
 
+        # Schedule async initialization
+        self._init_task: Optional[asyncio.Task] = None
+
+    async def initialize(self) -> bool:
+        """Initialize station data (call at startup for API access)."""
+        try:
+            await self._station_data.initialize()
+            self._logger.info("Radio station data initialized")
+            return True
+        except Exception as e:
+            self._logger.error(f"Failed to initialize station data: {e}")
+            return False
+
     async def _do_start(self) -> bool:
         """Start MPV service and initialize components."""
         try:
@@ -97,21 +117,11 @@ class RadioSource(BaseAudioSource):
 
             await asyncio.sleep(0.5)  # Wait for service
 
-            # 2. Initialize station data service
-            self._station_data = StationDataService(
-                event_bus=self.event_bus,
-                state_machine=self.state_machine
-            )
-            await self._station_data.initialize()
+            # 2. Ensure station data is initialized
+            if not self._station_data._loaded:
+                await self._station_data.initialize()
 
-            # 3. Initialize RadioBrowser API
-            self._radio_api = RadioBrowserAPI(
-                cache_duration_minutes=60,
-                station_manager=self._station_data
-            )
-            self._station_data.radio_api = self._radio_api
-
-            # 4. Connect to MPV IPC
+            # 3. Connect to MPV IPC
             self._mpv = MpvController(ipc_socket_path=self._mpv_socket)
             if not await self._mpv.connect():
                 self._logger.error("Failed to connect to MPV IPC")
@@ -454,11 +464,7 @@ class RadioSource(BaseAudioSource):
             await self._mpv.disconnect()
             self._mpv = None
 
-        if self._radio_api:
-            await self._radio_api.close()
-            self._radio_api = None
-
-        self._station_data = None
+        # Note: station_data and radio_api persist for API access when radio is inactive
         self._current_station = None
         self._is_playing = False
         self._is_buffering = False
