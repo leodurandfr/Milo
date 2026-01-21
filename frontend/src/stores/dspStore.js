@@ -188,7 +188,13 @@ export const useDspStore = defineStore('dsp', () => {
 
   // === API HELPERS ===
   function getApiBase(targetId = selectedTarget.value) {
-    // If targeting a remote client, use proxy endpoint
+    // If target is part of a zone, use local API (source of truth for zone DSP)
+    // This ensures zone DSP works even when some zone members are offline
+    const zone = registryStore.getZoneForClient(targetId);
+    if (zone) {
+      return '/api/dsp';
+    }
+    // If targeting a standalone remote client, use proxy endpoint
     if (targetId && targetId !== 'local') {
       return `/api/dsp/client/${targetId}`;
     }

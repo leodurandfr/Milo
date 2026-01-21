@@ -53,11 +53,14 @@ def create_dsp_router(
         return client and client.ip == "127.0.0.1"
 
     def _get_client_ip(identifier: str):
-        """Get client IP from registry, or None if not found."""
+        """Get client IP from registry, or None if not found or offline."""
         if not client_registry_service:
             return None
         client = client_registry_service.get_client(identifier)
-        return client.ip if client and client.ip and client.ip != "127.0.0.1" else None
+        # Only return IP if client exists, has a valid IP, and is ONLINE
+        if client and client.ip and client.ip != "127.0.0.1" and client.online:
+            return client.ip
+        return None
 
     def _require_client_ip(identifier: str) -> str:
         """Get client IP from registry, raise 404 if not found."""
@@ -546,6 +549,18 @@ def create_dsp_router(
                     except Exception as e:
                         errors.append({"client_id": client_id, "error": str(e)})
 
+            # Update zone.dsp_settings to persist filter changes for offline client sync
+            # Source of truth: get current filters from local DSP
+            try:
+                from backend.core.multiroom.models import EqFilter
+                current_filters = await dsp_service.get_filters()
+                zone.dsp_settings.filters = [
+                    EqFilter.from_dict(f) for f in current_filters
+                ]
+                await client_registry_service.set_zone_dsp(zone_id, zone.dsp_settings)
+            except Exception as e:
+                logger.warning(f"Failed to persist zone DSP settings: {e}")
+
             # Broadcast zone filter change
             await state_machine.broadcast_event("dsp", "zone_filter_changed", {
                 "zone_id": zone_id,
@@ -629,6 +644,21 @@ def create_dsp_router(
                     except Exception as e:
                         errors.append({"client_id": client_id, "error": str(e)})
 
+            # Update zone.dsp_settings to persist compressor changes for offline client sync
+            try:
+                from backend.core.multiroom.models import CompressorSettings
+                zone.dsp_settings.compressor = CompressorSettings(
+                    enabled=payload.enabled,
+                    threshold=payload.threshold,
+                    ratio=payload.ratio,
+                    attack=payload.attack,
+                    release=payload.release,
+                    makeup_gain=payload.makeup_gain
+                )
+                await client_registry_service.set_zone_dsp(zone_id, zone.dsp_settings)
+            except Exception as e:
+                logger.warning(f"Failed to persist zone DSP settings: {e}")
+
             # Broadcast zone compressor change
             await state_machine.broadcast_event("dsp", "zone_compressor_changed", {
                 "zone_id": zone_id,
@@ -708,6 +738,19 @@ def create_dsp_router(
                             errors.append({"client_id": client_id, "error": result.get("message", "Unknown error")})
                     except Exception as e:
                         errors.append({"client_id": client_id, "error": str(e)})
+
+            # Update zone.dsp_settings to persist loudness changes for offline client sync
+            try:
+                from backend.core.multiroom.models import LoudnessSettings
+                zone.dsp_settings.loudness = LoudnessSettings(
+                    enabled=payload.enabled,
+                    reference_level=payload.reference_level,
+                    high_boost=payload.high_boost,
+                    low_boost=payload.low_boost
+                )
+                await client_registry_service.set_zone_dsp(zone_id, zone.dsp_settings)
+            except Exception as e:
+                logger.warning(f"Failed to persist zone DSP settings: {e}")
 
             # Broadcast zone loudness change
             await state_machine.broadcast_event("dsp", "zone_loudness_changed", {
