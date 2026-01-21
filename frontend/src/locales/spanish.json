@@ -66,7 +66,8 @@
       "highpassActive": "Filtro paso alto activo",
       "highpassDescription": "Los graves por debajo de {freq} Hz se eliminan de este altavoz y son gestionados por el subwoofer de la zona.",
       "crossoverFrequency": "Frecuencia de corte:"
-    }
+    },
+    "offline": "Desconectado"
   },
   "dsp": {
     "title": "Ecualizador DSP",

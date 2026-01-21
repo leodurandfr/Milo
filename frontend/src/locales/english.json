@@ -73,6 +73,7 @@
       "badgeInactive": "Crossover inactive",
       "subwooferOffline": "Subwoofer offline"
     },
+    "offline": "Offline",
     "syncing": "Syncing...",
     "syncError": "Sync error",
     "retrySync": "Retry"

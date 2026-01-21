@@ -66,7 +66,8 @@
       "highpassActive": "Hochpassfilter aktiv",
       "highpassDescription": "Bässe unterhalb von {freq} Hz werden von diesem Lautsprecher entfernt und vom Subwoofer der Zone übernommen.",
       "crossoverFrequency": "Trennfrequenz:"
-    }
+    },
+    "offline": "Offline"
   },
   "dsp": {
     "title": "DSP Equalizer",

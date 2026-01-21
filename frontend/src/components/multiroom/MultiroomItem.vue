@@ -52,10 +52,14 @@
           class="client-name heading-3"
           :class="{
             'visible': !isLoading,
-            'muted': client.dspMuted
+            'muted': client.dspMuted,
+            'offline': !client.online && !isZone
           }"
         >
           <span class="item-name">{{ client.name }}</span>
+          <span v-if="!client.online && !isZone" class="offline-badge text-mono">
+            {{ t('multiroom.offline') }}
+          </span>
         </div>
       </div>
 
@@ -80,7 +84,7 @@
             :min="sliderMin"
             :max="sliderMax"
             :step="1"
-            :disabled="isLoading"
+            :disabled="isLoading || (!client.online && !isZone)"
             :muted="client.dspMuted"
             show-value
             value-unit=" dB"
@@ -106,6 +110,7 @@
           <Toggle
             :model-value="!client.dspMuted"
             variant="secondary"
+            :disabled="!client.online && !isZone"
             @change="handleMuteToggle"
           />
         </div>
@@ -487,11 +492,20 @@ function handleClientMuteToggle(clientMacId, muted) {
   color: var(--color-text-light);
 }
 
+.client-name.offline {
+  color: var(--color-text-light);
+}
+
 .client-name {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0;
+}
+
+.offline-badge {
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
 }
 
 .item-name {

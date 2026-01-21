@@ -66,7 +66,8 @@
       "highpassActive": "高通滤波器已激活",
       "highpassDescription": "{freq} Hz以下的低音已从此扬声器移除并由区域低音炮处理。",
       "crossoverFrequency": "分频频率："
-    }
+    },
+    "offline": "离线"
   },
   "dsp": {
     "title": "DSP 均衡器",
