@@ -964,13 +964,13 @@ class SnapcastWebSocketService:
             synced_items = []
             failed_items = []
 
-            # Get client info for proxy requests
+            # Get client info for proxy requests - must have IP address
             client = self.registry.get_client(mac_id) if self.registry else None
-            if not client:
-                self.logger.warning(f"Client {mac_id} not found in registry")
+            if not client or not client.ip:
+                self.logger.warning(f"Cannot sync to {mac_id}: client not found or has no IP address")
                 return False
 
-            hostname = client.ip or mac_id
+            hostname = client.ip
 
             # Sync filters (EQ bands) - dsp_settings.filters is List[EqFilter]
             filters_failed = []
@@ -1056,13 +1056,13 @@ class SnapcastWebSocketService:
                 self.logger.warning(f"No dsp_settings_sync_service available for standalone DSP sync to {mac_id}")
                 return True  # Not a failure, just no sync service
 
-            # Get client info for proxy requests
+            # Get client info for proxy requests - must have IP address
             client = self.registry.get_client(mac_id) if self.registry else None
-            if not client:
-                self.logger.warning(f"Client {mac_id} not found in registry")
+            if not client or not client.ip:
+                self.logger.warning(f"Cannot sync standalone DSP to {mac_id}: client not found or has no IP address")
                 return False
 
-            hostname = client.ip or mac_id
+            hostname = client.ip
             is_local = (client.ip == "127.0.0.1")
 
             # Load saved standalone DSP settings

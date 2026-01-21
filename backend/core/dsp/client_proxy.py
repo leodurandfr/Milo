@@ -53,6 +53,9 @@ class DspClientProxyService:
 
     Used in multiroom setups to communicate with satellite devices
     running milo-client for DSP control.
+
+    IMPORTANT: This service expects IP addresses or hostnames, NOT MAC addresses.
+    Callers must look up the IP from the client registry before calling proxy methods.
     """
 
     def __init__(self, routing_service=None):
@@ -70,9 +73,29 @@ class DspClientProxyService:
         """Set the routing service (for dependency injection after init)."""
         self.routing_service = routing_service
 
-    def _get_host(self, hostname: str) -> str:
-        """Get the full host address, adding .local suffix if needed."""
-        return hostname if is_ip_address(hostname) else f"{hostname}.local"
+    def _get_host(self, identifier: str) -> str:
+        """
+        Get the full host address for a client.
+
+        Args:
+            identifier: IP address or hostname (NOT a MAC address)
+
+        Returns:
+            Host address suitable for HTTP requests
+
+        The identifier can be:
+        - IP address (e.g., "192.168.1.100") -> use directly
+        - Hostname (e.g., "milo-client-01") -> add .local suffix
+
+        IMPORTANT: MAC addresses are NOT supported. Callers must look up
+        the IP from the client registry before calling proxy methods.
+        """
+        # If it's an IP address, use directly
+        if is_ip_address(identifier):
+            return identifier
+
+        # Assume it's a hostname, add .local suffix for mDNS
+        return f"{identifier}.local"
 
     async def check_available(self, hostname: str) -> bool:
         """

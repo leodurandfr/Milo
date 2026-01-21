@@ -21,7 +21,6 @@ from backend.api.models import (
     CrossoverFilterRequest,
     DspPresetRequest
 )
-from backend.core.multiroom.snapcast import normalize_client_id
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +33,38 @@ def create_dsp_router(
     crossover_service=None,
     proxy_service=None,
     sync_service=None,
-    client_registry_service=None
+    client_registry_service=None,
+    dsp_router_service=None
 ):
     """Creates DSP router with injected dependencies"""
     router = APIRouter(prefix="/api/dsp", tags=["dsp"])
 
     # === Internal Helpers ===
+
+    def _is_local_client(mac_id: str) -> bool:
+        """
+        Check if mac_id belongs to the local client.
+
+        Uses client_registry_service to lookup the client and check if its IP is 127.0.0.1.
+        """
+        if not client_registry_service:
+            return False
+        client = client_registry_service.get_client(mac_id)
+        return client and client.ip == "127.0.0.1"
+
+    def _get_client_ip(identifier: str):
+        """Get client IP from registry, or None if not found."""
+        if not client_registry_service:
+            return None
+        client = client_registry_service.get_client(identifier)
+        return client.ip if client and client.ip and client.ip != "127.0.0.1" else None
+
+    def _require_client_ip(identifier: str) -> str:
+        """Get client IP from registry, raise 404 if not found."""
+        client_ip = _get_client_ip(identifier)
+        if not client_ip:
+            raise HTTPException(status_code=404, detail=f"Client {identifier} offline")
+        return client_ip
 
     def _require_proxy():
         """Raise 503 if proxy_service unavailable."""
@@ -156,8 +181,7 @@ def create_dsp_router(
 
         async def get_client_levels(client_id: str):
             """Get levels from a single client."""
-            normalized = normalize_client_id(client_id)
-            if normalized == 'local':
+            if _is_local_client(client_id):
                 try:
                     return await dsp_service.get_levels()
                 except Exception as e:
@@ -387,9 +411,7 @@ def create_dsp_router(
 
             # Apply to all clients in the zone
             for client_id in zone.client_ids:
-                normalized = normalize_client_id(client_id)
-
-                if normalized == 'local':
+                if _is_local_client(client_id):
                     # Local client: apply directly
                     try:
                         success = await dsp_service.load_preset(preset_id)
@@ -466,9 +488,7 @@ def create_dsp_router(
             errors = []
 
             for client_id in zone.client_ids:
-                normalized = normalize_client_id(client_id)
-
-                if normalized == 'local':
+                if _is_local_client(client_id):
                     # Local client: apply directly via dsp_service
                     try:
                         # Get current filter to merge with updates
@@ -566,9 +586,7 @@ def create_dsp_router(
             errors = []
 
             for client_id in zone.client_ids:
-                normalized = normalize_client_id(client_id)
-
-                if normalized == 'local':
+                if _is_local_client(client_id):
                     # Local client: apply directly via dsp_service
                     try:
                         success = await dsp_service.set_compressor(
@@ -650,9 +668,7 @@ def create_dsp_router(
             errors = []
 
             for client_id in zone.client_ids:
-                normalized = normalize_client_id(client_id)
-
-                if normalized == 'local':
+                if _is_local_client(client_id):
                     # Local client: apply directly via dsp_service
                     try:
                         success = await dsp_service.set_loudness(
@@ -739,9 +755,7 @@ def create_dsp_router(
             errors = []
 
             for client_id in zone.client_ids:
-                normalized = normalize_client_id(client_id)
-
-                if normalized == 'local':
+                if _is_local_client(client_id):
                     # Local client: use routing_service
                     try:
                         if routing_service:
@@ -810,9 +824,8 @@ def create_dsp_router(
         """
         try:
             preset_id = payload.preset_id
-            normalized = normalize_client_id(mac_id)
 
-            if normalized == 'local':
+            if _is_local_client(mac_id):
                 # Local client: apply directly
                 success = await dsp_service.load_preset(preset_id)
                 if success:
@@ -858,9 +871,7 @@ def create_dsp_router(
         to load presets on remote clients.
         """
         try:
-            normalized = normalize_client_id(hostname)
-
-            if normalized == 'local':
+            if _is_local_client(hostname):
                 # Local client: apply directly
                 success = await dsp_service.load_preset(preset_id)
                 if success:
@@ -869,13 +880,14 @@ def create_dsp_router(
 
             # Remote client: use proxy
             _require_proxy()
+            client_ip = _require_client_ip(hostname)
 
             # Check if client is available
-            skip = await _check_client_or_skip(hostname, "preset load")
+            skip = await _check_client_or_skip(client_ip, "preset load")
             if skip:
                 return {**skip, "preset_id": preset_id}
 
-            result = await proxy_service.request(hostname, "PUT", f"/dsp/preset/{preset_id}")
+            result = await proxy_service.request(client_ip, "PUT", f"/dsp/preset/{preset_id}")
             return result
 
         except HTTPException:
@@ -1308,21 +1320,19 @@ def create_dsp_router(
     @router.get("/client/{hostname}/status")
     async def get_client_dsp_status(hostname: str):
         """Get DSP status for a specific client with consistent volume."""
-        normalized = normalize_client_id(hostname)
-
         # Get base status
-        if normalized == 'local':
+        if _is_local_client(hostname):
             status = await dsp_service.get_status()
         else:
-            if not proxy_service:
-                raise HTTPException(status_code=503, detail="Proxy service not available")
-            status = await proxy_service.request(hostname, "GET", "/dsp/status")
+            _require_proxy()
+            client_ip = _require_client_ip(hostname)
+            status = await proxy_service.request(client_ip, "GET", "/dsp/status")
 
         # Inject volume from volume_service (source of truth)
         if state_machine:
             volume_service = getattr(state_machine, 'volume_service', None)
             if volume_service:
-                vol = await volume_service.get_client_volume(normalized)
+                vol = await volume_service.get_client_volume(hostname)
                 if 'volume' not in status:
                     status['volume'] = {}
                 status['volume']['main'] = vol['main']
@@ -1333,19 +1343,32 @@ def create_dsp_router(
     @router.get("/client/{hostname}/filters")
     async def get_client_dsp_filters(hostname: str):
         """Proxy DSP filters request to client"""
+        if _is_local_client(hostname):
+            filters = await dsp_service.get_filters()
+            return {"filters": filters}
         _require_proxy()
-        return await proxy_service.request(hostname, "GET", "/dsp/filters")
+        client_ip = _require_client_ip(hostname)
+        return await proxy_service.request(client_ip, "GET", "/dsp/filters")
 
     @router.put("/client/{hostname}/filter/{filter_id}")
     async def update_client_dsp_filter(hostname: str, filter_id: str, request: Request):
         """Proxy filter update to client and persist settings"""
-        _require_proxy()
         body = await request.json()
-        skip = await _check_client_or_skip(hostname, "filter update")
+
+        if _is_local_client(hostname):
+            # Local client: apply directly
+            success = await dsp_service.set_filter(filter_id, **body)
+            if success:
+                return {"status": "success", "id": filter_id, **body}
+            raise HTTPException(status_code=500, detail="Failed to update filter")
+
+        _require_proxy()
+        client_ip = _require_client_ip(hostname)
+        skip = await _check_client_or_skip(client_ip, "filter update")
         if skip:
             return {**skip, "id": filter_id, **body}
 
-        result = await proxy_service.request(hostname, "PUT", f"/dsp/filter/{filter_id}", body)
+        result = await proxy_service.request(client_ip, "PUT", f"/dsp/filter/{filter_id}", body)
         if result.get("status") == "success" and sync_service:
             settings = await sync_service.load_settings()
             # Save the request body (contains full filter data) instead of response
@@ -1357,12 +1380,19 @@ def create_dsp_router(
     @router.post("/client/{hostname}/reset")
     async def reset_client_dsp_filters(hostname: str):
         """Proxy filter reset to client and clear saved filter settings"""
+        if _is_local_client(hostname):
+            success = await dsp_service.reset_filters()
+            if success:
+                return {"status": "success", "message": "All filters reset to flat"}
+            raise HTTPException(status_code=500, detail="Failed to reset filters")
+
         _require_proxy()
-        skip = await _check_client_or_skip(hostname, "filter reset")
+        client_ip = _require_client_ip(hostname)
+        skip = await _check_client_or_skip(client_ip, "filter reset")
         if skip:
             return skip
 
-        result = await proxy_service.request(hostname, "POST", "/dsp/reset")
+        result = await proxy_service.request(client_ip, "POST", "/dsp/reset")
         if result.get("status") == "success" and sync_service:
             settings = await sync_service.load_settings()
             if hostname in settings:
@@ -1373,19 +1403,31 @@ def create_dsp_router(
     @router.get("/client/{hostname}/compressor")
     async def get_client_compressor(hostname: str):
         """Proxy compressor GET to client"""
+        if _is_local_client(hostname):
+            return await dsp_service.get_compressor()
         _require_proxy()
-        return await proxy_service.request(hostname, "GET", "/dsp/compressor")
+        client_ip = _require_client_ip(hostname)
+        return await proxy_service.request(client_ip, "GET", "/dsp/compressor")
 
     @router.put("/client/{hostname}/compressor")
     async def update_client_compressor(hostname: str, request: Request):
         """Proxy compressor update to client and persist settings"""
-        _require_proxy()
         body = await request.json()
-        skip = await _check_client_or_skip(hostname, "compressor update")
+
+        if _is_local_client(hostname):
+            success = await dsp_service.set_compressor(**body)
+            if success:
+                compressor = await dsp_service.get_compressor()
+                return {"status": "success", **compressor}
+            raise HTTPException(status_code=500, detail="Failed to update compressor")
+
+        _require_proxy()
+        client_ip = _require_client_ip(hostname)
+        skip = await _check_client_or_skip(client_ip, "compressor update")
         if skip:
             return {**skip, **body}
 
-        result = await proxy_service.request(hostname, "PUT", "/dsp/compressor", body)
+        result = await proxy_service.request(client_ip, "PUT", "/dsp/compressor", body)
         if result.get("status") == "success" and sync_service:
             await sync_service.update_client_settings(hostname, "compressor", {k: v for k, v in result.items() if k != "status"})
         return result
@@ -1393,19 +1435,31 @@ def create_dsp_router(
     @router.get("/client/{hostname}/loudness")
     async def get_client_loudness(hostname: str):
         """Proxy loudness GET to client"""
+        if _is_local_client(hostname):
+            return await dsp_service.get_loudness()
         _require_proxy()
-        return await proxy_service.request(hostname, "GET", "/dsp/loudness")
+        client_ip = _require_client_ip(hostname)
+        return await proxy_service.request(client_ip, "GET", "/dsp/loudness")
 
     @router.put("/client/{hostname}/loudness")
     async def update_client_loudness(hostname: str, request: Request):
         """Proxy loudness update to client and persist settings"""
-        _require_proxy()
         body = await request.json()
-        skip = await _check_client_or_skip(hostname, "loudness update")
+
+        if _is_local_client(hostname):
+            success = await dsp_service.set_loudness(**body)
+            if success:
+                loudness = await dsp_service.get_loudness()
+                return {"status": "success", **loudness}
+            raise HTTPException(status_code=500, detail="Failed to update loudness")
+
+        _require_proxy()
+        client_ip = _require_client_ip(hostname)
+        skip = await _check_client_or_skip(client_ip, "loudness update")
         if skip:
             return {**skip, **body}
 
-        result = await proxy_service.request(hostname, "PUT", "/dsp/loudness", body)
+        result = await proxy_service.request(client_ip, "PUT", "/dsp/loudness", body)
         if result.get("status") == "success" and sync_service:
             await sync_service.update_client_settings(hostname, "loudness", {k: v for k, v in result.items() if k != "status"})
         return result
@@ -1413,9 +1467,7 @@ def create_dsp_router(
     @router.get("/client/{hostname}/enabled")
     async def get_client_dsp_enabled(hostname: str):
         """Get DSP effects enabled state for a specific client"""
-        normalized = normalize_client_id(hostname)
-
-        if normalized == 'local':
+        if _is_local_client(hostname):
             # Local: use routing_service state
             if routing_service:
                 return {"enabled": routing_service.dsp_effects_enabled}
@@ -1423,7 +1475,8 @@ def create_dsp_router(
 
         # Remote: proxy to client
         _require_proxy()
-        return await proxy_service.request(hostname, "GET", "/dsp/enabled")
+        client_ip = _require_client_ip(hostname)
+        return await proxy_service.request(client_ip, "GET", "/dsp/enabled")
 
     @router.put("/client/{hostname}/enabled")
     async def update_client_dsp_enabled(hostname: str, request: Request):
@@ -1434,9 +1487,8 @@ def create_dsp_router(
         """
         body = await request.json()
         enabled = body.get("enabled")
-        normalized = normalize_client_id(hostname)
 
-        if normalized == 'local':
+        if _is_local_client(hostname):
             # Local: use routing_service
             if routing_service:
                 success = await routing_service.set_dsp_effects_enabled(enabled)
@@ -1447,11 +1499,12 @@ def create_dsp_router(
 
         # Remote: proxy to client
         _require_proxy()
-        skip = await _check_client_or_skip(hostname, "enabled update")
+        client_ip = _require_client_ip(hostname)
+        skip = await _check_client_or_skip(client_ip, "enabled update")
         if skip:
             return {**skip, "enabled": enabled}
 
-        result = await proxy_service.request(hostname, "PUT", "/dsp/enabled", body)
+        result = await proxy_service.request(client_ip, "PUT", "/dsp/enabled", body)
         if result.get("status") == "success" and sync_service:
             await sync_service.update_client_settings(hostname, "enabled", {"enabled": enabled})
         return result
@@ -1459,38 +1512,38 @@ def create_dsp_router(
     @router.get("/client/{hostname}/volume")
     async def get_client_volume(hostname: str):
         """Get volume for a specific client (consistent with multiroom model)."""
-        normalized = normalize_client_id(hostname)
         if state_machine:
             vs = getattr(state_machine, 'volume_service', None)
             if vs:
-                return await vs.get_client_volume(normalized)
-        if normalized == 'local':
+                return await vs.get_client_volume(hostname)
+        if _is_local_client(hostname):
             try:
                 vol = await dsp_service.get_volume()
                 return {"main": vol.get("main", -60), "mute": vol.get("mute", False)}
             except Exception:
                 return {"main": -60, "mute": False}
         _require_proxy()
-        return await proxy_service.request(hostname, "GET", "/dsp/volume")
+        client_ip = _require_client_ip(hostname)
+        return await proxy_service.request(client_ip, "GET", "/dsp/volume")
 
     @router.put("/client/{hostname}/volume")
     async def update_client_volume(hostname: str, request: Request):
         """Set volume for a specific client (local or remote)."""
         body = await request.json()
         volume_db = body.get("volume")
-        normalized = normalize_client_id(hostname)
 
-        if normalized == 'local':
+        if _is_local_client(hostname):
             vs = _get_volume_service()
-            await vs.update_client_volume_db('local', volume_db, broadcast=True)
+            await vs.update_client_volume_db(hostname, volume_db, broadcast=True)
             return {"status": "success", "main": volume_db}
 
         _require_proxy()
-        if not await proxy_service.check_available(hostname):
+        client_ip = _require_client_ip(hostname)
+        if not await proxy_service.check_available(client_ip):
             raise HTTPException(status_code=503, detail=f"Client {hostname} is not available")
 
         try:
-            result = await proxy_service.request(hostname, "PUT", "/dsp/volume", body)
+            result = await proxy_service.request(client_ip, "PUT", "/dsp/volume", body)
         except HTTPException:
             raise
         except Exception as e:
@@ -1503,7 +1556,7 @@ def create_dsp_router(
             if actual is not None:
                 vs = getattr(state_machine, 'volume_service', None) if state_machine else None
                 if vs:
-                    await vs.update_client_volume_db(normalized, actual)
+                    await vs.update_client_volume_db(hostname, actual)
                     if actual != volume_db:
                         logger.info(f"Client {hostname} volume clamped: {volume_db} -> {actual} dB")
         return result
@@ -1513,21 +1566,21 @@ def create_dsp_router(
         """Set mute for a specific client (local or remote)."""
         body = await request.json()
         muted = body.get("muted")
-        normalized = normalize_client_id(hostname)
 
-        if normalized == 'local':
+        if _is_local_client(hostname):
             vs = _get_volume_service()
             if not await dsp_service.set_mute(muted):
                 raise HTTPException(status_code=500, detail="Failed to set local mute")
-            await vs.set_client_mute('local', muted, broadcast=True)
+            await vs.set_client_mute(hostname, muted, broadcast=True)
             return {"status": "success", "mute": muted}
 
         _require_proxy()
-        if not await proxy_service.check_available(hostname):
+        client_ip = _require_client_ip(hostname)
+        if not await proxy_service.check_available(client_ip):
             raise HTTPException(status_code=503, detail=f"Client {hostname} is not available")
 
         try:
-            result = await proxy_service.request(hostname, "PUT", "/dsp/mute", body)
+            result = await proxy_service.request(client_ip, "PUT", "/dsp/mute", body)
         except HTTPException:
             raise
         except Exception as e:
@@ -1536,7 +1589,7 @@ def create_dsp_router(
         if result.get("status") == "success":
             vs = getattr(state_machine, 'volume_service', None) if state_machine else None
             if vs:
-                await vs.set_client_mute(normalized, muted, broadcast=True)
+                await vs.set_client_mute(hostname, muted, broadcast=True)
         return result
 
     # === Client Settings Persistence ===
@@ -1555,6 +1608,15 @@ def create_dsp_router(
         if not sync_service or not proxy_service:
             return {"status": "error", "restored": [], "errors": ["Services not available"]}
 
+        # Local client: settings are applied directly via dsp_service
+        if _is_local_client(hostname):
+            return {"status": "skipped", "message": "Local client settings are managed directly", "restored": []}
+
+        # Get IP for remote client
+        client_ip = _get_client_ip(hostname)
+        if not client_ip:
+            return {"status": "error", "restored": [], "errors": [f"Client {hostname} not found or offline"]}
+
         saved = await sync_service.get_client_settings(hostname)
         if not saved:
             return {"status": "success", "message": "No saved settings to restore", "restored": []}
@@ -1563,7 +1625,7 @@ def create_dsp_router(
 
         async def try_restore(name: str, path: str, data):
             try:
-                await proxy_service.request(hostname, "PUT", path, data)
+                await proxy_service.request(client_ip, "PUT", path, data)
                 restored.append(name)
             except Exception as e:
                 errors.append(f"{name}: {e}")

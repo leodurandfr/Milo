@@ -36,7 +36,6 @@ from backend.core.multiroom.snapcast import (
     SnapcastService,
     get_available_clients,
     get_available_client_ids,
-    normalize_client_id,
 )
 from backend.core.multiroom.crossover import CrossoverService, is_ip_address
 
@@ -95,15 +94,16 @@ class TestClient:
         # Runtime fields are now included by default for complete WebSocket events
         assert data["online"] is True
 
-        # Verify all 9 expected fields are present
+        # Verify all 10 expected fields are present (including is_local)
         expected_fields = {"mac_id", "name", "ip", "speaker_type", "zone_id",
-                          "volume_db", "mute", "crossover_frequency", "online"}
+                          "volume_db", "mute", "crossover_frequency", "online", "is_local"}
         assert set(data.keys()) == expected_fields
 
         # Explicit: exclude runtime fields (for persistence)
         data_persist = client.to_dict(include_runtime=False)
         assert "online" not in data_persist
-        assert len(data_persist) == 8  # All fields except 'online'
+        assert "is_local" not in data_persist
+        assert len(data_persist) == 8  # All fields except 'online' and 'is_local'
 
     def test_client_from_dict(self):
         """Test creating client from dictionary."""
@@ -666,26 +666,30 @@ class TestClientRegistryService:
         assert client3.zone_id is None
 
     def test_compute_mac_id_local(self):
-        """Test computing mac_id for local client."""
+        """Test computing mac_id for local client reads from system interface."""
+        # Local client (127.0.0.1) reads MAC from eth0 or wlan0
         mac_id = ClientRegistryService.compute_mac_id("milo", "127.0.0.1")
-        assert mac_id == "local"
+        # Should be a valid MAC address format
+        assert ":" in mac_id
+        assert len(mac_id) == 17  # xx:xx:xx:xx:xx:xx
 
-    def test_compute_mac_id_milo_client(self):
-        """Test computing mac_id for milo-client."""
-        mac_id = ClientRegistryService.compute_mac_id("milo-client-kitchen", "192.168.1.100")
-        assert mac_id == "milo-client-kitchen"
+    def test_compute_mac_id_with_mac(self):
+        """Test computing mac_id when MAC address is provided."""
+        # When MAC is provided, return it directly
+        mac_id = ClientRegistryService.compute_mac_id("milo-client-kitchen", "192.168.1.100", mac="aa:bb:cc:dd:ee:ff")
+        assert mac_id == "aa:bb:cc:dd:ee:ff"
 
-    def test_compute_mac_id_unknown_hostname(self):
-        """Test computing mac_id for unknown hostname (non milo-client)."""
-        # For unknown hostnames, the ID is hostname-ip_with_dashes
-        mac_id = ClientRegistryService.compute_mac_id("unknown-host", "192.168.1.200")
-        assert mac_id == "unknown-host-192-168-1-200"
+    def test_compute_mac_id_remote_no_mac_raises(self):
+        """Test that remote client without MAC raises ValueError."""
+        # Remote clients must have a MAC address
+        with pytest.raises(ValueError, match="No MAC address"):
+            ClientRegistryService.compute_mac_id("unknown-host", "192.168.1.200")
 
-    def test_compute_mac_id_no_hostname(self):
-        """Test computing mac_id with no hostname (IP fallback)."""
-        # When hostname is empty, fall back to IP-based ID
-        mac_id = ClientRegistryService.compute_mac_id("", "192.168.1.200")
-        assert mac_id == "192-168-1-200"
+    def test_compute_mac_id_ignores_null_mac(self):
+        """Test that null MAC (00:00:00:00:00:00) is ignored."""
+        # When MAC is all zeros, it's treated as not provided
+        with pytest.raises(ValueError, match="No MAC address"):
+            ClientRegistryService.compute_mac_id("client", "192.168.1.200", mac="00:00:00:00:00:00")
 
     @pytest.mark.asyncio
     async def test_standalone_dsp_storage(self, registry):
@@ -1241,19 +1245,20 @@ class TestSnapcastService:
     def test_compute_mac_id_local_via_service(self, snapcast_service):
         """Test computing mac_id for local client via ClientRegistryService."""
         # mac_id derivation moved to ClientRegistryService.compute_mac_id()
+        # Local client reads MAC from system interface
         mac_id = ClientRegistryService.compute_mac_id("milo", "127.0.0.1")
-        assert mac_id == "local"
+        assert ":" in mac_id  # Returns a MAC address format
+        assert len(mac_id) == 17  # xx:xx:xx:xx:xx:xx
 
-    def test_compute_mac_id_milo_client_via_service(self, snapcast_service):
-        """Test computing mac_id for milo-client via ClientRegistryService."""
-        mac_id = ClientRegistryService.compute_mac_id("milo-client-kitchen", "192.168.1.100")
-        assert mac_id == "milo-client-kitchen"
+    def test_compute_mac_id_with_mac_via_service(self, snapcast_service):
+        """Test computing mac_id when MAC is provided."""
+        mac_id = ClientRegistryService.compute_mac_id("milo-client-kitchen", "192.168.1.100", mac="aa:bb:cc:dd:ee:ff")
+        assert mac_id == "aa:bb:cc:dd:ee:ff"
 
-    def test_compute_mac_id_hostname_ip_combined(self, snapcast_service):
-        """Test computing mac_id with hostname+IP combined identifier."""
-        # For non-milo hostnames, compute_mac_id creates a stable combined ID
-        mac_id = ClientRegistryService.compute_mac_id("unknown", "192.168.1.200")
-        assert mac_id == "unknown-192-168-1-200"
+    def test_compute_mac_id_remote_requires_mac(self, snapcast_service):
+        """Test that remote clients without MAC raise ValueError."""
+        with pytest.raises(ValueError, match="No MAC address"):
+            ClientRegistryService.compute_mac_id("unknown", "192.168.1.200")
 
     def test_deduplicate_by_mac_empty(self, snapcast_service):
         """Test deduplication with empty list."""
@@ -1324,18 +1329,6 @@ class TestSnapcastService:
 class TestHelperFunctions:
     """Tests for helper functions."""
 
-    def test_normalize_client_id_local(self):
-        """Test normalizing 'local' hostname."""
-        assert normalize_client_id("local") == "local"
-
-    def test_normalize_client_id_milo(self):
-        """Test normalizing 'milo' hostname."""
-        assert normalize_client_id("milo") == "local"
-
-    def test_normalize_client_id_ip(self):
-        """Test normalizing IP address."""
-        assert normalize_client_id("192.168.1.100") == "192.168.1.100"
-
     def test_is_ip_address_true(self):
         """Test is_ip_address with valid IP."""
         assert is_ip_address("192.168.1.100") is True
@@ -1390,13 +1383,22 @@ class TestCrossoverService:
         return bus
 
     @pytest.fixture
-    def crossover_service(self, mock_settings_service, mock_dsp_service, mock_event_bus):
-        """Create a CrossoverService instance."""
-        return CrossoverService(
+    def crossover_service(self, mock_settings_service, mock_dsp_service, mock_registry, mock_event_bus):
+        """Create a CrossoverService instance with mock registry for local client."""
+        # Configure mock registry to return local client
+        local_client = MagicMock()
+        local_client.ip = "127.0.0.1"
+        local_client.mac_id = "aa:bb:cc:dd:ee:ff"
+        mock_registry.get_client = MagicMock(side_effect=lambda x: local_client if x == "aa:bb:cc:dd:ee:ff" else None)
+
+        service = CrossoverService(
             settings_service=mock_settings_service,
             dsp_service=mock_dsp_service,
             event_bus=mock_event_bus
         )
+        # Set registry via setter (not constructor parameter)
+        service.set_registry(mock_registry)
+        return service
 
     @pytest.mark.asyncio
     async def test_initialize(self, crossover_service):
@@ -1427,7 +1429,7 @@ class TestCrossoverService:
 
     def test_has_pending_settings_empty(self, crossover_service):
         """Test has_pending_settings with no pending settings."""
-        assert crossover_service.has_pending_settings("local") is False
+        assert crossover_service.has_pending_settings("aa:bb:cc:dd:ee:ff") is False
 
     @pytest.mark.asyncio
     async def test_queue_pending_settings(self, crossover_service):
@@ -1459,15 +1461,17 @@ class TestCrossoverService:
 
     @pytest.mark.asyncio
     async def test_set_client_crossover_local(self, crossover_service, mock_dsp_service):
-        """Test setting crossover on local client."""
-        result = await crossover_service._set_client_crossover("local", True, 80)
+        """Test setting crossover on local client (identified by mac_id with ip=127.0.0.1)."""
+        # Use the MAC address configured in the mock registry for local client
+        result = await crossover_service._set_client_crossover("aa:bb:cc:dd:ee:ff", True, 80)
         assert result is True
         mock_dsp_service.set_crossover_filter.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_set_client_lowpass_local(self, crossover_service, mock_dsp_service):
-        """Test setting lowpass on local client."""
-        result = await crossover_service._set_client_lowpass("local", True, 80)
+        """Test setting lowpass on local client (identified by mac_id with ip=127.0.0.1)."""
+        # Use the MAC address configured in the mock registry for local client
+        result = await crossover_service._set_client_lowpass("aa:bb:cc:dd:ee:ff", True, 80)
         assert result is True
         mock_dsp_service.set_lowpass_filter.assert_called_once()
 
@@ -1652,15 +1656,25 @@ class TestPendingDspSettings:
 
     @pytest.fixture
     def crossover_service(self, mock_dsp):
-        """Create CrossoverService with mock DSP."""
+        """Create CrossoverService with mock DSP and registry for local client."""
         mock_settings = AsyncMock()
         mock_bus = MagicMock()
         mock_bus.emit = AsyncMock()
-        return CrossoverService(
+
+        # Configure mock registry for local client
+        mock_registry = MagicMock()
+        local_client = MagicMock()
+        local_client.ip = "127.0.0.1"
+        local_client.mac_id = "aa:bb:cc:dd:ee:ff"
+        mock_registry.get_client = MagicMock(side_effect=lambda x: local_client if x == "aa:bb:cc:dd:ee:ff" else None)
+
+        service = CrossoverService(
             settings_service=mock_settings,
             dsp_service=mock_dsp,
             event_bus=mock_bus
         )
+        service.set_registry(mock_registry)
+        return service
 
     @pytest.mark.asyncio
     async def test_queue_filters_pending(self, crossover_service):
@@ -1703,21 +1717,21 @@ class TestPendingDspSettings:
     async def test_apply_pending_filters_local(self, crossover_service, mock_dsp):
         """Test applying pending filters to local client."""
         filters = [{"id": "eq_1", "freq": 1000, "gain": 3.0, "q": 1.0, "type": "peaking"}]
-        await crossover_service.queue_pending_settings("local", "filters", filters)
+        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "filters", filters)
 
-        result = await crossover_service.apply_pending_settings("local")
+        result = await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
 
         assert result is True
         mock_dsp.set_filter.assert_called_once()
-        assert not crossover_service.has_pending_settings("local")
+        assert not crossover_service.has_pending_settings("aa:bb:cc:dd:ee:ff")
 
     @pytest.mark.asyncio
     async def test_apply_pending_compressor_local(self, crossover_service, mock_dsp):
         """Test applying pending compressor to local client."""
         compressor = {"enabled": True, "threshold": -15}
-        await crossover_service.queue_pending_settings("local", "compressor", compressor)
+        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "compressor", compressor)
 
-        result = await crossover_service.apply_pending_settings("local")
+        result = await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
 
         assert result is True
         mock_dsp.set_compressor.assert_called_once()
@@ -1726,9 +1740,9 @@ class TestPendingDspSettings:
     async def test_apply_pending_loudness_local(self, crossover_service, mock_dsp):
         """Test applying pending loudness to local client."""
         loudness = {"enabled": True, "reference_level": -30}
-        await crossover_service.queue_pending_settings("local", "loudness", loudness)
+        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "loudness", loudness)
 
-        result = await crossover_service.apply_pending_settings("local")
+        result = await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
 
         assert result is True
         mock_dsp.set_loudness.assert_called_once()
@@ -1736,14 +1750,14 @@ class TestPendingDspSettings:
     @pytest.mark.asyncio
     async def test_clear_pending_after_apply(self, crossover_service, mock_dsp):
         """Test that pending settings are cleared after successful apply."""
-        await crossover_service.queue_pending_settings("local", "compressor", {"enabled": True})
-        await crossover_service.queue_pending_settings("local", "loudness", {"enabled": False})
+        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "compressor", {"enabled": True})
+        await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "loudness", {"enabled": False})
 
-        assert crossover_service.has_pending_settings("local")
+        assert crossover_service.has_pending_settings("aa:bb:cc:dd:ee:ff")
 
-        await crossover_service.apply_pending_settings("local")
+        await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
 
-        assert not crossover_service.has_pending_settings("local")
+        assert not crossover_service.has_pending_settings("aa:bb:cc:dd:ee:ff")
 
 
 # =============================================================================
@@ -1849,25 +1863,26 @@ class TestStandaloneDspSync:
         assert loaded is not None
         assert loaded["loudness"]["enabled"] is True
 
-    def test_compute_mac_id_localhost_returns_local(self):
-        """AC4: Local client (127.0.0.1) computes to 'local' mac_id."""
+    def test_compute_mac_id_localhost_returns_mac(self):
+        """AC4: Local client (127.0.0.1) reads MAC from system interface."""
         from backend.core.multiroom.registry import ClientRegistryService
 
-        # localhost IP should always map to "local"
+        # localhost IP reads MAC from system interface (eth0 or wlan0)
         mac_id = ClientRegistryService.compute_mac_id("milo", "127.0.0.1")
-        assert mac_id == "local"
+        assert ":" in mac_id  # Returns MAC address format
+        assert len(mac_id) == 17  # xx:xx:xx:xx:xx:xx
 
     def test_compute_mac_id_remote_client(self):
-        """Test remote client mac_id computation."""
+        """Test remote client mac_id computation requires MAC from Snapcast."""
         from backend.core.multiroom.registry import ClientRegistryService
 
-        # milo-client hostname should be used directly
-        mac_id = ClientRegistryService.compute_mac_id("milo-client-01", "192.168.1.100")
-        assert mac_id == "milo-client-01"
+        # Remote client with MAC provided returns that MAC
+        mac_id = ClientRegistryService.compute_mac_id("milo-client-01", "192.168.1.100", mac="aa:bb:cc:dd:ee:ff")
+        assert mac_id == "aa:bb:cc:dd:ee:ff"
 
-        # Non milo-client hostname uses hostname-IP format
-        mac_id = ClientRegistryService.compute_mac_id("other-host", "192.168.1.100")
-        assert mac_id == "other-host-192-168-1-100"
+        # Remote client without MAC raises error
+        with pytest.raises(ValueError, match="No MAC address"):
+            ClientRegistryService.compute_mac_id("other-host", "192.168.1.100")
 
 
 # =============================================================================
@@ -2213,19 +2228,19 @@ class TestSnapcastClientDetection:
             event_bus=mock_event_bus
         )
 
-        # Simulate Client.OnConnect params
+        # Simulate Client.OnConnect params (with MAC address as required)
         params = {
             "client": {
                 "id": "abc123",
                 "config": {"name": "Kitchen Speaker", "volume": {"percent": 100, "muted": False}},
-                "host": {"name": "milo-client-kitchen", "ip": "192.168.1.100"}
+                "host": {"name": "milo-client-kitchen", "ip": "192.168.1.100", "mac": "aa:bb:cc:dd:ee:ff"}
             }
         }
 
         await ws_service._handle_client_connect(params)
 
-        # Verify client was registered
-        client = registry.get_client("milo-client-kitchen")
+        # Verify client was registered with MAC as identifier
+        client = registry.get_client("aa:bb:cc:dd:ee:ff")
         assert client is not None
         assert client.name == "Kitchen Speaker"
         assert client.online is True
@@ -2248,7 +2263,7 @@ class TestSnapcastClientDetection:
             "client": {
                 "id": "abc123",
                 "config": {"name": "Test Speaker", "volume": {"percent": 100, "muted": False}},
-                "host": {"name": "milo-client-test", "ip": "192.168.1.101"}
+                "host": {"name": "milo-client-test", "ip": "192.168.1.101", "mac": "11:22:33:44:55:66"}
             }
         }
 

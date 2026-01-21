@@ -76,25 +76,13 @@ class VolumeService:
         # Event to signal when client availability has been initialized (for WebSocket handshake)
         self._availability_ready = asyncio.Event()
 
+    def set_client_registry(self, registry):
+        """Set client registry on DSPController (for dependency injection after init)."""
+        self._dsp_controller.set_registry(registry)
+
     # ============================================================================
     # HELPERS
     # ============================================================================
-
-    def _get_local_mac_id(self) -> Optional[str]:
-        """Get the local client's mac_id from the registry."""
-        registry = getattr(self.state_machine, 'client_registry', None)
-        if registry:
-            local_client = registry.get_local_client()
-            if local_client:
-                return local_client.mac_id
-        return None
-
-    def _is_local_client(self, mac_id: str) -> bool:
-        """Check if a mac_id belongs to the local client."""
-        registry = getattr(self.state_machine, 'client_registry', None)
-        if registry:
-            return registry.is_local_mac_id(mac_id)
-        return False
 
     async def _with_lock(self, func, *args, **kwargs):
         """Execute func with volume lock and 2s timeout."""
@@ -427,16 +415,22 @@ class VolumeService:
         if not self._is_multiroom_enabled():
             return True
         try:
+            registry = getattr(self.state_machine, 'client_registry', None)
             clients = await self.snapcast_service.get_clients()
             for client in clients:
                 cid = client.get("dsp_id", "")
                 if not cid:
                     continue
                 # Read DSP volume (local client uses local DSP, others use proxy)
-                if self._is_local_client(cid):
+                client_info = registry.get_client(cid) if registry else None
+                if client_info and client_info.ip == "127.0.0.1":
                     vol_data = await self._dsp_service.get_volume()
+                elif client_info and client_info.ip:
+                    # Use IP address for proxy request (never mac_id)
+                    vol_data = await self._proxy_service.request(client_info.ip, "GET", "/dsp/volume")
                 else:
-                    vol_data = await self._proxy_service.request(cid, "GET", "/dsp/volume")
+                    self.logger.warning(f"Cannot sync client {cid}: no IP address in registry")
+                    continue
                 volume = vol_data.get("main", DEFAULT_VOLUME_DB) if vol_data else DEFAULT_VOLUME_DB
                 await self._state_store.register_client(cid, volume_db=volume, available=client.get("available", True))
 
@@ -561,7 +555,9 @@ class VolumeService:
                     self.logger.warning(f"Failed to update clients: {failures}")
 
                 # FR11: Update startup volume using local client's new volume
-                local_mac_id = self._get_local_mac_id()
+                registry = getattr(self.state_machine, 'client_registry', None)
+                local_client = registry.get_local_client() if registry else None
+                local_mac_id = local_client.mac_id if local_client else None
                 local_volume = updates.get(local_mac_id) if local_mac_id else None
                 local_volume = local_volume or self._state_store._local_volume_db
                 await self._update_startup_volume_if_needed(local_volume)
