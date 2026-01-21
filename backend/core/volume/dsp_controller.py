@@ -26,87 +26,75 @@ class DSPController:
     """
     Hardware abstraction layer for CamillaDSP volume control.
 
-    Responsibilities:
-    - Route volume commands to correct destination (local or remote)
-    - Execute parallel volume updates for zones
-    - Handle errors gracefully with retry logic
-    - Provide timeout protection
+    Receives mac_id from callers, looks up IP from registry, and routes to proxy.
     """
 
     DEFAULT_TIMEOUT = 5.0  # seconds
     RETRY_ATTEMPTS = 2
     RETRY_DELAY = 0.5  # seconds
 
-    def __init__(self, camilladsp_service, client_proxy_service):
+    def __init__(self, camilladsp_service, client_proxy_service, client_registry=None):
         """
         Initialize DSPController.
 
         Args:
             camilladsp_service: Service for controlling local CamillaDSP
             client_proxy_service: Service for controlling remote clients
+            client_registry: Registry for looking up client IPs
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self._dsp_service = camilladsp_service
         self._proxy_service = client_proxy_service
+        self._registry = client_registry
         self._timeout = self.DEFAULT_TIMEOUT
 
-        self.logger.info("DSPController initialized")
+    def set_registry(self, registry):
+        """Set the client registry (for dependency injection after init)."""
+        self._registry = registry
+
+    def _get_client_ip(self, mac_id: str) -> Optional[str]:
+        """Get IP for a client from registry. Returns None for local or if not found."""
+        if not self._registry:
+            return None
+        client = self._registry.get_client(mac_id)
+        return client.ip if client and client.ip else None
+
+    def _is_local(self, mac_id: str) -> bool:
+        """Check if mac_id is local client (127.0.0.1)."""
+        ip = self._get_client_ip(mac_id)
+        return ip == "127.0.0.1"
 
     # ========== Client Readiness ==========
 
-    async def wait_for_client_ready(self, hostname: str, max_wait: float = 10.0, interval: float = 0.5) -> bool:
-        """
-        Wait for a client's DSP to become available.
-
-        For local client: waits for CamillaDSP daemon connection.
-        For remote clients: polls health endpoint until dsp_ready is true.
-
-        Args:
-            hostname: Client hostname ('local' or 'milo-client-XX')
-            max_wait: Maximum wait time in seconds
-            interval: Check interval in seconds
-
-        Returns:
-            True if client became ready, False if timeout
-        """
-        if hostname == "local":
-            # Wait for local CamillaDSP daemon to be connected
+    async def wait_for_client_ready(self, mac_id: str, max_wait: float = 10.0, interval: float = 0.5) -> bool:
+        """Wait for a client's DSP to become available."""
+        if self._is_local(mac_id):
             if self._dsp_service and hasattr(self._dsp_service, 'wait_for_connection'):
-                ready = await self._dsp_service.wait_for_connection(timeout=max_wait)
-                if ready:
-                    self.logger.info(f"[{time.time():.3f}] WAIT_READY: Local CamillaDSP ready")
-                else:
-                    self.logger.warning(f"[{time.time():.3f}] WAIT_READY: Local CamillaDSP not ready after {max_wait}s")
-                return ready
-            # Fallback: if no service or method, assume ready
+                return await self._dsp_service.wait_for_connection(timeout=max_wait)
             return True
 
+        client_ip = self._get_client_ip(mac_id)
+        if not client_ip:
+            return False
+
         start_time = time.time()
-        attempts = 0
-
         while (time.time() - start_time) < max_wait:
-            attempts += 1
             try:
-                if await self._proxy_service.check_available(hostname):
-                    elapsed = time.time() - start_time
-                    self.logger.info(f"[{time.time():.3f}] WAIT_READY: {hostname} ready after {attempts} attempts ({elapsed:.1f}s)")
+                if await self._proxy_service.check_available(client_ip):
                     return True
-            except Exception as e:
-                self.logger.debug(f"Health check failed for {hostname}: {e}")
-
+            except Exception:
+                pass
             await asyncio.sleep(interval)
-
-        self.logger.warning(f"[{time.time():.3f}] WAIT_READY: {hostname} not ready after {max_wait}s ({attempts} attempts)")
         return False
 
     # ========== Single Client Operations ==========
 
-    async def set_dsp_volume(self, hostname: str, volume_db: float, retry: int = 0) -> bool:
+    async def set_dsp_volume(self, mac_id: str, volume_db: float, retry: int = 0) -> bool:
         """
         Set volume for a single client (local or remote).
 
         Args:
-            hostname: Client hostname ('local' or 'milo-client-XX')
+            mac_id: Client identifier (mac_id from registry)
             volume_db: Target volume in dB
             retry: Current retry attempt (internal)
 
@@ -114,24 +102,22 @@ class DSPController:
             True if successful, False otherwise
         """
         try:
-            if hostname == "local":
-                # Local CamillaDSP
+            if self._is_local(mac_id):
                 return await self._set_local_volume(volume_db)
-            else:
-                # Remote client via proxy
-                return await self._set_remote_volume(hostname, volume_db)
+
+            # Remote client: get IP from registry
+            client_ip = self._get_client_ip(mac_id)
+            if not client_ip:
+                return False
+            return await self._set_remote_volume(client_ip, volume_db)
 
         except asyncio.TimeoutError:
-            self.logger.warning(f"Timeout setting volume for {hostname} (attempt {retry + 1}/{self.RETRY_ATTEMPTS})")
-
             if retry < self.RETRY_ATTEMPTS:
                 await asyncio.sleep(self.RETRY_DELAY)
-                return await self.set_dsp_volume(hostname, volume_db, retry + 1)
-
+                return await self.set_dsp_volume(mac_id, volume_db, retry + 1)
             return False
-
         except Exception as e:
-            self.logger.error(f"Error setting volume for {hostname}: {e}", exc_info=True)
+            self.logger.error(f"Error setting volume for {mac_id}: {e}")
             return False
 
     async def _set_local_volume(self, volume_db: float) -> bool:
@@ -194,47 +180,23 @@ class DSPController:
             self.logger.error(f"Error setting remote DSP volume ({hostname}): {e}")
             raise
 
-    async def set_dsp_mute(self, hostname: str, mute: bool) -> bool:
-        """
-        Set mute state for a client's DSP.
-
-        Args:
-            hostname: Client hostname ('local' or 'milo-client-XX')
-            mute: True to mute, False to unmute
-
-        Returns:
-            True if successful, False otherwise
-        """
+    async def set_dsp_mute(self, mac_id: str, mute: bool) -> bool:
+        """Set mute state for a client's DSP."""
         try:
-            if hostname == "local":
-                result = await asyncio.wait_for(
-                    self._dsp_service.set_mute(mute),
-                    timeout=self._timeout
-                )
-                if result:
-                    self.logger.debug(f"Local DSP mute set to {mute}")
-                    return True
-                return False
-            else:
-                result = await asyncio.wait_for(
-                    self._proxy_service.request(
-                        hostname,
-                        "PUT",
-                        "/dsp/mute",
-                        {"muted": mute}
-                    ),
-                    timeout=self._timeout
-                )
-                if result and result.get("status") == "success":
-                    self.logger.debug(f"Remote DSP ({hostname}) mute set to {mute}")
-                    return True
+            if self._is_local(mac_id):
+                result = await asyncio.wait_for(self._dsp_service.set_mute(mute), timeout=self._timeout)
+                return bool(result)
+
+            client_ip = self._get_client_ip(mac_id)
+            if not client_ip:
                 return False
 
-        except asyncio.TimeoutError:
-            self.logger.warning(f"Timeout setting mute for {hostname}")
-            return False
-        except Exception as e:
-            self.logger.error(f"Error setting mute for {hostname}: {e}")
+            result = await asyncio.wait_for(
+                self._proxy_service.request(client_ip, "PUT", "/dsp/mute", {"muted": mute}),
+                timeout=self._timeout
+            )
+            return result and result.get("status") == "success"
+        except Exception:
             return False
 
     # ========== Parallel Zone Operations ==========
@@ -243,127 +205,68 @@ class DSPController:
         """
         Apply volume updates to multiple clients in parallel.
 
-        This is the core method for atomic zone updates.
-
         Args:
-            updates: Dict mapping hostname -> volume_db
+            updates: Dict mapping mac_id -> volume_db
 
         Returns:
-            Dict mapping hostname -> success (True/False)
-
-        Example:
-            updates = {
-                "local": -25.0,
-                "milo-client-01": -27.0,
-                "milo-client-02": -23.0
-            }
-            results = await controller.apply_volumes_parallel(updates)
-            # results = {"local": True, "milo-client-01": True, "milo-client-02": False}
+            Dict mapping mac_id -> success (True/False)
         """
         if not updates:
-            self.logger.debug("No volume updates to apply")
             return {}
 
         self.logger.info(f"Applying parallel volume updates to {len(updates)} clients")
 
-        # First, check availability of remote clients in parallel (fast fail for unreachable clients)
-        remote_clients = [h for h in updates.keys() if h != "local"]
-        available_map = {"local": True}  # Local is always available
-
-        if remote_clients:
-            availability_tasks = {
-                hostname: asyncio.create_task(self._proxy_service.check_available(hostname))
-                for hostname in remote_clients
-            }
-            availability_results = await asyncio.gather(*availability_tasks.values(), return_exceptions=True)
-            for hostname, available in zip(availability_tasks.keys(), availability_results):
-                if isinstance(available, Exception):
-                    self.logger.warning(f"Availability check failed for {hostname}: {available}")
-                    available_map[hostname] = False
+        # Build IP map for remote clients and check availability
+        available_map = {}
+        for mac_id in updates.keys():
+            if self._is_local(mac_id):
+                available_map[mac_id] = True
+            else:
+                client_ip = self._get_client_ip(mac_id)
+                if client_ip:
+                    try:
+                        available_map[mac_id] = await self._proxy_service.check_available(client_ip)
+                    except Exception:
+                        available_map[mac_id] = False
                 else:
-                    available_map[hostname] = available
+                    available_map[mac_id] = False
 
-        # Filter updates to only available clients
-        available_updates = {h: v for h, v in updates.items() if available_map.get(h, False)}
-        unavailable_clients = [h for h in updates.keys() if not available_map.get(h, False)]
-
-        if unavailable_clients:
-            self.logger.warning(f"Skipping unavailable clients: {unavailable_clients}")
-
-        # Initialize success_map with failures for unavailable clients
-        success_map = {h: False for h in unavailable_clients}
+        # Filter to available clients
+        available_updates = {k: v for k, v in updates.items() if available_map.get(k)}
+        success_map = {k: False for k in updates if not available_map.get(k)}
 
         if not available_updates:
-            self.logger.warning("No available clients to update")
             return success_map
 
-        # Create tasks for available updates only
-        tasks = {
-            hostname: asyncio.create_task(self.set_dsp_volume(hostname, volume))
-            for hostname, volume in available_updates.items()
-        }
-
-        # Wait for all tasks to complete (with exception handling)
+        # Apply volumes in parallel
+        tasks = {mac_id: asyncio.create_task(self.set_dsp_volume(mac_id, vol))
+                 for mac_id, vol in available_updates.items()}
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
-        # Map results back to hostnames
-        for hostname, result in zip(tasks.keys(), results):
-            if isinstance(result, Exception):
-                self.logger.error(f"Exception updating {hostname}: {result}")
-                success_map[hostname] = False
-            else:
-                success_map[hostname] = result
-
-        # Log summary
-        successes = sum(1 for success in success_map.values() if success)
-        self.logger.info(f"Parallel update complete: {successes}/{len(updates)} succeeded")
+        for mac_id, result in zip(tasks.keys(), results):
+            success_map[mac_id] = result if not isinstance(result, Exception) else False
 
         return success_map
 
     # ========== Synchronization ==========
 
-    async def read_current_volume(self, hostname: str) -> Optional[float]:
-        """
-        Read current volume from hardware.
-
-        Args:
-            hostname: Client hostname
-
-        Returns:
-            Current volume in dB, or None if failed
-        """
+    async def read_current_volume(self, mac_id: str) -> Optional[float]:
+        """Read current volume from hardware."""
         try:
-            if hostname == "local":
-                # Read from local CamillaDSP
-                volume = await asyncio.wait_for(
-                    self._dsp_service.get_volume(),
-                    timeout=self._timeout
-                )
-                return volume
+            if self._is_local(mac_id):
+                vol = await asyncio.wait_for(self._dsp_service.get_volume(), timeout=self._timeout)
+                return vol.get("main") if vol else None
 
-            else:
-                # Read from remote client
-                result = await asyncio.wait_for(
-                    self._proxy_service.request(
-                        hostname,
-                        "GET",
-                        "/dsp/volume",
-                        None
-                    ),
-                    timeout=self._timeout
-                )
-
-                if result and "volume_db" in result:
-                    return result["volume_db"]
-
+            client_ip = self._get_client_ip(mac_id)
+            if not client_ip:
                 return None
 
-        except asyncio.TimeoutError:
-            self.logger.warning(f"Timeout reading volume from {hostname}")
-            return None
-
-        except Exception as e:
-            self.logger.error(f"Error reading volume from {hostname}: {e}")
+            result = await asyncio.wait_for(
+                self._proxy_service.request(client_ip, "GET", "/dsp/volume", None),
+                timeout=self._timeout
+            )
+            return result.get("volume_db") if result else None
+        except Exception:
             return None
 
     async def sync_all_from_hardware(self, hostnames: list) -> Dict[str, Optional[float]]:

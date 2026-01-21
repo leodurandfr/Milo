@@ -25,6 +25,9 @@ class DspSettingsSyncService:
 
     Manages the client_dsp.json file for storing settings of remote clients,
     and provides synchronization between source and target clients.
+
+    IMPORTANT: This service uses mac_id for storage (client_dsp.json keys)
+    but resolves to IP addresses for proxy calls via client_registry.
     """
 
     # DSP setting categories that can be synced
@@ -40,7 +43,8 @@ class DspSettingsSyncService:
     def __init__(
         self,
         proxy_service: "DspClientProxyService" = None,
-        dsp_service=None
+        dsp_service=None,
+        client_registry=None
     ):
         """
         Initialize the sync service.
@@ -48,9 +52,11 @@ class DspSettingsSyncService:
         Args:
             proxy_service: Service for proxying requests to remote clients
             dsp_service: Local CamillaDSP service for the main Milo unit
+            client_registry: Service for looking up client IP addresses
         """
         self.proxy_service = proxy_service
         self.dsp_service = dsp_service
+        self._registry = client_registry
         self.logger = logging.getLogger(__name__)
         self._lock = asyncio.Lock()
 
@@ -61,6 +67,17 @@ class DspSettingsSyncService:
     def set_dsp_service(self, dsp_service) -> None:
         """Set the DSP service (for dependency injection after init)."""
         self.dsp_service = dsp_service
+
+    def set_registry(self, registry) -> None:
+        """Set the client registry (for dependency injection after init)."""
+        self._registry = registry
+
+    def _get_client_ip(self, client_id: str) -> Optional[str]:
+        """Get IP address for a client from registry."""
+        if client_id == "local" or not self._registry:
+            return None
+        client = self._registry.get_client(client_id)
+        return client.ip if client and client.ip and client.ip != "127.0.0.1" else None
 
     # =========================================================================
     # Settings Persistence
@@ -204,7 +221,7 @@ class DspSettingsSyncService:
         Get all DSP settings from a source client.
 
         Args:
-            source_client: 'local' for main Milo, or hostname for remote client
+            source_client: 'local' for main Milo, or mac_id for remote client
 
         Returns:
             Dictionary of settings by category
@@ -219,22 +236,26 @@ class DspSettingsSyncService:
                 'volume': await self.dsp_service.get_volume()
             }
         else:
-            # Get from remote client
+            # Get from remote client - need to look up IP
             if not self.proxy_service:
                 raise ValueError("Proxy service not available for remote settings")
+
+            client_ip = self._get_client_ip(source_client)
+            if not client_ip:
+                raise ValueError(f"Cannot resolve IP for client {source_client}")
 
             source_settings = {}
             for category in ['compressor', 'loudness', 'volume']:
                 try:
                     source_settings[category] = await self.proxy_service.request(
-                        source_client, "GET", f"/dsp/{category}"
+                        client_ip, "GET", f"/dsp/{category}"
                     )
                 except Exception as e:
                     self.logger.warning(f"Failed to get {category} from {source_client}: {e}")
 
             # Filters have a different response structure
             try:
-                filters_resp = await self.proxy_service.request(source_client, "GET", "/dsp/filters")
+                filters_resp = await self.proxy_service.request(client_ip, "GET", "/dsp/filters")
                 source_settings['filters'] = filters_resp.get('filters', [])
             except Exception as e:
                 self.logger.warning(f"Failed to get filters from {source_client}: {e}")
@@ -251,7 +272,7 @@ class DspSettingsSyncService:
         Push a single setting category to a target client.
 
         Args:
-            target: 'local' or hostname
+            target: 'local' or mac_id for remote client
             category: Setting category
             data: Setting data
 
@@ -267,9 +288,10 @@ class DspSettingsSyncService:
                 elif category == 'loudness':
                     await self.dsp_service.set_loudness(**data)
             else:
-                if not self.proxy_service:
+                client_ip = self._get_client_ip(target)
+                if not self.proxy_service or not client_ip:
                     return False
-                await self.proxy_service.request(target, "PUT", f"/dsp/{category}", data)
+                await self.proxy_service.request(client_ip, "PUT", f"/dsp/{category}", data)
                 await self.update_client_settings(target, category, data)
             return True
         except Exception as e:
@@ -288,8 +310,8 @@ class DspSettingsSyncService:
         and pushes to all targets.
 
         Args:
-            source_client: 'local' or hostname of source
-            target_clients: List of target hostnames (can include 'local')
+            source_client: 'local' or mac_id of source
+            target_clients: List of target mac_ids (can include 'local')
 
         Returns:
             Dictionary with 'synced' list and 'errors' list
@@ -308,6 +330,11 @@ class DspSettingsSyncService:
         for target in target_clients:
             if target == source_client:
                 continue
+
+            # Look up IP for remote targets
+            target_ip = self._get_client_ip(target) if target != 'local' else None
+            if target != 'local' and not target_ip:
+                continue  # Skip clients without IP
 
             target_synced = []
 
@@ -343,9 +370,9 @@ class DspSettingsSyncService:
                                 await self.dsp_service.set_filter(filter_id, **filter_data)
                                 target_synced.append(f"filter:{filter_id}")
                         else:
-                            if self.proxy_service:
+                            if self.proxy_service and target_ip:
                                 await self.proxy_service.request(
-                                    target, "PUT", f"/dsp/filter/{filter_id}", filter_data
+                                    target_ip, "PUT", f"/dsp/filter/{filter_id}", filter_data
                                 )
                                 target_synced.append(f"filter:{filter_id}")
                     except Exception as e:
@@ -360,10 +387,11 @@ class DspSettingsSyncService:
                             await self.dsp_service.set_volume(vol['main'])
                             target_synced.append("volume")
                     else:
-                        if self.proxy_service:
+                        if self.proxy_service and target_ip:
                             await self.proxy_service.request(
-                                target, "PUT", "/dsp/volume", {"volume": vol['main']}
+                                target_ip, "PUT", "/dsp/volume", {"volume": vol['main']}
                             )
+                            # Save settings using mac_id as key (not IP)
                             await self.update_client_settings(target, "volume", {"main": vol['main']})
                             target_synced.append("volume")
                 except Exception as e:
@@ -376,9 +404,9 @@ class DspSettingsSyncService:
                             await self.dsp_service.set_mute(vol['mute'])
                             target_synced.append("mute")
                     else:
-                        if self.proxy_service:
+                        if self.proxy_service and target_ip:
                             await self.proxy_service.request(
-                                target, "PUT", "/dsp/mute", {"muted": vol['mute']}
+                                target_ip, "PUT", "/dsp/mute", {"muted": vol['mute']}
                             )
                             target_synced.append("mute")
                 except Exception as e:
@@ -486,7 +514,7 @@ class DspSettingsSyncService:
         Push a single filter setting to a client.
 
         Args:
-            client_id: The client identifier
+            client_id: The client identifier (mac_id or 'local')
             filter_id: The filter ID
             filter_data: Filter settings
 
@@ -499,10 +527,9 @@ class DspSettingsSyncService:
                     await self.dsp_service.set_filter(filter_id, **filter_data)
                     return True
             else:
-                if self.proxy_service:
-                    await self.proxy_service.request(
-                        client_id, "PUT", f"/dsp/filter/{filter_id}", filter_data
-                    )
+                client_ip = self._get_client_ip(client_id)
+                if self.proxy_service and client_ip:
+                    await self.proxy_service.request(client_ip, "PUT", f"/dsp/filter/{filter_id}", filter_data)
                     return True
             return False
         except Exception as e:

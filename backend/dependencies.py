@@ -151,12 +151,14 @@ def _create_service(name: str) -> Any:
         ),
         "dsp_settings_sync_service": lambda: DspSettingsSyncService(
             proxy_service=get_service("dsp_client_proxy_service"),
-            dsp_service=get_service("camilladsp_service")
+            dsp_service=get_service("camilladsp_service"),
+            client_registry=get_service("client_registry_service")
         ),
         "multiroom_dsp_service": lambda: MultiroomDspService(
             client_registry_service=get_service("client_registry_service"),
             camilladsp_service=get_service("camilladsp_service")
         ),
+        "dsp_router": lambda: _create_dsp_router(),
 
         # Program services
         "program_version_service": lambda: ProgramVersionService(),
@@ -221,6 +223,17 @@ def _create_podcast_source():
         },
         state_machine=get_service("audio_state_machine"),
         settings_service=get_service("settings_service")
+    )
+
+
+def _create_dsp_router():
+    """Create DspRouter with dependencies."""
+    from backend.core.multiroom.dsp_router import DspRouter
+
+    return DspRouter(
+        client_registry=get_service("client_registry_service"),
+        dsp_service=get_service("camilladsp_service"),
+        proxy_service=get_service("dsp_client_proxy_service")
     )
 
 
@@ -309,6 +322,9 @@ def initialize_services() -> None:
 
     # 2.11 - volume_service → snapcast_websocket_service
     volume_service.set_snapcast_websocket_service(snapcast_websocket_service)
+
+    # 2.11b - volume_service → client_registry (for DSPController IP lookup)
+    volume_service.set_client_registry(client_registry_service)
 
     # 2.12 - crossover_service → client_registry_service
     crossover_service.set_registry(client_registry_service)

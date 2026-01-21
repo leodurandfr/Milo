@@ -258,14 +258,15 @@ const displayClients = computed(() => {
                 dspVolume: dspStore.getClientDspVolume(macId),
                 dspMuted: dspStore.getClientDspMute(macId),
                 speakerType: dspStore.getClientSpeakerType(macId),
-                online: c.online
+                online: c.online,
+                is_local: c.is_local
               };
             })
             .filter(Boolean)
             .sort((a, b) => {
-              // Local first
-              if (a.mac_id === 'local') return -1;
-              if (b.mac_id === 'local') return 1;
+              // Local first (using is_local from backend, not hardcoded string)
+              if (a.is_local && !b.is_local) return -1;
+              if (!a.is_local && b.is_local) return 1;
               // Online clients first
               if (a.online && !b.online) return -1;
               if (!a.online && b.online) return 1;

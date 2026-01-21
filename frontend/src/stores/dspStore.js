@@ -361,9 +361,14 @@ export const useDspStore = defineStore('dsp', () => {
     return null;
   }
 
-  // Normalize hostname: 'milo' -> 'local' for consistency
-  function normalizeHostname(hostname) {
-    return hostname === 'milo' ? 'local' : hostname;
+  /**
+   * Check if a client is the local client using the registry's is_local property.
+   * @param {string} clientId - Client identifier (MAC address)
+   * @returns {boolean} True if this is the local client
+   */
+  function isLocalClient(clientId) {
+    const client = registryStore.clientList.find(c => c.mac_id === clientId);
+    return client?.is_local ?? false;
   }
 
   // === CLIENT DSP VOLUMES ===
@@ -389,18 +394,16 @@ export const useDspStore = defineStore('dsp', () => {
 
   /**
    * Update DSP volume for a client via API.
-   * Uses MAC-based endpoint for MAC addresses, client_id-based for 'local'.
+   * Uses MAC-based endpoint (all clients are identified by mac_id).
    * Each client's volume is independent - changing one doesn't affect others.
-   * @param {string} clientId - Client identifier (MAC address or 'local')
+   * @param {string} clientId - Client identifier (MAC address)
    * @param {number} volumeDb - Volume in dB (-80 to 0)
    * @returns {Promise<boolean>} Success status
    */
   async function updateClientDspVolume(clientId, volumeDb) {
-    const normalized = normalizeHostname(clientId);
-
     try {
       // Skip remote clients when multiroom is disabled
-      if (normalized !== 'local') {
+      if (!isLocalClient(clientId)) {
         const audioStore = useUnifiedAudioStore();
         if (!audioStore.systemState.multiroom_enabled) {
           console.warn(`Skipping volume update for ${clientId} - multiroom disabled`);
@@ -408,14 +411,8 @@ export const useDspStore = defineStore('dsp', () => {
         }
       }
 
-      // Use appropriate endpoint based on client identifier type
-      if (isMacAddress(normalized)) {
-        // MAC-based endpoint: PATCH /api/volume/client/mac/{mac_url}
-        await axios.patch(`/api/volume/client/mac/${macToUrlFormat(normalized)}`, { volume_db: volumeDb });
-      } else {
-        // Client ID-based endpoint: PATCH /api/volume/client/{client_id}
-        await axios.patch(`/api/volume/client/${normalized}`, { volume_db: volumeDb });
-      }
+      // All clients use MAC-based endpoint: PATCH /api/volume/client/mac/{mac_url}
+      await axios.patch(`/api/volume/client/mac/${macToUrlFormat(clientId)}`, { volume_db: volumeDb });
       return true;
     } catch (error) {
       console.error(`Error updating DSP volume for ${clientId}:`, error);
@@ -456,24 +453,22 @@ export const useDspStore = defineStore('dsp', () => {
 
   /**
    * Get DSP volume for a client from unified volume state
-   * @param {string} hostname - Client hostname
+   * @param {string} clientId - Client identifier (MAC address)
    * @returns {number} Volume in dB, defaults to -30 if not found
    */
-  function getClientDspVolume(hostname) {
-    const normalized = normalizeHostname(hostname);
+  function getClientDspVolume(clientId) {
     const audioStore = useUnifiedAudioStore();
-    return audioStore.volumeState.clients[normalized]?.volume_db ?? -30;
+    return audioStore.volumeState.clients[clientId]?.volume_db ?? -30;
   }
 
   /**
    * Get DSP mute for a client from unified volume state
-   * @param {string} hostname - Client hostname
+   * @param {string} clientId - Client identifier (MAC address)
    * @returns {boolean} Mute state, defaults to false if not found
    */
-  function getClientDspMute(hostname) {
-    const normalized = normalizeHostname(hostname);
+  function getClientDspMute(clientId) {
     const audioStore = useUnifiedAudioStore();
-    return audioStore.volumeState.clients[normalized]?.mute ?? false;
+    return audioStore.volumeState.clients[clientId]?.mute ?? false;
   }
 
   /**
@@ -481,7 +476,7 @@ export const useDspStore = defineStore('dsp', () => {
    * By default, mutes only the specified client. Use { propagate: true } to
    * also mute/unmute all zone members if the client is part of a zone.
    *
-   * @param {string} clientId - Client identifier (MAC address or 'local')
+   * @param {string} clientId - Client identifier (MAC address)
    * @param {boolean} muted - Mute state
    * @param {Object} options - Optional settings
    * @param {boolean} options.propagate - If true, propagate to all zone members (default: false)
@@ -491,10 +486,8 @@ export const useDspStore = defineStore('dsp', () => {
     const { propagate = false } = options;
 
     try {
-      const normalized = normalizeHostname(clientId);
-
       // Skip remote clients when multiroom is disabled
-      if (normalized !== 'local') {
+      if (!isLocalClient(clientId)) {
         const audioStore = useUnifiedAudioStore();
         if (!audioStore.systemState.multiroom_enabled) {
           console.warn(`Skipping mute update for ${clientId} - multiroom disabled`);
@@ -502,18 +495,11 @@ export const useDspStore = defineStore('dsp', () => {
         }
       }
 
-      // Use appropriate endpoint based on client identifier type
-      if (isMacAddress(normalized)) {
-        // MAC-based endpoint: PATCH /api/volume/client/mac/{mac_url}/mute
-        await axios.patch(`/api/volume/client/mac/${macToUrlFormat(normalized)}/mute`, { mute: muted });
-      } else {
-        // Client ID-based endpoint: PATCH /api/volume/client/{client_id}/mute
-        await axios.patch(`/api/volume/client/${normalized}/mute`, { mute: muted });
-      }
+      // All clients use MAC-based endpoint: PATCH /api/volume/client/mac/{mac_url}/mute
+      await axios.patch(`/api/volume/client/mac/${macToUrlFormat(clientId)}/mute`, { mute: muted });
 
       // If propagate requested and client is part of a zone, update all online zone members
       if (propagate) {
-        const registryStore = useClientRegistryStore();
         const linkedIds = registryStore.getLinkedClientIds(clientId);
         if (linkedIds.length > 1) {
           // Only propagate to online clients
@@ -522,12 +508,8 @@ export const useDspStore = defineStore('dsp', () => {
           );
           const promises = otherClients.map(async (targetId) => {
             try {
-              const targetNormalized = normalizeHostname(targetId);
-              if (isMacAddress(targetNormalized)) {
-                await axios.patch(`/api/volume/client/mac/${macToUrlFormat(targetNormalized)}/mute`, { mute: muted });
-              } else {
-                await axios.patch(`/api/volume/client/${targetNormalized}/mute`, { mute: muted });
-              }
+              // All clients use MAC-based endpoint
+              await axios.patch(`/api/volume/client/mac/${macToUrlFormat(targetId)}/mute`, { mute: muted });
             } catch (error) {
               console.error(`Error propagating mute to ${targetId}:`, error);
             }
