@@ -250,7 +250,8 @@ watch(
 const { throttledFn: throttledZoneVolume, flush: flushZoneVolume } = useVolumeThrottle(
   (volumeDb) => {
     if (!props.isLoading) {
-      emit('volume-change', props.client.id, volumeDb, { isZone: props.isZone });
+      // Use mac_id as the unique identifier (id is undefined for all clients)
+      emit('volume-change', props.client.mac_id, volumeDb, { isZone: props.isZone });
     }
   },
   'MEDIUM'
@@ -326,7 +327,8 @@ function handleVolumeChange(newDisplayVolume) {
   // until the backend confirms via WebSocket (handled by watcher above)
   flushZoneVolume();
   if (!props.isLoading) {
-    emit('volume-change', props.client.id, newDisplayVolume, { isZone: props.isZone });
+    // Use mac_id as the unique identifier (id is undefined for all clients)
+    emit('volume-change', props.client.mac_id, newDisplayVolume, { isZone: props.isZone });
   }
   // Fallback: clear local value after 2s if WebSocket didn't confirm
   setTimeout(() => {
@@ -339,7 +341,8 @@ function handleVolumeChange(newDisplayVolume) {
 function handleMuteToggle(enabled) {
   if (!props.isLoading) {
     const newMuted = !enabled;
-    emit('mute-toggle', props.client.id, newMuted, { isZone: props.isZone });
+    // Use mac_id as the unique identifier (id is undefined for all clients)
+    emit('mute-toggle', props.client.mac_id, newMuted, { isZone: props.isZone });
   }
 }
 
