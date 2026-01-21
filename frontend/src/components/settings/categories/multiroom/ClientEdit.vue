@@ -122,7 +122,6 @@ const dspStore = useDspStore();
 const clientName = ref('');
 const originalClientName = ref('');
 const selectedSpeakerType = ref('bookshelf');
-const zoneCrossoverFrequency = ref(80);
 const deleting = ref(false);
 
 // Find client by mac_id
@@ -149,6 +148,11 @@ const isSubwoofer = computed(() => selectedSpeakerType.value === 'subwoofer');
 const zoneHasSubwoofer = computed(() => {
   if (!clientZone.value?.id) return false;
   return dspStore.hasSubwooferInZone(clientZone.value.id);
+});
+
+// Get zone crossover frequency (computed from speaker types in registry)
+const zoneCrossoverFrequency = computed(() => {
+  return clientZone.value?.crossover_frequency || 80;
 });
 
 // Show crossover info when relevant
@@ -209,17 +213,12 @@ async function handleDelete() {
   }
 }
 
-onMounted(async () => {
+onMounted(() => {
   if (client.value) {
     clientName.value = client.value.name || client.value.host;
     originalClientName.value = clientName.value;
     // Load current speaker type from client data or dspStore
     selectedSpeakerType.value = client.value.speaker_type || dspStore.getClientSpeakerType(props.macId);
-
-    // Load zone crossover frequency if client is in a zone
-    if (clientZone.value) {
-      zoneCrossoverFrequency.value = await dspStore.getZoneAutoCrossover(clientZone.value.id);
-    }
   }
 });
 </script>

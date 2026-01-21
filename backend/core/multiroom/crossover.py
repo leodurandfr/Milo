@@ -30,13 +30,6 @@ if TYPE_CHECKING:
     from backend.core.multiroom.registry import ClientRegistryService
 
 
-def is_ip_address(hostname: str) -> bool:
-    """Check if hostname is an IP address."""
-    import re
-    ipv4_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
-    return bool(re.match(ipv4_pattern, hostname))
-
-
 class CrossoverService:
     """
     Manages speaker types and crossover logic across multiroom zones.
@@ -481,7 +474,13 @@ class CrossoverService:
                     )
                 return False
             else:
-                return await self._proxy_crossover_to_client(client_id, enabled, frequency)
+                # Use client IP for remote requests
+                if not client or not client.ip:
+                    self.logger.error(f"Cannot proxy crossover: client {client_id} has no IP address")
+                    return False
+                return await self._proxy_crossover_to_client(
+                    client.ip, enabled, frequency, client_id=client_id
+                )
 
         except Exception as e:
             self.logger.error(f"Error setting crossover for client {client_id}: {e}")
@@ -508,7 +507,13 @@ class CrossoverService:
                     )
                 return False
             else:
-                return await self._proxy_lowpass_to_client(client_id, enabled, frequency)
+                # Use client IP for remote requests
+                if not client or not client.ip:
+                    self.logger.error(f"Cannot proxy lowpass: client {client_id} has no IP address")
+                    return False
+                return await self._proxy_lowpass_to_client(
+                    client.ip, enabled, frequency, client_id=client_id
+                )
 
         except Exception as e:
             self.logger.error(f"Error setting lowpass for client {client_id}: {e}")
@@ -516,16 +521,22 @@ class CrossoverService:
 
     async def _proxy_crossover_to_client(
         self,
-        hostname: str,
+        ip_address: str,
         enabled: bool,
-        frequency: float
+        frequency: float,
+        client_id: str = None
     ) -> bool:
-        """Proxy crossover settings to a remote milo-client."""
+        """Proxy crossover settings to a remote milo-client.
+
+        Args:
+            ip_address: The client's IP address for HTTP requests
+            enabled: Whether crossover is enabled
+            frequency: Crossover frequency in Hz
+            client_id: MAC address for logging and queue_pending_settings (optional)
+        """
+        identifier = client_id or ip_address
         try:
-            if is_ip_address(hostname):
-                url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/crossover"
-            else:
-                url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/crossover"
+            url = f"http://{ip_address}:{self.CLIENT_API_PORT}/dsp/crossover"
 
             payload = {
                 "enabled": enabled,
@@ -538,39 +549,45 @@ class CrossoverService:
                 async with session.put(url, json=payload) as response:
                     if response.status == 200:
                         self.logger.info(
-                            f"Crossover {'enabled' if enabled else 'disabled'} on client {hostname} "
+                            f"Crossover {'enabled' if enabled else 'disabled'} on client {identifier} "
                             f"at {frequency} Hz"
                         )
                         return True
                     else:
                         self.logger.error(
-                            f"Failed to set crossover on client {hostname}: HTTP {response.status}"
+                            f"Failed to set crossover on client {identifier}: HTTP {response.status}"
                         )
                         return False
 
         except aiohttp.ClientError as e:
-            self.logger.warning(f"Cannot reach client {hostname} for crossover update: {e}")
-            await self.queue_pending_settings(hostname, "crossover", {
+            self.logger.warning(f"Cannot reach client {identifier} for crossover update: {url}")
+            await self.queue_pending_settings(identifier, "crossover", {
                 "enabled": enabled,
                 "frequency": frequency
             })
             return False
         except Exception as e:
-            self.logger.error(f"Error proxying crossover to client {hostname}: {e}")
+            self.logger.error(f"Error proxying crossover to client {identifier}: {e}")
             return False
 
     async def _proxy_lowpass_to_client(
         self,
-        hostname: str,
+        ip_address: str,
         enabled: bool,
-        frequency: float
+        frequency: float,
+        client_id: str = None
     ) -> bool:
-        """Proxy lowpass settings to a remote milo-client (subwoofer)."""
+        """Proxy lowpass settings to a remote milo-client (subwoofer).
+
+        Args:
+            ip_address: The client's IP address for HTTP requests
+            enabled: Whether lowpass is enabled
+            frequency: Lowpass frequency in Hz
+            client_id: MAC address for logging and queue_pending_settings (optional)
+        """
+        identifier = client_id or ip_address
         try:
-            if is_ip_address(hostname):
-                url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/lowpass"
-            else:
-                url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/lowpass"
+            url = f"http://{ip_address}:{self.CLIENT_API_PORT}/dsp/lowpass"
 
             payload = {
                 "enabled": enabled,
@@ -583,25 +600,25 @@ class CrossoverService:
                 async with session.put(url, json=payload) as response:
                     if response.status == 200:
                         self.logger.info(
-                            f"Lowpass {'enabled' if enabled else 'disabled'} on client {hostname} "
+                            f"Lowpass {'enabled' if enabled else 'disabled'} on client {identifier} "
                             f"at {frequency} Hz"
                         )
                         return True
                     else:
                         self.logger.error(
-                            f"Failed to set lowpass on client {hostname}: HTTP {response.status}"
+                            f"Failed to set lowpass on client {identifier}: HTTP {response.status}"
                         )
                         return False
 
         except aiohttp.ClientError as e:
-            self.logger.warning(f"Cannot reach client {hostname} for lowpass update: {e}")
-            await self.queue_pending_settings(hostname, "lowpass", {
+            self.logger.warning(f"Cannot reach client {identifier} for lowpass update: {url}")
+            await self.queue_pending_settings(identifier, "lowpass", {
                 "enabled": enabled,
                 "frequency": frequency
             })
             return False
         except Exception as e:
-            self.logger.error(f"Error proxying lowpass to client {hostname}: {e}")
+            self.logger.error(f"Error proxying lowpass to client {identifier}: {e}")
             return False
 
     async def _recalculate_zones_for_client(self, client_id: str) -> None:
@@ -760,11 +777,10 @@ class CrossoverService:
                     return True
             else:
                 # Use client IP for remote requests
-                hostname = client.ip if client else client_id
-                if is_ip_address(hostname):
-                    url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/mute"
-                else:
-                    url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/mute"
+                if not client or not client.ip:
+                    self.logger.warning(f"Cannot apply pending mute: client {client_id} has no IP address")
+                    return False
+                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/dsp/mute"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -795,11 +811,10 @@ class CrossoverService:
                     return True
             else:
                 # Use client IP for remote requests
-                hostname = client.ip if client else client_id
-                if is_ip_address(hostname):
-                    url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/filter/{filter_id}"
-                else:
-                    url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/filter/{filter_id}"
+                if not client or not client.ip:
+                    self.logger.warning(f"Cannot apply pending filter: client {client_id} has no IP address")
+                    return False
+                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/dsp/filter/{filter_id}"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -823,11 +838,10 @@ class CrossoverService:
                     return True
             else:
                 # Use client IP for remote requests
-                hostname = client.ip if client else client_id
-                if is_ip_address(hostname):
-                    url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/compressor"
-                else:
-                    url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/compressor"
+                if not client or not client.ip:
+                    self.logger.warning(f"Cannot apply pending compressor: client {client_id} has no IP address")
+                    return False
+                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/dsp/compressor"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -851,11 +865,10 @@ class CrossoverService:
                     return True
             else:
                 # Use client IP for remote requests
-                hostname = client.ip if client else client_id
-                if is_ip_address(hostname):
-                    url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/loudness"
-                else:
-                    url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/loudness"
+                if not client or not client.ip:
+                    self.logger.warning(f"Cannot apply pending loudness: client {client_id} has no IP address")
+                    return False
+                url = f"http://{client.ip}:{self.CLIENT_API_PORT}/dsp/loudness"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:

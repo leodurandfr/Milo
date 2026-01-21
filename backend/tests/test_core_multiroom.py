@@ -37,7 +37,8 @@ from backend.core.multiroom.snapcast import (
     get_available_clients,
     get_available_client_ids,
 )
-from backend.core.multiroom.crossover import CrossoverService, is_ip_address
+from backend.core.multiroom.crossover import CrossoverService
+from backend.core.dsp.client_proxy import is_ip_address
 
 
 # =============================================================================
