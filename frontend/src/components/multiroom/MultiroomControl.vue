@@ -11,7 +11,7 @@
         <div v-else key="clients" class="clients-wrapper">
           <MultiroomItem
             v-for="client in displayClients"
-            :key="client.dsp_id || client.id"
+            :key="client.mac_id || client.id"
             :client="client"
             :is-loading="shouldShowLoading"
             :zone-clients="getZoneClients(client)"
@@ -65,47 +65,47 @@ const linkedGroups = computed(() => dspStore.linkedGroups || []);
 
 // Get zone info for a client (returns zone object if linked, null otherwise)
 function getZoneForClient(client) {
-  const dspId = client.dsp_id;
-  if (!dspId) return null;
+  const macId = client.mac_id;
+  if (!macId) return null;
   for (const group of linkedGroups.value) {
-    if (group.client_ids?.includes(dspId)) {
+    if (group.client_ids?.includes(macId)) {
       return group;
     }
   }
   return null;
 }
 
-// Check if a client is the "primary" of its zone (first available in the list)
+// Check if a client is the "primary" of its zone (first online in the list)
 function isZonePrimary(client) {
   const zone = getZoneForClient(client);
   if (!zone) return true; // Not in a zone, show it
 
-  // Find the first available client in the zone
-  const firstAvailableId = zone.client_ids.find(dspId =>
-    multiroomStore.clients.some(c => c.dsp_id === dspId)
+  // Find the first online client in the zone
+  const firstOnlineId = zone.client_ids.find(macId =>
+    multiroomStore.clients.some(c => c.mac_id === macId)
   );
 
-  // This client is primary if it's the first available one
-  return firstAvailableId === client.dsp_id;
+  // This client is primary if it's the first online one
+  return firstOnlineId === client.mac_id;
 }
 
 // Get zone average volume from unified volume state
 function getZoneAverageVolume(zone) {
-  if (!zone?.id) return -30;
+  if (!zone?.id) return -60;
   // Use pre-calculated zone volume from unified state
   const zoneData = unifiedStore.volumeState.zones[zone.id];
   if (zoneData && typeof zoneData.average_volume_db === 'number') {
     return zoneData.average_volume_db;
   }
-  // Fallback: calculate from individual clients (only available clients)
-  if (!zone?.client_ids?.length) return -30;
+  // Fallback: calculate from individual clients (only online clients)
+  if (!zone?.client_ids?.length) return -60;
   // Filter to only connected clients
-  const availableClientIds = zone.client_ids.filter(dspId =>
-    multiroomStore.clients.some(c => c.dsp_id === dspId && c.available)
+  const onlineClientIds = zone.client_ids.filter(macId =>
+    multiroomStore.clients.some(c => c.mac_id === macId && c.online)
   );
-  if (availableClientIds.length === 0) return -30;
+  if (onlineClientIds.length === 0) return -60;
 
-  const volumes = availableClientIds.map(dspId => dspStore.getClientDspVolume(dspId));
+  const volumes = onlineClientIds.map(macId => dspStore.getClientDspVolume(macId));
   return volumes.reduce((sum, v) => sum + v, 0) / volumes.length;
 }
 
@@ -119,34 +119,34 @@ function getZoneMuted(zone) {
   }
   // Fallback: check individual clients
   if (!zone?.client_ids?.length) return false;
-  return zone.client_ids.every(dspId => dspStore.getClientDspMute(dspId));
+  return zone.client_ids.every(macId => dspStore.getClientDspMute(macId));
 }
 
 // Track starting state when zone slider drag begins
-// Structure: { zoneId: { startAvg, clientStarts: { dspId: volume } } }
+// Structure: { zoneId: { startAvg, clientStarts: { macId: volume } } }
 const zoneSliderState = ref({});
 
 // Get or initialize zone slider state (called on first slider input)
 function getZoneSliderState(zone) {
   const zoneId = zone.id || zone.client_ids.join('-');
   if (!zoneSliderState.value[zoneId]) {
-    // Filter to only available clients (matching getZoneAverageVolume pattern)
-    const availableClientIds = zone.client_ids.filter(dspId =>
-      multiroomStore.clients.some(c => c.dsp_id === dspId && c.available)
+    // Filter to only online clients (matching getZoneAverageVolume pattern)
+    const onlineClientIds = zone.client_ids.filter(macId =>
+      multiroomStore.clients.some(c => c.mac_id === macId && c.online)
     );
 
-    // Handle edge case: no available clients
-    if (availableClientIds.length === 0) {
+    // Handle edge case: no online clients
+    if (onlineClientIds.length === 0) {
       zoneSliderState.value[zoneId] = { startAvg: -30, clientStarts: {} };
       return zoneSliderState.value[zoneId];
     }
 
-    // Capture starting volumes for available clients only
+    // Capture starting volumes for online clients only
     const clientStarts = {};
-    availableClientIds.forEach(dspId => {
-      clientStarts[dspId] = dspStore.getClientDspVolume(dspId);
+    onlineClientIds.forEach(macId => {
+      clientStarts[macId] = dspStore.getClientDspVolume(macId);
     });
-    const startAvg = Object.values(clientStarts).reduce((s, v) => s + v, 0) / availableClientIds.length;
+    const startAvg = Object.values(clientStarts).reduce((s, v) => s + v, 0) / onlineClientIds.length;
     zoneSliderState.value[zoneId] = { startAvg, clientStarts };
   }
   return zoneSliderState.value[zoneId];
@@ -226,8 +226,8 @@ const displayClients = computed(() => {
     return multiroomStore.clients
       .filter(client => isZonePrimary(client))
       .map(client => {
-        const dspVol = dspStore.getClientDspVolume(client.dsp_id);
-        const dspMut = dspStore.getClientDspMute(client.dsp_id);
+        const dspVol = dspStore.getClientDspVolume(client.mac_id);
+        const dspMut = dspStore.getClientDspMute(client.mac_id);
         const zone = getZoneForClient(client);
 
         if (zone) {
@@ -236,39 +236,39 @@ const displayClients = computed(() => {
           const zoneName = zone.name || `Zone ${zoneIndex}`;
           const sortedClientIds = dspStore.sortClientIdsLocalFirst(zone.client_ids);
           const clientNames = sortedClientIds
-            .map(dspId => {
-              // Find client by dsp_id
-              const c = multiroomStore.clients.find(cl => cl.dsp_id === dspId);
-              return c ? c.name : dspId;
+            .map(macId => {
+              // Find client by mac_id
+              const c = multiroomStore.clients.find(cl => cl.mac_id === macId);
+              return c ? c.name : macId;
             })
             .join(' · ');
 
           // Build detailed client list for expanded view
           const zoneClientDetails = sortedClientIds
-            .map(dspId => {
-              const c = multiroomStore.clients.find(cl => cl.dsp_id === dspId);
+            .map(macId => {
+              const c = multiroomStore.clients.find(cl => cl.mac_id === macId);
 
               // Skip clients not in the client list (offline clients already filtered by backend)
               if (!c) return null;
 
               return {
                 id: c.id,
-                dsp_id: dspId,
+                mac_id: macId,
                 name: c.name,
-                dspVolume: dspStore.getClientDspVolume(dspId),
-                dspMuted: dspStore.getClientDspMute(dspId),
-                speakerType: dspStore.getClientSpeakerType(dspId),
-                available: c.available
+                dspVolume: dspStore.getClientDspVolume(macId),
+                dspMuted: dspStore.getClientDspMute(macId),
+                speakerType: dspStore.getClientSpeakerType(macId),
+                online: c.online
               };
             })
             .filter(Boolean)
             .sort((a, b) => {
               // Local first
-              if (a.dsp_id === 'local') return -1;
-              if (b.dsp_id === 'local') return 1;
-              // Available clients first
-              if (a.available && !b.available) return -1;
-              if (!a.available && b.available) return 1;
+              if (a.mac_id === 'local') return -1;
+              if (b.mac_id === 'local') return 1;
+              // Online clients first
+              if (a.online && !b.online) return -1;
+              if (!a.online && b.online) return 1;
               // Then alphabetically
               return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
             });
@@ -296,17 +296,17 @@ const displayClients = computed(() => {
         };
       })
       .sort((a, b) => {
-        // Zone availability: zone is available if ANY client is available
-        const aAvailable = a.isZone
-          ? a.zoneClientDetails?.some(c => c.available) ?? false
-          : a.available;
-        const bAvailable = b.isZone
-          ? b.zoneClientDetails?.some(c => c.available) ?? false
-          : b.available;
+        // Zone online status: zone is online if ANY client is online
+        const aOnline = a.isZone
+          ? a.zoneClientDetails?.some(c => c.online) ?? false
+          : a.online;
+        const bOnline = b.isZone
+          ? b.zoneClientDetails?.some(c => c.online) ?? false
+          : b.online;
 
-        // Available items first
-        if (aAvailable && !bAvailable) return -1;
-        if (!aAvailable && bAvailable) return 1;
+        // Online items first
+        if (aOnline && !bOnline) return -1;
+        if (!aOnline && bOnline) return 1;
 
         // Within same availability: zones before individual clients
         if (a.isZone && !b.isZone) return -1;
@@ -318,10 +318,10 @@ const displayClients = computed(() => {
   }
 
   // No linked groups - just add dspVolume and dspMuted to each client
-  // Sorting handled by clientRegistryStore (local first, available first, alphabetical)
+  // Sorting handled by clientRegistryStore (local first, online first, alphabetical)
   return multiroomStore.clients.map(client => {
-    const dspVol = dspStore.getClientDspVolume(client.dsp_id);
-    const dspMut = dspStore.getClientDspMute(client.dsp_id);
+    const dspVol = dspStore.getClientDspVolume(client.mac_id);
+    const dspMut = dspStore.getClientDspMute(client.mac_id);
     return {
       ...client,
       dspVolume: dspVol,
@@ -360,7 +360,7 @@ async function handleVolumeChange(clientId, volumeDb) {
     clearZoneSliderState(zone);
   } else {
     // Single client, update directly
-    await dspStore.updateClientDspVolume(client.dsp_id, volumeDb);
+    await dspStore.updateClientDspVolume(client.mac_id, volumeDb);
     // Volume state will be updated via WebSocket broadcast
   }
 }
@@ -373,18 +373,18 @@ async function handleMuteToggle(clientId, muted) {
   const zone = getZoneForClient(client);
 
   if (zone && zone.client_ids.length > 1) {
-    // Zone mute: mute ALL AVAILABLE clients in the zone
-    const availableClientIds = zone.client_ids.filter(dspId =>
-      multiroomStore.clients.some(c => c.dsp_id === dspId)
+    // Zone mute: mute ALL ONLINE clients in the zone
+    const onlineClientIds = zone.client_ids.filter(macId =>
+      multiroomStore.clients.some(c => c.mac_id === macId)
     );
 
-    const updatePromises = availableClientIds.map(async (dspId) => {
-      await dspStore.updateClientDspMute(dspId, muted);
+    const updatePromises = onlineClientIds.map(async (macId) => {
+      await dspStore.updateClientDspMute(macId, muted);
     });
     await Promise.all(updatePromises);
   } else {
     // Single client
-    await dspStore.updateClientDspMute(client.dsp_id, muted);
+    await dspStore.updateClientDspMute(client.mac_id, muted);
   }
 }
 

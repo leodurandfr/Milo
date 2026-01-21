@@ -215,6 +215,92 @@ describe('unifiedAudioStore', () => {
       expect(store.volumeState.clients).toHaveProperty('client1');
     });
 
+    it('should update zone data from volume_changed event (Task 4.1)', () => {
+      const event = {
+        data: {
+          state: {
+            mode: 'multiroom',
+            global_volume_db: -27.5,
+            global_mute: false,
+            clients: {
+              'dc:a6:32:7e:d3:43': { volume_db: -25, mute: false, available: true },
+              'aa:bb:cc:dd:ee:ff': { volume_db: -30, mute: false, available: true }
+            },
+            zones: {
+              'zone-uuid-123': {
+                id: 'zone-uuid-123',
+                name: 'Living Room',
+                client_ids: ['dc:a6:32:7e:d3:43', 'aa:bb:cc:dd:ee:ff'],
+                average_volume_db: -27.5,
+                all_muted: false
+              }
+            }
+          },
+          show_bar: false
+        }
+      };
+
+      store.handleVolumeEvent(event);
+
+      // Verify zones are updated
+      expect(store.volumeState.zones).toHaveProperty('zone-uuid-123');
+      expect(store.volumeState.zones['zone-uuid-123'].average_volume_db).toBe(-27.5);
+      expect(store.volumeState.zones['zone-uuid-123'].all_muted).toBe(false);
+    });
+
+    it('should update client volumes reactively (Task 4.2)', () => {
+      // Initial state
+      expect(store.volumeState.clients).toEqual({});
+
+      // Simulate WebSocket event with new client volumes
+      const event = {
+        data: {
+          state: {
+            mode: 'multiroom',
+            global_volume_db: -25,
+            global_mute: false,
+            clients: {
+              'dc:a6:32:7e:d3:43': { volume_db: -25, mute: false }
+            },
+            zones: {}
+          }
+        }
+      };
+
+      store.handleVolumeEvent(event);
+
+      // Client volumes should be updated reactively
+      expect(store.volumeState.clients['dc:a6:32:7e:d3:43'].volume_db).toBe(-25);
+    });
+
+    it('should handle remote volume change (Task 4.4)', () => {
+      // Set initial volume
+      store.volumeState.clients = {
+        'dc:a6:32:7e:d3:43': { volume_db: -30, mute: false }
+      };
+
+      // Simulate remote volume change via WebSocket
+      const event = {
+        data: {
+          state: {
+            mode: 'multiroom',
+            global_volume_db: -20,
+            global_mute: false,
+            clients: {
+              'dc:a6:32:7e:d3:43': { volume_db: -20, mute: false } // Changed remotely
+            },
+            zones: {}
+          },
+          show_bar: false
+        }
+      };
+
+      store.handleVolumeEvent(event);
+
+      // Volume should be updated from remote change
+      expect(store.volumeState.clients['dc:a6:32:7e:d3:43'].volume_db).toBe(-20);
+    });
+
     it('should update step_mobile_db when provided', () => {
       const event = {
         data: {

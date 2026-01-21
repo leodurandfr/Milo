@@ -29,6 +29,7 @@ from backend.api.settings import create_settings_router
 from backend.api.programs import create_programs_router
 from backend.api.health import create_health_router
 from backend.api.registry import create_registry_router
+from backend.api.multiroom import create_multiroom_router
 from backend.ws import WebSocketServer
 from backend.core.models.audio_state import AudioSource
 
@@ -138,7 +139,7 @@ dsp_router = create_dsp_router(
 )
 app.include_router(dsp_router)
 
-volume_router = create_volume_router(volume_service)
+volume_router = create_volume_router(volume_service, client_registry_service, settings_service)
 app.include_router(volume_router)
 
 spotify_router = setup_spotify_routes(
@@ -190,6 +191,9 @@ app.include_router(health_router)
 
 registry_router = create_registry_router(client_registry_service)
 app.include_router(registry_router)
+
+multiroom_router = create_multiroom_router(client_registry_service)
+app.include_router(multiroom_router)
 
 app.add_websocket_route("/ws", websocket_server.websocket_endpoint)
 

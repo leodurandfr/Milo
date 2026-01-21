@@ -77,11 +77,11 @@ export const useDspStore = defineStore('dsp', () => {
   // Available DSP targets - computed from clientRegistryStore (single source of truth)
   const availableTargets = computed(() => {
     return registryStore.clientList.map(client => ({
-      id: client.dsp_id,
+      id: client.mac_id,
       name: client.name,
       host: client.host,
       ip: client.ip,
-      available: client.available
+      online: client.online
     }));
   });
 
@@ -94,8 +94,8 @@ export const useDspStore = defineStore('dsp', () => {
   const clientTypes = computed(() => {
     const types = {};
     for (const client of registryStore.clientList) {
-      if (client.dsp_id) {
-        types[client.dsp_id] = {
+      if (client.mac_id) {
+        types[client.mac_id] = {
           speaker_type: client.speaker_type || 'bookshelf',
           crossover_frequency: client.crossover_frequency ?? null
         };
@@ -193,6 +193,23 @@ export const useDspStore = defineStore('dsp', () => {
       return `/api/dsp/client/${targetId}`;
     }
     return '/api/dsp';
+  }
+
+  /**
+   * Get the zone ID if the selected target is part of a zone.
+   * @returns {string|null} Zone ID or null if standalone client
+   */
+  function getSelectedZoneId() {
+    const zone = registryStore.getZoneForClient(selectedTarget.value);
+    return zone ? zone.id : null;
+  }
+
+  /**
+   * Check if the selected target is part of a zone.
+   * @returns {boolean} True if in a zone
+   */
+  function isTargetInZone() {
+    return getSelectedZoneId() !== null;
   }
 
   // === API CALLS ===
@@ -352,34 +369,56 @@ export const useDspStore = defineStore('dsp', () => {
   // === CLIENT DSP VOLUMES ===
 
   /**
-   * Update DSP volume for a client via API
-   * Uses unified endpoint for all clients (local and remote).
+   * Convert MAC address to URL format (remove colons).
+   * Example: "dc:a6:32:7e:d3:43" -> "dca6327ed343"
+   * @param {string} macId - MAC address with colons
+   * @returns {string} MAC address without colons for URL path
+   */
+  function macToUrlFormat(macId) {
+    return macId.replace(/:/g, '');
+  }
+
+  /**
+   * Check if a string is a MAC address (contains colons).
+   * @param {string} id - Client identifier
+   * @returns {boolean} True if id looks like a MAC address
+   */
+  function isMacAddress(id) {
+    return id && id.includes(':');
+  }
+
+  /**
+   * Update DSP volume for a client via API.
+   * Uses MAC-based endpoint for MAC addresses, client_id-based for 'local'.
    * Each client's volume is independent - changing one doesn't affect others.
-   * @param {string} hostname - Client hostname
-   * @param {number} volumeDb - Volume in dB (-60 to 0)
+   * @param {string} clientId - Client identifier (MAC address or 'local')
+   * @param {number} volumeDb - Volume in dB (-80 to 0)
    * @returns {Promise<boolean>} Success status
    */
-  async function updateClientDspVolume(hostname, volumeDb) {
-    const normalized = normalizeHostname(hostname);
+  async function updateClientDspVolume(clientId, volumeDb) {
+    const normalized = normalizeHostname(clientId);
 
     try {
       // Skip remote clients when multiroom is disabled
       if (normalized !== 'local') {
         const audioStore = useUnifiedAudioStore();
         if (!audioStore.systemState.multiroom_enabled) {
-          console.warn(`Skipping volume update for ${hostname} - multiroom disabled`);
+          console.warn(`Skipping volume update for ${clientId} - multiroom disabled`);
           return false;
         }
       }
 
-      // Unified endpoint for all clients (local and remote)
-      // Backend handles 'local' specially via multiroom_handler.set_client_volume_db()
-      await axios.put(`/api/dsp/client/${normalized}/volume`, { volume: volumeDb });
+      // Use appropriate endpoint based on client identifier type
+      if (isMacAddress(normalized)) {
+        // MAC-based endpoint: PATCH /api/volume/client/mac/{mac_url}
+        await axios.patch(`/api/volume/client/mac/${macToUrlFormat(normalized)}`, { volume_db: volumeDb });
+      } else {
+        // Client ID-based endpoint: PATCH /api/volume/client/{client_id}
+        await axios.patch(`/api/volume/client/${normalized}`, { volume_db: volumeDb });
+      }
       return true;
     } catch (error) {
-      console.error(`Error updating DSP volume for ${hostname}:`, error);
-      // Client availability detection is handled by Snapcast's native lastSeen mechanism
-      // and WebSocket events (client_availability_changed)
+      console.error(`Error updating DSP volume for ${clientId}:`, error);
       return false;
     }
   }
@@ -387,11 +426,11 @@ export const useDspStore = defineStore('dsp', () => {
   /**
    * Apply volume delta to entire zone atomically.
    *
-   * NEW REFACTORED METHOD - Eliminates race condition:
+   * Eliminates race condition:
    * - Old: 3 parallel requests → 3 stale broadcasts → slider flicker
    * - New: 1 request → parallel backend updates → 1 correct broadcast → smooth slider
    *
-   * @param {string} zoneId - Zone identifier
+   * @param {string} zoneId - Zone identifier (UUID)
    * @param {number} deltaDb - Volume change in dB
    * @returns {Promise<object>} Response with new zone average
    */
@@ -404,10 +443,10 @@ export const useDspStore = defineStore('dsp', () => {
         return { status: 'error', message: 'Multiroom disabled' };
       }
 
-      // Call new atomic endpoint
-      const response = await axios.post(`/api/volume/zone/${zoneId}/delta`, { delta_db: deltaDb });
+      // Call atomic zone delta endpoint: PATCH /api/volume/zone/{zone_id}
+      const response = await axios.patch(`/api/volume/zone/${zoneId}`, { delta_db: deltaDb });
 
-      // Response includes: { status, zone_id, new_average_db, delta_db, clients_updated }
+      // Response includes: { status, zone_id, new_average_db, delta_db, applied_to, offline_clients }
       return response.data;
     } catch (error) {
       console.error(`Error applying zone delta for ${zoneId}:`, error);
@@ -442,7 +481,7 @@ export const useDspStore = defineStore('dsp', () => {
    * By default, mutes only the specified client. Use { propagate: true } to
    * also mute/unmute all zone members if the client is part of a zone.
    *
-   * @param {string} clientId - Client DSP ID ('local' or hostname)
+   * @param {string} clientId - Client identifier (MAC address or 'local')
    * @param {boolean} muted - Mute state
    * @param {Object} options - Optional settings
    * @param {boolean} options.propagate - If true, propagate to all zone members (default: false)
@@ -463,22 +502,32 @@ export const useDspStore = defineStore('dsp', () => {
         }
       }
 
-      // Call API - unified state will be updated via WebSocket broadcast
-      const apiBase = getApiBase(clientId);
-      await axios.put(`${apiBase}/mute`, { muted });
+      // Use appropriate endpoint based on client identifier type
+      if (isMacAddress(normalized)) {
+        // MAC-based endpoint: PATCH /api/volume/client/mac/{mac_url}/mute
+        await axios.patch(`/api/volume/client/mac/${macToUrlFormat(normalized)}/mute`, { mute: muted });
+      } else {
+        // Client ID-based endpoint: PATCH /api/volume/client/{client_id}/mute
+        await axios.patch(`/api/volume/client/${normalized}/mute`, { mute: muted });
+      }
 
-      // If propagate requested and client is part of a zone, update all available zone members
+      // If propagate requested and client is part of a zone, update all online zone members
       if (propagate) {
         const registryStore = useClientRegistryStore();
         const linkedIds = registryStore.getLinkedClientIds(clientId);
         if (linkedIds.length > 1) {
-          // Only propagate to available clients
+          // Only propagate to online clients
           const otherClients = linkedIds.filter(id =>
-            id !== clientId && registryStore.isClientAvailable(id)
+            id !== clientId && registryStore.isClientOnline(id)
           );
           const promises = otherClients.map(async (targetId) => {
             try {
-              await axios.put(`${getApiBase(targetId)}/mute`, { muted });
+              const targetNormalized = normalizeHostname(targetId);
+              if (isMacAddress(targetNormalized)) {
+                await axios.patch(`/api/volume/client/mac/${macToUrlFormat(targetNormalized)}/mute`, { mute: muted });
+              } else {
+                await axios.patch(`/api/volume/client/${targetNormalized}/mute`, { mute: muted });
+              }
             } catch (error) {
               console.error(`Error propagating mute to ${targetId}:`, error);
             }
@@ -497,7 +546,7 @@ export const useDspStore = defineStore('dsp', () => {
   /**
    * Propagate any DSP setting to linked clients.
    * Only propagates to available (connected) clients.
-   * @param {string} endpoint - API endpoint (e.g., 'mute', 'compressor')
+   * @param {string} endpoint - API endpoint (e.g., 'mute', 'compressor', 'preset')
    * @param {object} data - Data to propagate
    * @returns {{ success: boolean, errors: Array<{targetId: string, error: string}>, skipped: Array<string> }}
    */
@@ -509,19 +558,24 @@ export const useDspStore = defineStore('dsp', () => {
     const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
     if (linkedIds.length <= 1) return { success: true, errors: [], skipped: [] };
 
-    // Filter to only available clients (skip unavailable ones)
+    // Filter to only online clients (skip offline ones)
     const otherClients = linkedIds.filter(id => id !== selectedTarget.value);
-    const availableClients = otherClients.filter(id => registryStore.isClientAvailable(id));
-    const skippedClients = otherClients.filter(id => !registryStore.isClientAvailable(id));
+    const onlineClients = otherClients.filter(id => registryStore.isClientOnline(id));
+    const skippedClients = otherClients.filter(id => !registryStore.isClientOnline(id));
 
     if (skippedClients.length > 0) {
-      console.log(`Skipping unavailable clients for ${endpoint}:`, skippedClients);
+      console.log(`Skipping offline clients for ${endpoint}:`, skippedClients);
     }
 
     const errors = [];
-    const promises = availableClients.map(async (targetId) => {
+    const promises = onlineClients.map(async (targetId) => {
       try {
-        await axios.put(`${getApiBase(targetId)}/${endpoint}`, data);
+        // Special handling for preset: URL format is /preset/{preset_id}
+        if (endpoint === 'preset' && data.preset_id) {
+          await axios.put(`${getApiBase(targetId)}/preset/${data.preset_id}`);
+        } else {
+          await axios.put(`${getApiBase(targetId)}/${endpoint}`, data);
+        }
       } catch (error) {
         const errorMsg = error.response?.data?.detail || error.message || 'Unknown error';
         console.error(`Error propagating ${endpoint} to ${targetId}:`, error);
@@ -719,11 +773,24 @@ export const useDspStore = defineStore('dsp', () => {
         q: filter.q,
         filter_type: filter.type
       };
-      await sendFilterUpdate(filterId, filterData);
-      clearThrottleForFilter(filterId);
 
-      // Propagate to linked clients
-      await propagateToLinkedClients(`filter/${filterId}`, filterData);
+      // If target is in a zone, use zone endpoint (backend handles propagation)
+      const zoneId = getSelectedZoneId();
+      if (zoneId) {
+        try {
+          await axios.patch(`/api/dsp/zone/${zoneId}/filter/${filterId}`, filterData);
+          clearThrottleForFilter(filterId);
+        } catch (error) {
+          console.error('Error updating zone filter:', error);
+          // Fall back to direct update on error
+          await sendFilterUpdate(filterId, filterData);
+          clearThrottleForFilter(filterId);
+        }
+      } else {
+        // Standalone client: update directly
+        await sendFilterUpdate(filterId, filterData);
+        clearThrottleForFilter(filterId);
+      }
     }
   }
 
@@ -738,15 +805,15 @@ export const useDspStore = defineStore('dsp', () => {
           filter.gain = 0;
         });
 
-        // Propagate reset to available linked clients
+        // Propagate reset to online linked clients
         const registryStore = useClientRegistryStore();
         const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
         if (linkedIds.length > 1) {
-          // Only propagate to available clients
-          const availableClients = linkedIds.filter(id =>
-            id !== selectedTarget.value && registryStore.isClientAvailable(id)
+          // Only propagate to online clients
+          const onlineClients = linkedIds.filter(id =>
+            id !== selectedTarget.value && registryStore.isClientOnline(id)
           );
-          const promises = availableClients.map(async (targetId) => {
+          const promises = onlineClients.map(async (targetId) => {
             try {
               await axios.post(`${getApiBase(targetId)}/reset`);
             } catch (error) {
@@ -769,11 +836,23 @@ export const useDspStore = defineStore('dsp', () => {
   async function loadPreset(presetId) {
     isLoadingPreset.value = true;
     try {
+      // If target is in a zone, use zone endpoint (backend handles propagation)
+      const zoneId = getSelectedZoneId();
+      if (zoneId) {
+        const response = await axios.post(`/api/dsp/zone/${zoneId}/preset`, { preset_id: presetId });
+        if (response.data.status === 'success' || response.data.status === 'partial') {
+          activePreset.value = presetId;
+          // WebSocket filter_changed events update filters.value automatically
+          return true;
+        }
+        return false;
+      }
+
+      // Standalone client: update directly
       const response = await axios.put(`/api/dsp/preset/${presetId}`);
       if (response.data.status === 'success') {
         activePreset.value = presetId;
         // WebSocket filter_changed events update filters.value automatically
-        // No need to fetch - that returns stale data and overwrites correct state
         return true;
       }
       return false;
@@ -789,11 +868,21 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function updateCompressor(settings) {
     try {
+      // If target is in a zone, use zone endpoint (backend handles propagation)
+      const zoneId = getSelectedZoneId();
+      if (zoneId) {
+        const response = await axios.patch(`/api/dsp/zone/${zoneId}/compressor`, settings);
+        if (response.data.status === 'success' || response.data.status === 'partial') {
+          Object.assign(compressor.value, settings);
+          return true;
+        }
+        return false;
+      }
+
+      // Standalone client: update directly
       const response = await axios.put(`${getApiBase()}/compressor`, settings);
       if (response.data.status === 'success') {
         Object.assign(compressor.value, settings);
-        // Propagate to linked clients
-        await propagateToLinkedClients('compressor', settings);
         return true;
       }
       return false;
@@ -805,11 +894,21 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function updateLoudness(settings) {
     try {
+      // If target is in a zone, use zone endpoint (backend handles propagation)
+      const zoneId = getSelectedZoneId();
+      if (zoneId) {
+        const response = await axios.patch(`/api/dsp/zone/${zoneId}/loudness`, settings);
+        if (response.data.status === 'success' || response.data.status === 'partial') {
+          Object.assign(loudness.value, settings);
+          return true;
+        }
+        return false;
+      }
+
+      // Standalone client: update directly
       const response = await axios.put(`${getApiBase()}/loudness`, settings);
       if (response.data.status === 'success') {
         Object.assign(loudness.value, settings);
-        // Propagate to linked clients
-        await propagateToLinkedClients('loudness', settings);
         return true;
       }
       return false;
@@ -959,7 +1058,7 @@ export const useDspStore = defineStore('dsp', () => {
 
   /**
    * Get the speaker type for a client
-   * @param {string} clientId - Client ID (dsp_id)
+   * @param {string} clientId - Client ID (mac_id)
    * @returns {string} Speaker type: 'satellite', 'bookshelf', 'tower', or 'subwoofer'
    */
   function getClientSpeakerType(clientId) {
@@ -970,7 +1069,7 @@ export const useDspStore = defineStore('dsp', () => {
 
   /**
    * Get the crossover frequency for a client
-   * @param {string} clientId - Client ID (dsp_id)
+   * @param {string} clientId - Client ID (mac_id)
    * @returns {number|null} Crossover frequency in Hz, or null for subwoofer
    */
   function getClientCrossoverFrequency(clientId) {
@@ -985,7 +1084,7 @@ export const useDspStore = defineStore('dsp', () => {
 
   /**
    * Check if a client is marked as a subwoofer (derived from speaker_type)
-   * @param {string} clientId - Client ID (dsp_id)
+   * @param {string} clientId - Client ID (mac_id)
    * @returns {boolean} True if client is a subwoofer
    */
   function isClientSubwoofer(clientId) {
@@ -994,7 +1093,7 @@ export const useDspStore = defineStore('dsp', () => {
 
   /**
    * Set the speaker type for a client
-   * @param {string} clientId - Client ID (dsp_id)
+   * @param {string} clientId - Client ID (mac_id)
    * @param {string} speakerType - 'satellite', 'bookshelf', 'tower', or 'subwoofer'
    * @returns {Promise<boolean>} Success status
    */
@@ -1013,7 +1112,7 @@ export const useDspStore = defineStore('dsp', () => {
 
   /**
    * Set custom crossover frequency for a client
-   * @param {string} clientId - Client ID (dsp_id)
+   * @param {string} clientId - Client ID (mac_id)
    * @param {number} frequency - Crossover frequency in Hz (20-200)
    * @returns {Promise<boolean>} Success status
    */
@@ -1105,17 +1204,93 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
+  /**
+   * Handle zone crossover changed events.
+   * Supports both legacy format (crossover.zone_crossover_changed) and
+   * new multiroom format (multiroom.crossover_changed).
+   * @param {Object} event - Event with data containing zone crossover info
+   *   New format: { zone_id, crossover_enabled, crossover_frequency }
+   *   Legacy format: { zone_id, frequency, enabled, has_subwoofer }
+   */
   function handleZoneCrossoverChanged(event) {
     if (event.data) {
-      const { zone_id, frequency, enabled, has_subwoofer } = event.data;
-      if (zone_id) {
-        zoneCrossover.value[zone_id] = { frequency, enabled, has_subwoofer };
+      const data = event.data;
+
+      // Support both old and new field names
+      const zoneId = data.zone_id;
+      const frequency = data.crossover_frequency ?? data.frequency;
+      const enabled = data.crossover_enabled ?? data.enabled;
+      const hasSubwoofer = data.has_subwoofer ?? false;
+
+      if (zoneId) {
+        zoneCrossover.value[zoneId] = {
+          frequency,
+          enabled,
+          has_subwoofer: hasSubwoofer
+        };
       }
     }
   }
 
   // === WEBSOCKET HANDLERS ===
+
+  /**
+   * Handle DSP changed events from multiroom category.
+   * Updates local DSP state when the target matches selectedTarget.
+   * @param {Object} event - WebSocket event with data:
+   *   { target_type: "zone"|"client", target_id, dsp_settings }
+   *   dsp_settings may contain: filters, compressor, loudness
+   */
+  function handleDspChanged(event) {
+    if (!event.data) return;
+
+    const { target_type, target_id, dsp_settings } = event.data;
+    if (!dsp_settings) return;
+
+    // Check if this DSP change applies to the currently selected target
+    let isRelevant = false;
+
+    if (target_type === 'client') {
+      // Direct client match
+      isRelevant = target_id === selectedTarget.value;
+    } else if (target_type === 'zone') {
+      // Zone match: check if selectedTarget is in this zone
+      const zone = registryStore.getZoneForClient(selectedTarget.value);
+      isRelevant = zone && zone.id === target_id;
+    }
+
+    if (!isRelevant) return;
+
+    // Update local DSP state from received settings
+    if (dsp_settings.filters && Array.isArray(dsp_settings.filters)) {
+      // Update filters if not currently being edited (throttle map empty)
+      if (filterThrottleMap.size === 0) {
+        for (const filterData of dsp_settings.filters) {
+          const filter = filters.value.find(f => f.id === filterData.id);
+          if (filter) {
+            if (filterData.freq !== undefined) {
+              filter.freq = filterData.freq;
+              filter.displayName = formatFrequency(filterData.freq);
+            }
+            if (filterData.gain !== undefined) filter.gain = filterData.gain;
+            if (filterData.q !== undefined) filter.q = filterData.q;
+            if (filterData.type !== undefined) filter.type = filterData.type;
+          }
+        }
+      }
+    }
+
+    if (dsp_settings.compressor) {
+      Object.assign(compressor.value, dsp_settings.compressor);
+    }
+
+    if (dsp_settings.loudness) {
+      Object.assign(loudness.value, dsp_settings.loudness);
+    }
+  }
+
   function handleFilterChanged(event) {
+    if (!event.data) return;
     const { id, freq, gain, q, type } = event.data;
     const filter = filters.value.find(f => f.id === id);
 
@@ -1189,7 +1364,23 @@ export const useDspStore = defineStore('dsp', () => {
     isDspEffectsEnabled.value = enabled;
 
     try {
-      const success = await setEnabledState(enabled);
+      let success = false;
+
+      // If target is in a zone, use zone endpoint (backend handles propagation)
+      const zoneId = getSelectedZoneId();
+      if (zoneId) {
+        try {
+          const response = await axios.patch(`/api/dsp/zone/${zoneId}/enabled`, { enabled });
+          success = response.data.status === 'success' || response.data.status === 'partial';
+        } catch (error) {
+          console.error('Error updating zone DSP enabled:', error);
+          // Fall back to direct update
+          success = await setEnabledState(enabled);
+        }
+      } else {
+        // Standalone client: update directly
+        success = await setEnabledState(enabled);
+      }
 
       if (success) {
         if (enabled) {
@@ -1282,6 +1473,8 @@ export const useDspStore = defineStore('dsp', () => {
     getZoneName,
     getZoneGroup,
     sortClientIdsLocalFirst,
+    getSelectedZoneId,
+    isTargetInZone,
 
     // Speaker Type / Crossover Management
     clientTypes,
@@ -1323,6 +1516,7 @@ export const useDspStore = defineStore('dsp', () => {
     getClientDisplayName,
 
     // WebSocket Handlers
+    handleDspChanged,
     handleFilterChanged,
     handleFiltersReset,
     handleStateChanged,

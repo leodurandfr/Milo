@@ -81,7 +81,7 @@ def _create_service(name: str) -> Any:
     from backend.core.multiroom.websocket import SnapcastWebSocketService
     from backend.core.multiroom.registry import ClientRegistryService
     from backend.core.multiroom.crossover import CrossoverService
-    from backend.core.dsp import CamillaDSPService, DspClientProxyService, DspSettingsSyncService
+    from backend.core.dsp import CamillaDSPService, DspClientProxyService, DspSettingsSyncService, MultiroomDspService
     from backend.core.volume import VolumeService
     from backend.features.programs import ProgramVersionService, ProgramUpdateService, SatelliteProgramUpdateService
     from backend.hardware import HardwareService, RotaryVolumeController, ScreenController
@@ -152,6 +152,10 @@ def _create_service(name: str) -> Any:
         "dsp_settings_sync_service": lambda: DspSettingsSyncService(
             proxy_service=get_service("dsp_client_proxy_service"),
             dsp_service=get_service("camilladsp_service")
+        ),
+        "multiroom_dsp_service": lambda: MultiroomDspService(
+            client_registry_service=get_service("client_registry_service"),
+            camilladsp_service=get_service("camilladsp_service")
         ),
 
         # Program services
@@ -252,6 +256,9 @@ def initialize_services() -> None:
     crossover_service = get_service("crossover_service")
     client_registry_service = get_service("client_registry_service")
     websocket_event_handler = get_service("websocket_event_handler")
+    dsp_settings_sync_service = get_service("dsp_settings_sync_service")
+    dsp_client_proxy_service = get_service("dsp_client_proxy_service")
+    multiroom_dsp_service = get_service("multiroom_dsp_service")
 
     # Set websocket handler on state machine for backward compatibility
     state_machine.websocket_handler = websocket_event_handler
@@ -278,6 +285,12 @@ def initialize_services() -> None:
     # 2.5b - state_machine ← crossover_service
     state_machine.crossover_service = crossover_service
 
+    # 2.5c - state_machine ← dsp_settings_sync_service (for zone DSP sync on reconnection)
+    state_machine.dsp_settings_sync_service = dsp_settings_sync_service
+
+    # 2.5d - state_machine ← dsp_client_proxy_service (for remote DSP control)
+    state_machine.dsp_client_proxy_service = dsp_client_proxy_service
+
     # 2.6 - camilladsp_service → state_machine
     camilladsp_service.set_state_machine(state_machine)
 
@@ -299,6 +312,9 @@ def initialize_services() -> None:
 
     # 2.12 - crossover_service → client_registry_service
     crossover_service.set_registry(client_registry_service)
+
+    # 2.13 - multiroom_dsp_service → state_machine (for event broadcasting)
+    multiroom_dsp_service.set_state_machine(state_machine)
 
     # =========================================================================
     # STEP 3: Register sources (MUST be done BEFORE init_async)

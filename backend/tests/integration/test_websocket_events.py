@@ -1041,3 +1041,290 @@ class TestPingMechanism:
         assert event["category"] == "system"
         assert event["type"] == "ping"
         assert "timestamp" in event
+
+
+# ==============================================================================
+# Story 6.1: Multiroom Event Broadcasting Tests
+# ==============================================================================
+
+
+class TestMultiroomEventFormat:
+    """
+    Tests for Story 6.1: WebSocket Event Broadcasting.
+
+    Validates the standardized "multiroom" category events per architecture spec.
+    """
+
+    @pytest.mark.asyncio
+    async def test_multiroom_category_client_state_changed(
+        self,
+        websocket_event_handler: WebSocketEventHandler,
+        mock_websocket: MockWebSocket,
+        websocket_manager: WebSocketManager
+    ):
+        """
+        Test client_state_changed event format (AC1, AC5).
+
+        Validates:
+        - category is "multiroom"
+        - type is "client_state_changed"
+        - data contains complete client object with all fields
+        """
+        await websocket_manager.connect(mock_websocket)
+
+        client_event = {
+            "category": "multiroom",
+            "type": "client_state_changed",
+            "source": "multiroom",
+            "data": {
+                "mac_id": "dc:a6:32:7e:d3:43",
+                "client": {
+                    "mac_id": "dc:a6:32:7e:d3:43",
+                    "name": "Living Room Speaker",
+                    "ip": "192.168.1.100",
+                    "zone_id": None,
+                    "volume_db": -25.0,
+                    "mute": False,
+                    "speaker_type": "bookshelf",
+                    "crossover_frequency": 80,
+                    "online": True
+                }
+            },
+            "timestamp": time.time()
+        }
+        await websocket_event_handler.handle_event(client_event)
+
+        assert len(mock_websocket.received_messages) == 1
+        event = mock_websocket.received_messages[0]
+
+        # Verify category and type
+        assert event["category"] == "multiroom"
+        assert event["type"] == "client_state_changed"
+
+        # Verify client object completeness (AC1)
+        client = event["data"]["client"]
+        assert "mac_id" in client
+        assert "name" in client
+        assert "ip" in client
+        assert "zone_id" in client
+        assert "volume_db" in client
+        assert "mute" in client
+        assert "speaker_type" in client
+        assert "online" in client
+
+    @pytest.mark.asyncio
+    async def test_multiroom_category_zone_changed(
+        self,
+        websocket_event_handler: WebSocketEventHandler,
+        mock_websocket: MockWebSocket,
+        websocket_manager: WebSocketManager
+    ):
+        """
+        Test zone_changed event format (AC2, AC5).
+
+        Validates:
+        - category is "multiroom"
+        - type is "zone_changed"
+        - data contains complete enriched zone object
+        """
+        await websocket_manager.connect(mock_websocket)
+
+        zone_event = {
+            "category": "multiroom",
+            "type": "zone_changed",
+            "source": "multiroom",
+            "data": {
+                "zone_id": "uuid-living-room",
+                "zone": {
+                    "id": "uuid-living-room",
+                    "name": "Living Room",
+                    "client_ids": ["local", "dc:a6:32:7e:d3:43"],
+                    "dsp_settings": {
+                        "enabled": True,
+                        "filters": [],
+                        "compressor": {"enabled": False},
+                        "loudness": {"enabled": False}
+                    },
+                    "crossover_frequency": 80,
+                    "crossover_enabled": True,
+                    "online_client_count": 2,
+                    "has_subwoofer": False
+                }
+            },
+            "timestamp": time.time()
+        }
+        await websocket_event_handler.handle_event(zone_event)
+
+        assert len(mock_websocket.received_messages) == 1
+        event = mock_websocket.received_messages[0]
+
+        # Verify category and type
+        assert event["category"] == "multiroom"
+        assert event["type"] == "zone_changed"
+
+        # Verify zone object completeness (AC2)
+        zone = event["data"]["zone"]
+        assert "id" in zone
+        assert "name" in zone
+        assert "client_ids" in zone
+        assert "dsp_settings" in zone
+        assert "crossover_frequency" in zone
+        # Computed fields for enriched zone
+        assert "crossover_enabled" in zone
+        assert "online_client_count" in zone
+        assert "has_subwoofer" in zone
+
+    @pytest.mark.asyncio
+    async def test_multiroom_category_dsp_changed(
+        self,
+        websocket_event_handler: WebSocketEventHandler,
+        mock_websocket: MockWebSocket,
+        websocket_manager: WebSocketManager
+    ):
+        """
+        Test dsp_changed event format (AC3, AC5).
+
+        Validates:
+        - category is "multiroom"
+        - type is "dsp_changed"
+        - data contains target_type, target_id, and dsp_settings
+        """
+        await websocket_manager.connect(mock_websocket)
+
+        dsp_event = {
+            "category": "multiroom",
+            "type": "dsp_changed",
+            "source": "multiroom",
+            "data": {
+                "target_type": "zone",
+                "target_id": "uuid-living-room",
+                "dsp_settings": {
+                    "enabled": True,
+                    "filters": [
+                        {"id": "eq_band_00", "frequency": 31, "gain": 2.0, "q": 1.41}
+                    ],
+                    "compressor": {"enabled": True, "threshold": -20.0},
+                    "loudness": {"enabled": False}
+                }
+            },
+            "timestamp": time.time()
+        }
+        await websocket_event_handler.handle_event(dsp_event)
+
+        assert len(mock_websocket.received_messages) == 1
+        event = mock_websocket.received_messages[0]
+
+        # Verify category and type
+        assert event["category"] == "multiroom"
+        assert event["type"] == "dsp_changed"
+
+        # Verify DSP event structure (AC3)
+        data = event["data"]
+        assert "target_type" in data
+        assert "target_id" in data
+        assert "dsp_settings" in data
+
+    @pytest.mark.asyncio
+    async def test_multiroom_category_crossover_changed(
+        self,
+        websocket_event_handler: WebSocketEventHandler,
+        mock_websocket: MockWebSocket,
+        websocket_manager: WebSocketManager
+    ):
+        """
+        Test crossover_changed event format (AC4, AC5).
+
+        Validates:
+        - category is "multiroom"
+        - type is "crossover_changed"
+        - data contains zone_id, crossover_enabled, crossover_frequency
+        """
+        await websocket_manager.connect(mock_websocket)
+
+        crossover_event = {
+            "category": "multiroom",
+            "type": "crossover_changed",
+            "source": "multiroom",
+            "data": {
+                "zone_id": "uuid-living-room",
+                "crossover_enabled": True,
+                "crossover_frequency": 80
+            },
+            "timestamp": time.time()
+        }
+        await websocket_event_handler.handle_event(crossover_event)
+
+        assert len(mock_websocket.received_messages) == 1
+        event = mock_websocket.received_messages[0]
+
+        # Verify category and type
+        assert event["category"] == "multiroom"
+        assert event["type"] == "crossover_changed"
+
+        # Verify crossover event structure (AC4)
+        data = event["data"]
+        assert "zone_id" in data
+        assert "crossover_enabled" in data
+        assert "crossover_frequency" in data
+
+    @pytest.mark.asyncio
+    async def test_backward_compatibility_registry_events(
+        self,
+        websocket_event_handler: WebSocketEventHandler,
+        mock_websocket: MockWebSocket,
+        websocket_manager: WebSocketManager
+    ):
+        """
+        Test backward compatibility: old registry events still work.
+
+        During transition period, backend emits both "multiroom" and "registry"
+        category events. This test ensures old handlers still work.
+        """
+        await websocket_manager.connect(mock_websocket)
+
+        # Old-style registry event (should still be received)
+        legacy_event = {
+            "category": "registry",
+            "type": "CLIENT_UPDATED",
+            "source": "registry",
+            "data": {
+                "mac_id": "dc:a6:32:7e:d3:43",
+                "client": {"name": "Test Client"}
+            },
+            "timestamp": time.time()
+        }
+        await websocket_event_handler.handle_event(legacy_event)
+
+        events = mock_websocket.get_events_by_category("registry")
+        assert len(events) == 1
+        assert events[0]["type"] == "CLIENT_UPDATED"
+
+    @pytest.mark.asyncio
+    async def test_event_contains_timestamp(
+        self,
+        websocket_event_handler: WebSocketEventHandler,
+        mock_websocket: MockWebSocket,
+        websocket_manager: WebSocketManager
+    ):
+        """
+        Test multiroom events contain valid timestamp.
+
+        Validates:
+        - timestamp field is present
+        - timestamp is a valid number
+        """
+        await websocket_manager.connect(mock_websocket)
+
+        event = {
+            "category": "multiroom",
+            "type": "client_state_changed",
+            "source": "multiroom",
+            "data": {"mac_id": "test"},
+            "timestamp": time.time()
+        }
+        await websocket_event_handler.handle_event(event)
+
+        received = mock_websocket.received_messages[0]
+        assert "timestamp" in received
+        assert isinstance(received["timestamp"], (int, float))
+        assert received["timestamp"] > 0

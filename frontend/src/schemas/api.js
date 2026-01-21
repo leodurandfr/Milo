@@ -64,7 +64,7 @@ export const VolumeClientSchema = z.object({
   volume_db: z.number(),
   offset_db: z.number().default(0),
   mute: z.boolean().default(false),
-  available: z.boolean().default(true)
+  online: z.boolean().default(true)  // Renamed from 'available' for consistency with backend
 });
 
 export const VolumeZoneSchema = z.object({
@@ -137,21 +137,81 @@ export const DspStatusSchema = z.object({
   output_peak: z.tuple([z.number(), z.number()]).optional()
 });
 
-// === MULTIROOM / SNAPCAST ===
-
-export const SnapcastClientSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  host: z.string(),
-  ip: z.string().optional(),
-  volume: z.number(),
-  muted: z.boolean(),
-  available: z.boolean().default(true),
-  dsp_id: z.string().optional()
+/**
+ * Response from zone DSP endpoints (PATCH /api/dsp/zone/{zone_id}/...).
+ * Backend applies changes to all ONLINE clients and returns status.
+ */
+export const DspZoneResponseSchema = z.object({
+  status: z.enum(['success', 'partial', 'error']),
+  zone_id: z.string(),
+  applied_to: z.array(z.string()),
+  offline_clients: z.array(z.string()).nullable().optional(),
+  errors: z.array(z.object({
+    client_id: z.string(),
+    error: z.string()
+  })).nullable().optional(),
+  // Optional fields for specific endpoint responses
+  filter_id: z.string().optional(),  // For zone filter update
+  enabled: z.boolean().optional()     // For zone DSP bypass toggle
 });
 
-export const SnapcastClientsResponseSchema = z.object({
-  clients: z.array(SnapcastClientSchema)
+export const DspCompressorSchema = z.object({
+  enabled: z.boolean(),
+  threshold: z.number(),
+  ratio: z.number(),
+  attack: z.number(),
+  release: z.number(),
+  makeup_gain: z.number()
+});
+
+export const DspLoudnessSchema = z.object({
+  enabled: z.boolean(),
+  reference_level: z.number(),
+  high_boost: z.number(),
+  low_boost: z.number()
+});
+
+export const DspPresetSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  gains: z.array(z.number())
+});
+
+export const DspPresetsResponseSchema = z.object({
+  presets: z.array(DspPresetSchema),
+  manual_gains: z.array(z.number()),
+  active_preset: z.string().nullable()
+});
+
+// === MULTIROOM / CLIENT REGISTRY ===
+
+/**
+ * Registered client metadata from ClientRegistryService.
+ * Matches backend Client model (backend/core/multiroom/models.py).
+ */
+export const RegisteredClientSchema = z.object({
+  mac_id: z.string(),
+  name: z.string(),
+  ip: z.string(),
+  online: z.boolean().default(false),
+  zone_id: z.string().nullable(),
+  speaker_type: z.enum(['satellite', 'bookshelf', 'tower', 'subwoofer']).default('bookshelf')
+});
+
+/**
+ * Response from GET /api/multiroom/state endpoint.
+ */
+export const MultiroomStateSchema = z.object({
+  clients: z.record(z.string(), RegisteredClientSchema),
+  zones: z.record(z.string(), z.object({
+    id: z.string(),
+    name: z.string(),
+    client_ids: z.array(z.string()),
+    dsp_settings: z.object({}).passthrough().optional(),
+    online_client_count: z.number().optional(),
+    has_subwoofer: z.boolean().optional(),
+    crossover_enabled: z.boolean().optional()
+  }).passthrough())
 });
 
 // === RADIO ===

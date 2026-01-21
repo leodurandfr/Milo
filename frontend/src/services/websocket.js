@@ -27,7 +27,17 @@ import { logger } from '@/services/logger';
  * radio:
  *   - favorite_added, favorite_removed → RadioSource.vue → radioStore
  *
- * snapcast:
+ * multiroom: (Standardized format per architecture spec, Story 6.1/6.2)
+ *   - client_state_changed → clientRegistryStore (client online/offline, volume, mute, speaker_type)
+ *     Data: { mac_id, client: { complete client object with all fields } }
+ *   - zone_changed → clientRegistryStore (zone create/delete/update, membership changes)
+ *     Data: { zone_id, zone: { enriched zone with online_client_count, has_subwoofer, crossover_enabled } | null }
+ *   - dsp_changed → dspStore (zone/client DSP settings)
+ *     Data: { target_type: "zone"|"client", target_id, dsp_settings }
+ *   - crossover_changed → dspStore (crossover enable/disable, frequency)
+ *     Data: { zone_id, crossover_enabled, crossover_frequency }
+ *
+ * snapcast: (low-level Snapcast events - kept for debugging/monitoring)
  *   - client_* events → MultiroomControl.vue → multiroomStore
  *   - client_name_changed → also DspSettings.vue, MultiroomSettings.vue (sync names)
  *
@@ -39,13 +49,6 @@ import { logger } from '@/services/logger';
  * routing:
  *   - multiroom_enabling, multiroom_disabling → MultiroomModal, MultiroomControl, SettingsModal
  *   - multiroom_ready, multiroom_error → MultiroomModal, MultiroomControl
- *
- * registry:
- *   - client_registered, client_unregistered, client_updated → clientRegistryStore
- *   - availability_changed → clientRegistryStore
- *   - volume_changed, speaker_type_changed → clientRegistryStore
- *   - zone_created, zone_deleted, zone_updated → clientRegistryStore
- *   - zone_client_added, zone_client_removed → clientRegistryStore
  */
 class WebSocketSingleton {
   constructor() {

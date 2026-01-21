@@ -106,7 +106,7 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import MessageContent from '@/components/ui/MessageContent.vue';
 
 const props = defineProps({
-  clientId: {
+  macId: {
     type: String,
     required: true
   }
@@ -125,20 +125,19 @@ const selectedSpeakerType = ref('bookshelf');
 const zoneCrossoverFrequency = ref(80);
 const deleting = ref(false);
 
-// Find client by ID
+// Find client by mac_id
 const client = computed(() =>
-  multiroomStore.clients.find(c => c.id === props.clientId)
+  multiroomStore.clients.find(c => c.mac_id === props.macId)
 );
 
 // Check if client is offline
 const isOffline = computed(() => {
-  return client.value ? !client.value.available : true;
+  return client.value ? !client.value.online : true;
 });
 
 // Check if client is in a zone
 const clientZone = computed(() => {
-  if (!client.value?.dsp_id) return null;
-  return dspStore.getZoneGroup(client.value.dsp_id);
+  return dspStore.getZoneGroup(props.macId);
 });
 
 const isInZone = computed(() => !!clientZone.value);
@@ -174,13 +173,11 @@ async function selectSpeakerType(type) {
 
   selectedSpeakerType.value = type;
 
-  // Save immediately if client has dsp_id
-  if (client.value?.dsp_id) {
-    try {
-      await dspStore.setClientSpeakerType(client.value.dsp_id, type);
-    } catch (error) {
-      console.error('Error saving speaker type:', error);
-    }
+  // Save immediately via PUT /api/registry/clients/{mac_id}
+  try {
+    await clientRegistryStore.updateClient(props.macId, { speaker_type: type });
+  } catch (error) {
+    console.error('Error saving speaker type:', error);
   }
 }
 
@@ -189,7 +186,7 @@ async function saveClientName() {
   if (!newName || newName === originalClientName.value) return;
 
   try {
-    await clientRegistryStore.updateClientName(props.clientId, newName);
+    await clientRegistryStore.updateClient(props.macId, { name: newName });
     originalClientName.value = newName;
   } catch (error) {
     console.error('Error saving client name:', error);
@@ -197,11 +194,11 @@ async function saveClientName() {
 }
 
 async function handleDelete() {
-  if (deleting.value || !client.value?.dsp_id) return;
+  if (deleting.value) return;
 
   deleting.value = true;
   try {
-    const success = await clientRegistryStore.deleteClient(client.value.dsp_id);
+    const success = await clientRegistryStore.deleteClient(props.macId);
     if (success) {
       emit('back');
     }
@@ -216,8 +213,8 @@ onMounted(async () => {
   if (client.value) {
     clientName.value = client.value.name || client.value.host;
     originalClientName.value = clientName.value;
-    // Load current speaker type
-    selectedSpeakerType.value = dspStore.getClientSpeakerType(client.value.dsp_id);
+    // Load current speaker type from client data or dspStore
+    selectedSpeakerType.value = client.value.speaker_type || dspStore.getClientSpeakerType(props.macId);
 
     // Load zone crossover frequency if client is in a zone
     if (clientZone.value) {

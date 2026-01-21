@@ -59,7 +59,7 @@ class RegisteredClient:
     available: bool = True         # Connection status
     speaker_type: SpeakerType      # 'satellite'|'bookshelf'|'tower'|'subwoofer'
     crossover_frequency: int = 80  # Hz
-    volume_db: float = -30.0       # Current volume in dB
+    volume_db: float = -60.0       # Current volume in dB
     mute: bool = False             # Mute status
     last_seen: datetime            # Last activity timestamp
 ```

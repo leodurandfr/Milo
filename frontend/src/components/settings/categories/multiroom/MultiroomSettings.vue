@@ -48,6 +48,22 @@
                       @click="handleEditZone(zone.id)"
                     >
                       <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
+                      <!-- Crossover badge -->
+                      <span
+                        v-if="getZoneCrossover(zone.id)?.enabled"
+                        class="crossover-badge crossover-badge--active"
+                        :title="t('multiroom.crossover.badgeActive')"
+                      >
+                        {{ getZoneCrossover(zone.id)?.frequency }} Hz
+                      </span>
+                      <span
+                        v-else-if="zoneHasSubwoofer(zone)"
+                        class="crossover-badge crossover-badge--inactive"
+                        :title="t('multiroom.crossover.subwooferOffline')"
+                      >
+                        {{ t('multiroom.crossover.badgeInactive') }}
+                      </span>
+                      <span class="zone-header__count text-mono-small">{{ zone.onlineCount }}/{{ zone.clientCount }}</span>
                       <SvgIcon name="caretRight" :size="20" class="zone-header__caret" />
                     </button>
                     <!-- Zone clients -->
@@ -58,15 +74,17 @@
                         variant="background"
                         icon-variant="standard"
                         action="caret"
-                        @click="handleEditClient(client.id)"
+                        @click="handleEditClient(client.mac_id)"
                       >
                         <template #icon>
-                          <SvgIcon :name="getSpeakerIcon(client.dsp_id)" :size="28" />
+                          <div class="client-icon" :class="{ 'is-offline': !client.online }">
+                            <SvgIcon :name="getSpeakerIcon(client.mac_id)" :size="28" />
+                          </div>
                         </template>
                         <template #title>
                           <div class="client-title">
                             <span>{{ client.name }}</span>
-                            <span class="text-mono-small client-title__type">{{ getSpeakerTypeLabel(client.dsp_id) }}</span>
+                            <span class="text-mono-small client-title__type">{{ getSpeakerTypeLabel(client.mac_id) }}</span>
                           </div>
                         </template>
                       </ListItemButton>
@@ -83,15 +101,17 @@
                         variant="background"
                         icon-variant="standard"
                         action="caret"
-                        @click="handleEditClient(client.id)"
+                        @click="handleEditClient(client.mac_id)"
                       >
                         <template #icon>
-                          <SvgIcon :name="getSpeakerIcon(client.dsp_id)" :size="28" />
+                          <div class="client-icon" :class="{ 'is-offline': !client.online }">
+                            <SvgIcon :name="getSpeakerIcon(client.mac_id)" :size="28" />
+                          </div>
                         </template>
                         <template #title>
                           <div class="client-title">
                             <span>{{ client.name }}</span>
-                            <span class="text-mono-small client-title__type">{{ getSpeakerTypeLabel(client.dsp_id) }}</span>
+                            <span class="text-mono-small client-title__type">{{ getSpeakerTypeLabel(client.mac_id) }}</span>
                           </div>
                         </template>
                       </ListItemButton>
@@ -160,6 +180,7 @@ import useWebSocket from '@/services/websocket';
 import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useDspStore } from '@/stores/dspStore';
+import { useClientRegistryStore } from '@/stores/clientRegistryStore';
 import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
@@ -174,6 +195,7 @@ const { on } = useWebSocket();
 const multiroomStore = useMultiroomStore();
 const unifiedStore = useUnifiedAudioStore();
 const dspStore = useDspStore();
+const registryStore = useClientRegistryStore();
 
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -183,9 +205,6 @@ const transitionState = ref('idle'); // 'idle' | 'enabling' | 'disabling'
 const showMessage = computed(() => {
   return transitionState.value !== 'idle' || !isMultiroomActive.value;
 });
-const showSettings = computed(() => {
-  return isMultiroomActive.value && transitionState.value === 'idle';
-});
 const isLoading = computed(() => transitionState.value === 'enabling');
 const messageTitle = computed(() => {
   return transitionState.value === 'enabling' ? t('multiroom.starting') : t('multiroom.disabled');
@@ -194,56 +213,67 @@ const messageTitle = computed(() => {
 // Clients are already sorted (local first, then alphabetical) from clientRegistryStore
 const sortedMultiroomClients = computed(() => multiroomStore.clients);
 
-// Get zones with client details
+// Sort client IDs with 'local' (internal Milo) first
+function sortClientIdsLocalFirst(clientIds) {
+  if (!clientIds || !Array.isArray(clientIds)) return [];
+  return [...clientIds].sort((a, b) => (a === 'local' ? -1 : b === 'local' ? 1 : 0));
+}
+
+// Get zones with client details from clientRegistryStore (single source of truth)
 const zones = computed(() => {
-  return dspStore.linkedGroups.map((group, index) => {
-    const clients = dspStore.sortClientIdsLocalFirst(group.client_ids || [])
-      .map(dspId => {
-        const client = multiroomStore.clients.find(c => c.dsp_id === dspId);
+  return registryStore.zoneList.map((zone, index) => {
+    const clients = sortClientIdsLocalFirst(zone.client_ids || [])
+      .map(macId => {
+        const client = registryStore.getClient(macId);
         return client ? {
           id: client.id,
-          dsp_id: dspId,
+          mac_id: macId,
           host: client.host,
-          name: client.name || client.host
+          name: client.name || client.host,
+          online: client.online
         } : null;
       })
       .filter(Boolean);
 
+    const onlineCount = clients.filter(c => c.online).length;
+
     return {
-      id: group.id,
-      displayName: group.name || `Zone ${index + 1}`,
+      id: zone.id,
+      displayName: zone.name || `Zone ${index + 1}`,
       clientCount: clients.length,
+      onlineCount,
       clients
     };
   });
 });
 
-// Get clients not in any zone
+// Get clients not in any zone from clientRegistryStore (single source of truth)
 const ungroupedClients = computed(() => {
   const groupedIds = new Set();
-  dspStore.linkedGroups.forEach(group => {
-    (group.client_ids || []).forEach(id => groupedIds.add(id));
+  registryStore.zoneList.forEach(zone => {
+    (zone.client_ids || []).forEach(id => groupedIds.add(id));
   });
 
-  return multiroomStore.clients
-    .filter(client => !groupedIds.has(client.dsp_id))
+  return registryStore.clientList
+    .filter(client => !groupedIds.has(client.mac_id))
     .map(client => ({
       id: client.id,
-      dsp_id: client.dsp_id,
+      mac_id: client.mac_id,
       host: client.host,
-      name: client.name || client.host
+      name: client.name || client.host,
+      online: client.online
     }));
 });
 
 // Get translated speaker type label
-function getSpeakerTypeLabel(clientDspId) {
-  const speakerType = dspStore.getClientSpeakerType(clientDspId);
+function getSpeakerTypeLabel(clientMacId) {
+  const speakerType = dspStore.getClientSpeakerType(clientMacId);
   return t(`multiroom.speakerTypes.${speakerType}`);
 }
 
 // Get speaker icon name based on type
-function getSpeakerIcon(clientDspId) {
-  const speakerType = dspStore.getClientSpeakerType(clientDspId);
+function getSpeakerIcon(clientMacId) {
+  const speakerType = dspStore.getClientSpeakerType(clientMacId);
   const iconMap = {
     satellite: 'speakerSatellite',
     bookshelf: 'speakerShelf',
@@ -251,6 +281,16 @@ function getSpeakerIcon(clientDspId) {
     subwoofer: 'speakerSub'
   };
   return iconMap[speakerType] || 'speakerShelf';
+}
+
+// Get crossover settings for a zone
+function getZoneCrossover(zoneId) {
+  return dspStore.getZoneCrossoverSettings(zoneId);
+}
+
+// Check if zone has a subwoofer (online or offline)
+function zoneHasSubwoofer(zone) {
+  return zone.clients?.some(c => dspStore.getClientSpeakerType(c.mac_id) === 'subwoofer');
 }
 
 // Navigation handlers - emit to parent (SettingsModal)
@@ -262,8 +302,8 @@ function handleCreateZone() {
   emit('create-zone');
 }
 
-function handleEditClient(clientId) {
-  emit('edit-client', clientId);
+function handleEditClient(macId) {
+  emit('edit-client', macId);
 }
 
 const audioPresets = computed(() => [
@@ -314,10 +354,10 @@ const codecOptions = [
 
 async function loadMultiroomData() {
   // Load clients and server config from the store
+  // Zone/client data comes from clientRegistryStore (initialized in App.vue)
   await Promise.all([
     multiroomStore.loadClients(),
-    multiroomStore.loadServerConfig(),
-    dspStore.loadTargets() // Load DSP targets for linkedGroups
+    multiroomStore.loadServerConfig()
   ]);
   // Volume data comes from unifiedAudioStore.volumeState via WebSocket
 }
@@ -371,8 +411,7 @@ onMounted(async () => {
     unifiedStore.handleVolumeEvent(event);
   });
 
-  // Keep client names in sync for ZoneEdit
-  on('snapcast', 'client_name_changed', (e) => dspStore.handleClientNameChanged(e));
+  // Client names are synced automatically via clientRegistryStore (registry:client_updated events)
 });
 </script>
 
@@ -476,6 +515,17 @@ onMounted(async () => {
   color: var(--color-text-secondary);
 }
 
+/* Client icon with online/offline indicator */
+.client-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.client-icon.is-offline {
+  opacity: 0.4;
+}
+
 /* Zone header button */
 .zone-header {
   display: flex;
@@ -489,9 +539,37 @@ onMounted(async () => {
   color: var(--color-brand);
 }
 
+.zone-header__count {
+  color: var(--color-text-secondary);
+  margin-left: auto;
+  margin-right: var(--space-01);
+}
+
 .zone-header__caret {
   flex-shrink: 0;
   color: var(--color-brand);
+}
+
+/* Crossover badge */
+.crossover-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: var(--font-size-small);
+  font-family: var(--font-family-mono);
+  white-space: nowrap;
+}
+
+.crossover-badge--active {
+  background: var(--color-success-subtle, rgba(34, 197, 94, 0.15));
+  color: var(--color-success, #22c55e);
+}
+
+.crossover-badge--inactive {
+  background: var(--color-warning-subtle, rgba(234, 179, 8, 0.15));
+  color: var(--color-warning, #eab308);
+  opacity: 0.8;
 }
 
 /* Section subtitle (e.g., "Individual speakers") */

@@ -1,24 +1,30 @@
 # backend/core/multiroom/registry.py
 """
-ClientRegistryService - Single Source of Truth for client/zone/availability management.
+ClientRegistryService - Single Source of Truth for client/zone/DSP management.
 
 All services that need client information MUST query this service.
 This service is the ONLY place where client state is mutated.
+
+Architecture:
+- mac_id is the single unique identifier for clients
+- "local" is used for the main device (not a MAC address)
+- Zones share DSP settings, standalone clients have individual DSP
 """
 import asyncio
 import logging
+import hashlib
 from typing import Dict, List, Optional, Callable, Awaitable, Any
-from datetime import datetime
 
 from backend.core.events import EventBus, get_event_bus
 from backend.core.multiroom.models import (
-    RegisteredClient,
+    Client,
     Zone,
+    DspSettings,
     RegistryState,
     RegistryEventType,
+    ReconnectionContext,
     SpeakerType,
     DEFAULT_SPEAKER_TYPE,
-    DEFAULT_CROSSOVER_FREQUENCY,
     DEFAULT_VOLUME_DB
 )
 
@@ -29,11 +35,11 @@ class ClientRegistryService:
 
     Responsibilities:
     - Track all clients with complete metadata
-    - Manage zone configuration
-    - Track availability (single source)
+    - Manage zone configuration and DSP settings
+    - Track online/offline status (single source)
     - Emit events on state changes
     - Persist configuration to settings
-    - Validate operations before execution
+    - Manage standalone DSP settings
     """
 
     def __init__(self, settings_service=None, event_bus: EventBus = None):
@@ -43,8 +49,9 @@ class ClientRegistryService:
         self.event_bus = event_bus or get_event_bus()
 
         # Core state - protected by lock
-        self._clients: Dict[str, RegisteredClient] = {}
+        self._clients: Dict[str, Client] = {}
         self._zones: Dict[str, Zone] = {}
+        self._standalone_dsp: Dict[str, DspSettings] = {}
         self._lock = asyncio.Lock()
 
         # Subscriber callbacks for local event handling
@@ -62,22 +69,7 @@ class ClientRegistryService:
             self.logger.info("Initializing ClientRegistryService...")
 
             if self._settings_service:
-                # Load zones (linked groups) from settings
-                zones_data = await self._settings_service.get_setting("multiroom.linked_groups")
-                if zones_data:
-                    for zone_data in zones_data:
-                        zone = Zone.from_dict(zone_data)
-                        self._zones[zone.id] = zone
-                    self.logger.info(f"Loaded {len(self._zones)} zones from settings")
-
-                # Load client types from settings
-                client_types = await self._settings_service.get_setting("multiroom.client_types")
-                if client_types:
-                    # Store for later when clients register
-                    self._persisted_client_types = client_types
-                    self.logger.info(f"Loaded {len(client_types)} client type configurations")
-                else:
-                    self._persisted_client_types = {}
+                await self._load_persisted_state()
 
             self._initialized = True
             self.logger.info("ClientRegistryService initialized successfully")
@@ -89,271 +81,344 @@ class ClientRegistryService:
 
     # === CLIENT MANAGEMENT ===
 
-    async def register_client(self, client_data: Dict[str, Any]) -> RegisteredClient:
+    async def register_client(
+        self,
+        mac_id: str,
+        name: str,
+        ip: str,
+        speaker_type: SpeakerType = DEFAULT_SPEAKER_TYPE
+    ) -> Client:
         """
-        Register or update a client. Returns the client object.
+        Register a new client or update existing one.
 
         Args:
-            client_data: Dictionary with client information:
-                - dsp_id: Primary identifier (required)
-                - snapcast_id: Snapcast's internal ID
-                - name: Display name
-                - host: Hostname
-                - ip: IP address
-                - available: Connection status (default: True)
-                - volume_db: Current volume
-                - mute: Mute status
+            mac_id: Primary identifier (MAC address or "local")
+            name: Display name
+            ip: IP address
+            speaker_type: Speaker type for crossover (default: bookshelf)
 
         Returns:
             The registered or updated client
         """
-        dsp_id = client_data.get("dsp_id")
-        if not dsp_id:
-            raise ValueError("dsp_id is required")
-
         async with self._lock:
-            existing = self._clients.get(dsp_id)
+            existing = self._clients.get(mac_id)
 
             if existing:
-                # Update existing client
-                for key, value in client_data.items():
-                    if hasattr(existing, key) and value is not None:
-                        setattr(existing, key, value)
-                existing.last_seen = datetime.utcnow()
+                # Update existing client (keep online status and zone)
+                existing.name = name
+                existing.ip = ip
+                # Don't overwrite speaker_type if already set (persisted preference)
                 client = existing
                 event_type = RegistryEventType.CLIENT_UPDATED
             else:
-                # Create new client
-                # Apply persisted speaker type if available
-                speaker_type = DEFAULT_SPEAKER_TYPE
-                crossover_freq = DEFAULT_CROSSOVER_FREQUENCY
-                if hasattr(self, '_persisted_client_types'):
-                    type_config = self._persisted_client_types.get(dsp_id, {})
-                    speaker_type = type_config.get("type", DEFAULT_SPEAKER_TYPE)
-                    crossover_freq = type_config.get("crossover", DEFAULT_CROSSOVER_FREQUENCY)
-
-                client = RegisteredClient(
-                    dsp_id=dsp_id,
-                    snapcast_id=client_data.get("snapcast_id", ""),
-                    name=client_data.get("name", dsp_id),
-                    host=client_data.get("host", ""),
-                    ip=client_data.get("ip", ""),
-                    available=client_data.get("available", True),
-                    speaker_type=speaker_type,
-                    crossover_frequency=crossover_freq,
-                    volume_db=client_data.get("volume_db", DEFAULT_VOLUME_DB),
-                    mute=client_data.get("mute", False)
+                # Create new client (offline by default until Snapcast confirms)
+                client = Client(
+                    mac_id=mac_id,
+                    name=name,
+                    ip=ip,
+                    online=False,
+                    zone_id=None,
+                    volume_db=DEFAULT_VOLUME_DB,
+                    mute=False,
+                    speaker_type=speaker_type
                 )
-                self._clients[dsp_id] = client
-                event_type = RegistryEventType.CLIENT_REGISTERED
+                self._clients[mac_id] = client
+                event_type = RegistryEventType.CLIENT_CONNECTED
 
-            self.logger.info(f"Client {event_type}: {dsp_id} (available={client.available})")
+            self.logger.info(f"Client {event_type}: {mac_id} ({name})")
 
-        # Emit event outside lock
+        # Persist and emit event outside lock
+        await self._persist_clients()
         await self._emit_event(event_type, {
-            "dsp_id": dsp_id,
+            "mac_id": mac_id,
             "client": client.to_dict()
         })
 
         return client
 
-    async def unregister_client(self, dsp_id: str) -> bool:
+    async def unregister_client(self, mac_id: str) -> bool:
         """
-        Remove a client from the registry.
-        Cleans up all persisted data (zones, speaker type) so the client
-        is treated as new on reconnect.
+        Remove a client from the registry completely.
+
+        Also removes from zones and cleans up standalone DSP settings.
 
         Args:
-            dsp_id: The client's dsp_id
+            mac_id: The client's mac_id
 
         Returns:
             True if client was removed, False if not found
         """
-        zones_modified = []  # List of (zone_id, zone_dict) for updated zones
-        zones_deleted = []   # List of (zone_id, zone_dict) for deleted zones
+        zones_modified = []
+        zones_deleted = []
 
         async with self._lock:
-            if dsp_id not in self._clients:
+            if mac_id not in self._clients:
                 return False
 
-            del self._clients[dsp_id]
+            client = self._clients[mac_id]
+            del self._clients[mac_id]
 
-            # Remove from any zones and delete invalid zones (less than 2 clients)
-            zones_to_delete = []
-            for zone_id, zone in self._zones.items():
-                if dsp_id in zone.client_ids:
-                    zone.client_ids.remove(dsp_id)
-                    # Mark zone for deletion if less than 2 clients remain
-                    if len(zone.client_ids) < 2:
-                        zones_to_delete.append((zone_id, zone.to_dict()))
+            # Remove from zone if in one
+            if client.zone_id and client.zone_id in self._zones:
+                zone = self._zones[client.zone_id]
+                if mac_id in zone.client_ids:
+                    zone.client_ids.remove(mac_id)
+                    # Delete zone if less than 2 clients remain
+                    if not zone.is_valid():
+                        zones_deleted.append((zone.id, self.zone_to_enriched_dict(zone)))
+                        del self._zones[zone.id]
+                        self.logger.info(f"Zone {zone.id} deleted (less than 2 clients)")
                     else:
-                        # Zone still valid, capture updated state for event
-                        zones_modified.append((zone_id, zone.to_dict()))
+                        zones_modified.append((zone.id, self.zone_to_enriched_dict(zone)))
 
-            # Delete invalid zones
-            for zone_id, zone_dict in zones_to_delete:
-                del self._zones[zone_id]
-                zones_deleted.append((zone_id, zone_dict))
-                self.logger.info(f"Zone {zone_id} deleted (less than 2 clients remaining)")
+            # Clean up standalone DSP
+            if mac_id in self._standalone_dsp:
+                del self._standalone_dsp[mac_id]
 
-            # Clean up persisted client types
-            if hasattr(self, '_persisted_client_types') and dsp_id in self._persisted_client_types:
-                del self._persisted_client_types[dsp_id]
+            self.logger.info(f"Client unregistered: {mac_id}")
 
-            self.logger.info(f"Client unregistered: {dsp_id}")
+        # Persist changes
+        await self._persist_state()
 
-        # Persist changes outside lock to avoid deadlock
-        if zones_modified or zones_deleted:
-            await self._persist_zones()
-        await self._persist_client_types()
-
-        # Emit zone events BEFORE client unregistered so frontend updates zones first
+        # Emit zone events before client event
         for zone_id, zone_dict in zones_modified:
             await self._emit_event(RegistryEventType.ZONE_UPDATED, {
                 "zone_id": zone_id,
                 "zone": zone_dict
             })
-
         for zone_id, zone_dict in zones_deleted:
             await self._emit_event(RegistryEventType.ZONE_DELETED, {
                 "zone_id": zone_id,
                 "zone": zone_dict
             })
 
-        await self._emit_event(RegistryEventType.CLIENT_UNREGISTERED, {
-            "dsp_id": dsp_id
+        await self._emit_event(RegistryEventType.CLIENT_DISCONNECTED, {
+            "mac_id": mac_id
         })
 
         return True
 
-    async def update_availability(self, dsp_id: str, available: bool) -> None:
+    async def delete_client(self, mac_id: str) -> bool:
+        """Alias for unregister_client for API consistency."""
+        return await self.unregister_client(mac_id)
+
+    async def set_client_online(self, mac_id: str, online: bool) -> None:
         """
-        Update client availability - emits event if changed.
+        Update client online status.
 
         Args:
-            dsp_id: The client's dsp_id
-            available: New availability status
+            mac_id: The client's mac_id
+            online: New online status
         """
         async with self._lock:
-            client = self._clients.get(dsp_id)
+            client = self._clients.get(mac_id)
             if not client:
-                self.logger.warning(f"Cannot update availability: client {dsp_id} not found")
+                self.logger.warning(f"Cannot set online: client {mac_id} not found")
                 return
 
-            if client.available == available:
+            if client.online == online:
                 return  # No change
 
-            client.available = available
-            client.last_seen = datetime.utcnow()
+            client.online = online
             client_dict = client.to_dict()
 
-        self.logger.info(f"Client {dsp_id} availability changed: {available}")
+        self.logger.info(f"Client {mac_id} online status: {online}")
 
-        await self._emit_event(RegistryEventType.AVAILABILITY_CHANGED, {
-            "dsp_id": dsp_id,
-            "available": available,
+        event_type = RegistryEventType.CLIENT_CONNECTED if online else RegistryEventType.CLIENT_DISCONNECTED
+        await self._emit_event(event_type, {
+            "mac_id": mac_id,
             "client": client_dict
         })
 
-    async def update_volume(self, dsp_id: str, volume_db: float, mute: Optional[bool] = None) -> None:
+    async def update_client(
+        self,
+        mac_id: str,
+        name: Optional[str] = None,
+        speaker_type: Optional[SpeakerType] = None
+    ) -> Optional[Client]:
+        """
+        Update client properties.
+
+        Args:
+            mac_id: The client's mac_id
+            name: New display name (optional)
+            speaker_type: New speaker type (optional)
+
+        Returns:
+            Updated client or None if not found
+        """
+        async with self._lock:
+            client = self._clients.get(mac_id)
+            if not client:
+                self.logger.warning(f"Cannot update: client {mac_id} not found")
+                return None
+
+            if name is not None:
+                client.name = name
+            if speaker_type is not None:
+                client.speaker_type = speaker_type
+
+            client_dict = client.to_dict()
+
+        await self._persist_clients()
+        await self._emit_event(RegistryEventType.CLIENT_UPDATED, {
+            "mac_id": mac_id,
+            "client": client_dict
+        })
+
+        return client
+
+    async def update_speaker_type(
+        self,
+        mac_id: str,
+        speaker_type: SpeakerType,
+        crossover_frequency: Optional[int] = None
+    ) -> Optional[Client]:
+        """
+        Update client speaker type.
+
+        Used by CrossoverService and legacy API endpoint. Emits
+        SPEAKER_TYPE_CHANGED event for other services to react.
+
+        Args:
+            mac_id: The client's mac_id
+            speaker_type: New speaker type (satellite, bookshelf, tower, subwoofer)
+            crossover_frequency: Optional crossover frequency in Hz
+
+        Returns:
+            Updated client or None if not found
+        """
+        async with self._lock:
+            client = self._clients.get(mac_id)
+            if not client:
+                self.logger.warning(f"Cannot update speaker type: client {mac_id} not found")
+                return None
+
+            client.speaker_type = speaker_type
+            if crossover_frequency is not None:
+                client.crossover_frequency = crossover_frequency
+
+        await self._persist_clients()
+        # AC1: Include complete client object for real-time frontend sync
+        await self._emit_event(RegistryEventType.SPEAKER_TYPE_CHANGED, {
+            "mac_id": mac_id,
+            "client": client.to_dict(),
+            # Backward compatibility fields
+            "speaker_type": speaker_type,
+            "crossover_frequency": crossover_frequency
+        })
+
+        return client
+
+    async def update_volume(
+        self,
+        mac_id: str,
+        volume_db: Optional[float] = None,
+        mute: Optional[bool] = None
+    ) -> None:
         """
         Update client volume state.
 
         Args:
-            dsp_id: The client's dsp_id
-            volume_db: New volume in dB
+            mac_id: The client's mac_id
+            volume_db: New volume in dB (optional)
             mute: New mute status (optional)
         """
         async with self._lock:
-            client = self._clients.get(dsp_id)
+            client = self._clients.get(mac_id)
             if not client:
                 return
 
-            client.volume_db = volume_db
+            if volume_db is not None:
+                client.volume_db = volume_db
             if mute is not None:
                 client.mute = mute
-            client.last_seen = datetime.utcnow()
 
+        # AC1: Include complete client object for real-time frontend sync
         await self._emit_event(RegistryEventType.VOLUME_CHANGED, {
-            "dsp_id": dsp_id,
-            "volume_db": volume_db,
-            "mute": mute if mute is not None else client.mute
-        })
-
-    async def update_speaker_type(
-        self,
-        dsp_id: str,
-        speaker_type: SpeakerType,
-        crossover_freq: Optional[int] = None
-    ) -> None:
-        """
-        Update client speaker type.
-
-        Args:
-            dsp_id: The client's dsp_id
-            speaker_type: New speaker type
-            crossover_freq: New crossover frequency (optional)
-        """
-        async with self._lock:
-            client = self._clients.get(dsp_id)
-            if not client:
-                self.logger.warning(f"Cannot update speaker type: client {dsp_id} not found")
-                return
-
-            client.speaker_type = speaker_type
-            if crossover_freq is not None:
-                client.crossover_frequency = crossover_freq
-
-        # Persist to settings
-        await self._persist_client_types()
-
-        await self._emit_event(RegistryEventType.SPEAKER_TYPE_CHANGED, {
-            "dsp_id": dsp_id,
-            "speaker_type": speaker_type,
-            "crossover_frequency": crossover_freq or client.crossover_frequency
+            "mac_id": mac_id,
+            "client": client.to_dict(),
+            # Backward compatibility fields
+            "volume_db": client.volume_db,
+            "mute": client.mute
         })
 
     # === CLIENT QUERIES ===
 
-    def get_client(self, dsp_id: str) -> Optional[RegisteredClient]:
-        """Get a client by dsp_id."""
-        return self._clients.get(dsp_id)
+    def get_client(self, mac_id: str) -> Optional[Client]:
+        """Get a client by mac_id."""
+        return self._clients.get(mac_id)
 
-    def get_all_clients(self) -> Dict[str, RegisteredClient]:
+    def get_client_by_dsp_id(self, dsp_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a client by DSP ID (hostname-based identifier).
+
+        In Milo architecture, mac_id IS the DSP ID for volume/DSP operations:
+        - "local" for the main device
+        - "milo-client-XX" for remote clients
+
+        Args:
+            dsp_id: Client DSP ID (hostname like "local" or "milo-client-01")
+
+        Returns:
+            Client data dict if found, None otherwise
+        """
+        client = self._clients.get(dsp_id)
+        return client.to_dict() if client else None
+
+    def get_all_clients(self) -> Dict[str, Client]:
         """Get all registered clients."""
         return self._clients.copy()
 
-    def get_available_clients(self) -> List[RegisteredClient]:
-        """Get only available clients."""
-        return [c for c in self._clients.values() if c.available]
+    def get_online_clients(self) -> List[Client]:
+        """Get only online clients."""
+        return [c for c in self._clients.values() if c.online]
 
-    def is_client_available(self, dsp_id: str) -> bool:
-        """Check if a specific client is available."""
-        client = self._clients.get(dsp_id)
-        return client.available if client else False
+    def is_client_online(self, mac_id: str) -> bool:
+        """Check if a specific client is online."""
+        client = self._clients.get(mac_id)
+        return client.online if client else False
 
     def get_client_ids(self) -> List[str]:
-        """Get list of all client dsp_ids."""
+        """Get list of all client mac_ids."""
         return list(self._clients.keys())
 
-    def get_available_client_ids(self) -> List[str]:
-        """Get list of available client dsp_ids."""
-        return [c.dsp_id for c in self._clients.values() if c.available]
+    def get_online_client_ids(self) -> List[str]:
+        """Get list of online client mac_ids."""
+        return [c.mac_id for c in self._clients.values() if c.online]
+
+    def get_client_speaker_type(self, mac_id: str) -> SpeakerType:
+        """Get speaker type for a client."""
+        client = self._clients.get(mac_id)
+        return client.speaker_type if client else DEFAULT_SPEAKER_TYPE
 
     # === ZONE MANAGEMENT ===
 
-    async def create_zone(self, zone_id: str, name: str, client_ids: List[str]) -> Zone:
+    async def create_zone(
+        self,
+        zone_id: str,
+        name: str,
+        client_ids: List[str],
+        dsp_settings: Optional[DspSettings] = None
+    ) -> Zone:
         """
-        Create a new zone. Validates all client_ids exist.
+        Create a new zone. Requires at least 2 clients.
 
         Args:
             zone_id: Unique zone identifier
             name: Display name
-            client_ids: List of dsp_ids to include
+            client_ids: List of mac_ids to include (minimum 2)
+            dsp_settings: Initial DSP settings (optional)
 
         Returns:
             The created zone
+
+        Raises:
+            ValueError: If zone exists, less than 2 clients, or client not found
         """
+        if len(client_ids) < 2:
+            raise ValueError("Zone requires at least 2 clients")
+
         async with self._lock:
             if zone_id in self._zones:
                 raise ValueError(f"Zone {zone_id} already exists")
@@ -363,15 +428,26 @@ class ClientRegistryService:
                 if cid not in self._clients:
                     raise ValueError(f"Client {cid} not found")
 
-            zone = Zone(id=zone_id, name=name, client_ids=client_ids.copy())
+            # Create zone
+            zone = Zone(
+                id=zone_id,
+                name=name,
+                client_ids=client_ids.copy(),
+                dsp_settings=dsp_settings or DspSettings.default()
+            )
             self._zones[zone_id] = zone
 
-        # Persist to settings
-        await self._persist_zones()
+            # Update client zone_id references
+            for cid in client_ids:
+                self._clients[cid].zone_id = zone_id
+                # Move standalone DSP to zone (first client's DSP becomes zone DSP)
+                if cid in self._standalone_dsp:
+                    del self._standalone_dsp[cid]
 
+        await self._persist_state()
         await self._emit_event(RegistryEventType.ZONE_CREATED, {
             "zone_id": zone_id,
-            "zone": zone.to_dict()
+            "zone": self.zone_to_enriched_dict(zone)
         })
 
         self.logger.info(f"Zone created: {zone_id} with clients {client_ids}")
@@ -379,7 +455,7 @@ class ClientRegistryService:
 
     async def delete_zone(self, zone_id: str) -> bool:
         """
-        Delete a zone.
+        Delete a zone. Clients become standalone and keep current DSP.
 
         Args:
             zone_id: The zone's ID
@@ -391,14 +467,20 @@ class ClientRegistryService:
             if zone_id not in self._zones:
                 return False
 
-            # Capture zone data BEFORE deletion for event
-            zone_dict = self._zones[zone_id].to_dict()
+            zone = self._zones[zone_id]
+            zone_dict = self.zone_to_enriched_dict(zone)
+
+            # Clients keep zone DSP as their standalone DSP
+            for mac_id in zone.client_ids:
+                if mac_id in self._clients:
+                    self._clients[mac_id].zone_id = None
+                    self._standalone_dsp[mac_id] = DspSettings.from_dict(
+                        zone.dsp_settings.to_dict()
+                    )
+
             del self._zones[zone_id]
 
-        # Persist to settings
-        await self._persist_zones()
-
-        # Include zone data in event so CrossoverService can disable filters
+        await self._persist_state()
         await self._emit_event(RegistryEventType.ZONE_DELETED, {
             "zone_id": zone_id,
             "zone": zone_dict
@@ -407,13 +489,21 @@ class ClientRegistryService:
         self.logger.info(f"Zone deleted: {zone_id}")
         return True
 
-    async def update_zone(self, zone_id: str, **kwargs) -> Optional[Zone]:
+    async def update_zone(
+        self,
+        zone_id: str,
+        name: Optional[str] = None,
+        crossover_frequency: Optional[int] = None,
+        crossover_enabled: Optional[bool] = None
+    ) -> Optional[Zone]:
         """
         Update zone properties.
 
         Args:
             zone_id: The zone's ID
-            **kwargs: Properties to update (name, crossover_frequency, crossover_enabled)
+            name: New name (optional)
+            crossover_frequency: Crossover frequency in Hz (optional)
+            crossover_enabled: Whether crossover is enabled (optional, None = auto)
 
         Returns:
             The updated zone or None if not found
@@ -423,15 +513,16 @@ class ClientRegistryService:
             if not zone:
                 return None
 
-            for key, value in kwargs.items():
-                if hasattr(zone, key) and key not in ('id', 'client_ids'):
-                    setattr(zone, key, value)
+            if name is not None:
+                zone.name = name
+            if crossover_frequency is not None:
+                zone.crossover_frequency = crossover_frequency
+            if crossover_enabled is not None:
+                zone.crossover_enabled = crossover_enabled
 
-            zone_dict = zone.to_dict()
+            zone_dict = self.zone_to_enriched_dict(zone)
 
-        # Persist to settings
         await self._persist_zones()
-
         await self._emit_event(RegistryEventType.ZONE_UPDATED, {
             "zone_id": zone_id,
             "zone": zone_dict
@@ -439,16 +530,16 @@ class ClientRegistryService:
 
         return zone
 
-    async def add_client_to_zone(self, zone_id: str, dsp_id: str) -> bool:
+    async def add_client_to_zone(self, zone_id: str, mac_id: str) -> bool:
         """
-        Add a client to a zone. Validates client exists.
+        Add a client to a zone. Client's DSP is replaced by zone's.
 
         Args:
             zone_id: The zone's ID
-            dsp_id: The client's dsp_id
+            mac_id: The client's mac_id
 
         Returns:
-            True if client was added, False if zone not found or client already in zone
+            True if client was added, False if zone/client not found
         """
         async with self._lock:
             zone = self._zones.get(zone_id)
@@ -456,90 +547,168 @@ class ClientRegistryService:
                 self.logger.warning(f"Cannot add client: zone {zone_id} not found")
                 return False
 
-            if dsp_id not in self._clients:
-                self.logger.warning(f"Cannot add client: {dsp_id} not found")
+            client = self._clients.get(mac_id)
+            if not client:
+                self.logger.warning(f"Cannot add client: {mac_id} not found")
                 return False
 
-            if dsp_id in zone.client_ids:
+            if mac_id in zone.client_ids:
                 return False  # Already in zone
 
-            zone.client_ids.append(dsp_id)
+            # Remove from current zone if in one
+            if client.zone_id and client.zone_id in self._zones:
+                old_zone = self._zones[client.zone_id]
+                if mac_id in old_zone.client_ids:
+                    old_zone.client_ids.remove(mac_id)
 
-        # Persist to settings
-        await self._persist_zones()
+            zone.client_ids.append(mac_id)
+            client.zone_id = zone_id
 
-        await self._emit_event(RegistryEventType.ZONE_CLIENT_ADDED, {
+            # Remove standalone DSP (client now uses zone's DSP)
+            if mac_id in self._standalone_dsp:
+                del self._standalone_dsp[mac_id]
+
+        await self._persist_state()
+        await self._emit_event(RegistryEventType.ZONE_UPDATED, {
             "zone_id": zone_id,
-            "dsp_id": dsp_id
+            "zone": self.zone_to_enriched_dict(zone)
         })
 
-        self.logger.info(f"Client {dsp_id} added to zone {zone_id}")
+        self.logger.info(f"Client {mac_id} added to zone {zone_id}")
         return True
 
-    async def remove_client_from_zone(self, zone_id: str, dsp_id: str) -> bool:
+    async def remove_client_from_zone(self, zone_id: str, mac_id: str) -> bool:
         """
-        Remove a client from a zone.
+        Remove a client from a zone. Client keeps current DSP as standalone.
+
+        If zone has less than 2 clients after removal, zone is deleted.
 
         Args:
             zone_id: The zone's ID
-            dsp_id: The client's dsp_id
+            mac_id: The client's mac_id
 
         Returns:
             True if client was removed, False if not found
         """
+        zone_deleted = False
+
         async with self._lock:
             zone = self._zones.get(zone_id)
             if not zone:
                 return False
 
-            if dsp_id not in zone.client_ids:
+            if mac_id not in zone.client_ids:
                 return False
 
-            zone.client_ids.remove(dsp_id)
+            # Client keeps zone DSP as standalone
+            client = self._clients.get(mac_id)
+            if client:
+                client.zone_id = None
+                self._standalone_dsp[mac_id] = DspSettings.from_dict(
+                    zone.dsp_settings.to_dict()
+                )
 
-        # Persist to settings
-        await self._persist_zones()
+            zone.client_ids.remove(mac_id)
 
-        await self._emit_event(RegistryEventType.ZONE_CLIENT_REMOVED, {
-            "zone_id": zone_id,
-            "dsp_id": dsp_id
-        })
+            # Delete zone if less than 2 clients
+            if not zone.is_valid():
+                zone_deleted = True
+                zone_dict = self.zone_to_enriched_dict(zone)
+                # Remaining clients also become standalone
+                for remaining_mac_id in zone.client_ids:
+                    if remaining_mac_id in self._clients:
+                        self._clients[remaining_mac_id].zone_id = None
+                        self._standalone_dsp[remaining_mac_id] = DspSettings.from_dict(
+                            zone.dsp_settings.to_dict()
+                        )
+                del self._zones[zone_id]
 
-        self.logger.info(f"Client {dsp_id} removed from zone {zone_id}")
+        await self._persist_state()
+
+        if zone_deleted:
+            await self._emit_event(RegistryEventType.ZONE_DELETED, {
+                "zone_id": zone_id,
+                "zone": zone_dict
+            })
+            self.logger.info(f"Zone {zone_id} deleted (less than 2 clients)")
+        else:
+            await self._emit_event(RegistryEventType.ZONE_UPDATED, {
+                "zone_id": zone_id,
+                "zone": self.zone_to_enriched_dict(zone)
+            })
+
+        self.logger.info(f"Client {mac_id} removed from zone {zone_id}")
         return True
 
     async def set_zone_clients(self, zone_id: str, client_ids: List[str]) -> Optional[Zone]:
         """
         Set the complete client list for a zone.
 
+        Replaces all zone members in one operation. Handles DSP transitions:
+        - Clients leaving zone keep zone DSP as standalone
+        - Clients joining zone have standalone DSP cleared
+
         Args:
-            zone_id: The zone's ID
-            client_ids: New list of client dsp_ids
+            zone_id: The zone ID to update
+            client_ids: Complete list of client mac_ids for the zone
 
         Returns:
-            The updated zone or None if not found
+            Updated zone or None if zone not found
+
+        Raises:
+            ValueError: If fewer than 2 clients or any client not found
         """
         async with self._lock:
             zone = self._zones.get(zone_id)
             if not zone:
                 return None
 
+            # Validate minimum clients
+            if len(client_ids) < 2:
+                raise ValueError("Zone requires at least 2 clients")
+
             # Validate all clients exist
-            for cid in client_ids:
-                if cid not in self._clients:
-                    raise ValueError(f"Client {cid} not found")
+            for mac_id in client_ids:
+                if mac_id not in self._clients:
+                    raise ValueError(f"Client {mac_id} not found")
 
-            zone.client_ids = client_ids.copy()
-            zone_dict = zone.to_dict()
+            # Determine clients leaving and joining
+            old_client_ids = set(zone.client_ids)
+            new_client_ids = set(client_ids)
+            leaving = old_client_ids - new_client_ids
+            joining = new_client_ids - old_client_ids
 
-        # Persist to settings
+            # Handle clients leaving zone - keep DSP as standalone
+            for mac_id in leaving:
+                if mac_id in self._clients:
+                    self._clients[mac_id].zone_id = None
+                    self._standalone_dsp[mac_id] = DspSettings.from_dict(
+                        zone.dsp_settings.to_dict()
+                    )
+
+            # Handle clients joining zone - DSP replaced by zone's
+            for mac_id in joining:
+                if mac_id in self._clients:
+                    self._clients[mac_id].zone_id = zone_id
+                    # Clear standalone DSP (zone takes over)
+                    self._standalone_dsp.pop(mac_id, None)
+
+            # Update zone
+            zone.client_ids = client_ids
+            zone_dict = self.zone_to_enriched_dict(zone)
+
+        # Persist all changes
         await self._persist_zones()
+        await self._persist_clients()
+        await self._persist_standalone_dsp()
 
+        # Emit event
         await self._emit_event(RegistryEventType.ZONE_UPDATED, {
             "zone_id": zone_id,
             "zone": zone_dict
         })
 
+        self.logger.info(f"Zone {zone_id} clients updated: {client_ids}")
         return zone
 
     # === ZONE QUERIES ===
@@ -552,51 +721,343 @@ class ClientRegistryService:
         """Get all zones."""
         return self._zones.copy()
 
-    def get_zone_for_client(self, dsp_id: str) -> Optional[Zone]:
+    def get_zone_for_client(self, mac_id: str) -> Optional[Zone]:
         """Get the zone a client belongs to, if any."""
-        for zone in self._zones.values():
-            if dsp_id in zone.client_ids:
-                return zone
+        client = self._clients.get(mac_id)
+        if client and client.zone_id:
+            return self._zones.get(client.zone_id)
         return None
 
-    def get_zone_clients(self, zone_id: str) -> List[RegisteredClient]:
+    def get_zone_clients(self, zone_id: str) -> List[Client]:
         """Get all clients in a zone."""
         zone = self._zones.get(zone_id)
         if not zone:
             return []
         return [self._clients[cid] for cid in zone.client_ids if cid in self._clients]
 
-    def get_available_zone_clients(self, zone_id: str) -> List[RegisteredClient]:
-        """Get only available clients in a zone."""
+    def get_online_zone_clients(self, zone_id: str) -> List[Client]:
+        """Get only online clients in a zone."""
         zone = self._zones.get(zone_id)
         if not zone:
             return []
         return [
             self._clients[cid]
             for cid in zone.client_ids
-            if cid in self._clients and self._clients[cid].available
+            if cid in self._clients and self._clients[cid].online
         ]
 
-    def has_available_subwoofer(self, zone_id: str) -> bool:
-        """Check if zone has an available subwoofer."""
-        clients = self.get_available_zone_clients(zone_id)
+    def has_online_subwoofer(self, zone_id: str) -> bool:
+        """Check if zone has an online subwoofer."""
+        clients = self.get_online_zone_clients(zone_id)
         return any(c.speaker_type == 'subwoofer' for c in clients)
 
-    def zone_to_enriched_dict(self, zone: Zone) -> Dict[str, Any]:
+    def get_other_online_zone_clients(self, mac_id: str) -> List[Client]:
         """
-        Convert zone to dict with computed crossover_enabled.
+        Get online clients in the same zone, excluding the specified client.
 
-        The crossover_enabled field is computed dynamically based on whether
-        the zone has an available subwoofer, rather than using the stored value.
+        Used for IN_ZONE reconnection context detection (FR7, FR8).
+
+        Args:
+            mac_id: The client's mac_id to exclude from results
+
+        Returns:
+            List of online zone members excluding the specified client.
+            Empty list if client is not in a zone or no other members online.
         """
-        data = zone.to_dict()
-        # Override stored crossover_enabled with computed value
-        data["crossover_enabled"] = self.has_available_subwoofer(zone.id)
-        return data
+        client = self._clients.get(mac_id)
+        if not client or not client.zone_id:
+            return []
+
+        zone = self._zones.get(client.zone_id)
+        if not zone:
+            return []
+
+        return [
+            self._clients[cid]
+            for cid in zone.client_ids
+            if cid != mac_id and cid in self._clients and self._clients[cid].online
+        ]
+
+    def get_other_online_clients(self, mac_id: str) -> List[Client]:
+        """
+        Get all online clients globally, excluding the specified client.
+
+        Used for STANDALONE reconnection context detection (FR9, FR10).
+
+        Args:
+            mac_id: The client's mac_id to exclude from results
+
+        Returns:
+            List of all online clients excluding the specified client.
+        """
+        return [
+            c for c in self._clients.values()
+            if c.mac_id != mac_id and c.online
+        ]
+
+    def get_reconnection_context(self, mac_id: str) -> ReconnectionContext:
+        """
+        Determine the reconnection context for a client.
+
+        This is the first step of the reconnection sync process. The context
+        determines which volume and DSP sources to use when syncing a
+        reconnecting client.
+
+        The 4 possible contexts are:
+        - IN_ZONE_OTHERS_ONLINE (FR7): Client in zone, other zone members online
+        - IN_ZONE_ALL_OFFLINE (FR8): Client in zone, all other zone members offline
+        - STANDALONE_OTHERS_ONLINE (FR9): Standalone client, other clients online
+        - STANDALONE_ALONE (FR10): Standalone client, no other clients online
+
+        Args:
+            mac_id: The reconnecting client's mac_id
+
+        Returns:
+            One of the 4 ReconnectionContext enum values
+        """
+        client = self._clients.get(mac_id)
+
+        if not client:
+            # Unknown client - treat as standalone alone (safest default)
+            self.logger.warning(f"Unknown client {mac_id} - treating as STANDALONE_ALONE")
+            return ReconnectionContext.STANDALONE_ALONE
+
+        if client.zone_id:
+            # Client is in a zone - check for other online zone members
+            other_online_zone_clients = self.get_other_online_zone_clients(mac_id)
+
+            if other_online_zone_clients:
+                # FR7: Other zone members are online
+                self.logger.debug(
+                    f"Client {mac_id} reconnection context: IN_ZONE_OTHERS_ONLINE "
+                    f"({len(other_online_zone_clients)} other zone members online)"
+                )
+                return ReconnectionContext.IN_ZONE_OTHERS_ONLINE
+            else:
+                # FR8: All other zone members are offline
+                self.logger.debug(
+                    f"Client {mac_id} reconnection context: IN_ZONE_ALL_OFFLINE "
+                    f"(no other zone members online)"
+                )
+                return ReconnectionContext.IN_ZONE_ALL_OFFLINE
+
+        # Client is standalone - check for any other online clients globally
+        other_online_clients = self.get_other_online_clients(mac_id)
+
+        if other_online_clients:
+            # FR9: Other clients are online globally
+            self.logger.debug(
+                f"Client {mac_id} reconnection context: STANDALONE_OTHERS_ONLINE "
+                f"({len(other_online_clients)} other clients online)"
+            )
+            return ReconnectionContext.STANDALONE_OTHERS_ONLINE
+        else:
+            # FR10: No other clients online - this is the first/only client
+            self.logger.debug(
+                f"Client {mac_id} reconnection context: STANDALONE_ALONE "
+                f"(no other clients online)"
+            )
+            return ReconnectionContext.STANDALONE_ALONE
+
+    def get_zone_average_volume(
+        self,
+        zone_id: str,
+        exclude_mac_id: Optional[str] = None
+    ) -> Optional[float]:
+        """
+        Calculate average volume of ONLINE zone clients.
+
+        Used for IN_ZONE_OTHERS_ONLINE reconnection sync (FR7).
+        Only includes clients that are currently ONLINE.
+
+        Args:
+            zone_id: The zone ID
+            exclude_mac_id: Client to exclude (typically the reconnecting client)
+
+        Returns:
+            Average volume in dB, or None if no ONLINE clients
+        """
+        zone = self._zones.get(zone_id)
+        if not zone:
+            return None
+
+        online_volumes = []
+        for mac_id in zone.client_ids:
+            if mac_id == exclude_mac_id:
+                continue
+            client = self._clients.get(mac_id)
+            if client and client.online:
+                online_volumes.append(client.volume_db)
+
+        if not online_volumes:
+            return None
+
+        return sum(online_volumes) / len(online_volumes)
+
+    def get_global_average_volume(
+        self,
+        exclude_mac_id: Optional[str] = None
+    ) -> Optional[float]:
+        """
+        Calculate average volume of ALL ONLINE clients globally.
+
+        Used for STANDALONE_OTHERS_ONLINE reconnection sync (FR9).
+        Includes all online clients regardless of zone membership.
+
+        Args:
+            exclude_mac_id: Client to exclude (typically the reconnecting client)
+
+        Returns:
+            Average volume in dB, or None if no ONLINE clients
+        """
+        online_volumes = []
+        for mac_id, client in self._clients.items():
+            if mac_id == exclude_mac_id:
+                continue
+            if client.online:
+                online_volumes.append(client.volume_db)
+
+        if not online_volumes:
+            return None
+
+        return sum(online_volumes) / len(online_volumes)
 
     def get_zone_ids(self) -> List[str]:
         """Get list of all zone IDs."""
         return list(self._zones.keys())
+
+    def zone_to_enriched_dict(self, zone: Zone) -> Dict[str, Any]:
+        """
+        Convert zone to dict with computed fields for API responses.
+
+        Adds online_client_count, has_subwoofer, and crossover_enabled
+        computed fields to the base zone dict.
+
+        Args:
+            zone: The zone to convert
+
+        Returns:
+            Zone dict with computed fields
+        """
+        base = zone.to_dict()
+
+        # Compute derived fields
+        online_count = 0
+        has_subwoofer = False
+
+        for mac_id in zone.client_ids:
+            client = self._clients.get(mac_id)
+            if client:
+                if client.online:
+                    online_count += 1
+                if client.speaker_type == 'subwoofer':
+                    has_subwoofer = True
+
+        base['online_client_count'] = online_count
+        base['has_subwoofer'] = has_subwoofer
+        # Crossover is enabled when: zone.crossover_enabled is explicitly True,
+        # OR when it's None (auto) and there's an online subwoofer in the zone
+        if zone.crossover_enabled is not None:
+            # Explicit setting takes precedence, but still requires subwoofer to be effective
+            base['crossover_enabled'] = zone.crossover_enabled and has_subwoofer
+        else:
+            # Auto mode: enable when there's an online subwoofer
+            base['crossover_enabled'] = has_subwoofer and online_count > 0
+
+        return base
+
+    # === STANDALONE DSP MANAGEMENT ===
+
+    def get_standalone_dsp(self, mac_id: str) -> Optional[DspSettings]:
+        """Get standalone DSP settings for a client."""
+        return self._standalone_dsp.get(mac_id)
+
+    async def set_standalone_dsp(self, mac_id: str, settings: DspSettings) -> None:
+        """
+        Set standalone DSP settings for a client.
+
+        Args:
+            mac_id: The client's mac_id
+            settings: DSP settings to store
+        """
+        async with self._lock:
+            client = self._clients.get(mac_id)
+            if not client:
+                self.logger.warning(f"Cannot set DSP: client {mac_id} not found")
+                return
+
+            if client.zone_id:
+                self.logger.warning(f"Client {mac_id} is in zone, use zone DSP instead")
+                return
+
+            self._standalone_dsp[mac_id] = settings
+
+        await self._persist_standalone_dsp()
+        # AC3: DSP events include target_type, target_id, and dsp_settings
+        await self._emit_event(RegistryEventType.DSP_SETTINGS_CHANGED, {
+            "target_type": "client",
+            "target_id": mac_id,
+            "dsp_settings": settings.to_dict(),
+            # Backward compatibility fields
+            "mac_id": mac_id,
+            "settings": settings.to_dict()
+        })
+
+    def get_client_dsp_settings(self, mac_id: str) -> Optional[DspSettings]:
+        """
+        Get DSP settings for a client (from zone or standalone).
+
+        Args:
+            mac_id: The client's mac_id
+
+        Returns:
+            DSP settings or None if not found
+        """
+        client = self._clients.get(mac_id)
+        if not client:
+            return None
+
+        # If in zone, return zone's DSP
+        if client.zone_id:
+            zone = self._zones.get(client.zone_id)
+            if zone:
+                return zone.dsp_settings
+
+        # Otherwise return standalone DSP
+        return self._standalone_dsp.get(mac_id)
+
+    async def set_zone_dsp(self, zone_id: str, settings: DspSettings) -> bool:
+        """
+        Set DSP settings for a zone.
+
+        Updates zone.dsp_settings and persists to settings.json.
+
+        Args:
+            zone_id: The zone's ID
+            settings: DSP settings to store
+
+        Returns:
+            True if successful, False if zone not found
+        """
+        async with self._lock:
+            zone = self._zones.get(zone_id)
+            if not zone:
+                self.logger.warning(f"Cannot set DSP: zone {zone_id} not found")
+                return False
+
+            zone.dsp_settings = settings
+
+        await self._persist_zones()
+        # AC3: DSP events include target_type, target_id, and dsp_settings
+        await self._emit_event(RegistryEventType.DSP_SETTINGS_CHANGED, {
+            "target_type": "zone",
+            "target_id": zone_id,
+            "dsp_settings": settings.to_dict(),
+            # Backward compatibility fields
+            "zone_id": zone_id,
+            "settings": settings.to_dict()
+        })
+        return True
 
     # === STATE SNAPSHOT ===
 
@@ -604,14 +1065,16 @@ class ClientRegistryService:
         """Get complete registry state snapshot."""
         return RegistryState(
             clients=self._clients.copy(),
-            zones=self._zones.copy()
+            zones=self._zones.copy(),
+            standalone_dsp=self._standalone_dsp.copy()
         )
 
     def get_state_dict(self) -> Dict[str, Any]:
         """Get complete registry state as dictionary."""
         return {
             "clients": {k: v.to_dict() for k, v in self._clients.items()},
-            "zones": {k: self.zone_to_enriched_dict(v) for k, v in self._zones.items()}
+            "zones": {k: v.to_dict() for k, v in self._zones.items()},
+            "standalone_dsp": {k: v.to_dict() for k, v in self._standalone_dsp.items()}
         }
 
     # === EVENT SYSTEM ===
@@ -625,15 +1088,65 @@ class ClientRegistryService:
         if callback in self._subscribers:
             self._subscribers.remove(callback)
 
+    def _map_event_type(self, event_type: str) -> str:
+        """
+        Map registry event types to standardized multiroom event types.
+
+        This mapping aligns with the architecture spec for WebSocket events:
+        - Client events → client_state_changed
+        - Zone events → zone_changed
+        - DSP events → dsp_changed
+        """
+        client_events = {
+            RegistryEventType.CLIENT_CONNECTED,
+            RegistryEventType.CLIENT_DISCONNECTED,
+            RegistryEventType.CLIENT_UPDATED,
+            RegistryEventType.SPEAKER_TYPE_CHANGED,
+            RegistryEventType.VOLUME_CHANGED,
+        }
+        zone_events = {
+            RegistryEventType.ZONE_CREATED,
+            RegistryEventType.ZONE_UPDATED,
+            RegistryEventType.ZONE_DELETED,
+        }
+        dsp_events = {
+            RegistryEventType.DSP_SETTINGS_CHANGED,
+        }
+
+        if event_type in client_events:
+            return "client_state_changed"
+        elif event_type in zone_events:
+            return "zone_changed"
+        elif event_type in dsp_events:
+            return "dsp_changed"
+        else:
+            # Fallback: use original event type in snake_case
+            return event_type.lower()
+
     async def _emit_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Emit event to all subscribers and broadcast via WebSocket."""
+        """
+        Emit event to all subscribers and broadcast via WebSocket.
+
+        Broadcasts in the new standardized "multiroom" category format
+        while maintaining backward compatibility with "registry" category
+        during the transition period (Story 6.1 → 6.2).
+        """
         # Broadcast via state machine (WebSocket to frontend)
         if self._state_machine:
+            # New format (architecture spec) - category "multiroom"
+            mapped_type = self._map_event_type(event_type)
+            await self._state_machine.broadcast_event("multiroom", mapped_type, data)
+
+            # Old format (backward compatibility - remove in Story 6.2)
             await self._state_machine.broadcast_event("registry", event_type, data)
 
-        # Emit via EventBus
+        # Emit via EventBus (both old and new patterns)
         if self.event_bus:
-            await self.event_bus.emit(f"multiroom.{event_type}", data)
+            # New pattern for internal services
+            mapped_type = self._map_event_type(event_type)
+            await self.event_bus.emit(f"multiroom.{mapped_type}", data)
+            # Old pattern for backward compatibility
+            await self.event_bus.emit(f"registry.{event_type}", data)
 
         # Notify local subscribers
         for callback in self._subscribers:
@@ -644,58 +1157,154 @@ class ClientRegistryService:
 
     # === PERSISTENCE ===
 
+    async def _load_persisted_state(self) -> None:
+        """Load state from settings.json."""
+        if not self._settings_service:
+            return
+
+        try:
+            # Load clients
+            clients_data = await self._settings_service.get_setting("multiroom.clients")
+            if clients_data:
+                for mac_id, client_data in clients_data.items():
+                    client_data["mac_id"] = mac_id  # Ensure mac_id is set
+                    client = Client.from_dict(client_data)
+                    client.online = False  # Always start offline until Snapcast confirms
+                    self._clients[mac_id] = client
+                self.logger.info(f"Loaded {len(self._clients)} clients from settings")
+
+            # Load zones
+            zones_data = await self._settings_service.get_setting("multiroom.zones")
+            if zones_data:
+                for zone_id, zone_data in zones_data.items():
+                    zone_data["id"] = zone_id  # Ensure id is set
+                    zone = Zone.from_dict(zone_data)
+                    self._zones[zone_id] = zone
+                self.logger.info(f"Loaded {len(self._zones)} zones from settings")
+
+            # Load standalone DSP
+            standalone_data = await self._settings_service.get_setting("multiroom.standalone_dsp")
+            if standalone_data:
+                for mac_id, dsp_data in standalone_data.items():
+                    self._standalone_dsp[mac_id] = DspSettings.from_dict(dsp_data)
+                self.logger.info(f"Loaded {len(self._standalone_dsp)} standalone DSP configs")
+
+        except Exception as e:
+            self.logger.error(f"Failed to load persisted state: {e}")
+
+    async def _persist_state(self) -> None:
+        """Persist all state to settings."""
+        await self._persist_clients()
+        await self._persist_zones()
+        await self._persist_standalone_dsp()
+
+    async def _persist_clients(self) -> None:
+        """Save client configuration to settings."""
+        if not self._settings_service:
+            return
+
+        try:
+            # Only persist non-runtime fields (exclude online status)
+            clients_data = {}
+            for mac_id, client in self._clients.items():
+                clients_data[mac_id] = {
+                    "mac_id": client.mac_id,
+                    "name": client.name,
+                    "ip": client.ip,
+                    "zone_id": client.zone_id,
+                    "speaker_type": client.speaker_type,
+                    "crossover_frequency": client.crossover_frequency
+                    # Note: online, volume_db, mute are runtime state, not persisted
+                }
+            await self._settings_service.set_setting("multiroom.clients", clients_data)
+        except Exception as e:
+            self.logger.error(f"Failed to persist clients: {e}")
+
     async def _persist_zones(self) -> None:
         """Save zone configuration to settings."""
         if not self._settings_service:
             return
 
         try:
-            zones_data = [zone.to_dict() for zone in self._zones.values()]
-            await self._settings_service.set_setting("multiroom.linked_groups", zones_data)
+            zones_data = {
+                zone_id: zone.to_dict()
+                for zone_id, zone in self._zones.items()
+            }
+            await self._settings_service.set_setting("multiroom.zones", zones_data)
         except Exception as e:
             self.logger.error(f"Failed to persist zones: {e}")
 
-    async def _persist_client_types(self) -> None:
-        """Save client speaker types to settings."""
+    async def _persist_standalone_dsp(self) -> None:
+        """Save standalone DSP settings to settings."""
         if not self._settings_service:
             return
 
         try:
-            client_types = {
-                dsp_id: {
-                    "type": client.speaker_type,
-                    "crossover": client.crossover_frequency
-                }
-                for dsp_id, client in self._clients.items()
+            dsp_data = {
+                mac_id: settings.to_dict()
+                for mac_id, settings in self._standalone_dsp.items()
             }
-            await self._settings_service.set_setting("multiroom.client_types", client_types)
-
-            # Update in-memory cache for future client registrations
-            self._persisted_client_types = client_types
-
+            await self._settings_service.set_setting("multiroom.standalone_dsp", dsp_data)
         except Exception as e:
-            self.logger.error(f"Failed to persist client types: {e}")
+            self.logger.error(f"Failed to persist standalone DSP: {e}")
 
     # === UTILITY ===
 
     @staticmethod
-    def compute_dsp_id(host: str, ip: str) -> str:
+    def compute_mac_id(hostname: str, ip: str) -> str:
         """
-        Compute stable dsp_id from host and IP.
-        This is the canonical method - all other code should use this.
+        Compute stable mac_id from hostname and IP.
+
+        This is the canonical method for deriving client identifiers.
+        All other code should use this method.
 
         Args:
-            host: Hostname
-            ip: IP address
+            hostname: Hostname from Snapcast
+            ip: IP address from Snapcast
 
         Returns:
-            Stable dsp_id
+            Stable mac_id ("local" for localhost, or derived from hostname/IP)
         """
         # Local snapclient (127.0.0.1) maps to "local"
         if ip == "127.0.0.1":
             return "local"
+
         # Use hostname if it looks like a valid milo-client hostname
-        if host and host.startswith("milo-client"):
-            return host
-        # Otherwise use IP (for clients without proper hostname)
-        return ip
+        if hostname and hostname.startswith("milo-client"):
+            # Create stable ID from hostname
+            return hostname
+
+        # For other clients, create a stable hash from hostname+IP
+        # This ensures the same client always gets the same ID
+        if hostname:
+            return f"{hostname}-{ip.replace('.', '-')}"
+
+        # Fallback to IP-based ID
+        return ip.replace(".", "-")
+
+    # === BACKWARD COMPATIBILITY ALIASES ===
+    # These methods provide compatibility during transition
+
+    async def update_availability(self, mac_id: str, available: bool) -> None:
+        """Deprecated: Use set_client_online() instead."""
+        await self.set_client_online(mac_id, available)
+
+    def get_available_clients(self) -> List[Client]:
+        """Deprecated: Use get_online_clients() instead."""
+        return self.get_online_clients()
+
+    def is_client_available(self, mac_id: str) -> bool:
+        """Deprecated: Use is_client_online() instead."""
+        return self.is_client_online(mac_id)
+
+    def get_available_client_ids(self) -> List[str]:
+        """Deprecated: Use get_online_client_ids() instead."""
+        return self.get_online_client_ids()
+
+    def get_available_zone_clients(self, zone_id: str) -> List[Client]:
+        """Deprecated: Use get_online_zone_clients() instead."""
+        return self.get_online_zone_clients(zone_id)
+
+    def has_available_subwoofer(self, zone_id: str) -> bool:
+        """Deprecated: Use has_online_subwoofer() instead."""
+        return self.has_online_subwoofer(zone_id)

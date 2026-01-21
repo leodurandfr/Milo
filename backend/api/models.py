@@ -1,4 +1,4 @@
-# backend/presentation/api/models.py
+# backend/api/models.py
 """
 Pydantic models for API request validation
 """
@@ -38,6 +38,16 @@ class VolumeAdjustRequest(BaseModel):
     """Volume adjustment request (in dB)"""
     delta_db: float = Field(..., ge=-60, le=60, description="Volume delta in dB")
     show_bar: bool = Field(default=True)
+
+
+class ClientVolumeRequest(BaseModel):
+    """Client volume request (in dB)"""
+    volume_db: float = Field(..., ge=-80, le=0, description="Client volume in dB")
+
+
+class ClientMuteRequest(BaseModel):
+    """Client mute request"""
+    mute: bool = Field(..., description="Mute state")
 
 
 # =============================================================================
@@ -121,6 +131,12 @@ class VolumeStartupRequest(BaseModel):
     """Volume startup configuration request (in dB)"""
     startup_volume_db: float = Field(..., ge=-80, le=0, description="Startup volume in dB")
     restore_last_volume: bool
+
+
+class VolumeSettingsPatchRequest(BaseModel):
+    """Partial update request for volume settings (AC4, AC5)"""
+    startup_volume_db: Optional[float] = Field(None, ge=-80, le=0, description="Startup volume in dB")
+    restore_last_volume: Optional[bool] = Field(None, description="Whether to restore last volume on startup")
 
 
 class VolumeStepsRequest(BaseModel):
@@ -291,6 +307,79 @@ class DspLinkedClientsRequest(BaseModel):
 
 
 # =============================================================================
+# ZONE MANAGEMENT
+# =============================================================================
+
+# Import from domain model to avoid duplication (single source of truth)
+from backend.core.multiroom.models import MAX_ZONE_NAME_LENGTH
+
+
+class ZoneCreate(BaseModel):
+    """Request model for zone creation."""
+    name: str = Field(..., min_length=1, max_length=MAX_ZONE_NAME_LENGTH)
+    client_ids: List[str] = Field(..., min_length=2)
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        stripped = v.strip()
+        # Allow only alphanumeric characters, spaces, hyphens, and common accented letters
+        import re
+        if not re.match(r'^[\w\s\-àâäéèêëïîôùûüç]+$', stripped, re.IGNORECASE | re.UNICODE):
+            raise ValueError('Zone name can only contain letters, numbers, spaces, and hyphens')
+        return stripped
+
+    @field_validator('client_ids')
+    @classmethod
+    def validate_client_ids(cls, v: List[str]) -> List[str]:
+        seen = set()
+        result = []
+        for client_id in v:
+            cleaned = client_id.strip()
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                result.append(cleaned)
+        if len(result) < 2:
+            raise ValueError('At least 2 different clients are required for a zone')
+        return result
+
+
+class ZoneUpdate(BaseModel):
+    """Request model for zone updates (PATCH operations)."""
+    name: Optional[str] = Field(None, min_length=1, max_length=MAX_ZONE_NAME_LENGTH)
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        stripped = v.strip()
+        # Allow only alphanumeric characters, spaces, hyphens, and common accented letters
+        import re
+        if not re.match(r'^[\w\s\-àâäéèêëïîôùûüç]+$', stripped, re.IGNORECASE | re.UNICODE):
+            raise ValueError('Zone name can only contain letters, numbers, spaces, and hyphens')
+        return stripped
+
+
+class ZoneResponse(BaseModel):
+    """Response model for zone data."""
+    id: str
+    name: str
+    client_ids: List[str]
+    dsp_settings: Dict[str, Any]
+
+
+class ZoneAddClient(BaseModel):
+    """Request model for adding a client to a zone."""
+    mac_id: str = Field(..., min_length=1, description="MAC address of client to add")
+
+    @field_validator('mac_id')
+    @classmethod
+    def validate_mac_id(cls, v: str) -> str:
+        return v.strip()
+
+
+# =============================================================================
 # Speaker Types / Crossover Integration
 # =============================================================================
 
@@ -317,3 +406,17 @@ class CrossoverFilterRequest(BaseModel):
     enabled: bool = Field(..., description="Enable or disable crossover highpass filter")
     frequency: float = Field(default=80.0, ge=40, le=200, description="Crossover frequency in Hz")
     q: float = Field(default=0.707, ge=0.5, le=1.5, description="Filter Q factor (0.707 = Butterworth)")
+
+
+class DspPresetRequest(BaseModel):
+    """DSP preset loading request"""
+    preset_id: str = Field(..., min_length=1, max_length=50, description="Preset ID to load")
+
+    @field_validator('preset_id')
+    @classmethod
+    def validate_preset_id(cls, v: str) -> str:
+        # Preset IDs should be alphanumeric with underscores
+        cleaned = v.strip().lower()
+        if not cleaned.replace('_', '').isalnum():
+            raise ValueError('Preset ID must contain only alphanumeric characters and underscores')
+        return cleaned

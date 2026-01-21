@@ -61,7 +61,7 @@ const zoneTabs = computed(() => {
       return [{
         label: localTarget.name,
         value: 'local',
-        disabled: !localTarget.available
+        disabled: !localTarget.online
       }];
     }
     return [];
@@ -92,7 +92,7 @@ const zoneTabs = computed(() => {
       tabs.push({
         label: zoneName,
         value: `zone:${linkedIds.join(',')}`,
-        disabled: linkedClients.some(c => !c.available),
+        disabled: linkedClients.some(c => !c.online),
         groupId: group?.id || null
       });
 
@@ -103,7 +103,7 @@ const zoneTabs = computed(() => {
       tabs.push({
         label: target.name,
         value: target.id,
-        disabled: !target.available
+        disabled: !target.online
       });
       processedIds.add(target.id);
     }

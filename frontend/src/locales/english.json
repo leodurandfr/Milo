@@ -1,4 +1,7 @@
 {
+  "app": {
+    "connectionLost": "Connection lost. Reconnecting..."
+  },
   "settings": {
     "title": "Milō Settings",
     "languages": "Languages",
@@ -65,8 +68,14 @@
       "disablePhysicalCrossover": "Set your subwoofer's physical crossover to bypass/LFE to avoid filter stacking.",
       "highpassActive": "Highpass filter active",
       "highpassDescription": "Bass frequencies below {freq} Hz are removed from this speaker and handled by the subwoofer in the zone.",
-      "crossoverFrequency": "Crossover frequency:"
-    }
+      "crossoverFrequency": "Crossover frequency:",
+      "badgeActive": "Crossover active",
+      "badgeInactive": "Crossover inactive",
+      "subwooferOffline": "Subwoofer offline"
+    },
+    "syncing": "Syncing...",
+    "syncError": "Sync error",
+    "retrySync": "Retry"
   },
   "dsp": {
     "title": "DSP equalizer",
@@ -133,6 +142,7 @@
     "loudness": {
       "title": "Loudness",
       "enable": "Enable loudness",
+      "referenceLevel": "Reference level",
       "lowBoost": "Bass boost",
       "highBoost": "Treble boost"
     },

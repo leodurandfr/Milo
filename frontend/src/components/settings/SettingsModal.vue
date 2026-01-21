@@ -144,7 +144,7 @@
           v-else-if="currentView === 'multiroom-client-edit'"
           key="multiroom-client-edit"
           class="view-content"
-          :client-id="clientIdToEdit"
+          :mac-id="macIdToEdit"
           @back="handleClientSaved"
           @saved="handleClientSaved"
         />
@@ -251,7 +251,7 @@ const stationToEdit = ref(null);
 
 // Zone/client being edited
 const zoneGroupId = ref(null);
-const clientIdToEdit = ref(null);
+const macIdToEdit = ref(null);
 
 // Dynamic header title based on current view
 const headerTitle = computed(() => {
@@ -430,8 +430,8 @@ function handleCreateZone() {
   push('multiroom-zone-edit');
 }
 
-function handleEditClient(clientId) {
-  clientIdToEdit.value = clientId;
+function handleEditClient(macId) {
+  macIdToEdit.value = macId;
   push('multiroom-client-edit');
 }
 
@@ -441,7 +441,7 @@ function handleZoneSaved() {
 }
 
 function handleClientSaved() {
-  clientIdToEdit.value = null;
+  macIdToEdit.value = null;
   back();
 }
 

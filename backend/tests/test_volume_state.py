@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 from backend.core.volume.state import VolumeStateStore, ZoneConfig
 from backend.core.models.volume_state import ClientVolume
+from backend.config.constants import DEFAULT_VOLUME_DB
 
 
 class TestVolumeStateStore:
@@ -102,7 +103,7 @@ class TestZoneTargetVolumes:
         store._compute_initial_zone_targets()
 
         # Assert: target = DEFAULT_VOLUME_DB
-        assert store._zone_target_volumes['zone_1'] == store.DEFAULT_VOLUME_DB
+        assert store._zone_target_volumes['zone_1'] == DEFAULT_VOLUME_DB
 
     def test_compute_initial_zone_targets_empty_zones(self, store):
         """No targets computed when no zones configured."""
@@ -258,3 +259,352 @@ class TestZoneTargetVolumes:
         # Assert: old target removed, new target computed
         assert 'old_zone' not in store._zone_target_volumes
         assert 'zone_1' in store._zone_target_volumes
+
+
+# ==============================================================================
+# Task 3: Unit tests for zone volume delta (Story 3.2 AC#1, #2, #3)
+# ==============================================================================
+
+
+class TestZoneVolumeDelta:
+    """Tests for zone volume delta functionality (Story 3.2)."""
+
+    @pytest.fixture
+    def mock_settings_service(self):
+        """Mock of settings service."""
+        service = Mock()
+        service.get_setting = AsyncMock(return_value=None)
+        return service
+
+    @pytest.fixture
+    def store(self, mock_settings_service):
+        """Create a VolumeStateStore instance with test data."""
+        store = VolumeStateStore(mock_settings_service)
+        # Set limits to allow full range for testing
+        store.update_user_limits(-80.0, 0.0)
+        return store
+
+    @pytest.mark.asyncio
+    async def test_zone_delta_preserves_relative_offsets(self, store):
+        """
+        AC1: Zone delta preserves relative offsets between clients.
+
+        Given clients at different volumes, when zone delta applied,
+        the difference between client volumes should be preserved.
+        """
+        # Setup: zone with clients at different volumes (5dB difference)
+        store._zones = {
+            'zone_1': ZoneConfig(
+                zone_id='zone_1',
+                name='Test Zone',
+                client_ids=['client-a', 'client-b']
+            )
+        }
+        store._clients = {
+            'client-a': ClientVolume(volume_db=-20.0, offset_db=0.0, mute=False, available=True),
+            'client-b': ClientVolume(volume_db=-25.0, offset_db=0.0, mute=False, available=True)
+        }
+
+        # Action: apply +5dB delta
+        updates = await store.apply_zone_delta('zone_1', 5.0)
+
+        # Assert: both clients moved by delta, relative difference preserved
+        assert updates['client-a'] == -15.0  # -20 + 5
+        assert updates['client-b'] == -20.0  # -25 + 5
+        # Difference is still 5dB
+        assert updates['client-a'] - updates['client-b'] == 5.0
+
+    @pytest.mark.asyncio
+    async def test_zone_delta_only_affects_online_clients(self, store):
+        """
+        AC2: Only ONLINE clients receive immediate volume change.
+
+        OFFLINE clients should not be included in the updates dict.
+        """
+        # Setup: zone with mixed ONLINE/OFFLINE clients
+        store._zones = {
+            'zone_1': ZoneConfig(
+                zone_id='zone_1',
+                name='Test Zone',
+                client_ids=['online-client', 'offline-client']
+            )
+        }
+        store._clients = {
+            'online-client': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
+            'offline-client': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=False)
+        }
+
+        # Action: apply delta
+        updates = await store.apply_zone_delta('zone_1', 3.0)
+
+        # Assert: only online client in updates
+        assert 'online-client' in updates
+        assert 'offline-client' not in updates
+        assert updates['online-client'] == -27.0  # -30 + 3
+
+    @pytest.mark.asyncio
+    async def test_zone_delta_returns_empty_when_all_offline(self, store):
+        """
+        AC2: Zone with all clients OFFLINE returns no updates.
+        """
+        # Setup: zone with all OFFLINE clients
+        store._zones = {
+            'zone_1': ZoneConfig(
+                zone_id='zone_1',
+                name='Test Zone',
+                client_ids=['client-1', 'client-2']
+            )
+        }
+        store._clients = {
+            'client-1': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=False),
+            'client-2': ClientVolume(volume_db=-25.0, offset_db=0.0, mute=False, available=False)
+        }
+
+        # Action: apply delta
+        updates = await store.apply_zone_delta('zone_1', 5.0)
+
+        # Assert: empty updates dict
+        assert updates == {}
+
+    @pytest.mark.asyncio
+    async def test_zone_delta_clamps_at_min_limit(self, store):
+        """
+        AC3: Volume clamped at minimum limit during delta application.
+        """
+        store.update_user_limits(-80.0, -21.0)
+
+        # Setup: client near minimum
+        store._zones = {
+            'zone_1': ZoneConfig(
+                zone_id='zone_1',
+                name='Test Zone',
+                client_ids=['client-a']
+            )
+        }
+        store._clients = {
+            'client-a': ClientVolume(volume_db=-75.0, offset_db=0.0, mute=False, available=True)
+        }
+
+        # Action: apply large negative delta that would exceed min
+        updates = await store.apply_zone_delta('zone_1', -10.0)
+
+        # Assert: clamped to minimum
+        assert updates['client-a'] == -80.0  # Clamped, not -85
+
+    @pytest.mark.asyncio
+    async def test_zone_delta_clamps_at_max_limit(self, store):
+        """
+        AC3: Volume clamped at maximum limit during delta application.
+        """
+        store.update_user_limits(-80.0, -21.0)
+
+        # Setup: client near maximum
+        store._zones = {
+            'zone_1': ZoneConfig(
+                zone_id='zone_1',
+                name='Test Zone',
+                client_ids=['client-a']
+            )
+        }
+        store._clients = {
+            'client-a': ClientVolume(volume_db=-25.0, offset_db=0.0, mute=False, available=True)
+        }
+
+        # Action: apply delta that would exceed max
+        updates = await store.apply_zone_delta('zone_1', 10.0)
+
+        # Assert: clamped to maximum
+        assert updates['client-a'] == -21.0  # Clamped, not -15
+
+    @pytest.mark.asyncio
+    async def test_zone_delta_raises_for_unknown_zone(self, store):
+        """
+        AC3: apply_zone_delta raises ValueError for unknown zone.
+        """
+        store._zones = {}
+
+        # Action & Assert: should raise ValueError
+        with pytest.raises(ValueError, match="Unknown zone"):
+            await store.apply_zone_delta('nonexistent_zone', 5.0)
+
+    @pytest.mark.asyncio
+    async def test_apply_zone_updates_persists_volumes(self, store):
+        """
+        AC3: apply_zone_updates updates client volumes in state.
+        """
+        # Setup: existing clients
+        store._clients = {
+            'client-a': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
+            'client-b': ClientVolume(volume_db=-35.0, offset_db=0.0, mute=False, available=True)
+        }
+
+        # Mock persist to avoid file I/O
+        store._persist_state = AsyncMock()
+
+        # Action: apply updates
+        await store.apply_zone_updates({'client-a': -25.0, 'client-b': -30.0})
+
+        # Assert: volumes updated
+        assert store._clients['client-a'].volume_db == -25.0
+        assert store._clients['client-b'].volume_db == -30.0
+        # Verify persist was called
+        store._persist_state.assert_called_once()
+
+
+# ==============================================================================
+# Task 4: Unit tests for zone average calculation (Story 3.2 AC#4)
+# ==============================================================================
+
+
+class TestZoneAverageCalculation:
+    """Tests for zone average volume calculation (Story 3.2 AC#4)."""
+
+    @pytest.fixture
+    def mock_settings_service(self):
+        """Mock of settings service."""
+        service = Mock()
+        service.get_setting = AsyncMock(return_value=None)
+        return service
+
+    @pytest.fixture
+    def store(self, mock_settings_service):
+        """Create a VolumeStateStore instance."""
+        return VolumeStateStore(mock_settings_service)
+
+    def test_zone_average_computed_from_online_clients_only(self, store):
+        """
+        AC4: Zone average computed from ONLINE clients only.
+        """
+        # Setup: zone with mixed ONLINE/OFFLINE clients
+        store._zones = {
+            'zone_1': ZoneConfig(
+                zone_id='zone_1',
+                name='Test Zone',
+                client_ids=['online-1', 'online-2', 'offline-1']
+            )
+        }
+        store._clients = {
+            'online-1': ClientVolume(volume_db=-20.0, offset_db=0.0, mute=False, available=True),
+            'online-2': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True),
+            'offline-1': ClientVolume(volume_db=-50.0, offset_db=0.0, mute=False, available=False)
+        }
+
+        # Action
+        average = store.compute_zone_average('zone_1')
+
+        # Assert: average of only online clients (-20 + -30) / 2 = -25
+        assert average == pytest.approx(-25.0, rel=1e-6)
+
+    def test_zone_average_returns_default_when_no_online_clients(self, store):
+        """
+        AC4: Zone average returns DEFAULT_VOLUME_DB when no clients ONLINE.
+        """
+        # Setup: zone with all OFFLINE clients
+        store._zones = {
+            'zone_1': ZoneConfig(
+                zone_id='zone_1',
+                name='Test Zone',
+                client_ids=['offline-1', 'offline-2']
+            )
+        }
+        store._clients = {
+            'offline-1': ClientVolume(volume_db=-20.0, offset_db=0.0, mute=False, available=False),
+            'offline-2': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=False)
+        }
+
+        # Action
+        average = store.compute_zone_average('zone_1')
+
+        # Assert: returns default volume
+        assert average == DEFAULT_VOLUME_DB
+
+    def test_zone_average_returns_default_for_unknown_zone(self, store):
+        """
+        AC4: Zone average returns DEFAULT_VOLUME_DB for unknown zone.
+        """
+        store._zones = {}
+
+        # Action
+        average = store.compute_zone_average('nonexistent')
+
+        # Assert: returns default
+        assert average == DEFAULT_VOLUME_DB
+
+    def test_zone_average_single_online_client(self, store):
+        """
+        AC4: Zone average equals client volume when only one client online.
+        """
+        # Setup: single online client
+        store._zones = {
+            'zone_1': ZoneConfig(
+                zone_id='zone_1',
+                name='Test Zone',
+                client_ids=['client-1']
+            )
+        }
+        store._clients = {
+            'client-1': ClientVolume(volume_db=-35.0, offset_db=0.0, mute=False, available=True)
+        }
+
+        # Action
+        average = store.compute_zone_average('zone_1')
+
+        # Assert: equals client's volume
+        assert average == -35.0
+
+    @pytest.mark.asyncio
+    async def test_zone_average_updates_after_client_volume_change(self, store):
+        """
+        AC4: Zone average updates after client volume change.
+        """
+        # Setup: set limits to allow full range for testing
+        store.update_user_limits(-80.0, 0.0)
+
+        # Setup: zone with clients
+        store._zones = {
+            'zone_1': ZoneConfig(
+                zone_id='zone_1',
+                name='Test Zone',
+                client_ids=['client-1', 'client-2']
+            )
+        }
+        store._clients = {
+            'client-1': ClientVolume(volume_db=-20.0, offset_db=0.0, mute=False, available=True),
+            'client-2': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True)
+        }
+
+        # Verify initial average
+        assert store.compute_zone_average('zone_1') == pytest.approx(-25.0, rel=1e-6)
+
+        # Mock persist to avoid file I/O
+        store._persist_state = AsyncMock()
+
+        # Action: change client-1 volume
+        await store.set_client_volume('client-1', -10.0)
+
+        # Assert: average updated
+        # New average: (-10 + -30) / 2 = -20
+        assert store.compute_zone_average('zone_1') == pytest.approx(-20.0, rel=1e-6)
+
+    def test_zone_average_includes_muted_clients(self, store):
+        """
+        AC4: Zone average includes muted clients (volume still counts).
+        """
+        # Setup: zone with muted client
+        store._zones = {
+            'zone_1': ZoneConfig(
+                zone_id='zone_1',
+                name='Test Zone',
+                client_ids=['muted-client', 'normal-client']
+            )
+        }
+        store._clients = {
+            'muted-client': ClientVolume(volume_db=-20.0, offset_db=0.0, mute=True, available=True),
+            'normal-client': ClientVolume(volume_db=-30.0, offset_db=0.0, mute=False, available=True)
+        }
+
+        # Action
+        average = store.compute_zone_average('zone_1')
+
+        # Assert: muted client's volume is included
+        assert average == pytest.approx(-25.0, rel=1e-6)

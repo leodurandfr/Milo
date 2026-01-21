@@ -93,7 +93,7 @@ const config = ref({
   step_rotary_db: 2.0,
   limits: { min: -80.0, max: -21.0 },
   restore_last_volume: false,
-  startup_volume_db: -30.0
+  startup_volume_db: -60.0
 });
 
 // Startup mode options for ButtonGroup
