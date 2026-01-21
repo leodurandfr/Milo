@@ -118,6 +118,19 @@ class VolumeStateStore:
         registry.subscribe(self._handle_registry_event)
         self.logger.info("VolumeStateStore subscribed to ClientRegistryService events")
 
+    def _get_local_mac_id(self) -> Optional[str]:
+        """
+        Get local client's mac_id from registry.
+
+        Returns:
+            Local client's mac_id, or None if registry not available
+        """
+        if self._registry:
+            local_client = self._registry.get_local_client()
+            if local_client:
+                return local_client.mac_id
+        return None
+
     async def _handle_registry_event(self, event_type: str, data: dict) -> None:
         """Handle events from ClientRegistryService."""
         from backend.core.multiroom.models import RegistryEventType
@@ -139,10 +152,21 @@ class VolumeStateStore:
                     await self.set_client_availability(mac_id, True)
 
         elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
-            # Handle client disconnected - update availability
+            # Handle client disconnected - check if deleted or just offline
             mac_id = data.get("mac_id")
             if mac_id and mac_id in self._clients:
-                await self.set_client_availability(mac_id, False)
+                # Check if client was deleted from registry (vs just went offline)
+                client_still_exists = self._registry and self._registry.get_client(mac_id) is not None
+
+                if client_still_exists:
+                    # Client just went offline temporarily - keep volume state
+                    await self.set_client_availability(mac_id, False)
+                else:
+                    # Client was deleted from registry - remove from volume state
+                    async with self._lock:
+                        del self._clients[mac_id]
+                        await self._persist_state()
+                    self.logger.info(f"Deleted client {mac_id} from volume state")
 
         elif event_type == RegistryEventType.CLIENT_UPDATED:
             # Handle client updated - sync client state
@@ -271,15 +295,19 @@ class VolumeStateStore:
         """
         volume_db = self._clamp_db(volume_db)
         self._local_volume_db = volume_db
-        if 'local' in self._clients:
-            self._clients['local'].volume_db = volume_db
-        else:
-            self._clients['local'] = ClientVolume(
-                volume_db=volume_db,
-                offset_db=0.0,
-                mute=False,
-                available=True
-            )
+
+        # Use mac_id as key for consistency with multiroom clients
+        local_mac_id = self._get_local_mac_id()
+        if local_mac_id:
+            if local_mac_id in self._clients:
+                self._clients[local_mac_id].volume_db = volume_db
+            else:
+                self._clients[local_mac_id] = ClientVolume(
+                    volume_db=volume_db,
+                    offset_db=0.0,
+                    mute=False,
+                    available=True
+                )
 
     def save_local_volume(self, enabled: bool = True) -> None:
         """
@@ -711,7 +739,8 @@ class VolumeStateStore:
             # - Direct mode: use local client's volume
             # - Multiroom mode: average of all available, unmuted clients
             if self._mode == "direct":
-                local_client = self._clients.get('local')
+                local_mac_id = self._get_local_mac_id()
+                local_client = self._clients.get(local_mac_id) if local_mac_id else None
                 if local_client and local_client.available:
                     global_volume = local_client.volume_db
                 else:

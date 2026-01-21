@@ -252,7 +252,7 @@ const displayClients = computed(() => {
               if (!c) return null;
 
               return {
-                id: c.id,
+                id: macId,  // Use macId directly (c.id may be unreliable)
                 mac_id: macId,
                 name: c.name,
                 dspVolume: dspStore.getClientDspVolume(macId),
@@ -334,11 +334,11 @@ const displayClients = computed(() => {
 });
 
 // === HANDLERS ===
-async function handleVolumeChange(clientId, volumeDb, options = {}) {
+async function handleVolumeChange(clientMacId, volumeDb, options = {}) {
   const { isZone = false } = options;
 
-  // Volume is always in dB, find client and update DSP volume
-  const client = multiroomStore.clients.find(c => c.id === clientId);
+  // Find client by mac_id (unique identifier for all clients)
+  const client = multiroomStore.clients.find(c => c.mac_id === clientMacId);
   if (!client) return;
 
   // Use explicit isZone flag instead of recalculating zone membership
@@ -369,10 +369,11 @@ async function handleVolumeChange(clientId, volumeDb, options = {}) {
   }
 }
 
-async function handleMuteToggle(clientId, muted, options = {}) {
+async function handleMuteToggle(clientMacId, muted, options = {}) {
   const { isZone = false } = options;
 
-  const client = multiroomStore.clients.find(c => c.id === clientId);
+  // Find client by mac_id (unique identifier for all clients)
+  const client = multiroomStore.clients.find(c => c.mac_id === clientMacId);
   if (!client) return;
 
   // Use explicit isZone flag instead of recalculating zone membership
@@ -524,7 +525,7 @@ watch(isMultiroomActive, (newValue, oldValue) => {
 // Save display cache when real clients are loaded (for zone-aware skeleton on next load)
 watch(displayClients, (newClients) => {
   // Only save when we have real data (not placeholders) and not in loading state
-  if (!shouldShowLoading.value && newClients.length > 0 && !newClients[0].id?.startsWith('placeholder-')) {
+  if (!shouldShowLoading.value && newClients.length > 0 && newClients[0].mac_id) {
     multiroomStore.saveDisplayCache(newClients);
   }
 }, { deep: true });
