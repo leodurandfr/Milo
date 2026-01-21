@@ -61,6 +61,7 @@ class WebSocketSingleton {
     this.lastPingTime = Date.now();
     this.pingCheckInterval = null;
     this.reconnectCallbacks = new Set();
+    this.visibilityChangeCallbacks = new Set();
     this.reconnectAttempts = 0;
     this.maxReconnectDelay = 30000; // Max 30 seconds
   }
@@ -185,6 +186,7 @@ class WebSocketSingleton {
       if (!document.hidden && this.socket?.readyState === WebSocket.OPEN) {
         this.socket.send(JSON.stringify({ type: "ready" }));
         logger.debug('websocket', 'Tab visible - state refresh requested');
+        this.notifyVisibilityChange();
       }
     };
 
@@ -238,6 +240,23 @@ class WebSocketSingleton {
     return () => {
       this.reconnectCallbacks.delete(callback);
     };
+  }
+
+  onVisibilityChange(callback) {
+    this.visibilityChangeCallbacks.add(callback);
+    return () => {
+      this.visibilityChangeCallbacks.delete(callback);
+    };
+  }
+
+  notifyVisibilityChange() {
+    this.visibilityChangeCallbacks.forEach(callback => {
+      try {
+        callback();
+      } catch (error) {
+        logger.error('websocket', 'Visibility callback error', { error: error.message });
+      }
+    });
   }
 
   handleMessage(message) {
@@ -342,10 +361,17 @@ export default function useWebSocket() {
     return cleanup;
   }
 
+  function onVisibilityChange(callback) {
+    const cleanup = wsInstance.onVisibilityChange(callback);
+    cleanupFunctions.push(cleanup);
+    return cleanup;
+  }
+
   return {
     isConnected: computed(() => wsInstance.isConnected.value),
     on,
-    onReconnect
+    onReconnect,
+    onVisibilityChange
   };
 }
 

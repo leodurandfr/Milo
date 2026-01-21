@@ -64,7 +64,7 @@ const podcastStore = usePodcastStore();
 const settingsStore = useSettingsStore();
 const clientRegistryStore = useClientRegistryStore();
 const dspStore = useDspStore();
-const { on, onReconnect, isConnected } = useWebSocket();
+const { on, onReconnect, onVisibilityChange, isConnected } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
 
 // Enable screen activity detection (touch, mouse, keyboard)
@@ -163,6 +163,11 @@ onMounted(async () => {
       // Refresh registry state on reconnect (AC3: State Resync)
       clientRegistryStore.fetchState();
       // Refresh DSP state for current target
+      dspStore.loadStatus();
+    }),
+    onVisibilityChange(() => {
+      // Refresh stores when tab becomes visible (fixes stale data after background)
+      clientRegistryStore.fetchState();
       dspStore.loadStatus();
     })
   );
