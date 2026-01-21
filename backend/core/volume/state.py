@@ -122,21 +122,37 @@ class VolumeStateStore:
         """Handle events from ClientRegistryService."""
         from backend.core.multiroom.models import RegistryEventType
 
-        if event_type == RegistryEventType.AVAILABILITY_CHANGED:
-            dsp_id = data.get("dsp_id")
-            available = data.get("available")
-            if dsp_id is not None and available is not None:
-                await self.set_client_availability(dsp_id, available)
-
-        elif event_type == RegistryEventType.CLIENT_REGISTERED:
-            # Auto-register client in volume state if not exists
+        if event_type == RegistryEventType.CLIENT_CONNECTED:
+            # Handle client connected - register if new or update availability
+            mac_id = data.get("mac_id")
             client_data = data.get("client", {})
-            dsp_id = client_data.get("dsp_id")
-            if dsp_id and dsp_id not in self._clients:
+            if mac_id:
+                if mac_id not in self._clients:
+                    # Auto-register new client in volume state
+                    await self.register_client(
+                        mac_id,
+                        volume_db=None,  # Use default
+                        available=True
+                    )
+                else:
+                    # Update existing client to online
+                    await self.set_client_availability(mac_id, True)
+
+        elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
+            # Handle client disconnected - update availability
+            mac_id = data.get("mac_id")
+            if mac_id and mac_id in self._clients:
+                await self.set_client_availability(mac_id, False)
+
+        elif event_type == RegistryEventType.CLIENT_UPDATED:
+            # Handle client updated - sync client state
+            mac_id = data.get("mac_id")
+            client_data = data.get("client", {})
+            if mac_id and mac_id not in self._clients:
                 await self.register_client(
-                    dsp_id,
+                    mac_id,
                     volume_db=None,  # Use default
-                    available=client_data.get("available", True)
+                    available=client_data.get("online", True)
                 )
 
         elif event_type == RegistryEventType.ZONE_CREATED:

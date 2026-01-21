@@ -5,7 +5,7 @@
     <!-- Main content -->
     <div class="content-wrapper">
       <Transition name="fade-slide" mode="out-in">
-        <!-- État 1: DSP désactivé -->
+        <!-- State 1: DSP disabled -->
         <MessageContent
           v-if="!dspStore.isDspEffectsEnabled"
           key="disabled"
@@ -13,7 +13,7 @@
           :title="$t('dsp.effects_disabled', 'DSP Effects are disabled')"
         />
 
-        <!-- État 2: DSP activé mais en chargement/connexion -->
+        <!-- State 2: DSP enabled but loading/connecting -->
         <MessageContent
           v-else-if="!dspStore.isConnected"
           key="loading"
@@ -22,7 +22,7 @@
           :title="$t('dsp.connecting', 'Connecting to DSP...')"
         />
 
-        <!-- État 3: DSP connecté - contrôles -->
+        <!-- State 3: DSP connected - controls -->
         <div v-else key="controls" class="dsp-controls">
           <!-- Propagation Error Banner -->
           <div v-if="dspStore.propagationErrors.length > 0" class="error-banner" @click="dspStore.clearPropagationErrors">
@@ -214,9 +214,8 @@ onMounted(async () => {
     on('dsp', 'preset_loaded', handleDspPresetLoaded),
     on('dsp', 'compressor_changed', (e) => dspStore.handleCompressorChanged(e)),
     on('dsp', 'loudness_changed', (e) => dspStore.handleLoudnessChanged(e)),
-    on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e)),
-    // Keep client names in sync for ItemSelector and ZoneEdit
-    on('snapcast', 'client_name_changed', (e) => dspStore.handleClientNameChanged(e))
+    on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e))
+    // Note: Client names sync via clientRegistryStore.handleMultiroomEvent() in App.vue
   );
 });
 

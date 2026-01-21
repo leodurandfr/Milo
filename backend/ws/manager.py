@@ -1,6 +1,12 @@
-# backend/presentation/websockets/manager.py
+# backend/ws/manager.py
 """
-WebSocket connection management with parallel broadcast
+WebSocket connection management with parallel broadcast.
+
+Performance (NFR2): Events must reach frontend within 100ms.
+Implementation ensures this via:
+- Parallel broadcast using asyncio.gather() - no sequential blocking
+- Per-client timeout of 1s - slow clients don't block others
+- Automatic dead connection cleanup - no accumulation of stale connections
 """
 from typing import Set, Dict, Any
 import logging

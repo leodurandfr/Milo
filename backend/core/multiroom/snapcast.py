@@ -15,6 +15,7 @@ import aiohttp
 import aiofiles
 
 from backend.core.events import EventBus, get_event_bus
+from backend.core.multiroom.registry import ClientRegistryService
 
 
 class SnapcastService:
@@ -199,23 +200,23 @@ class SnapcastService:
                 ip = client_data["host"]["ip"].replace("::ffff:", "")
                 mac = client_data["host"].get("mac", "")
 
-                # dsp_id: identifier used by DSP linked_groups
-                dsp_id = "local" if host == "milo" else self._get_stable_dsp_id(host, ip)
+                # mac_id: canonical identifier computed from hostname/IP
+                mac_id = ClientRegistryService.compute_mac_id(host, ip)
 
-                # Calculate availability based on lastSeen timestamp
+                # Calculate online status based on lastSeen timestamp
                 last_seen_data = client_data.get("lastSeen", {})
                 last_seen_sec = last_seen_data.get("sec", 0)
                 last_seen_age = now - last_seen_sec
 
-                # Client is available if connected AND seen recently (within 60 seconds)
-                is_available = client_data.get("connected", False) and last_seen_age < 60
+                # Client is online if connected AND seen recently (within 60 seconds)
+                is_online = client_data.get("connected", False) and last_seen_age < 60
 
-                # Main device (milo) is always available (localhost)
+                # Main device (milo) is always online (localhost)
                 if host == "milo":
-                    is_available = True
+                    is_online = True
 
                 # Skip offline clients
-                if not is_available:
+                if not is_online:
                     continue
 
                 raw_clients.append({
@@ -226,20 +227,12 @@ class SnapcastService:
                     "host": host,
                     "ip": ip,
                     "mac": mac,
-                    "dsp_id": dsp_id,
-                    "available": is_available,
+                    "mac_id": mac_id,
+                    "online": is_online,
                     "last_seen_age": int(last_seen_age)
                 })
 
         return self._deduplicate_by_mac(raw_clients)
-
-    def _get_stable_dsp_id(self, host: str, ip: str) -> str:
-        """Get stable identifier for DSP settings (hostname preferred over IP)."""
-        if ip == "127.0.0.1":
-            return "local"
-        if host and host.startswith("milo-client"):
-            return host
-        return ip
 
     def _deduplicate_by_mac(self, clients: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Remove duplicate clients based on MAC address."""
@@ -288,7 +281,8 @@ class SnapcastService:
                     mac = client_data["host"].get("mac", "")
                     last_seen = client_data.get("lastSeen", {})
 
-                    dsp_id = "local" if host == "milo" else self._get_stable_dsp_id(host, ip)
+                    # mac_id: canonical identifier computed from hostname/IP
+                    mac_id = ClientRegistryService.compute_mac_id(host, ip)
 
                     raw_clients.append({
                         "id": client_data["id"],
@@ -297,7 +291,7 @@ class SnapcastService:
                         "muted": client_data["config"]["volume"]["muted"],
                         "host": host,
                         "ip": ip,
-                        "dsp_id": dsp_id,
+                        "mac_id": mac_id,
                         "mac": mac,
                         "last_seen": last_seen,
                         "connection_quality": self._calculate_connection_quality(last_seen),
@@ -560,34 +554,34 @@ class SnapcastService:
 
 async def get_available_clients(snapcast_service: SnapcastService) -> List[Dict[str, Any]]:
     """
-    Get list of available clients with their dsp_id.
+    Get list of online clients with their mac_id.
 
     Args:
         snapcast_service: SnapcastService instance
 
     Returns:
-        List of dicts with 'dsp_id' and 'available' keys for available clients
+        List of dicts with 'mac_id' and 'online' keys for online clients
     """
     clients = await snapcast_service.get_clients()
     return [
-        {"dsp_id": client.get("dsp_id", ""), "available": client.get("available", True)}
+        {"mac_id": client.get("mac_id", ""), "online": client.get("online", True)}
         for client in clients
-        if client.get("dsp_id") and client.get("available", True)
+        if client.get("mac_id") and client.get("online", True)
     ]
 
 
 async def get_available_client_ids(snapcast_service: SnapcastService) -> List[str]:
     """
-    Get list of available client IDs (dsp_ids).
+    Get list of online client IDs (mac_ids).
 
     Args:
         snapcast_service: SnapcastService instance
 
     Returns:
-        List of client IDs (dsp_ids) for available clients
+        List of client IDs (mac_ids) for online clients
     """
     clients = await get_available_clients(snapcast_service)
-    return [c["dsp_id"] for c in clients]
+    return [c["mac_id"] for c in clients]
 
 
 def normalize_client_id(hostname: str) -> str:

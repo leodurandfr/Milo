@@ -10,7 +10,7 @@
           v-model="zoneName"
           :placeholder="$t('dsp.zones.zoneNamePlaceholder', 'e.g., Living Room')"
           size="medium"
-          :maxlength="30"
+          :maxlength="15"
           @blur="saveZoneName"
         />
       </div>
@@ -31,14 +31,31 @@
             action="toggle"
             icon-variant="standard"
             :model-value="selectedClients.includes(target.id)"
-            :disabled="!target.available"
+            :disabled="!target.online"
             @click="toggleClient(target.id)"
           >
             <template #icon>
-              <SvgIcon :name="getSpeakerIcon(target.id)" :size="28" />
+              <div class="client-icon-wrapper">
+                <SvgIcon :name="getSpeakerIcon(target.id)" :size="28" />
+                <span class="online-indicator" :class="{
+                  'online-indicator--online': target.online && !hasSyncError(target.id),
+                  'online-indicator--error': target.online && hasSyncError(target.id)
+                }" />
+              </div>
             </template>
             <template #title>
-              {{ target.name }}
+              <div class="client-title-wrapper">
+                <span>{{ target.name }}</span>
+                <span v-if="isSyncing(target.id)" class="sync-status sync-status--syncing">
+                  {{ $t('multiroom.syncing') }}
+                </span>
+                <span v-else-if="hasSyncError(target.id)" class="sync-status sync-status--error">
+                  {{ $t('multiroom.syncError') }}
+                  <button type="button" class="retry-btn" @click.stop="handleRetrySync(target.id)">
+                    {{ $t('multiroom.retrySync') }}
+                  </button>
+                </span>
+              </div>
             </template>
           </ListItemButton>
         </div>
@@ -72,8 +89,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
+import { useClientRegistryStore } from '@/stores/clientRegistryStore';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -90,24 +108,33 @@ const props = defineProps({
 const emit = defineEmits(['back', 'saved']);
 
 const dspStore = useDspStore();
+const registryStore = useClientRegistryStore();
 const saving = ref(false);
 const deleting = ref(false);
 const zoneName = ref('');
 const originalZoneName = ref('');
 const selectedClients = ref([]);
 
-// Get available targets from store
-const availableTargets = computed(() => dspStore.availableTargets);
+// Get available clients from clientRegistryStore (single source of truth)
+const availableTargets = computed(() => {
+  return registryStore.clientList.map(client => ({
+    id: client.mac_id,
+    name: client.name,
+    host: client.host,
+    ip: client.ip,
+    online: client.online
+  }));
+});
 
-// Find the current group being edited
+// Find the current zone being edited from clientRegistryStore
 const currentGroup = computed(() => {
   if (!props.groupId) return null;
-  return dspStore.linkedGroups.find(g => g.id === props.groupId);
+  return registryStore.zoneList.find(z => z.id === props.groupId);
 });
 
 // Get speaker icon name based on type
-function getSpeakerIcon(dspId) {
-  const speakerType = dspStore.getClientSpeakerType(dspId);
+function getSpeakerIcon(macId) {
+  const speakerType = dspStore.getClientSpeakerType(macId);
   const iconMap = {
     satellite: 'speakerSatellite',
     bookshelf: 'speakerShelf',
@@ -117,36 +144,48 @@ function getSpeakerIcon(dspId) {
   return iconMap[speakerType] || 'speakerShelf';
 }
 
+// Sync status helpers
+function hasSyncError(macId) {
+  return registryStore.hasSyncError(macId);
+}
+
+function isSyncing(macId) {
+  return registryStore.isSyncing(macId);
+}
+
+async function handleRetrySync(macId) {
+  await registryStore.retrySyncClient(macId);
+}
+
 // Toggle client selection
 async function toggleClient(clientId) {
   const index = selectedClients.value.indexOf(clientId);
 
   if (index === -1) {
     // Adding client to zone
-    selectedClients.value.push(clientId);
-
     if (props.groupId) {
       try {
-        await dspStore.linkClients(selectedClients.value, null, zoneName.value || null);
+        await registryStore.addClientToZone(props.groupId, clientId);
+        // State update comes via WebSocket, but update local state for responsiveness
+        selectedClients.value.push(clientId);
       } catch (error) {
         console.error('Error adding client to zone:', error);
-        // Revert on error
-        selectedClients.value.splice(selectedClients.value.indexOf(clientId), 1);
+        // Don't update local state on error
       }
+    } else {
+      // Just creating new zone, not yet saved - update local state only
+      selectedClients.value.push(clientId);
     }
   } else {
     // Removing client from zone
     if (props.groupId) {
       try {
-        // Use unlinkClient to remove individual client
-        await dspStore.unlinkClient(clientId);
-
+        const response = await registryStore.removeClientFromZone(props.groupId, clientId);
         // Update local state after successful backend call
         selectedClients.value.splice(index, 1);
 
-        // Check if zone still exists (backend deletes if < 2 clients)
-        const zoneStillExists = dspStore.linkedGroups.find(g => g.id === props.groupId);
-        if (!zoneStillExists) {
+        // Check if zone was deleted (< 2 clients remaining)
+        if (response.message && response.message.includes('deleted')) {
           emit('back'); // Navigate back since zone was deleted
         }
       } catch (error) {
@@ -167,7 +206,7 @@ async function saveZoneName() {
   if (newName === originalZoneName.value) return;
 
   try {
-    await dspStore.updateZoneName(props.groupId, newName);
+    await registryStore.updateZone(props.groupId, { name: newName });
     originalZoneName.value = newName;
   } catch (error) {
     console.error('Error saving zone name:', error);
@@ -188,13 +227,25 @@ onMounted(async () => {
   }
 });
 
+// Sync selectedClients when zone membership changes via WebSocket (AC4: real-time updates)
+watch(
+  () => currentGroup.value?.client_ids,
+  (newClientIds) => {
+    if (newClientIds && props.groupId) {
+      selectedClients.value = [...newClientIds];
+    }
+  },
+  { deep: true }
+);
+
 // Create new zone (only used when groupId is null)
 async function handleCreate() {
   if (selectedClients.value.length < 2) return;
 
   saving.value = true;
   try {
-    await dspStore.linkClients(selectedClients.value, null, zoneName.value || null);
+    // Use registryStore directly for zone creation (consistent with edit operations)
+    await registryStore.createZone(zoneName.value || 'New Zone', selectedClients.value);
     emit('back');
   } catch (error) {
     console.error('Error creating zone:', error);
@@ -208,7 +259,7 @@ async function handleDelete() {
 
   deleting.value = true;
   try {
-    await dspStore.deleteZone(props.groupId);
+    await registryStore.deleteZone(props.groupId);
     emit('back');
   } catch (error) {
     console.error('Error deleting zone:', error);
@@ -248,6 +299,69 @@ async function handleDelete() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-01);
+}
+
+/* Client icon with online indicator */
+.client-icon-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.online-indicator {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-secondary);
+  border: 2px solid var(--color-background-neutral);
+}
+
+.online-indicator--online {
+  background: var(--color-success, #22c55e);
+}
+
+.online-indicator--error {
+  background: var(--color-error, #ef4444);
+}
+
+/* Client title with sync status */
+.client-title-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sync-status {
+  font-size: var(--font-size-small);
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+}
+
+.sync-status--syncing {
+  color: var(--color-text-secondary);
+}
+
+.sync-status--error {
+  color: var(--color-error, #ef4444);
+}
+
+.retry-btn {
+  font-size: var(--font-size-small);
+  color: var(--color-brand);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.retry-btn:hover {
+  opacity: 0.8;
 }
 
 /* Mobile adjustments */

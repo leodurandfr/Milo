@@ -22,12 +22,15 @@ from backend.core.dsp.presets import (
 )
 from backend.core.dsp.client_proxy import DspClientProxyService, is_ip_address
 from backend.core.dsp.sync import DspSettingsSyncService
+from backend.core.dsp.multiroom_service import MultiroomDspService
 
 __all__ = [
     # Service
     "CamillaDSPService",
     "DspState",
     "FilterType",
+    # Multiroom DSP
+    "MultiroomDspService",
     # Proxy
     "DspClientProxyService",
     "is_ip_address",

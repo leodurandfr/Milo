@@ -11,14 +11,14 @@ This module provides:
 """
 
 from backend.core.multiroom.models import (
-    RegisteredClient,
+    Client,
     Zone,
+    DspSettings,
     RegistryState,
     RegistryEventType,
     SpeakerType,
     SPEAKER_TYPES,
     DEFAULT_SPEAKER_TYPE,
-    DEFAULT_CROSSOVER_FREQUENCY,
     DEFAULT_CROSSOVER_FREQUENCIES,
     DEFAULT_VOLUME_DB,
 )
@@ -40,14 +40,14 @@ from backend.core.multiroom.routes import (
 
 __all__ = [
     # Models
-    "RegisteredClient",
+    "Client",
     "Zone",
+    "DspSettings",
     "RegistryState",
     "RegistryEventType",
     "SpeakerType",
     "SPEAKER_TYPES",
     "DEFAULT_SPEAKER_TYPE",
-    "DEFAULT_CROSSOVER_FREQUENCY",
     "DEFAULT_CROSSOVER_FREQUENCIES",
     "DEFAULT_VOLUME_DB",
     # Services

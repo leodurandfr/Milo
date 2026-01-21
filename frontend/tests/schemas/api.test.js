@@ -5,7 +5,8 @@ import {
   VolumeStateSchema,
   AudioSourceSchema,
   PluginStateSchema,
-  SnapcastClientSchema,
+  RegisteredClientSchema,
+  MultiroomStateSchema,
   RadioStationSchema,
   validateSchema,
   validateWithFallback
@@ -103,7 +104,7 @@ describe('API Schemas', () => {
         global_volume_db: -25.5,
         global_mute: false,
         clients: {
-          client1: { volume_db: -20, offset_db: 0, mute: false, available: true }
+          client1: { volume_db: -20, offset_db: 0, mute: false, online: true }
         },
         zones: {
           zone1: { id: 'z1', name: 'Zone 1', client_ids: ['client1'] }
@@ -140,35 +141,109 @@ describe('API Schemas', () => {
     });
   });
 
-  describe('SnapcastClientSchema', () => {
-    it('should validate snapcast client', () => {
+  describe('RegisteredClientSchema', () => {
+    it('should validate registered client', () => {
       const client = {
-        id: 'abc123',
+        mac_id: 'dc:a6:32:7e:d3:43',
         name: 'Living Room',
-        host: 'milo-client',
         ip: '192.168.1.100',
-        volume: 80,
-        muted: false,
-        available: true,
-        dsp_id: 'local'
+        online: true,
+        zone_id: null,
+        speaker_type: 'bookshelf'
       };
 
-      const result = SnapcastClientSchema.safeParse(client);
+      const result = RegisteredClientSchema.safeParse(client);
       expect(result.success).toBe(true);
+      expect(result.data.mac_id).toBe('dc:a6:32:7e:d3:43');
     });
 
     it('should provide defaults for optional fields', () => {
       const minimalClient = {
-        id: 'abc123',
-        name: 'Client',
-        host: 'host',
-        volume: 50,
-        muted: false
+        mac_id: 'local',
+        name: 'Main',
+        ip: '127.0.0.1',
+        zone_id: null
       };
 
-      const result = SnapcastClientSchema.safeParse(minimalClient);
+      const result = RegisteredClientSchema.safeParse(minimalClient);
       expect(result.success).toBe(true);
-      expect(result.data.available).toBe(true);
+      expect(result.data.online).toBe(false);
+      expect(result.data.speaker_type).toBe('bookshelf');
+    });
+
+    it('should validate speaker_type enum', () => {
+      const validTypes = ['satellite', 'bookshelf', 'tower', 'subwoofer'];
+
+      validTypes.forEach(type => {
+        const client = {
+          mac_id: 'test',
+          name: 'Test',
+          ip: '127.0.0.1',
+          zone_id: null,
+          speaker_type: type
+        };
+        expect(RegisteredClientSchema.safeParse(client).success).toBe(true);
+      });
+
+      // Invalid type should fail
+      const invalidClient = {
+        mac_id: 'test',
+        name: 'Test',
+        ip: '127.0.0.1',
+        zone_id: null,
+        speaker_type: 'invalid_type'
+      };
+      expect(RegisteredClientSchema.safeParse(invalidClient).success).toBe(false);
+    });
+  });
+
+  describe('MultiroomStateSchema', () => {
+    it('should validate complete multiroom state', () => {
+      const state = {
+        clients: {
+          'dc:a6:32:7e:d3:43': {
+            mac_id: 'dc:a6:32:7e:d3:43',
+            name: 'Living Room',
+            ip: '192.168.1.100',
+            online: true,
+            zone_id: 'zone-1',
+            speaker_type: 'bookshelf'
+          },
+          'local': {
+            mac_id: 'local',
+            name: 'Main',
+            ip: '127.0.0.1',
+            online: true,
+            zone_id: 'zone-1',
+            speaker_type: 'tower'
+          }
+        },
+        zones: {
+          'zone-1': {
+            id: 'zone-1',
+            name: 'Living Room',
+            client_ids: ['local', 'dc:a6:32:7e:d3:43'],
+            online_client_count: 2,
+            has_subwoofer: false,
+            crossover_enabled: false
+          }
+        }
+      };
+
+      const result = MultiroomStateSchema.safeParse(state);
+      expect(result.success).toBe(true);
+      expect(Object.keys(result.data.clients)).toHaveLength(2);
+      expect(Object.keys(result.data.zones)).toHaveLength(1);
+    });
+
+    it('should accept empty multiroom state', () => {
+      const emptyState = {
+        clients: {},
+        zones: {}
+      };
+
+      const result = MultiroomStateSchema.safeParse(emptyState);
+      expect(result.success).toBe(true);
     });
   });
 

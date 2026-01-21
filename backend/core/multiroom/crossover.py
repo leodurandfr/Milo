@@ -87,25 +87,29 @@ class CrossoverService:
         """Handle events from ClientRegistryService."""
         from backend.core.multiroom.models import RegistryEventType
 
-        if event_type == RegistryEventType.AVAILABILITY_CHANGED:
-            dsp_id = data.get("dsp_id")
-            available = data.get("available")
+        if event_type == RegistryEventType.CLIENT_CONNECTED:
+            mac_id = data.get("mac_id")
+            if mac_id:
+                # Client came online - apply pending settings
+                if self.has_pending_settings(mac_id):
+                    self.logger.info(f"Client {mac_id} reconnected, applying pending settings")
+                    await self.apply_pending_settings(mac_id)
 
-            if dsp_id:
-                if available:
-                    # Client came online - apply pending settings
-                    if self.has_pending_settings(dsp_id):
-                        self.logger.info(f"Client {dsp_id} reconnected, applying pending settings")
-                        await self.apply_pending_settings(dsp_id)
+                # Recalculate crossover for zones containing this client
+                await self._recalculate_zones_for_client(mac_id)
 
-                # Always recalculate crossover for zones containing this client
-                # (both online AND offline to update crossover_enabled state)
-                await self._recalculate_zones_for_client(dsp_id)
+        elif event_type == RegistryEventType.CLIENT_DISCONNECTED:
+            mac_id = data.get("mac_id")
+            if mac_id:
+                # Recalculate crossover for zones containing this client
+                # (offline clients affect crossover_enabled state)
+                await self._recalculate_zones_for_client(mac_id)
 
-        elif event_type == RegistryEventType.SPEAKER_TYPE_CHANGED:
-            dsp_id = data.get("dsp_id")
-            if dsp_id:
-                await self._recalculate_zones_for_client(dsp_id)
+        elif event_type == RegistryEventType.CLIENT_UPDATED:
+            # Client updated (speaker_type change triggers crossover recalculation)
+            mac_id = data.get("mac_id")
+            if mac_id:
+                await self._recalculate_zones_for_client(mac_id)
 
         elif event_type == RegistryEventType.ZONE_CREATED:
             zone_id = data.get("zone_id")
@@ -138,28 +142,30 @@ class CrossoverService:
                 except Exception as e:
                     self.logger.error(f"Error disabling filters after zone {zone_id} deletion: {e}")
 
-        elif event_type == RegistryEventType.ZONE_CLIENT_ADDED:
+        elif event_type == "zone_client_added":
+            # Client added to zone - recalculate crossover
             zone_id = data.get("zone_id")
-            dsp_id = data.get("dsp_id")
+            mac_id = data.get("mac_id")
             if zone_id and isinstance(zone_id, str):
                 try:
-                    self.logger.info(f"Client {dsp_id} added to zone {zone_id}, recalculating crossover")
+                    self.logger.info(f"Client {mac_id} added to zone {zone_id}, recalculating crossover")
                     await self.apply_zone_crossover(zone_id)
                 except Exception as e:
                     self.logger.error(f"Error recalculating crossover after adding client to zone {zone_id}: {e}")
 
-        elif event_type == RegistryEventType.ZONE_CLIENT_REMOVED:
+        elif event_type == "zone_client_removed":
+            # Client removed from zone - disable filters and recalculate
             zone_id = data.get("zone_id")
-            dsp_id = data.get("dsp_id")
+            mac_id = data.get("mac_id")
             try:
-                if dsp_id:
-                    self.logger.info(f"Client {dsp_id} removed from zone {zone_id}, disabling filters")
-                    await self._set_client_crossover(dsp_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
-                    await self._set_client_lowpass(dsp_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                if mac_id:
+                    self.logger.info(f"Client {mac_id} removed from zone {zone_id}, disabling filters")
+                    await self._set_client_crossover(mac_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
+                    await self._set_client_lowpass(mac_id, False, self.DEFAULT_CROSSOVER_FREQUENCY)
                 if zone_id and isinstance(zone_id, str):
                     await self.apply_zone_crossover(zone_id)
             except Exception as e:
-                self.logger.error(f"Error handling client {dsp_id} removal from zone {zone_id}: {e}")
+                self.logger.error(f"Error handling client {mac_id} removal from zone {zone_id}: {e}")
 
     async def initialize(self) -> bool:
         """Initialize the crossover service."""
@@ -288,11 +294,11 @@ class CrossoverService:
         """Get all client type configurations."""
         if self._registry:
             return {
-                dsp_id: {
+                mac_id: {
                     "speaker_type": client.speaker_type,
                     "crossover_frequency": client.crossover_frequency
                 }
-                for dsp_id, client in self._registry.get_all_clients().items()
+                for mac_id, client in self._registry.get_all_clients().items()
             }
         return {}
 
@@ -362,7 +368,7 @@ class CrossoverService:
             return False
 
         try:
-            frequency = max(40, min(200, frequency))
+            frequency = max(20, min(200, frequency))
 
             zone = self._registry.get_zone(zone_id)
             if not zone:
@@ -373,8 +379,14 @@ class CrossoverService:
 
             self.logger.info(f"Zone {zone_id} crossover frequency set to {frequency} Hz")
 
+            # Get updated crossover state for complete event data (AC4)
+            crossover_state = await self.get_zone_crossover(zone_id)
+
             await self._broadcast_event("zone_crossover_changed", {
                 "zone_id": zone_id,
+                "crossover_enabled": crossover_state["enabled"],
+                "crossover_frequency": int(frequency),
+                # Backward compatibility
                 "frequency": frequency
             })
 
@@ -397,7 +409,6 @@ class CrossoverService:
 
             client_ids = zone.client_ids
             frequency = await self.get_zone_auto_crossover(zone_id)
-            crossover_enabled = zone.crossover_enabled
 
             available_clients = {
                 cid for cid in client_ids
@@ -409,11 +420,19 @@ class CrossoverService:
                 for cid in client_ids
             )
 
-            should_apply_crossover = has_subwoofer and crossover_enabled
+            # Determine if crossover should be applied
+            # Auto mode (None): enable when there's an online subwoofer
+            # Explicit mode: respect the setting but still require subwoofer
+            if zone.crossover_enabled is not None:
+                should_apply_crossover = has_subwoofer and zone.crossover_enabled
+            else:
+                # Auto mode: enable crossover when there's an online subwoofer
+                should_apply_crossover = has_subwoofer
 
             self.logger.info(
                 f"Applying crossover to zone {zone_id}: "
-                f"has_sub={has_subwoofer}, enabled={crossover_enabled}, freq={frequency}Hz, "
+                f"has_sub={has_subwoofer}, zone_setting={zone.crossover_enabled}, "
+                f"should_apply={should_apply_crossover}, freq={frequency}Hz, "
                 f"available_clients={list(available_clients)}"
             )
 
@@ -606,11 +625,24 @@ class CrossoverService:
     # === Event Broadcasting ===
 
     async def _broadcast_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """Broadcast crossover event via state machine and EventBus."""
+        """
+        Broadcast crossover event via state machine and EventBus.
+
+        Uses standardized "multiroom" category with "crossover_changed" event type
+        per architecture spec. Maintains backward compatibility with old "crossover"
+        category during transition period (Story 6.1 → 6.2).
+        """
         if self.state_machine:
+            # New format (architecture spec) - category "multiroom", type "crossover_changed"
+            await self.state_machine.broadcast_event("multiroom", "crossover_changed", data)
+
+            # Old format (backward compatibility - remove in Story 6.2)
             await self.state_machine.broadcast_event("crossover", event_type, data)
 
         if self.event_bus:
+            # New pattern for internal services
+            await self.event_bus.emit("multiroom.crossover_changed", data)
+            # Old pattern for backward compatibility
             await self.event_bus.emit(f"multiroom.crossover.{event_type}", data)
 
     # === Pending Settings Queue for Offline Clients ===
@@ -674,6 +706,32 @@ class CrossoverService:
             muted = pending["mute"].get("muted", False)
             await self._apply_pending_mute(client_id, muted)
 
+        # Apply EQ filters (zone DSP settings)
+        if "filters" in pending:
+            filters = pending["filters"]
+            for flt in filters:
+                filter_id = flt.get("id")
+                if not filter_id:
+                    continue
+                result = await self._apply_pending_filter(client_id, filter_id, flt)
+                if not result:
+                    success = False
+                    self.logger.warning(f"Failed to apply pending filter {filter_id} to {client_id}")
+
+        # Apply compressor settings
+        if "compressor" in pending:
+            result = await self._apply_pending_compressor(client_id, pending["compressor"])
+            if not result:
+                success = False
+                self.logger.warning(f"Failed to apply pending compressor to {client_id}")
+
+        # Apply loudness settings
+        if "loudness" in pending:
+            result = await self._apply_pending_loudness(client_id, pending["loudness"])
+            if not result:
+                success = False
+                self.logger.warning(f"Failed to apply pending loudness to {client_id}")
+
         await self._broadcast_event("pending_settings_applied", {
             "client_id": client_id,
             "settings_applied": list(pending.keys())
@@ -701,6 +759,79 @@ class CrossoverService:
 
         except Exception as e:
             self.logger.warning(f"Failed to apply pending mute to {client_id}: {e}")
+            return False
+
+    async def _apply_pending_filter(self, client_id: str, filter_id: str, filter_data: Dict[str, Any]) -> bool:
+        """Apply pending EQ filter settings to a client."""
+        try:
+            data = {
+                "freq": filter_data.get("freq"),
+                "gain": filter_data.get("gain"),
+                "q": filter_data.get("q"),
+                "filter_type": filter_data.get("type")
+            }
+
+            if client_id == "local":
+                if self.dsp_service:
+                    await self.dsp_service.set_filter(filter_id, **data)
+                    return True
+            else:
+                if is_ip_address(client_id):
+                    url = f"http://{client_id}:{self.CLIENT_API_PORT}/dsp/filter/{filter_id}"
+                else:
+                    url = f"http://{client_id}.local:{self.CLIENT_API_PORT}/dsp/filter/{filter_id}"
+
+                timeout = aiohttp.ClientTimeout(total=5)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.put(url, json=data) as response:
+                        return response.status == 200
+
+        except Exception as e:
+            self.logger.warning(f"Failed to apply pending filter {filter_id} to {client_id}: {e}")
+            return False
+
+    async def _apply_pending_compressor(self, client_id: str, settings: Dict[str, Any]) -> bool:
+        """Apply pending compressor settings to a client."""
+        try:
+            if client_id == "local":
+                if self.dsp_service:
+                    await self.dsp_service.set_compressor(**settings)
+                    return True
+            else:
+                if is_ip_address(client_id):
+                    url = f"http://{client_id}:{self.CLIENT_API_PORT}/dsp/compressor"
+                else:
+                    url = f"http://{client_id}.local:{self.CLIENT_API_PORT}/dsp/compressor"
+
+                timeout = aiohttp.ClientTimeout(total=5)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.put(url, json=settings) as response:
+                        return response.status == 200
+
+        except Exception as e:
+            self.logger.warning(f"Failed to apply pending compressor to {client_id}: {e}")
+            return False
+
+    async def _apply_pending_loudness(self, client_id: str, settings: Dict[str, Any]) -> bool:
+        """Apply pending loudness settings to a client."""
+        try:
+            if client_id == "local":
+                if self.dsp_service:
+                    await self.dsp_service.set_loudness(**settings)
+                    return True
+            else:
+                if is_ip_address(client_id):
+                    url = f"http://{client_id}:{self.CLIENT_API_PORT}/dsp/loudness"
+                else:
+                    url = f"http://{client_id}.local:{self.CLIENT_API_PORT}/dsp/loudness"
+
+                timeout = aiohttp.ClientTimeout(total=5)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.put(url, json=settings) as response:
+                        return response.status == 200
+
+        except Exception as e:
+            self.logger.warning(f"Failed to apply pending loudness to {client_id}: {e}")
             return False
 
     def has_pending_settings(self, client_id: str) -> bool:

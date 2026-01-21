@@ -3,15 +3,7 @@
 Integration tests for multiroom zone management.
 
 These tests validate the contracts for zone creation, client management,
-and volume synchronization that must remain stable during the feature-based
-architecture refactoring.
-
-Contracts being tested:
-- Zone creation with client validation (AC1)
-- Zone volume synchronization (AC2)
-- Per-client volume offsets (AC3)
-- Client add/remove from zones (AC4)
-- WebSocket events for zone changes (AC5)
+and DSP settings synchronization for the multiroom/DSP architecture.
 """
 import pytest
 import asyncio
@@ -19,7 +11,7 @@ from unittest.mock import Mock, AsyncMock
 
 from backend.core.multiroom.registry import ClientRegistryService
 from backend.core.volume.state import VolumeStateStore
-from backend.core.multiroom.models import RegisteredClient, Zone, RegistryEventType
+from backend.core.multiroom.models import Client, Zone, DspSettings, RegistryEventType
 from backend.core.models.volume_state import VolumeState
 
 from .conftest import WebSocketEventCollector
@@ -36,10 +28,11 @@ def mock_settings_service():
     service = Mock()
     service.invalidate_cache = Mock()
 
-    # In-memory storage for zones and client types
+    # In-memory storage for new structure
     storage = {
-        "multiroom.linked_groups": [],
-        "multiroom.client_types": {}
+        "multiroom.clients": {},
+        "multiroom.zones": {},
+        "multiroom.standalone_dsp": {}
     }
 
     async def mock_get_setting(key):
@@ -53,6 +46,14 @@ def mock_settings_service():
     service.set_setting = AsyncMock(side_effect=mock_set_setting)
 
     return service
+
+
+@pytest.fixture
+def mock_event_bus():
+    """Mock event bus for events."""
+    bus = Mock()
+    bus.emit = AsyncMock()
+    return bus
 
 
 @pytest.fixture
@@ -74,9 +75,12 @@ def mock_state_machine(websocket_collector: WebSocketEventCollector):
 
 
 @pytest.fixture
-async def registry_service(mock_settings_service, mock_state_machine):
+async def registry_service(mock_settings_service, mock_state_machine, mock_event_bus):
     """ClientRegistryService with mocked dependencies."""
-    service = ClientRegistryService(settings_service=mock_settings_service)
+    service = ClientRegistryService(
+        settings_service=mock_settings_service,
+        event_bus=mock_event_bus
+    )
     service.set_state_machine(mock_state_machine)
     await service.initialize()
     return service
@@ -86,40 +90,28 @@ async def registry_service(mock_settings_service, mock_state_machine):
 async def registry_with_clients(registry_service):
     """Registry with pre-registered clients for zone tests."""
     # Register local client
-    await registry_service.register_client({
-        "dsp_id": "local",
-        "snapcast_id": "snap-local",
-        "name": "Local",
-        "host": "milo",
-        "ip": "127.0.0.1",
-        "available": True,
-        "volume_db": -30.0,
-        "mute": False
-    })
+    await registry_service.register_client(
+        mac_id="local",
+        name="Local",
+        ip="127.0.0.1"
+    )
+    await registry_service.set_client_online("local", True)
 
     # Register bedroom client
-    await registry_service.register_client({
-        "dsp_id": "bedroom",
-        "snapcast_id": "snap-bedroom",
-        "name": "Bedroom",
-        "host": "milo-client-01",
-        "ip": "192.168.1.101",
-        "available": True,
-        "volume_db": -25.0,
-        "mute": False
-    })
+    await registry_service.register_client(
+        mac_id="bedroom",
+        name="Bedroom",
+        ip="192.168.1.101"
+    )
+    await registry_service.set_client_online("bedroom", True)
 
     # Register kitchen client
-    await registry_service.register_client({
-        "dsp_id": "kitchen",
-        "snapcast_id": "snap-kitchen",
-        "name": "Kitchen",
-        "host": "milo-client-02",
-        "ip": "192.168.1.102",
-        "available": True,
-        "volume_db": -35.0,
-        "mute": False
-    })
+    await registry_service.register_client(
+        mac_id="kitchen",
+        name="Kitchen",
+        ip="192.168.1.102"
+    )
+    await registry_service.set_client_online("kitchen", True)
 
     return registry_service
 
@@ -160,6 +152,7 @@ class TestZoneCreation:
         - create_zone returns Zone object
         - Zone contains correct clients
         - Zone is retrievable
+        - Minimum 2 clients required
         """
         websocket_collector.clear()
 
@@ -173,39 +166,25 @@ class TestZoneCreation:
         assert zone.id == "living_room"
         assert zone.name == "Living Room"
         assert set(zone.client_ids) == {"local", "bedroom"}
-        assert zone.crossover_frequency == 80  # Default
-        assert zone.crossover_enabled is True  # Default
+        assert zone.dsp_settings is not None
 
     @pytest.mark.asyncio
-    async def test_create_zone_emits_event(
+    async def test_create_zone_requires_minimum_2_clients(
         self,
-        registry_with_clients: ClientRegistryService,
-        websocket_collector: WebSocketEventCollector
+        registry_with_clients: ClientRegistryService
     ):
         """
-        Test zone creation emits ZONE_CREATED event.
+        Test zone creation requires at least 2 clients.
 
         Validates:
-        - Event has correct category and type
-        - Event data contains zone_id and full zone object
+        - ValueError raised for single client zone
         """
-        websocket_collector.clear()
-
-        await registry_with_clients.create_zone(
-            zone_id="living_room",
-            name="Living Room",
-            client_ids=["local", "bedroom"]
-        )
-
-        events = websocket_collector.get_events_by_type(RegistryEventType.ZONE_CREATED)
-        assert len(events) == 1
-
-        event = events[0]
-        assert event["category"] == "registry"
-        assert event["data"]["zone_id"] == "living_room"
-        assert "zone" in event["data"]
-        assert event["data"]["zone"]["name"] == "Living Room"
-        assert set(event["data"]["zone"]["client_ids"]) == {"local", "bedroom"}
+        with pytest.raises(ValueError, match="at least 2 clients"):
+            await registry_with_clients.create_zone(
+                zone_id="living_room",
+                name="Living Room",
+                client_ids=["local"]
+            )
 
     @pytest.mark.asyncio
     async def test_create_zone_with_invalid_clients_fails(
@@ -265,15 +244,35 @@ class TestZoneCreation:
         await registry_with_clients.create_zone(
             zone_id="living_room",
             name="Living Room",
-            client_ids=["local"]
+            client_ids=["local", "bedroom"]
         )
 
         with pytest.raises(ValueError, match="already exists"):
             await registry_with_clients.create_zone(
                 zone_id="living_room",
                 name="Another Room",
-                client_ids=["bedroom"]
+                client_ids=["local", "kitchen"]
             )
+
+    @pytest.mark.asyncio
+    async def test_clients_have_zone_id_after_zone_creation(
+        self,
+        registry_with_clients: ClientRegistryService
+    ):
+        """
+        Test that clients have zone_id set after zone creation.
+        """
+        await registry_with_clients.create_zone(
+            zone_id="living_room",
+            name="Living Room",
+            client_ids=["local", "bedroom"]
+        )
+
+        local_client = registry_with_clients.get_client("local")
+        bedroom_client = registry_with_clients.get_client("bedroom")
+
+        assert local_client.zone_id == "living_room"
+        assert bedroom_client.zone_id == "living_room"
 
 
 # ==============================================================================
@@ -523,44 +522,17 @@ class TestZoneClientManagement:
         await registry_with_clients.create_zone(
             zone_id="living_room",
             name="Living Room",
-            client_ids=["local"]
+            client_ids=["local", "bedroom"]
         )
 
-        result = await registry_with_clients.add_client_to_zone("living_room", "bedroom")
+        result = await registry_with_clients.add_client_to_zone("living_room", "kitchen")
 
         assert result is True
         zone = registry_with_clients.get_zone("living_room")
-        assert "bedroom" in zone.client_ids
+        assert "kitchen" in zone.client_ids
 
-    @pytest.mark.asyncio
-    async def test_add_client_to_zone_emits_event(
-        self,
-        registry_with_clients: ClientRegistryService,
-        websocket_collector: WebSocketEventCollector
-    ):
-        """
-        Test adding client emits ZONE_CLIENT_ADDED event.
-
-        Validates:
-        - Event has correct type
-        - Event data contains zone_id and dsp_id
-        """
-        await registry_with_clients.create_zone(
-            zone_id="living_room",
-            name="Living Room",
-            client_ids=["local"]
-        )
-
-        websocket_collector.clear()
-
-        await registry_with_clients.add_client_to_zone("living_room", "bedroom")
-
-        events = websocket_collector.get_events_by_type(RegistryEventType.ZONE_CLIENT_ADDED)
-        assert len(events) == 1
-
-        event = events[0]
-        assert event["data"]["zone_id"] == "living_room"
-        assert event["data"]["dsp_id"] == "bedroom"
+        kitchen_client = registry_with_clients.get_client("kitchen")
+        assert kitchen_client.zone_id == "living_room"
 
     @pytest.mark.asyncio
     async def test_remove_client_from_zone_success(
@@ -573,55 +545,29 @@ class TestZoneClientManagement:
         Validates:
         - remove_client_from_zone returns True on success
         - Client no longer in zone's client_ids
+        - Client's zone_id is cleared
         """
         await registry_with_clients.create_zone(
             zone_id="living_room",
             name="Living Room",
-            client_ids=["local", "bedroom"]
+            client_ids=["local", "bedroom", "kitchen"]
         )
 
-        result = await registry_with_clients.remove_client_from_zone("living_room", "bedroom")
+        result = await registry_with_clients.remove_client_from_zone("living_room", "kitchen")
 
         assert result is True
         zone = registry_with_clients.get_zone("living_room")
-        assert "bedroom" not in zone.client_ids
+        assert "kitchen" not in zone.client_ids
         assert "local" in zone.client_ids
+        assert "bedroom" in zone.client_ids
 
-    @pytest.mark.asyncio
-    async def test_remove_client_from_zone_emits_event(
-        self,
-        registry_with_clients: ClientRegistryService,
-        websocket_collector: WebSocketEventCollector
-    ):
-        """
-        Test removing client emits ZONE_CLIENT_REMOVED event.
-
-        Validates:
-        - Event has correct type
-        - Event data contains zone_id and dsp_id
-        """
-        await registry_with_clients.create_zone(
-            zone_id="living_room",
-            name="Living Room",
-            client_ids=["local", "bedroom"]
-        )
-
-        websocket_collector.clear()
-
-        await registry_with_clients.remove_client_from_zone("living_room", "bedroom")
-
-        events = websocket_collector.get_events_by_type(RegistryEventType.ZONE_CLIENT_REMOVED)
-        assert len(events) == 1
-
-        event = events[0]
-        assert event["data"]["zone_id"] == "living_room"
-        assert event["data"]["dsp_id"] == "bedroom"
+        kitchen_client = registry_with_clients.get_client("kitchen")
+        assert kitchen_client.zone_id is None
 
     @pytest.mark.asyncio
     async def test_delete_zone_success(
         self,
-        registry_with_clients: ClientRegistryService,
-        websocket_collector: WebSocketEventCollector
+        registry_with_clients: ClientRegistryService
     ):
         """
         Test deleting a zone.
@@ -629,7 +575,7 @@ class TestZoneClientManagement:
         Validates:
         - delete_zone returns True on success
         - Zone no longer retrievable
-        - ZONE_DELETED event emitted
+        - Clients have zone_id cleared
         """
         await registry_with_clients.create_zone(
             zone_id="living_room",
@@ -637,16 +583,15 @@ class TestZoneClientManagement:
             client_ids=["local", "bedroom"]
         )
 
-        websocket_collector.clear()
-
         result = await registry_with_clients.delete_zone("living_room")
 
         assert result is True
         assert registry_with_clients.get_zone("living_room") is None
 
-        events = websocket_collector.get_events_by_type(RegistryEventType.ZONE_DELETED)
-        assert len(events) == 1
-        assert events[0]["data"]["zone_id"] == "living_room"
+        local_client = registry_with_clients.get_client("local")
+        bedroom_client = registry_with_clients.get_client("bedroom")
+        assert local_client.zone_id is None
+        assert bedroom_client.zone_id is None
 
     @pytest.mark.asyncio
     async def test_add_invalid_client_to_zone_fails(
@@ -662,7 +607,7 @@ class TestZoneClientManagement:
         await registry_with_clients.create_zone(
             zone_id="living_room",
             name="Living Room",
-            client_ids=["local"]
+            client_ids=["local", "bedroom"]
         )
 
         result = await registry_with_clients.add_client_to_zone(
@@ -671,204 +616,105 @@ class TestZoneClientManagement:
 
         assert result is False
 
+
+# ==============================================================================
+# Test DSP Settings
+# ==============================================================================
+
+
+class TestZoneDspSettings:
+    """Tests for zone DSP settings management."""
+
     @pytest.mark.asyncio
-    async def test_set_zone_clients_bulk_update(
+    async def test_zone_has_default_dsp_settings(
         self,
         registry_with_clients: ClientRegistryService
     ):
         """
-        Test bulk updating zone clients.
+        Test zone is created with default DSP settings.
 
-        Validates:
-        - set_zone_clients replaces all clients
-        - Returns updated zone
+        Default DSP settings include:
+        - enabled=True (DSP active)
+        - 10-band parametric EQ at standard frequencies with 0 dB gain
+        - compressor disabled
+        - loudness disabled
         """
-        await registry_with_clients.create_zone(
+        from backend.core.multiroom.models import EqFilter, CompressorSettings, LoudnessSettings
+
+        zone = await registry_with_clients.create_zone(
             zone_id="living_room",
             name="Living Room",
-            client_ids=["local"]
+            client_ids=["local", "bedroom"]
         )
 
-        zone = await registry_with_clients.set_zone_clients(
-            "living_room",
-            ["bedroom", "kitchen"]
-        )
-
-        assert zone is not None
-        assert set(zone.client_ids) == {"bedroom", "kitchen"}
-        assert "local" not in zone.client_ids
-
-
-# ==============================================================================
-# AC5: Test WebSocket Events
-# ==============================================================================
-
-
-class TestZoneWebSocketEvents:
-    """Tests for AC5: WebSocket events for zone changes."""
+        assert zone.dsp_settings is not None
+        assert zone.dsp_settings.enabled is True
+        # Default creates 10-band EQ with flat gains
+        assert len(zone.dsp_settings.filters) == 10
+        assert all(isinstance(f, EqFilter) for f in zone.dsp_settings.filters)
+        assert all(f.gain == 0.0 for f in zone.dsp_settings.filters)
+        # Compressor and loudness should be disabled by default
+        assert isinstance(zone.dsp_settings.compressor, CompressorSettings)
+        assert zone.dsp_settings.compressor.enabled is False
+        assert isinstance(zone.dsp_settings.loudness, LoudnessSettings)
+        assert zone.dsp_settings.loudness.enabled is False
 
     @pytest.mark.asyncio
-    async def test_zone_event_format(
+    async def test_zone_created_with_custom_dsp_settings(
         self,
-        registry_with_clients: ClientRegistryService,
-        websocket_collector: WebSocketEventCollector
+        registry_with_clients: ClientRegistryService
     ):
         """
-        Test zone events have correct format.
-
-        Validates:
-        - Events have category, type, source, data, timestamp
+        Test zone can be created with custom DSP settings.
         """
-        websocket_collector.clear()
+        from backend.core.multiroom.models import EqFilter, CompressorSettings
 
-        await registry_with_clients.create_zone(
+        custom_dsp = DspSettings(
+            enabled=True,
+            filters=[EqFilter(id="eq_band_00", frequency=1000, gain=3.0)],
+            compressor=CompressorSettings(enabled=True, threshold=-20, ratio=4.0)
+        )
+
+        zone = await registry_with_clients.create_zone(
             zone_id="living_room",
             name="Living Room",
-            client_ids=["local"]
+            client_ids=["local", "bedroom"],
+            dsp_settings=custom_dsp
         )
 
-        events = websocket_collector.events
-        assert len(events) >= 1
-
-        event = events[-1]  # Last event should be zone_created
-        assert "category" in event
-        assert "type" in event
-        assert "source" in event
-        assert "data" in event
-        assert "timestamp" in event
-
-        assert event["category"] == "registry"
-        assert event["source"] == "registry"
+        assert len(zone.dsp_settings.filters) == 1
+        assert zone.dsp_settings.compressor.enabled is True
 
     @pytest.mark.asyncio
-    async def test_zone_created_event_contains_full_zone(
+    async def test_standalone_dsp_cleared_when_joining_zone(
         self,
-        registry_with_clients: ClientRegistryService,
-        websocket_collector: WebSocketEventCollector
+        registry_with_clients: ClientRegistryService
     ):
         """
-        Test ZONE_CREATED event contains complete zone data.
-
-        Validates:
-        - zone object has id, name, client_ids
-        - crossover settings included
+        Test that standalone DSP settings are cleared when client joins a zone.
         """
-        websocket_collector.clear()
+        from backend.core.multiroom.models import EqFilter
 
+        # Set standalone DSP for local with typed EqFilter
+        dsp = DspSettings(filters=[EqFilter(id="eq_band_00", frequency=1000)])
+        await registry_with_clients.set_standalone_dsp("local", dsp)
+
+        # Verify standalone DSP exists
+        assert registry_with_clients.get_standalone_dsp("local") is not None
+
+        # Create zone
         await registry_with_clients.create_zone(
             zone_id="living_room",
             name="Living Room",
             client_ids=["local", "bedroom"]
         )
 
-        events = websocket_collector.get_events_by_type(RegistryEventType.ZONE_CREATED)
-        assert len(events) == 1
-
-        zone_data = events[0]["data"]["zone"]
-        assert zone_data["id"] == "living_room"
-        assert zone_data["name"] == "Living Room"
-        assert set(zone_data["client_ids"]) == {"local", "bedroom"}
-        assert "crossover_frequency" in zone_data
-        assert "crossover_enabled" in zone_data
-
-    @pytest.mark.asyncio
-    async def test_zone_deleted_event_contains_zone_data(
-        self,
-        registry_with_clients: ClientRegistryService,
-        websocket_collector: WebSocketEventCollector
-    ):
-        """
-        Test ZONE_DELETED event contains zone data for cleanup.
-
-        Validates:
-        - zone data included so services can perform cleanup
-        """
-        await registry_with_clients.create_zone(
-            zone_id="living_room",
-            name="Living Room",
-            client_ids=["local", "bedroom"]
-        )
-
-        websocket_collector.clear()
-
-        await registry_with_clients.delete_zone("living_room")
-
-        events = websocket_collector.get_events_by_type(RegistryEventType.ZONE_DELETED)
-        assert len(events) == 1
-
-        event_data = events[0]["data"]
-        assert event_data["zone_id"] == "living_room"
-        assert "zone" in event_data
-        assert event_data["zone"]["id"] == "living_room"
-        assert set(event_data["zone"]["client_ids"]) == {"local", "bedroom"}
-
-    @pytest.mark.asyncio
-    async def test_zone_client_added_event_format(
-        self,
-        registry_with_clients: ClientRegistryService,
-        websocket_collector: WebSocketEventCollector
-    ):
-        """
-        Test ZONE_CLIENT_ADDED event format.
-
-        Validates:
-        - Event contains zone_id and dsp_id
-        """
-        await registry_with_clients.create_zone(
-            zone_id="living_room",
-            name="Living Room",
-            client_ids=["local"]
-        )
-
-        websocket_collector.clear()
-
-        await registry_with_clients.add_client_to_zone("living_room", "bedroom")
-
-        events = websocket_collector.get_events_by_type(RegistryEventType.ZONE_CLIENT_ADDED)
-        assert len(events) == 1
-
-        event = events[0]
-        assert event["category"] == "registry"
-        assert event["type"] == RegistryEventType.ZONE_CLIENT_ADDED
-        assert event["data"]["zone_id"] == "living_room"
-        assert event["data"]["dsp_id"] == "bedroom"
-
-    @pytest.mark.asyncio
-    async def test_zone_updated_event_on_property_change(
-        self,
-        registry_with_clients: ClientRegistryService,
-        websocket_collector: WebSocketEventCollector
-    ):
-        """
-        Test ZONE_UPDATED event on property change.
-
-        Validates:
-        - Event emitted when zone properties change
-        """
-        await registry_with_clients.create_zone(
-            zone_id="living_room",
-            name="Living Room",
-            client_ids=["local"]
-        )
-
-        websocket_collector.clear()
-
-        await registry_with_clients.update_zone(
-            "living_room",
-            name="Main Room",
-            crossover_frequency=100
-        )
-
-        events = websocket_collector.get_events_by_type(RegistryEventType.ZONE_UPDATED)
-        assert len(events) == 1
-
-        zone_data = events[0]["data"]["zone"]
-        assert zone_data["name"] == "Main Room"
-        assert zone_data["crossover_frequency"] == 100
+        # Standalone DSP should be cleared
+        assert registry_with_clients.get_standalone_dsp("local") is None
 
 
 # ==============================================================================
-# Additional Integration Tests
+# Test Registry Persistence
 # ==============================================================================
 
 
@@ -895,41 +741,20 @@ class TestRegistryPersistence:
 
         # Verify set_setting was called
         calls = mock_settings_service.set_setting.call_args_list
-        zone_calls = [c for c in calls if "multiroom.linked_groups" in str(c)]
+        zone_calls = [c for c in calls if "multiroom.zones" in str(c)]
         assert len(zone_calls) >= 1
 
-    @pytest.mark.asyncio
-    async def test_zone_deletion_updates_settings(
-        self,
-        registry_with_clients: ClientRegistryService,
-        mock_settings_service
-    ):
-        """
-        Test zone deletion updates settings.
 
-        Validates:
-        - set_setting called after deletion
-        """
-        await registry_with_clients.create_zone(
-            zone_id="living_room",
-            name="Living Room",
-            client_ids=["local"]
-        )
-
-        # Clear call history
-        mock_settings_service.set_setting.reset_mock()
-
-        await registry_with_clients.delete_zone("living_room")
-
-        # Verify set_setting was called
-        assert mock_settings_service.set_setting.called
+# ==============================================================================
+# Test Registry Queries
+# ==============================================================================
 
 
 class TestClientRegistryQueries:
     """Tests for registry query methods."""
 
     @pytest.mark.asyncio
-    async def test_get_zone_clients_returns_registered_clients(
+    async def test_get_zone_clients_returns_client_objects(
         self,
         registry_with_clients: ClientRegistryService
     ):
@@ -945,17 +770,17 @@ class TestClientRegistryQueries:
         clients = registry_with_clients.get_zone_clients("living_room")
 
         assert len(clients) == 2
-        dsp_ids = [c.dsp_id for c in clients]
-        assert "local" in dsp_ids
-        assert "bedroom" in dsp_ids
+        mac_ids = [c.mac_id for c in clients]
+        assert "local" in mac_ids
+        assert "bedroom" in mac_ids
 
     @pytest.mark.asyncio
-    async def test_get_available_zone_clients_filters_unavailable(
+    async def test_get_online_zone_clients_filters_offline(
         self,
         registry_with_clients: ClientRegistryService
     ):
         """
-        Test get_available_zone_clients filters out unavailable clients.
+        Test get_online_zone_clients filters out offline clients.
         """
         await registry_with_clients.create_zone(
             zone_id="living_room",
@@ -963,13 +788,13 @@ class TestClientRegistryQueries:
             client_ids=["local", "bedroom"]
         )
 
-        # Mark bedroom as unavailable
-        await registry_with_clients.update_availability("bedroom", False)
+        # Mark bedroom as offline
+        await registry_with_clients.set_client_online("bedroom", False)
 
-        clients = registry_with_clients.get_available_zone_clients("living_room")
+        clients = registry_with_clients.get_online_zone_clients("living_room")
 
         assert len(clients) == 1
-        assert clients[0].dsp_id == "local"
+        assert clients[0].mac_id == "local"
 
     @pytest.mark.asyncio
     async def test_get_zone_for_client_returns_correct_zone(
@@ -1001,7 +826,7 @@ class TestClientRegistryQueries:
         await registry_with_clients.create_zone(
             zone_id="living_room",
             name="Living Room",
-            client_ids=["local"]
+            client_ids=["local", "bedroom"]
         )
 
         zone = registry_with_clients.get_zone_for_client("kitchen")

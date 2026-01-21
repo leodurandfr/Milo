@@ -30,6 +30,13 @@ class DspSettingsSyncService:
     # DSP setting categories that can be synced
     SYNC_CATEGORIES = ['compressor', 'loudness', 'filters', 'volume']
 
+    # Default DSP settings for standalone clients (flat EQ, effects off)
+    DEFAULT_DSP_SETTINGS = {
+        "filters": {},
+        "compressor": {"enabled": False, "threshold": -20, "ratio": 4, "attack": 10, "release": 100},
+        "loudness": {"enabled": False, "reference_level": -25},
+    }
+
     def __init__(
         self,
         proxy_service: "DspClientProxyService" = None,
@@ -385,3 +392,119 @@ class DspSettingsSyncService:
             self.logger.warning(f"Sync errors: {errors}")
 
         return {"synced": synced, "errors": errors if errors else None}
+
+    # =========================================================================
+    # Standalone Client DSP Settings (Story 5.2)
+    # =========================================================================
+
+    def get_default_settings(self) -> Dict[str, Any]:
+        """
+        Get default DSP settings for standalone clients.
+
+        Returns flat EQ, compressor off, loudness off as per AC3.
+
+        Returns:
+            Dictionary with default settings for filters, compressor, loudness
+        """
+        import copy
+        return copy.deepcopy(self.DEFAULT_DSP_SETTINGS)
+
+    async def load_standalone_settings(self, client_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Load standalone DSP settings for a client from persistence.
+
+        Args:
+            client_id: The client identifier (mac_id or 'local')
+
+        Returns:
+            Dictionary of DSP settings or None if not found
+        """
+        settings = await self.load_settings()
+        return settings.get(client_id)
+
+    async def save_standalone_settings(
+        self,
+        client_id: str,
+        dsp_settings: Dict[str, Any]
+    ) -> None:
+        """
+        Save standalone DSP settings for a client.
+
+        Args:
+            client_id: The client identifier (mac_id or 'local')
+            dsp_settings: Dictionary with filters, compressor, loudness
+        """
+        all_settings = await self.load_settings()
+        all_settings[client_id] = dsp_settings
+        await self.save_settings(all_settings)
+        self.logger.info(f"Saved standalone DSP settings for {client_id}")
+
+    async def apply_standalone_settings_to_client(
+        self,
+        client_id: str,
+        dsp_settings: Dict[str, Any]
+    ) -> bool:
+        """
+        Apply DSP settings to a standalone client.
+
+        Args:
+            client_id: The client identifier (mac_id or 'local')
+            dsp_settings: Dictionary with filters, compressor, loudness
+
+        Returns:
+            True if successful, False otherwise
+        """
+        success = True
+
+        # Apply filters
+        filters = dsp_settings.get("filters", {})
+        for filter_id, filter_data in filters.items():
+            if not await self._push_filter_to_client(client_id, filter_id, filter_data):
+                success = False
+
+        # Apply compressor
+        compressor = dsp_settings.get("compressor")
+        if compressor:
+            if not await self._push_setting_to_target(client_id, "compressor", compressor):
+                success = False
+
+        # Apply loudness
+        loudness = dsp_settings.get("loudness")
+        if loudness:
+            if not await self._push_setting_to_target(client_id, "loudness", loudness):
+                success = False
+
+        return success
+
+    async def _push_filter_to_client(
+        self,
+        client_id: str,
+        filter_id: str,
+        filter_data: Dict[str, Any]
+    ) -> bool:
+        """
+        Push a single filter setting to a client.
+
+        Args:
+            client_id: The client identifier
+            filter_id: The filter ID
+            filter_data: Filter settings
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if client_id == "local":
+                if self.dsp_service:
+                    await self.dsp_service.set_filter(filter_id, **filter_data)
+                    return True
+            else:
+                if self.proxy_service:
+                    await self.proxy_service.request(
+                        client_id, "PUT", f"/dsp/filter/{filter_id}", filter_data
+                    )
+                    return True
+            return False
+        except Exception as e:
+            self.logger.warning(f"Failed to push filter {filter_id} to {client_id}: {e}")
+            return False

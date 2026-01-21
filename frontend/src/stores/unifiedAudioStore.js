@@ -20,7 +20,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
   // === VOLUME STATE (unified structure) ===
   const volumeState = ref({
     mode: 'direct',                  // 'direct' or 'multiroom'
-    global_volume_db: -30.0,         // Global volume (average of unmuted clients)
+    global_volume_db: -60.0,         // Global volume (average of unmuted clients)
     global_mute: false,              // Global mute state
     clients: {},                     // {hostname: {volume_db, offset_db, mute, available}}
     zones: {},                       // {zoneId: {id, name, client_ids, average_volume_db, all_muted}}
@@ -220,7 +220,7 @@ export const useUnifiedAudioStore = defineStore('unifiedAudio', () => {
         // Fallback to direct assignment with defaults
         logger.debug('store', 'VolumeState validation partial, using fallbacks');
         volumeState.value.mode = state.mode || 'direct';
-        volumeState.value.global_volume_db = state.global_volume_db ?? -30.0;
+        volumeState.value.global_volume_db = state.global_volume_db ?? -60.0;
         volumeState.value.global_mute = state.global_mute ?? false;
         volumeState.value.clients = state.clients || {};
         volumeState.value.zones = state.zones || {};

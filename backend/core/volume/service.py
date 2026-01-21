@@ -266,6 +266,64 @@ class VolumeService:
             self.logger.error(f"Error reloading volume limits: {e}")
             return False
 
+    # ============================================================================
+    # STARTUP VOLUME AUTO-UPDATE (FR11)
+    # ============================================================================
+
+    async def _update_startup_volume_if_needed(self, volume_db: float) -> None:
+        """
+        Auto-update startup_volume_db when restore_last_volume is disabled (FR11).
+
+        This ensures that when the user changes volume and restart behavior is set to
+        "use startup volume" (not restore last), the startup volume follows the current
+        volume so users don't get surprised by unexpected volume after restart.
+
+        Args:
+            volume_db: The new volume level in dB to potentially save as startup volume
+        """
+        # Only update when restore is disabled (user wants explicit startup volume)
+        if self.config.config.restore_last_volume:
+            return
+
+        current_startup = self.config.config.startup_volume_db
+        # Skip if unchanged (avoid unnecessary writes) - 0.1 dB tolerance
+        if abs(current_startup - volume_db) < 0.1:
+            return
+
+        try:
+            # Update setting atomically via SettingsService
+            await self.settings_service.set_setting('volume.startup_volume_db', volume_db)
+
+            # Reload config to get fresh value
+            await self._config_service.load()
+
+            # Broadcast the actual persisted value from config (ensures consistency)
+            persisted_value = self.config.config.startup_volume_db
+            await self._broadcast_startup_volume_changed(persisted_value)
+
+            self.logger.info(f"FR11: Auto-updated startup_volume_db to {persisted_value:.1f} dB")
+        except Exception as e:
+            self.logger.error(f"FR11: Failed to update startup_volume_db: {e}")
+
+    async def _broadcast_startup_volume_changed(self, volume_db: float) -> None:
+        """
+        Broadcast startup volume change via WebSocket (FR11).
+
+        Args:
+            volume_db: The new startup volume in dB
+        """
+        try:
+            await self.state_machine.broadcast_event(
+                "settings",
+                "volume_startup_changed",
+                {
+                    "startup_volume_db": volume_db,
+                    "restore_last_volume": self.config.config.restore_last_volume
+                }
+            )
+        except Exception as e:
+            self.logger.error(f"Error broadcasting startup volume change: {e}")
+
     async def _reload_config(self, name: str, broadcast: bool = False) -> bool:
         """Helper: reload config with optional broadcast."""
         try:
@@ -486,6 +544,10 @@ class VolumeService:
                 if failures:
                     self.logger.warning(f"Failed to update clients: {failures}")
 
+                # FR11: Update startup volume using local client's new volume
+                local_volume = updates.get('local') or self._state_store._local_volume_db
+                await self._update_startup_volume_if_needed(local_volume)
+
                 await self._broadcast_volume_state(show_bar=False)
 
                 new_avg = self._state_store.compute_zone_average(zone_id)
@@ -527,23 +589,31 @@ class VolumeService:
             return False
 
     async def _apply_startup_volume(self) -> None:
-        """Apply startup volume and mute state to CamillaDSP (starts muted via -m flag)."""
+        """
+        Apply startup volume and mute state to CamillaDSP (FR12).
+
+        Volume source is determined by restore_last_volume setting:
+        - True: Use persisted volume from last_volume.json
+        - False: Use startup_volume_db from settings.json
+        """
         try:
             # Wait for CamillaDSP connection
             if self._dsp_service:
                 if not await self._dsp_service.wait_for_connection(timeout=10.0):
-                    self.logger.warning("CamillaDSP not connected after 10s, startup volume not applied")
+                    self.logger.warning("FR12: CamillaDSP not connected after 10s, startup volume not applied")
                     return
 
-            # Determine target volume
+            # Determine target volume based on restore_last_volume setting (FR12)
             restore_enabled = self.config.config.restore_last_volume
             if restore_enabled:
                 local_client = self._state_store._clients.get('local')
                 target_volume = local_client.volume_db if local_client else self._state_store._local_volume_db
-                self.logger.info(f"Restoring persisted volume: {target_volume:.1f} dB")
+                volume_source = "persisted (last_volume.json)"
+                self.logger.info(f"FR12: Restoring {volume_source}: {target_volume:.1f} dB")
             else:
                 target_volume = self.config.config.startup_volume_db
-                self.logger.info(f"Using startup volume: {target_volume:.1f} dB")
+                volume_source = "startup_volume_db (settings.json)"
+                self.logger.info(f"FR12: Using {volume_source}: {target_volume:.1f} dB")
 
             # Get persisted mute state
             local_client = self._state_store._clients.get('local')
@@ -552,11 +622,12 @@ class VolumeService:
             if target_volume is not None and self._dsp_controller:
                 await self._dsp_controller.set_dsp_volume("local", target_volume)
                 await self._dsp_controller.set_dsp_mute("local", local_mute)
-                self.logger.info(f"Startup state applied: {target_volume:.1f} dB, mute={local_mute}")
+                self.logger.info(f"FR12: Startup state applied - volume={target_volume:.1f}dB, mute={local_mute}, source={volume_source}")
             elif self._dsp_controller:
                 await self._dsp_controller.set_dsp_mute("local", False)
+                self.logger.warning("FR12: No target volume, only unmuted DSP")
         except Exception as e:
-            self.logger.error(f"Failed to apply startup volume: {e}")
+            self.logger.error(f"FR12: Failed to apply startup volume: {e}")
 
     async def _startup_broadcast_after_websocket_ready(self):
         """Wait for Snapcast WebSocket and broadcast initial volume state."""
@@ -600,6 +671,7 @@ class VolumeService:
                 success = await self._apply_volume_db(clamped_db)
                 if success:
                     self._save_last_volume(clamped_db)
+                    await self._update_startup_volume_if_needed(clamped_db)  # FR11
                     await self._broadcast_volume_state(show_bar)
                 return success
             except Exception as e:
@@ -637,6 +709,7 @@ class VolumeService:
                 if success:
                     volume_state = await self._state_store.get_complete_state()
                     self._save_last_volume(volume_state.global_volume_db)
+                    await self._update_startup_volume_if_needed(volume_state.global_volume_db)  # FR11
                     await self._broadcast_volume_state(show_bar)
                 return success
             except Exception as e:

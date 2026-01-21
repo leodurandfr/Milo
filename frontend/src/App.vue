@@ -22,6 +22,13 @@
     <!-- Global Virtual Keyboard -->
     <VirtualKeyboard />
 
+    <!-- Connection status indicator (AC2: UI indicates connection status) -->
+    <Transition name="slide-up">
+      <div v-if="isBootComplete && !isConnected" class="connection-status">
+        {{ $t('app.connectionLost') }}
+      </div>
+    </Transition>
+
   </div>
 </template>
 
@@ -46,6 +53,7 @@ import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useClientRegistryStore } from '@/stores/clientRegistryStore';
+import { useDspStore } from '@/stores/dspStore';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
 import { useScreenActivity } from '@/composables/useScreenActivity';
@@ -55,7 +63,8 @@ const unifiedStore = useUnifiedAudioStore();
 const podcastStore = usePodcastStore();
 const settingsStore = useSettingsStore();
 const clientRegistryStore = useClientRegistryStore();
-const { on, onReconnect } = useWebSocket();
+const dspStore = useDspStore();
+const { on, onReconnect, isConnected } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
 
 // Enable screen activity detection (touch, mouse, keyboard)
@@ -144,22 +153,17 @@ onMounted(async () => {
         i18n.handleLanguageChanged(event.data.language);
       }
     }),
-    // Registry events for centralized client/zone management
-    on('registry', 'client_registered', (event) => clientRegistryStore.handleRegistryEvent(event)),
-    on('registry', 'client_updated', (event) => clientRegistryStore.handleRegistryEvent(event)),
-    on('registry', 'client_unregistered', (event) => clientRegistryStore.handleRegistryEvent(event)),
-    on('registry', 'availability_changed', (event) => clientRegistryStore.handleRegistryEvent(event)),
-    on('registry', 'volume_changed', (event) => clientRegistryStore.handleRegistryEvent(event)),
-    on('registry', 'speaker_type_changed', (event) => clientRegistryStore.handleRegistryEvent(event)),
-    on('registry', 'zone_created', (event) => clientRegistryStore.handleRegistryEvent(event)),
-    on('registry', 'zone_deleted', (event) => clientRegistryStore.handleRegistryEvent(event)),
-    on('registry', 'zone_updated', (event) => clientRegistryStore.handleRegistryEvent(event)),
-    on('registry', 'zone_client_added', (event) => clientRegistryStore.handleRegistryEvent(event)),
-    on('registry', 'zone_client_removed', (event) => clientRegistryStore.handleRegistryEvent(event)),
+    // Multiroom events - new standardized format (Story 6.2)
+    on('multiroom', 'client_state_changed', (event) => clientRegistryStore.handleMultiroomEvent(event)),
+    on('multiroom', 'zone_changed', (event) => clientRegistryStore.handleMultiroomEvent(event)),
+    on('multiroom', 'dsp_changed', (event) => dspStore.handleDspChanged(event)),
+    on('multiroom', 'crossover_changed', (event) => dspStore.handleZoneCrossoverChanged(event)),
     onReconnect(() => {
       console.log('WebSocket reconnected');
-      // Refresh registry state on reconnect
+      // Refresh registry state on reconnect (AC3: State Resync)
       clientRegistryStore.fetchState();
+      // Refresh DSP state for current target
+      dspStore.loadStatus();
     })
   );
 
@@ -194,5 +198,33 @@ onUnmounted(() => {
 <style>
 .app-container {
   height: 100%;
+}
+
+/* Connection status indicator */
+.connection-status {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(220, 53, 69, 0.95);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 9999;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Slide-up transition */
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(20px);
 }
 </style>

@@ -2,14 +2,19 @@
 """
 API routes for volume management - All values in dB (-80 to 0)
 """
+import logging
 from fastapi import APIRouter, HTTPException
-from backend.api.models import VolumeSetRequest, VolumeAdjustRequest
+from backend.api.models import (
+    VolumeSetRequest,
+    VolumeAdjustRequest,
+)
 
 
 router = APIRouter(prefix="/api/volume", tags=["volume"])
+logger = logging.getLogger(__name__)
 
 
-def setup_volume_routes(volume_service):
+def setup_volume_routes(volume_service, client_registry_service=None):
     """
     Configure volume routes with the VolumeService instance.
 
@@ -178,19 +183,22 @@ def setup_volume_routes(volume_service):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+    # Note: Client volume operations (PATCH /client/{client_id}, etc.) are defined
+    # in backend/api/volume.py which is the active router used by main.py
+
     return router
 
 
-def create_volume_router(volume_service):
+def create_volume_router(volume_service, client_registry_service=None):
     """
-    Legacy function for backward compatibility.
     Creates and configures the volume router.
 
     Args:
         volume_service: VolumeService instance
+        client_registry_service: ClientRegistryService instance (optional)
 
     Returns:
         Configured router
     """
-    setup_volume_routes(volume_service)
+    setup_volume_routes(volume_service, client_registry_service)
     return router

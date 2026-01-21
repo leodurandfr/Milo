@@ -1,4 +1,7 @@
 {
+  "app": {
+    "connectionLost": "Connexion perdue. Reconnexion..."
+  },
   "settings": {
     "title": "Paramètres de Milō",
     "languages": "Langues",
@@ -65,8 +68,14 @@
       "disablePhysicalCrossover": "Réglez le crossover physique de votre caisson sur bypass/LFE pour éviter le cumul des filtres.",
       "highpassActive": "Filtre passe-haut actif",
       "highpassDescription": "Les basses en dessous de {freq} Hz sont retirées de cette enceinte et gérées par le caisson de la zone.",
-      "crossoverFrequency": "Fréquence de coupure :"
-    }
+      "crossoverFrequency": "Fréquence de coupure :",
+      "badgeActive": "Crossover actif",
+      "badgeInactive": "Crossover inactif",
+      "subwooferOffline": "Caisson hors ligne"
+    },
+    "syncing": "Synchronisation...",
+    "syncError": "Erreur de sync",
+    "retrySync": "Réessayer"
   },
   "dsp": {
     "title": "Égaliseur DSP",
@@ -133,6 +142,7 @@
     "loudness": {
       "title": "Loudness",
       "enable": "Activer le loudness",
+      "referenceLevel": "Niveau de référence",
       "lowBoost": "Boost graves",
       "highBoost": "Boost aigus"
     },

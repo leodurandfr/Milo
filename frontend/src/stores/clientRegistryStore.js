@@ -3,7 +3,7 @@
  * Pinia store for centralized client/zone registry.
  *
  * This store is the single source of truth for:
- * - Client list with availability status
+ * - Client list with online/offline status
  * - Zone (linked group) configuration
  * - Client speaker types
  *
@@ -19,7 +19,7 @@ const CACHE_KEY = 'client_registry_cache';
 export const useClientRegistryStore = defineStore('clientRegistry', () => {
   // === STATE ===
 
-  // Clients indexed by dsp_id
+  // Clients indexed by mac_id
   const clients = ref(new Map());
 
   // Zones indexed by zone_id
@@ -33,38 +33,38 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
   /**
    * All clients as an array, with canonical sort order:
-   * 1. Local client first (dsp_id === 'local')
-   * 2. Connected clients alphabetically
-   * 3. Disconnected clients alphabetically
+   * 1. Local client first (mac_id === 'local')
+   * 2. Online clients alphabetically
+   * 3. Offline clients alphabetically
    */
   const clientList = computed(() => {
     const list = Array.from(clients.value.values());
     return list.sort((a, b) => {
       // Local client always first
-      if (a.dsp_id === 'local') return -1;
-      if (b.dsp_id === 'local') return 1;
+      if (a.mac_id === 'local') return -1;
+      if (b.mac_id === 'local') return 1;
 
-      // Then by availability (connected first)
-      if (a.available && !b.available) return -1;
-      if (!a.available && b.available) return 1;
+      // Then by online status (online first)
+      if (a.online && !b.online) return -1;
+      if (!a.online && b.online) return 1;
 
-      // Then alphabetically by name (fallback to dsp_id)
-      return (a.name || a.dsp_id).localeCompare(b.name || b.dsp_id, undefined, { sensitivity: 'base' });
+      // Then alphabetically by name (fallback to mac_id)
+      return (a.name || a.mac_id).localeCompare(b.name || b.mac_id, undefined, { sensitivity: 'base' });
     });
   });
 
   /**
-   * Only available (connected) clients.
+   * Only online (connected) clients.
    */
-  const availableClients = computed(() => {
-    return clientList.value.filter(c => c.available);
+  const onlineClients = computed(() => {
+    return clientList.value.filter(c => c.online);
   });
 
   /**
-   * All available client dsp_ids.
+   * All online client mac_ids.
    */
-  const availableClientIds = computed(() => {
-    return availableClients.value.map(c => c.dsp_id);
+  const onlineClientIds = computed(() => {
+    return onlineClients.value.map(c => c.mac_id);
   });
 
   /**
@@ -147,11 +147,12 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
   /**
    * Fetch complete state from backend.
+   * Uses canonical /api/multiroom/state endpoint.
    */
   async function fetchState() {
     isLoading.value = true;
     try {
-      const response = await axios.get('/api/registry/state');
+      const response = await axios.get('/api/multiroom/state');
       const { clients: clientsData, zones: zonesData } = response.data;
 
       // Update clients (strip runtime fields - volume/mute live in volumeState)
@@ -176,26 +177,26 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
   // === CLIENT QUERIES ===
 
   /**
-   * Get a client by dsp_id.
+   * Get a client by mac_id.
    */
-  function getClient(dspId) {
-    return clients.value.get(dspId);
+  function getClient(macId) {
+    return clients.value.get(macId);
   }
 
   /**
-   * Check if a client is available.
+   * Check if a client is online.
    */
-  function isClientAvailable(dspId) {
-    const client = clients.value.get(dspId);
-    return client ? client.available : false;
+  function isClientOnline(macId) {
+    const client = clients.value.get(macId);
+    return client ? client.online : false;
   }
 
   /**
    * Get client display name.
    */
-  function getClientName(dspId) {
-    const client = clients.value.get(dspId);
-    return client?.name || dspId;
+  function getClientName(macId) {
+    const client = clients.value.get(macId);
+    return client?.name || macId;
   }
 
   // === ZONE QUERIES ===
@@ -210,9 +211,9 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
   /**
    * Get the zone a client belongs to.
    */
-  function getZoneForClient(dspId) {
+  function getZoneForClient(macId) {
     for (const zone of zones.value.values()) {
-      if (zone.client_ids && zone.client_ids.includes(dspId)) {
+      if (zone.client_ids && zone.client_ids.includes(macId)) {
         return zone;
       }
     }
@@ -220,7 +221,7 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
   }
 
   /**
-   * Get all client dsp_ids in a zone.
+   * Get all client mac_ids in a zone.
    */
   function getZoneClientIds(zoneId) {
     const zone = zones.value.get(zoneId);
@@ -228,12 +229,12 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
   }
 
   /**
-   * Get only available client dsp_ids in a zone.
+   * Get only online client mac_ids in a zone.
    */
-  function getAvailableZoneClientIds(zoneId) {
+  function getOnlineZoneClientIds(zoneId) {
     const zone = zones.value.get(zoneId);
     if (!zone) return [];
-    return zone.client_ids.filter(id => isClientAvailable(id));
+    return zone.client_ids.filter(id => isClientOnline(id));
   }
 
   /**
@@ -241,117 +242,76 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
    * If client is in a zone, returns all zone members.
    * If not in a zone, returns just the client itself.
    */
-  function getLinkedClientIds(dspId) {
-    const zone = getZoneForClient(dspId);
+  function getLinkedClientIds(macId) {
+    const zone = getZoneForClient(macId);
     if (zone) {
       return zone.client_ids;
     }
-    return [dspId];
+    return [macId];
   }
 
   /**
-   * Get available linked client IDs for a given client.
-   * Same as getLinkedClientIds but filtered to available clients only.
+   * Get online linked client IDs for a given client.
+   * Same as getLinkedClientIds but filtered to online clients only.
    */
-  function getAvailableLinkedClientIds(dspId) {
-    const linkedIds = getLinkedClientIds(dspId);
-    return linkedIds.filter(id => isClientAvailable(id));
+  function getOnlineLinkedClientIds(macId) {
+    const linkedIds = getLinkedClientIds(macId);
+    return linkedIds.filter(id => isClientOnline(id));
   }
 
   /**
-   * Check if zone has an available subwoofer.
+   * Check if zone has an online subwoofer.
    */
-  function hasAvailableSubwoofer(zoneId) {
+  function hasOnlineSubwoofer(zoneId) {
     const zone = zones.value.get(zoneId);
     if (!zone) return false;
 
     return zone.client_ids.some(id => {
       const client = clients.value.get(id);
-      return client && client.available && client.speaker_type === 'subwoofer';
+      return client && client.online && client.speaker_type === 'subwoofer';
     });
   }
 
   // === WEBSOCKET EVENT HANDLERS ===
 
   /**
-   * Handle registry events from WebSocket.
-   * Called by websocket service when registry events are received.
+   * Handle multiroom category events from WebSocket.
+   * This is the new standardized event format (Story 6.1/6.2).
+   * @param {Object} event - WebSocket event with { type, data }
+   *   - client_state_changed: { mac_id, client: { complete client object } }
+   *   - zone_changed: { zone_id, zone: { enriched zone object } | null }
    */
-  function handleRegistryEvent(event) {
+  function handleMultiroomEvent(event) {
     const { type, data } = event;
 
     switch (type) {
-      case 'client_registered':
-      case 'client_updated':
-        if (data.client) {
-          // Strip runtime fields - volume/mute live in volumeState
-          clients.value.set(data.dsp_id, stripRuntimeFields(data.client));
+      case 'client_state_changed':
+        // Complete client object in data.client
+        if (data.client && data.mac_id) {
+          const clientData = stripRuntimeFields(data.client);
+          clients.value.set(data.mac_id, clientData);
           saveCache();
         }
         break;
 
-      case 'client_unregistered':
-        clients.value.delete(data.dsp_id);
-        saveCache();
-        break;
-
-      case 'availability_changed':
-        if (clients.value.has(data.dsp_id)) {
-          const client = clients.value.get(data.dsp_id);
-          // Replace entire object in Map to trigger Vue reactivity
-          // (mutating properties in place doesn't trigger Map reactivity)
-          clients.value.set(data.dsp_id, {
-            ...client,
-            available: data.available,
-            ...(data.client ? stripRuntimeFields(data.client) : {})
-          });
+      case 'zone_changed':
+        // Zone create/update/delete - null zone means deleted
+        if (data.zone_id) {
+          if (data.zone) {
+            // Zone created or updated (enriched zone with computed fields)
+            zones.value.set(data.zone_id, data.zone);
+          } else {
+            // Zone deleted (zone is null)
+            zones.value.delete(data.zone_id);
+          }
           saveCache();
         }
-        break;
-
-      // Note: volume_changed is handled by unifiedAudioStore.handleVolumeEvent()
-      // Volume/mute data lives in volumeState.clients, not here
-
-      case 'speaker_type_changed':
-        if (clients.value.has(data.dsp_id)) {
-          const client = clients.value.get(data.dsp_id);
-          // Replace entire object in Map to trigger Vue reactivity
-          clients.value.set(data.dsp_id, {
-            ...client,
-            speaker_type: data.speaker_type,
-            ...(data.crossover_frequency !== undefined ? { crossover_frequency: data.crossover_frequency } : {})
-          });
-          saveCache();
-        }
-        break;
-
-      case 'zone_created':
-        if (data.zone) {
-          zones.value.set(data.zone_id, data.zone);
-          saveCache();
-        }
-        break;
-
-      case 'zone_deleted':
-        zones.value.delete(data.zone_id);
-        saveCache();
-        break;
-
-      case 'zone_updated':
-        if (data.zone) {
-          zones.value.set(data.zone_id, data.zone);
-          saveCache();
-        }
-        break;
-
-      case 'zone_client_added':
-      case 'zone_client_removed':
-        // Refresh the specific zone
-        fetchZone(data.zone_id);
         break;
 
       default:
-        console.log('Unknown registry event:', type, data);
+        // Ignore unknown event types silently
+        // Note: dsp_changed and crossover_changed are handled by dspStore
+        break;
     }
   }
 
@@ -359,10 +319,11 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
   /**
    * Fetch a specific zone from backend.
+   * Uses canonical /api/multiroom/zones endpoint.
    */
   async function fetchZone(zoneId) {
     try {
-      const response = await axios.get(`/api/registry/zones/${zoneId}`);
+      const response = await axios.get(`/api/multiroom/zones/${zoneId}`);
       zones.value.set(zoneId, response.data);
       saveCache();
     } catch (error) {
@@ -377,15 +338,16 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
   /**
    * Create a new zone.
+   * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
    */
-  async function createZone(zoneId, name, clientIds = []) {
+  async function createZone(name, clientIds = []) {
     try {
-      const response = await axios.post('/api/registry/zones', {
-        id: zoneId,
+      const response = await axios.post('/api/multiroom/zones', {
         name,
         client_ids: clientIds
       });
-      // State update will come via WebSocket
+      // State update will come via WebSocket (zone_created)
+      // zone_id is auto-generated by backend (UUID)
       return response.data;
     } catch (error) {
       console.error('Error creating zone:', error);
@@ -395,11 +357,12 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
   /**
    * Delete a zone.
+   * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
    */
   async function deleteZone(zoneId) {
     try {
-      await axios.delete(`/api/registry/zones/${zoneId}`);
-      // State update will come via WebSocket
+      await axios.delete(`/api/multiroom/zones/${zoneId}`);
+      // State update will come via WebSocket (zone_deleted)
       return true;
     } catch (error) {
       console.error('Error deleting zone:', error);
@@ -408,12 +371,13 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
   }
 
   /**
-   * Update zone properties.
+   * Update zone properties (name).
+   * Uses canonical /api/multiroom/zones endpoint (Story 2-4).
    */
   async function updateZone(zoneId, updates) {
     try {
-      const response = await axios.put(`/api/registry/zones/${zoneId}`, updates);
-      // State update will come via WebSocket
+      const response = await axios.patch(`/api/multiroom/zones/${zoneId}`, updates);
+      // State update will come via WebSocket (zone_updated)
       return response.data;
     } catch (error) {
       console.error('Error updating zone:', error);
@@ -423,9 +387,15 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
   /**
    * Set zone clients (replace all).
+   * @deprecated Uses legacy /api/registry/ endpoint. No /api/multiroom/ equivalent exists yet.
+   * Consider using addClientToZone/removeClientFromZone for individual client management.
+   * @param {string} zoneId - Zone ID
+   * @param {string[]} clientIds - Array of client mac_ids
+   * @returns {Promise<Object>} Response data
    */
   async function setZoneClients(zoneId, clientIds) {
     try {
+      // TODO: Migrate when PUT /api/multiroom/zones/{zone_id}/clients exists
       const response = await axios.put(`/api/registry/zones/${zoneId}/clients`, {
         client_ids: clientIds
       });
@@ -439,12 +409,18 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
   /**
    * Add a client to a zone.
+   * Client's DSP is replaced by zone's shared DSP (FR15).
+   * @param {string} zoneId - Zone ID
+   * @param {string} macId - Client mac_id to add
+   * @returns {Promise<Object>} Response with updated zone data
    */
-  async function addClientToZone(zoneId, dspId) {
+  async function addClientToZone(zoneId, macId) {
     try {
-      await axios.post(`/api/registry/zones/${zoneId}/clients/${dspId}`);
-      // State update will come via WebSocket
-      return true;
+      const response = await axios.post(`/api/multiroom/zones/${zoneId}/clients`, {
+        mac_id: macId
+      });
+      // State update will come via WebSocket (zone_updated)
+      return response.data;
     } catch (error) {
       console.error('Error adding client to zone:', error);
       throw error;
@@ -453,12 +429,17 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
   /**
    * Remove a client from a zone.
+   * Client keeps zone DSP as standalone DSP (FR14).
+   * If zone has < 2 clients after removal, zone is deleted.
+   * @param {string} zoneId - Zone ID
+   * @param {string} macId - Client mac_id to remove
+   * @returns {Promise<Object>} Response with zone data or deletion message
    */
-  async function removeClientFromZone(zoneId, dspId) {
+  async function removeClientFromZone(zoneId, macId) {
     try {
-      await axios.delete(`/api/registry/zones/${zoneId}/clients/${dspId}`);
-      // State update will come via WebSocket
-      return true;
+      const response = await axios.delete(`/api/multiroom/zones/${zoneId}/clients/${macId}`);
+      // State update will come via WebSocket (zone_updated or zone_deleted)
+      return response.data;
     } catch (error) {
       console.error('Error removing client from zone:', error);
       throw error;
@@ -467,14 +448,24 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
   /**
    * Update client speaker type.
+   * Uses canonical PATCH /api/multiroom/clients/{mac_id} when crossoverFrequency is null.
+   * Falls back to legacy endpoint when crossoverFrequency is specified.
+   * @param {string} macId - Client mac_id
+   * @param {string} speakerType - New speaker type
+   * @param {number|null} crossoverFrequency - Optional crossover frequency (requires legacy endpoint)
+   * @returns {Promise<Object>} Updated client data
    */
-  async function updateClientType(dspId, speakerType, crossoverFrequency = null) {
+  async function updateClientType(macId, speakerType, crossoverFrequency = null) {
     try {
-      const payload = { speaker_type: speakerType };
-      if (crossoverFrequency !== null) {
-        payload.crossover_frequency = crossoverFrequency;
+      // Use canonical endpoint when no crossover_frequency
+      if (crossoverFrequency === null) {
+        return await updateClient(macId, { speaker_type: speakerType });
       }
-      const response = await axios.put(`/api/registry/clients/${dspId}/type`, payload);
+
+      // Fall back to legacy endpoint for crossover_frequency support
+      // TODO: Migrate when /api/multiroom/ supports crossover_frequency
+      const payload = { speaker_type: speakerType, crossover_frequency: crossoverFrequency };
+      const response = await axios.put(`/api/registry/clients/${macId}/type`, payload);
       // State update will come via WebSocket
       return response.data;
     } catch (error) {
@@ -484,7 +475,26 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
   }
 
   /**
+   * Update client properties (name and/or speaker_type).
+   * Uses canonical PATCH /api/multiroom/clients/{mac_id} endpoint.
+   * @param {string} macId - Client mac_id
+   * @param {Object} updates - { name?: string, speaker_type?: string }
+   * @returns {Promise<Object>} Updated client data
+   */
+  async function updateClient(macId, updates) {
+    try {
+      const response = await axios.patch(`/api/multiroom/clients/${macId}`, updates);
+      // State update will come via WebSocket (registry:client_updated)
+      return response.data;
+    } catch (error) {
+      console.error('Error updating client:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Update client display name.
+   * @deprecated Use updateClient(macId, { name }) instead - this uses legacy Snapcast endpoint
    * @param {string} snapcastId - Snapcast client ID (MAC address for local)
    * @param {string} name - New display name
    * @returns {Promise<boolean>} Success status
@@ -497,7 +507,7 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
       const response = await axios.post(`/api/routing/snapcast/client/${snapcastId}/name`, {
         name: trimmedName
       });
-      // State update will come via WebSocket (registry.client_updated)
+      // State update will come via WebSocket (registry:client_updated)
       return response.data.status === 'success';
     } catch (error) {
       console.error('Error updating client name:', error);
@@ -508,16 +518,66 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
   /**
    * Permanently delete a client from the registry.
    * Removes client from all zones and clears persisted configuration.
-   * @param {string} dspId - Client dsp_id
+   * @deprecated Uses legacy /api/registry/ endpoint. No /api/multiroom/ equivalent exists yet.
+   * @param {string} macId - Client mac_id
    * @returns {Promise<boolean>} Success status
    */
-  async function deleteClient(dspId) {
+  async function deleteClient(macId) {
     try {
-      const response = await axios.delete(`/api/registry/clients/${dspId}`);
-      // State update will come via WebSocket (client_unregistered)
+      // TODO: Migrate when DELETE /api/multiroom/clients/{mac_id} exists
+      const response = await axios.delete(`/api/registry/clients/${macId}`);
+      // State update will come via WebSocket (client_disconnected)
       return response.data.status === 'success';
     } catch (error) {
       console.error('Error deleting client:', error);
+      return false;
+    }
+  }
+
+  // === SYNC STATUS HELPERS ===
+
+  /**
+   * Check if a client has a sync error.
+   * @param {string} macId - Client mac_id
+   * @returns {boolean} True if client has sync error
+   */
+  function hasSyncError(macId) {
+    const client = clients.value.get(macId);
+    return client?.sync_status?.dsp_synced === false || client?.sync_status?.volume_synced === false;
+  }
+
+  /**
+   * Check if a client is currently syncing.
+   * @param {string} macId - Client mac_id
+   * @returns {boolean} True if client is syncing
+   */
+  function isSyncing(macId) {
+    const client = clients.value.get(macId);
+    return client?.sync_status?.syncing === true;
+  }
+
+  /**
+   * Get sync status for a client.
+   * @param {string} macId - Client mac_id
+   * @returns {Object|null} Sync status { volume_synced, dsp_synced, pending_applied }
+   */
+  function getSyncStatus(macId) {
+    const client = clients.value.get(macId);
+    return client?.sync_status || null;
+  }
+
+  /**
+   * Retry sync for a client with failed sync.
+   * @param {string} macId - Client mac_id
+   * @returns {Promise<boolean>} Success status
+   */
+  async function retrySyncClient(macId) {
+    try {
+      // Call backend to trigger re-sync
+      const response = await axios.post(`/api/registry/clients/${macId}/sync`);
+      return response.data.status === 'success';
+    } catch (error) {
+      console.error('Error retrying sync for client:', error);
       return false;
     }
   }
@@ -533,8 +593,8 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
     // Computed
     clientList,
-    availableClients,
-    availableClientIds,
+    onlineClients,
+    onlineClientIds,
     zoneList,
     clientCount,
     zoneCount,
@@ -545,20 +605,20 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
     // Client queries
     getClient,
-    isClientAvailable,
+    isClientOnline,
     getClientName,
 
     // Zone queries
     getZone,
     getZoneForClient,
     getZoneClientIds,
-    getAvailableZoneClientIds,
+    getOnlineZoneClientIds,
     getLinkedClientIds,
-    getAvailableLinkedClientIds,
-    hasAvailableSubwoofer,
+    getOnlineLinkedClientIds,
+    hasOnlineSubwoofer,
 
-    // WebSocket handler
-    handleRegistryEvent,
+    // WebSocket handlers
+    handleMultiroomEvent,
 
     // API actions
     createZone,
@@ -568,8 +628,15 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
     addClientToZone,
     removeClientFromZone,
     updateClientType,
+    updateClient,
     updateClientName,
     deleteClient,
+
+    // Sync status
+    hasSyncError,
+    isSyncing,
+    getSyncStatus,
+    retrySyncClient,
 
     // Cache management
     clearCache

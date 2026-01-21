@@ -41,18 +41,18 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   // This replaces the old ref([]) and provides backward compatibility
   const clients = computed(() => {
     return registryStore.clientList.map(client => {
-      const volumeState = audioStore.volumeState.clients[client.dsp_id];
+      const volumeState = audioStore.volumeState.clients[client.mac_id];
       return {
         // Snapcast uses snapcast_id as primary ID
         id: client.snapcast_id,
-        dsp_id: client.dsp_id,
+        mac_id: client.mac_id,
         name: client.name,
         host: client.host,
         ip: client.ip,
         mac: client.snapcast_id, // MAC address = snapcast_id
-        available: client.available,
+        online: client.online,
         // Convert dB to percentage for UI
-        volume: dbToPercent(volumeState?.volume_db ?? -30),
+        volume: dbToPercent(volumeState?.volume_db ?? -60),
         muted: volumeState?.mute ?? false,
         last_seen_age: 0 // Not tracked here, use registry if needed
       };

@@ -117,7 +117,7 @@
       <div v-if="isExpanded && zoneClientDetails" class="expanded-clients">
         <div
           v-for="(zoneClient, index) in zoneClientDetails"
-          :key="zoneClient.dsp_id"
+          :key="zoneClient.mac_id"
           class="client-row"
           :style="{ animationDelay: `${150 + index * 120}ms` }"
         >
@@ -129,15 +129,15 @@
           <!-- Client name -->
           <span
             class="client-row-name heading-3"
-            :class="{ 'muted': zoneClient.dspMuted, 'offline': !zoneClient.available }"
+            :class="{ 'muted': zoneClient.dspMuted, 'offline': !zoneClient.online }"
           >
             {{ zoneClient.name }}
           </span>
 
           <!-- Client volume slider (when online) -->
-          <div v-if="zoneClient.available" class="client-volume">
+          <div v-if="zoneClient.online" class="client-volume">
             <RangeSlider
-              :model-value="getClientDisplayVolume(zoneClient.dsp_id, zoneClient.dspVolume)"
+              :model-value="getClientDisplayVolume(zoneClient.mac_id, zoneClient.dspVolume)"
               :min="sliderMin"
               :max="sliderMax"
               :step="1"
@@ -145,22 +145,22 @@
               :muted="zoneClient.dspMuted"
               show-value
               value-unit=" dB"
-              @input="(v) => handleClientVolumeInput(zoneClient.dsp_id, v)"
-              @change="(v) => handleClientVolumeChange(zoneClient.dsp_id, v)"
+              @input="(v) => handleClientVolumeInput(zoneClient.mac_id, v)"
+              @change="(v) => handleClientVolumeChange(zoneClient.mac_id, v)"
             />
           </div>
 
           <!-- Offline indicator (when offline) -->
           <div v-else class="client-offline text-mono">
-            Hors ligne
+            {{ t('multiroom.offline') }}
           </div>
 
           <!-- Client mute toggle -->
           <Toggle
             :model-value="!zoneClient.dspMuted"
             variant="secondary"
-            :disabled="!zoneClient.available"
-            @change="(enabled) => handleClientMuteToggle(zoneClient.dsp_id, !enabled)"
+            :disabled="!zoneClient.online"
+            @change="(enabled) => handleClientMuteToggle(zoneClient.mac_id, !enabled)"
           />
         </div>
       </div>
@@ -176,7 +176,9 @@ import SvgIcon from '@/components/ui/SvgIcon.vue';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useDspStore } from '@/stores/dspStore';
 import { useVolumeThrottle, useVolumeThrottleMap } from '@/composables/useVolumeThrottle';
+import { useI18n } from '@/services/i18n';
 
+const { t } = useI18n();
 const settingsStore = useSettingsStore();
 const dspStore = useDspStore();
 
@@ -200,7 +202,7 @@ const props = defineProps({
     default: false
   },
   // Detailed client list for expanded view
-  // [{dsp_id, name, dspVolume, dspMuted, speakerType, available}]
+  // [{mac_id, name, dspVolume, dspMuted, speakerType, online}]
   zoneClientDetails: {
     type: Array,
     default: null
@@ -236,8 +238,8 @@ const { throttledFn: throttledZoneVolume, flush: flushZoneVolume } = useVolumeTh
 
 // Individual client sliders: use throttle map with FAST preset (50ms throttle, 150ms final)
 const { getThrottledFn: getClientThrottledFn } = useVolumeThrottleMap(
-  (clientDspId) => (value) => {
-    emit('client-volume-change', clientDspId, value);
+  (clientMacId) => (value) => {
+    emit('client-volume-change', clientMacId, value);
   },
   'FAST'
 );
@@ -253,7 +255,7 @@ const sliderMax = computed(() => settingsStore.volumeLimits.max_db);
 // Speaker type for standalone client (not zone)
 const clientSpeakerType = computed(() => {
   if (props.isZone) return null;
-  return dspStore.getClientSpeakerType(props.client.dsp_id) || 'bookshelf';
+  return dspStore.getClientSpeakerType(props.client.mac_id) || 'bookshelf';
 });
 
 // Volume is always in dB (zone average or single client)
@@ -263,7 +265,7 @@ const displayVolume = computed(() => {
   }
 
   // Use dspVolume from client (populated by parent), clamp to limits
-  const volume = props.client.dspVolume ?? -30;
+  const volume = props.client.dspVolume ?? -60;
   return Math.max(sliderMin.value, Math.min(sliderMax.value, Math.round(volume)));
 });
 
@@ -280,11 +282,11 @@ function getSpeakerIcon(speakerType) {
 }
 
 // Get display volume for individual client (uses local value during drag)
-function getClientDisplayVolume(dspId, serverVolume) {
-  if (clientLocalVolumes.value[dspId] !== undefined) {
-    return clientLocalVolumes.value[dspId];
+function getClientDisplayVolume(macId, serverVolume) {
+  if (clientLocalVolumes.value[macId] !== undefined) {
+    return clientLocalVolumes.value[macId];
   }
-  return Math.max(sliderMin.value, Math.min(sliderMax.value, Math.round(serverVolume ?? -30)));
+  return Math.max(sliderMin.value, Math.min(sliderMax.value, Math.round(serverVolume ?? -60)));
 }
 
 // === ZONE HEADER HANDLERS ===
@@ -315,23 +317,23 @@ function handleMuteToggle(enabled) {
 }
 
 // === INDIVIDUAL CLIENT HANDLERS (expanded view) ===
-function handleClientVolumeInput(clientDspId, value) {
+function handleClientVolumeInput(clientMacId, value) {
   // Update local display volume for smooth UI
-  clientLocalVolumes.value[clientDspId] = value;
+  clientLocalVolumes.value[clientMacId] = value;
   // Use throttled function from composable
-  getClientThrottledFn(clientDspId)(value);
+  getClientThrottledFn(clientMacId)(value);
 }
 
-function handleClientVolumeChange(clientDspId, value) {
+function handleClientVolumeChange(clientMacId, value) {
   // Clear local display volume on release (reassign object to guarantee Vue 3 reactivity)
-  const { [clientDspId]: _, ...rest } = clientLocalVolumes.value;
+  const { [clientMacId]: _, ...rest } = clientLocalVolumes.value;
   clientLocalVolumes.value = rest;
   // Emit final value immediately (composable's final timer handles any pending)
-  emit('client-volume-change', clientDspId, value);
+  emit('client-volume-change', clientMacId, value);
 }
 
-function handleClientMuteToggle(clientDspId, muted) {
-  emit('client-mute-toggle', clientDspId, muted);
+function handleClientMuteToggle(clientMacId, muted) {
+  emit('client-mute-toggle', clientMacId, muted);
 }
 
 // Note: Cleanup handled automatically by useVolumeThrottle and useVolumeThrottleMap composables
