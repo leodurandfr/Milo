@@ -50,14 +50,14 @@
                       <span class="zone-header__name heading-3">{{ zone.displayName }}</span>
                       <!-- Crossover badge -->
                       <span
-                        v-if="getZoneCrossover(zone.id)?.enabled"
+                        v-if="zone.crossover_enabled"
                         class="crossover-badge crossover-badge--active"
                         :title="t('multiroom.crossover.badgeActive')"
                       >
-                        {{ getZoneCrossover(zone.id)?.frequency }} Hz
+                        {{ zone.crossover_frequency || 80 }} Hz
                       </span>
                       <span
-                        v-else-if="zoneHasSubwoofer(zone)"
+                        v-else-if="zone.has_subwoofer"
                         class="crossover-badge crossover-badge--inactive"
                         :title="t('multiroom.crossover.subwooferOffline')"
                       >
@@ -242,7 +242,10 @@ const zones = computed(() => {
       displayName: zone.name || `Zone ${index + 1}`,
       clientCount: clients.length,
       onlineCount,
-      clients
+      clients,
+      crossover_enabled: zone.crossover_enabled,
+      crossover_frequency: zone.crossover_frequency,
+      has_subwoofer: zone.has_subwoofer
     };
   });
 });

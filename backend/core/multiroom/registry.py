@@ -24,7 +24,8 @@ from backend.core.multiroom.models import (
     ReconnectionContext,
     SpeakerType,
     DEFAULT_SPEAKER_TYPE,
-    DEFAULT_VOLUME_DB
+    DEFAULT_VOLUME_DB,
+    DEFAULT_CROSSOVER_FREQUENCIES,
 )
 
 
@@ -246,11 +247,15 @@ class ClientRegistryService:
         Returns:
             Updated client or None if not found
         """
+        zone_to_update = None
+
         async with self._lock:
             client = self._clients.get(mac_id)
             if not client:
                 self.logger.warning(f"Cannot update: client {mac_id} not found")
                 return None
+
+            speaker_type_changed = speaker_type is not None and speaker_type != client.speaker_type
 
             if name is not None:
                 client.name = name
@@ -259,11 +264,25 @@ class ClientRegistryService:
 
             client_dict = client.to_dict()
 
+            # If speaker type changed and client is in a zone, prepare zone update
+            # (zone's crossover_frequency depends on speaker types)
+            if speaker_type_changed and client.zone_id:
+                zone = self._zones.get(client.zone_id)
+                if zone:
+                    zone_to_update = (client.zone_id, self.zone_to_enriched_dict(zone))
+
         await self._persist_clients()
         await self._emit_event(RegistryEventType.CLIENT_UPDATED, {
             "mac_id": mac_id,
             "client": client_dict
         })
+
+        # Emit zone update if speaker type changed (for crossover_frequency recalculation)
+        if zone_to_update:
+            await self._emit_event(RegistryEventType.ZONE_UPDATED, {
+                "zone_id": zone_to_update[0],
+                "zone": zone_to_update[1]
+            })
 
         return client
 
@@ -939,8 +958,8 @@ class ClientRegistryService:
         """
         Convert zone to dict with computed fields for API responses.
 
-        Adds online_client_count, has_subwoofer, and crossover_enabled
-        computed fields to the base zone dict.
+        Adds online_client_count, has_subwoofer, crossover_enabled, and
+        crossover_frequency (computed from speaker types) to the base zone dict.
 
         Args:
             zone: The zone to convert
@@ -953,6 +972,7 @@ class ClientRegistryService:
         # Compute derived fields
         online_count = 0
         has_subwoofer = False
+        speaker_frequencies = []
 
         for mac_id in zone.client_ids:
             client = self._clients.get(mac_id)
@@ -960,10 +980,21 @@ class ClientRegistryService:
                 if client.online:
                     online_count += 1
                 if client.speaker_type == 'subwoofer':
-                    has_subwoofer = True
+                    if client.online:
+                        has_subwoofer = True
+                else:
+                    # Collect crossover frequencies from non-subwoofer speakers
+                    freq = DEFAULT_CROSSOVER_FREQUENCIES.get(client.speaker_type)
+                    if freq:
+                        speaker_frequencies.append(freq)
 
         base['online_client_count'] = online_count
         base['has_subwoofer'] = has_subwoofer
+
+        # Compute crossover frequency from speaker types (use min frequency)
+        if speaker_frequencies:
+            base['crossover_frequency'] = min(speaker_frequencies)
+
         # Crossover is enabled when: zone.crossover_enabled is explicitly True,
         # OR when it's None (auto) and there's an online subwoofer in the zone
         if zone.crossover_enabled is not None:
@@ -1117,6 +1148,8 @@ class ClientRegistryService:
             RegistryEventType.ZONE_CREATED,
             RegistryEventType.ZONE_UPDATED,
             RegistryEventType.ZONE_DELETED,
+            RegistryEventType.ZONE_CLIENT_ADDED,
+            RegistryEventType.ZONE_CLIENT_REMOVED,
         }
         dsp_events = {
             RegistryEventType.DSP_SETTINGS_CHANGED,

@@ -29,7 +29,7 @@ from backend.core.multiroom.snapcast import (
     get_available_client_ids,
 )
 from backend.core.multiroom.websocket import SnapcastWebSocketService
-from backend.core.multiroom.crossover import CrossoverService, is_ip_address
+from backend.core.multiroom.crossover import CrossoverService
 from backend.core.multiroom.routing import AudioRoutingService
 from backend.core.multiroom.routes import (
     router,
@@ -56,7 +56,6 @@ __all__ = [
     "CrossoverService",
     "AudioRoutingService",
     # Helpers
-    "is_ip_address",
     "get_available_clients",
     "get_available_client_ids",
     # Routes
