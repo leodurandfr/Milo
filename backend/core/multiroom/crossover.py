@@ -468,7 +468,11 @@ class CrossoverService:
     ) -> bool:
         """Apply or remove crossover filter on a specific client."""
         try:
-            if client_id == "local":
+            # Check if this is the local client via registry lookup
+            client = self._registry.get_client(client_id) if self._registry else None
+            is_local = (client.ip == "127.0.0.1") if client else False
+
+            if is_local:
                 if self.dsp_service:
                     return await self.dsp_service.set_crossover_filter(
                         enabled=enabled,
@@ -491,7 +495,11 @@ class CrossoverService:
     ) -> bool:
         """Apply or remove lowpass filter on a specific client (subwoofer)."""
         try:
-            if client_id == "local":
+            # Check if this is the local client via registry lookup
+            client = self._registry.get_client(client_id) if self._registry else None
+            is_local = (client.ip == "127.0.0.1") if client else False
+
+            if is_local:
                 if self.dsp_service:
                     return await self.dsp_service.set_lowpass_filter(
                         enabled=enabled,
@@ -742,15 +750,21 @@ class CrossoverService:
     async def _apply_pending_mute(self, client_id: str, muted: bool) -> bool:
         """Apply pending mute settings to a client."""
         try:
-            if client_id == "local":
+            # Check if this is the local client via registry lookup
+            client = self._registry.get_client(client_id) if self._registry else None
+            is_local = (client.ip == "127.0.0.1") if client else False
+
+            if is_local:
                 if self.dsp_service:
                     await self.dsp_service.set_mute(muted)
                     return True
             else:
-                if is_ip_address(client_id):
-                    url = f"http://{client_id}:{self.CLIENT_API_PORT}/dsp/mute"
+                # Use client IP for remote requests
+                hostname = client.ip if client else client_id
+                if is_ip_address(hostname):
+                    url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/mute"
                 else:
-                    url = f"http://{client_id}.local:{self.CLIENT_API_PORT}/dsp/mute"
+                    url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/mute"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -771,15 +785,21 @@ class CrossoverService:
                 "filter_type": filter_data.get("type")
             }
 
-            if client_id == "local":
+            # Check if this is the local client via registry lookup
+            client = self._registry.get_client(client_id) if self._registry else None
+            is_local = (client.ip == "127.0.0.1") if client else False
+
+            if is_local:
                 if self.dsp_service:
                     await self.dsp_service.set_filter(filter_id, **data)
                     return True
             else:
-                if is_ip_address(client_id):
-                    url = f"http://{client_id}:{self.CLIENT_API_PORT}/dsp/filter/{filter_id}"
+                # Use client IP for remote requests
+                hostname = client.ip if client else client_id
+                if is_ip_address(hostname):
+                    url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/filter/{filter_id}"
                 else:
-                    url = f"http://{client_id}.local:{self.CLIENT_API_PORT}/dsp/filter/{filter_id}"
+                    url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/filter/{filter_id}"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -793,15 +813,21 @@ class CrossoverService:
     async def _apply_pending_compressor(self, client_id: str, settings: Dict[str, Any]) -> bool:
         """Apply pending compressor settings to a client."""
         try:
-            if client_id == "local":
+            # Check if this is the local client via registry lookup
+            client = self._registry.get_client(client_id) if self._registry else None
+            is_local = (client.ip == "127.0.0.1") if client else False
+
+            if is_local:
                 if self.dsp_service:
                     await self.dsp_service.set_compressor(**settings)
                     return True
             else:
-                if is_ip_address(client_id):
-                    url = f"http://{client_id}:{self.CLIENT_API_PORT}/dsp/compressor"
+                # Use client IP for remote requests
+                hostname = client.ip if client else client_id
+                if is_ip_address(hostname):
+                    url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/compressor"
                 else:
-                    url = f"http://{client_id}.local:{self.CLIENT_API_PORT}/dsp/compressor"
+                    url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/compressor"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -815,15 +841,21 @@ class CrossoverService:
     async def _apply_pending_loudness(self, client_id: str, settings: Dict[str, Any]) -> bool:
         """Apply pending loudness settings to a client."""
         try:
-            if client_id == "local":
+            # Check if this is the local client via registry lookup
+            client = self._registry.get_client(client_id) if self._registry else None
+            is_local = (client.ip == "127.0.0.1") if client else False
+
+            if is_local:
                 if self.dsp_service:
                     await self.dsp_service.set_loudness(**settings)
                     return True
             else:
-                if is_ip_address(client_id):
-                    url = f"http://{client_id}:{self.CLIENT_API_PORT}/dsp/loudness"
+                # Use client IP for remote requests
+                hostname = client.ip if client else client_id
+                if is_ip_address(hostname):
+                    url = f"http://{hostname}:{self.CLIENT_API_PORT}/dsp/loudness"
                 else:
-                    url = f"http://{client_id}.local:{self.CLIENT_API_PORT}/dsp/loudness"
+                    url = f"http://{hostname}.local:{self.CLIENT_API_PORT}/dsp/loudness"
 
                 timeout = aiohttp.ClientTimeout(total=5)
                 async with aiohttp.ClientSession(timeout=timeout) as session:

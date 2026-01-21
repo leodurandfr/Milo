@@ -276,14 +276,15 @@ class SnapcastWebSocketService:
                     host = client.get("host", {})
                     hostname = host.get("name", "")
                     ip = host.get("ip", "").replace("::ffff:", "")
-                    mac_id = ClientRegistryService.compute_mac_id(hostname, ip)
+                    mac = host.get("mac", "")
+                    mac_id = ClientRegistryService.compute_mac_id(hostname, ip, mac)
                     client_name = client.get("config", {}).get("name", hostname or mac_id)
 
                     # Check if client is already in registry
                     existing_client = self.registry.get_client(mac_id) if self.registry else None
 
                     if not existing_client:
-                        is_local = (mac_id == "local")
+                        is_local = (ip == "127.0.0.1")
                         local_marker = " LOCAL CLIENT" if is_local else ""
                         self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: New client {client_id} (mac_id: {mac_id}){local_marker}")
 
@@ -304,8 +305,8 @@ class SnapcastWebSocketService:
                             await self.registry.set_client_online(mac_id, True)
 
             client_count = len(self.registry.get_all_clients()) if self.registry else 0
-            local_found = self.registry.get_client("local") is not None if self.registry else False
-            local_status = "LOCAL FOUND" if local_found else "LOCAL NOT YET CONNECTED"
+            local_client = self.registry.get_local_client() if self.registry else None
+            local_status = "LOCAL FOUND" if local_client else "LOCAL NOT YET CONNECTED"
             self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: Complete. Registered: {client_count} clients. {local_status}")
 
         except Exception as e:
@@ -477,12 +478,13 @@ class SnapcastWebSocketService:
             client_name = client.get("config", {}).get("name", "Unknown")
             client_host = client.get("host", {}).get("name", "Unknown")
             client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
+            client_mac = client.get("host", {}).get("mac", "")
             snapcast_volume = client.get("config", {}).get("volume", {}).get("percent", 100)
 
             # Compute mac_id using canonical method
-            mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip)
+            mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip, client_mac)
 
-            is_local = (mac_id == "local")
+            is_local = (client_ip == "127.0.0.1")
             local_marker = " LOCAL CLIENT" if is_local else ""
             self.logger.info(f"[{time.time():.3f}] CLIENT_CONNECT: New client {client_id} (mac_id: {mac_id}){local_marker}")
             self.logger.info(f"  - Name: {client_name}, Host: {client_host}, IP: {client_ip}")
@@ -532,9 +534,10 @@ class SnapcastWebSocketService:
 
         client_host = client.get("host", {}).get("name", "Unknown")
         client_ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
+        client_mac = client.get("host", {}).get("mac", "")
 
         # Compute mac_id using canonical method
-        mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip)
+        mac_id = ClientRegistryService.compute_mac_id(client_host, client_ip, client_mac)
 
         self.logger.info(f"CLIENT DISCONNECTED: {client_host} (mac_id: {mac_id})")
 
@@ -562,9 +565,11 @@ class SnapcastWebSocketService:
             for group in status.get("server", {}).get("groups", []):
                 for client in group.get("clients", []):
                     if client.get("id") == client_id:
-                        host = client.get("host", {}).get("name", "")
-                        ip = client.get("host", {}).get("ip", "").replace("::ffff:", "")
-                        mac_id = ClientRegistryService.compute_mac_id(host, ip)
+                        host_info = client.get("host", {})
+                        host = host_info.get("name", "")
+                        ip = host_info.get("ip", "").replace("::ffff:", "")
+                        mac = host_info.get("mac", "")
+                        mac_id = ClientRegistryService.compute_mac_id(host, ip, mac)
                         break
         except Exception as e:
             self.logger.warning(f"Could not get client info for mac_id: {e}")
@@ -668,7 +673,8 @@ class SnapcastWebSocketService:
             host = client.get("host", {})
             hostname = host.get("name", "")
             ip = host.get("ip", "").replace("::ffff:", "")
-            mac_id = ClientRegistryService.compute_mac_id(hostname, ip)
+            mac = host.get("mac", "")
+            mac_id = ClientRegistryService.compute_mac_id(hostname, ip, mac)
 
             # 1. Detect reconnection context (FR7-FR10)
             context = ReconnectionContext.STANDALONE_ALONE  # Default
@@ -1057,7 +1063,7 @@ class SnapcastWebSocketService:
                 return False
 
             hostname = client.ip or mac_id
-            is_local = (mac_id == "local")
+            is_local = (client.ip == "127.0.0.1")
 
             # Load saved standalone DSP settings
             saved_settings = await dsp_sync_service.get_client_settings(mac_id)
@@ -1069,18 +1075,18 @@ class SnapcastWebSocketService:
                 # Apply saved settings
                 self.logger.info(f"[{time.time():.3f}] SYNC_STANDALONE: Applying saved settings for {mac_id}")
 
-                # Sync filters
-                filters = saved_settings.get('filters', [])
+                # Sync filters (stored as dict: {filter_id: {freq, gain, q, ...}})
+                filters = saved_settings.get('filters', {})
                 filters_failed = []
-                for flt in filters:
-                    filter_id = flt.get('id')
-                    if not filter_id:
+                for filter_id, flt in filters.items():
+                    if not filter_id or not isinstance(flt, dict):
                         continue
                     filter_data = {
                         'freq': flt.get('freq'),
                         'gain': flt.get('gain'),
                         'q': flt.get('q'),
-                        'filter_type': flt.get('type')
+                        # Handle both 'filter_type' and 'type' keys for compatibility
+                        'filter_type': flt.get('filter_type') or flt.get('type')
                     }
                     try:
                         if is_local:
@@ -1094,7 +1100,7 @@ class SnapcastWebSocketService:
                     except Exception as e:
                         self.logger.warning(f"Failed to sync filter {filter_id} to {mac_id}: {e}")
                         failed_items.append(f"filter:{filter_id}")
-                        filters_failed.append({'id': filter_id, **filter_data})
+                        filters_failed.append({filter_id: filter_data})
 
                 # Queue failed filters for retry (AC6)
                 if filters_failed and crossover_service:

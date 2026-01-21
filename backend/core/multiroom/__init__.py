@@ -27,7 +27,6 @@ from backend.core.multiroom.snapcast import (
     SnapcastService,
     get_available_clients,
     get_available_client_ids,
-    normalize_client_id,
 )
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.multiroom.crossover import CrossoverService, is_ip_address
@@ -60,7 +59,6 @@ __all__ = [
     "is_ip_address",
     "get_available_clients",
     "get_available_client_ids",
-    "normalize_client_id",
     # Routes
     "router",
     "create_snapcast_router",

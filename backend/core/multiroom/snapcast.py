@@ -200,8 +200,8 @@ class SnapcastService:
                 ip = client_data["host"]["ip"].replace("::ffff:", "")
                 mac = client_data["host"].get("mac", "")
 
-                # mac_id: canonical identifier computed from hostname/IP
-                mac_id = ClientRegistryService.compute_mac_id(host, ip)
+                # mac_id: MAC address as primary identifier
+                mac_id = ClientRegistryService.compute_mac_id(host, ip, mac)
 
                 # Calculate online status based on lastSeen timestamp
                 last_seen_data = client_data.get("lastSeen", {})
@@ -281,8 +281,8 @@ class SnapcastService:
                     mac = client_data["host"].get("mac", "")
                     last_seen = client_data.get("lastSeen", {})
 
-                    # mac_id: canonical identifier computed from hostname/IP
-                    mac_id = ClientRegistryService.compute_mac_id(host, ip)
+                    # mac_id: MAC address as primary identifier
+                    mac_id = ClientRegistryService.compute_mac_id(host, ip, mac)
 
                     raw_clients.append({
                         "id": client_data["id"],
@@ -584,14 +584,3 @@ async def get_available_client_ids(snapcast_service: SnapcastService) -> List[st
     return [c["mac_id"] for c in clients]
 
 
-def normalize_client_id(hostname: str) -> str:
-    """
-    Normalize client hostname to standard format.
-
-    Args:
-        hostname: Client hostname (e.g., 'milo', 'local', '192.168.1.100')
-
-    Returns:
-        Normalized hostname ('local' for main device, hostname otherwise)
-    """
-    return "local" if hostname in ("local", "milo") else hostname

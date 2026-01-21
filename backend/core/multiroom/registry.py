@@ -6,13 +6,12 @@ All services that need client information MUST query this service.
 This service is the ONLY place where client state is mutated.
 
 Architecture:
-- mac_id is the single unique identifier for clients
-- "local" is used for the main device (not a MAC address)
+- mac_id is the single unique identifier for clients (always a MAC address)
+- Local client is identified by ip == "127.0.0.1" or client.is_local
 - Zones share DSP settings, standalone clients have individual DSP
 """
 import asyncio
 import logging
-import hashlib
 from typing import Dict, List, Optional, Callable, Awaitable, Any
 
 from backend.core.events import EventBus, get_event_bus
@@ -92,9 +91,9 @@ class ClientRegistryService:
         Register a new client or update existing one.
 
         Args:
-            mac_id: Primary identifier (MAC address or "local")
+            mac_id: Primary identifier (MAC address, format xx:xx:xx:xx:xx:xx)
             name: Display name
-            ip: IP address
+            ip: IP address (127.0.0.1 for local client)
             speaker_type: Speaker type for crossover (default: bookshelf)
 
         Returns:
@@ -351,14 +350,12 @@ class ClientRegistryService:
 
     def get_client_by_dsp_id(self, dsp_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get a client by DSP ID (hostname-based identifier).
+        Get a client by DSP ID (mac_id).
 
-        In Milo architecture, mac_id IS the DSP ID for volume/DSP operations:
-        - "local" for the main device
-        - "milo-client-XX" for remote clients
+        In Milo architecture, mac_id IS the DSP ID for volume/DSP operations.
 
         Args:
-            dsp_id: Client DSP ID (hostname like "local" or "milo-client-01")
+            dsp_id: Client mac_id (MAC address)
 
         Returns:
             Client data dict if found, None otherwise
@@ -391,6 +388,18 @@ class ClientRegistryService:
         """Get speaker type for a client."""
         client = self._clients.get(mac_id)
         return client.speaker_type if client else DEFAULT_SPEAKER_TYPE
+
+    def get_local_client(self) -> Optional[Client]:
+        """Get the local client (ip == 127.0.0.1)."""
+        for client in self._clients.values():
+            if client.is_local:
+                return client
+        return None
+
+    def is_local_mac_id(self, mac_id: str) -> bool:
+        """Check if mac_id belongs to the local client."""
+        client = self._clients.get(mac_id)
+        return client.is_local if client else False
 
     # === ZONE MANAGEMENT ===
 
@@ -1251,36 +1260,42 @@ class ClientRegistryService:
     # === UTILITY ===
 
     @staticmethod
-    def compute_mac_id(hostname: str, ip: str) -> str:
+    def compute_mac_id(hostname: str, ip: str, mac: str = "") -> str:
         """
-        Compute stable mac_id from hostname and IP.
+        Return the MAC address as mac_id.
 
-        This is the canonical method for deriving client identifiers.
-        All other code should use this method.
+        For local client (127.0.0.1), read MAC from system interface.
+        For remote clients, MAC is provided by Snapcast.
 
         Args:
-            hostname: Hostname from Snapcast
+            hostname: Hostname from Snapcast (for logging only)
             ip: IP address from Snapcast
+            mac: MAC address from Snapcast (for remote clients)
 
         Returns:
-            Stable mac_id ("local" for localhost, or derived from hostname/IP)
+            MAC address in format xx:xx:xx:xx:xx:xx
+
+        Raises:
+            RuntimeError: If local MAC cannot be determined
+            ValueError: If remote client has no MAC address
         """
-        # Local snapclient (127.0.0.1) maps to "local"
+        # MAC provided by Snapcast (remote clients)
+        if mac and mac != "00:00:00:00:00:00":
+            return mac
+
+        # Local client: read MAC from system interface
         if ip == "127.0.0.1":
-            return "local"
+            for iface in ['eth0', 'wlan0']:
+                try:
+                    with open(f'/sys/class/net/{iface}/address') as f:
+                        return f.read().strip()
+                except FileNotFoundError:
+                    continue
+            # Last resort (should never happen on a real system)
+            raise RuntimeError("Cannot determine local MAC address")
 
-        # Use hostname if it looks like a valid milo-client hostname
-        if hostname and hostname.startswith("milo-client"):
-            # Create stable ID from hostname
-            return hostname
-
-        # For other clients, create a stable hash from hostname+IP
-        # This ensures the same client always gets the same ID
-        if hostname:
-            return f"{hostname}-{ip.replace('.', '-')}"
-
-        # Fallback to IP-based ID
-        return ip.replace(".", "-")
+        # Remote without MAC (Snapcast error)
+        raise ValueError(f"No MAC address for client {hostname} at {ip}")
 
     # === BACKWARD COMPATIBILITY ALIASES ===
     # These methods provide compatibility during transition

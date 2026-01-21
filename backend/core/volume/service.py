@@ -80,6 +80,22 @@ class VolumeService:
     # HELPERS
     # ============================================================================
 
+    def _get_local_mac_id(self) -> Optional[str]:
+        """Get the local client's mac_id from the registry."""
+        registry = getattr(self.state_machine, 'client_registry', None)
+        if registry:
+            local_client = registry.get_local_client()
+            if local_client:
+                return local_client.mac_id
+        return None
+
+    def _is_local_client(self, mac_id: str) -> bool:
+        """Check if a mac_id belongs to the local client."""
+        registry = getattr(self.state_machine, 'client_registry', None)
+        if registry:
+            return registry.is_local_mac_id(mac_id)
+        return False
+
     async def _with_lock(self, func, *args, **kwargs):
         """Execute func with volume lock and 2s timeout."""
         try:
@@ -416,8 +432,8 @@ class VolumeService:
                 cid = client.get("dsp_id", "")
                 if not cid:
                     continue
-                # Read DSP volume
-                if cid == 'local':
+                # Read DSP volume (local client uses local DSP, others use proxy)
+                if self._is_local_client(cid):
                     vol_data = await self._dsp_service.get_volume()
                 else:
                     vol_data = await self._proxy_service.request(cid, "GET", "/dsp/volume")
@@ -545,7 +561,9 @@ class VolumeService:
                     self.logger.warning(f"Failed to update clients: {failures}")
 
                 # FR11: Update startup volume using local client's new volume
-                local_volume = updates.get('local') or self._state_store._local_volume_db
+                local_mac_id = self._get_local_mac_id()
+                local_volume = updates.get(local_mac_id) if local_mac_id else None
+                local_volume = local_volume or self._state_store._local_volume_db
                 await self._update_startup_volume_if_needed(local_volume)
 
                 await self._broadcast_volume_state(show_bar=False)
@@ -595,6 +613,9 @@ class VolumeService:
         Volume source is determined by restore_last_volume setting:
         - True: Use persisted volume from last_volume.json
         - False: Use startup_volume_db from settings.json
+
+        Note: At startup, registry may not have the local client yet, so we use
+        _local_volume_db and direct DSP service calls.
         """
         try:
             # Wait for CamillaDSP connection
@@ -606,8 +627,8 @@ class VolumeService:
             # Determine target volume based on restore_last_volume setting (FR12)
             restore_enabled = self.config.config.restore_last_volume
             if restore_enabled:
-                local_client = self._state_store._clients.get('local')
-                target_volume = local_client.volume_db if local_client else self._state_store._local_volume_db
+                # Use persisted local volume from state store
+                target_volume = self._state_store._local_volume_db
                 volume_source = "persisted (last_volume.json)"
                 self.logger.info(f"FR12: Restoring {volume_source}: {target_volume:.1f} dB")
             else:
@@ -615,16 +636,16 @@ class VolumeService:
                 volume_source = "startup_volume_db (settings.json)"
                 self.logger.info(f"FR12: Using {volume_source}: {target_volume:.1f} dB")
 
-            # Get persisted mute state
-            local_client = self._state_store._clients.get('local')
-            local_mute = local_client.mute if local_client else False
+            # Get persisted mute state (local mute from state store)
+            local_mute = self._state_store._local_mute if hasattr(self._state_store, '_local_mute') else False
 
-            if target_volume is not None and self._dsp_controller:
-                await self._dsp_controller.set_dsp_volume("local", target_volume)
-                await self._dsp_controller.set_dsp_mute("local", local_mute)
+            # Apply directly to local DSP (at startup, registry not yet populated)
+            if target_volume is not None and self._dsp_service:
+                await self._dsp_service.set_volume(target_volume)
+                await self._dsp_service.set_mute(local_mute)
                 self.logger.info(f"FR12: Startup state applied - volume={target_volume:.1f}dB, mute={local_mute}, source={volume_source}")
-            elif self._dsp_controller:
-                await self._dsp_controller.set_dsp_mute("local", False)
+            elif self._dsp_service:
+                await self._dsp_service.set_mute(False)
                 self.logger.warning("FR12: No target volume, only unmuted DSP")
         except Exception as e:
             self.logger.error(f"FR12: Failed to apply startup volume: {e}")

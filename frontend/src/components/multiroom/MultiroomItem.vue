@@ -174,7 +174,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
 import Toggle from '@/components/ui/Toggle.vue';
 import SvgIcon from '@/components/ui/SvgIcon.vue';
@@ -230,12 +230,27 @@ const clientLocalVolumes = ref({});
 const localMutedState = ref(null);
 const clientLocalMutes = ref({});
 
+// Clear local volume when backend confirms the update (via WebSocket)
+watch(
+  () => props.client.dspVolume,
+  (newServerVolume) => {
+    // If we have a pending local value and server now matches (within 1dB tolerance)
+    if (localDisplayVolume.value !== null && newServerVolume != null) {
+      const diff = Math.abs(newServerVolume - localDisplayVolume.value);
+      if (diff <= 1) {
+        // Backend confirmed our value, clear local state
+        localDisplayVolume.value = null;
+      }
+    }
+  }
+);
+
 // === THROTTLE MANAGEMENT (unified via composable) ===
 // Zone header slider: MEDIUM preset (80ms throttle, 300ms final)
 const { throttledFn: throttledZoneVolume, flush: flushZoneVolume } = useVolumeThrottle(
   (volumeDb) => {
     if (!props.isLoading) {
-      emit('volume-change', props.client.id, volumeDb);
+      emit('volume-change', props.client.id, volumeDb, { isZone: props.isZone });
     }
   },
   'MEDIUM'
@@ -307,17 +322,24 @@ function handleVolumeInput(newDisplayVolume) {
 }
 
 function handleVolumeChange(newDisplayVolume) {
-  localDisplayVolume.value = null;
+  // Don't clear localDisplayVolume here - keep showing the user's chosen value
+  // until the backend confirms via WebSocket (handled by watcher above)
   flushZoneVolume();
   if (!props.isLoading) {
-    emit('volume-change', props.client.id, newDisplayVolume);
+    emit('volume-change', props.client.id, newDisplayVolume, { isZone: props.isZone });
   }
+  // Fallback: clear local value after 2s if WebSocket didn't confirm
+  setTimeout(() => {
+    if (localDisplayVolume.value === newDisplayVolume) {
+      localDisplayVolume.value = null;
+    }
+  }, 2000);
 }
 
 function handleMuteToggle(enabled) {
   if (!props.isLoading) {
     const newMuted = !enabled;
-    emit('mute-toggle', props.client.id, newMuted);
+    emit('mute-toggle', props.client.id, newMuted, { isZone: props.isZone });
   }
 }
 
