@@ -336,15 +336,18 @@ class Client:
     Complete client information - single source of truth.
 
     Attributes:
-        mac_id: Primary identifier (MAC address or "local" for main device)
+        mac_id: Primary identifier (MAC address, format xx:xx:xx:xx:xx:xx)
         name: Display name for UI
-        ip: IP address
+        ip: IP address (127.0.0.1 for local client)
         online: Connection status (True if connected to Snapcast)
         zone_id: ID of zone membership (None if standalone)
         volume_db: Current volume in dB
         mute: Mute status
         speaker_type: Type of speaker for crossover configuration
         crossover_frequency: Custom crossover frequency in Hz (overrides speaker_type default)
+
+    Properties:
+        is_local: True if this is the local client (ip == "127.0.0.1")
     """
     mac_id: str
     name: str
@@ -380,6 +383,7 @@ class Client:
         }
         if include_runtime:
             result["online"] = self.online
+            result["is_local"] = self.is_local
         return result
 
     @classmethod
@@ -396,6 +400,11 @@ class Client:
             speaker_type=data.get("speaker_type", DEFAULT_SPEAKER_TYPE),
             crossover_frequency=data.get("crossover_frequency")
         )
+
+    @property
+    def is_local(self) -> bool:
+        """Check if this is the local client (running on this device)."""
+        return self.ip == "127.0.0.1"
 
     def is_standalone(self) -> bool:
         """Check if client is standalone (not in a zone)."""

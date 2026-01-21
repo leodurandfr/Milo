@@ -333,57 +333,63 @@ const displayClients = computed(() => {
 });
 
 // === HANDLERS ===
-async function handleVolumeChange(clientId, volumeDb) {
+async function handleVolumeChange(clientId, volumeDb, options = {}) {
+  const { isZone = false } = options;
+
   // Volume is always in dB, find client and update DSP volume
   const client = multiroomStore.clients.find(c => c.id === clientId);
   if (!client) return;
 
-  // Check if this client is part of a zone
-  const zone = getZoneForClient(client);
+  // Use explicit isZone flag instead of recalculating zone membership
+  if (isZone) {
+    const zone = getZoneForClient(client);
+    if (zone && zone.client_ids.length > 1) {
+      // Zone volume change: apply DELTA atomically to entire zone
+      // Get starting state (captures volumes at start of slider drag)
+      const state = getZoneSliderState(zone);
+      const delta = volumeDb - state.startAvg;
 
-  if (zone && zone.client_ids.length > 1) {
-    // Zone volume change: apply DELTA atomically to entire zone
-    // Get starting state (captures volumes at start of slider drag)
-    const state = getZoneSliderState(zone);
-    const delta = volumeDb - state.startAvg;
+      // Single atomic API call for entire zone
+      // This eliminates race condition - updates all clients in parallel, broadcasts once
+      try {
+        await dspStore.applyZoneDelta(zone.id, delta);
+        // Volume state updated via single WebSocket broadcast from backend
+      } catch (error) {
+        console.error('Failed to apply zone volume delta:', error);
+      }
 
-    // NEW: Single atomic API call for entire zone
-    // This eliminates race condition - updates all clients in parallel, broadcasts once
-    try {
-      await dspStore.applyZoneDelta(zone.id, delta);
-      // Volume state updated via single WebSocket broadcast from backend
-    } catch (error) {
-      console.error('Failed to apply zone volume delta:', error);
+      // Clear state after change completes (slider drag ended)
+      clearZoneSliderState(zone);
     }
-
-    // Clear state after change completes (slider drag ended)
-    clearZoneSliderState(zone);
   } else {
-    // Single client, update directly
+    // Standalone client - always use direct update
     await dspStore.updateClientDspVolume(client.mac_id, volumeDb);
     // Volume state will be updated via WebSocket broadcast
   }
 }
 
-async function handleMuteToggle(clientId, muted) {
+async function handleMuteToggle(clientId, muted, options = {}) {
+  const { isZone = false } = options;
+
   const client = multiroomStore.clients.find(c => c.id === clientId);
   if (!client) return;
 
-  // Check if this client is part of a zone
-  const zone = getZoneForClient(client);
+  // Use explicit isZone flag instead of recalculating zone membership
+  if (isZone) {
+    const zone = getZoneForClient(client);
+    if (zone && zone.client_ids.length > 1) {
+      // Zone mute: mute ALL ONLINE clients in the zone
+      const onlineClientIds = zone.client_ids.filter(macId =>
+        multiroomStore.clients.some(c => c.mac_id === macId)
+      );
 
-  if (zone && zone.client_ids.length > 1) {
-    // Zone mute: mute ALL ONLINE clients in the zone
-    const onlineClientIds = zone.client_ids.filter(macId =>
-      multiroomStore.clients.some(c => c.mac_id === macId)
-    );
-
-    const updatePromises = onlineClientIds.map(async (macId) => {
-      await dspStore.updateClientDspMute(macId, muted);
-    });
-    await Promise.all(updatePromises);
+      const updatePromises = onlineClientIds.map(async (macId) => {
+        await dspStore.updateClientDspMute(macId, muted);
+      });
+      await Promise.all(updatePromises);
+    }
   } else {
-    // Single client
+    // Standalone client - always use direct update
     await dspStore.updateClientDspMute(client.mac_id, muted);
   }
 }

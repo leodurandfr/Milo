@@ -122,15 +122,14 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp
             if not client:
                 return {"status": "error", "message": "Client not found"}
 
-            host = client.get("host", "")
             ip = client.get("ip", "")
-            dsp_id = client.get("dsp_id", "")
             volume = client.get("volume", 100)
 
-            hostname = dsp_id if dsp_id else ('local' if (host == 'milo' or ip == '127.0.0.1') else ip)
+            # Check if this is the local client
+            is_local = (ip == "127.0.0.1")
 
             success = False
-            if hostname == 'local':
+            if is_local:
                 if dsp_service:
                     success = await dsp_service.set_mute(muted)
                 else:
@@ -138,12 +137,12 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp
             else:
                 if proxy_service:
                     try:
-                        result = await proxy_service.request(hostname, "PUT", "/dsp/mute", {"muted": muted})
+                        result = await proxy_service.request(ip, "PUT", "/dsp/mute", {"muted": muted})
                         success = result.get("status") == "success"
                     except Exception as e:
-                        logger.warning(f"Failed to set DSP mute on {hostname}: {e}")
+                        logger.warning(f"Failed to set DSP mute on {ip}: {e}")
                 else:
-                    logger.warning(f"Proxy service not available for remote mute on {hostname}")
+                    logger.warning(f"Proxy service not available for remote mute on {ip}")
 
             if success:
                 await _broadcast_client_mute_changed(client_id, volume, muted)
