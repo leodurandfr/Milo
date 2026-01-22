@@ -28,9 +28,9 @@ import { logger } from '@/services/logger';
  *   - favorite_added, favorite_removed → RadioSource.vue → radioStore
  *
  * multiroom: (Standardized format per architecture spec, Story 6.1/6.2)
- *   - client_state_changed → clientRegistryStore (client online/offline, volume, mute, speaker_type)
+ *   - client_state_changed → multiroomStore (client online/offline, volume, mute, speaker_type)
  *     Data: { mac_id, client: { complete client object with all fields } }
- *   - zone_changed → clientRegistryStore (zone create/delete/update, membership changes)
+ *   - zone_changed → multiroomStore (zone create/delete/update, membership changes)
  *     Data: { zone_id, zone: { enriched zone with online_client_count, has_subwoofer, crossover_enabled } | null }
  *   - dsp_changed → dspStore (zone/client DSP settings)
  *     Data: { target_type: "zone"|"client", target_id, dsp_settings }

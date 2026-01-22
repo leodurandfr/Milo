@@ -7,7 +7,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import axios from 'axios';
 import { useUnifiedAudioStore } from './unifiedAudioStore';
-import { useClientRegistryStore } from './clientRegistryStore';
+import { useMultiroomStore } from './multiroomStore';
 
 // Default 10-band parametric EQ frequencies
 const DEFAULT_FREQUENCIES = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
@@ -71,9 +71,9 @@ export const useDspStore = defineStore('dsp', () => {
   const selectedTarget = ref('local');
 
   // Client registry store - single source of truth for clients and zones
-  const registryStore = useClientRegistryStore();
+  const registryStore = useMultiroomStore();
 
-  // Available DSP targets - computed from clientRegistryStore (single source of truth)
+  // Available DSP targets - computed from multiroomStore (single source of truth)
   const availableTargets = computed(() => {
     return registryStore.clientList.map(client => ({
       id: client.mac_id,
@@ -84,11 +84,11 @@ export const useDspStore = defineStore('dsp', () => {
     }));
   });
 
-  // Linked clients - delegates to clientRegistryStore.zoneList
+  // Linked clients - delegates to multiroomStore.zoneList
   // Structure: [{ id: 'group_1', client_ids: ['local', 'milo-client-01'], name: 'Zone 1' }]
   const linkedGroups = computed(() => registryStore.zoneList);
 
-  // Client types - builds from clientRegistryStore.clients
+  // Client types - builds from multiroomStore.clients
   // Structure: { clientId: { speaker_type: 'satellite'|'bookshelf'|'tower'|'subwoofer', crossover_frequency: number|null } }
   const clientTypes = computed(() => {
     const types = {};
@@ -279,7 +279,7 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   // Note: fetchLinkedGroups, fetchClientTypes, and fetchAvailableTargets removed
-  // linkedGroups and clientTypes now delegate to clientRegistryStore
+  // linkedGroups and clientTypes now delegate to multiroomStore
 
   async function fetchZoneCrossover(zoneId) {
     try {
@@ -532,8 +532,8 @@ export const useDspStore = defineStore('dsp', () => {
    * @returns {{ success: boolean, errors: Array<{targetId: string, error: string}>, skipped: Array<string> }}
    */
   async function propagateToLinkedClients(endpoint, data) {
-    // Use clientRegistryStore for availability-aware propagation
-    const registryStore = useClientRegistryStore();
+    // Use multiroomStore for availability-aware propagation
+    const registryStore = useMultiroomStore();
 
     // Get linked clients that are available
     const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
@@ -787,7 +787,7 @@ export const useDspStore = defineStore('dsp', () => {
         });
 
         // Propagate reset to online linked clients
-        const registryStore = useClientRegistryStore();
+        const registryStore = useMultiroomStore();
         const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
         if (linkedIds.length > 1) {
           // Only propagate to online clients
@@ -904,7 +904,7 @@ export const useDspStore = defineStore('dsp', () => {
       const response = await axios.put(`${getApiBase()}/mute`, { muted });
       if (response.data.status === 'success') {
         // Propagate mute to all available linked clients in the zone
-        const registryStore = useClientRegistryStore();
+        const registryStore = useMultiroomStore();
         const linkedIds = registryStore.getLinkedClientIds(selectedTarget.value);
         if (linkedIds.length > 1) {
           // Propagate to available remote clients
@@ -923,8 +923,8 @@ export const useDspStore = defineStore('dsp', () => {
   // === TARGET MANAGEMENT ===
 
   async function loadTargets() {
-    // Ensure clientRegistryStore is initialized
-    // availableTargets is now a computed property that delegates to clientRegistryStore
+    // Ensure multiroomStore is initialized
+    // availableTargets is now a computed property that delegates to multiroomStore
     if (!registryStore.isInitialized) {
       await registryStore.initialize();
     }
@@ -1318,7 +1318,7 @@ export const useDspStore = defineStore('dsp', () => {
   }
 
   // Note: handleClientNameChanged removed - availableTargets is now a computed
-  // property that automatically updates when clientRegistryStore changes
+  // property that automatically updates when multiroomStore changes
 
   // === CLEANUP ===
   function cleanup() {

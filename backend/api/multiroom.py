@@ -194,6 +194,41 @@ def create_multiroom_router(registry_service):
         """
         return await update_client(mac_id, request)
 
+    @router.delete("/clients/{mac_id}")
+    async def delete_client(mac_id: str):
+        """
+        Permanently delete a client from the registry.
+
+        Removes the client from any zone it belongs to and clears all
+        persisted configuration. Use this for offline clients that are
+        no longer needed.
+
+        Args:
+            mac_id: Client MAC address
+
+        Returns:
+            {"status": "success", "message": "Client deleted"}
+
+        Raises:
+            404: Client not found
+        """
+        try:
+            success = await registry_service.unregister_client(mac_id)
+            if not success:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Client with mac_id '{mac_id}' not found"
+                )
+            return {
+                "status": "success",
+                "message": f"Client '{mac_id}' deleted"
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error deleting client {mac_id}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     # === ZONE ENDPOINTS ===
 
     @router.get("/zones")

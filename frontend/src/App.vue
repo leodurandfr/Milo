@@ -52,7 +52,7 @@ const VirtualKeyboard = defineAsyncComponent(() =>
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { usePodcastStore } from '@/stores/podcastStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useClientRegistryStore } from '@/stores/clientRegistryStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import { useDspStore } from '@/stores/dspStore';
 import { i18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
@@ -62,7 +62,7 @@ import { useHardwareConfig } from '@/composables/useHardwareConfig';
 const unifiedStore = useUnifiedAudioStore();
 const podcastStore = usePodcastStore();
 const settingsStore = useSettingsStore();
-const clientRegistryStore = useClientRegistryStore();
+const multiroomStore = useMultiroomStore();
 const dspStore = useDspStore();
 const { on, onReconnect, onVisibilityChange, isConnected } = useWebSocket();
 const { loadHardwareInfo } = useHardwareConfig();
@@ -154,20 +154,20 @@ onMounted(async () => {
       }
     }),
     // Multiroom events - new standardized format (Story 6.2)
-    on('multiroom', 'client_state_changed', (event) => clientRegistryStore.handleMultiroomEvent(event)),
-    on('multiroom', 'zone_changed', (event) => clientRegistryStore.handleMultiroomEvent(event)),
+    on('multiroom', 'client_state_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
+    on('multiroom', 'zone_changed', (event) => multiroomStore.handleMultiroomEvent(event)),
     on('multiroom', 'dsp_changed', (event) => dspStore.handleDspChanged(event)),
     on('multiroom', 'crossover_changed', (event) => dspStore.handleZoneCrossoverChanged(event)),
     onReconnect(() => {
       console.log('WebSocket reconnected');
       // Refresh registry state on reconnect (AC3: State Resync)
-      clientRegistryStore.fetchState();
+      multiroomStore.fetchState();
       // Refresh DSP state for current target
       dspStore.loadStatus();
     }),
     onVisibilityChange(() => {
       // Refresh stores when tab becomes visible (fixes stale data after background)
-      clientRegistryStore.fetchState();
+      multiroomStore.fetchState();
       dspStore.loadStatus();
     })
   );
@@ -181,7 +181,7 @@ onMounted(async () => {
   await settingsStore.loadAllSettings();
 
   // Initialize client registry (loads from cache + fetches fresh state)
-  clientRegistryStore.initialize();
+  multiroomStore.initialize();
 
   // Preload podcast subscriptions list in background (for instant hasSubscriptions check)
   // Only fetches local data, no Taddy API call - episodes loaded when HomeView opens

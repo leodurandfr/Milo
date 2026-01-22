@@ -97,8 +97,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useI18n } from '@/services/i18n';
+import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useMultiroomStore } from '@/stores/multiroomStore';
-import { useClientRegistryStore } from '@/stores/clientRegistryStore';
 import { useDspStore } from '@/stores/dspStore';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -115,8 +115,8 @@ const props = defineProps({
 const emit = defineEmits(['back']);
 
 const { t } = useI18n();
-const multiroomStore = useMultiroomStore();
-const clientRegistryStore = useClientRegistryStore();
+const snapcastStore = useSnapcastStore();
+const multiroomClientStore = useMultiroomStore();
 const dspStore = useDspStore();
 
 const clientName = ref('');
@@ -126,7 +126,7 @@ const deleting = ref(false);
 
 // Find client by mac_id
 const client = computed(() =>
-  multiroomStore.clients.find(c => c.mac_id === props.macId)
+  snapcastStore.clients.find(c => c.mac_id === props.macId)
 );
 
 // Check if client is offline
@@ -177,9 +177,9 @@ async function selectSpeakerType(type) {
 
   selectedSpeakerType.value = type;
 
-  // Save immediately via PUT /api/registry/clients/{mac_id}
+  // Save immediately via PATCH /api/multiroom/clients/{mac_id}
   try {
-    await clientRegistryStore.updateClient(props.macId, { speaker_type: type });
+    await multiroomClientStore.updateClient(props.macId, { speaker_type: type });
   } catch (error) {
     console.error('Error saving speaker type:', error);
   }
@@ -190,7 +190,7 @@ async function saveClientName() {
   if (!newName || newName === originalClientName.value) return;
 
   try {
-    await clientRegistryStore.updateClient(props.macId, { name: newName });
+    await multiroomClientStore.updateClient(props.macId, { name: newName });
     originalClientName.value = newName;
   } catch (error) {
     console.error('Error saving client name:', error);
@@ -202,7 +202,7 @@ async function handleDelete() {
 
   deleting.value = true;
   try {
-    const success = await clientRegistryStore.deleteClient(props.macId);
+    const success = await multiroomClientStore.deleteClient(props.macId);
     if (success) {
       emit('back');
     }

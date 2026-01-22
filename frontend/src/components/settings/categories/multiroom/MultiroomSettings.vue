@@ -30,7 +30,7 @@
                   </Button>
                 </div>
 
-                <div v-if="multiroomStore.isLoading" class="loading-state">
+                <div v-if="snapcastStore.isLoading" class="loading-state">
                   <p class="text-mono">{{ t('multiroom.loadingSpeakers') }}</p>
                 </div>
 
@@ -129,7 +129,7 @@
                 <ButtonGroup
                   :model-value="activePresetId"
                   :options="presetOptions"
-                  :disabled="multiroomStore.isApplyingServerConfig"
+                  :disabled="snapcastStore.isApplyingServerConfig"
                   mobile-layout="column"
                   @change="handlePresetChange"
                 />
@@ -141,20 +141,20 @@
 
                 <div class="form-group">
                   <label class="text-mono">{{ t('multiroomSettings.globalBuffer') }}</label>
-                  <RangeSlider v-model="multiroomStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
+                  <RangeSlider v-model="snapcastStore.serverConfig.buffer" :min="100" :max="2000" :step="50"
                     value-unit="ms" />
                 </div>
 
                 <div class="form-group">
                   <label class="text-mono">{{ t('multiroomSettings.chunkSize') }}</label>
-                  <RangeSlider v-model="multiroomStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
+                  <RangeSlider v-model="snapcastStore.serverConfig.chunk_ms" :min="10" :max="100" :step="5"
                     value-unit="ms" />
                 </div>
 
                 <div class="form-group">
                   <label class="text-mono">{{ t('multiroomSettings.codec') }}</label>
                   <ButtonGroup
-                    :model-value="multiroomStore.serverConfig.codec"
+                    :model-value="snapcastStore.serverConfig.codec"
                     :options="codecOptions"
                     mobile-layout="column"
                     @change="selectCodec"
@@ -163,9 +163,9 @@
               </div>
             </section>
 
-            <Button v-if="multiroomStore.hasServerConfigChanges" variant="brand" size="medium" class="apply-button-sticky"
-              :disabled="multiroomStore.isApplyingServerConfig" @click="applyServerConfig">
-              {{ multiroomStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
+            <Button v-if="snapcastStore.hasServerConfigChanges" variant="brand" size="medium" class="apply-button-sticky"
+              :disabled="snapcastStore.isApplyingServerConfig" @click="applyServerConfig">
+              {{ snapcastStore.isApplyingServerConfig ? t('multiroom.restarting') : t('multiroomSettings.apply') }}
            </Button>
           </div>
         </Transition>
@@ -177,10 +177,10 @@
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from '@/services/i18n';
 import useWebSocket from '@/services/websocket';
-import { useMultiroomStore } from '@/stores/multiroomStore';
+import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
 import { useDspStore } from '@/stores/dspStore';
-import { useClientRegistryStore } from '@/stores/clientRegistryStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import Button from '@/components/ui/Button.vue';
 import ButtonGroup from '@/components/ui/ButtonGroup.vue';
 import RangeSlider from '@/components/ui/RangeSlider.vue';
@@ -192,10 +192,10 @@ const emit = defineEmits(['edit-zone', 'create-zone', 'edit-client']);
 
 const { t } = useI18n();
 const { on } = useWebSocket();
-const multiroomStore = useMultiroomStore();
+const snapcastStore = useSnapcastStore();
 const unifiedStore = useUnifiedAudioStore();
 const dspStore = useDspStore();
-const registryStore = useClientRegistryStore();
+const multiroomClientStore = useMultiroomStore();
 
 // Multiroom state
 const isMultiroomActive = computed(() => unifiedStore.systemState.multiroom_enabled);
@@ -210,16 +210,16 @@ const messageTitle = computed(() => {
   return transitionState.value === 'enabling' ? t('multiroom.starting') : t('multiroom.disabled');
 });
 
-// Clients are already sorted (local first, then alphabetical) from clientRegistryStore
-const sortedMultiroomClients = computed(() => multiroomStore.clients);
+// Clients are already sorted (local first, then alphabetical) from multiroomStore
+const sortedMultiroomClients = computed(() => snapcastStore.clients);
 
-// Get zones with client details from clientRegistryStore (single source of truth)
+// Get zones with client details from multiroomStore (single source of truth)
 // Uses clientList which is already sorted (local first, online first, alphabetical)
 const zones = computed(() => {
-  return registryStore.zoneList.map((zone, index) => {
+  return multiroomClientStore.zoneList.map((zone, index) => {
     const zoneClientIds = new Set(zone.client_ids || []);
     // Filter from already-sorted clientList to preserve correct order
-    const clients = registryStore.clientList
+    const clients = multiroomClientStore.clientList
       .filter(c => zoneClientIds.has(c.mac_id))
       .map(client => ({
         id: client.id,
@@ -244,14 +244,14 @@ const zones = computed(() => {
   });
 });
 
-// Get clients not in any zone from clientRegistryStore (single source of truth)
+// Get clients not in any zone from multiroomStore (single source of truth)
 const ungroupedClients = computed(() => {
   const groupedIds = new Set();
-  registryStore.zoneList.forEach(zone => {
+  multiroomClientStore.zoneList.forEach(zone => {
     (zone.client_ids || []).forEach(id => groupedIds.add(id));
   });
 
-  return registryStore.clientList
+  return multiroomClientStore.clientList
     .filter(client => !groupedIds.has(client.mac_id))
     .map(client => ({
       id: client.id,
@@ -331,7 +331,7 @@ const presetOptions = computed(() =>
 
 // Active preset ID (or null if custom config)
 const activePresetId = computed(() => {
-  const current = multiroomStore.serverConfig;
+  const current = snapcastStore.serverConfig;
   const active = audioPresets.value.find(preset =>
     current.buffer === preset.config.buffer &&
     current.codec === preset.config.codec &&
@@ -351,10 +351,10 @@ const codecOptions = [
 
 async function loadMultiroomData() {
   // Load clients and server config from the store
-  // Zone/client data comes from clientRegistryStore (initialized in App.vue)
+  // Zone/client data comes from multiroomStore (initialized in App.vue)
   await Promise.all([
-    multiroomStore.loadClients(),
-    multiroomStore.loadServerConfig()
+    snapcastStore.loadClients(),
+    snapcastStore.loadServerConfig()
   ]);
   // Volume data comes from unifiedAudioStore.volumeState via WebSocket
 }
@@ -364,16 +364,16 @@ async function loadMultiroomData() {
 function handlePresetChange(presetId) {
   const preset = audioPresets.value.find(p => p.id === presetId);
   if (preset) {
-    multiroomStore.applyPreset(preset);
+    snapcastStore.applyPreset(preset);
   }
 }
 
 function selectCodec(codecName) {
-  multiroomStore.selectCodec(codecName);
+  snapcastStore.selectCodec(codecName);
 }
 
 async function applyServerConfig() {
-  await multiroomStore.applyServerConfig();
+  await snapcastStore.applyServerConfig();
 }
 
 onMounted(async () => {
@@ -408,7 +408,7 @@ onMounted(async () => {
     unifiedStore.handleVolumeEvent(event);
   });
 
-  // Client names are synced automatically via clientRegistryStore (registry:client_updated events)
+  // Client names are synced automatically via multiroomStore (registry:client_updated events)
 });
 </script>
 

@@ -32,7 +32,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useI18n } from '@/services/i18n';
 import { useUnifiedAudioStore } from '@/stores/unifiedAudioStore';
-import { useMultiroomStore } from '@/stores/multiroomStore';
+import { useSnapcastStore } from '@/stores/snapcastStore';
 import { useDspStore } from '@/stores/dspStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import useWebSocket from '@/services/websocket';
@@ -41,7 +41,7 @@ import MessageContent from '@/components/ui/MessageContent.vue';
 
 const { t } = useI18n();
 const unifiedStore = useUnifiedAudioStore();
-const multiroomStore = useMultiroomStore();
+const snapcastStore = useSnapcastStore();
 const dspStore = useDspStore();
 const settingsStore = useSettingsStore();
 const { on } = useWebSocket();
@@ -82,7 +82,7 @@ function isZonePrimary(client) {
 
   // Find the first online client in the zone
   const firstOnlineId = zone.client_ids.find(macId =>
-    multiroomStore.clients.some(c => c.mac_id === macId)
+    snapcastStore.clients.some(c => c.mac_id === macId)
   );
 
   // This client is primary if it's the first online one
@@ -101,7 +101,7 @@ function getZoneAverageVolume(zone) {
   if (!zone?.client_ids?.length) return -60;
   // Filter to only connected clients
   const onlineClientIds = zone.client_ids.filter(macId =>
-    multiroomStore.clients.some(c => c.mac_id === macId && c.online)
+    snapcastStore.clients.some(c => c.mac_id === macId && c.online)
   );
   if (onlineClientIds.length === 0) return -60;
 
@@ -132,7 +132,7 @@ function getZoneSliderState(zone) {
   if (!zoneSliderState.value[zoneId]) {
     // Filter to only online clients (matching getZoneAverageVolume pattern)
     const onlineClientIds = zone.client_ids.filter(macId =>
-      multiroomStore.clients.some(c => c.mac_id === macId && c.online)
+      snapcastStore.clients.some(c => c.mac_id === macId && c.online)
     );
 
     // Handle edge case: no online clients
@@ -197,7 +197,7 @@ const messageTitle = computed(() => {
 
 // Show loading skeletons during enabling or store loading
 const shouldShowLoading = computed(() => {
-  return transitionState.value === 'enabling' || multiroomStore.isLoading;
+  return transitionState.value === 'enabling' || snapcastStore.isLoading;
 });
 
 const displayClients = computed(() => {
@@ -209,8 +209,8 @@ const displayClients = computed(() => {
   const _clients = unifiedStore.volumeState.clients;
 
   // During enabling or loading, show placeholders based on last known display structure
-  if (transitionState.value === 'enabling' || (multiroomStore.clients.length === 0 && multiroomStore.isLoading)) {
-    return multiroomStore.lastKnownDisplayItems.map((item, i) => ({
+  if (transitionState.value === 'enabling' || (snapcastStore.clients.length === 0 && snapcastStore.isLoading)) {
+    return snapcastStore.lastKnownDisplayItems.map((item, i) => ({
       id: `placeholder-${i}`,
       name: '',
       volume: 0,
@@ -223,7 +223,7 @@ const displayClients = computed(() => {
   // Add dspVolume and dspMuted from cache to each client
   // If there are linked groups, filter to show only zone primaries
   if (linkedGroups.value.length > 0) {
-    return multiroomStore.clients
+    return snapcastStore.clients
       .filter(client => isZonePrimary(client))
       .map(client => {
         const dspVol = dspStore.getClientDspVolume(client.mac_id);
@@ -236,7 +236,7 @@ const displayClients = computed(() => {
           const zoneName = zone.name || `Zone ${zoneIndex}`;
           // Filter from already-sorted clients list (local first, online first)
           const zoneClientIds = new Set(zone.client_ids);
-          const zoneClients = multiroomStore.clients.filter(c => zoneClientIds.has(c.mac_id));
+          const zoneClients = snapcastStore.clients.filter(c => zoneClientIds.has(c.mac_id));
           const clientNames = zoneClients.map(c => c.name).join(' · ');
 
           // Build detailed client list for expanded view
@@ -297,8 +297,8 @@ const displayClients = computed(() => {
   }
 
   // No linked groups - just add dspVolume and dspMuted to each client
-  // Sorting handled by clientRegistryStore (local first, online first, alphabetical)
-  return multiroomStore.clients.map(client => {
+  // Sorting handled by multiroomStore (local first, online first, alphabetical)
+  return snapcastStore.clients.map(client => {
     const dspVol = dspStore.getClientDspVolume(client.mac_id);
     const dspMut = dspStore.getClientDspMute(client.mac_id);
     return {
@@ -316,7 +316,7 @@ async function handleVolumeChange(clientMacId, volumeDb, options = {}) {
   const { isZone = false } = options;
 
   // Find client by mac_id (unique identifier for all clients)
-  const client = multiroomStore.clients.find(c => c.mac_id === clientMacId);
+  const client = snapcastStore.clients.find(c => c.mac_id === clientMacId);
   if (!client) return;
 
   // Use explicit isZone flag instead of recalculating zone membership
@@ -351,7 +351,7 @@ async function handleMuteToggle(clientMacId, muted, options = {}) {
   const { isZone = false } = options;
 
   // Find client by mac_id (unique identifier for all clients)
-  const client = multiroomStore.clients.find(c => c.mac_id === clientMacId);
+  const client = snapcastStore.clients.find(c => c.mac_id === clientMacId);
   if (!client) return;
 
   // Use explicit isZone flag instead of recalculating zone membership
@@ -360,7 +360,7 @@ async function handleMuteToggle(clientMacId, muted, options = {}) {
     if (zone && zone.client_ids.length > 1) {
       // Zone mute: mute ALL ONLINE clients in the zone
       const onlineClientIds = zone.client_ids.filter(macId =>
-        multiroomStore.clients.some(c => c.mac_id === macId)
+        snapcastStore.clients.some(c => c.mac_id === macId)
       );
 
       const updatePromises = onlineClientIds.map(async (macId) => {
@@ -405,7 +405,7 @@ function clearTransitionTimeout() {
 }
 
 // === WEBSOCKET HANDLERS ===
-// Note: Client event handlers removed - clients are now derived from clientRegistryStore
+// Note: Client event handlers removed - clients are now derived from multiroomStore
 // which handles registry events in App.vue. The snapcast events are no longer needed here.
 
 function handleSystemStateChanged(event) {
@@ -430,7 +430,7 @@ async function handleMultiroomReady() {
   clearTransitionTimeout();
 
   // Load clients now that services are ready
-  await multiroomStore.loadClients(true); // forceNoCache=true
+  await snapcastStore.loadClients(true); // forceNoCache=true
   // Volume data comes from unifiedAudioStore.volumeState via WebSocket
 
   transitionState.value = 'idle';
@@ -447,15 +447,15 @@ function handleMultiroomError(event) {
 // === LIFECYCLE ===
 onMounted(async () => {
   // Preload display cache for zone-aware skeletons
-  multiroomStore.preloadDisplayCache();
+  snapcastStore.preloadDisplayCache();
 
   // Reset transition state on mount based on current state
   if (isMultiroomActive.value) {
     transitionState.value = 'idle';
     // Preload cache synchronously to get the correct number of clients
-    multiroomStore.preloadCache();
+    snapcastStore.preloadCache();
     // Load fresh clients in the background
-    await multiroomStore.loadClients();
+    await snapcastStore.loadClients();
   } else {
     transitionState.value = 'idle';
   }
@@ -467,7 +467,7 @@ onMounted(async () => {
   await dspStore.loadTargets();
 
   // Note: snapcast client event subscriptions removed - clients are now derived from
-  // clientRegistryStore which handles registry events globally in App.vue
+  // multiroomStore which handles registry events globally in App.vue
   unsubscribeFunctions.push(
     on('system', 'state_changed', handleSystemStateChanged),
     on('routing', 'multiroom_enabling', handleMultiroomEnabling),
@@ -495,7 +495,7 @@ watch(isMultiroomActive, (newValue, oldValue) => {
     // Multiroom was deactivated
     clearTransitionTimeout();
     transitionState.value = 'idle';
-    // Note: clients are now derived from clientRegistryStore, no need to clear them
+    // Note: clients are now derived from multiroomStore, no need to clear them
     // They will simply not be displayed when multiroom is inactive
   }
 });
@@ -504,7 +504,7 @@ watch(isMultiroomActive, (newValue, oldValue) => {
 watch(displayClients, (newClients) => {
   // Only save when we have real data (not placeholders) and not in loading state
   if (!shouldShowLoading.value && newClients.length > 0 && newClients[0].mac_id) {
-    multiroomStore.saveDisplayCache(newClients);
+    snapcastStore.saveDisplayCache(newClients);
   }
 }, { deep: true });
 </script>
