@@ -8,7 +8,7 @@ from services.dsp import DSPService
 from models import (
     FilterUpdate, FiltersBatchUpdate, CompressorUpdate, LoudnessUpdate,
     DelayUpdate, VolumeUpdate, MuteUpdate,
-    CrossoverUpdate, LowpassUpdate
+    CrossoverUpdate, LowpassUpdate, DspEnabledUpdate
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,21 @@ def create_dsp_router(dsp_service: DSPService) -> APIRouter:
             return status
         except Exception as e:
             logger.error(f"Error getting DSP status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.put("/enabled")
+    async def set_dsp_enabled(update: DspEnabledUpdate):
+        """Enable or disable DSP effects (compressor, loudness)."""
+        try:
+            success = await dsp_service.set_dsp_enabled(update.enabled)
+            if success:
+                return {"status": "success", "enabled": update.enabled}
+            else:
+                raise HTTPException(status_code=400, detail="Failed to set DSP enabled")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error setting DSP enabled: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/filters")
