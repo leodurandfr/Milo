@@ -28,7 +28,6 @@ from backend.features.podcast.routes import setup_podcast_routes
 from backend.api.settings import create_settings_router
 from backend.api.programs import create_programs_router
 from backend.api.health import create_health_router
-from backend.api.registry import create_registry_router
 from backend.api.multiroom import create_multiroom_router
 from backend.ws import WebSocketServer
 from backend.core.models.audio_state import AudioSource
@@ -190,9 +189,6 @@ app.include_router(programs_router)
 
 health_router = create_health_router(state_machine, routing_service, snapcast_service)
 app.include_router(health_router)
-
-registry_router = create_registry_router(client_registry_service)
-app.include_router(registry_router)
 
 multiroom_router = create_multiroom_router(client_registry_service)
 app.include_router(multiroom_router)

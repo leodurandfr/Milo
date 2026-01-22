@@ -91,7 +91,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useDspStore } from '@/stores/dspStore';
-import { useClientRegistryStore } from '@/stores/clientRegistryStore';
+import { useMultiroomStore } from '@/stores/multiroomStore';
 import Button from '@/components/ui/Button.vue';
 import InputText from '@/components/ui/InputText.vue';
 import ListItemButton from '@/components/ui/ListItemButton.vue';
@@ -108,16 +108,16 @@ const props = defineProps({
 const emit = defineEmits(['back', 'saved']);
 
 const dspStore = useDspStore();
-const registryStore = useClientRegistryStore();
+const multiroomStore = useMultiroomStore();
 const saving = ref(false);
 const deleting = ref(false);
 const zoneName = ref('');
 const originalZoneName = ref('');
 const selectedClients = ref([]);
 
-// Get available clients from clientRegistryStore (single source of truth)
+// Get available clients from multiroomStore (single source of truth)
 const availableTargets = computed(() => {
-  return registryStore.clientList.map(client => ({
+  return multiroomStore.clientList.map(client => ({
     id: client.mac_id,
     name: client.name,
     host: client.host,
@@ -126,10 +126,10 @@ const availableTargets = computed(() => {
   }));
 });
 
-// Find the current zone being edited from clientRegistryStore
+// Find the current zone being edited from multiroomStore
 const currentGroup = computed(() => {
   if (!props.groupId) return null;
-  return registryStore.zoneList.find(z => z.id === props.groupId);
+  return multiroomStore.zoneList.find(z => z.id === props.groupId);
 });
 
 // Get speaker icon name based on type
@@ -146,15 +146,16 @@ function getSpeakerIcon(macId) {
 
 // Sync status helpers
 function hasSyncError(macId) {
-  return registryStore.hasSyncError(macId);
+  return multiroomStore.hasSyncError(macId);
 }
 
 function isSyncing(macId) {
-  return registryStore.isSyncing(macId);
+  return multiroomStore.isSyncing(macId);
 }
 
 async function handleRetrySync(macId) {
-  await registryStore.retrySyncClient(macId);
+  // Sync retry not yet implemented - will auto-sync on reconnect
+  console.warn(`Retry sync for ${macId} - feature not yet implemented`);
 }
 
 // Toggle client selection
@@ -165,7 +166,7 @@ async function toggleClient(clientId) {
     // Adding client to zone
     if (props.groupId) {
       try {
-        await registryStore.addClientToZone(props.groupId, clientId);
+        await multiroomStore.addClientToZone(props.groupId, clientId);
         // State update comes via WebSocket, but update local state for responsiveness
         selectedClients.value.push(clientId);
       } catch (error) {
@@ -180,7 +181,7 @@ async function toggleClient(clientId) {
     // Removing client from zone
     if (props.groupId) {
       try {
-        const response = await registryStore.removeClientFromZone(props.groupId, clientId);
+        const response = await multiroomStore.removeClientFromZone(props.groupId, clientId);
         // Update local state after successful backend call
         selectedClients.value.splice(index, 1);
 
@@ -206,7 +207,7 @@ async function saveZoneName() {
   if (newName === originalZoneName.value) return;
 
   try {
-    await registryStore.updateZone(props.groupId, { name: newName });
+    await multiroomStore.updateZone(props.groupId, { name: newName });
     originalZoneName.value = newName;
   } catch (error) {
     console.error('Error saving zone name:', error);
@@ -244,8 +245,8 @@ async function handleCreate() {
 
   saving.value = true;
   try {
-    // Use registryStore directly for zone creation (consistent with edit operations)
-    await registryStore.createZone(zoneName.value || 'New Zone', selectedClients.value);
+    // Use multiroomStore directly for zone creation (consistent with edit operations)
+    await multiroomStore.createZone(zoneName.value || 'New Zone', selectedClients.value);
     emit('back');
   } catch (error) {
     console.error('Error creating zone:', error);
@@ -259,7 +260,7 @@ async function handleDelete() {
 
   deleting.value = true;
   try {
-    await registryStore.deleteZone(props.groupId);
+    await multiroomStore.deleteZone(props.groupId);
     emit('back');
   } catch (error) {
     console.error('Error deleting zone:', error);

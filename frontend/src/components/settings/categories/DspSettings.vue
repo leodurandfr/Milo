@@ -215,7 +215,7 @@ onMounted(async () => {
     on('dsp', 'compressor_changed', (e) => dspStore.handleCompressorChanged(e)),
     on('dsp', 'loudness_changed', (e) => dspStore.handleLoudnessChanged(e)),
     on('dsp', 'enabled_changed', (e) => dspStore.handleEnabledChanged(e))
-    // Note: Client names sync via clientRegistryStore.handleMultiroomEvent() in App.vue
+    // Note: Client names sync via multiroomStore.handleMultiroomEvent() in App.vue
   );
 });
 
