@@ -64,3 +64,8 @@ class LowpassUpdate(BaseModel):
 class FiltersBatchUpdate(BaseModel):
     """Model for batch filter update request."""
     filters: List[dict]  # [{id: "eq_band_00", gain: 5.0, freq: 31, q: 1.41}, ...]
+
+
+class DspEnabledUpdate(BaseModel):
+    """Model for DSP enabled state update."""
+    enabled: bool

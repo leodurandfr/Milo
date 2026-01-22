@@ -997,7 +997,10 @@ class CamillaDSPService:
                 # 3. Restore loudness settings
                 saved_loudness = await self.settings_service.get_setting("dsp.loudness")
                 if saved_loudness:
-                    await self.set_loudness(**saved_loudness)
+                    # Filter to valid parameters only (reference_level was removed)
+                    valid_keys = {"enabled", "high_boost", "low_boost"}
+                    filtered_loudness = {k: v for k, v in saved_loudness.items() if k in valid_keys}
+                    await self.set_loudness(**filtered_loudness)
 
             self.logger.info("DSP effects restored from settings")
             await self._broadcast_event("effects_restored", {"bypassed": False})

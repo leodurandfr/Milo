@@ -70,6 +70,8 @@ class DSPService:
         self._volume = {"main": 0.0, "mute": True}  # Matches CamillaDSP startup state (-m flag)
         self._crossover = {"enabled": False, "frequency": 80.0, "q": 0.707}
         self._lowpass = {"enabled": False, "frequency": 80.0, "q": 0.707}
+        self._dsp_enabled = True
+        self._saved_effects_state = None  # For bypass/restore
 
     @property
     def connected(self) -> bool:
@@ -796,3 +798,43 @@ class DSPService:
             step for step in config["pipeline"]
             if not (step.get("type") == "Processor" and step.get("name") == processor_name)
         ]
+
+    async def set_dsp_enabled(self, enabled: bool) -> bool:
+        """
+        Enable or disable DSP effects (compressor, loudness).
+
+        When disabled, saves current state and disables effects.
+        When enabled, restores previously saved state.
+        """
+        if enabled == self._dsp_enabled:
+            return True
+
+        try:
+            if not enabled:
+                # Save current state before disabling
+                self._saved_effects_state = {
+                    "compressor_enabled": self._compressor["enabled"],
+                    "loudness_enabled": self._loudness["enabled"]
+                }
+                # Disable effects
+                if self._compressor["enabled"]:
+                    await self.set_compressor(enabled=False)
+                if self._loudness["enabled"]:
+                    await self.set_loudness(enabled=False)
+                self.logger.info("DSP effects bypassed")
+            else:
+                # Restore saved state
+                if self._saved_effects_state:
+                    if self._saved_effects_state.get("compressor_enabled"):
+                        await self.set_compressor(enabled=True)
+                    if self._saved_effects_state.get("loudness_enabled"):
+                        await self.set_loudness(enabled=True)
+                    self._saved_effects_state = None
+                self.logger.info("DSP effects restored")
+
+            self._dsp_enabled = enabled
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error setting DSP enabled: {e}")
+            return False
