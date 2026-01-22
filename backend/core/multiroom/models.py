@@ -179,18 +179,15 @@ class LoudnessSettings:
     for reduced ear sensitivity to bass and treble.
     Default values match CamillaDSPService internal defaults.
     Validation boundaries (enforced at API layer):
-    - reference_level: 60 to 100
     - high_boost: 0 to 15 dB
     - low_boost: 0 to 15 dB
 
     Attributes:
         enabled: Whether loudness compensation is active
-        reference_level: Reference listening level (higher = less compensation)
         high_boost: Treble boost amount in dB
         low_boost: Bass boost amount in dB
     """
     enabled: bool = False
-    reference_level: int = 80
     high_boost: float = 5.0
     low_boost: float = 8.0
 
@@ -198,7 +195,6 @@ class LoudnessSettings:
         """Convert to dictionary for serialization."""
         return {
             "enabled": self.enabled,
-            "reference_level": self.reference_level,
             "high_boost": self.high_boost,
             "low_boost": self.low_boost
         }
@@ -210,7 +206,6 @@ class LoudnessSettings:
             return cls()
         return cls(
             enabled=data.get("enabled", False),
-            reference_level=data.get("reference_level", 80),
             high_boost=data.get("high_boost", 5.0),
             low_boost=data.get("low_boost", 8.0)
         )

@@ -300,7 +300,6 @@ class TestLoudnessSettings:
         """Should create with sensible defaults matching CamillaDSPService"""
         ln = LoudnessSettings()
         assert ln.enabled is False
-        assert ln.reference_level == 80
         assert ln.high_boost == 5.0
         assert ln.low_boost == 8.0
 
@@ -308,23 +307,20 @@ class TestLoudnessSettings:
         """Should create with custom values"""
         ln = LoudnessSettings(
             enabled=True,
-            reference_level=70,
             high_boost=3.0,
             low_boost=6.0
         )
         assert ln.enabled is True
-        assert ln.reference_level == 70
         assert ln.high_boost == 3.0
         assert ln.low_boost == 6.0
 
     def test_to_dict(self):
         """Should serialize to dictionary"""
-        ln = LoudnessSettings(enabled=True, reference_level=75)
+        ln = LoudnessSettings(enabled=True, high_boost=7.5)
         d = ln.to_dict()
         assert d == {
             "enabled": True,
-            "reference_level": 75,
-            "high_boost": 5.0,
+            "high_boost": 7.5,
             "low_boost": 8.0
         }
 
@@ -332,13 +328,11 @@ class TestLoudnessSettings:
         """Should deserialize from dictionary"""
         data = {
             "enabled": True,
-            "reference_level": 90,
             "high_boost": 10.0,
             "low_boost": 12.0
         }
         ln = LoudnessSettings.from_dict(data)
         assert ln.enabled is True
-        assert ln.reference_level == 90
         assert ln.high_boost == 10.0
         assert ln.low_boost == 12.0
 
@@ -347,38 +341,25 @@ class TestLoudnessSettings:
         data = {"enabled": True}
         ln = LoudnessSettings.from_dict(data)
         assert ln.enabled is True
-        assert ln.reference_level == 80
+        assert ln.high_boost == 5.0
 
     def test_from_dict_none(self):
         """Should return default instance for None input"""
         ln = LoudnessSettings.from_dict(None)
         assert ln.enabled is False
-        assert ln.reference_level == 80
+        assert ln.high_boost == 5.0
 
     def test_roundtrip_serialization(self):
         """Should preserve values through to_dict/from_dict cycle"""
         original = LoudnessSettings(
             enabled=True,
-            reference_level=65,
             high_boost=7.5,
             low_boost=10.0
         )
         restored = LoudnessSettings.from_dict(original.to_dict())
         assert restored.enabled == original.enabled
-        assert restored.reference_level == original.reference_level
         assert restored.high_boost == original.high_boost
         assert restored.low_boost == original.low_boost
-
-    # Validation boundary tests
-    def test_reference_level_at_lower_bound(self):
-        """Should accept reference_level at lower bound (60)"""
-        ln = LoudnessSettings(reference_level=60)
-        assert ln.reference_level == 60
-
-    def test_reference_level_at_upper_bound(self):
-        """Should accept reference_level at upper bound (100)"""
-        ln = LoudnessSettings(reference_level=100)
-        assert ln.reference_level == 100
 
     def test_high_boost_at_lower_bound(self):
         """Should accept high_boost at lower bound (0 dB)"""
@@ -422,7 +403,7 @@ class TestDspSettings:
         """Should create with custom values"""
         filters = [EqFilter(id="eq_band_00", frequency=100, gain=3.0)]
         compressor = CompressorSettings(enabled=True, threshold=-25.0)
-        loudness = LoudnessSettings(enabled=True, reference_level=75)
+        loudness = LoudnessSettings(enabled=True, high_boost=7.5)
 
         dsp = DspSettings(
             enabled=False,
@@ -459,7 +440,7 @@ class TestDspSettings:
                 {"id": "eq_band_00", "frequency": 100, "gain": -3.0, "q": 1.0, "filter_type": "Peaking", "enabled": True}
             ],
             "compressor": {"enabled": True, "threshold": -30.0, "ratio": 6.0, "attack": 15.0, "release": 150.0, "makeup_gain": 2.0},
-            "loudness": {"enabled": True, "reference_level": 70, "high_boost": 4.0, "low_boost": 7.0}
+            "loudness": {"enabled": True, "high_boost": 4.0, "low_boost": 7.0}
         }
         dsp = DspSettings.from_dict(data)
         assert dsp.enabled is False
@@ -468,7 +449,7 @@ class TestDspSettings:
         assert dsp.compressor.enabled is True
         assert dsp.compressor.threshold == -30.0
         assert dsp.loudness.enabled is True
-        assert dsp.loudness.reference_level == 70
+        assert dsp.loudness.high_boost == 4.0
 
     def test_from_dict_none(self):
         """Should return default instance for None input"""
@@ -527,7 +508,7 @@ class TestDspSettings:
                 {"id": "eq_band_00", "freq": 100, "gain": 2.0, "q": 1.41, "type": "Peaking", "enabled": True}
             ],
             "compressor": {"enabled": False, "threshold": -20.0, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0},
-            "loudness": {"enabled": False, "reference_level": 80, "high_boost": 5.0, "low_boost": 8.0}
+            "loudness": {"enabled": False, "high_boost": 5.0, "low_boost": 8.0}
         }
         dsp = DspSettings.from_dict(old_data)
         # Should handle old "freq" key

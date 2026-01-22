@@ -62,7 +62,6 @@ export const useDspStore = defineStore('dsp', () => {
 
   const loudness = ref({
     enabled: false,
-    reference_level: 80,
     low_boost: 5,
     high_boost: 5
   });

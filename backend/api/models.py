@@ -279,7 +279,6 @@ class DspCompressorRequest(BaseModel):
 class DspLoudnessRequest(BaseModel):
     """DSP loudness compensation request"""
     enabled: Optional[bool] = None
-    reference_level: Optional[int] = Field(None, ge=60, le=100, description="Reference SPL level")
     high_boost: Optional[float] = Field(None, ge=0, le=15, description="High frequency boost in dB")
     low_boost: Optional[float] = Field(None, ge=0, le=15, description="Low frequency boost in dB")
 

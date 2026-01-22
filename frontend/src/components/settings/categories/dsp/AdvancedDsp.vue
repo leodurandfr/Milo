@@ -11,13 +11,6 @@
 
       <Transition name="expand">
         <div v-if="dspStore.loudness.enabled" class="effect-controls">
-          <div class="control-item control-item--full-width">
-            <label class="text-mono-small">{{ $t('dsp.loudness.referenceLevel', 'Reference Level') }}</label>
-            <RangeSlider :model-value="dspStore.loudness.reference_level" :min="40" :max="100" :step="1" value-unit=" phon"
-              @update:model-value="(v) => dspStore.loudness.reference_level = v"
-              @change="handleLoudnessChange('reference_level', $event)" />
-          </div>
-
           <div class="control-item">
             <label class="text-mono-small">{{ $t('dsp.loudness.lowBoost', 'Bass Boost') }}</label>
             <RangeSlider :model-value="dspStore.loudness.low_boost" :min="0" :max="15" :step="0.5" value-unit=" dB"

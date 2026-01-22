@@ -203,7 +203,7 @@ class TestDspSettings:
             "enabled": True,
             "filters": [{"id": "eq_band_00", "frequency": 100, "gain": 2.0, "filter_type": "Lowshelf", "q": 1.0, "enabled": True}],
             "compressor": {"enabled": False},
-            "loudness": {"enabled": True, "reference_level": 70}
+            "loudness": {"enabled": True, "high_boost": 7.0}
         }
 
         settings = DspSettings.from_dict(data)
@@ -212,7 +212,7 @@ class TestDspSettings:
         assert len(settings.filters) == 1
         assert settings.filters[0].frequency == 100
         assert settings.loudness.enabled is True
-        assert settings.loudness.reference_level == 70
+        assert settings.loudness.high_boost == 7.0
 
 
 class TestZone:
@@ -1544,7 +1544,7 @@ class TestZoneDspSync:
             enabled=True,
             filters=[EqFilter(id="eq_1", frequency=1000, gain=3.0, q=1.0)],
             compressor=CompressorSettings(enabled=True, threshold=-20, ratio=4.0),
-            loudness=LoudnessSettings(enabled=True, reference_level=75)
+            loudness=LoudnessSettings(enabled=True, high_boost=75)
         )
 
         data = dsp.to_dict()
@@ -1552,7 +1552,7 @@ class TestZoneDspSync:
         assert len(data["filters"]) == 1
         assert data["filters"][0]["frequency"] == 1000
         assert data["compressor"]["enabled"] is True
-        assert data["loudness"]["reference_level"] == 75
+        assert data["loudness"]["high_boost"] == 75
 
     def test_dsp_settings_from_dict(self):
         """Test DspSettings deserialization."""
@@ -1578,7 +1578,7 @@ class TestZoneDspSync:
             enabled=True,
             filters=[EqFilter(id="eq_1", frequency=100, gain=2.0)],
             compressor=CompressorSettings(enabled=True, threshold=-15),
-            loudness=LoudnessSettings(enabled=True, reference_level=80)
+            loudness=LoudnessSettings(enabled=True, high_boost=80)
         )
 
         zone = Zone(
@@ -1625,7 +1625,7 @@ class TestZoneDspSync:
                 "enabled": True,
                 "filters": [{"id": "eq_3", "frequency": 3000, "gain": 1.5, "q": 1.41, "filter_type": "Peaking", "enabled": True}],
                 "compressor": {"enabled": True, "threshold": -20, "ratio": 4.0, "attack": 10.0, "release": 100.0, "makeup_gain": 0.0},
-                "loudness": {"enabled": True, "reference_level": 70, "high_boost": 5.0, "low_boost": 8.0}
+                "loudness": {"enabled": True, "high_boost": 70, "high_boost": 5.0, "low_boost": 8.0}
             }
         }
 
@@ -1635,7 +1635,7 @@ class TestZoneDspSync:
         assert len(zone.client_ids) == 2
         assert zone.dsp_settings.filters[0].frequency == 3000
         assert zone.dsp_settings.compressor.enabled is True
-        assert zone.dsp_settings.loudness.reference_level == 70
+        assert zone.dsp_settings.loudness.high_boost == 70
 
 
 # =============================================================================
@@ -1706,13 +1706,13 @@ class TestPendingDspSettings:
     @pytest.mark.asyncio
     async def test_queue_loudness_pending(self, crossover_service):
         """Test queuing loudness settings for offline client."""
-        loudness = {"enabled": True, "reference_level": -25}
+        loudness = {"enabled": True, "high_boost": -25}
 
         await crossover_service.queue_pending_settings("192.168.1.100", "loudness", loudness)
 
         pending = crossover_service.get_pending_settings("192.168.1.100")
         assert "loudness" in pending
-        assert pending["loudness"]["reference_level"] == -25
+        assert pending["loudness"]["high_boost"] == -25
 
     @pytest.mark.asyncio
     async def test_apply_pending_filters_local(self, crossover_service, mock_dsp):
@@ -1740,7 +1740,7 @@ class TestPendingDspSettings:
     @pytest.mark.asyncio
     async def test_apply_pending_loudness_local(self, crossover_service, mock_dsp):
         """Test applying pending loudness to local client."""
-        loudness = {"enabled": True, "reference_level": -30}
+        loudness = {"enabled": True, "high_boost": -30}
         await crossover_service.queue_pending_settings("aa:bb:cc:dd:ee:ff", "loudness", loudness)
 
         result = await crossover_service.apply_pending_settings("aa:bb:cc:dd:ee:ff")
@@ -1853,7 +1853,7 @@ class TestStandaloneDspSync:
         local_settings = {
             "filters": {"band_1": {"type": "Peaking", "gain": -3.0}},
             "compressor": {"enabled": False},
-            "loudness": {"enabled": True, "reference_level": -25},
+            "loudness": {"enabled": True, "high_boost": -25},
         }
 
         # Save settings for local client
@@ -2905,7 +2905,7 @@ class TestSyncZoneDspToClient:
             EqFilter(id="eq_band_01", frequency=1000, gain=-2.0, q=1.0, filter_type=FilterType.LOWSHELF),
         ]
         compressor = CompressorSettings(enabled=True, threshold=-15.0, ratio=4.0, attack=10.0, release=100.0)
-        loudness = LoudnessSettings(enabled=True, reference_level=85, high_boost=5.0, low_boost=8.0)
+        loudness = LoudnessSettings(enabled=True, high_boost=85, high_boost=5.0, low_boost=8.0)
 
         zone.dsp_settings = DspSettings(
             enabled=True,
@@ -2994,7 +2994,7 @@ class TestSyncZoneDspToClient:
         loudness_data = loudness_calls[0][0][3]
         assert isinstance(loudness_data, dict)
         assert loudness_data["enabled"] is True
-        assert loudness_data["reference_level"] == 85
+        assert loudness_data["high_boost"] == 85
 
     @pytest.mark.asyncio
     async def test_failed_filter_queued_as_dict(self, mock_state_machine, mock_registry, mock_zone_with_dsp):

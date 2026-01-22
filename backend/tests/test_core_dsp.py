@@ -301,7 +301,8 @@ class TestCamillaDSPService:
     def test_initial_loudness_settings(self, dsp_service):
         """Should have default loudness settings"""
         assert dsp_service._loudness["enabled"] is False
-        assert dsp_service._loudness["reference_level"] == 80
+        assert dsp_service._loudness["high_boost"] == 5.0
+        assert dsp_service._loudness["low_boost"] == 8.0
 
     def test_initial_volume_settings(self, dsp_service):
         """Should have default volume settings"""

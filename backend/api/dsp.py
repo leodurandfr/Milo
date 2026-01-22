@@ -628,6 +628,15 @@ def create_dsp_router(
             if not zone:
                 raise HTTPException(status_code=404, detail=f"Zone '{zone_id}' not found")
 
+            # Merge payload with existing zone compressor settings
+            current = zone.dsp_settings.compressor
+            merged_enabled = payload.enabled if payload.enabled is not None else current.enabled
+            merged_threshold = payload.threshold if payload.threshold is not None else current.threshold
+            merged_ratio = payload.ratio if payload.ratio is not None else current.ratio
+            merged_attack = payload.attack if payload.attack is not None else current.attack
+            merged_release = payload.release if payload.release is not None else current.release
+            merged_makeup_gain = payload.makeup_gain if payload.makeup_gain is not None else current.makeup_gain
+
             applied_to = []
             offline_clients = []
             errors = []
@@ -637,12 +646,12 @@ def create_dsp_router(
                     # Local client: apply directly via dsp_service
                     try:
                         success = await dsp_service.set_compressor(
-                            enabled=payload.enabled,
-                            threshold=payload.threshold,
-                            ratio=payload.ratio,
-                            attack=payload.attack,
-                            release=payload.release,
-                            makeup_gain=payload.makeup_gain
+                            enabled=merged_enabled,
+                            threshold=merged_threshold,
+                            ratio=merged_ratio,
+                            attack=merged_attack,
+                            release=merged_release,
+                            makeup_gain=merged_makeup_gain
                         )
                         if success:
                             applied_to.append(client_id)
@@ -665,9 +674,17 @@ def create_dsp_router(
                             continue
 
                         _require_proxy()
+                        # Send merged values to remote client
                         result = await proxy_service.request(
                             hostname, "PUT", "/dsp/compressor",
-                            payload.model_dump(exclude_none=True)
+                            {
+                                "enabled": merged_enabled,
+                                "threshold": merged_threshold,
+                                "ratio": merged_ratio,
+                                "attack": merged_attack,
+                                "release": merged_release,
+                                "makeup_gain": merged_makeup_gain
+                            }
                         )
                         if result.get("status") == "success":
                             applied_to.append(client_id)
@@ -678,23 +695,33 @@ def create_dsp_router(
 
             # Update zone.dsp_settings to persist compressor changes for offline client sync
             try:
-                from backend.core.multiroom.models import CompressorSettings
+                from backend.core.multiroom.models import CompressorSettings, EqFilter
+                # Sync filters from current DSP state to avoid overwriting with stale data
+                current_filters = await dsp_service.get_filters()
+                zone.dsp_settings.filters = [
+                    EqFilter.from_dict(f) for f in current_filters
+                ]
                 zone.dsp_settings.compressor = CompressorSettings(
-                    enabled=payload.enabled,
-                    threshold=payload.threshold,
-                    ratio=payload.ratio,
-                    attack=payload.attack,
-                    release=payload.release,
-                    makeup_gain=payload.makeup_gain
+                    enabled=merged_enabled,
+                    threshold=merged_threshold,
+                    ratio=merged_ratio,
+                    attack=merged_attack,
+                    release=merged_release,
+                    makeup_gain=merged_makeup_gain
                 )
                 await client_registry_service.set_zone_dsp(zone_id, zone.dsp_settings)
             except Exception as e:
                 logger.warning(f"Failed to persist zone DSP settings: {e}")
 
-            # Broadcast zone compressor change
+            # Broadcast zone compressor change with merged values
             await state_machine.broadcast_event("dsp", "zone_compressor_changed", {
                 "zone_id": zone_id,
-                "enabled": payload.enabled,
+                "enabled": merged_enabled,
+                "threshold": merged_threshold,
+                "ratio": merged_ratio,
+                "attack": merged_attack,
+                "release": merged_release,
+                "makeup_gain": merged_makeup_gain,
                 "applied_to": applied_to
             })
 
@@ -725,6 +752,12 @@ def create_dsp_router(
             if not zone:
                 raise HTTPException(status_code=404, detail=f"Zone '{zone_id}' not found")
 
+            # Merge payload with existing zone loudness settings
+            current = zone.dsp_settings.loudness
+            merged_enabled = payload.enabled if payload.enabled is not None else current.enabled
+            merged_high_boost = payload.high_boost if payload.high_boost is not None else current.high_boost
+            merged_low_boost = payload.low_boost if payload.low_boost is not None else current.low_boost
+
             applied_to = []
             offline_clients = []
             errors = []
@@ -734,10 +767,9 @@ def create_dsp_router(
                     # Local client: apply directly via dsp_service
                     try:
                         success = await dsp_service.set_loudness(
-                            enabled=payload.enabled,
-                            reference_level=payload.reference_level,
-                            high_boost=payload.high_boost,
-                            low_boost=payload.low_boost
+                            enabled=merged_enabled,
+                            high_boost=merged_high_boost,
+                            low_boost=merged_low_boost
                         )
                         if success:
                             applied_to.append(client_id)
@@ -760,9 +792,14 @@ def create_dsp_router(
                             continue
 
                         _require_proxy()
+                        # Send merged values to remote client
                         result = await proxy_service.request(
                             hostname, "PUT", "/dsp/loudness",
-                            payload.model_dump(exclude_none=True)
+                            {
+                                "enabled": merged_enabled,
+                                "high_boost": merged_high_boost,
+                                "low_boost": merged_low_boost
+                            }
                         )
                         if result.get("status") == "success":
                             applied_to.append(client_id)
@@ -773,21 +810,27 @@ def create_dsp_router(
 
             # Update zone.dsp_settings to persist loudness changes for offline client sync
             try:
-                from backend.core.multiroom.models import LoudnessSettings
+                from backend.core.multiroom.models import LoudnessSettings, EqFilter
+                # Sync filters from current DSP state to avoid overwriting with stale data
+                current_filters = await dsp_service.get_filters()
+                zone.dsp_settings.filters = [
+                    EqFilter.from_dict(f) for f in current_filters
+                ]
                 zone.dsp_settings.loudness = LoudnessSettings(
-                    enabled=payload.enabled,
-                    reference_level=payload.reference_level,
-                    high_boost=payload.high_boost,
-                    low_boost=payload.low_boost
+                    enabled=merged_enabled,
+                    high_boost=merged_high_boost,
+                    low_boost=merged_low_boost
                 )
                 await client_registry_service.set_zone_dsp(zone_id, zone.dsp_settings)
             except Exception as e:
                 logger.warning(f"Failed to persist zone DSP settings: {e}")
 
-            # Broadcast zone loudness change
+            # Broadcast zone loudness change with merged values
             await state_machine.broadcast_event("dsp", "zone_loudness_changed", {
                 "zone_id": zone_id,
-                "enabled": payload.enabled,
+                "enabled": merged_enabled,
+                "high_boost": merged_high_boost,
+                "low_boost": merged_low_boost,
                 "applied_to": applied_to
             })
 
@@ -1136,7 +1179,6 @@ def create_dsp_router(
         try:
             success = await dsp_service.set_loudness(
                 enabled=payload.enabled,
-                reference_level=payload.reference_level,
                 high_boost=payload.high_boost,
                 low_boost=payload.low_boost
             )
