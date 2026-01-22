@@ -52,18 +52,6 @@ def create_dsp_router(
             return client.ip
         return None
 
-    def _require_client_ip(identifier: str) -> str:
-        """Get client IP from registry, raise 404 if not found."""
-        client_ip = _get_client_ip(identifier)
-        if not client_ip:
-            raise HTTPException(status_code=404, detail=f"Client {identifier} offline")
-        return client_ip
-
-    def _require_proxy():
-        """Raise 503 if proxy_service unavailable."""
-        if not proxy_service:
-            raise HTTPException(status_code=503, detail="Proxy service not available")
-
     def _require_registry():
         """Raise 500 if client_registry_service unavailable."""
         if not client_registry_service:
@@ -76,13 +64,6 @@ def create_dsp_router(
             if vs:
                 return vs
         raise HTTPException(status_code=500, detail="Volume service not available")
-
-    async def _check_client_or_skip(hostname: str, action: str):
-        """Check client availability, return skip response if unavailable, None otherwise."""
-        if proxy_service and not await proxy_service.check_available(hostname):
-            logger.warning(f"Client {hostname} is not available, skipping {action}")
-            return {"status": "skipped", "reason": "client_unavailable"}
-        return None
 
     async def _broadcast_links():
         """Broadcast links_changed event with current zones."""
