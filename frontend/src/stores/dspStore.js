@@ -963,28 +963,10 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function linkClients(clientIds, sourceClient = null, zoneName = null) {
     try {
-      // Use the currently selected target as source if not specified
-      const source = sourceClient || selectedTarget.value;
-      const payload = {
-        client_ids: clientIds,
-        source_client: source
-      };
-      if (zoneName) {
-        payload.name = zoneName;
-      }
-      const response = await axios.post('/api/dsp/links', payload);
-      if (response.data.status === 'success' || response.data.linked_groups) {
-        // State update happens via WebSocket (registry.zone_created)
-        // Log sync results if available
-        if (response.data.sync?.synced?.length > 0) {
-          console.log('DSP settings synced:', response.data.sync.synced);
-        }
-        if (response.data.sync?.errors?.length > 0) {
-          console.warn('DSP sync errors:', response.data.sync.errors);
-        }
-        return true;
-      }
-      return false;
+      // Delegate to multiroomStore - single source of truth for zones
+      const response = await registryStore.createZone(zoneName || '', clientIds);
+      // Response includes zone data if successful
+      return !!response.zone;
     } catch (error) {
       console.error('Error linking clients:', error);
       return false;
@@ -993,9 +975,15 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function unlinkClient(clientId) {
     try {
-      const response = await axios.delete(`/api/dsp/links/${clientId}`);
-      // State update happens via WebSocket (registry.zone_updated/deleted)
-      return response.data.status === 'success' || response.data.linked_groups !== undefined;
+      // Find the zone this client belongs to
+      const zone = registryStore.getZoneForClient(clientId);
+      if (!zone) {
+        // Client not in any zone, nothing to unlink
+        return true;
+      }
+      // Delegate to multiroomStore
+      await registryStore.removeClientFromZone(zone.id, clientId);
+      return true;
     } catch (error) {
       console.error('Error unlinking client:', error);
       return false;
@@ -1004,9 +992,12 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function clearAllLinks() {
     try {
-      const response = await axios.delete('/api/dsp/links');
-      // State update happens via WebSocket (registry.zone_deleted)
-      return response.data.status === 'success' || response.data.linked_groups !== undefined;
+      // Delete all zones via multiroomStore
+      const allZones = [...registryStore.zoneList];
+      for (const zone of allZones) {
+        await registryStore.deleteZone(zone.id);
+      }
+      return true;
     } catch (error) {
       console.error('Error clearing links:', error);
       return false;
@@ -1015,9 +1006,9 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function deleteZone(groupId) {
     try {
-      const response = await axios.delete(`/api/dsp/links/group/${groupId}`);
-      // State update happens via WebSocket (registry.zone_deleted)
-      return response.data.status === 'success' || response.data.linked_groups !== undefined;
+      // Delegate to multiroomStore
+      await registryStore.deleteZone(groupId);
+      return true;
     } catch (error) {
       console.error('Error deleting zone:', error);
       return false;
@@ -1026,9 +1017,9 @@ export const useDspStore = defineStore('dsp', () => {
 
   async function updateZoneName(groupId, name) {
     try {
-      const response = await axios.put(`/api/dsp/links/${groupId}/name`, { name });
-      // State update happens via WebSocket (registry.zone_updated)
-      return response.data.status === 'success' || response.data.linked_groups !== undefined;
+      // Delegate to multiroomStore
+      await registryStore.updateZone(groupId, { name });
+      return true;
     } catch (error) {
       console.error('Error updating zone name:', error);
       return false;
@@ -1080,11 +1071,9 @@ export const useDspStore = defineStore('dsp', () => {
    */
   async function setClientSpeakerType(clientId, speakerType) {
     try {
-      const response = await axios.put(`/api/dsp/client/${clientId}/speaker-type`, {
-        speaker_type: speakerType
-      });
-      // State update happens via WebSocket (registry.speaker_type_changed)
-      return response.data.status === 'success';
+      // Delegate to multiroomStore
+      await registryStore.updateClient(clientId, { speaker_type: speakerType });
+      return true;
     } catch (error) {
       console.error('Error setting client speaker type:', error);
       return false;
