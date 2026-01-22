@@ -234,45 +234,23 @@ const displayClients = computed(() => {
           // This is a zone primary - use custom name or fallback to "Zone X"
           const zoneIndex = linkedGroups.value.indexOf(zone) + 1;
           const zoneName = zone.name || `Zone ${zoneIndex}`;
-          const sortedClientIds = dspStore.sortClientIdsLocalFirst(zone.client_ids);
-          const clientNames = sortedClientIds
-            .map(macId => {
-              // Find client by mac_id
-              const c = multiroomStore.clients.find(cl => cl.mac_id === macId);
-              return c ? c.name : macId;
-            })
-            .join(' · ');
+          // Filter from already-sorted clients list (local first, online first)
+          const zoneClientIds = new Set(zone.client_ids);
+          const zoneClients = multiroomStore.clients.filter(c => zoneClientIds.has(c.mac_id));
+          const clientNames = zoneClients.map(c => c.name).join(' · ');
 
           // Build detailed client list for expanded view
-          const zoneClientDetails = sortedClientIds
-            .map(macId => {
-              const c = multiroomStore.clients.find(cl => cl.mac_id === macId);
-
-              // Skip clients not in the client list (offline clients already filtered by backend)
-              if (!c) return null;
-
-              return {
-                id: macId,  // Use macId directly (c.id may be unreliable)
-                mac_id: macId,
-                name: c.name,
-                dspVolume: dspStore.getClientDspVolume(macId),
-                dspMuted: dspStore.getClientDspMute(macId),
-                speakerType: dspStore.getClientSpeakerType(macId),
-                online: c.online,
-                is_local: c.is_local
-              };
-            })
-            .filter(Boolean)
-            .sort((a, b) => {
-              // Local first (using is_local from backend, not hardcoded string)
-              if (a.is_local && !b.is_local) return -1;
-              if (!a.is_local && b.is_local) return 1;
-              // Online clients first
-              if (a.online && !b.online) return -1;
-              if (!a.online && b.online) return 1;
-              // Then alphabetically
-              return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-            });
+          // zoneClients is already sorted (local first, online first, alphabetical)
+          const zoneClientDetails = zoneClients.map(c => ({
+            id: c.mac_id,
+            mac_id: c.mac_id,
+            name: c.name,
+            dspVolume: dspStore.getClientDspVolume(c.mac_id),
+            dspMuted: dspStore.getClientDspMute(c.mac_id),
+            speakerType: dspStore.getClientSpeakerType(c.mac_id),
+            online: c.online,
+            is_local: c.is_local
+          }));
 
           // Use arithmetic average of all clients in zone
           const zoneVolume = getZoneAverageVolume(zone);

@@ -58,6 +58,7 @@ crossover_service = get_service("crossover_service")
 dsp_proxy_service = get_service("dsp_client_proxy_service")
 dsp_sync_service = get_service("dsp_settings_sync_service")
 client_registry_service = get_service("client_registry_service")
+dsp_router_service = get_service("dsp_router")
 ws_manager = get_service("websocket_manager")
 websocket_server = WebSocketServer(ws_manager, state_machine)
 state_machine.volume_service = volume_service
@@ -135,7 +136,7 @@ app.include_router(snapcast_router)
 dsp_router = create_dsp_router(
     dsp_service, state_machine, settings_service, routing_service,
     crossover_service, dsp_proxy_service, dsp_sync_service,
-    client_registry_service
+    client_registry_service, dsp_router_service
 )
 app.include_router(dsp_router)
 

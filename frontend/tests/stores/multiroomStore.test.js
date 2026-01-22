@@ -327,11 +327,11 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
       // Add clients
       clientRegistryStore.handleMultiroomEvent({
         type: 'client_state_changed',
-        data: { mac_id: 'local', client: { mac_id: 'local', snapcast_id: 'local', name: 'Milo', online: true } }
+        data: { mac_id: 'aa:bb:cc:dd:ee:ff', client: { mac_id: 'aa:bb:cc:dd:ee:ff', snapcast_id: 'local', name: 'Milo', online: true, is_local: true } }
       });
       clientRegistryStore.handleMultiroomEvent({
         type: 'client_state_changed',
-        data: { mac_id: 'remote1', client: { mac_id: 'remote1', snapcast_id: 'remote1', name: 'Remote', online: true } }
+        data: { mac_id: 'remote1', client: { mac_id: 'remote1', snapcast_id: 'remote1', name: 'Remote', online: true, is_local: false } }
       });
 
       // Both stores should have consistent data
@@ -339,8 +339,8 @@ describe('multiroomStore - Real-Time Sync (Story 6.3)', () => {
       expect(multiroomStore.clients.length).toBe(2);
 
       // Verify data is derived (not duplicated)
-      const registryClient = clientRegistryStore.clientList.find(c => c.mac_id === 'local');
-      const multiroomClient = multiroomStore.clients.find(c => c.mac_id === 'local');
+      const registryClient = clientRegistryStore.clientList.find(c => c.is_local);
+      const multiroomClient = multiroomStore.clients.find(c => c.is_local);
 
       expect(registryClient.name).toBe('Milo');
       expect(multiroomClient.name).toBe('Milo');

@@ -311,12 +311,6 @@ export const useDspStore = defineStore('dsp', () => {
     }
   }
 
-  // Sort client IDs with 'local' (internal Milo) first
-  function sortClientIdsLocalFirst(clientIds) {
-    if (!clientIds || !Array.isArray(clientIds)) return [];
-    return [...clientIds].sort((a, b) => (a === 'local' ? -1 : b === 'local' ? 1 : 0));
-  }
-
   // Get clients linked to a specific client (including itself)
   function getLinkedClientIds(clientId) {
     for (const group of linkedGroups.value) {
@@ -1459,7 +1453,6 @@ export const useDspStore = defineStore('dsp', () => {
     getLinkedClientIds,
     getZoneName,
     getZoneGroup,
-    sortClientIdsLocalFirst,
     getSelectedZoneId,
     isTargetInZone,
 

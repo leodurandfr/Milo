@@ -305,8 +305,8 @@ class SnapcastWebSocketService:
                             await self.registry.set_client_online(mac_id, True)
 
             client_count = len(self.registry.get_all_clients()) if self.registry else 0
-            local_client = self.registry.get_local_client() if self.registry else None
-            local_status = "LOCAL FOUND" if local_client else "LOCAL NOT YET CONNECTED"
+            has_local = any(c.is_local for c in self.registry.get_all_clients().values()) if self.registry else False
+            local_status = "LOCAL FOUND" if has_local else "LOCAL NOT YET CONNECTED"
             self.logger.info(f"[{time.time():.3f}] INIT_CLIENTS: Complete. Registered: {client_count} clients. {local_status}")
 
         except Exception as e:

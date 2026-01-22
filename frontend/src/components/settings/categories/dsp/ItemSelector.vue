@@ -76,8 +76,8 @@ const zoneTabs = computed(() => {
     const linkedIds = dspStore.getLinkedClientIds(target.id);
 
     if (linkedIds.length > 1) {
-      // This is a zone - get names of linked clients (local first)
-      const linkedClients = dspStore.sortClientIdsLocalFirst(linkedIds)
+      // This is a zone - get names of linked clients (backend sorts local first)
+      const linkedClients = linkedIds
         .map(id => targets.value.find(t => t.id === id))
         .filter(Boolean);
 

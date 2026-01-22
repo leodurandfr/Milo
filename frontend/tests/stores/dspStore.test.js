@@ -1094,27 +1094,6 @@ describe('dspStore - ItemSelector Zone/Client Selection (Story 4.8)', () => {
     });
   });
 
-  describe('sortClientIdsLocalFirst helper', () => {
-    it('should put local client first in sorted array', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useDspStore();
-
-      const sorted = store.sortClientIdsLocalFirst(['dc:a6:32:7e:d3:43', 'local', 'dc:a6:32:7e:d3:44']);
-
-      expect(sorted[0]).toBe('local');
-    });
-
-    it('should preserve order for non-local clients', () => {
-      useClientRegistryStore.mockReturnValue(createStandaloneMock());
-      setActivePinia(createPinia());
-      const store = useDspStore();
-
-      const sorted = store.sortClientIdsLocalFirst(['client-a', 'client-b']);
-
-      expect(sorted).toEqual(['client-a', 'client-b']);
-    });
-  });
 });
 
 describe('dspStore - Preset Display Integration (Story 4.8)', () => {

@@ -213,27 +213,21 @@ const messageTitle = computed(() => {
 // Clients are already sorted (local first, then alphabetical) from clientRegistryStore
 const sortedMultiroomClients = computed(() => multiroomStore.clients);
 
-// Sort client IDs with 'local' (internal Milo) first
-function sortClientIdsLocalFirst(clientIds) {
-  if (!clientIds || !Array.isArray(clientIds)) return [];
-  return [...clientIds].sort((a, b) => (a === 'local' ? -1 : b === 'local' ? 1 : 0));
-}
-
 // Get zones with client details from clientRegistryStore (single source of truth)
+// Uses clientList which is already sorted (local first, online first, alphabetical)
 const zones = computed(() => {
   return registryStore.zoneList.map((zone, index) => {
-    const clients = sortClientIdsLocalFirst(zone.client_ids || [])
-      .map(macId => {
-        const client = registryStore.getClient(macId);
-        return client ? {
-          id: client.id,
-          mac_id: macId,
-          host: client.host,
-          name: client.name || client.host,
-          online: client.online
-        } : null;
-      })
-      .filter(Boolean);
+    const zoneClientIds = new Set(zone.client_ids || []);
+    // Filter from already-sorted clientList to preserve correct order
+    const clients = registryStore.clientList
+      .filter(c => zoneClientIds.has(c.mac_id))
+      .map(client => ({
+        id: client.id,
+        mac_id: client.mac_id,
+        host: client.host,
+        name: client.name || client.host,
+        online: client.online
+      }));
 
     const onlineCount = clients.filter(c => c.online).length;
 
