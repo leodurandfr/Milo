@@ -74,7 +74,6 @@ vi.mock('@/stores/dspStore', () => ({
     getClientDspVolume: vi.fn((mac) => mac === 'dc:a6:32:7e:d3:43' ? -25 : -30),
     getClientDspMute: vi.fn(() => false),
     getClientSpeakerType: vi.fn(() => 'bookshelf'),
-    sortClientIdsLocalFirst: vi.fn((ids) => ids),
     updateClientDspMute: vi.fn().mockResolvedValue(true),
     loadEnabledState: vi.fn(),
     loadTargets: vi.fn(),

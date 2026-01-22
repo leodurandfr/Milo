@@ -133,6 +133,34 @@ class DspRouter:
 
     # === FILTERS ===
 
+    async def get_filters(self, mac_id: str) -> Dict[str, Any]:
+        """Get all filters for a client."""
+        async def local():
+            if self._dsp_service:
+                filters = await self._dsp_service.get_filters()
+                return {"filters": filters}
+            return {"filters": [], "error": "DSP service not available"}
+
+        async def remote(ip: str):
+            return await self._proxy_service.request(ip, "GET", "/dsp/filters")
+
+        return await self._route(mac_id, local, remote, "get_filters")
+
+    async def reset_filters(self, mac_id: str) -> Dict[str, Any]:
+        """Reset all filters to flat for a client."""
+        async def local():
+            if self._dsp_service:
+                success = await self._dsp_service.reset_filters()
+                if success:
+                    return {"status": "success", "message": "All filters reset to flat"}
+                return {"status": "error", "message": "Failed to reset filters"}
+            return {"status": "error", "message": "DSP service not available"}
+
+        async def remote(ip: str):
+            return await self._proxy_service.request(ip, "POST", "/dsp/reset")
+
+        return await self._route(mac_id, local, remote, "reset_filters")
+
     async def update_filter(
         self,
         mac_id: str,
@@ -163,6 +191,18 @@ class DspRouter:
 
     # === COMPRESSOR ===
 
+    async def get_compressor(self, mac_id: str) -> Dict[str, Any]:
+        """Get compressor settings for a client."""
+        async def local():
+            if self._dsp_service:
+                return await self._dsp_service.get_compressor()
+            return {"enabled": False, "error": "DSP service not available"}
+
+        async def remote(ip: str):
+            return await self._proxy_service.request(ip, "GET", "/dsp/compressor")
+
+        return await self._route(mac_id, local, remote, "get_compressor")
+
     async def set_compressor(self, mac_id: str, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Set compressor settings for a client."""
         async def local():
@@ -178,6 +218,18 @@ class DspRouter:
         return await self._route(mac_id, local, remote, "set_compressor")
 
     # === LOUDNESS ===
+
+    async def get_loudness(self, mac_id: str) -> Dict[str, Any]:
+        """Get loudness settings for a client."""
+        async def local():
+            if self._dsp_service:
+                return await self._dsp_service.get_loudness()
+            return {"enabled": False, "error": "DSP service not available"}
+
+        async def remote(ip: str):
+            return await self._proxy_service.request(ip, "GET", "/dsp/loudness")
+
+        return await self._route(mac_id, local, remote, "get_loudness")
 
     async def set_loudness(self, mac_id: str, settings: Dict[str, Any]) -> Dict[str, Any]:
         """Set loudness settings for a client."""

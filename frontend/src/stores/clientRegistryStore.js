@@ -33,16 +33,16 @@ export const useClientRegistryStore = defineStore('clientRegistry', () => {
 
   /**
    * All clients as an array, with canonical sort order:
-   * 1. Local client first (mac_id === 'local')
+   * 1. Local client first (is_local === true)
    * 2. Online clients alphabetically
    * 3. Offline clients alphabetically
    */
   const clientList = computed(() => {
     const list = Array.from(clients.value.values());
     return list.sort((a, b) => {
-      // Local client always first
-      if (a.mac_id === 'local') return -1;
-      if (b.mac_id === 'local') return 1;
+      // Local client always first (using is_local property from backend)
+      if (a.is_local) return -1;
+      if (b.is_local) return 1;
 
       // Then by online status (online first)
       if (a.online && !b.online) return -1;

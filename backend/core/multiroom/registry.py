@@ -408,18 +408,6 @@ class ClientRegistryService:
         client = self._clients.get(mac_id)
         return client.speaker_type if client else DEFAULT_SPEAKER_TYPE
 
-    def get_local_client(self) -> Optional[Client]:
-        """Get the local client (ip == 127.0.0.1)."""
-        for client in self._clients.values():
-            if client.is_local:
-                return client
-        return None
-
-    def is_local_mac_id(self, mac_id: str) -> bool:
-        """Check if mac_id belongs to the local client."""
-        client = self._clients.get(mac_id)
-        return client.is_local if client else False
-
     # === ZONE MANAGEMENT ===
 
     async def create_zone(
@@ -960,6 +948,7 @@ class ClientRegistryService:
 
         Adds online_client_count, has_subwoofer, crossover_enabled, and
         crossover_frequency (computed from speaker types) to the base zone dict.
+        Sorts client_ids with local client first.
 
         Args:
             zone: The zone to convert
@@ -969,12 +958,19 @@ class ClientRegistryService:
         """
         base = zone.to_dict()
 
+        # Sort client_ids: local client first, then others
+        sorted_client_ids = sorted(
+            zone.client_ids,
+            key=lambda mac_id: 0 if (client := self._clients.get(mac_id)) and client.is_local else 1
+        )
+        base['client_ids'] = sorted_client_ids
+
         # Compute derived fields
         online_count = 0
         has_subwoofer = False
         speaker_frequencies = []
 
-        for mac_id in zone.client_ids:
+        for mac_id in sorted_client_ids:
             client = self._clients.get(mac_id)
             if client:
                 if client.online:

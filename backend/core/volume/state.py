@@ -92,6 +92,9 @@ class VolumeStateStore:
         # Local volume for direct mode (separate from clients for quick access)
         self._local_volume_db: float = DEFAULT_VOLUME_DB
 
+        # Cached local client mac_id (set when local client connects)
+        self._local_mac_id: Optional[str] = None
+
         # User-configurable volume limits (cached from settings)
         self._user_limit_min_db: float = self.DEFAULT_USER_MIN_DB
         self._user_limit_max_db: float = self.DEFAULT_USER_MAX_DB
@@ -118,19 +121,6 @@ class VolumeStateStore:
         registry.subscribe(self._handle_registry_event)
         self.logger.info("VolumeStateStore subscribed to ClientRegistryService events")
 
-    def _get_local_mac_id(self) -> Optional[str]:
-        """
-        Get local client's mac_id from registry.
-
-        Returns:
-            Local client's mac_id, or None if registry not available
-        """
-        if self._registry:
-            local_client = self._registry.get_local_client()
-            if local_client:
-                return local_client.mac_id
-        return None
-
     async def _handle_registry_event(self, event_type: str, data: dict) -> None:
         """Handle events from ClientRegistryService."""
         from backend.core.multiroom.models import RegistryEventType
@@ -140,6 +130,10 @@ class VolumeStateStore:
             mac_id = data.get("mac_id")
             client_data = data.get("client", {})
             if mac_id:
+                # Cache local client mac_id for fast lookup
+                if client_data.get("ip") == "127.0.0.1":
+                    self._local_mac_id = mac_id
+
                 if mac_id not in self._clients:
                     # Auto-register new client in volume state
                     await self.register_client(
@@ -297,7 +291,7 @@ class VolumeStateStore:
         self._local_volume_db = volume_db
 
         # Use mac_id as key for consistency with multiroom clients
-        local_mac_id = self._get_local_mac_id()
+        local_mac_id = self._local_mac_id
         if local_mac_id:
             if local_mac_id in self._clients:
                 self._clients[local_mac_id].volume_db = volume_db
@@ -739,7 +733,7 @@ class VolumeStateStore:
             # - Direct mode: use local client's volume
             # - Multiroom mode: average of all available, unmuted clients
             if self._mode == "direct":
-                local_mac_id = self._get_local_mac_id()
+                local_mac_id = self._local_mac_id
                 local_client = self._clients.get(local_mac_id) if local_mac_id else None
                 if local_client and local_client.available:
                     global_volume = local_client.volume_db

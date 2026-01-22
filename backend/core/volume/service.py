@@ -555,9 +555,7 @@ class VolumeService:
                     self.logger.warning(f"Failed to update clients: {failures}")
 
                 # FR11: Update startup volume using local client's new volume
-                registry = getattr(self.state_machine, 'client_registry', None)
-                local_client = registry.get_local_client() if registry else None
-                local_mac_id = local_client.mac_id if local_client else None
+                local_mac_id = self._state_store._local_mac_id
                 local_volume = updates.get(local_mac_id) if local_mac_id else None
                 local_volume = local_volume or self._state_store._local_volume_db
                 await self._update_startup_volume_if_needed(local_volume)
