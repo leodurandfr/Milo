@@ -181,13 +181,29 @@ class SnapcastService:
             self.logger.error(f"Error getting clients: {e}")
             return []
 
-    def _extract_clients(self, status: dict) -> List[Dict[str, Any]]:
-        """Extract and filter clients from server status."""
+    def _parse_clients(
+        self,
+        status: dict,
+        include_offline: bool = False,
+        detailed: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Parse clients from server status with configurable output.
+
+        Args:
+            status: Snapcast server status response
+            include_offline: If True, include clients that aren't recently seen
+            detailed: If True, include extra fields (host_info, snapclient_info, group_id)
+
+        Returns:
+            List of client dicts, deduplicated by MAC address
+        """
         raw_clients = []
         exclude_names = {'snapweb client', 'snapweb'}
         now = time.time()
 
         for group in status.get("server", {}).get("groups", []):
+            group_id = group.get("id")
             for client_data in group.get("clients", []):
                 if not client_data.get("connected"):
                     continue
@@ -215,11 +231,11 @@ class SnapcastService:
                 if host == "milo":
                     is_online = True
 
-                # Skip offline clients
-                if not is_online:
+                # Skip offline clients unless explicitly requested
+                if not is_online and not include_offline:
                     continue
 
-                raw_clients.append({
+                client_info = {
                     "id": client_data["id"],
                     "name": name,
                     "volume": client_data["config"]["volume"]["percent"],
@@ -229,10 +245,31 @@ class SnapcastService:
                     "mac": mac,
                     "mac_id": mac_id,
                     "online": is_online,
-                    "last_seen_age": int(last_seen_age)
-                })
+                }
+
+                if detailed:
+                    # Add detailed fields for monitoring endpoint
+                    client_info.update({
+                        "last_seen": last_seen_data,
+                        "connection_quality": self._calculate_connection_quality(last_seen_data),
+                        "host_info": {
+                            "arch": client_data["host"].get("arch", ""),
+                            "os": client_data["host"].get("os", "")
+                        },
+                        "snapclient_info": client_data.get("snapclient", {}),
+                        "group_id": group_id
+                    })
+                else:
+                    # Add basic last_seen_age for non-detailed requests
+                    client_info["last_seen_age"] = int(last_seen_age)
+
+                raw_clients.append(client_info)
 
         return self._deduplicate_by_mac(raw_clients)
+
+    def _extract_clients(self, status: dict) -> List[Dict[str, Any]]:
+        """Extract online clients from server status (basic info)."""
+        return self._parse_clients(status, include_offline=False, detailed=False)
 
     def _deduplicate_by_mac(self, clients: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Remove duplicate clients based on MAC address."""
@@ -261,50 +298,10 @@ class SnapcastService:
         return deduplicated
 
     async def get_detailed_clients(self) -> List[Dict[str, Any]]:
-        """Get clients with detailed information."""
+        """Get clients with detailed information for monitoring."""
         try:
             status = await self._request("Server.GetStatus")
-            raw_clients = []
-            exclude_names = {'snapweb client', 'snapweb'}
-
-            for group in status.get("server", {}).get("groups", []):
-                for client_data in group.get("clients", []):
-                    if not client_data.get("connected"):
-                        continue
-
-                    name = client_data["config"]["name"] or client_data["host"]["name"]
-                    if any(exclude in name.lower() for exclude in exclude_names):
-                        continue
-
-                    host = client_data["host"]["name"]
-                    ip = client_data["host"]["ip"].replace("::ffff:", "")
-                    mac = client_data["host"].get("mac", "")
-                    last_seen = client_data.get("lastSeen", {})
-
-                    # mac_id: MAC address as primary identifier
-                    mac_id = ClientRegistryService.compute_mac_id(host, ip, mac)
-
-                    raw_clients.append({
-                        "id": client_data["id"],
-                        "name": name,
-                        "volume": client_data["config"]["volume"]["percent"],
-                        "muted": client_data["config"]["volume"]["muted"],
-                        "host": host,
-                        "ip": ip,
-                        "mac_id": mac_id,
-                        "mac": mac,
-                        "last_seen": last_seen,
-                        "connection_quality": self._calculate_connection_quality(last_seen),
-                        "host_info": {
-                            "arch": client_data["host"].get("arch", ""),
-                            "os": client_data["host"].get("os", "")
-                        },
-                        "snapclient_info": client_data.get("snapclient", {}),
-                        "group_id": group["id"]
-                    })
-
-            return self._deduplicate_by_mac(raw_clients)
-
+            return self._parse_clients(status, include_offline=True, detailed=True)
         except Exception as e:
             self.logger.error(f"Error getting detailed clients: {e}")
             return []
@@ -552,7 +549,7 @@ class SnapcastService:
 
 # === HELPER FUNCTIONS ===
 
-async def get_available_clients(snapcast_service: SnapcastService) -> List[Dict[str, Any]]:
+async def get_online_clients(snapcast_service: SnapcastService) -> List[Dict[str, Any]]:
     """
     Get list of online clients with their mac_id.
 
@@ -570,7 +567,7 @@ async def get_available_clients(snapcast_service: SnapcastService) -> List[Dict[
     ]
 
 
-async def get_available_client_ids(snapcast_service: SnapcastService) -> List[str]:
+async def get_online_client_ids(snapcast_service: SnapcastService) -> List[str]:
     """
     Get list of online client IDs (mac_ids).
 
@@ -580,7 +577,7 @@ async def get_available_client_ids(snapcast_service: SnapcastService) -> List[st
     Returns:
         List of client IDs (mac_ids) for online clients
     """
-    clients = await get_available_clients(snapcast_service)
+    clients = await get_online_clients(snapcast_service)
     return [c["mac_id"] for c in clients]
 
 

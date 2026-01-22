@@ -476,29 +476,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
   }
 
   /**
-   * Update client display name.
-   * @deprecated Use updateClient(macId, { name }) instead - this uses legacy Snapcast endpoint
-   * @param {string} snapcastId - Snapcast client ID (MAC address for local)
-   * @param {string} name - New display name
-   * @returns {Promise<boolean>} Success status
-   */
-  async function updateClientName(snapcastId, name) {
-    const trimmedName = name?.trim();
-    if (!trimmedName) return false;
-
-    try {
-      const response = await axios.post(`/api/routing/snapcast/client/${snapcastId}/name`, {
-        name: trimmedName
-      });
-      // State update will come via WebSocket (registry:client_updated)
-      return response.data.status === 'success';
-    } catch (error) {
-      console.error('Error updating client name:', error);
-      return false;
-    }
-  }
-
-  /**
    * Permanently delete a client from the registry.
    * Removes client from all zones and clears persisted configuration.
    * @param {string} macId - Client mac_id
@@ -593,7 +570,6 @@ export const useMultiroomStore = defineStore('multiroom', () => {
     removeClientFromZone,
     updateClientType,
     updateClient,
-    updateClientName,
     deleteClient,
 
     // Sync status

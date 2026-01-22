@@ -18,7 +18,7 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   const volumeStartup = ref({
-    startup_volume_db: -30.0,
+    startup_volume_db: -60.0,
     restore_last_volume: false
   });
 

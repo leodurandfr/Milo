@@ -25,8 +25,8 @@ from backend.core.multiroom.models import (
 from backend.core.multiroom.registry import ClientRegistryService
 from backend.core.multiroom.snapcast import (
     SnapcastService,
-    get_available_clients,
-    get_available_client_ids,
+    get_online_clients,
+    get_online_client_ids,
 )
 from backend.core.multiroom.websocket import SnapcastWebSocketService
 from backend.core.multiroom.crossover import CrossoverService
@@ -56,8 +56,8 @@ __all__ = [
     "CrossoverService",
     "AudioRoutingService",
     # Helpers
-    "get_available_clients",
-    "get_available_client_ids",
+    "get_online_clients",
+    "get_online_client_ids",
     # Routes
     "router",
     "create_snapcast_router",

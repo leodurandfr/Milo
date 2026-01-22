@@ -295,7 +295,7 @@ class ClientRegistryService:
         """
         Update client speaker type.
 
-        Used by CrossoverService and legacy API endpoint. Emits
+        Used by CrossoverService. Emits
         SPEAKER_TYPE_CHANGED event for other services to react.
 
         Args:
@@ -317,13 +317,9 @@ class ClientRegistryService:
                 client.crossover_frequency = crossover_frequency
 
         await self._persist_clients()
-        # AC1: Include complete client object for real-time frontend sync
         await self._emit_event(RegistryEventType.SPEAKER_TYPE_CHANGED, {
             "mac_id": mac_id,
-            "client": client.to_dict(),
-            # Backward compatibility fields
-            "speaker_type": speaker_type,
-            "crossover_frequency": crossover_frequency
+            "client": client.to_dict()
         })
 
         return client
@@ -352,13 +348,9 @@ class ClientRegistryService:
             if mute is not None:
                 client.mute = mute
 
-        # AC1: Include complete client object for real-time frontend sync
         await self._emit_event(RegistryEventType.VOLUME_CHANGED, {
             "mac_id": mac_id,
-            "client": client.to_dict(),
-            # Backward compatibility fields
-            "volume_db": client.volume_db,
-            "mute": client.mute
+            "client": client.to_dict()
         })
 
     # === CLIENT QUERIES ===
@@ -1029,14 +1021,10 @@ class ClientRegistryService:
             self._standalone_dsp[mac_id] = settings
 
         await self._persist_standalone_dsp()
-        # AC3: DSP events include target_type, target_id, and dsp_settings
         await self._emit_event(RegistryEventType.DSP_SETTINGS_CHANGED, {
             "target_type": "client",
             "target_id": mac_id,
-            "dsp_settings": settings.to_dict(),
-            # Backward compatibility fields
-            "mac_id": mac_id,
-            "settings": settings.to_dict()
+            "dsp_settings": settings.to_dict()
         })
 
     def get_client_dsp_settings(self, mac_id: str) -> Optional[DspSettings]:
@@ -1084,14 +1072,10 @@ class ClientRegistryService:
             zone.dsp_settings = settings
 
         await self._persist_zones()
-        # AC3: DSP events include target_type, target_id, and dsp_settings
         await self._emit_event(RegistryEventType.DSP_SETTINGS_CHANGED, {
             "target_type": "zone",
             "target_id": zone_id,
-            "dsp_settings": settings.to_dict(),
-            # Backward compatibility fields
-            "zone_id": zone_id,
-            "settings": settings.to_dict()
+            "dsp_settings": settings.to_dict()
         })
         return True
 
@@ -1313,29 +1297,3 @@ class ClientRegistryService:
         # Remote without MAC (Snapcast error)
         raise ValueError(f"No MAC address for client {hostname} at {ip}")
 
-    # === BACKWARD COMPATIBILITY ALIASES ===
-    # These methods provide compatibility during transition
-
-    async def update_availability(self, mac_id: str, available: bool) -> None:
-        """Deprecated: Use set_client_online() instead."""
-        await self.set_client_online(mac_id, available)
-
-    def get_available_clients(self) -> List[Client]:
-        """Deprecated: Use get_online_clients() instead."""
-        return self.get_online_clients()
-
-    def is_client_available(self, mac_id: str) -> bool:
-        """Deprecated: Use is_client_online() instead."""
-        return self.is_client_online(mac_id)
-
-    def get_available_client_ids(self) -> List[str]:
-        """Deprecated: Use get_online_client_ids() instead."""
-        return self.get_online_client_ids()
-
-    def get_available_zone_clients(self, zone_id: str) -> List[Client]:
-        """Deprecated: Use get_online_zone_clients() instead."""
-        return self.get_online_zone_clients(zone_id)
-
-    def has_available_subwoofer(self, zone_id: str) -> bool:
-        """Deprecated: Use has_online_subwoofer() instead."""
-        return self.has_online_subwoofer(zone_id)

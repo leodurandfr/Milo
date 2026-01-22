@@ -405,7 +405,7 @@ class CrossoverService:
 
             available_clients = {
                 cid for cid in client_ids
-                if self._registry.is_client_available(cid)
+                if self._registry.is_client_online(cid)
             }
 
             has_subwoofer = any(

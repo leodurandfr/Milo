@@ -7,8 +7,6 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from backend.api.models import (
-    SnapcastVolumeRequest,
-    SnapcastClientMuteRequest,
     SnapcastClientNameRequest,
     SnapcastServerConfigRequest
 )
@@ -31,30 +29,6 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp
             })
         except Exception as e:
             logger.error("Error publishing Snapcast update: %s", e)
-
-    async def _broadcast_client_volume_changed(client_id: str, volume: int, muted: bool):
-        """Broadcast client volume change event."""
-        try:
-            await state_machine.broadcast_event("snapcast", "client_volume_changed", {
-                "client_id": client_id,
-                "volume": volume,
-                "muted": muted,
-                "source": "api"
-            })
-        except Exception as e:
-            logger.error("Error broadcasting client volume changed: %s", e)
-
-    async def _broadcast_client_mute_changed(client_id: str, volume: int, muted: bool):
-        """Broadcast client mute change event."""
-        try:
-            await state_machine.broadcast_event("snapcast", "client_mute_changed", {
-                "client_id": client_id,
-                "volume": volume,
-                "muted": muted,
-                "source": "api"
-            })
-        except Exception as e:
-            logger.error("Error broadcasting client mute changed: %s", e)
 
     # === Base routes ===
 
@@ -86,75 +60,6 @@ def create_snapcast_router(routing_service, snapcast_service, state_machine, dsp
             return {"clients": clients}
         except Exception as e:
             return {"clients": [], "error": str(e)}
-
-    @router.post("/client/{client_id}/volume")
-    async def set_snapcast_volume(client_id: str, payload: SnapcastVolumeRequest):
-        """Set Snapcast client volume (deprecated: use CamillaDSP for volume control)."""
-        try:
-            volume = payload.volume
-            success = await snapcast_service.set_volume(client_id, volume)
-
-            if success:
-                clients = await snapcast_service.get_clients()
-                client = next((c for c in clients if c.get("id") == client_id), None)
-                muted = client.get("muted", False) if client else False
-                await _broadcast_client_volume_changed(client_id, volume, muted)
-
-            return {"status": "success" if success else "error"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-
-    @router.post("/client/{client_id}/mute")
-    async def set_snapcast_mute(client_id: str, payload: SnapcastClientMuteRequest):
-        """
-        Mute/unmute a client via DSP (not Snapcast).
-
-        DSP-only mute strategy: Snapcast volume is always 100% passthrough,
-        mute is controlled via CamillaDSP on each client.
-        """
-        try:
-            muted = payload.muted
-
-            # Get client info to determine hostname for DSP control
-            clients = await snapcast_service.get_clients()
-            client = next((c for c in clients if c.get("id") == client_id), None)
-
-            if not client:
-                return {"status": "error", "message": "Client not found"}
-
-            ip = client.get("ip", "")
-            volume = client.get("volume", 100)
-
-            # Check if this is the local client
-            is_local = (ip == "127.0.0.1")
-
-            success = False
-            if is_local:
-                if dsp_service:
-                    success = await dsp_service.set_mute(muted)
-                else:
-                    logger.warning("DSP service not available for local mute")
-            else:
-                if proxy_service:
-                    try:
-                        result = await proxy_service.request(ip, "PUT", "/dsp/mute", {"muted": muted})
-                        success = result.get("status") == "success"
-                    except Exception as e:
-                        logger.warning(f"Failed to set DSP mute on {ip}: {e}")
-                else:
-                    logger.warning(f"Proxy service not available for remote mute on {ip}")
-
-            if success:
-                await _broadcast_client_mute_changed(client_id, volume, muted)
-
-                # Trigger zone volume recalculation
-                if hasattr(state_machine, 'volume_service'):
-                    volume_service = state_machine.volume_service
-                    await volume_service._broadcast_volume_state(show_bar=False)
-
-            return {"status": "success" if success else "error"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
 
     @router.post("/client/{client_id}/name")
     async def set_client_name(client_id: str, payload: SnapcastClientNameRequest):

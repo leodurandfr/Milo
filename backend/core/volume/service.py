@@ -19,7 +19,7 @@ from backend.core.events import EventBus, Events, get_event_bus
 from backend.core.volume.config import VolumeConfigService
 from backend.core.volume.state import VolumeStateStore
 from backend.core.volume.dsp_controller import DSPController
-from backend.core.multiroom.snapcast import get_available_client_ids
+from backend.core.multiroom.snapcast import get_online_client_ids
 from backend.core.models.volume_state import VolumeState
 from backend.config.constants import DEFAULT_VOLUME_DB
 
@@ -450,7 +450,7 @@ class VolumeService:
                              If None, respect startup settings (restore/startup volume).
         """
         try:
-            client_ids = await get_available_client_ids(self.snapcast_service)
+            client_ids = await get_online_client_ids(self.snapcast_service)
             if not client_ids:
                 return True
 
@@ -698,7 +698,7 @@ class VolumeService:
         """Apply volume to DSP (local or multiroom)."""
         try:
             if self._is_multiroom_enabled():
-                client_ids = await get_available_client_ids(self.snapcast_service)
+                client_ids = await get_online_client_ids(self.snapcast_service)
                 updates = {cid: volume_db for cid in client_ids} if client_ids else {}
                 success = await self._apply_to_multiroom_clients(updates)
                 if success:
@@ -737,7 +737,7 @@ class VolumeService:
         try:
             volume_state = await self._state_store.get_complete_state()
             if self._is_multiroom_enabled():
-                client_ids = await get_available_client_ids(self.snapcast_service)
+                client_ids = await get_online_client_ids(self.snapcast_service)
                 updates = {}
                 for cid in client_ids or []:
                     current = volume_state.clients.get(cid)

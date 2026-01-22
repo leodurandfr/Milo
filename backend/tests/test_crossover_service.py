@@ -82,10 +82,6 @@ def mock_registry():
             return registry._zones.get(client.zone_id)
         return None
 
-    def is_client_available(mac_id):
-        client = registry._clients.get(mac_id)
-        return client.online if client else False
-
     def is_client_online(mac_id):
         client = registry._clients.get(mac_id)
         return client.online if client else False
@@ -109,7 +105,6 @@ def mock_registry():
     registry.get_client = MagicMock(side_effect=get_client)
     registry.get_zone = MagicMock(side_effect=get_zone)
     registry.get_zone_for_client = MagicMock(side_effect=get_zone_for_client)
-    registry.is_client_available = MagicMock(side_effect=is_client_available)
     registry.is_client_online = MagicMock(side_effect=is_client_online)
     registry.zone_to_enriched_dict = MagicMock(side_effect=zone_to_enriched_dict)
     registry.subscribe = MagicMock()
